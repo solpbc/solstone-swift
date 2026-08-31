@@ -18,7 +18,7 @@ final class WatchBackgroundTaskCoordinator {
     private let session: any WatchConnectivitySession
     private let clock: any ObserverClock
     private let deadline: Duration
-    private let diagnosticsStore: WatchRelayDiagnosticsStore?
+    private let storageActor: WatchCaptureStorageActor?
 
     private var heldTasks: [ObjectIdentifier: any WatchBackgroundRefreshTask] = [:]
     private var completedTaskIDs: Set<ObjectIdentifier> = []
@@ -28,12 +28,12 @@ final class WatchBackgroundTaskCoordinator {
         session: any WatchConnectivitySession,
         clock: any ObserverClock = SystemObserverClock(),
         deadline: Duration = .seconds(12),
-        diagnosticsStore: WatchRelayDiagnosticsStore? = nil
+        storageActor: WatchCaptureStorageActor? = nil
     ) {
         self.session = session
         self.clock = clock
         self.deadline = deadline
-        self.diagnosticsStore = diagnosticsStore
+        self.storageActor = storageActor
         self.session.onSessionEvent = { [weak self] in
             self?.handleSessionEvent()
         }
@@ -73,13 +73,17 @@ private extension WatchBackgroundTaskCoordinator {
         self.heldTasks.removeValue(forKey: task.id)
         self.completedTaskIDs.insert(task.id)
         task.complete()
-        self.diagnosticsStore?.recordBackgroundWake(
-            reason: reason,
-            heldTaskCount: self.heldTasks.count,
-            completedTaskCount: self.completedTaskIDs.count,
-            deadlineCount: reason == "deadline" ? 1 : 0,
-            at: self.clock.now()
-        )
+        if let storageActor {
+            Task { @MainActor in
+                await storageActor.recordRelayBackgroundWake(
+                    reason: reason,
+                    heldTaskCount: self.heldTasks.count,
+                    completedTaskCount: self.completedTaskIDs.count,
+                    deadlineCount: reason == "deadline" ? 1 : 0,
+                    at: self.clock.now()
+                )
+            }
+        }
         watchBackgroundTaskLog.debug("watch background: completed task reason=\(reason, privacy: .public) remaining=\(self.heldTasks.count, privacy: .public)")
         self.cancelDeadlineIfIdle()
     }

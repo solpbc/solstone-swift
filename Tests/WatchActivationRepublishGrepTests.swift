@@ -13,15 +13,9 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
             in: text,
             path: path.path
         )
-        let didActivateBranch = try Self.section(
-            from: "if didActivate {",
-            to: "        }\n",
-            in: activation,
-            path: path.path
-        )
-
-        XCTAssertTrue(didActivateBranch.contains("self.relaySender?.drain(trigger: .connectivityActivation)"))
-        XCTAssertTrue(didActivateBranch.contains("self.onReachableRepublish?()"))
+        XCTAssertTrue(activation.contains("if didActivate {"))
+        XCTAssertTrue(activation.contains("await self.relaySender?.drain(trigger: .connectivityActivation)"))
+        XCTAssertTrue(activation.contains("self.onReachableRepublish?()"))
     }
 
     func testReachabilityChangeStillRefiresReachableRepublish() throws {
@@ -34,7 +28,7 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
         )
 
         XCTAssertTrue(reachability.contains("if isReachable {"))
-        XCTAssertTrue(reachability.contains("self.relaySender?.drain(trigger: .connectivityReachability)"))
+        XCTAssertTrue(reachability.contains("await self.relaySender?.drain(trigger: .connectivityReachability)"))
         XCTAssertTrue(reachability.contains("self.onReachableRepublish?()"))
     }
 

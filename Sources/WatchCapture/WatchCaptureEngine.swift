@@ -23,20 +23,19 @@ final class WatchCaptureEngine {
     var onPresentationChanged: (@Sendable @MainActor (WatchCaptureOwnerPresentation) -> Void)?
     var onRelayDrainRequested: (@MainActor (RelayTrigger) -> Void)?
     var onPublishStatus: (@MainActor (WatchStatusContext) -> Void)?
-    var onDiagnosticsEnvelopeRequested: (@MainActor (Date) -> Data?)?
+    var onDiagnosticsEnvelopeRequested: (@MainActor (Date) async -> Data?)?
 
     private let audioRecorder: any WatchAudioRecording
     private let audioSession: any WatchAudioSessionControlling
     private let locationProvider: any WatchLocationProviding
-    private let storage: WatchCaptureStorage
+    private let paths: WatchCaptureStoragePaths
+    private let storageActor: WatchCaptureStorageActor
     private let clock: any ObserverClock
-    private let audioProbe: any WatchAudioProbing
     private let notificationScheduler: any WatchNotificationScheduling
     private let notificationCenter: NotificationCenter
     private let audioSessionNotificationHandoff: WatchAudioSessionNotificationHandoff
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
     private let signposter: any WatchSignposting
-    private let sessionHistoryStore: WatchCaptureSessionHistoryStore
     let lifecycleSerializer: WatchCaptureLifecycleSerializer
 
     private var activeSegment: ActiveSegment?
@@ -48,6 +47,10 @@ final class WatchCaptureEngine {
     private var rolloverPriorAudioDuration: TimeInterval?
     private var segmentationTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    private var locationFixTail: Task<Void, Never> = Task { @MainActor in }
+    /// Closed before a segment leaves `activeSegment`, so callbacks admitted
+    /// while finalization waits for the existing tail cannot target that segment.
+    private var locationFixDeliveryClosed = false
     private var audioSessionObservers: [NSObjectProtocol] = []
     private var audioSessionIsActive = false
     private var audioArmed = false
@@ -85,7 +88,9 @@ final class WatchCaptureEngine {
         audioRecorder: any WatchAudioRecording,
         audioSession: any WatchAudioSessionControlling,
         locationProvider: any WatchLocationProviding,
-        storage: WatchCaptureStorage,
+        paths: WatchCaptureStoragePaths,
+        fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
+        storageActor: WatchCaptureStorageActor? = nil,
         clock: any ObserverClock = SystemObserverClock(),
         audioProbe: any WatchAudioProbing,
         notificationScheduler: any WatchNotificationScheduling,
@@ -99,20 +104,30 @@ final class WatchCaptureEngine {
         self.audioRecorder = audioRecorder
         self.audioSession = audioSession
         self.locationProvider = locationProvider
-        self.storage = storage
+        self.paths = paths
+        self.storageActor = storageActor ?? WatchCaptureStorageActor(
+            paths: paths,
+            fileWriter: fileWriter,
+            audioProbe: audioProbe
+        )
         self.clock = clock
-        self.audioProbe = audioProbe
         self.notificationScheduler = notificationScheduler
         self.environmentProvider = environmentProvider
         self.signposter = signposter
-        self.sessionHistoryStore = WatchCaptureSessionHistoryStore(storage: storage)
         self.notificationCenter = notificationCenter
         self.audioSessionNotificationHandoff = audioSessionNotificationHandoff
         self.lifecycleSerializer = WatchCaptureLifecycleSerializer()
 
         self.audioRecorder.eventSink = self
         self.locationProvider.onFix = { [weak self] fix in
-            self?.handleFix(fix)
+            guard let self else { return }
+            let segmentID = self.locationFixDeliveryClosed ? nil : self.activeSegment?.manifest.id
+            let previous = self.locationFixTail
+            self.locationFixTail = Task { @MainActor [weak self] in
+                await previous.value
+                guard let self else { return }
+                await self.handleFix(fix, for: segmentID)
+            }
         }
         self.locationProvider.onAuthorizationChanged = { [weak self] authorization in
             self?.handleAuthorizationChanged(authorization)
@@ -147,17 +162,12 @@ final class WatchCaptureEngine {
         )
     }
 
-    func refreshRelayCountsFromDisk() {
+    func refreshRelayCountsFromDisk() async {
         let priorQueued = self.queuedCount
         let priorTransferring = self.transferringCount
-        do {
-            try self.refreshRelayCountsFromDiskThrowing()
-            if self.queuedCount != priorQueued || self.transferringCount != priorTransferring {
-                self.republishCurrentStatus()
-            }
-        } catch {
-            watchCaptureLog.error("watch manifest scan failed: \(String(describing: error), privacy: .public)")
-            self.persistenceAdvisory = .manifestScanFailed
+        await self.refreshRelayCountsFromDiskCatalog()
+        if self.queuedCount != priorQueued || self.transferringCount != priorTransferring {
+            await self.republishCurrentStatus()
         }
         self.notifyPresentationChanged()
     }
@@ -176,6 +186,7 @@ final class WatchCaptureEngine {
 
     func settled() async {
         await self.lifecycleSerializer.settled()
+        await self.waitForAdmittedLocationFixes()
     }
 
     private func reconcileOnLaunchInner(generation: Int) async {
@@ -188,53 +199,53 @@ final class WatchCaptureEngine {
         let reconciledSessionID = await self.reconcileSessionRecord(generation: generation)
         guard await self.continueLifecycleOperation(generation) else { return }
         let manifestScan = self.signposter.begin(.manifestScan)
-        let didScanManifests: Bool
-        do {
-            let entries = try self.storage.scanManifests()
-            for entry in entries {
+        let catalog = await self.storageActor.scanCatalog()
+        var recoveryFailed = false
+        for entry in catalog.entries {
+            do {
                 switch entry.manifest.state {
                 case .captured, .persisted:
-                    try self.recoverUnclean(entry, sessionID: reconciledSessionID)
+                    try await self.recoverUnclean(entry, sessionID: reconciledSessionID)
                 case .finalized:
                     var manifest = entry.manifest
                     manifest.state = .queued
-                    try self.storage.writeManifest(manifest, in: entry.directoryURL)
+                    try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
                     self.queuedCount += 1
                 case .queued, .transferring, .delivered, .acked, .safeToDelete:
                     break
                 }
-            }
-            self.signposter.end(manifestScan, fields: WatchSignpostFields(result: .completed))
-            didScanManifests = true
-        } catch {
-            self.signposter.end(manifestScan, fields: WatchSignpostFields(result: .failed))
-            watchCaptureLog.error("watch reconcile scan failed: \(String(describing: error), privacy: .public)")
-            self.persistenceAdvisory = .manifestScanFailed
-            didScanManifests = false
-        }
-        if didScanManifests {
-            let relayCountRefresh = self.signposter.begin(.relayCountRefresh)
-            do {
-                try self.refreshRelayCountsFromDiskThrowing()
-                self.signposter.end(relayCountRefresh, fields: WatchSignpostFields(result: .completed))
             } catch {
-                self.signposter.end(relayCountRefresh, fields: WatchSignpostFields(result: .failed))
-                watchCaptureLog.error("watch reconcile scan failed: \(String(describing: error), privacy: .public)")
-                self.persistenceAdvisory = .manifestScanFailed
+                recoveryFailed = true
+                watchCaptureLog.error(
+                    "watch reconcile recovery failed id=\(entry.manifest.id.uuidString, privacy: .public): \(String(describing: error), privacy: .private)"
+                )
             }
         }
-        self.republishCurrentStatus()
+        self.applyCatalogAdvisory(catalog.rootState)
+        self.signposter.end(
+            manifestScan,
+            fields: WatchSignpostFields(result: recoveryFailed ? .partial : self.catalogResult(catalog.rootState))
+        )
+
+        let relayCountRefresh = self.signposter.begin(.relayCountRefresh)
+        let refreshedCatalog = await self.refreshRelayCountsFromDiskCatalog()
+        self.signposter.end(
+            relayCountRefresh,
+            fields: WatchSignpostFields(result: self.catalogResult(refreshedCatalog.rootState))
+        )
+        await self.republishCurrentStatus()
         self.notifyPresentationChanged()
         self.requestRelayDrain(trigger: .launchReconciliation)
     }
 
     private func startInner(generation: Int) async {
         self.clearTransientStateForStart()
-        guard self.mintSessionIdentity(startedAt: self.clock.now()) else {
+        guard await self.mintSessionIdentity(startedAt: self.clock.now()) else {
             self.status = .needsAttention(.unavailable(reason: SourceVocabulary.watchStatusSaveFailed))
             self.notifyPresentationChanged()
             return
         }
+        guard await self.continueLifecycleOperation(generation) else { return }
         guard let currentSessionID else { return }
         let ownerSource = WatchCaptureSourceToken(sessionID: currentSessionID)
         self.status = .enrolling
@@ -246,7 +257,7 @@ final class WatchCaptureEngine {
 
         guard await self.prepareAudioForOwnerStart(generation: generation) else {
             if self.isLifecycleGenerationCurrent(generation) {
-                self.publishStatus(.idle)
+                await self.publishStatus(.idle)
                 self.notifyPresentationChanged()
             }
             return
@@ -266,48 +277,57 @@ final class WatchCaptureEngine {
 
         do {
             let startedAt = self.sessionStartedAt ?? self.clock.now()
-            guard self.beginStatusSession(startedAt: startedAt) else {
+            guard await self.beginStatusSession(startedAt: startedAt) else {
                 self.status = .needsAttention(.unavailable(reason: SourceVocabulary.watchStatusSaveFailed))
                 self.notifyPresentationChanged()
                 return
             }
-            try self.openSegment(startedAt: startedAt, ownerSessionID: currentSessionID)
+            guard await self.continueLifecycleOperation(generation) else { return }
+            guard try await self.openSegment(
+                startedAt: startedAt,
+                ownerSessionID: currentSessionID,
+                generation: generation
+            ) else { return }
+            guard await self.continueLifecycleOperation(generation) else { return }
             guard let segment = self.activeSegment else { return }
             if !segment.hasLiveSensor {
-                self.refuseInitialStartAfterSegmentOpen(
+                await self.refuseInitialStartAfterSegmentOpen(
                     error: .unavailable(reason: SourceVocabulary.watchMicrophoneUnavailable)
                 )
                 return
             }
-            self.writeActiveSessionRecord(startedAt: startedAt)
+            await self.writeActiveSessionRecord(startedAt: startedAt)
+            guard await self.continueLifecycleOperation(generation) else { return }
             await self.replaceAudioTruthLease(verifiedAt: startedAt, generation: generation)
             guard await self.continueLifecycleOperation(generation) else { return }
             self.installAudioSessionObservers(source: ownerSource)
             self.status = self.statusForRunningSegment(segment)
             self.startSegmentationTask()
         } catch WatchCaptureEngineError.audioStartFailed {
-            self.refuseInitialStartAfterSegmentOpen(
+            guard await self.continueLifecycleOperation(generation) else { return }
+            await self.refuseInitialStartAfterSegmentOpen(
                 error: WatchCaptureTerminalReason.audioStartFailed.observerError
             )
             return
         } catch {
-            self.refuseInitialStartAfterSegmentOpen(
+            guard await self.continueLifecycleOperation(generation) else { return }
+            await self.refuseInitialStartAfterSegmentOpen(
                 error: WatchCaptureFailureMapper.observerError(for: error),
                 persistenceFailed: self.openingSegmentHasPersistedManifest
             )
             return
         }
         if self.activeSegment != nil {
-            self.publishStatus(.observing)
+            await self.publishStatus(.observing)
             self.startHeartbeatTask(source: ownerSource)
         } else {
-            self.publishStatus(.idle)
+            await self.publishStatus(.idle)
         }
         self.notifyPresentationChanged()
     }
 
     private func stopInner() async {
-        self.publishStatus(.stopping)
+        await self.publishStatus(.stopping)
         await self.terminalize(
             reason: .ownerStopped,
             disposition: .ownerStopped,
@@ -315,9 +335,9 @@ final class WatchCaptureEngine {
         )
     }
 
-    func republishCurrentStatus() {
+    func republishCurrentStatus() async {
         let phase: WatchStatusContext.Phase = self.activeSegment == nil ? .idle : .observing
-        self.publishStatus(phase)
+        await self.publishStatus(phase)
     }
 
     private func admitLifecycleIntent(
@@ -425,7 +445,7 @@ final class WatchCaptureEngine {
         guard !self.isLifecycleGenerationCurrent(generation) else { return true }
         guard self.currentSessionID != nil else {
             self.status = .off
-            self.publishStatus(.idle)
+            await self.publishStatus(.idle)
             self.notifyPresentationChanged()
             return false
         }
@@ -465,6 +485,11 @@ extension WatchCaptureEngine: WatchAudioRecorderEventSink {
 }
 
 private extension WatchCaptureEngine {
+    func waitForAdmittedLocationFixes() async {
+        let tail = self.locationFixTail
+        await tail.value
+    }
+
     func performSignposted<Value>(
         _ boundary: WatchSignpostBoundary,
         operation: () throws -> Value
@@ -472,6 +497,21 @@ private extension WatchCaptureEngine {
         let interval = self.signposter.begin(boundary)
         do {
             let value = try operation()
+            self.signposter.end(interval, fields: WatchSignpostFields(result: .completed))
+            return value
+        } catch {
+            self.signposter.end(interval, fields: WatchSignpostFields(result: .failed))
+            throw error
+        }
+    }
+
+    func performSignposted<Value>(
+        _ boundary: WatchSignpostBoundary,
+        operation: () async throws -> Value
+    ) async rethrows -> Value {
+        let interval = self.signposter.begin(boundary)
+        do {
+            let value = try await operation()
             self.signposter.end(interval, fields: WatchSignpostFields(result: .completed))
             return value
         } catch {
@@ -488,7 +528,6 @@ private extension WatchCaptureEngine {
         var manifest: WatchSegmentManifest
         var audioURL: URL?
         var locationURL: URL?
-        var locationLog: WatchCaptureLocationLog?
         var partialError: ObserverError?
         var hasElapsedLocationCoverage: Bool
 
@@ -516,6 +555,7 @@ private extension WatchCaptureEngine {
     }
 
     func clearTransientStateForStart() {
+        self.locationFixDeliveryClosed = false
         self.currentSessionID = nil
         self.currentAudioEnrollment = nil
         self.sessionStartedAt = nil
@@ -534,13 +574,13 @@ private extension WatchCaptureEngine {
         case .granted:
             break
         case .denied:
-            self.refuseStart(.microphonePermissionDenied, error: .permissionDenied, settingsRoute: .microphone)
+            await self.refuseStart(.microphonePermissionDenied, error: .permissionDenied, settingsRoute: .microphone)
             return false
         case .notDetermined:
             let requested = await self.audioRecorder.requestPermission()
             guard await self.continueLifecycleOperation(generation) else { return false }
             guard requested == .granted else {
-                self.refuseStart(.microphonePermissionNotDetermined, error: .permissionDenied, settingsRoute: .microphone)
+                await self.refuseStart(.microphonePermissionNotDetermined, error: .permissionDenied, settingsRoute: .microphone)
                 return false
             }
         }
@@ -551,7 +591,7 @@ private extension WatchCaptureEngine {
             self.audioArmed = true
             return true
         } catch {
-            self.refuseStart(.audioArmFailed, error: WatchCaptureFailureMapper.observerError(for: error))
+            await self.refuseStart(.audioArmFailed, error: WatchCaptureFailureMapper.observerError(for: error))
             return false
         }
     }
@@ -560,7 +600,7 @@ private extension WatchCaptureEngine {
         _ reason: WatchCaptureStartRefusalReason,
         error: ObserverError,
         settingsRoute: WatchCaptureSettingsRoute? = nil
-    ) {
+    ) async {
         let sessionID = self.currentSessionID
         let startedAt = self.sessionStartedAt
         self.startRefusalReason = reason
@@ -579,7 +619,7 @@ private extension WatchCaptureEngine {
             self.audioSessionIsActive = false
         }
         if let sessionID, let startedAt {
-            self.upsertSessionHistory(
+            _ = await self.upsertSessionHistory(
                 sessionID: sessionID,
                 startedAt: startedAt,
                 terminalAt: nil,
@@ -596,7 +636,7 @@ private extension WatchCaptureEngine {
     func refuseInitialStartAfterSegmentOpen(
         error: ObserverError,
         persistenceFailed: Bool = false
-    ) {
+    ) async {
         let segment = self.activeSegment ?? self.openingSegment
         self.activeSegment = nil
         self.openingSegment = nil
@@ -606,14 +646,14 @@ private extension WatchCaptureEngine {
             _ = try? self.audioRecorder.stop()
         }
         if let segment {
-            _ = self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL)
+            _ = await self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL)
         }
         self.removeAudioTruthLease()
         if persistenceFailed {
             self.persistenceAdvisory = .sessionRecordWriteFailed
         }
-        self.refuseStart(.audioArmFailed, error: error)
-        self.publishStatus(.idle)
+        await self.refuseStart(.audioArmFailed, error: error)
+        await self.publishStatus(.idle)
         self.notifyPresentationChanged()
     }
 
@@ -629,12 +669,26 @@ private extension WatchCaptureEngine {
         }
     }
 
-    func openSegment(startedAt: Date, ownerSessionID: String) throws {
+    func openSegment(
+        startedAt: Date,
+        ownerSessionID: String,
+        generation: Int?
+    ) async throws -> Bool {
         self.openingSegment = nil
         self.openingSegmentHasPersistedManifest = false
-        let day = self.storage.dayString(for: startedAt)
-        let segmentKey = self.storage.provisionalSegmentString(for: startedAt)
-        let directory = try self.storage.ensureSegmentDirectory(day: day, segment: segmentKey)
+        let day = self.paths.dayString(for: startedAt)
+        let segmentKey = self.paths.provisionalSegmentString(for: startedAt)
+        let directory: URL
+        do {
+            directory = try await self.storageActor.prepareSegmentDirectory(day: day, segment: segmentKey)
+        } catch {
+            guard await self.continueOpeningLifecycleOperation(generation) else { return false }
+            throw error
+        }
+        guard await self.continueOpeningLifecycleOperation(
+            generation,
+            emptyDirectory: directory
+        ) else { return false }
         var sensors: [WatchSensor] = []
         if self.audioArmed {
             sensors.append(.audio)
@@ -661,16 +715,21 @@ private extension WatchCaptureEngine {
             manifest: manifest,
             audioURL: nil,
             locationURL: nil,
-            locationLog: nil,
             partialError: nil,
             hasElapsedLocationCoverage: false
         )
         self.openingSegment = active
-        try self.storage.writeManifest(manifest, in: directory)
+        do {
+            try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
+        } catch {
+            guard await self.continueOpeningLifecycleOperation(generation) else { return false }
+            throw error
+        }
+        guard await self.continueOpeningLifecycleOperation(generation) else { return false }
         self.openingSegmentHasPersistedManifest = true
 
         if self.audioArmed {
-            let audioURL = self.storage.audioURL(directory: directory)
+            let audioURL = self.paths.audioURL(directory: directory)
             active.audioURL = audioURL
             active.manifest = manifest
             self.openingSegment = active
@@ -691,17 +750,18 @@ private extension WatchCaptureEngine {
         }
 
         if self.locationArmed {
-            let locationURL = self.storage.locationURL(directory: directory)
+            let locationURL = self.paths.locationURL(directory: directory)
             do {
-                let locationLog = WatchCaptureLocationLog(url: locationURL, fileWriter: self.storage.fileWriter)
-                try locationLog.openProvisionalHeader()
+                try await self.storageActor.openLocationLogHeader(at: locationURL)
+                guard await self.continueOpeningLifecycleOperation(generation) else { return false }
                 if let lastKnownFix {
-                    try locationLog.append(lastKnownFix.carryForward(at: startedAt))
+                    try await self.storageActor.appendLocationFix(lastKnownFix.carryForward(at: startedAt), at: locationURL)
+                    guard await self.continueOpeningLifecycleOperation(generation) else { return false }
                 }
                 active.locationURL = locationURL
-                active.locationLog = locationLog
                 self.openingSegment = active
             } catch {
+                guard await self.continueOpeningLifecycleOperation(generation) else { return false }
                 self.locationArmed = false
                 self.locationProvider.stop()
                 self.markPartial(&active, error: WatchCaptureFailureMapper.observerError(for: error))
@@ -715,28 +775,50 @@ private extension WatchCaptureEngine {
         active.manifest = manifest
         self.openingSegment = active
         do {
-            try self.storage.writeManifest(manifest, in: directory)
+            try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
         } catch {
+            guard await self.continueOpeningLifecycleOperation(generation) else { return false }
             var failedActive = active
             self.markPartial(&failedActive, error: WatchCaptureFailureMapper.observerError(for: error))
             self.openingSegment = failedActive
             throw error
         }
+        guard await self.continueOpeningLifecycleOperation(generation) else { return false }
         self.activeSegment = active
+        self.locationFixDeliveryClosed = false
         self.openingSegment = nil
         self.openingSegmentHasPersistedManifest = false
+        return true
+    }
+
+    /// An opening segment is intentionally kept out of `activeSegment` until
+    /// its persisted manifest exists. If a Stop supersedes that opening while
+    /// actor I/O is suspended, promote it only long enough for the established
+    /// terminalization path to stop resources and retain durable media.
+    func continueOpeningLifecycleOperation(
+        _ generation: Int?,
+        emptyDirectory: URL? = nil
+    ) async -> Bool {
+        guard let generation, !self.isLifecycleGenerationCurrent(generation) else { return true }
+        if self.openingSegment != nil {
+            await self.adoptOpeningFailureSegment()
+        } else if let emptyDirectory {
+            try? await self.storageActor.removeItem(at: emptyDirectory)
+        }
+        _ = await self.continueLifecycleOperation(generation)
+        return false
     }
 
     func adoptOpeningFailureSegment(
         _ explicitSegment: ActiveSegment? = nil,
         removeIfEmpty: Bool = true
-    ) {
+    ) async {
         let segment = explicitSegment ?? self.openingSegment
         self.openingSegment = nil
         self.openingSegmentHasPersistedManifest = false
         self.activeSegment = nil
         guard let segment else { return }
-        if removeIfEmpty, self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL) {
+        if removeIfEmpty, await self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL) {
             return
         }
         self.activeSegment = segment
@@ -744,24 +826,8 @@ private extension WatchCaptureEngine {
 
     /// A directory is disposable only when every owner-media path is known empty.
     /// A size-query failure deliberately retains the directory for reconciliation.
-    func removeSegmentDirectoryIfMediaIsProvablyEmpty(_ directory: URL) -> Bool {
-        let mediaURLs = [
-            self.storage.audioURL(directory: directory),
-            self.storage.locationURL(directory: directory),
-        ]
-        for url in mediaURLs {
-            do {
-                guard try self.storage.fileWriter.fileSize(at: url) == 0 else { return false }
-            } catch {
-                return false
-            }
-        }
-        do {
-            try self.storage.fileWriter.removeItem(at: directory)
-            return true
-        } catch {
-            return false
-        }
+    func removeSegmentDirectoryIfMediaIsProvablyEmpty(_ directory: URL) async -> Bool {
+        await self.storageActor.removeSegmentDirectoryIfMediaIsProvablyEmpty(at: directory)
     }
 
     func startSegmentationTask() {
@@ -782,6 +848,9 @@ private extension WatchCaptureEngine {
     }
 
     func rolloverInner(generation: Int, ownerSessionID: String) async {
+        self.locationFixDeliveryClosed = true
+        await self.waitForAdmittedLocationFixes()
+        guard await self.continueLifecycleOperation(generation) else { return }
         guard var segment = self.activeSegment else { return }
         let end = self.clock.now()
         self.activeSegment = nil
@@ -803,19 +872,24 @@ private extension WatchCaptureEngine {
         var rolloverTerminalReason: WatchCaptureTerminalReason?
         var discardEmptySuccessorAfterStop = false
         do {
-            try self.openSegment(startedAt: end, ownerSessionID: ownerSessionID)
+            guard try await self.openSegment(
+                startedAt: end,
+                ownerSessionID: ownerSessionID,
+                generation: generation
+            ) else { return }
+            guard await self.continueLifecycleOperation(generation) else { return }
             guard let newSegment = self.activeSegment, newSegment.hasLiveSensor else {
-                self.adoptOpeningFailureSegment(self.activeSegment)
+                await self.adoptOpeningFailureSegment(self.activeSegment)
                 rolloverTerminalReason = self.reopenFailureTerminalReason()
                 throw WatchCaptureEngineError.audioStartFailed
             }
             self.status = self.statusForRunningSegment(newSegment)
         } catch WatchCaptureEngineError.audioStartFailed {
-            self.adoptOpeningFailureSegment(removeIfEmpty: false)
+            await self.adoptOpeningFailureSegment(removeIfEmpty: false)
             rolloverTerminalReason = self.reopenFailureTerminalReason()
             discardEmptySuccessorAfterStop = true
         } catch {
-            self.adoptOpeningFailureSegment(
+            await self.adoptOpeningFailureSegment(
                 removeIfEmpty: !self.openingSegmentHasPersistedManifest
             )
             rolloverTerminalReason = self.reopenFailureTerminalReason()
@@ -839,7 +913,7 @@ private extension WatchCaptureEngine {
         self.rolloverPriorSegment = nil
         self.rolloverPriorAudioDuration = nil
         guard await self.continueLifecycleOperation(generation) else { return }
-        self.publishStatus(.observing)
+        await self.publishStatus(.observing)
         self.notifyPresentationChanged()
     }
 
@@ -851,18 +925,25 @@ private extension WatchCaptureEngine {
         renewLease: Bool = true,
         generation: Int? = nil
     ) async -> Bool {
-        let prepared = self.prepareFinalization(
+        await self.waitForAdmittedLocationFixes()
+        if let generation, !self.isLifecycleGenerationCurrent(generation) {
+            return false
+        }
+        let prepared = await self.prepareFinalization(
             segment: segment,
             audioDuration: audioDuration,
             end: end
         )
+        if let generation, !self.isLifecycleGenerationCurrent(generation) {
+            return false
+        }
         if renewLease, let verifiedAt = prepared.verifiedAudioAt {
             await self.replaceAudioTruthLease(verifiedAt: verifiedAt, generation: generation)
             if let generation, !self.isLifecycleGenerationCurrent(generation) {
                 return false
             }
         }
-        self.persistFinalization(
+        await self.persistFinalization(
             prepared,
             sessionID: self.currentSessionID,
             relayTrigger: .segmentFinalization
@@ -874,13 +955,13 @@ private extension WatchCaptureEngine {
         _ segment: ActiveSegment,
         audioDuration: TimeInterval?,
         end: Date
-    ) {
-        let prepared = self.prepareFinalization(
+    ) async {
+        let prepared = await self.prepareFinalization(
             segment: segment,
             audioDuration: audioDuration,
             end: end
         )
-        self.persistFinalization(
+        await self.persistFinalization(
             prepared,
             sessionID: self.currentSessionID,
             relayTrigger: .segmentFinalization
@@ -891,13 +972,14 @@ private extension WatchCaptureEngine {
         segment: ActiveSegment,
         audioDuration: TimeInterval?,
         end: Date
-    ) -> PreparedFinalization {
+    ) async -> PreparedFinalization {
+        await self.waitForAdmittedLocationFixes()
         var segment = segment
         var manifest = segment.manifest
         // `.captured` is the durable intent record written before either media
         // side effect; `.persisted` proves the segment finished opening.
         let openingFailure = manifest.state == .captured
-        let declaredSensorEvidence = self.retainDeclaredSensors(
+        let declaredSensorEvidence = await self.retainDeclaredSensors(
             &manifest,
             directory: segment.directoryURL,
             requirePositiveSize: openingFailure
@@ -911,11 +993,11 @@ private extension WatchCaptureEngine {
         var verifiedAudioAt: Date?
 
         if declaredSensors.contains(.audio) {
-            let audioURL = self.storage.audioURL(directory: segment.directoryURL)
+            let audioURL = self.paths.audioURL(directory: segment.directoryURL)
             if declaredSensorEvidence.unknownPresence.contains(.audio) {
                 manifest.partial = true
             } else {
-                switch self.audioProbeResult(at: audioURL) {
+                switch await self.audioProbeResult(at: audioURL) {
                 case let .decodable(probedDuration):
                     duration = probedDuration
                     manifest.duration = probedDuration
@@ -927,7 +1009,7 @@ private extension WatchCaptureEngine {
                     } else {
                         manifest.lost = true
                         manifest.failureReason = WatchCaptureTerminalReason.audioUndecodable.observerError.message
-                        try? self.storage.fileWriter.removeItem(at: audioURL)
+                        try? await self.storageActor.removeItem(at: audioURL)
                     }
                 case .ioUnknown:
                     manifest.partial = true
@@ -937,16 +1019,12 @@ private extension WatchCaptureEngine {
         }
 
         if declaredSensors.contains(.location) {
-            let locationURL = self.storage.locationURL(directory: segment.directoryURL)
+            let locationURL = self.paths.locationURL(directory: segment.directoryURL)
             if declaredSensorEvidence.unknownPresence.contains(.location) {
                 manifest.partial = true
             } else {
                 do {
-                    let stats = try WatchCaptureLocationLog.reconcile(
-                        url: locationURL,
-                        armed: true,
-                        fileWriter: self.storage.fileWriter
-                    )
+                    let stats = try await self.storageActor.finalizeLocationLog(at: locationURL, armed: true)
                     manifest.fixCount = stats.fixCount
                     manifest.gap = stats.gap
                 } catch {
@@ -986,19 +1064,19 @@ private extension WatchCaptureEngine {
         _ prepared: PreparedFinalization,
         sessionID: String?,
         relayTrigger: RelayTrigger
-    ) {
+    ) async {
         let segment = prepared.segment
         var manifest = prepared.manifest
         switch prepared.disposition {
         case .discard:
-            guard self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL) else {
+            guard await self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL) else {
                 self.status = .needsAttention(.unavailable(reason: SourceVocabulary.watchStatusSaveFailed))
                 return
             }
             return
         case .retain:
             do {
-                try self.storage.writeManifest(manifest, in: segment.directoryURL)
+                try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
             } catch {
                 self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
             }
@@ -1006,12 +1084,12 @@ private extension WatchCaptureEngine {
         case .queue:
             break
         }
-        let finalSegment = self.storage.segmentString(
+        let finalSegment = self.paths.segmentString(
             for: manifest.startedAt,
             durationSeconds: max(manifest.duration, 1)
         )
         do {
-            let finalDirectory = try self.storage.moveSegmentDirectoryIfNeeded(
+            _ = try await self.storageActor.moveSegmentDirectoryIfNeeded(
                 currentURL: segment.directoryURL,
                 day: manifest.day,
                 currentSegment: manifest.segment,
@@ -1019,37 +1097,36 @@ private extension WatchCaptureEngine {
             )
             manifest.segment = finalSegment
             manifest.state = .finalized
-            try self.storage.writeManifest(manifest, in: finalDirectory)
+            try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
             manifest.state = .queued
-            try self.storage.writeManifest(manifest, in: finalDirectory)
+            try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
             if manifest.partial {
                 watchCaptureLog.error(
                     "watch segment partial id=\(manifest.id.uuidString, privacy: .public) state=queued"
                 )
             }
             self.queuedCount += 1
-            self.incrementSegmentsProduced(sessionID: sessionID)
+            await self.incrementSegmentsProduced(sessionID: sessionID)
             self.requestRelayDrain(trigger: relayTrigger)
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
         }
     }
 
-    func recoverUnclean(_ entry: WatchCaptureStorage.ManifestEntry, sessionID: String?) throws {
+    func recoverUnclean(_ entry: WatchCaptureCatalogEntry, sessionID: String?) async throws {
         var manifest = entry.manifest
         manifest.partial = true
         let segment = ActiveSegment(
             directoryURL: entry.directoryURL,
             manifest: manifest,
             audioURL: manifest.sensors.contains(.audio)
-                ? self.storage.audioURL(directory: entry.directoryURL) : nil,
+                ? self.paths.audioURL(directory: entry.directoryURL) : nil,
             locationURL: manifest.sensors.contains(.location)
-                ? self.storage.locationURL(directory: entry.directoryURL) : nil,
-            locationLog: nil,
+                ? self.paths.locationURL(directory: entry.directoryURL) : nil,
             partialError: nil,
             hasElapsedLocationCoverage: false
         )
-        var prepared = self.prepareFinalization(
+        var prepared = await self.prepareFinalization(
             segment: segment,
             audioDuration: nil,
             end: manifest.startedAt.addingTimeInterval(manifest.duration)
@@ -1065,7 +1142,7 @@ private extension WatchCaptureEngine {
             )
             self.status = .needsAttention(.unavailable(reason: "audio unavailable after restart"))
         }
-        self.persistFinalization(
+        await self.persistFinalization(
             prepared,
             sessionID: sessionID,
             relayTrigger: .launchReconciliation
@@ -1076,55 +1153,57 @@ private extension WatchCaptureEngine {
         _ manifest: inout WatchSegmentManifest,
         directory: URL,
         requirePositiveSize: Bool
-    ) -> DeclaredSensorEvidence {
+    ) async -> DeclaredSensorEvidence {
         var unknownPresence: [WatchSensor] = []
-        manifest.sensors = manifest.sensors.filter { sensor in
+        var retainedSensors: [WatchSensor] = []
+        for sensor in manifest.sensors {
             let url: URL
             switch sensor {
             case .audio:
-                url = self.storage.audioURL(directory: directory)
+                url = self.paths.audioURL(directory: directory)
             case .location:
-                url = self.storage.locationURL(directory: directory)
+                url = self.paths.locationURL(directory: directory)
             }
             guard requirePositiveSize else {
-                return self.storage.fileWriter.fileExists(at: url)
+                if await self.storageActor.fileExists(at: url) {
+                    retainedSensors.append(sensor)
+                }
+                continue
             }
             do {
-                return try self.storage.fileWriter.fileSize(at: url) > 0
+                if try await self.storageActor.fileSize(at: url) > 0 {
+                    retainedSensors.append(sensor)
+                }
             } catch {
                 unknownPresence.append(sensor)
-                return true
+                retainedSensors.append(sensor)
             }
         }
+        manifest.sensors = retainedSensors
         return DeclaredSensorEvidence(
             sensors: manifest.sensors,
             unknownPresence: unknownPresence
         )
     }
 
-    func audioProbeResult(at url: URL) -> WatchAudioProbeResult {
-        do {
-            _ = try self.storage.fileWriter.readData(from: url)
-        } catch {
-            return .ioUnknown
-        }
-        return self.audioProbe.probe(at: url)
+    func audioProbeResult(at url: URL) async -> WatchAudioProbeResult {
+        await self.storageActor.probeAudio(at: url)
     }
 
-    func incrementSegmentsProduced(sessionID: String?) {
+    func incrementSegmentsProduced(sessionID: String?) async {
         guard let sessionID else { return }
-        if var record = try? self.storage.readSessionRecord(), record.sessionID == sessionID {
+        if var record = try? await self.storageActor.readSessionRecord(), record.sessionID == sessionID {
             record.segmentsProduced += 1
             do {
-                try self.storage.writeSessionRecord(record)
+                try await self.storageActor.writeSessionRecord(record)
             } catch {
                 watchCaptureLog.error("watch segment count write failed: \(String(describing: error), privacy: .public)")
                 self.persistenceAdvisory = .sessionRecordWriteFailed
                 return
             }
         }
-        guard var entry = self.sessionHistoryStore.entry(sessionID: sessionID, asOf: self.clock.now()) else { return }
-        if let record = try? self.storage.readSessionRecord(),
+        guard var entry = await self.storageActor.sessionHistoryEntry(sessionID: sessionID, asOf: self.clock.now()) else { return }
+        if let record = try? await self.storageActor.readSessionRecord(),
            record.sessionID == sessionID,
            record.state == .terminal,
            let terminalReason = record.terminalReason,
@@ -1137,21 +1216,28 @@ private extension WatchCaptureEngine {
         }
         entry.segmentsProduced += 1
         do {
-            try self.sessionHistoryStore.upsert(entry, asOf: self.clock.now())
+            try await self.storageActor.upsertSessionHistory(entry, asOf: self.clock.now())
         } catch {
             watchCaptureLog.error("watch segment history write failed: \(String(describing: error), privacy: .public)")
             self.persistenceAdvisory = .sessionRecordWriteFailed
         }
     }
 
-    func handleFix(_ fix: WatchLocationFix) {
+    func handleFix(_ fix: WatchLocationFix, for expectedSegmentID: UUID?) async {
         self.lastKnownFix = fix
         guard self.locationArmed else { return }
-        guard var segment = self.activeSegment, let locationLog = segment.locationLog else { return }
+        guard let expectedSegmentID,
+              var segment = self.activeSegment,
+              segment.manifest.id == expectedSegmentID,
+              let locationURL = segment.locationURL
+        else { return }
         do {
-            try locationLog.append(fix)
-            segment.hasElapsedLocationCoverage = true
-            self.activeSegment = segment
+            try await self.storageActor.appendLocationFix(fix, at: locationURL)
+            guard var currentSegment = self.activeSegment,
+                  currentSegment.manifest.id == expectedSegmentID
+            else { return }
+            currentSegment.hasElapsedLocationCoverage = true
+            self.activeSegment = currentSegment
             self.locationAdvisory = nil
             self.notifyPresentationChanged()
         } catch {
@@ -1318,14 +1404,14 @@ private extension WatchCaptureEngine {
     }
 
     @discardableResult
-    func mintSessionIdentity(startedAt: Date) -> Bool {
+    func mintSessionIdentity(startedAt: Date) async -> Bool {
         guard self.currentSessionID == nil, self.sessionStartedAt == nil else {
             return self.currentSessionID != nil && self.sessionStartedAt != nil
         }
         let sessionID = UUID().uuidString
         let incremented: WatchCaptureSessionHistoryCounter
         do {
-            guard let counter = try self.sessionHistoryStore.incrementLifetimeCounter() else {
+            guard let counter = try await self.storageActor.incrementLifetimeSessionCounter() else {
                 watchCaptureLog.error("watch session counter unreadable")
                 self.persistenceAdvisory = .sessionRecordWriteFailed
                 return false
@@ -1337,7 +1423,7 @@ private extension WatchCaptureEngine {
             return false
         }
         // A session is live only when its lifetime count and history identity both persist.
-        guard self.upsertSessionHistory(
+        guard await self.upsertSessionHistory(
             sessionID: sessionID,
             startedAt: startedAt,
             terminalAt: nil,
@@ -1346,7 +1432,7 @@ private extension WatchCaptureEngine {
             environment: nil
         ) else {
             do {
-                try self.sessionHistoryStore.revertLifetimeCounterIncrement(incremented)
+                try await self.storageActor.revertLifetimeSessionCounterIncrement(incremented)
             } catch {
                 watchCaptureLog.error("watch session counter rollback failed: \(String(describing: error), privacy: .public)")
             }
@@ -1359,18 +1445,18 @@ private extension WatchCaptureEngine {
     }
 
     @discardableResult
-    func beginStatusSession(startedAt: Date) -> Bool {
-        self.mintSessionIdentity(startedAt: startedAt)
+    func beginStatusSession(startedAt: Date) async -> Bool {
+        await self.mintSessionIdentity(startedAt: startedAt)
     }
 
-    func publishStatus(_ phase: WatchStatusContext.Phase) {
+    func publishStatus(_ phase: WatchStatusContext.Phase) async {
         self.statusSeq += 1
         let asOf = self.clock.now()
         if phase != .idle, self.currentSessionID == nil || self.sessionStartedAt == nil {
-            self.beginStatusSession(startedAt: asOf)
+            _ = await self.beginStatusSession(startedAt: asOf)
         }
         let diagnosticsInterval = self.signposter.begin(.diagnosticsCollection)
-        let diagnosticsEnvelope = self.onDiagnosticsEnvelopeRequested?(asOf)
+        let diagnosticsEnvelope = await self.onDiagnosticsEnvelopeRequested?(asOf)
         self.signposter.end(
             diagnosticsInterval,
             fields: WatchSignpostFields(result: .completed)
@@ -1390,29 +1476,29 @@ private extension WatchCaptureEngine {
         self.onPublishStatus?(context)
     }
 
-    func clearNoticeOwedAfterConfirmedSubmission(sessionID: String?) {
+    func clearNoticeOwedAfterConfirmedSubmission(sessionID: String?) async {
         guard let sessionID else { return }
         let asOf = self.clock.now()
-        if var entry = self.performSignposted(.sessionHistory, operation: {
-            self.sessionHistoryStore.entry(sessionID: sessionID, asOf: asOf)
+        if var entry = await self.performSignposted(.sessionHistory, operation: {
+            await self.storageActor.sessionHistoryEntry(sessionID: sessionID, asOf: asOf)
         }) {
             do {
                 entry.noticeOwed = false
-                try self.performSignposted(.sessionHistory) {
-                    try self.sessionHistoryStore.upsert(entry, asOf: asOf)
+                try await self.performSignposted(.sessionHistory) {
+                    try await self.storageActor.upsertSessionHistory(entry, asOf: asOf)
                 }
             } catch {
                 watchCaptureLog.error("watch history notice clear failed: \(String(describing: error), privacy: .public)")
                 self.persistenceAdvisory = .sessionRecordWriteFailed
             }
         }
-        guard var record = try? self.performSignposted(.sessionRecord, operation: {
-            try self.storage.readSessionRecord()
+        guard var record = try? await self.performSignposted(.sessionRecord, operation: {
+            try await self.storageActor.readSessionRecord()
         }), record.sessionID == sessionID else { return }
         record.noticeOwed = false
         do {
-            try self.performSignposted(.sessionRecord) {
-                try self.storage.writeSessionRecord(record)
+            try await self.performSignposted(.sessionRecord) {
+                try await self.storageActor.writeSessionRecord(record)
             }
         } catch {
             watchCaptureLog.error("watch notice clear failed: \(String(describing: error), privacy: .public)")
@@ -1468,9 +1554,9 @@ private extension WatchCaptureEngine {
         authorization: WatchNotificationAuthorizationStatus,
         alertSetting: WatchNotificationAlertSetting,
         settingsRoute: WatchCaptureSettingsRoute?
-    ) {
+    ) async {
         guard let sessionID,
-              var entry = self.sessionHistoryStore.entry(sessionID: sessionID, asOf: self.clock.now()),
+              var entry = await self.storageActor.sessionHistoryEntry(sessionID: sessionID, asOf: self.clock.now()),
               entry.terminalAt != nil
         else { return }
         entry.noticeDecision = decision.historyRawValue
@@ -1485,7 +1571,7 @@ private extension WatchCaptureEngine {
             entry.settingsRoute = settingsRoute
         }
         do {
-            try self.sessionHistoryStore.upsert(entry, asOf: self.clock.now())
+            try await self.storageActor.upsertSessionHistory(entry, asOf: self.clock.now())
         } catch {
             watchCaptureLog.error("watch terminal notice history write failed: \(String(describing: error), privacy: .public)")
             self.persistenceAdvisory = .sessionRecordWriteFailed
@@ -1500,11 +1586,11 @@ private extension WatchCaptureEngine {
         noticeOwed: Bool? = nil,
         liveness: WatchCaptureLivenessEvidence?,
         environment: WatchRelayDiagnosticsEnvironmentSnapshot?
-    ) -> Bool {
+    ) async -> Bool {
         let id = record?.sessionID ?? sessionID ?? self.currentSessionID
         let start = record?.startedAt ?? startedAt ?? self.sessionStartedAt
         guard let id, let start else { return false }
-        let prior = self.sessionHistoryStore.entry(sessionID: id, asOf: self.clock.now())
+        let prior = await self.storageActor.sessionHistoryEntry(sessionID: id, asOf: self.clock.now())
         let terminalSnapshotExists = prior?.terminalAt != nil
         let terminalEnvironment = environment ?? self.terminalEnvironmentSnapshot
         let entry = WatchCaptureSessionHistoryEntry(
@@ -1536,7 +1622,7 @@ private extension WatchCaptureEngine {
             persistenceAdvisory: self.persistenceAdvisory ?? prior?.persistenceAdvisory
         )
         do {
-            try self.sessionHistoryStore.upsert(entry, asOf: self.clock.now())
+            try await self.storageActor.upsertSessionHistory(entry, asOf: self.clock.now())
             return true
         } catch {
             watchCaptureLog.error("watch session history write failed: \(String(describing: error), privacy: .public)")
@@ -1633,8 +1719,8 @@ private extension WatchCaptureEngine {
                 copy: copy,
                 triggerDate: nil
             )
-            self.performSignposted(.sessionHistory) {
-                self.upsertTerminalNoticeFacts(
+            await self.performSignposted(.sessionHistory) {
+                await self.upsertTerminalNoticeFacts(
                     sessionID: sessionID,
                     decision: decision,
                     delivered: delivered,
@@ -1644,15 +1730,15 @@ private extension WatchCaptureEngine {
                 )
             }
             if delivered {
-                self.clearNoticeOwedAfterConfirmedSubmission(sessionID: sessionID)
+                await self.clearNoticeOwedAfterConfirmedSubmission(sessionID: sessionID)
             }
         case let .cannotSchedule(route):
             let resolvedRoute: WatchCaptureSettingsRoute = copy == .microphoneAccessNeeded ? .microphone : route
             if sessionID == self.currentSessionID {
                 self.setSettingsRouteIfVacant(resolvedRoute)
             }
-            self.performSignposted(.sessionHistory) {
-                self.upsertTerminalNoticeFacts(
+            await self.performSignposted(.sessionHistory) {
+                await self.upsertTerminalNoticeFacts(
                     sessionID: sessionID,
                     decision: decision,
                     delivered: false,
@@ -1663,8 +1749,8 @@ private extension WatchCaptureEngine {
             }
         case .cancelLease:
             self.removeAudioTruthLease()
-            self.performSignposted(.sessionHistory) {
-                self.upsertTerminalNoticeFacts(
+            await self.performSignposted(.sessionHistory) {
+                await self.upsertTerminalNoticeFacts(
                     sessionID: sessionID,
                     decision: decision,
                     delivered: false,
@@ -1674,8 +1760,8 @@ private extension WatchCaptureEngine {
                 )
             }
         case .none:
-            self.performSignposted(.sessionHistory) {
-                self.upsertTerminalNoticeFacts(
+            await self.performSignposted(.sessionHistory) {
+                await self.upsertTerminalNoticeFacts(
                     sessionID: sessionID,
                     decision: decision,
                     delivered: false,
@@ -1700,7 +1786,7 @@ private extension WatchCaptureEngine {
                 }
                 guard !Task.isCancelled, self.activeSegment != nil else { return }
                 guard self.evaluateAudioLiveness(source: source) else { return }
-                self.publishStatus(.observing)
+                await self.publishStatus(.observing)
             }
         }
     }
@@ -1710,7 +1796,7 @@ private extension WatchCaptureEngine {
         self.heartbeatTask = nil
     }
 
-    func writeActiveSessionRecord(startedAt: Date) {
+    func writeActiveSessionRecord(startedAt: Date) async {
         guard let currentSessionID else { return }
         let record = WatchCaptureSessionRecord(
             sessionID: currentSessionID,
@@ -1723,8 +1809,8 @@ private extension WatchCaptureEngine {
             segmentsProduced: 0
         )
         do {
-            try self.storage.writeSessionRecord(record)
-            self.upsertSessionHistory(record: record, liveness: nil, environment: nil)
+            try await self.storageActor.writeSessionRecord(record)
+            _ = await self.upsertSessionHistory(record: record, liveness: nil, environment: nil)
         } catch {
             watchCaptureLog.error("watch active session record write failed: \(String(describing: error), privacy: .public)")
             self.persistenceAdvisory = .sessionRecordWriteFailed
@@ -1739,7 +1825,7 @@ private extension WatchCaptureEngine {
         liveness: WatchCaptureLivenessEvidence? = nil,
         sessionID: String? = nil,
         startedAt: Date? = nil
-    ) -> WatchCaptureSessionRecord? {
+    ) async -> WatchCaptureSessionRecord? {
         self.terminalReason = reason
         self.terminalDisposition = disposition
         if reason == .microphonePermissionRevoked {
@@ -1748,7 +1834,7 @@ private extension WatchCaptureEngine {
         guard let currentSessionID = sessionID ?? self.currentSessionID,
               let sessionStartedAt = startedAt ?? self.sessionStartedAt
         else { return nil }
-        let priorRecord = try? self.storage.readSessionRecord()
+        let priorRecord = try? await self.storageActor.readSessionRecord()
         let record = WatchCaptureSessionRecord(
             sessionID: currentSessionID,
             startedAt: sessionStartedAt,
@@ -1762,27 +1848,27 @@ private extension WatchCaptureEngine {
         let environment = self.environmentProvider.snapshot()
         self.terminalEnvironmentSnapshot = environment
         do {
-            try self.storage.writeSessionRecord(record)
+            try await self.storageActor.writeSessionRecord(record)
         } catch {
             watchCaptureLog.error("watch terminal session record write failed: \(String(describing: error), privacy: .public)")
             self.persistenceAdvisory = .sessionRecordWriteFailed
         }
-        if !self.upsertSessionHistory(
+        if !(await self.upsertSessionHistory(
             record: record,
             liveness: liveness,
             environment: environment
-        ) {
+        )) {
             self.persistenceAdvisory = .sessionRecordWriteFailed
         }
         return record
     }
 
-    func repairTerminalHistoryIfNeeded(_ record: WatchCaptureSessionRecord) {
+    func repairTerminalHistoryIfNeeded(_ record: WatchCaptureSessionRecord) async {
         guard record.state == .terminal,
               let terminalReason = record.terminalReason,
               let terminalDisposition = record.terminalDisposition,
               let terminalAt = record.terminalAt,
-              var entry = self.sessionHistoryStore.entry(sessionID: record.sessionID, asOf: self.clock.now()),
+              var entry = await self.storageActor.sessionHistoryEntry(sessionID: record.sessionID, asOf: self.clock.now()),
               entry.terminalAt == nil
         else { return }
 
@@ -1791,7 +1877,7 @@ private extension WatchCaptureEngine {
         entry.terminalAt = terminalAt
         entry.noticeOwed = record.noticeOwed
         do {
-            try self.sessionHistoryStore.upsert(entry, asOf: self.clock.now())
+            try await self.storageActor.upsertSessionHistory(entry, asOf: self.clock.now())
         } catch {
             watchCaptureLog.error("watch terminal history repair failed: \(String(describing: error), privacy: .public)")
             self.persistenceAdvisory = .sessionRecordWriteFailed
@@ -1800,8 +1886,8 @@ private extension WatchCaptureEngine {
 
     func reconcileSessionRecord(generation: Int) async -> String? {
         do {
-            let record = try self.performSignposted(.sessionRecord) {
-                try self.storage.readSessionRecord()
+            let record = try await self.performSignposted(.sessionRecord) {
+                try await self.storageActor.readSessionRecord()
             }
             guard let record else {
                 return nil
@@ -1810,7 +1896,7 @@ private extension WatchCaptureEngine {
             self.sessionStartedAt = record.startedAt
             switch record.state {
             case .active:
-                if let history = self.sessionHistoryStore.entry(
+                if let history = await self.storageActor.sessionHistoryEntry(
                     sessionID: record.sessionID,
                     asOf: self.clock.now()
                 ), let terminalAt = history.terminalAt {
@@ -1824,8 +1910,8 @@ private extension WatchCaptureEngine {
                         noticeOwed: history.noticeOwed
                     )
                     do {
-                        try self.performSignposted(.sessionRecord) {
-                            try self.storage.writeSessionRecord(repaired)
+                        try await self.performSignposted(.sessionRecord) {
+                            try await self.storageActor.writeSessionRecord(repaired)
                         }
                     } catch {
                         self.persistenceAdvisory = .sessionRecordWriteFailed
@@ -1839,8 +1925,8 @@ private extension WatchCaptureEngine {
                 self.status = .needsAttention(WatchCaptureTerminalReason.processExitedWhileActive.observerError(disposition: .inferredStoppedItself))
                 self.removeAudioTruthLease()
                 self.terminalClaimedSessionIDs.insert(record.sessionID)
-                _ = self.performSignposted(.sessionHistory) {
-                    self.persistTerminalFact(
+                _ = await self.performSignposted(.sessionHistory) {
+                    await self.persistTerminalFact(
                         reason: .processExitedWhileActive,
                         disposition: .inferredStoppedItself,
                         at: terminalAt,
@@ -1856,7 +1942,7 @@ private extension WatchCaptureEngine {
                 guard self.isLifecycleGenerationCurrent(generation) else { return nil }
             case .terminal:
                 self.removeAudioTruthLease()
-                self.repairTerminalHistoryIfNeeded(record)
+                await self.repairTerminalHistoryIfNeeded(record)
                 if record.terminalDisposition == .ownerStopped {
                     self.terminalReason = record.terminalReason
                     self.terminalDisposition = record.terminalDisposition
@@ -1885,13 +1971,13 @@ private extension WatchCaptureEngine {
             self.status = .needsAttention(WatchCaptureTerminalReason.processExitedWhileActive.observerError(disposition: .inferredStoppedItself))
             self.removeAudioTruthLease()
             let now = self.clock.now()
-            guard self.mintSessionIdentity(startedAt: now),
+            guard await self.mintSessionIdentity(startedAt: now),
                   let currentSessionID,
                   let sessionStartedAt
             else { return nil }
             self.terminalClaimedSessionIDs.insert(currentSessionID)
-            _ = self.performSignposted(.sessionHistory) {
-                self.persistTerminalFact(
+            _ = await self.performSignposted(.sessionHistory) {
+                await self.persistTerminalFact(
                     reason: .processExitedWhileActive,
                     disposition: .inferredStoppedItself,
                     at: now,
@@ -1977,6 +2063,8 @@ private extension WatchCaptureEngine {
             self.lifecycleState = .stopping(sessionID: sessionID)
         }
 
+        self.locationFixDeliveryClosed = true
+        await self.waitForAdmittedLocationFixes()
         var segment = self.activeSegment
         self.activeSegment = nil
         let rolloverSegment = self.rolloverPriorSegment
@@ -2007,7 +2095,7 @@ private extension WatchCaptureEngine {
 
         if discardEmptyActiveSegment,
            let activeSegment = segment,
-           self.removeSegmentDirectoryIfMediaIsProvablyEmpty(activeSegment.directoryURL) {
+           await self.removeSegmentDirectoryIfMediaIsProvablyEmpty(activeSegment.directoryURL) {
             segment = nil
         }
 
@@ -2032,10 +2120,10 @@ private extension WatchCaptureEngine {
         case .detectedStoppedItself, .inferredStoppedItself:
             self.status = .needsAttention(reason.observerError(disposition: disposition))
         }
-        self.publishStatus(.idle)
+        await self.publishStatus(.idle)
         self.notifyPresentationChanged()
 
-        let record = self.persistTerminalFact(
+        let record = await self.persistTerminalFact(
             reason: reason,
             disposition: disposition,
             at: date,
@@ -2046,10 +2134,10 @@ private extension WatchCaptureEngine {
         self.notifyPresentationChanged()
 
         if let segment {
-            self.finalizeTerminalSegment(segment, audioDuration: audioDuration, end: date)
+            await self.finalizeTerminalSegment(segment, audioDuration: audioDuration, end: date)
         }
         if let rolloverSegment {
-            self.finalizeTerminalSegment(
+            await self.finalizeTerminalSegment(
                 rolloverSegment,
                 audioDuration: rolloverAudioDuration,
                 end: date
@@ -2063,13 +2151,42 @@ private extension WatchCaptureEngine {
         )
     }
 
-    func refreshRelayCountsFromDiskThrowing() throws {
-        let entries = try self.storage.scanManifests()
+    @discardableResult
+    func refreshRelayCountsFromDiskCatalog() async -> WatchCaptureCatalog {
+        let catalog = await self.storageActor.scanCatalog()
+        let entries = catalog.entries
         self.queuedCount = entries.filter { $0.manifest.state == .queued }.count
         self.transferringCount = entries.filter { $0.manifest.state == .transferring }.count
         self.confirmingCount = entries.filter { $0.manifest.state == .delivered }.count
         self.handedOffCount = entries.filter {
             $0.manifest.state == .acked || $0.manifest.state == .safeToDelete
         }.count
+        self.applyCatalogAdvisory(catalog.rootState)
+        return catalog
+    }
+
+    func applyCatalogAdvisory(_ rootState: WatchCaptureCatalogRootState) {
+        switch rootState {
+        case .complete, .emptyComplete:
+            if self.persistenceAdvisory == .manifestCatalogPartial
+                || self.persistenceAdvisory == .manifestCatalogUnavailable {
+                self.persistenceAdvisory = nil
+            }
+        case .partial:
+            self.persistenceAdvisory = .manifestCatalogPartial
+        case .unavailable:
+            self.persistenceAdvisory = .manifestCatalogUnavailable
+        }
+    }
+
+    func catalogResult(_ rootState: WatchCaptureCatalogRootState) -> RelayResult {
+        switch rootState {
+        case .complete, .emptyComplete:
+            .completed
+        case .partial:
+            .partial
+        case .unavailable:
+            .failed
+        }
     }
 }

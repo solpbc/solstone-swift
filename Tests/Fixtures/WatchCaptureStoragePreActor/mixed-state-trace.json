@@ -1,0 +1,1100 @@
+{
+  "description" : "Ordered WatchFileWriting calls and WCSession.transferFile invocation captured from the pre-actor WatchCaptureEngine launch reconciliation followed by WatchRelaySender drain. Writer calls carry call\/return phases; transfer metadata replaces the generated attempt UUID with <generated-attempt-id>.",
+  "events" : [
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "watch-capture-session.json",
+      "phase" : "called",
+      "sequence" : 0
+    },
+    {
+      "dataDescription" : "false",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "watch-capture-session.json",
+      "phase" : "returned",
+      "sequence" : 1
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".",
+      "phase" : "called",
+      "sequence" : 2
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".",
+      "phase" : "returned",
+      "sequence" : 3
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : ".",
+      "phase" : "called",
+      "sequence" : 4
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : ".",
+      "phase" : "returned",
+      "sequence" : 5
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231",
+      "phase" : "called",
+      "sequence" : 6
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231",
+      "phase" : "returned",
+      "sequence" : 7
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : "20241231",
+      "phase" : "called",
+      "sequence" : 8
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : "20241231",
+      "phase" : "returned",
+      "sequence" : 9
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/164320_300",
+      "phase" : "called",
+      "sequence" : 10
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/164320_300",
+      "phase" : "returned",
+      "sequence" : 11
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163820_300",
+      "phase" : "called",
+      "sequence" : 12
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163820_300",
+      "phase" : "returned",
+      "sequence" : 13
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163320_300",
+      "phase" : "called",
+      "sequence" : 14
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163320_300",
+      "phase" : "returned",
+      "sequence" : 15
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 16
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 17
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 18
+    },
+    {
+      "dataDescription" : "bytes:280",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 19
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 20
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 21
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 22
+    },
+    {
+      "dataDescription" : "bytes:245",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 23
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 24
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 25
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 26
+    },
+    {
+      "dataDescription" : "bytes:239",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 27
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".",
+      "phase" : "called",
+      "sequence" : 28
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".",
+      "phase" : "returned",
+      "sequence" : 29
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : ".",
+      "phase" : "called",
+      "sequence" : 30
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : ".",
+      "phase" : "returned",
+      "sequence" : 31
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231",
+      "phase" : "called",
+      "sequence" : 32
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231",
+      "phase" : "returned",
+      "sequence" : 33
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : "20241231",
+      "phase" : "called",
+      "sequence" : 34
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : "20241231",
+      "phase" : "returned",
+      "sequence" : 35
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/164320_300",
+      "phase" : "called",
+      "sequence" : 36
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/164320_300",
+      "phase" : "returned",
+      "sequence" : 37
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163820_300",
+      "phase" : "called",
+      "sequence" : 38
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163820_300",
+      "phase" : "returned",
+      "sequence" : 39
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163320_300",
+      "phase" : "called",
+      "sequence" : 40
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163320_300",
+      "phase" : "returned",
+      "sequence" : 41
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 42
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 43
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 44
+    },
+    {
+      "dataDescription" : "bytes:280",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 45
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 46
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 47
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 48
+    },
+    {
+      "dataDescription" : "bytes:245",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 49
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 50
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 51
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 52
+    },
+    {
+      "dataDescription" : "bytes:239",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 53
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".",
+      "phase" : "called",
+      "sequence" : 54
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".",
+      "phase" : "returned",
+      "sequence" : 55
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : ".",
+      "phase" : "called",
+      "sequence" : 56
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : ".",
+      "phase" : "returned",
+      "sequence" : 57
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231",
+      "phase" : "called",
+      "sequence" : 58
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231",
+      "phase" : "returned",
+      "sequence" : 59
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : "20241231",
+      "phase" : "called",
+      "sequence" : 60
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : "20241231",
+      "phase" : "returned",
+      "sequence" : 61
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/164320_300",
+      "phase" : "called",
+      "sequence" : 62
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/164320_300",
+      "phase" : "returned",
+      "sequence" : 63
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163820_300",
+      "phase" : "called",
+      "sequence" : 64
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163820_300",
+      "phase" : "returned",
+      "sequence" : 65
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163320_300",
+      "phase" : "called",
+      "sequence" : 66
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163320_300",
+      "phase" : "returned",
+      "sequence" : 67
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 68
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 69
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 70
+    },
+    {
+      "dataDescription" : "bytes:280",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 71
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 72
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 73
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 74
+    },
+    {
+      "dataDescription" : "bytes:245",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 75
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 76
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 77
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 78
+    },
+    {
+      "dataDescription" : "bytes:239",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 79
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".",
+      "phase" : "called",
+      "sequence" : 80
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".",
+      "phase" : "returned",
+      "sequence" : 81
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : ".",
+      "phase" : "called",
+      "sequence" : 82
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : ".",
+      "phase" : "returned",
+      "sequence" : 83
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231",
+      "phase" : "called",
+      "sequence" : 84
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231",
+      "phase" : "returned",
+      "sequence" : 85
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : "20241231",
+      "phase" : "called",
+      "sequence" : 86
+    },
+    {
+      "kind" : "writer",
+      "method" : "contentsOfDirectory",
+      "path" : "20241231",
+      "phase" : "returned",
+      "sequence" : 87
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/164320_300",
+      "phase" : "called",
+      "sequence" : 88
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/164320_300",
+      "phase" : "returned",
+      "sequence" : 89
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163820_300",
+      "phase" : "called",
+      "sequence" : 90
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163820_300",
+      "phase" : "returned",
+      "sequence" : 91
+    },
+    {
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163320_300",
+      "phase" : "called",
+      "sequence" : 92
+    },
+    {
+      "dataDescription" : "directory",
+      "kind" : "writer",
+      "method" : "itemKind",
+      "path" : "20241231\/163320_300",
+      "phase" : "returned",
+      "sequence" : 93
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 94
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 95
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 96
+    },
+    {
+      "dataDescription" : "bytes:280",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/164320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 97
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 98
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 99
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 100
+    },
+    {
+      "dataDescription" : "bytes:245",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163820_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 101
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 102
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 103
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 104
+    },
+    {
+      "dataDescription" : "bytes:239",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 105
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "called",
+      "sequence" : 106
+    },
+    {
+      "dataDescription" : "false",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "returned",
+      "sequence" : 107
+    },
+    {
+      "dataDescription" : "bytes:225",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "called",
+      "sequence" : 108
+    },
+    {
+      "dataDescription" : "bytes:225",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "returned",
+      "sequence" : 109
+    },
+    {
+      "dataDescription" : "bytes:245",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 110
+    },
+    {
+      "dataDescription" : "bytes:245",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 111
+    },
+    {
+      "kind" : "writer",
+      "method" : "removeItem",
+      "path" : ".relay-bundles\/11111111-1111-1111-1111-111111111111.watchrelay",
+      "phase" : "called",
+      "sequence" : 112
+    },
+    {
+      "kind" : "writer",
+      "method" : "removeItem",
+      "path" : ".relay-bundles\/11111111-1111-1111-1111-111111111111.watchrelay",
+      "phase" : "returned",
+      "sequence" : 113
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "called",
+      "sequence" : 114
+    },
+    {
+      "dataDescription" : "bytes:245",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/manifest.json",
+      "phase" : "returned",
+      "sequence" : 115
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/audio.m4a",
+      "phase" : "called",
+      "sequence" : 116
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/audio.m4a",
+      "phase" : "returned",
+      "sequence" : 117
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/audio.m4a",
+      "phase" : "called",
+      "sequence" : 118
+    },
+    {
+      "dataDescription" : "bytes:13",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/audio.m4a",
+      "phase" : "returned",
+      "sequence" : 119
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/location.jsonl",
+      "phase" : "called",
+      "sequence" : 120
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/location.jsonl",
+      "phase" : "returned",
+      "sequence" : 121
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/location.jsonl",
+      "phase" : "called",
+      "sequence" : 122
+    },
+    {
+      "dataDescription" : "bytes:17",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : "20241231\/163320_300\/location.jsonl",
+      "phase" : "returned",
+      "sequence" : 123
+    },
+    {
+      "dataDescription" : "bytes:382",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : ".relay-bundles\/11111111-1111-1111-1111-111111111111.watchrelay",
+      "phase" : "called",
+      "sequence" : 124
+    },
+    {
+      "dataDescription" : "bytes:382",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : ".relay-bundles\/11111111-1111-1111-1111-111111111111.watchrelay",
+      "phase" : "returned",
+      "sequence" : 125
+    },
+    {
+      "dataDescription" : "bytes:172",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : "20241231\/163320_300\/relay-attempt.json",
+      "phase" : "called",
+      "sequence" : 126
+    },
+    {
+      "dataDescription" : "bytes:172",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : "20241231\/163320_300\/relay-attempt.json",
+      "phase" : "returned",
+      "sequence" : 127
+    },
+    {
+      "kind" : "transferFile",
+      "metadata" : "{\"attempt_id\":\"<generated-attempt-id>\",\"attempt_started_at\":\"2025-01-01T00:15:00Z\",\"day\":\"20241231\",\"duration\":300,\"fix_count\":1,\"gap\":false,\"generation\":0,\"id\":\"11111111-1111-1111-1111-111111111111\",\"lost\":false,\"partial\":false,\"segment\":\"163320_300\",\"sensors\":[\"audio\",\"location\"],\"started_at\":\"2024-12-31T23:33:20Z\"}",
+      "method" : "transferFile",
+      "path" : ".relay-bundles\/11111111-1111-1111-1111-111111111111.watchrelay",
+      "phase" : "called",
+      "segmentID" : "11111111-1111-1111-1111-111111111111",
+      "sequence" : 128
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".relay-bundles\/11111111-1111-1111-1111-111111111111.watchrelay",
+      "phase" : "called",
+      "sequence" : 129
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".relay-bundles\/11111111-1111-1111-1111-111111111111.watchrelay",
+      "phase" : "returned",
+      "sequence" : 130
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileSize",
+      "path" : ".relay-bundles\/11111111-1111-1111-1111-111111111111.watchrelay",
+      "phase" : "called",
+      "sequence" : 131
+    },
+    {
+      "dataDescription" : "bytes:382",
+      "kind" : "writer",
+      "method" : "fileSize",
+      "path" : ".relay-bundles\/11111111-1111-1111-1111-111111111111.watchrelay",
+      "phase" : "returned",
+      "sequence" : 132
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/relay-diagnostics.json",
+      "phase" : "called",
+      "sequence" : 133
+    },
+    {
+      "dataDescription" : "false",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : "20241231\/163320_300\/relay-diagnostics.json",
+      "phase" : "returned",
+      "sequence" : 134
+    },
+    {
+      "dataDescription" : "bytes:325",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : "20241231\/163320_300\/relay-diagnostics.json",
+      "phase" : "called",
+      "sequence" : 135
+    },
+    {
+      "dataDescription" : "bytes:325",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : "20241231\/163320_300\/relay-diagnostics.json",
+      "phase" : "returned",
+      "sequence" : 136
+    },
+    {
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "called",
+      "sequence" : 137
+    },
+    {
+      "dataDescription" : "true",
+      "kind" : "writer",
+      "method" : "fileExists",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "returned",
+      "sequence" : 138
+    },
+    {
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "called",
+      "sequence" : 139
+    },
+    {
+      "dataDescription" : "bytes:225",
+      "kind" : "writer",
+      "method" : "readData",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "returned",
+      "sequence" : 140
+    },
+    {
+      "dataDescription" : "bytes:330",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "called",
+      "sequence" : 141
+    },
+    {
+      "dataDescription" : "bytes:330",
+      "kind" : "writer",
+      "method" : "writeData",
+      "path" : ".relay-diagnostics-summary.json",
+      "phase" : "returned",
+      "sequence" : 142
+    }
+  ],
+  "scenario" : {
+    "initialManifestStates" : [
+      {
+        "id" : "11111111-1111-1111-1111-111111111111",
+        "state" : "queued"
+      },
+      {
+        "id" : "22222222-2222-2222-2222-222222222222",
+        "state" : "transferring"
+      },
+      {
+        "id" : "33333333-3333-3333-3333-333333333333",
+        "state" : "delivered"
+      }
+    ],
+    "metadataNormalization" : {
+      "attempt_id" : "<generated-attempt-id>"
+    },
+    "operations" : [
+      "launch-reconcile",
+      "relay-drain"
+    ]
+  },
+  "schemaVersion" : 1
+}

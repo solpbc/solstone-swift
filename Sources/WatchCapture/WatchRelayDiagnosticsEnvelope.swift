@@ -346,8 +346,15 @@ nonisolated struct WatchRelayDiagnosticsPayload: Codable, Equatable, Sendable {
     }
 }
 
+nonisolated struct WatchRelayCatalogIssueSummary: Codable, Equatable, Sendable {
+    let kind: WatchCaptureCatalogIssueKind
+    let count: Int
+}
+
 nonisolated struct WatchRelayManifestSummary: Codable, Equatable, Sendable {
     let counts: WatchRelayManifestCounts
+    let catalogRootState: WatchCaptureCatalogRootState
+    let catalogIssues: [WatchRelayCatalogIssueSummary]
     let activeBacklogCount: Int
     let retainedSourceBytes: DiagnosticAvailability<Int64>
     let oldestActiveEnqueuedAt: DiagnosticAvailability<Date?>
@@ -360,6 +367,8 @@ nonisolated struct WatchRelayManifestSummary: Codable, Equatable, Sendable {
 
     init(
         counts: WatchRelayManifestCounts,
+        catalogRootState: WatchCaptureCatalogRootState = .complete,
+        catalogIssues: [WatchRelayCatalogIssueSummary] = [],
         activeBacklogCount: Int,
         retainedSourceBytes: DiagnosticAvailability<Int64>,
         oldestActiveEnqueuedAt: DiagnosticAvailability<Date?>,
@@ -378,6 +387,8 @@ nonisolated struct WatchRelayManifestSummary: Codable, Equatable, Sendable {
         )
     ) {
         self.counts = counts
+        self.catalogRootState = catalogRootState
+        self.catalogIssues = catalogIssues
         self.activeBacklogCount = activeBacklogCount
         self.retainedSourceBytes = retainedSourceBytes
         self.oldestActiveEnqueuedAt = oldestActiveEnqueuedAt
@@ -390,6 +401,8 @@ nonisolated struct WatchRelayManifestSummary: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case counts
+        case catalogRootState
+        case catalogIssues
         case activeBacklogCount
         case retainedSourceBytes
         case oldestActiveEnqueuedAt
@@ -403,6 +416,14 @@ nonisolated struct WatchRelayManifestSummary: Codable, Equatable, Sendable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.counts = try container.decode(WatchRelayManifestCounts.self, forKey: .counts)
+        self.catalogRootState = try container.decodeIfPresent(
+            WatchCaptureCatalogRootState.self,
+            forKey: .catalogRootState
+        ) ?? .complete
+        self.catalogIssues = try container.decodeIfPresent(
+            [WatchRelayCatalogIssueSummary].self,
+            forKey: .catalogIssues
+        ) ?? []
         self.activeBacklogCount = try container.decode(Int.self, forKey: .activeBacklogCount)
         self.retainedSourceBytes = try container.decode(DiagnosticAvailability<Int64>.self, forKey: .retainedSourceBytes)
         self.oldestActiveEnqueuedAt = try container.decode(
@@ -434,6 +455,8 @@ nonisolated struct WatchRelayManifestSummary: Codable, Equatable, Sendable {
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(self.counts, forKey: .counts)
+        try container.encode(self.catalogRootState, forKey: .catalogRootState)
+        try container.encode(self.catalogIssues, forKey: .catalogIssues)
         try container.encode(self.activeBacklogCount, forKey: .activeBacklogCount)
         try container.encode(self.retainedSourceBytes, forKey: .retainedSourceBytes)
         try container.encode(self.oldestActiveEnqueuedAt, forKey: .oldestActiveEnqueuedAt)

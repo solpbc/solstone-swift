@@ -96,7 +96,7 @@ nonisolated final class WatchNotificationAdapterGrepTests: XCTestCase {
     func testWatchAppInstallsStoredNotificationDelegate() throws {
         let body = try self.section(
             from: "init() {",
-            to: "let diagnosticsStore: WatchRelayDiagnosticsStore?",
+            to: "let storageActor: WatchCaptureStorageActor?",
             in: "Watch/Sources/SolstoneWatchApp.swift"
         )
 

@@ -9,50 +9,18 @@ nonisolated enum WatchSegmentBundleCodecError: Error, Equatable, Sendable {
     case manifestIDMismatch(expected: UUID, actual: UUID)
 }
 
-@MainActor
-enum WatchSegmentBundleCodec {
+nonisolated enum WatchSegmentBundleCodec {
     static let manifestFilename = "manifest.json"
     static let audioFilename = "audio.m4a"
     static let locationFilename = "location.jsonl"
-
-    static func writeBundle(
-        segmentDirectory: URL,
-        storage: WatchCaptureStorage,
-        to bundleURL: URL
-    ) throws {
-        let data = try self.encode(segmentDirectory: segmentDirectory, storage: storage)
-        try storage.fileWriter.writeData(data, to: bundleURL, options: .atomic)
-    }
-
-    static func encode(segmentDirectory: URL, storage: WatchCaptureStorage) throws -> Data {
-        var files: [String: Data] = [:]
-        let manifestURL = storage.manifestURL(directory: segmentDirectory)
-        files[self.manifestFilename] = try storage.fileWriter.readData(from: manifestURL)
-
-        let audioURL = storage.audioURL(directory: segmentDirectory)
-        if storage.fileWriter.fileExists(at: audioURL) {
-            files[self.audioFilename] = try storage.fileWriter.readData(from: audioURL)
-        }
-
-        let locationURL = storage.locationURL(directory: segmentDirectory)
-        if storage.fileWriter.fileExists(at: locationURL) {
-            files[self.locationFilename] = try storage.fileWriter.readData(from: locationURL)
-        }
-
-        return try PropertyListSerialization.data(
-            fromPropertyList: files,
-            format: .binary,
-            options: 0
-        )
-    }
 
     static func decode(
         bundleURL: URL,
         expectedID: UUID,
         destinationDirectory: URL,
         fileWriter: any WatchFileWriting
-    ) throws {
-        let data = try fileWriter.readData(from: bundleURL)
+    ) async throws {
+        let data = try await fileWriter.readData(from: bundleURL)
         guard let files = try PropertyListSerialization.propertyList(
             from: data,
             options: [],
@@ -69,21 +37,21 @@ enum WatchSegmentBundleCodec {
             throw WatchSegmentBundleCodecError.manifestIDMismatch(expected: expectedID, actual: manifest.id)
         }
 
-        try fileWriter.createDirectory(at: destinationDirectory)
-        try fileWriter.writeData(
+        try await fileWriter.createDirectory(at: destinationDirectory)
+        try await fileWriter.writeData(
             manifestData,
             to: destinationDirectory.appendingPathComponent(self.manifestFilename, isDirectory: false),
             options: .atomic
         )
         if let audioData = files[self.audioFilename] {
-            try fileWriter.writeData(
+            try await fileWriter.writeData(
                 audioData,
                 to: destinationDirectory.appendingPathComponent(self.audioFilename, isDirectory: false),
                 options: .atomic
             )
         }
         if let locationData = files[self.locationFilename] {
-            try fileWriter.writeData(
+            try await fileWriter.writeData(
                 locationData,
                 to: destinationDirectory.appendingPathComponent(self.locationFilename, isDirectory: false),
                 options: .atomic
@@ -116,7 +84,7 @@ enum WatchSegmentBundleCodec {
     }
 }
 
-private extension WatchSegmentBundleCodec {
+nonisolated private extension WatchSegmentBundleCodec {
     static func decodeManifest(from data: Data) throws -> WatchSegmentManifest {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

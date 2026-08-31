@@ -41,21 +41,19 @@ final class WatchRelayReceiver {
             ?? AppGroupContainer.rootURL(fileManager: fileManager)
                 .appendingPathComponent(Self.rootDirectoryName, isDirectory: true)
                 .appendingPathComponent(Self.stagingDirectoryName, isDirectory: true)
-        try self.fileWriter.createDirectory(at: self.stagingRootURL)
         self.session.onReceiveFile = { [weak self] url, metadata in
-            self?.receiveFile(url, metadata: metadata)
+            Task { @MainActor in
+                await self?.receiveFile(url, metadata: metadata)
+            }
         }
     }
 
-    func receiveFile(_ scratchURL: URL, metadata: [String: Any]) {
-        defer {
-            try? self.fileWriter.removeItem(at: scratchURL)
-        }
-
+    func receiveFile(_ scratchURL: URL, metadata: [String: Any]) async {
         guard let idString = metadata["id"] as? String,
               let id = UUID(uuidString: idString)
         else {
             watchRelayReceiverLog.error("watch relay payload missing id")
+            try? await self.fileWriter.removeItem(at: scratchURL)
             return
         }
 
@@ -64,29 +62,31 @@ final class WatchRelayReceiver {
             self.lastReceivedAt = Date()
             self.facts.noteSegmentFileReceived()
             self.sendACK(id: id)
+            try? await self.fileWriter.removeItem(at: scratchURL)
             return
         }
 
         let committedURL = self.committedURL(for: id)
-        if self.fileWriter.fileExists(at: committedURL) {
+        if await self.fileWriter.fileExists(at: committedURL) {
             watchRelayReceiverLog.info("watch relay duplicate staged id=\(id.uuidString, privacy: .public)")
             self.lastReceivedAt = Date()
             self.facts.noteSegmentFileReceived()
             self.sendACK(id: id)
             self.onSegmentStaged?(id)
+            try? await self.fileWriter.removeItem(at: scratchURL)
             return
         }
 
         let incomingURL = self.incomingURL(for: id)
         do {
-            try self.fileWriter.removeItem(at: incomingURL)
-            try WatchSegmentBundleCodec.decode(
+            try await self.fileWriter.removeItem(at: incomingURL)
+            try await WatchSegmentBundleCodec.decode(
                 bundleURL: scratchURL,
                 expectedID: id,
                 destinationDirectory: incomingURL,
                 fileWriter: self.fileWriter
             )
-            try self.fileWriter.moveItem(at: incomingURL, to: committedURL)
+            try await self.fileWriter.moveItem(at: incomingURL, to: committedURL)
             self.ledger.recordReceived(id: id)
             self.lastReceivedAt = Date()
             self.facts.noteSegmentFileReceived()
@@ -95,10 +95,11 @@ final class WatchRelayReceiver {
             self.onSegmentStaged?(id)
             watchRelayReceiverLog.info("watch relay staged id=\(id.uuidString, privacy: .public)")
         } catch {
-            try? self.fileWriter.removeItem(at: incomingURL)
+            try? await self.fileWriter.removeItem(at: incomingURL)
             self.lastStagingError = String(describing: error)
             watchRelayReceiverLog.error("watch relay staging failed id=\(id.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
         }
+        try? await self.fileWriter.removeItem(at: scratchURL)
     }
 
     func replayACKsForCommittedSegments() {

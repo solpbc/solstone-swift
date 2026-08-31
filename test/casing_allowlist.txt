@@ -102,7 +102,7 @@ LocationVocabulary.swift|\"Always
 ShareImportStore.swift|"ImportQueue"
 ShareImportSaveBody.swift|Content-Disposition
 ChunkSidecar.swift|"HHmmss"
-WatchCaptureStorage.swift|"WatchCapture"
+Sources/WatchCapture/WatchCaptureStorageActor.swift|"WatchCapture"
 WatchComplicationSnapshot.swift|SolstoneWatchStatus
 ComplicationViews.swift|SolstoneWatchStatusSmartStack
 AppGroupMirror.swift|SolstoneObserverStatus
@@ -111,7 +111,7 @@ ObserverCaptureIntent.swift|SolstoneOpenJournalControl
 ObserverStatusSmallWidget.swift|SolstoneObserverStatusSmall
 ObserverStatusMediumWidget.swift|SolstoneObserverStatusMedium
 ObserverStatusAccessoryCircularWidget.swift|SolstoneObserverStatusAccessoryCircular
-WatchCaptureStorage.swift|"HHmmss"
+Sources/WatchCapture/WatchCaptureStorageActor.swift|"HHmmss"
 ShareImportCoordinator.swift|SolstoneShareImport
 
 # TransferKit internal transport/build identifiers

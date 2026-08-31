@@ -164,6 +164,7 @@ nonisolated enum SourceVocabulary {
     static let watchStatusSaveFailed = "status could not be saved"
     static let watchStatusUnreadable = "status could not be read"
     static let watchManifestScanFailed = "saved items could not be checked"
+    static let watchManifestCatalogPartial = "some saved items need attention"
     static let watchLocationUnavailable = "location unavailable"
     static let watchGenericUnavailable = "something went wrong"
     static let watchStatusAudioOutcomeLabel = "audio outcome"

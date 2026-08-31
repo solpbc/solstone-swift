@@ -18,63 +18,89 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
         try? FileManager.default.removeItem(at: self.root)
     }
 
-    func testRingPrunesToFortyAndPreservesCounterEpoch() throws {
-        let storage = try WatchCaptureStorage(rootURL: self.root)
-        let store = WatchCaptureSessionHistoryStore(storage: storage)
+    func testRingPrunesToFortyAndPreservesCounterEpoch() async throws {
+        let storage = try WatchCaptureTestStorage(rootURL: self.root)
+        let store = self.storageActor(for: storage)
         let now = Date(timeIntervalSince1970: 1_784_073_600)
         for index in 0..<41 {
-            try store.upsert(self.entry(index, at: now.addingTimeInterval(TimeInterval(index))), asOf: now.addingTimeInterval(41))
+            try await store.upsertSessionHistory(self.entry(index, at: now.addingTimeInterval(TimeInterval(index))), asOf: now.addingTimeInterval(41))
         }
-        guard case let .available(entries) = store.read(asOf: now.addingTimeInterval(41)) else {
+        guard case let .available(entries) = await store.readSessionHistory(asOf: now.addingTimeInterval(41)) else {
             return XCTFail("history should be readable")
         }
         XCTAssertEqual(entries.count, 40)
         XCTAssertEqual(Set(entries.map(\.sessionID)), Set((1...40).map { "session-\($0)" }))
-        try store.upsert(self.entry(99, at: now.addingTimeInterval(-8 * 24 * 60 * 60)), asOf: now)
-        guard case let .available(retained) = store.read(asOf: now) else { return XCTFail("history should be readable") }
+        try await store.upsertSessionHistory(self.entry(99, at: now.addingTimeInterval(-8 * 24 * 60 * 60)), asOf: now)
+        guard case let .available(retained) = await store.readSessionHistory(asOf: now) else { return XCTFail("history should be readable") }
         XCTAssertFalse(retained.contains { $0.sessionID == "session-99" })
         XCTAssertTrue(retained.contains { $0.sessionID == "session-40" })
-        let first = try XCTUnwrap(store.incrementLifetimeCounter())
-        let second = try XCTUnwrap(store.incrementLifetimeCounter())
+        let firstCounter = try await store.incrementLifetimeSessionCounter()
+        let first = try XCTUnwrap(firstCounter)
+        let secondCounter = try await store.incrementLifetimeSessionCounter()
+        let second = try XCTUnwrap(secondCounter)
         XCTAssertEqual(second.lifetimeSessionsStarted, 2)
         XCTAssertEqual(first.epoch, second.epoch)
-        try storage.fileWriter.removeItem(at: storage.rootURL.appendingPathComponent(WatchCaptureSessionHistoryStore.counterFileName))
-        let recreated = try XCTUnwrap(store.incrementLifetimeCounter())
+        try await storage.fileWriter.removeItem(at: storage.rootURL.appendingPathComponent(WatchCaptureStorageActor.counterFileName))
+        let recreatedCounter = try await store.incrementLifetimeSessionCounter()
+        let recreated = try XCTUnwrap(recreatedCounter)
         XCTAssertEqual(recreated.lifetimeSessionsStarted, 1)
         XCTAssertNotEqual(recreated.epoch, second.epoch)
     }
 
-    func testDamagedTailKeepsRecoverableEntriesAndReportsUnreadableWhenNoneRecover() throws {
-        let storage = try WatchCaptureStorage(rootURL: self.root)
-        let store = WatchCaptureSessionHistoryStore(storage: storage)
+    func testDamagedTailKeepsRecoverableEntriesAndReportsUnreadableWhenNoneRecover() async throws {
+        let storage = try WatchCaptureTestStorage(rootURL: self.root)
+        let store = self.storageActor(for: storage)
         let now = Date()
-        try store.upsert(self.entry(1, at: now), asOf: now)
-        let url = storage.rootURL.appendingPathComponent(WatchCaptureSessionHistoryStore.historyFileName)
-        var data = try storage.fileWriter.readData(from: url)
+        try await store.upsertSessionHistory(self.entry(1, at: now), asOf: now)
+        let url = storage.rootURL.appendingPathComponent(WatchCaptureStorageActor.historyFileName)
+        var data = try await storage.fileWriter.readData(from: url)
         data.append(Data("bad tail\n".utf8))
-        try storage.fileWriter.atomicReplaceFile(at: url, with: data)
-        guard case let .available(entries) = store.read(asOf: now) else { return XCTFail("recoverable entry lost") }
+        try await storage.fileWriter.atomicReplaceFile(at: url, with: data)
+        guard case let .available(entries) = await store.readSessionHistory(asOf: now) else { return XCTFail("recoverable entry lost") }
         XCTAssertEqual(entries.map(\.sessionID), ["session-1"])
-        try storage.fileWriter.atomicReplaceFile(at: url, with: Data("bad tail\n".utf8))
-        XCTAssertEqual(store.read(asOf: now), .unreadable)
+        try await storage.fileWriter.atomicReplaceFile(at: url, with: Data("bad tail\n".utf8))
+        let unreadable = await store.readSessionHistory(asOf: now)
+        XCTAssertEqual(unreadable, .unreadable)
     }
 
-    func testReadPrunesExpiredEntriesFromFileWithoutSubsequentUpsert() throws {
-        let storage = try WatchCaptureStorage(rootURL: self.root)
-        let store = WatchCaptureSessionHistoryStore(storage: storage)
+    func testReadPrunesExpiredEntriesFromFileWithoutSubsequentUpsert() async throws {
+        let storage = try WatchCaptureTestStorage(rootURL: self.root)
+        let store = self.storageActor(for: storage)
         let now = Date(timeIntervalSince1970: 1_784_073_600)
         let expired = self.entry(1, at: now.addingTimeInterval(-8 * 24 * 60 * 60))
         let fresh = self.entry(2, at: now)
         let encoder = WatchRelayDiagnosticsEnvelope.makeEncoder()
         let data = try encoder.encode(expired) + Data([0x0A]) + encoder.encode(fresh) + Data([0x0A])
-        let url = storage.rootURL.appendingPathComponent(WatchCaptureSessionHistoryStore.historyFileName)
-        try storage.fileWriter.atomicReplaceFile(at: url, with: data)
+        let url = storage.rootURL.appendingPathComponent(WatchCaptureStorageActor.historyFileName)
+        try await storage.fileWriter.atomicReplaceFile(at: url, with: data)
 
-        XCTAssertEqual(store.read(asOf: now), .available([fresh]))
+        let pruned = await store.readSessionHistory(asOf: now)
+        XCTAssertEqual(pruned, .available([fresh]))
 
-        let remaining = String(decoding: try storage.fileWriter.readData(from: url), as: UTF8.self)
+        let remaining = String(decoding: try await storage.fileWriter.readData(from: url), as: UTF8.self)
         XCTAssertFalse(remaining.contains(expired.sessionID))
         XCTAssertTrue(remaining.contains(fresh.sessionID))
+    }
+
+    func testSessionRecordRoundTripsThroughStorageActor() async throws {
+        let storage = try WatchCaptureTestStorage(rootURL: self.root)
+        let actor = self.storageActor(for: storage)
+        let record = WatchCaptureSessionRecord(
+            sessionID: "session-record",
+            startedAt: Date(timeIntervalSince1970: 1_784_073_600),
+            state: .terminal,
+            terminalReason: .ownerStopped,
+            terminalDisposition: .ownerStopped,
+            terminalAt: Date(timeIntervalSince1970: 1_784_073_900),
+            noticeOwed: false,
+            segmentsProduced: 3
+        )
+
+        let missing = try await actor.readSessionRecord()
+        XCTAssertNil(missing)
+        try await actor.writeSessionRecord(record)
+        let restored = try await actor.readSessionRecord()
+        XCTAssertEqual(restored, record)
     }
 
     func testHistoryEntryCodingUsesCompactKeys() throws {
@@ -95,6 +121,13 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
             lowPowerModeEnabledAtEnd: false, thermalStateAtEnd: "nominal", lastVerifiedAudioAt: date,
             lastAudioCurrentTime: 1.23456789, zeroAudioCurrentTimeObservationCount: 3,
             locationAdvisory: nil, persistenceAdvisory: nil
+        )
+    }
+
+    private func storageActor(for storage: WatchCaptureTestStorage) -> WatchCaptureStorageActor {
+        WatchCaptureStorageActor(
+            paths: storage.paths,
+            fileWriter: storage.fileWriter
         )
     }
 }

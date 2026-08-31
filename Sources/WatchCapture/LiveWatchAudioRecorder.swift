@@ -76,7 +76,6 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
     }
 
     func start(url: URL, source: WatchCaptureSourceToken) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let settings: [String: Any] = [
             AVFormatIDKey: kAudioFormatMPEG4AAC,
             AVSampleRateKey: 16_000,
@@ -121,9 +120,8 @@ final class LiveWatchAudioSessionController: WatchAudioSessionControlling {
     }
 }
 
-@MainActor
-final class LiveWatchAudioProbe: WatchAudioProbing {
-    nonisolated static func classification(for error: any Error) -> WatchAudioProbeResult {
+nonisolated struct LiveWatchAudioProbe: WatchAudioProbing {
+    static func classification(for error: any Error) -> WatchAudioProbeResult {
         let nsError = error as NSError
         switch nsError.code {
         case 0x7479_703F, // 'typ?' — unsupported file type
@@ -136,7 +134,7 @@ final class LiveWatchAudioProbe: WatchAudioProbing {
         }
     }
 
-    func probe(at url: URL) -> WatchAudioProbeResult {
+    func probe(at url: URL) async -> WatchAudioProbeResult {
         do {
             _ = try Data(contentsOf: url, options: .mappedIfSafe)
         } catch {

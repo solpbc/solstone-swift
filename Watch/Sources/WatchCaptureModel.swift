@@ -14,18 +14,23 @@ final class WatchCaptureModel {
     var presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0) {
         didSet {
             guard oldValue != self.presentation else { return }
-            self.publishComplicationSnapshot()
+            self.enqueueComplicationSnapshotPublication()
         }
     }
 
     @ObservationIgnored private var engine: WatchCaptureEngine?
+    @ObservationIgnored private var storageActor: WatchCaptureStorageActor?
     @ObservationIgnored private let diagnosticsCollector: WatchRelayDiagnosticsCollector?
     @ObservationIgnored private let signposter: any WatchSignposting
     @ObservationIgnored private let complicationRootURL: @MainActor () throws -> URL
     @ObservationIgnored private let reloadComplicationTimelines: @MainActor () -> Void
+    @ObservationIgnored private var complicationPublishTail: Task<Void, Never> = Task {}
+    @ObservationIgnored private var relayStateRefreshTail: Task<Void, Never> = Task {}
 
     init(
-        storage: WatchCaptureStorage,
+        paths: WatchCaptureStoragePaths,
+        fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
+        storageActor: WatchCaptureStorageActor? = nil,
         relaySender: WatchRelaySender,
         session: any WatchConnectivitySession,
         diagnosticsCollector: WatchRelayDiagnosticsCollector,
@@ -38,6 +43,11 @@ final class WatchCaptureModel {
             WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationSnapshot.widgetKind)
         }
     ) {
+        let resolvedStorageActor = storageActor ?? WatchCaptureStorageActor(
+            paths: paths,
+            fileWriter: fileWriter
+        )
+        self.storageActor = resolvedStorageActor
         self.diagnosticsCollector = diagnosticsCollector
         self.signposter = signposter
         self.complicationRootURL = complicationRootURL
@@ -46,7 +56,9 @@ final class WatchCaptureModel {
             audioRecorder: LiveWatchAudioRecorder(),
             audioSession: LiveWatchAudioSessionController(),
             locationProvider: LiveWatchLocationProvider(),
-            storage: storage,
+            paths: paths,
+            fileWriter: fileWriter,
+            storageActor: resolvedStorageActor,
             clock: clock,
             audioProbe: LiveWatchAudioProbe(),
             notificationScheduler: notificationScheduler,
@@ -57,7 +69,9 @@ final class WatchCaptureModel {
             self?.presentation = presentation
         }
         engine.onRelayDrainRequested = { [weak relaySender] trigger in
-            relaySender?.drain(trigger: trigger)
+            Task { @MainActor in
+                await relaySender?.drain(trigger: trigger)
+            }
         }
         engine.onPublishStatus = { [session, signposter] context in
             let publication = signposter.begin(.statusPublication)
@@ -105,21 +119,19 @@ final class WatchCaptureModel {
             }
         }
         engine.onDiagnosticsEnvelopeRequested = { [diagnosticsCollector] asOf in
-            diagnosticsCollector.makeEnvelopeData(asOf: asOf)
+            await diagnosticsCollector.makeEnvelopeData(asOf: asOf)
         }
-        relaySender.onStateChanged = { [weak self, weak engine] in
-            engine?.refreshRelayCountsFromDisk()
-            if let engine {
-                self?.presentation = engine.ownerPresentation
-            }
+        relaySender.onStateChanged = { [weak self] in
+            self?.enqueueRelayStateRefresh()
         }
         self.engine = engine
         engine.reconcileOnLaunch()
         self.presentation = engine.ownerPresentation
-        self.publishComplicationSnapshot()
+        self.enqueueComplicationSnapshotPublication()
     }
 
     init(initializationError error: any Error) {
+        self.storageActor = nil
         self.diagnosticsCollector = nil
         self.signposter = WatchSignpost.live
         self.complicationRootURL = { try AppGroupContainer.rootURL() }
@@ -130,7 +142,7 @@ final class WatchCaptureModel {
             status: .needsAttention(WatchCaptureFailureMapper.observerError(for: error)),
             queuedCount: 0
         )
-        self.publishComplicationSnapshot()
+        self.enqueueComplicationSnapshotPublication()
     }
 
     var isRunning: Bool {
@@ -158,24 +170,56 @@ final class WatchCaptureModel {
         }
     }
 
-    func republishStatusOnReconnect() { self.engine?.republishCurrentStatus() }
+    func republishStatusOnReconnect() {
+        Task { @MainActor [weak self] in
+            await self?.engine?.republishCurrentStatus()
+        }
+    }
 
-    private func publishComplicationSnapshot() {
+    private func enqueueComplicationSnapshotPublication() {
+        let presentation = self.presentation
+        let previous = self.complicationPublishTail
+        self.complicationPublishTail = Task { @MainActor [weak self] in
+            await previous.value
+            guard let self else { return }
+            await self.publishComplicationSnapshot(presentation)
+        }
+    }
+
+    private func enqueueRelayStateRefresh() {
+        let previous = self.relayStateRefreshTail
+        self.relayStateRefreshTail = Task { @MainActor [weak self] in
+            await previous.value
+            guard let self, let engine = self.engine else { return }
+            await engine.refreshRelayCountsFromDisk()
+            self.presentation = engine.ownerPresentation
+        }
+    }
+
+    private func publishComplicationSnapshot(_ presentation: WatchCaptureOwnerPresentation) async {
         let snapshotInterval = self.signposter.begin(.complicationSnapshot)
+        var result: RelayResult = .failed
+        defer {
+            self.signposter.end(snapshotInterval, fields: WatchSignpostFields(result: result))
+        }
         do {
             // Reachability only changes link fields, which the complication snapshot does not persist.
-            let snapshot = WatchComplicationSnapshot(presentation: self.presentation, isReachable: true)
+            let snapshot = WatchComplicationSnapshot(presentation: presentation, isReachable: true)
             let encoder = JSONEncoder()
             // JSONEncoder does not guarantee object-key order; match sibling Watch encoders.
             encoder.outputFormatting = [.sortedKeys]
             let data = try encoder.encode(snapshot)
             let url = try self.complicationRootURL()
                 .appendingPathComponent(WatchComplicationSnapshot.fileName, isDirectory: false)
-            try data.write(to: url, options: .atomic)
+            let storageActor = self.storageActor ?? WatchCaptureStorageActor(
+                paths: WatchCaptureStoragePaths(rootURL: url.deletingLastPathComponent()),
+                fileWriter: FoundationWatchFileWriter()
+            )
+            self.storageActor = storageActor
+            try await storageActor.writeComplicationSnapshot(data, to: url)
             self.reloadComplicationTimelines()
-            self.signposter.end(snapshotInterval, fields: WatchSignpostFields(result: .completed))
+            result = .completed
         } catch {
-            self.signposter.end(snapshotInterval, fields: WatchSignpostFields(result: .failed))
             watchCaptureModelLog.error("watch complication snapshot publish failed: \(String(describing: error), privacy: .public)")
         }
     }

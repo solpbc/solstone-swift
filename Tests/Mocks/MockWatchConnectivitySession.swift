@@ -65,6 +65,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
 
     var activateCallCount = 0
     var transferredFiles: [(URL, [String: Any])] = []
+    var onTransferFile: ((URL, [String: Any]) -> Void)?
     var transferredUserInfos: [[String: Any]] = []
     var sentMessages: [[String: Any]] = []
     var updatedApplicationContexts: [[String: Any]] = []
@@ -91,6 +92,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
         let id = completion.segmentID
         self.transferredFiles.append((url, metadata))
         self.callLedger.append(.transferFile(url, id))
+        self.onTransferFile?(url, metadata)
         self.appendOutstandingTransfer(
             snapshot: WatchConnectivityFileTransferSnapshot(
                 asOf: Date(timeIntervalSince1970: 0),

@@ -213,7 +213,8 @@ nonisolated enum WatchCaptureTerminalDisposition: String, Codable, Equatable, Se
 nonisolated enum WatchCapturePersistenceAdvisory: String, Codable, Equatable, Sendable {
     case sessionRecordWriteFailed = "session-record-write-failed"
     case sessionRecordUnreadable = "session-record-unreadable"
-    case manifestScanFailed = "manifest-scan-failed"
+    case manifestCatalogPartial = "manifest-catalog-partial"
+    case manifestCatalogUnavailable = "manifest-catalog-unavailable"
 
     var message: String {
         switch self {
@@ -221,7 +222,9 @@ nonisolated enum WatchCapturePersistenceAdvisory: String, Codable, Equatable, Se
             SourceVocabulary.watchStatusSaveFailed
         case .sessionRecordUnreadable:
             SourceVocabulary.watchStatusUnreadable
-        case .manifestScanFailed:
+        case .manifestCatalogPartial:
+            SourceVocabulary.watchManifestCatalogPartial
+        case .manifestCatalogUnavailable:
             SourceVocabulary.watchManifestScanFailed
         }
     }

@@ -71,32 +71,34 @@ final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsE
 
 @MainActor
 final class WatchRelayDiagnosticsCollector {
-    private let storage: WatchCaptureStorage
-    private let diagnosticsStore: WatchRelayDiagnosticsStore
+    private let paths: WatchCaptureStoragePaths
+    private let storageActor: WatchCaptureStorageActor
     private let session: any WatchConnectivitySession
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
-    private let sessionHistoryStore: WatchCaptureSessionHistoryStore
     private let signposter: any WatchSignposting
 
     init(
-        storage: WatchCaptureStorage,
-        diagnosticsStore: WatchRelayDiagnosticsStore,
+        paths: WatchCaptureStoragePaths,
+        fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
+        storageActor: WatchCaptureStorageActor? = nil,
         session: any WatchConnectivitySession,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
         signposter: any WatchSignposting = WatchSignpost.live
     ) {
-        self.storage = storage
-        self.diagnosticsStore = diagnosticsStore
+        self.paths = paths
+        self.storageActor = storageActor ?? WatchCaptureStorageActor(
+            paths: paths,
+            fileWriter: fileWriter
+        )
         self.session = session
         self.environmentProvider = environmentProvider
         self.signposter = signposter
-        self.sessionHistoryStore = WatchCaptureSessionHistoryStore(storage: storage)
     }
 
-    func makeEnvelopeData(asOf: Date) -> Data? {
+    func makeEnvelopeData(asOf: Date) async -> Data? {
         let environment = self.environmentProvider.snapshot()
         let payloadInterval = self.signposter.begin(.diagnosticsPayloadAssembly)
-        let fullPayload = self.makePayload(asOf: asOf, environment: environment)
+        let fullPayload = await self.makePayload(asOf: asOf, environment: environment)
         self.signposter.end(payloadInterval, fields: WatchSignpostFields(result: .completed))
         let encodeInterval = self.signposter.begin(.diagnosticsFirstEncode)
         let data = self.encodeCompactedEnvelope(generatedAt: asOf, payload: fullPayload)
@@ -262,7 +264,7 @@ final class WatchRelayDiagnosticsCollector {
 
 private extension WatchRelayDiagnosticsCollector {
     struct ActiveManifestFact {
-        let entry: WatchCaptureStorage.ManifestEntry
+        let entry: WatchCaptureCatalogEntry
         let sidecar: DiagnosticAvailability<WatchRelaySegmentDiagnosticsSidecar>
         let sourcePresent: DiagnosticAvailability<Bool>
         let relayBundlePresent: DiagnosticAvailability<Bool>
@@ -295,15 +297,16 @@ private extension WatchRelayDiagnosticsCollector {
     func makePayload(
         asOf: Date,
         environment: WatchRelayDiagnosticsEnvironmentSnapshot
-    ) -> WatchRelayDiagnosticsPayload {
-        let entriesResult = Result { try self.storage.scanManifests() }
-        let entries = (try? entriesResult.get()) ?? []
+    ) async -> WatchRelayDiagnosticsPayload {
+        let catalog = await self.storageActor.scanCatalog()
+        let entries = catalog.entries
         let activeEntries = entries.filter { entry in
             entry.manifest.state == .queued || entry.manifest.state == .transferring
         }
         let manifestFactsInterval = self.signposter.begin(.diagnosticsManifestFacts)
-        let activeFacts = activeEntries.map { entry in
-            self.activeManifestFact(entry: entry)
+        var activeFacts: [ActiveManifestFact] = []
+        for entry in activeEntries {
+            activeFacts.append(await self.activeManifestFact(entry: entry))
         }
         self.signposter.end(manifestFactsInterval, fields: WatchSignpostFields(result: .completed))
         let fileTransferObservations = self.session.outstandingFileTransfers
@@ -322,24 +325,18 @@ private extension WatchRelayDiagnosticsCollector {
         )
         self.signposter.end(perItemFactsInterval, fields: WatchSignpostFields(result: .completed))
         let witnessInterval = self.signposter.begin(.diagnosticsChangedWitnessRevalidation)
-        let lastFacts = self.diagnosticsStore.readSummary()
+        let lastFacts = await self.storageActor.readDiagnosticsSummary()
         let failureSegmentID = Self.failureSegmentID(from: lastFacts)
-        let changedWitnessIDs = self.changedWitnessIDs(initialFacts: activeFacts)
+        let changedWitnessIDs = await self.changedWitnessIDs(initialFacts: activeFacts)
         let resolvedObservations = self.resolvedObservations(
             observations,
             changedWitnessIDs: changedWitnessIDs
         )
         self.signposter.end(witnessInterval, fields: WatchSignpostFields(result: .completed))
 
-        let manifestSummary: DiagnosticAvailability<WatchRelayManifestSummary>
-        switch entriesResult {
-        case .success:
-            manifestSummary = self.manifestSummary(entries: entries, activeFacts: activeFacts, asOf: asOf)
-        case .failure:
-            manifestSummary = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
-        }
+        let manifestSummary = self.manifestSummary(catalog: catalog, activeFacts: activeFacts, asOf: asOf)
         let historyInterval = self.signposter.begin(.diagnosticsHistorySummaryRead)
-        let historyResult = self.sessionHistoryStore.read(asOf: asOf)
+        let historyResult = await self.storageActor.readSessionHistory(asOf: asOf)
         let historyWindow: DiagnosticAvailability<[WatchCaptureSessionHistoryEntry]>
         let historyDepth: Int
         switch historyResult {
@@ -350,7 +347,7 @@ private extension WatchRelayDiagnosticsCollector {
             historyDepth = 0
             historyWindow = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable)
         }
-        let counter = self.sessionHistoryStore.readCounter()
+        let counter = await self.storageActor.readSessionHistoryCounter()
         self.signposter.end(historyInterval, fields: WatchSignpostFields(result: .completed))
 
         return WatchRelayDiagnosticsPayload(
@@ -390,12 +387,15 @@ private extension WatchRelayDiagnosticsCollector {
         )
     }
 
-    func activeManifestFact(entry: WatchCaptureStorage.ManifestEntry) -> ActiveManifestFact {
-        let sidecar = self.diagnosticsStore.readSidecar(manifest: entry.manifest, directoryURL: entry.directoryURL)
-        let sourcePresent = self.sourcePresent(for: entry.manifest.id)
-        let relayBundle = self.relayBundleFacts(for: entry.manifest.id)
-        let originalAudioFile = self.originalFileFact(at: self.storage.audioURL(directory: entry.directoryURL))
-        let originalLocationFile = self.originalFileFact(at: self.storage.locationURL(directory: entry.directoryURL))
+    func activeManifestFact(entry: WatchCaptureCatalogEntry) async -> ActiveManifestFact {
+        let sidecar = await self.storageActor.readDiagnosticsSidecar(
+            manifest: entry.manifest,
+            directoryURL: entry.directoryURL
+        )
+        let sourcePresent = await self.sourcePresent(for: entry.manifest.id)
+        let relayBundle = await self.relayBundleFacts(for: entry.manifest.id)
+        let originalAudioFile = await self.originalFileFact(at: self.paths.audioURL(directory: entry.directoryURL))
+        let originalLocationFile = await self.originalFileFact(at: self.paths.locationURL(directory: entry.directoryURL))
         let legacyAppOwnedSourceBytes = Self.legacySourceBytes(from: sidecar)
         let witnessValues = Self.sidecarWitnessValues(sidecar)
         let witness = ActiveManifestWitness(
@@ -424,15 +424,18 @@ private extension WatchRelayDiagnosticsCollector {
     }
 
     func manifestSummary(
-        entries: [WatchCaptureStorage.ManifestEntry],
+        catalog: WatchCaptureCatalog,
         activeFacts: [ActiveManifestFact],
         asOf: Date
     ) -> DiagnosticAvailability<WatchRelayManifestSummary> {
-        let counts = Self.manifestCounts(entries)
+        let counts = Self.manifestCounts(catalog.entries)
+        let catalogIssues = Self.catalogIssueSummary(catalog.issues)
         let originalAggregate = self.originalPayloadAggregate(activeFacts: activeFacts)
         guard !activeFacts.isEmpty else {
             return .available(WatchRelayManifestSummary(
                 counts: counts,
+                catalogRootState: catalog.rootState,
+                catalogIssues: catalogIssues,
                 activeBacklogCount: 0,
                 retainedSourceBytes: .available(0),
                 oldestActiveEnqueuedAt: .available(nil),
@@ -454,6 +457,8 @@ private extension WatchRelayDiagnosticsCollector {
             else {
                 return .available(WatchRelayManifestSummary(
                     counts: counts,
+                    catalogRootState: catalog.rootState,
+                    catalogIssues: catalogIssues,
                     activeBacklogCount: activeFacts.count,
                     retainedSourceBytes: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable),
                     oldestActiveEnqueuedAt: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable),
@@ -478,6 +483,8 @@ private extension WatchRelayDiagnosticsCollector {
         let oldest = enqueueDates.min()
         return .available(WatchRelayManifestSummary(
             counts: counts,
+            catalogRootState: catalog.rootState,
+            catalogIssues: catalogIssues,
             activeBacklogCount: activeFacts.count,
             retainedSourceBytes: sourceBytesOverflowed
                 ? .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
@@ -655,18 +662,18 @@ private extension WatchRelayDiagnosticsCollector {
         )
     }
 
-    func sourcePresent(for id: UUID) -> DiagnosticAvailability<Bool> {
-        .available(self.storage.fileWriter.fileExists(at: self.bundleURL(for: id)))
+    func sourcePresent(for id: UUID) async -> DiagnosticAvailability<Bool> {
+        .available(await self.storageActor.fileExists(at: self.bundleURL(for: id)))
     }
 
-    func relayBundleFacts(for id: UUID) -> (
+    func relayBundleFacts(for id: UUID) async -> (
         present: DiagnosticAvailability<Bool>,
         bytes: DiagnosticAvailability<Int64>
     ) {
         let url = self.bundleURL(for: id)
-        let present = self.storage.fileWriter.fileExists(at: url)
+        let present = await self.storageActor.fileExists(at: url)
         let bytes: DiagnosticAvailability<Int64>
-        if let byteCount = self.fileByteSize(at: url, sourcePresent: present) {
+        if let byteCount = await self.fileByteSize(at: url, sourcePresent: present) {
             bytes = .available(byteCount)
         } else {
             bytes = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
@@ -674,11 +681,11 @@ private extension WatchRelayDiagnosticsCollector {
         return (.available(present), bytes)
     }
 
-    func originalFileFact(at url: URL) -> DiagnosticAvailability<WatchRelayOriginalFileFact> {
-        guard self.storage.fileWriter.fileExists(at: url) else {
+    func originalFileFact(at url: URL) async -> DiagnosticAvailability<WatchRelayOriginalFileFact> {
+        guard await self.storageActor.fileExists(at: url) else {
             return .available(WatchRelayOriginalFileFact(state: .missing, byteCount: 0))
         }
-        guard let byteCount = self.fileByteSize(at: url, sourcePresent: true) else {
+        guard let byteCount = await self.fileByteSize(at: url, sourcePresent: true) else {
             return .available(WatchRelayOriginalFileFact(state: .unreadable, byteCount: nil))
         }
         if byteCount == 0 {
@@ -687,17 +694,9 @@ private extension WatchRelayDiagnosticsCollector {
         return .available(WatchRelayOriginalFileFact(state: .readableNonempty, byteCount: byteCount))
     }
 
-    func fileByteSize(at url: URL, sourcePresent: Bool) -> Int64? {
+    func fileByteSize(at url: URL, sourcePresent: Bool) async -> Int64? {
         guard sourcePresent else { return nil }
-        if let values = try? url.resourceValues(forKeys: [.fileSizeKey]),
-           let fileSize = values.fileSize {
-            return Int64(fileSize)
-        }
-        if let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-           let size = attributes[.size] as? NSNumber {
-            return size.int64Value
-        }
-        return nil
+        return try? await self.storageActor.fileSize(at: url)
     }
 
     func originalPayloadAggregate(activeFacts: [ActiveManifestFact]) -> OriginalPayloadAggregate {
@@ -788,23 +787,21 @@ private extension WatchRelayDiagnosticsCollector {
         }
     }
 
-    func changedWitnessIDs(initialFacts: [ActiveManifestFact]) -> Set<UUID> {
+    func changedWitnessIDs(initialFacts: [ActiveManifestFact]) async -> Set<UUID> {
         guard !initialFacts.isEmpty else { return [] }
         let initialByID = Dictionary(uniqueKeysWithValues: initialFacts.map { ($0.entry.manifest.id, $0.witness) })
-        let entries: [WatchCaptureStorage.ManifestEntry]
-        do {
-            entries = try self.storage.scanManifests()
-        } catch {
+        let catalog = await self.storageActor.scanCatalog()
+        guard catalog.canInferUUIDAbsence else {
             return Set(initialByID.keys)
         }
-        let entriesByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.manifest.id, $0) })
+        let entriesByID = Dictionary(uniqueKeysWithValues: catalog.entries.map { ($0.manifest.id, $0) })
         var changed = Set<UUID>()
         for (id, initialWitness) in initialByID {
             guard let entry = entriesByID[id] else {
                 changed.insert(id)
                 continue
             }
-            let currentWitness = self.activeManifestFact(entry: entry).witness
+            let currentWitness = (await self.activeManifestFact(entry: entry)).witness
             if currentWitness != initialWitness {
                 changed.insert(id)
             }
@@ -853,7 +850,7 @@ private extension WatchRelayDiagnosticsCollector {
     }
 
     func bundleURL(for id: UUID) -> URL {
-        self.storage.rootURL
+        self.paths.rootURL
             .appendingPathComponent(".relay-bundles", isDirectory: true)
             .appendingPathComponent("\(id.uuidString).watchrelay", isDirectory: false)
     }
@@ -956,7 +953,7 @@ private extension WatchRelayDiagnosticsCollector {
         return "3|\(String(format: "%06d", index))"
     }
 
-    static func manifestCounts(_ entries: [WatchCaptureStorage.ManifestEntry]) -> WatchRelayManifestCounts {
+    static func manifestCounts(_ entries: [WatchCaptureCatalogEntry]) -> WatchRelayManifestCounts {
         var counts = WatchRelayManifestCounts.zero
         for entry in entries {
             switch entry.manifest.state {
@@ -1051,6 +1048,16 @@ private extension WatchRelayDiagnosticsCollector {
             }
         }
         return counts
+    }
+
+    static func catalogIssueSummary(
+        _ issues: [WatchCaptureCatalogIssue]
+    ) -> [WatchRelayCatalogIssueSummary] {
+        Dictionary(grouping: issues, by: \.kind)
+            .map { kind, issues in
+                WatchRelayCatalogIssueSummary(kind: kind, count: issues.count)
+            }
+            .sorted { $0.kind.rawValue < $1.kind.rawValue }
     }
 
     static func activationStateString(_ state: WCSessionActivationState) -> String {

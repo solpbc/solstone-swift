@@ -20,22 +20,34 @@ struct SolstoneWatchApp: App {
         let session = LiveWatchConnectivitySession()
         self.notificationScheduler = LiveWatchNotificationScheduler()
         UNUserNotificationCenter.current().delegate = self.notificationScheduler
-            let diagnosticsStore: WatchRelayDiagnosticsStore?
+        let storageActor: WatchCaptureStorageActor?
         do {
-            let storage = try WatchCaptureStorage()
-            let store = WatchRelayDiagnosticsStore(storage: storage)
-            diagnosticsStore = store
-            let relaySender = WatchRelaySender(storage: storage, session: session, diagnosticsStore: store)
+            let paths = try WatchCaptureStoragePaths()
+            let fileWriter = FoundationWatchFileWriter()
+            let actor = WatchCaptureStorageActor(
+                paths: paths,
+                fileWriter: fileWriter
+            )
+            storageActor = actor
+            let relaySender = WatchRelaySender(
+                paths: paths,
+                fileWriter: fileWriter,
+                storageActor: actor,
+                session: session
+            )
             let environmentProvider = LiveWatchRelayDiagnosticsEnvironmentProvider()
             let diagnosticsCollector = WatchRelayDiagnosticsCollector(
-                storage: storage,
-                diagnosticsStore: store,
+                paths: paths,
+                fileWriter: fileWriter,
+                storageActor: actor,
                 session: session,
                 environmentProvider: environmentProvider
             )
             let sessionModel = WatchSessionModel(session: session, relaySender: relaySender)
             let captureModel = WatchCaptureModel(
-                storage: storage,
+                paths: paths,
+                fileWriter: fileWriter,
+                storageActor: storageActor,
                 relaySender: relaySender,
                 session: session,
                 diagnosticsCollector: diagnosticsCollector,
@@ -46,14 +58,14 @@ struct SolstoneWatchApp: App {
             self._sessionModel = State(initialValue: sessionModel)
             self._captureModel = State(initialValue: captureModel)
         } catch {
-            diagnosticsStore = nil
+            storageActor = nil
             self._sessionModel = State(initialValue: WatchSessionModel(
                 session: session,
                 relaySender: nil
             ))
             self._captureModel = State(initialValue: WatchCaptureModel(initializationError: error))
         }
-        let coordinator = WatchBackgroundTaskCoordinator(session: session, diagnosticsStore: diagnosticsStore)
+        let coordinator = WatchBackgroundTaskCoordinator(session: session, storageActor: storageActor)
         self._backgroundTaskCoordinator = State(initialValue: coordinator)
         self.appDelegate.session = session
         self.appDelegate.backgroundTaskCoordinator = coordinator

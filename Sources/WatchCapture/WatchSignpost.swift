@@ -77,6 +77,12 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
     case diagnosticsPayloadAssembly
     case diagnosticsFirstEncode
     case diagnosticsCompactionEncode
+    case storageActorFileOperation
+    case storageActorManifestWrite
+    case capturePreparation
+    case captureFinalization
+    case locationLogAppend
+    case locationLogReconciliation
 
     var name: StaticString {
         switch self {
@@ -134,6 +140,18 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
             "watch.diagnostics_first_encode"
         case .diagnosticsCompactionEncode:
             "watch.diagnostics_compaction_encode"
+        case .storageActorFileOperation:
+            "watch.storage_actor_file_operation"
+        case .storageActorManifestWrite:
+            "watch.storage_actor_manifest_write"
+        case .capturePreparation:
+            "watch.capture_preparation"
+        case .captureFinalization:
+            "watch.capture_finalization"
+        case .locationLogAppend:
+            "watch.location_log_append"
+        case .locationLogReconciliation:
+            "watch.location_log_reconciliation"
         }
     }
 }
@@ -332,4 +350,62 @@ final class NoOpWatchSignpostIntervalSink: WatchSignpostIntervalSink {
         _ invocation: WatchSignpostInvocation,
         fields: WatchSignpostFields
     ) {}
+}
+
+/// Actor-local signposting for serialized watch storage operations. This is deliberately
+/// separate from `WatchSignposter`: storage work never needs a MainActor instrumentation hop.
+nonisolated struct WatchStorageSignpostInvocation: Sendable {
+    let boundary: WatchSignpostBoundary
+    let state: OSSignpostIntervalState?
+}
+
+nonisolated protocol WatchStorageSignpostIntervalSink: Sendable {
+    var isEnabled: Bool { get }
+
+    func begin(_ boundary: WatchSignpostBoundary) -> WatchStorageSignpostInvocation
+    func end(_ invocation: WatchStorageSignpostInvocation)
+}
+
+nonisolated struct WatchStorageSignposter: Sendable {
+    private let sink: any WatchStorageSignpostIntervalSink
+
+    init() {
+        self.sink = LiveWatchStorageSignpostIntervalSink()
+    }
+
+    init(sink: any WatchStorageSignpostIntervalSink) {
+        self.sink = sink
+    }
+
+    func begin(_ boundary: WatchSignpostBoundary) -> WatchStorageSignpostInvocation? {
+        // Keep the disabled path allocation-free: no interval state or operation fields exist
+        // until the OS signposter (or an injected test sink) has enabled instrumentation.
+        guard self.sink.isEnabled else { return nil }
+        return self.sink.begin(boundary)
+    }
+
+    func end(_ invocation: WatchStorageSignpostInvocation?) {
+        guard let invocation else { return }
+        self.sink.end(invocation)
+    }
+}
+
+nonisolated private struct LiveWatchStorageSignpostIntervalSink: WatchStorageSignpostIntervalSink {
+    private let signposter = OSSignposter(
+        logHandle: OSLog(subsystem: "app.solstone.swift", category: "watch-storage-signpost")
+    )
+
+    var isEnabled: Bool { self.signposter.isEnabled }
+
+    func begin(_ boundary: WatchSignpostBoundary) -> WatchStorageSignpostInvocation {
+        WatchStorageSignpostInvocation(
+            boundary: boundary,
+            state: self.signposter.beginInterval(boundary.name)
+        )
+    }
+
+    func end(_ invocation: WatchStorageSignpostInvocation) {
+        guard let state = invocation.state else { return }
+        self.signposter.endInterval(invocation.boundary.name, state)
+    }
 }

@@ -370,6 +370,7 @@ targets:
     resources:
       - Tests/Fixtures/ShareImportBodies
       - Tests/Fixtures/IntegrationGate
+      - Tests/Fixtures/WatchCaptureStoragePreActor
     dependencies:
       - target: solstone-swift
       - package: spl-swift

@@ -118,7 +118,7 @@ final class WatchSourceFactsTests: XCTestCase {
         XCTAssertEqual(facts.snapshot, Self.snapshot(watchAppCheckedIn: true, segmentFileReceived: false))
     }
 
-    func testWatchRelayReceiverWritesBothFactsForValidSegmentOnly() throws {
+    func testWatchRelayReceiverWritesBothFactsForValidSegmentOnly() async throws {
         let defaults = try Self.defaults()
         defer { defaults.defaults.removePersistentDomain(forName: defaults.name) }
         let facts = WatchSourceFacts(defaults: defaults.defaults)
@@ -135,13 +135,13 @@ final class WatchSourceFactsTests: XCTestCase {
 
         let invalidScratch = self.tempDirectory.appendingPathComponent("invalid.bundle", isDirectory: false)
         try Data("invalid".utf8).write(to: invalidScratch)
-        receiver.receiveFile(invalidScratch, metadata: [:])
+        await receiver.receiveFile(invalidScratch, metadata: [:])
         XCTAssertEqual(facts.snapshot, Self.snapshot(watchAppCheckedIn: false, segmentFileReceived: false))
 
         let id = UUID()
         let validScratch = self.tempDirectory.appendingPathComponent("valid.bundle", isDirectory: false)
         try Self.writeBundle(id: id, to: validScratch)
-        receiver.receiveFile(validScratch, metadata: ["id": id.uuidString])
+        await receiver.receiveFile(validScratch, metadata: ["id": id.uuidString])
 
         XCTAssertEqual(facts.snapshot, Self.snapshot(watchAppCheckedIn: true, segmentFileReceived: true))
         XCTAssertEqual(ledger.nonTerminalCount, 1)

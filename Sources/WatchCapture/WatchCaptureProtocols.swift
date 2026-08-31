@@ -52,79 +52,87 @@ protocol WatchLocationProviding: AnyObject {
     func stop()
 }
 
-@MainActor
-protocol WatchFileWriting: AnyObject {
-    func createDirectory(at url: URL) throws
-    func createFileIfNeeded(at url: URL) throws
-    func fileExists(at url: URL) -> Bool
-    func fileSize(at url: URL) throws -> Int64
-    func readData(from url: URL) throws -> Data
-    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) throws
-    func appendLine(_ line: Data, to url: URL) throws
-    func atomicReplaceFile(at url: URL, with data: Data) throws
-    func removeItem(at url: URL) throws
-    func moveItem(at sourceURL: URL, to destinationURL: URL) throws
-    func contentsOfDirectory(at url: URL) throws -> [URL]
+nonisolated protocol WatchFileWriting: Sendable {
+    func createDirectory(at url: URL) async throws
+    func createFileIfNeeded(at url: URL) async throws
+    func fileExists(at url: URL) async -> Bool
+    func itemKind(at url: URL) async throws -> WatchCaptureStorageItemKind
+    func fileSize(at url: URL) async throws -> Int64
+    func fileFingerprint(at url: URL) async throws -> WatchCaptureStorageFileFingerprint?
+    func readData(from url: URL) async throws -> Data
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) async throws
+    func appendLine(_ line: Data, to url: URL) async throws
+    func atomicReplaceFile(at url: URL, with data: Data) async throws
+    func removeItem(at url: URL) async throws
+    func moveItem(at sourceURL: URL, to destinationURL: URL) async throws
+    func contentsOfDirectory(at url: URL) async throws -> [URL]
 }
 
-nonisolated enum WatchAudioProbeResult: Equatable, Sendable {
-    case decodable(duration: TimeInterval)
-    case confirmedUndecodable
-    case ioUnknown
+nonisolated enum WatchCaptureStorageItemKind: Sendable {
+    case missing
+    case file
+    case directory
 }
 
-@MainActor
-protocol WatchAudioProbing: AnyObject {
-    func probe(at url: URL) -> WatchAudioProbeResult
+nonisolated struct WatchCaptureStorageFileFingerprint: Equatable, Sendable {
+    let byteCount: Int64
+    let modificationDate: Date?
 }
 
-@MainActor
-final class FoundationWatchFileWriter: WatchFileWriting {
-    private let fileManager: FileManager
+nonisolated struct FoundationWatchFileWriter: WatchFileWriting {
+    init() {}
 
-    init(fileManager: FileManager = .default) {
-        self.fileManager = fileManager
+    func createDirectory(at url: URL) async throws {
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     }
 
-    func createDirectory(at url: URL) throws {
-        try self.fileManager.createDirectory(at: url, withIntermediateDirectories: true)
-    }
-
-    func createFileIfNeeded(at url: URL) throws {
-        try self.createDirectory(at: url.deletingLastPathComponent())
-        if !self.fileManager.fileExists(atPath: url.path) {
-            _ = self.fileManager.createFile(atPath: url.path, contents: nil)
+    func createFileIfNeeded(at url: URL) async throws {
+        try await self.createDirectory(at: url.deletingLastPathComponent())
+        if !FileManager.default.fileExists(atPath: url.path) {
+            _ = FileManager.default.createFile(atPath: url.path, contents: nil)
         }
     }
 
-    func fileExists(at url: URL) -> Bool {
-        self.fileManager.fileExists(atPath: url.path)
+    func fileExists(at url: URL) async -> Bool {
+        FileManager.default.fileExists(atPath: url.path)
     }
 
-    func fileSize(at url: URL) throws -> Int64 {
-        guard self.fileManager.fileExists(atPath: url.path) else { return 0 }
-        let attributes = try self.fileManager.attributesOfItem(atPath: url.path)
+    func itemKind(at url: URL) async throws -> WatchCaptureStorageItemKind {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return .missing }
+        return isDirectory.boolValue ? .directory : .file
+    }
+
+    func fileSize(at url: URL) async throws -> Int64 {
+        guard await self.fileExists(at: url) else { return 0 }
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
         guard let size = attributes[.size] as? NSNumber else {
-            throw NSError(
-                domain: NSCocoaErrorDomain,
-                code: NSFileReadUnknownError,
-                userInfo: [NSFilePathErrorKey: url.path]
-            )
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadUnknownError, userInfo: [NSFilePathErrorKey: url.path])
         }
         return size.int64Value
     }
 
-    func readData(from url: URL) throws -> Data {
-        try Data(contentsOf: url)
+    func fileFingerprint(at url: URL) async throws -> WatchCaptureStorageFileFingerprint? {
+        guard await self.fileExists(at: url) else { return nil }
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard let size = attributes[.size] as? NSNumber else {
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadUnknownError, userInfo: [NSFilePathErrorKey: url.path])
+        }
+        return WatchCaptureStorageFileFingerprint(
+            byteCount: size.int64Value,
+            modificationDate: attributes[.modificationDate] as? Date
+        )
     }
 
-    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions = []) throws {
-        try self.createDirectory(at: url.deletingLastPathComponent())
+    func readData(from url: URL) async throws -> Data { try Data(contentsOf: url) }
+
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) async throws {
+        try await self.createDirectory(at: url.deletingLastPathComponent())
         try data.write(to: url, options: options)
     }
 
-    func appendLine(_ line: Data, to url: URL) throws {
-        try self.createFileIfNeeded(at: url)
+    func appendLine(_ line: Data, to url: URL) async throws {
+        try await self.createFileIfNeeded(at: url)
         let handle = try FileHandle(forWritingTo: url)
         defer { try? handle.close() }
         _ = try handle.seekToEnd()
@@ -133,44 +141,49 @@ final class FoundationWatchFileWriter: WatchFileWriting {
         try handle.synchronize()
     }
 
-    func atomicReplaceFile(at url: URL, with data: Data) throws {
-        try self.createDirectory(at: url.deletingLastPathComponent())
+    func atomicReplaceFile(at url: URL, with data: Data) async throws {
+        try await self.createDirectory(at: url.deletingLastPathComponent())
         let tempURL = url.deletingLastPathComponent()
             .appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp", isDirectory: false)
         try data.write(to: tempURL, options: .atomic)
         let handle = try FileHandle(forWritingTo: tempURL)
         try handle.synchronize()
         try? handle.close()
-        if self.fileManager.fileExists(atPath: url.path) {
-            _ = try self.fileManager.replaceItemAt(url, withItemAt: tempURL)
+        if FileManager.default.fileExists(atPath: url.path) {
+            _ = try FileManager.default.replaceItemAt(url, withItemAt: tempURL)
         } else {
-            try self.fileManager.moveItem(at: tempURL, to: url)
+            try FileManager.default.moveItem(at: tempURL, to: url)
         }
     }
 
-    func removeItem(at url: URL) throws {
-        guard self.fileManager.fileExists(atPath: url.path) else { return }
-        try self.fileManager.removeItem(at: url)
+    func removeItem(at url: URL) async throws {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try FileManager.default.removeItem(at: url)
     }
 
-    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
-        try self.createDirectory(at: destinationURL.deletingLastPathComponent())
-        if self.fileManager.fileExists(atPath: destinationURL.path) {
-            throw NSError(
-                domain: NSCocoaErrorDomain,
-                code: NSFileWriteFileExistsError,
-                userInfo: [NSFilePathErrorKey: destinationURL.path]
-            )
+    func moveItem(at sourceURL: URL, to destinationURL: URL) async throws {
+        try await self.createDirectory(at: destinationURL.deletingLastPathComponent())
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError, userInfo: [NSFilePathErrorKey: destinationURL.path])
         }
-        try self.fileManager.moveItem(at: sourceURL, to: destinationURL)
+        try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
     }
 
-    func contentsOfDirectory(at url: URL) throws -> [URL] {
-        guard self.fileManager.fileExists(atPath: url.path) else { return [] }
-        return try self.fileManager.contentsOfDirectory(
+    func contentsOfDirectory(at url: URL) async throws -> [URL] {
+        try FileManager.default.contentsOfDirectory(
             at: url,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
         )
     }
+}
+
+nonisolated enum WatchAudioProbeResult: Equatable, Sendable {
+    case decodable(duration: TimeInterval)
+    case confirmedUndecodable
+    case ioUnknown
+}
+
+nonisolated protocol WatchAudioProbing: Sendable {
+    func probe(at url: URL) async -> WatchAudioProbeResult
 }
