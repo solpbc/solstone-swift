@@ -42,7 +42,7 @@ final class WatchRelayTests: XCTestCase {
         let id = UUID()
         let directory = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
         watchSession.activate()
         await sender.drain(trigger: .testDirect)
@@ -56,7 +56,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(firstManifest.state, .transferring)
 
         let relaunchedSession = MockWatchConnectivitySession()
-        let relaunchedSender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: relaunchedSession)
+        let relaunchedSender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: relaunchedSession)
         relaunchedSession.activate()
         await relaunchedSender.drain(trigger: .testDirect)
 
@@ -74,7 +74,7 @@ final class WatchRelayTests: XCTestCase {
         let id = UUID()
         let directory = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
         watchSession.activate()
         await sender.drain(trigger: .testDirect)
@@ -135,7 +135,7 @@ final class WatchRelayTests: XCTestCase {
         let sourceDirectory = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
@@ -170,7 +170,7 @@ final class WatchRelayTests: XCTestCase {
         let sourceDirectory = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
@@ -201,7 +201,7 @@ final class WatchRelayTests: XCTestCase {
         let sourceDirectory = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
@@ -230,7 +230,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
@@ -252,7 +252,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
@@ -272,7 +272,7 @@ final class WatchRelayTests: XCTestCase {
         let sourceDirectory = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
@@ -303,7 +303,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         var stagedIDs: [UUID] = []
         receiver.onSegmentStaged = { stagedIDs.append($0) }
@@ -329,7 +329,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let ledger = self.makeLedger("instrumentation-success-ledger")
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
         let invalidScratch = self.tempDirectory.appendingPathComponent("invalid-watchrelay")
@@ -375,7 +375,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let ledger = self.makeLedger("instrumentation-duplicate-ledger")
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
         defer { withExtendedLifetime(receiver) {} }
@@ -419,7 +419,7 @@ final class WatchRelayTests: XCTestCase {
             _ = try await self.writeSegment(storage: storage, id: id, index: 0)
             let watchSession = MockWatchConnectivitySession()
             let phoneSession = MockWatchConnectivitySession()
-            let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+            let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
             let ledger = self.makeLedger("ac4-\(terminalKind)-ledger")
             ledger.recordReceived(id: id)
             if terminalKind == "handed" {
@@ -452,7 +452,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let ledger = self.makeLedger("ac5-nonterminal-ledger")
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
         var stagedIDs: [UUID] = []
@@ -482,7 +482,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let ledger = self.makeLedger("ac5-missing-ledger")
         ledger.recordReceived(id: id)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
@@ -537,7 +537,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
         defer { withExtendedLifetime(receiver) {} }
 
@@ -562,7 +562,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
         defer { withExtendedLifetime(receiver) {} }
 
@@ -582,7 +582,7 @@ final class WatchRelayTests: XCTestCase {
         let id = UUID()
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
         watchSession.activate()
         await sender.drain(trigger: .testDirect)
@@ -603,7 +603,7 @@ final class WatchRelayTests: XCTestCase {
         }
         let watchSession = MockWatchConnectivitySession()
         let phoneSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot)
         defer { withExtendedLifetime(receiver) {} }
 
@@ -636,7 +636,7 @@ final class WatchRelayTests: XCTestCase {
         let storage = try self.makeStorage("ac3-finish-matrix")
         let watchSession = MockWatchConnectivitySession()
         let now = Date(timeIntervalSince1970: 2_000_000_000)
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession, clock: { now })
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession, clock: { now })
         watchSession.activate()
 
         let successID = UUID()
@@ -721,7 +721,7 @@ final class WatchRelayTests: XCTestCase {
             state: .delivered
         )
         let session = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: session)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session)
 
         await writer.armNextRead()
         session.finishTransfer(id: completionID, failure: nil)
@@ -752,7 +752,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .delivered)
         let watchSession = MockWatchConnectivitySession()
         let now = Date(timeIntervalSince1970: 2_000_000_000)
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession, clock: { now })
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession, clock: { now })
         let bundleURL = sender.bundleURL(for: id)
         try FileManager.default.createDirectory(at: bundleURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let marker = Data("existing bundle".utf8)
@@ -782,7 +782,7 @@ final class WatchRelayTests: XCTestCase {
             deliveredAt: deliveredAt
         )
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession, clock: { now })
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession, clock: { now })
         let bundleURL = sender.bundleURL(for: id)
         try FileManager.default.createDirectory(at: bundleURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let marker = Data("existing bundle".utf8)
@@ -811,7 +811,7 @@ final class WatchRelayTests: XCTestCase {
             deliveredAt: now.addingTimeInterval(-900)
         )
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession, clock: { now })
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession, clock: { now })
 
         watchSession.activate()
         await sender.drain(trigger: .testDirect)
@@ -829,7 +829,7 @@ final class WatchRelayTests: XCTestCase {
         let id = UUID()
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
         watchSession.activate()
         await sender.drain(trigger: .testDirect)
@@ -863,7 +863,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -891,7 +891,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -913,7 +913,6 @@ final class WatchRelayTests: XCTestCase {
         let diagnostics = self.storageActor(for: storage)
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: diagnostics,
             session: session,
             signposter: WatchSignposter(sink: sink)
@@ -948,7 +947,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -973,7 +972,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -1003,7 +1002,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -1032,7 +1031,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -1060,7 +1059,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -1081,7 +1080,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -1108,7 +1107,6 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: diagnostics,
             session: session,
             signposter: WatchSignposter(sink: sink)
@@ -1133,7 +1131,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -1157,7 +1155,7 @@ final class WatchRelayTests: XCTestCase {
         let absentID = UUID()
         _ = try await self.writeSegment(storage: storageA, id: absentID, index: 0, state: .transferring)
         let sessionA = MockWatchConnectivitySession()
-        let senderA = WatchRelaySender(paths: storageA.paths, fileWriter: storageA.fileWriter, session: sessionA)
+        let senderA = WatchRelaySender(paths: storageA.paths, storageActor: self.storageActor(for: storageA), session: sessionA)
         sessionA.activate()
         await senderA.drain(trigger: .testDirect)
         await senderA.drain(trigger: .testDirect)
@@ -1170,7 +1168,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storageB, id: presentID, index: 0, state: .transferring)
         let sessionB = MockWatchConnectivitySession()
         sessionB.seedOutstandingTransfer(id: presentID)
-        let senderB = WatchRelaySender(paths: storageB.paths, fileWriter: storageB.fileWriter, session: sessionB)
+        let senderB = WatchRelaySender(paths: storageB.paths, storageActor: self.storageActor(for: storageB), session: sessionB)
         sessionB.activate()
         await senderB.drain(trigger: .testDirect)
         XCTAssertTrue(sessionB.transferredFiles.isEmpty)
@@ -1183,7 +1181,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storageC, id: adoptID, index: 0)
         let sessionC = MockWatchConnectivitySession()
         sessionC.seedOutstandingTransfer(id: adoptID)
-        let senderC = WatchRelaySender(paths: storageC.paths, fileWriter: storageC.fileWriter, session: sessionC)
+        let senderC = WatchRelaySender(paths: storageC.paths, storageActor: self.storageActor(for: storageC), session: sessionC)
         sessionC.activate()
         await senderC.drain(trigger: .testDirect)
         XCTAssertTrue(sessionC.transferredFiles.isEmpty)
@@ -1197,7 +1195,7 @@ final class WatchRelayTests: XCTestCase {
         let sessionD = MockWatchConnectivitySession()
         sessionD.seedOutstandingTransfer(id: duplicateID)
         sessionD.seedOutstandingTransfer(id: duplicateID)
-        let senderD = WatchRelaySender(paths: storageD.paths, fileWriter: storageD.fileWriter, session: sessionD)
+        let senderD = WatchRelaySender(paths: storageD.paths, storageActor: self.storageActor(for: storageD), session: sessionD)
         sessionD.activate()
         await senderD.drain(trigger: .testDirect)
         XCTAssertEqual(sessionD.cancelledSegmentIDs, [duplicateID])
@@ -1213,7 +1211,7 @@ final class WatchRelayTests: XCTestCase {
         sessionE.seedOutstandingTransfer(id: nil)
         sessionE.seedOutstandingTransfer(id: missingID)
         sessionE.seedOutstandingTransfer(id: deliveredID)
-        let senderE = WatchRelaySender(paths: storageE.paths, fileWriter: storageE.fileWriter, session: sessionE)
+        let senderE = WatchRelaySender(paths: storageE.paths, storageActor: self.storageActor(for: storageE), session: sessionE)
         sessionE.activate()
         await senderE.drain(trigger: .testDirect)
         XCTAssertEqual(sessionE.cancelledSegmentIDs.count, 3)
@@ -1232,7 +1230,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: queuedID, index: 0)
         _ = try await self.writeSegment(storage: storage, id: transferringID, index: 1, state: .transferring)
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
         await sender.drain(trigger: .testDirect)
 
@@ -1262,7 +1260,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -1290,7 +1288,7 @@ final class WatchRelayTests: XCTestCase {
         let id = UUID()
         let directory = try await self.writeSegment(storage: storage, id: id, index: 0)
         let watchSession = MockWatchConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: watchSession)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         watchSession.activate()
         await sender.drain(trigger: .testDirect)
         let bundleURL = sender.bundleURL(for: id)
@@ -1331,7 +1329,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let session = AdversarialOutstandingSession(segmentID: id)
         let store = self.storageActor(for: storage)
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, storageActor: store, session: session)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: store, session: session)
 
         await sender.drain(trigger: .testDirect)
 
@@ -1350,7 +1348,7 @@ final class WatchRelayTests: XCTestCase {
         _ = try await self.writeSegment(storage: storage, id: id, index: 0)
         let session = MockWatchConnectivitySession()
         let now = Date(timeIntervalSince1970: 2_000_000_000)
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: session, clock: { now })
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session, clock: { now })
         session.activate()
 
         await sender.drain(trigger: .testDirect)
@@ -1375,7 +1373,7 @@ final class WatchRelayTests: XCTestCase {
         let session = MockWatchConnectivitySession()
         session.seedOutstandingTransfer(id: id, generation: 0, attemptID: firstAttempt)
         session.seedOutstandingTransfer(id: id, generation: 0, attemptID: secondAttempt)
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: session)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session)
 
         session.finishTransfer(attemptID: secondAttempt, failure: nil)
         await self.settleConnectivityCallback()
@@ -1400,7 +1398,7 @@ final class WatchRelayTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
+            storageActor: self.storageActor(for: storage),
             session: session,
             signposter: WatchSignposter(sink: sink)
         )
@@ -1438,7 +1436,7 @@ final class WatchRelayTests: XCTestCase {
         session.onTransferFile = { [probe] _, _ in
             probe.transferObservedBundleWrite = probe.bundleWriteCompleted
         }
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: session)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session)
 
         session.activate()
         await sender.drain(trigger: .testDirect)

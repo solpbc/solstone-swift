@@ -52,7 +52,6 @@ final class WatchCaptureStorageByteEquivalenceTests: XCTestCase {
 
         let sender = WatchRelaySender(
             paths: paths,
-            fileWriter: writer,
             storageActor: actor,
             session: session,
             clock: { Self.traceClock }

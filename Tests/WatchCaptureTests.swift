@@ -909,12 +909,17 @@ final class WatchCaptureTests: XCTestCase {
         try Data("aac".utf8).write(to: harness.storage.audioURL(directory: residueDirectory))
         let relaunchProbe = MockWatchAudioProbe()
         await relaunchProbe.setDuration(12.3, forPath: harness.storage.audioURL(directory: residueDirectory).path)
+        let relaunchStorageActor = WatchCaptureStorageActor(
+            paths: harness.storage.paths,
+            fileWriter: harness.storage.fileWriter,
+            audioProbe: relaunchProbe
+        )
         let relaunch = WatchCaptureEngine(
             audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted), audioSession: MockWatchAudioSession(),
             locationProvider: MockWatchLocationProvider(authorizationStatus: .denied),
             paths: harness.storage.paths,
-            fileWriter: harness.storage.fileWriter,
-            clock: harness.clock, audioProbe: relaunchProbe,
+            storageActor: relaunchStorageActor,
+            clock: harness.clock,
             notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(), notificationCenter: NotificationCenter()
         )
@@ -1599,9 +1604,8 @@ final class WatchCaptureTests: XCTestCase {
             audioSession: MockWatchAudioSession(),
             locationProvider: MockWatchLocationProvider(authorizationStatus: .denied),
             paths: harness.storage.paths,
-            fileWriter: harness.storage.fileWriter,
+            storageActor: harness.storageActor,
             clock: MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_100)),
-            audioProbe: MockWatchAudioProbe(),
             notificationScheduler: relaunchScheduler,
             notificationCenter: NotificationCenter()
         )
@@ -3143,7 +3147,7 @@ final class WatchCaptureTests: XCTestCase {
         let session = MockWatchConnectivitySession()
         let sender = WatchRelaySender(
             paths: harness.storage.paths,
-            fileWriter: harness.storage.fileWriter,
+            storageActor: harness.storageActor,
             session: session,
             signposter: signposter
         )
@@ -3174,7 +3178,7 @@ final class WatchCaptureTests: XCTestCase {
         let session = MockWatchConnectivitySession()
         let sender = WatchRelaySender(
             paths: harness.storage.paths,
-            fileWriter: harness.storage.fileWriter,
+            storageActor: harness.storageActor,
             session: session,
             signposter: signposter
         )
@@ -3294,9 +3298,8 @@ final class WatchCaptureTests: XCTestCase {
             audioSession: first.audioSession,
             locationProvider: first.locationProvider,
             paths: first.storage.paths,
-            fileWriter: first.storage.fileWriter,
+            storageActor: first.storageActor,
             clock: first.clock,
-            audioProbe: first.audioProbe,
             notificationScheduler: first.notificationScheduler,
             notificationCenter: first.notificationCenter
         )
@@ -3348,9 +3351,8 @@ final class WatchCaptureTests: XCTestCase {
             audioSession: second.audioSession,
             locationProvider: second.locationProvider,
             paths: second.storage.paths,
-            fileWriter: second.storage.fileWriter,
+            storageActor: second.storageActor,
             clock: second.clock,
-            audioProbe: second.audioProbe,
             notificationScheduler: second.notificationScheduler,
             notificationCenter: second.notificationCenter
         )
@@ -3932,9 +3934,8 @@ final class WatchCaptureTests: XCTestCase {
             audioSession: MockWatchAudioSession(),
             locationProvider: MockWatchLocationProvider(authorizationStatus: .authorized),
             paths: harness.storage.paths,
-            fileWriter: harness.storage.fileWriter,
+            storageActor: harness.storageActor,
             clock: harness.clock,
-            audioProbe: harness.audioProbe,
             notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
             notificationCenter: NotificationCenter()
@@ -4074,8 +4075,8 @@ final class WatchCaptureTests: XCTestCase {
             audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted), audioSession: MockWatchAudioSession(),
             locationProvider: MockWatchLocationProvider(authorizationStatus: .authorized),
             paths: harness.storage.paths,
-            fileWriter: harness.storage.fileWriter,
-            clock: harness.clock, audioProbe: harness.audioProbe,
+            storageActor: harness.storageActor,
+            clock: harness.clock,
             notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(), notificationCenter: NotificationCenter()
         )
@@ -4123,12 +4124,17 @@ final class WatchCaptureTests: XCTestCase {
 
         let imageProbe = MockWatchAudioProbe()
         await imageProbe.setDuration(nil, forPath: imageStorage.audioURL(directory: imageEntry.directoryURL).path)
+        let imageStorageActor = WatchCaptureStorageActor(
+            paths: imageStorage.paths,
+            fileWriter: imageStorage.fileWriter,
+            audioProbe: imageProbe
+        )
         let relaunch = WatchCaptureEngine(
             audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted), audioSession: MockWatchAudioSession(),
             locationProvider: MockWatchLocationProvider(authorizationStatus: .authorized),
             paths: imageStorage.paths,
-            fileWriter: imageStorage.fileWriter,
-            clock: harness.clock, audioProbe: imageProbe,
+            storageActor: imageStorageActor,
+            clock: harness.clock,
             notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(), notificationCenter: NotificationCenter()
         )
@@ -4163,8 +4169,8 @@ final class WatchCaptureTests: XCTestCase {
             audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted), audioSession: MockWatchAudioSession(),
             locationProvider: MockWatchLocationProvider(authorizationStatus: .authorized),
             paths: harness.storage.paths,
-            fileWriter: harness.storage.fileWriter,
-            clock: harness.clock, audioProbe: harness.audioProbe,
+            storageActor: harness.storageActor,
+            clock: harness.clock,
             notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(), notificationCenter: NotificationCenter()
         )
@@ -4609,10 +4615,8 @@ private extension WatchCaptureTests {
             audioSession: audioSession,
             locationProvider: locationProvider,
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             clock: clock,
-            audioProbe: audioProbe,
             notificationScheduler: notificationScheduler,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
             notificationCenter: NotificationCenter()
@@ -4928,10 +4932,8 @@ private extension WatchCaptureTests {
             audioSession: audioSession,
             locationProvider: locationProvider,
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             clock: clock,
-            audioProbe: audioProbe,
             notificationScheduler: notificationScheduler,
             environmentProvider: environmentProvider,
             notificationCenter: notificationCenter,
@@ -5113,9 +5115,8 @@ private extension WatchCaptureTests {
             audioSession: MockWatchAudioSession(),
             locationProvider: MockWatchLocationProvider(authorizationStatus: .authorized),
             paths: harness.storage.paths,
-            fileWriter: harness.storage.fileWriter,
+            storageActor: harness.storageActor,
             clock: harness.clock,
-            audioProbe: harness.audioProbe,
             notificationScheduler: MockWatchNotificationScheduler(
                 authorizationStatus: .authorized,
                 alertSetting: .enabled

@@ -52,14 +52,12 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let session = WatchModelConnectivitySession()
         let relaySender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             session: session,
             signposter: signposter
         )
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             session: session,
             environmentProvider: WatchModelEnvironmentProvider(),
@@ -71,7 +69,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
 
         let model = WatchCaptureModel(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             relaySender: relaySender,
             session: session,
@@ -106,10 +103,9 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
         let snapshotURL = complicationRoot.appendingPathComponent(WatchComplicationSnapshot.fileName)
         let session = WatchModelConnectivitySession()
-        let relaySender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, storageActor: storageActor, session: session)
+        let relaySender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session)
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             session: session,
             environmentProvider: WatchModelEnvironmentProvider()
@@ -117,7 +113,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
 
         let model = WatchCaptureModel(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             relaySender: relaySender,
             session: session,
@@ -169,17 +164,15 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let complicationRoot = self.temporaryDirectory.appendingPathComponent("relay-state-complication", isDirectory: true)
         try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
         let session = WatchModelConnectivitySession()
-        let relaySender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, storageActor: storageActor, session: session)
+        let relaySender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session)
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             session: session,
             environmentProvider: WatchModelEnvironmentProvider()
         )
         let model = WatchCaptureModel(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             relaySender: relaySender,
             session: session,
@@ -222,14 +215,12 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let session = WatchModelConnectivitySession()
         let relaySender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             session: session,
             signposter: signposter
         )
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             session: session,
             environmentProvider: WatchModelEnvironmentProvider(),
@@ -239,7 +230,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
         let model = WatchCaptureModel(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             relaySender: relaySender,
             session: session,
@@ -354,7 +344,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let signposter = WatchSignposter(sink: sink)
         let storage = try WatchModelTestStorage(rootURL: self.temporaryDirectory.appendingPathComponent("session-trigger-storage"))
         let session = WatchModelConnectivitySession()
-        let sender = WatchRelaySender(paths: storage.paths, fileWriter: storage.fileWriter, session: session, signposter: signposter)
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session, signposter: signposter)
         let model = WatchSessionModel(session: session, relaySender: sender)
 
         session.activationState = .activated
@@ -400,14 +390,12 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let session = WatchModelConnectivitySession()
         let relaySender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             session: session,
             signposter: signposter
         )
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             session: session,
             environmentProvider: WatchModelEnvironmentProvider(),
@@ -417,7 +405,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
         let model = WatchCaptureModel(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             relaySender: relaySender,
             session: session,
@@ -469,7 +456,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let session = WatchModelConnectivitySession()
         let relaySender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: storageActor,
             session: session,
             clock: { now },
@@ -497,7 +483,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let snapshotSession = WatchModelConnectivitySession()
         let snapshotSender = WatchRelaySender(
             paths: snapshotStorage.paths,
-            fileWriter: snapshotStorage.fileWriter,
             storageActor: snapshotStorageActor,
             session: snapshotSession,
             clock: { now },
@@ -505,7 +490,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         )
         let snapshotCollector = WatchRelayDiagnosticsCollector(
             paths: snapshotStorage.paths,
-            fileWriter: snapshotStorage.fileWriter,
             storageActor: snapshotStorageActor,
             session: snapshotSession,
             environmentProvider: WatchModelEnvironmentProvider(),
@@ -515,7 +499,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
         let snapshotModel = WatchCaptureModel(
             paths: snapshotStorage.paths,
-            fileWriter: snapshotStorage.fileWriter,
             storageActor: snapshotStorageActor,
             relaySender: snapshotSender,
             session: snapshotSession,

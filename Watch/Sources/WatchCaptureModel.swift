@@ -29,8 +29,7 @@ final class WatchCaptureModel {
 
     init(
         paths: WatchCaptureStoragePaths,
-        fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
-        storageActor: WatchCaptureStorageActor? = nil,
+        storageActor: WatchCaptureStorageActor,
         relaySender: WatchRelaySender,
         session: any WatchConnectivitySession,
         diagnosticsCollector: WatchRelayDiagnosticsCollector,
@@ -43,11 +42,7 @@ final class WatchCaptureModel {
             WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationSnapshot.widgetKind)
         }
     ) {
-        let resolvedStorageActor = storageActor ?? WatchCaptureStorageActor(
-            paths: paths,
-            fileWriter: fileWriter
-        )
-        self.storageActor = resolvedStorageActor
+        self.storageActor = storageActor
         self.diagnosticsCollector = diagnosticsCollector
         self.signposter = signposter
         self.complicationRootURL = complicationRootURL
@@ -57,10 +52,8 @@ final class WatchCaptureModel {
             audioSession: LiveWatchAudioSessionController(),
             locationProvider: LiveWatchLocationProvider(),
             paths: paths,
-            fileWriter: fileWriter,
-            storageActor: resolvedStorageActor,
+            storageActor: storageActor,
             clock: clock,
-            audioProbe: LiveWatchAudioProbe(),
             notificationScheduler: notificationScheduler,
             environmentProvider: environmentProvider,
             signposter: signposter

@@ -53,6 +53,25 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertTrue(catalog.canInferUUIDAbsence)
     }
 
+    func testCatalogIgnoresActorSessionFilesAtRoot() async throws {
+        let actor = self.actor()
+        let paths = WatchCaptureStoragePaths(rootURL: self.root)
+        try await actor.prepareRoot()
+        let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
+        try await actor.writeManifest(manifest)
+
+        let writer = FoundationWatchFileWriter()
+        try await writer.writeData(Data("session".utf8), to: paths.sessionRecordURL(), options: .atomic)
+        try await writer.writeData(Data("history".utf8), to: paths.sessionHistoryURL(), options: .atomic)
+        try await writer.writeData(Data("counter".utf8), to: paths.sessionHistoryCounterURL(), options: .atomic)
+
+        let catalog = await actor.scanCatalog()
+        XCTAssertEqual(catalog.rootState, .complete)
+        XCTAssertEqual(catalog.entries.map(\.manifest.id), [manifest.id])
+        XCTAssertTrue(catalog.issues.isEmpty)
+        XCTAssertTrue(catalog.canInferUUIDAbsence)
+    }
+
     func testWriteRejectsChangedManifestWitnessWithoutMutation() async throws {
         let actor = self.actor()
         let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
@@ -111,6 +130,10 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let secondSubmittedAt = Date()
         async let second: Void = storage.prepareRoot()
         try await Task.sleep(for: .milliseconds(30))
+        let heldSnapshot = sink.snapshot()
+        XCTAssertEqual(heldSnapshot.openBoundaries, [.storageActorTransactionElapsed])
+        XCTAssertFalse(heldSnapshot.openBoundaries.contains(.capturePreparation))
+
         let releasedAt = Date()
         await writer.release()
 
@@ -119,10 +142,26 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let secondCompletedAt = Date()
 
         let snapshot = sink.snapshot()
-        XCTAssertEqual(snapshot.events.map(\.kind), [.begin, .end, .begin, .end])
-        XCTAssertEqual(snapshot.events.map(\.boundary), Array(repeating: .capturePreparation, count: 4))
+        XCTAssertEqual(
+            snapshot.events.map(\.kind),
+            [.begin, .begin, .end, .end, .begin, .begin, .end, .end]
+        )
+        XCTAssertEqual(
+            snapshot.events.map(\.boundary),
+            [
+                .storageActorTransactionElapsed,
+                .capturePreparation,
+                .capturePreparation,
+                .storageActorTransactionElapsed,
+                .storageActorTransactionElapsed,
+                .capturePreparation,
+                .capturePreparation,
+                .storageActorTransactionElapsed,
+            ]
+        )
         XCTAssertEqual(snapshot.openIntervalCount, 0)
-        let secondBegin = try XCTUnwrap(snapshot.events.first { $0.kind == .begin && $0.ordinal == 2 })
+        let captureBegins = snapshot.events.filter { $0.kind == .begin && $0.boundary == .capturePreparation }
+        let secondBegin = try XCTUnwrap(captureBegins.dropFirst().first)
         XCTAssertGreaterThanOrEqual(secondBegin.at.timeIntervalSince1970, releasedAt.timeIntervalSince1970)
         XCTAssertGreaterThanOrEqual(secondCompletedAt.timeIntervalSince(secondSubmittedAt), 0.03)
     }
@@ -179,10 +218,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
 
         let snapshot = sink.snapshot()
         XCTAssertEqual(snapshot.openIntervalCount, 0)
-        XCTAssertEqual(
-            snapshot.events.filter { $0.kind == .begin }.map(\.boundary),
-            snapshot.events.filter { $0.kind == .end }.map(\.boundary)
-        )
+        XCTAssertTrue(snapshot.hasBalancedIntervals)
         XCTAssertGreaterThanOrEqual(snapshot.events.filter { $0.boundary == .manifestScan }.count, 4)
         XCTAssertGreaterThanOrEqual(snapshot.events.filter { $0.boundary == .storageActorManifestWrite }.count, 6)
     }
@@ -416,7 +452,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             } catch let conflict as WatchCaptureStorageConflict {
                 XCTAssertEqual(
                     conflict,
-                    .staleQueuedSnapshot(id: manifest.id, expected: .queued, actual: state)
+                    .staleRelayState(id: manifest.id, expected: .queued, actual: state)
                 )
             }
             XCTAssertEqual(try Data(contentsOf: manifestURL), before)
@@ -585,12 +621,26 @@ private struct WatchStorageSignpostTestSink: WatchStorageSignpostIntervalSink {
         let beginCallCount: Int
         let events: [Event]
         let openIntervalCount: Int
+        let openBoundaries: [WatchSignpostBoundary]
+
+        var hasBalancedIntervals: Bool {
+            var boundaries: [WatchSignpostBoundary] = []
+            for event in self.events {
+                switch event.kind {
+                case .begin:
+                    boundaries.append(event.boundary)
+                case .end:
+                    guard boundaries.popLast() == event.boundary else { return false }
+                }
+            }
+            return boundaries.isEmpty
+        }
     }
 
     private struct State {
         var beginCallCount = 0
         var events: [Event] = []
-        var openIntervals = 0
+        var openBoundaries: [WatchSignpostBoundary] = []
     }
 
     let isEnabled: Bool
@@ -603,7 +653,7 @@ private struct WatchStorageSignpostTestSink: WatchStorageSignpostIntervalSink {
     func begin(_ boundary: WatchSignpostBoundary) -> WatchStorageSignpostInvocation {
         self.state.withLock { state in
             state.beginCallCount += 1
-            state.openIntervals += 1
+            state.openBoundaries.append(boundary)
             state.events.append(Event(
                 kind: .begin,
                 boundary: boundary,
@@ -616,7 +666,8 @@ private struct WatchStorageSignpostTestSink: WatchStorageSignpostIntervalSink {
 
     func end(_ invocation: WatchStorageSignpostInvocation) {
         self.state.withLock { state in
-            state.openIntervals -= 1
+            precondition(state.openBoundaries.last == invocation.boundary)
+            state.openBoundaries.removeLast()
             state.events.append(Event(
                 kind: .end,
                 boundary: invocation.boundary,
@@ -631,7 +682,8 @@ private struct WatchStorageSignpostTestSink: WatchStorageSignpostIntervalSink {
             Snapshot(
                 beginCallCount: state.beginCallCount,
                 events: state.events,
-                openIntervalCount: state.openIntervals
+                openIntervalCount: state.openBoundaries.count,
+                openBoundaries: state.openBoundaries
             )
         }
     }

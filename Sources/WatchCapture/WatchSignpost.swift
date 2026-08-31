@@ -77,6 +77,7 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
     case diagnosticsPayloadAssembly
     case diagnosticsFirstEncode
     case diagnosticsCompactionEncode
+    case storageActorTransactionElapsed
     case storageActorFileOperation
     case storageActorManifestWrite
     case capturePreparation
@@ -140,6 +141,8 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
             "watch.diagnostics_first_encode"
         case .diagnosticsCompactionEncode:
             "watch.diagnostics_compaction_encode"
+        case .storageActorTransactionElapsed:
+            "watch.storage_actor_transaction_elapsed"
         case .storageActorFileOperation:
             "watch.storage_actor_file_operation"
         case .storageActorManifestWrite:

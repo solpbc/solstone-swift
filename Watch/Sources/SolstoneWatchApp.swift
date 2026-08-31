@@ -31,14 +31,12 @@ struct SolstoneWatchApp: App {
             storageActor = actor
             let relaySender = WatchRelaySender(
                 paths: paths,
-                fileWriter: fileWriter,
                 storageActor: actor,
                 session: session
             )
             let environmentProvider = LiveWatchRelayDiagnosticsEnvironmentProvider()
             let diagnosticsCollector = WatchRelayDiagnosticsCollector(
                 paths: paths,
-                fileWriter: fileWriter,
                 storageActor: actor,
                 session: session,
                 environmentProvider: environmentProvider
@@ -46,8 +44,7 @@ struct SolstoneWatchApp: App {
             let sessionModel = WatchSessionModel(session: session, relaySender: relaySender)
             let captureModel = WatchCaptureModel(
                 paths: paths,
-                fileWriter: fileWriter,
-                storageActor: storageActor,
+                storageActor: actor,
                 relaySender: relaySender,
                 session: session,
                 diagnosticsCollector: diagnosticsCollector,

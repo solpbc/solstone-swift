@@ -79,17 +79,13 @@ final class WatchRelayDiagnosticsCollector {
 
     init(
         paths: WatchCaptureStoragePaths,
-        fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
-        storageActor: WatchCaptureStorageActor? = nil,
+        storageActor: WatchCaptureStorageActor,
         session: any WatchConnectivitySession,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
         signposter: any WatchSignposting = WatchSignpost.live
     ) {
         self.paths = paths
-        self.storageActor = storageActor ?? WatchCaptureStorageActor(
-            paths: paths,
-            fileWriter: fileWriter
-        )
+        self.storageActor = storageActor
         self.session = session
         self.environmentProvider = environmentProvider
         self.signposter = signposter

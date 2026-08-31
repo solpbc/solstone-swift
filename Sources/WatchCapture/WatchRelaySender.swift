@@ -38,17 +38,13 @@ final class WatchRelaySender {
 
     init(
         paths: WatchCaptureStoragePaths,
-        fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
-        storageActor: WatchCaptureStorageActor? = nil,
+        storageActor: WatchCaptureStorageActor,
         session: any WatchConnectivitySession,
         clock: @escaping @MainActor @Sendable () -> Date = Date.init,
         signposter: any WatchSignposting = WatchSignpost.live
     ) {
         self.paths = paths
-        self.storageActor = storageActor ?? WatchCaptureStorageActor(
-            paths: paths,
-            fileWriter: fileWriter
-        )
+        self.storageActor = storageActor
         self.session = session
         self.clock = clock
         self.signposter = signposter

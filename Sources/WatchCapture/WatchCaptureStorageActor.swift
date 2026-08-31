@@ -146,7 +146,7 @@ nonisolated struct WatchCaptureCatalog: Sendable {
 }
 
 nonisolated enum WatchCaptureStorageConflict: Error, Equatable, Sendable {
-    case staleQueuedSnapshot(id: UUID, expected: WatchSegmentState, actual: WatchSegmentState)
+    case staleRelayState(id: UUID, expected: WatchSegmentState, actual: WatchSegmentState)
     case contentWitnessChanged(id: WatchCaptureCatalogEntryID)
     case staleAcknowledgementReplacement(id: UUID, expected: WatchCaptureCatalogEntryID, found: WatchCaptureCatalogEntryID?)
 }
@@ -889,7 +889,10 @@ actor WatchCaptureStorageActor {
         var issues: [WatchCaptureCatalogIssue] = []
         for dayURL in days.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             let day = dayURL.lastPathComponent
-            guard day != ".relay-bundles", day != WatchCaptureStoragePaths.sessionRecordFileName,
+            guard day != ".relay-bundles",
+                  day != WatchCaptureStoragePaths.sessionRecordFileName,
+                  day != Self.historyFileName,
+                  day != Self.counterFileName,
                   day != ".relay-diagnostics-summary.json" else { continue }
             let dayKind: WatchCaptureStorageItemKind
             do {
@@ -1310,7 +1313,7 @@ actor WatchCaptureStorageActor {
         expected: WatchSegmentState,
         actual: WatchSegmentState
     ) -> WatchCaptureStorageConflict {
-        .staleQueuedSnapshot(id: entry.manifest.id, expected: expected, actual: actual)
+        .staleRelayState(id: entry.manifest.id, expected: expected, actual: actual)
     }
 
     private func readSessionHistoryInner(asOf: Date) async -> WatchCaptureSessionHistoryReadResult {
@@ -1513,11 +1516,14 @@ actor WatchCaptureStorageActor {
         _ body: @escaping @isolated(any) () async throws -> Value
     ) async rethrows -> Value {
         await self.acquireTransaction()
-        // This measures the gate-admitted storage transaction, not MainActor occupancy.
-        // In particular, queue wait ends before the interval begins.
-        let invocation = self.storageSignposter.begin(boundary)
+        // The elapsed transaction interval intentionally includes awaited file work. It
+        // is distinct from `boundary`, which measures only synchronous actor admission
+        // and closes before invoking an async storage operation.
+        let elapsedInvocation = self.storageSignposter.begin(.storageActorTransactionElapsed)
+        let occupancyInvocation = self.storageSignposter.begin(boundary)
+        self.storageSignposter.end(occupancyInvocation)
         defer {
-            self.storageSignposter.end(invocation)
+            self.storageSignposter.end(elapsedInvocation)
             self.releaseTransaction()
         }
         return try await body()

@@ -89,10 +89,8 @@ final class WatchCaptureEngine {
         audioSession: any WatchAudioSessionControlling,
         locationProvider: any WatchLocationProviding,
         paths: WatchCaptureStoragePaths,
-        fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
-        storageActor: WatchCaptureStorageActor? = nil,
+        storageActor: WatchCaptureStorageActor,
         clock: any ObserverClock = SystemObserverClock(),
-        audioProbe: any WatchAudioProbing,
         notificationScheduler: any WatchNotificationScheduling,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
         notificationCenter: NotificationCenter = .default,
@@ -105,11 +103,7 @@ final class WatchCaptureEngine {
         self.audioSession = audioSession
         self.locationProvider = locationProvider
         self.paths = paths
-        self.storageActor = storageActor ?? WatchCaptureStorageActor(
-            paths: paths,
-            fileWriter: fileWriter,
-            audioProbe: audioProbe
-        )
+        self.storageActor = storageActor
         self.clock = clock
         self.notificationScheduler = notificationScheduler
         self.environmentProvider = environmentProvider

@@ -70,7 +70,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -109,7 +108,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         try Data("not json".utf8).write(to: storage.manifestURL(directory: malformedDirectory))
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -138,7 +136,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
@@ -171,7 +168,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let sink = WatchSignpostTestSink()
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
@@ -209,7 +205,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             )
             let collector = WatchRelayDiagnosticsCollector(
                 paths: storage.paths,
-                fileWriter: storage.fileWriter,
                 storageActor: store,
                 session: session,
                 environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -311,7 +306,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -356,7 +350,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -384,7 +377,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -473,7 +465,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -560,7 +551,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         }
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -606,7 +596,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         }
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: self.storageActor(for: storage),
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -669,7 +658,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         }
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: self.storageActor(for: storage),
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -700,7 +688,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         }
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: self.storageActor(for: storage),
             session: MockWatchConnectivitySession(),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -725,7 +712,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         }
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: self.storageActor(for: storage),
             session: MockWatchConnectivitySession(),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -783,7 +769,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -819,7 +804,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             clock: { now }
@@ -859,7 +843,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -931,7 +914,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -982,7 +964,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -1028,7 +1009,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -1074,7 +1054,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -1105,7 +1084,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let entry = try await self.writeManifest(id: Self.uuid(50), state: .queued, storage: storage)
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             clock: { now }
@@ -1126,7 +1104,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -1149,7 +1126,6 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let acked = try await self.writeManifest(id: Self.uuid(61), state: .delivered, storage: storage)
         let sender = WatchRelaySender(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             clock: { now }
@@ -1386,7 +1362,6 @@ final class WatchRelayDiagnosticsReadOnlyTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: store,
             session: session,
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -1789,7 +1764,6 @@ final class WatchCaptureStorageActorDiagnosticsTests: XCTestCase {
 
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
-            fileWriter: storage.fileWriter,
             storageActor: reconstructed,
             session: MockWatchConnectivitySession(),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
