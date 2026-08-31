@@ -3040,6 +3040,27 @@ final class WatchCaptureTests: XCTestCase {
         })
     }
 
+    func testStaleReconcileMaintenanceDoesNotRepublishAfterNewerStart() async throws {
+        try await self.assertStaleReconcileMaintenancePublicationIsSuppressed(
+            rewriteFails: false,
+            partialCatalog: false
+        )
+    }
+
+    func testStaleReconcileMaintenanceRewriteFailureDoesNotRepublishAfterNewerStart() async throws {
+        try await self.assertStaleReconcileMaintenancePublicationIsSuppressed(
+            rewriteFails: true,
+            partialCatalog: false
+        )
+    }
+
+    func testStaleReconcileMaintenancePartialCatalogDoesNotRepublishAfterNewerStart() async throws {
+        try await self.assertStaleReconcileMaintenancePublicationIsSuppressed(
+            rewriteFails: false,
+            partialCatalog: true
+        )
+    }
+
     func testReadinessHoldAcknowledgesStartAndCancelsPendingStartSynchronously() async throws {
         let writer = FailingWatchFileWriter(failAppend: false)
         let sink = WatchSignpostTestSink()
@@ -4877,6 +4898,133 @@ private extension WatchCaptureTests {
         harness.engine.onPublishStatus = { publications.statuses.append($0) }
         harness.engine.onPresentationChanged = { publications.presentations.append($0) }
         return publications
+    }
+
+    func assertStaleReconcileMaintenancePublicationIsSuppressed(
+        rewriteFails: Bool,
+        partialCatalog: Bool
+    ) async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: writer)
+        let finalizedDirectory = try await self.writeManifest(
+            storage: harness.storage,
+            startedAt: harness.clock.now().addingTimeInterval(-WatchCaptureTiming.segmentDurationSeconds),
+            state: .finalized,
+            sensors: [.audio]
+        )
+        let finalizedManifestURL = harness.storage.manifestURL(directory: finalizedDirectory)
+        let finalizedManifest = try XCTUnwrap(self.readManifestSynchronously(at: finalizedManifestURL))
+        if rewriteFails {
+            writer.failWriteData(at: finalizedManifestURL, ordinal: 2)
+        }
+        if partialCatalog {
+            try Data("malformed day".utf8).write(
+                to: harness.storage.rootURL.appendingPathComponent("malformed-day"),
+                options: .atomic
+            )
+        }
+
+        let prior = WatchCaptureSessionRecord(
+            sessionID: "reconcile-prior",
+            startedAt: harness.clock.now().addingTimeInterval(-30),
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try await harness.storageActor.writeSessionRecord(prior, transactionClass: .captureSafety)
+
+        let publications = WatchCapturePublicationRecord()
+        var applicationContextBytes: [Data] = []
+        var complicationBytes: [Data] = []
+        var diagnosticsRequestCount = 0
+        harness.engine.onDiagnosticsEnvelopeRequested = { _ in
+            diagnosticsRequestCount += 1
+            return Data("newer-diagnostics-\(diagnosticsRequestCount)".utf8)
+        }
+        harness.engine.onPublishStatus = { context in
+            publications.statuses.append(context)
+            if let applicationContext = context.applicationContext()[WatchStatusContext.applicationContextKey] as? Data {
+                applicationContextBytes.append(applicationContext)
+            }
+        }
+        harness.engine.onPresentationChanged = { presentation in
+            publications.presentations.append(presentation)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.sortedKeys]
+            complicationBytes.append(try! encoder.encode(
+                WatchComplicationSnapshot(presentation: presentation, isReachable: true)
+            ))
+        }
+
+        let maintenanceHold = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGate = maintenanceHold
+        harness.engine.reconcileOnLaunch()
+        await self.waitForGate(maintenanceHold)
+
+        // The terminal-notice call has captured this gate. Removing it lets the
+        // newer Start finish while launch maintenance remains suspended.
+        harness.notificationScheduler.addGate = nil
+        harness.engine.start()
+        await self.drain(until: {
+            harness.engine.ownerPresentation.status == .active
+                && harness.engine.ownerPresentation.isSessionRunning
+                && !publications.statuses.isEmpty
+        })
+
+        let newerRecordValue = try await harness.storageActor.readSessionRecord(
+            transactionClass: .captureSafety
+        )
+        let newerRecord = try XCTUnwrap(newerRecordValue)
+        XCTAssertNotEqual(newerRecord.sessionID, prior.sessionID)
+        XCTAssertEqual(newerRecord.state, .active)
+        let newerStatus = try XCTUnwrap(publications.statuses.last)
+        let newerPresentation = try XCTUnwrap(publications.presentations.last)
+        let newerApplicationContext = try XCTUnwrap(applicationContextBytes.last)
+        let newerComplicationBytes = try XCTUnwrap(complicationBytes.last)
+        let statusCount = publications.statuses.count
+        let presentationCount = publications.presentations.count
+        let diagnosticsCount = diagnosticsRequestCount
+
+        await maintenanceHold.release()
+        await harness.engine.settled()
+
+        let currentRecordValue = try await harness.storageActor.readSessionRecord(
+            transactionClass: .captureSafety
+        )
+        let currentRecord = try XCTUnwrap(currentRecordValue)
+        XCTAssertEqual(currentRecord.sessionID, newerRecord.sessionID)
+        XCTAssertEqual(currentRecord.state, .active)
+        XCTAssertNil(currentRecord.terminalReason)
+        XCTAssertNil(currentRecord.terminalDisposition)
+        XCTAssertEqual(harness.engine.ownerPresentation.status, .active)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertNil(harness.engine.ownerPresentation.terminalReason)
+        XCTAssertNil(harness.engine.ownerPresentation.terminalDisposition)
+
+        XCTAssertEqual(publications.statuses.count, statusCount)
+        XCTAssertEqual(publications.presentations.count, presentationCount)
+        XCTAssertEqual(diagnosticsRequestCount, diagnosticsCount)
+        XCTAssertEqual(publications.statuses.last?.seq, newerStatus.seq)
+        XCTAssertEqual(applicationContextBytes.last, newerApplicationContext)
+        XCTAssertEqual(publications.presentations.last, newerPresentation)
+        XCTAssertEqual(complicationBytes.last, newerComplicationBytes)
+
+        let catalog = await harness.storageActor.scanCatalog(transactionClass: .maintenance)
+        let reconciledManifest = try XCTUnwrap(
+            catalog.entries.first { $0.manifest.id == finalizedManifest.id }?.manifest
+        )
+        XCTAssertEqual(reconciledManifest.state, rewriteFails ? .finalized : .queued)
+        XCTAssertEqual(
+            catalog.entries.filter { $0.manifest.state == .queued }.count,
+            rewriteFails ? 0 : 1
+        )
+        if partialCatalog {
+            XCTAssertEqual(catalog.rootState, .partial)
+        } else {
+            XCTAssertEqual(catalog.rootState, .complete)
+        }
     }
 
     func advanceNotificationGate(
