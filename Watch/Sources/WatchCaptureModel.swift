@@ -58,11 +58,15 @@ final class WatchCaptureModel {
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private var complicationPublishTail: Task<Void, Never> = Task {}
     @ObservationIgnored private var diagnosticsPublicationCache = WatchDiagnosticsPublicationCache(envelopeData: nil)
-    @ObservationIgnored private var diagnosticsRefreshOwnerTask: Task<Void, Never>?
-    @ObservationIgnored private var queuedDiagnosticsRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var diagnosticsPublicationGeneration: UInt64?
-    @ObservationIgnored private var relayStateRefreshOwnerTask: Task<Void, Never>?
-    @ObservationIgnored private var queuedRelayStateRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshCoordinatorTask: Task<Void, Never>?
+    @ObservationIgnored private var relayStateRefreshRequested = false
+    @ObservationIgnored private var relayStateRefreshPassActive = false
+    @ObservationIgnored private var relayStateRefreshFollowUpRequested = false
+    @ObservationIgnored private var diagnosticsRefreshRequested = false
+    @ObservationIgnored private var diagnosticsRefreshPassActive = false
+    @ObservationIgnored private var diagnosticsRefreshGeneration: UInt64 = 0
+    @ObservationIgnored private var completedDiagnosticsRefreshGeneration: UInt64 = 0
     @ObservationIgnored private var recoveryReloadOwed = true
     @ObservationIgnored private var complicationRewriteOwed = false
 
@@ -244,36 +248,34 @@ final class WatchCaptureModel {
     }
 
     func requestDiagnosticsRefresh() async {
-        let request = self.signposter.begin(.diagnosticsRefreshRequest)
-        if let queuedDiagnosticsRefreshTask = self.queuedDiagnosticsRefreshTask {
-            self.signposter.end(
-                request,
-                fields: WatchSignpostFields(result: .mergedFollowUp)
-            )
-            await queuedDiagnosticsRefreshTask.value
-            return
-        }
-        if let diagnosticsRefreshOwnerTask = self.diagnosticsRefreshOwnerTask {
-            let followUp = Task { @MainActor [weak self] in
-                await diagnosticsRefreshOwnerTask.value
-                guard let self else { return }
-                self.queuedDiagnosticsRefreshTask = nil
-                await self.startOwnedDiagnosticsRefreshPass()
+        let generation = self.admitDiagnosticsRefresh()
+        while self.completedDiagnosticsRefreshGeneration < generation {
+            guard let refreshCoordinatorTask = self.refreshCoordinatorTask else {
+                self.ensureRefreshCoordinatorRunning()
+                continue
             }
-            self.queuedDiagnosticsRefreshTask = followUp
-            self.signposter.end(
-                request,
-                fields: WatchSignpostFields(result: .scheduledFollowUp)
-            )
-            await followUp.value
-            return
+            await refreshCoordinatorTask.value
         }
+    }
 
+    private func admitDiagnosticsRefresh() -> UInt64 {
+        let request = self.signposter.begin(.diagnosticsRefreshRequest)
+        let result: RelayResult
+        if self.diagnosticsRefreshRequested {
+            result = .mergedFollowUp
+        } else if self.diagnosticsRefreshPassActive {
+            result = .scheduledFollowUp
+        } else {
+            result = .becameOwner
+        }
+        self.diagnosticsRefreshGeneration &+= 1
+        self.diagnosticsRefreshRequested = true
         self.signposter.end(
             request,
-            fields: WatchSignpostFields(result: .becameOwner)
+            fields: WatchSignpostFields(result: result)
         )
-        await self.startOwnedDiagnosticsRefreshPass()
+        self.ensureRefreshCoordinatorRunning()
+        return self.diagnosticsRefreshGeneration
     }
 
     private func enqueueComplicationSnapshotPublication() {
@@ -287,78 +289,73 @@ final class WatchCaptureModel {
     }
 
     private func enqueueRelayStateRefresh() {
-        Task { @MainActor [weak self] in
-            await self?.requestRelayStateRefresh()
+        let request = self.signposter.begin(.relayStateRefreshRequest)
+        let result: RelayResult
+        if self.relayStateRefreshPassActive {
+            if self.relayStateRefreshFollowUpRequested {
+                result = .mergedFollowUp
+            } else {
+                self.relayStateRefreshFollowUpRequested = true
+                result = .scheduledFollowUp
+            }
+        } else if self.relayStateRefreshRequested {
+            result = .mergedFollowUp
+        } else {
+            self.relayStateRefreshRequested = true
+            result = .becameOwner
         }
+        self.signposter.end(request, fields: WatchSignpostFields(result: result))
+        self.ensureRefreshCoordinatorRunning()
     }
 
     private func enqueueDiagnosticsRefresh() {
-        Task { @MainActor [weak self] in
-            await self?.requestDiagnosticsRefresh()
+        _ = self.admitDiagnosticsRefresh()
+    }
+
+    private func ensureRefreshCoordinatorRunning() {
+        guard self.refreshCoordinatorTask == nil else { return }
+        self.refreshCoordinatorTask = Task { @MainActor [weak self] in
+            await self?.runRefreshCoordinator()
         }
     }
 
-    private func requestRelayStateRefresh() async {
-        let request = self.signposter.begin(.relayStateRefreshRequest)
-        if let queuedRelayStateRefreshTask = self.queuedRelayStateRefreshTask {
-            self.signposter.end(
-                request,
-                fields: WatchSignpostFields(result: .mergedFollowUp)
-            )
-            await queuedRelayStateRefreshTask.value
-            return
-        }
-        if let relayStateRefreshOwnerTask = self.relayStateRefreshOwnerTask {
-            let followUp = Task { @MainActor [weak self] in
-                await relayStateRefreshOwnerTask.value
-                guard let self else { return }
-                self.queuedRelayStateRefreshTask = nil
-                await self.startOwnedRelayStateRefreshPass()
+    private func runRefreshCoordinator() async {
+        while true {
+            if self.relayStateRefreshRequested {
+                self.relayStateRefreshRequested = false
+                self.relayStateRefreshPassActive = true
+                await self.runRelayStateRefreshPass()
+                self.relayStateRefreshPassActive = false
+                _ = self.admitDiagnosticsRefresh()
+                if self.relayStateRefreshFollowUpRequested {
+                    self.relayStateRefreshFollowUpRequested = false
+                    self.relayStateRefreshRequested = true
+                }
+                continue
             }
-            self.queuedRelayStateRefreshTask = followUp
-            self.signposter.end(
-                request,
-                fields: WatchSignpostFields(result: .scheduledFollowUp)
-            )
-            await followUp.value
+
+            if self.diagnosticsRefreshRequested {
+                let generation = self.diagnosticsRefreshGeneration
+                self.diagnosticsRefreshRequested = false
+                self.diagnosticsRefreshPassActive = true
+                await self.runDiagnosticsRefreshPass()
+                self.diagnosticsRefreshPassActive = false
+                self.completedDiagnosticsRefreshGeneration = generation
+                continue
+            }
+
+            self.refreshCoordinatorTask = nil
             return
         }
-
-        self.signposter.end(
-            request,
-            fields: WatchSignpostFields(result: .becameOwner)
-        )
-        await self.startOwnedRelayStateRefreshPass()
     }
 
-    private func startOwnedRelayStateRefreshPass() async {
-        let owner = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.runOwnedRelayStateRefreshPass()
-        }
-        self.relayStateRefreshOwnerTask = owner
-        await owner.value
-    }
-
-    private func runOwnedRelayStateRefreshPass() async {
-        defer { self.relayStateRefreshOwnerTask = nil }
+    private func runRelayStateRefreshPass() async {
         guard let engine = self.engine else { return }
         await engine.refreshRelayCountsFromDisk()
         self.presentation = engine.ownerPresentation
-        self.enqueueDiagnosticsRefresh()
     }
 
-    private func startOwnedDiagnosticsRefreshPass() async {
-        let owner = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.runOwnedDiagnosticsRefreshPass()
-        }
-        self.diagnosticsRefreshOwnerTask = owner
-        await owner.value
-    }
-
-    private func runOwnedDiagnosticsRefreshPass() async {
-        defer { self.diagnosticsRefreshOwnerTask = nil }
+    private func runDiagnosticsRefreshPass() async {
         guard let diagnosticsCollector else { return }
         let collection = self.signposter.begin(.diagnosticsCollection)
         let asOf = self.clock.now()
