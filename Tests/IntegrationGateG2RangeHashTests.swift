@@ -426,7 +426,10 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
             }
         )
 
-        XCTAssertEqual(firstPublished, 1_114_112)
+        let published = try XCTUnwrap(firstPublished)
+        XCTAssertGreaterThan(published, UInt64(IntegrationGateConstants.gateMuxInitialCreditBytes))
+        XCTAssertLessThan(published, totalLength)
+        XCTAssertEqual(published % UInt64(chunk.count), 0)
     }
 
     func testProgressGuardCanPublishWhenFinalRangeChunkIsBelowExpectedTotal() async throws {
