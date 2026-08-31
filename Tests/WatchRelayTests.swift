@@ -1640,7 +1640,7 @@ private extension WatchRelayTests {
             deliveredAt: deliveredAt
         )
         try Data("audio-\(index)".utf8).write(to: storage.audioURL(directory: directory), options: .atomic)
-        try await storageActor.writeManifest(manifest, ensuringDirectory: false)
+        try await storageActor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
         return directory
     }
 

@@ -33,7 +33,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let actor = self.actor()
         try await actor.prepareRoot()
         let good = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
-        try await actor.writeManifest(good)
+        try await actor.writeManifest(good, transactionClass: .captureSafety)
         let bad = self.root.appendingPathComponent("20250101/120500_300", isDirectory: true)
         try FileManager.default.createDirectory(at: bad, withIntermediateDirectories: true)
         try Data("not json".utf8).write(to: bad.appendingPathComponent("manifest.json"))
@@ -49,8 +49,8 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let actor = self.actor()
         let healthy = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
         let malformed = self.manifest(id: UUID(), segment: "120500_300", state: .queued)
-        try await actor.writeManifest(healthy)
-        try await actor.writeManifest(malformed)
+        try await actor.writeManifest(healthy, transactionClass: .captureSafety)
+        try await actor.writeManifest(malformed, transactionClass: .captureSafety)
         let malformedAudioURL = self.root
             .appendingPathComponent("20250101/120500_300/audio.m4a", isDirectory: true)
         try FileManager.default.createDirectory(at: malformedAudioURL, withIntermediateDirectories: true)
@@ -81,7 +81,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let paths = WatchCaptureStoragePaths(rootURL: self.root)
         try await actor.prepareRoot()
         let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
-        try await actor.writeManifest(manifest)
+        try await actor.writeManifest(manifest, transactionClass: .captureSafety)
 
         let writer = FoundationWatchFileWriter()
         try await writer.writeData(Data("session".utf8), to: paths.sessionRecordURL(), options: .atomic)
@@ -98,18 +98,18 @@ final class WatchCaptureStorageActorTests: XCTestCase {
     func testWriteRejectsChangedManifestWitnessWithoutMutation() async throws {
         let actor = self.actor()
         let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
-        try await actor.writeManifest(manifest)
+        try await actor.writeManifest(manifest, transactionClass: .captureSafety)
         let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         let entry = try XCTUnwrap(catalog.entries.first)
         var replacement = manifest
         replacement.state = .transferring
-        try await actor.writeManifest(replacement)
+        try await actor.writeManifest(replacement, transactionClass: .captureSafety)
         let before = try Data(contentsOf: self.root.appendingPathComponent("20250101/120000_300/manifest.json"))
 
         var stale = manifest
         stale.state = .delivered
         do {
-            try await actor.writeManifest(stale, entry: entry)
+            try await actor.writeManifest(stale, entry: entry, transactionClass: .captureSafety)
             XCTFail("expected content witness conflict")
         } catch let conflict as WatchCaptureStorageConflict {
             XCTAssertEqual(conflict, .contentWitnessChanged(id: entry.id))
@@ -243,10 +243,55 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         )
     }
 
+    func testCanceledQueuedMaintenanceManifestWriteIsRemovedWithoutMutation() async throws {
+        let writer = BlockingStorageWriter()
+        let root = self.root!
+        let storage = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: root),
+            fileWriter: writer
+        )
+
+        let admitted = Task { try await storage.prepareRoot() }
+        await writer.waitUntilEntered()
+        let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .finalized)
+        let canceled = Task {
+            try await storage.writeManifest(manifest, transactionClass: .maintenance)
+        }
+        await Task.yield()
+        canceled.cancel()
+        do {
+            try await canceled.value
+            XCTFail("expected cancellation")
+        } catch is CancellationError {
+            // Expected: the queued waiter exits without acquiring or mutating storage.
+        }
+
+        let followerURL = root.appendingPathComponent("maintenance-after-cancel.json")
+        let follower = Task {
+            try await storage.writeComplicationSnapshot(Data("after".utf8), to: followerURL)
+        }
+        await writer.release()
+        try await admitted.value
+        try await follower.value
+
+        let manifestURL = WatchCaptureStoragePaths(rootURL: root).manifestURL(
+            directory: WatchCaptureStoragePaths(rootURL: root).segmentDirectoryURL(
+                day: manifest.day,
+                segment: manifest.segment
+            )
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: manifestURL.path))
+        let operations = await writer.operations()
+        XCTAssertEqual(
+            operations,
+            ["createDirectory", "writeData:maintenance-after-cancel.json"]
+        )
+    }
+
     func testScanCatalogYieldsAtCheckpointAndReturnsPartialAfterInterruption() async throws {
         let setup = self.actor()
         let existing = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
-        try await setup.writeManifest(existing)
+        try await setup.writeManifest(existing, transactionClass: .captureSafety)
 
         let writer = BlockingStorageWriter()
         await writer.holdNextOperation("itemKind")
@@ -258,7 +303,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         await writer.waitUntilEntered()
         let captured = self.manifest(id: UUID(), segment: "120500_300", state: .captured)
         let capture = Task {
-            try await storage.writeManifest(captured)
+            try await storage.writeManifest(captured, transactionClass: .captureSafety)
         }
         await Task.yield()
 
@@ -801,14 +846,14 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertEqual(partialCatalog.rootState, .partial)
 
         let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
-        try await storage.writeManifest(manifest)
+        try await storage.writeManifest(manifest, transactionClass: .captureSafety)
         let catalog = await storage.scanCatalog(transactionClass: .maintenance)
         let entry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == manifest.id })
         var replacement = manifest
         replacement.state = .transferring
-        try await storage.writeManifest(replacement)
+        try await storage.writeManifest(replacement, transactionClass: .captureSafety)
         do {
-            try await storage.writeManifest(manifest, entry: entry)
+            try await storage.writeManifest(manifest, entry: entry, transactionClass: .captureSafety)
             XCTFail("expected content witness conflict")
         } catch let conflict as WatchCaptureStorageConflict {
             XCTAssertEqual(conflict, .contentWitnessChanged(id: entry.id))
@@ -832,9 +877,9 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let queued = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
         let transferring = self.manifest(id: UUID(), segment: "120500_300", state: .transferring)
         let locationManifest = self.manifest(id: UUID(), segment: "121000_300", state: .captured)
-        try await storage.writeManifest(queued)
-        try await storage.writeManifest(transferring)
-        try await storage.writeManifest(locationManifest)
+        try await storage.writeManifest(queued, transactionClass: .captureSafety)
+        try await storage.writeManifest(transferring, transactionClass: .captureSafety)
+        try await storage.writeManifest(locationManifest, transactionClass: .captureSafety)
         let initialCatalog = await storage.scanCatalog(transactionClass: .maintenance)
         let queuedEntry = try XCTUnwrap(initialCatalog.entries.first { $0.manifest.id == queued.id })
         let transferringEntry = try XCTUnwrap(initialCatalog.entries.first { $0.manifest.id == transferring.id })
@@ -872,7 +917,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             .appendingPathComponent("WatchCaptureStorageActorTests-complication-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("snapshot.json", isDirectory: false)
 
-        async let manifestWrite: Void = storage.writeManifest(captured)
+        async let manifestWrite: Void = storage.writeManifest(captured, transactionClass: .captureSafety)
         async let relayPromotion: WatchRelayStorageTransition = storage.promoteQueuedForRelay(queuedEntry)
         async let relayTransfer: WatchRelayTransferPreparation = storage.prepareRelayTransfer(
             transferringEntry,
@@ -997,7 +1042,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
     func testLocationLogRoundTripFinalizesDurableFixes() async throws {
         let actor = self.actor()
         let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .captured)
-        try await actor.writeManifest(manifest)
+        try await actor.writeManifest(manifest, transactionClass: .captureSafety)
         let directory = self.root.appendingPathComponent("20250101/120000_300", isDirectory: true)
         let locationURL = directory.appendingPathComponent("location.jsonl")
         let fix = WatchLocationFix(
@@ -1038,12 +1083,12 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 segment: "120\(index)00_300",
                 state: .queued
             )
-            try await actor.writeManifest(manifest)
-        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+            try await actor.writeManifest(manifest, transactionClass: .captureSafety)
+            let catalog = await actor.scanCatalog(transactionClass: .maintenance)
             let stale = try XCTUnwrap(catalog.entries.first { $0.manifest.id == manifest.id })
             var current = manifest
             current.state = state
-            try await actor.writeManifest(current)
+            try await actor.writeManifest(current, transactionClass: .captureSafety)
             let manifestURL = self.root
                 .appendingPathComponent("20250101/\(manifest.segment)/manifest.json")
             let before = try Data(contentsOf: manifestURL)
@@ -1064,7 +1109,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
     func testRelayPromotionRejectsChangedMediaWitnessWithoutMutation() async throws {
         let actor = self.actor()
         let manifest = self.manifest(id: UUID(), segment: "121000_300", state: .queued)
-        try await actor.writeManifest(manifest)
+        try await actor.writeManifest(manifest, transactionClass: .captureSafety)
         let directory = self.root.appendingPathComponent("20250101/121000_300", isDirectory: true)
         let audioURL = directory.appendingPathComponent("audio.m4a")
         try Data("audio".utf8).write(to: audioURL, options: .atomic)
@@ -1088,11 +1133,11 @@ final class WatchCaptureStorageActorTests: XCTestCase {
     func testRelayDeletionRejectsReplacementTreeWithoutMutation() async throws {
         let actor = self.actor()
         let manifest = self.manifest(id: UUID(), segment: "122000_300", state: .safeToDelete)
-        try await actor.writeManifest(manifest)
+        try await actor.writeManifest(manifest, transactionClass: .captureSafety)
         let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         let stale = try XCTUnwrap(catalog.entries.first)
         let replacement = self.manifest(id: UUID(), segment: "122000_300", state: .safeToDelete)
-        try await actor.writeManifest(replacement)
+        try await actor.writeManifest(replacement, transactionClass: .captureSafety)
         let manifestURL = self.root.appendingPathComponent("20250101/122000_300/manifest.json")
         let before = try Data(contentsOf: manifestURL)
 
@@ -1118,7 +1163,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
     func testRelayDeletionRejectsMissingTree() async throws {
         let actor = self.actor()
         let manifest = self.manifest(id: UUID(), segment: "123000_300", state: .safeToDelete)
-        try await actor.writeManifest(manifest)
+        try await actor.writeManifest(manifest, transactionClass: .captureSafety)
         let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         let stale = try XCTUnwrap(catalog.entries.first)
         try await actor.removeItem(at: stale.directoryURL, transactionClass: .maintenance)

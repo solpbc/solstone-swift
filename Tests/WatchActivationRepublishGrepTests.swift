@@ -32,6 +32,20 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
         XCTAssertTrue(reachability.contains("self.onReachableRepublish?()"))
     }
 
+    func testLaunchFinalizedRewriteUsesMaintenanceLaneAndCatalogWitness() throws {
+        let (text, path) = try Self.contents("Sources/WatchCapture/WatchCaptureEngine.swift")
+        let maintenance = try Self.section(
+            from: "private func runReconcileMaintenance(",
+            to: "    private func startInner(generation: Int) async {",
+            in: text,
+            path: path.path
+        )
+
+        XCTAssertTrue(maintenance.contains("entry: entry"))
+        XCTAssertTrue(maintenance.contains("transactionClass: .maintenance"))
+        XCTAssertFalse(maintenance.contains("transactionClass: .captureSafety"))
+    }
+
     func testWatchPipelineInputAssemblerThreadsReachabilityIntoDiagnosticsInput() throws {
         let (assemblerText, assemblerPath) = try Self.contents("Sources/WatchCapture/WatchPipelineInputAssembler.swift")
         let pipelineInput = try Self.section(

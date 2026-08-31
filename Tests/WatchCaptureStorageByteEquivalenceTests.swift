@@ -176,7 +176,7 @@ private extension WatchCaptureStorageByteEquivalenceTests {
             // manifest. Restore the fixture's final state after preparing it.
             var transferring = manifest
             transferring.state = .transferring
-            try await actor.writeManifest(transferring, ensuringDirectory: false)
+            try await actor.writeManifest(transferring, ensuringDirectory: false, transactionClass: .captureSafety)
             let catalog = await actor.scanCatalog(transactionClass: .maintenance)
             let transferEntry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == manifest.id })
             let bundleURL = self.root
@@ -208,7 +208,7 @@ private extension WatchCaptureStorageByteEquivalenceTests {
                 at: Self.fixtureDate
             )
             XCTAssertTrue(recordedDiagnostics)
-            try await actor.writeManifest(manifest, ensuringDirectory: false)
+            try await actor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
         }
 
         let expectedSnapshot = try XCTUnwrap(expected.first { $0.path == WatchComplicationSnapshot.fileName })

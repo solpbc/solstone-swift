@@ -30,6 +30,16 @@ final class WatchCaptureEngine {
         let transferring: Int
         let confirming: Int
         let handedOff: Int
+
+        var total: Int {
+            self.queued + self.transferring + self.confirming + self.handedOff
+        }
+    }
+
+    private enum RelayCountSnapshotAuthority: Equatable, Sendable {
+        case none
+        case partial
+        case complete
     }
 
     var onPresentationChanged: (@Sendable @MainActor (WatchCaptureOwnerPresentation) -> Void)?
@@ -89,6 +99,7 @@ final class WatchCaptureEngine {
     private var transferringCount = 0
     private var confirmingCount = 0
     private var handedOffCount = 0
+    private var relayCountSnapshotAuthority = RelayCountSnapshotAuthority.none
     private var zeroAudioCurrentTimeObservationCount = 0
     private var terminalEnvironmentSnapshot: WatchRelayDiagnosticsEnvironmentSnapshot?
     private var lifecycleState: LifecycleState = .idle
@@ -174,10 +185,23 @@ final class WatchCaptureEngine {
     }
 
     func refreshRelayCountsFromDisk() async {
-        let priorQueued = self.queuedCount
-        let priorTransferring = self.transferringCount
-        await self.refreshRelayCountsFromDiskCatalog()
-        if self.queuedCount != priorQueued || self.transferringCount != priorTransferring {
+        let prior = RelayCounts(
+            queued: self.queuedCount,
+            transferring: self.transferringCount,
+            confirming: self.confirmingCount,
+            handedOff: self.handedOffCount
+        )
+        let catalog = await self.refreshRelayCountsFromDiskCatalog()
+        if !catalog.canInferUUIDAbsence, !Task.isCancelled {
+            _ = await self.refreshRelayCountsFromDiskCatalog()
+        }
+        let refreshed = RelayCounts(
+            queued: self.queuedCount,
+            transferring: self.transferringCount,
+            confirming: self.confirmingCount,
+            handedOff: self.handedOffCount
+        )
+        if refreshed != prior {
             await self.republishCurrentStatus()
         }
         self.notifyPresentationChanged()
@@ -250,11 +274,13 @@ final class WatchCaptureEngine {
         return sessionReadiness
     }
 
-    private func startReconcileMaintenance(seed: ReconcileReadinessSeed) {
+    private func startReconcileMaintenance(
+        seed: ReconcileReadinessSeed,
+        presentationAdmissionGeneration: Int
+    ) {
         self.maintenanceGeneration &+= 1
         self.maintenanceTask?.cancel()
         let maintenanceGeneration = self.maintenanceGeneration
-        let presentationAdmissionGeneration = self.presentationAdmissionGeneration
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             await self.runReconcileMaintenance(
@@ -298,7 +324,12 @@ final class WatchCaptureEngine {
             do {
                 var manifest = entry.manifest
                 manifest.state = .queued
-                try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
+                try await self.storageActor.writeManifest(
+                    manifest,
+                    entry: entry,
+                    ensuringDirectory: false,
+                    transactionClass: .maintenance
+                )
             } catch {
                 maintenanceFailed = true
                 watchCaptureLog.error(
@@ -326,7 +357,7 @@ final class WatchCaptureEngine {
             self.requestRelayDrain(trigger: .launchReconciliation)
             return
         }
-        self.applyRelayCounts(self.relayCounts(from: refreshedCatalog))
+        self.applyRelayCounts(from: refreshedCatalog)
         self.applyCatalogAdvisory(refreshedCatalog.rootState)
         await self.republishCurrentStatus()
         self.notifyPresentationChanged()
@@ -476,13 +507,17 @@ final class WatchCaptureEngine {
         case .reconcile:
             guard case .idle = self.lifecycleState else { return }
             self.lifecycleState = .reconciling
+            let presentationAdmissionGeneration = self.presentationAdmissionGeneration
             let readiness = await self.reconcileCaptureSafetyReadiness(generation: generation)
             guard self.isLifecycleGenerationCurrent(generation) else { return }
             if case .reconciling = self.lifecycleState {
                 self.lifecycleState = .idle
             }
             if let readiness {
-                self.startReconcileMaintenance(seed: readiness)
+                self.startReconcileMaintenance(
+                    seed: readiness,
+                    presentationAdmissionGeneration: presentationAdmissionGeneration
+                )
             }
 
         case .start:
@@ -856,7 +891,11 @@ private extension WatchCaptureEngine {
         )
         self.openingSegment = active
         do {
-            try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
+            try await self.storageActor.writeManifest(
+                manifest,
+                ensuringDirectory: false,
+                transactionClass: .captureSafety
+            )
         } catch {
             guard await self.continueOpeningLifecycleOperation(generation) else { return false }
             throw error
@@ -911,7 +950,11 @@ private extension WatchCaptureEngine {
         active.manifest = manifest
         self.openingSegment = active
         do {
-            try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
+            try await self.storageActor.writeManifest(
+                manifest,
+                ensuringDirectory: false,
+                transactionClass: .captureSafety
+            )
         } catch {
             guard await self.continueOpeningLifecycleOperation(generation) else { return false }
             var failedActive = active
@@ -1212,7 +1255,11 @@ private extension WatchCaptureEngine {
             return
         case .retain:
             do {
-                try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
+                try await self.storageActor.writeManifest(
+                    manifest,
+                    ensuringDirectory: false,
+                    transactionClass: .captureSafety
+                )
             } catch {
                 self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
             }
@@ -1233,9 +1280,17 @@ private extension WatchCaptureEngine {
             )
             manifest.segment = finalSegment
             manifest.state = .finalized
-            try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
+            try await self.storageActor.writeManifest(
+                manifest,
+                ensuringDirectory: false,
+                transactionClass: .captureSafety
+            )
             manifest.state = .queued
-            try await self.storageActor.writeManifest(manifest, ensuringDirectory: false)
+            try await self.storageActor.writeManifest(
+                manifest,
+                ensuringDirectory: false,
+                transactionClass: .captureSafety
+            )
             if manifest.partial {
                 watchCaptureLog.error(
                     "watch segment partial id=\(manifest.id.uuidString, privacy: .public) state=queued"
@@ -2272,9 +2327,22 @@ private extension WatchCaptureEngine {
     @discardableResult
     func refreshRelayCountsFromDiskCatalog() async -> WatchCaptureCatalog {
         let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
-        self.applyRelayCounts(self.relayCounts(from: catalog))
+        self.applyRelayCounts(from: catalog)
         self.applyCatalogAdvisory(catalog.rootState)
         return catalog
+    }
+
+    private func applyRelayCounts(from catalog: WatchCaptureCatalog) {
+        let sampled = self.relayCounts(from: catalog)
+        switch catalog.rootState {
+        case .complete, .emptyComplete:
+            self.applyRelayCounts(sampled)
+            self.relayCountSnapshotAuthority = .complete
+        case .partial:
+            self.applyRelayCountLowerBound(sampled)
+        case .unavailable:
+            break
+        }
     }
 
     private func relayCounts(from catalog: WatchCaptureCatalog) -> RelayCounts {
@@ -2294,6 +2362,19 @@ private extension WatchCaptureEngine {
         self.transferringCount = counts.transferring
         self.confirmingCount = counts.confirming
         self.handedOffCount = counts.handedOff
+    }
+
+    private func applyRelayCountLowerBound(_ counts: RelayCounts) {
+        guard self.relayCountSnapshotAuthority != .complete else { return }
+        let current = RelayCounts(
+            queued: self.queuedCount,
+            transferring: self.transferringCount,
+            confirming: self.confirmingCount,
+            handedOff: self.handedOffCount
+        )
+        guard self.relayCountSnapshotAuthority == .none || counts.total > current.total else { return }
+        self.applyRelayCounts(counts)
+        self.relayCountSnapshotAuthority = .partial
     }
 
     func applyCatalogAdvisory(_ rootState: WatchCaptureCatalogRootState) {

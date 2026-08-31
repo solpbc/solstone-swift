@@ -157,7 +157,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             paths: storage.paths,
             fileWriter: FoundationWatchFileWriter()
         )
-        try await externalActor.writeManifest(self.queuedManifest(storage: storage, id: UUID(), index: 0))
+        try await externalActor.writeManifest(self.queuedManifest(storage: storage, id: UUID(), index: 0), transactionClass: .captureSafety)
         let initialCatalog = await externalActor.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(initialCatalog.entries.count, 1)
         await writer.armNextRead()
@@ -194,7 +194,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         relaySender.onStateChanged?()
         await writer.waitUntilReadEntered()
 
-        try await externalActor.writeManifest(self.queuedManifest(storage: storage, id: UUID(), index: 1))
+        try await externalActor.writeManifest(self.queuedManifest(storage: storage, id: UUID(), index: 1), transactionClass: .captureSafety)
         let expandedCatalog = await externalActor.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(expandedCatalog.entries.count, 2)
         relaySender.onStateChanged?()
@@ -452,7 +452,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             state: .queued,
             failureReason: nil
         )
-        try await storageActor.writeManifest(manifest)
+        try await storageActor.writeManifest(manifest, transactionClass: .captureSafety)
         let session = WatchModelConnectivitySession()
         let relaySender = WatchRelaySender(
             paths: storage.paths,

@@ -1258,7 +1258,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         )
         let directoryURL = storage.segmentDirectoryURL(day: manifest.day, segment: manifest.segment)
         try await storage.fileWriter.createDirectory(at: directoryURL)
-        try await self.storageActor(for: storage).writeManifest(manifest, ensuringDirectory: false)
+        try await self.storageActor(for: storage).writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
         return WatchCaptureCatalogEntry(
             id: WatchCaptureCatalogEntryID(day: manifest.day, segment: manifest.segment),
             directoryURL: directoryURL,
@@ -1518,7 +1518,7 @@ final class WatchRelayDiagnosticsReadOnlyTests: XCTestCase {
         )
         let directoryURL = storage.segmentDirectoryURL(day: manifest.day, segment: manifest.segment)
         try await storage.fileWriter.createDirectory(at: directoryURL)
-        try await self.storageActor(for: storage).writeManifest(manifest, ensuringDirectory: false)
+        try await self.storageActor(for: storage).writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
         let bundleURL = storage.rootURL
             .appendingPathComponent(".relay-bundles", isDirectory: true)
             .appendingPathComponent("\(id.uuidString).watchrelay", isDirectory: false)
@@ -1967,7 +1967,7 @@ final class WatchCaptureStorageActorDiagnosticsTests: XCTestCase {
         )
         let directoryURL = storage.segmentDirectoryURL(day: manifest.day, segment: manifest.segment)
         try await storage.fileWriter.createDirectory(at: directoryURL)
-        try await self.storageActor(for: storage).writeManifest(manifest, ensuringDirectory: false)
+        try await self.storageActor(for: storage).writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
         return WatchCaptureCatalogEntry(
             id: WatchCaptureCatalogEntryID(day: manifest.day, segment: manifest.segment),
             directoryURL: directoryURL,

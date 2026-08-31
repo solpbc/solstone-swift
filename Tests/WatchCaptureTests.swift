@@ -146,6 +146,82 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertTrue(statuses.isEmpty)
     }
 
+    func testPartialRelayCountRefreshCannotLowerPreviouslyVerifiedCounts() async throws {
+        let harness = try self.makeHarness()
+        let startedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        let firstDirectory = try await self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt,
+            state: .queued,
+            sensors: [.audio]
+        )
+        _ = try await self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt.addingTimeInterval(60),
+            state: .queued,
+            sensors: [.audio]
+        )
+        await harness.engine.refreshRelayCountsFromDisk()
+        XCTAssertEqual(harness.engine.ownerPresentation.queuedCount, 2)
+
+        try FileManager.default.removeItem(at: firstDirectory)
+        let malformedDay = harness.storage.rootURL.appendingPathComponent("malformed-day")
+        try Data("not a directory".utf8).write(to: malformedDay, options: .atomic)
+
+        await harness.engine.refreshRelayCountsFromDisk()
+
+        XCTAssertEqual(harness.engine.ownerPresentation.queuedCount, 2)
+        XCTAssertEqual(harness.engine.ownerPresentation.persistenceAdvisory, .manifestCatalogPartial)
+
+        try FileManager.default.removeItem(at: malformedDay)
+        await harness.engine.refreshRelayCountsFromDisk()
+
+        XCTAssertEqual(harness.engine.ownerPresentation.queuedCount, 1)
+        XCTAssertNil(harness.engine.ownerPresentation.persistenceAdvisory)
+    }
+
+    func testPartialRelayCountRefreshDoesNotDoubleCountStateTransitions() async throws {
+        let harness = try self.makeHarness()
+        let startedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        _ = try await self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt,
+            state: .queued,
+            sensors: [.audio]
+        )
+        _ = try await self.writeManifest(
+            storage: harness.storage,
+            startedAt: startedAt.addingTimeInterval(60),
+            state: .queued,
+            sensors: [.audio]
+        )
+        await harness.engine.refreshRelayCountsFromDisk()
+
+        let queuedCatalog = await harness.storageActor.scanCatalog(transactionClass: .maintenance)
+        for entry in queuedCatalog.entries where entry.manifest.state == .queued {
+            var transferring = entry.manifest
+            transferring.state = .transferring
+            try await harness.storageActor.writeManifest(
+                transferring,
+                entry: entry,
+                ensuringDirectory: false,
+                transactionClass: .captureSafety
+            )
+        }
+        try Data("not a directory".utf8).write(
+            to: harness.storage.rootURL.appendingPathComponent("malformed-day"),
+            options: .atomic
+        )
+
+        await harness.engine.refreshRelayCountsFromDisk()
+
+        let presentation = harness.engine.ownerPresentation
+        XCTAssertEqual(presentation.queuedCount, 2)
+        XCTAssertEqual(presentation.transferringCount, 0)
+        XCTAssertEqual(presentation.queuedCount + presentation.transferringCount, 2)
+        XCTAssertEqual(presentation.persistenceAdvisory, .manifestCatalogPartial)
+    }
+
     func testDeliveredSegmentsCountAsConfirmingAndTerminalStatesAsHandedOff() async throws {
         let harness = try self.makeHarness()
         let startedAt = Date(timeIntervalSince1970: 1_713_624_000)
@@ -3033,7 +3109,11 @@ final class WatchCaptureTests: XCTestCase {
         guard case let .available(entries) = await history.readSessionHistory(asOf: harness.clock.now()) else {
             return XCTFail("history unreadable")
         }
-        XCTAssertEqual(entries.first { $0.sessionID == prior.sessionID }?.terminalReason, .processExitedWhileActive)
+        let priorHistory = try XCTUnwrap(entries.first { $0.sessionID == prior.sessionID })
+        XCTAssertEqual(priorHistory.terminalReason, .processExitedWhileActive)
+        XCTAssertEqual(priorHistory.terminalDisposition, .inferredStoppedItself)
+        XCTAssertEqual(priorHistory.noticeDelivered, true)
+        XCTAssertFalse(priorHistory.noticeOwed)
         let manifests = await self.catalogEntries(for: harness.storage)
         XCTAssertFalse(manifests.contains {
             $0.manifest.failureReason == WatchCaptureTerminalReason.processExitedWhileActive.observerError.message
@@ -3058,6 +3138,14 @@ final class WatchCaptureTests: XCTestCase {
         try await self.assertStaleReconcileMaintenancePublicationIsSuppressed(
             rewriteFails: false,
             partialCatalog: true
+        )
+    }
+
+    func testStartAdmittedDuringReadinessSuppressesStaleMaintenancePublication() async throws {
+        try await self.assertStaleReconcileMaintenancePublicationIsSuppressed(
+            rewriteFails: false,
+            partialCatalog: false,
+            startAdmittedDuringReadiness: true
         )
     }
 
@@ -4902,7 +4990,8 @@ private extension WatchCaptureTests {
 
     func assertStaleReconcileMaintenancePublicationIsSuppressed(
         rewriteFails: Bool,
-        partialCatalog: Bool
+        partialCatalog: Bool,
+        startAdmittedDuringReadiness: Bool = false
     ) async throws {
         let writer = FailingWatchFileWriter(failAppend: false)
         let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: writer)
@@ -4958,15 +5047,32 @@ private extension WatchCaptureTests {
             ))
         }
 
+        let readinessHold = WatchCaptureHoldGate()
+        if startAdmittedDuringReadiness {
+            writer.atomicReplaceGateURL = harness.storage.paths.sessionHistoryURL()
+            writer.atomicReplaceGate = readinessHold
+        }
         let maintenanceHold = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGateIdentifier = WatchNoticeIdentifiers.notice
         harness.notificationScheduler.addGate = maintenanceHold
         harness.engine.reconcileOnLaunch()
+        if startAdmittedDuringReadiness {
+            await self.waitForGate(readinessHold)
+            harness.engine.start()
+            XCTAssertEqual(harness.engine.ownerPresentation.status, .enrolling)
+            writer.atomicReplaceGateURL = nil
+            writer.atomicReplaceGate = nil
+            await readinessHold.release()
+        }
         await self.waitForGate(maintenanceHold)
 
         // The terminal-notice call has captured this gate. Removing it lets the
         // newer Start finish while launch maintenance remains suspended.
         harness.notificationScheduler.addGate = nil
-        harness.engine.start()
+        harness.notificationScheduler.addGateIdentifier = nil
+        if !startAdmittedDuringReadiness {
+            harness.engine.start()
+        }
         await self.drain(until: {
             harness.engine.ownerPresentation.status == .active
                 && harness.engine.ownerPresentation.isSessionRunning
@@ -5250,7 +5356,7 @@ private extension WatchCaptureTests {
             state: state,
             failureReason: nil
         )
-        try await storageActor.writeManifest(manifest, ensuringDirectory: false)
+        try await storageActor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
         return directory
     }
 
@@ -5353,6 +5459,7 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
     var authorizationStatusGate: WatchCaptureHoldGate?
     var alertSettingGate: WatchCaptureHoldGate?
     var requestAuthorizationGate: WatchCaptureHoldGate?
+    var addGateIdentifier: String?
     var addGate: WatchCaptureHoldGate?
     var calls: [Call] = []
     var pendingRequests: [String: PendingRequest] = [:]
@@ -5397,7 +5504,7 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
 
     func add(identifier: String, title: String, body: String, triggerDate: Date?) async throws {
         self.calls.append(.add(identifier: identifier, title: title, body: body, triggerDate: triggerDate))
-        if let addGate {
+        if let addGate, self.addGateIdentifier == nil || self.addGateIdentifier == identifier {
             await addGate.suspend()
         }
         if let addError {
