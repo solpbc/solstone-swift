@@ -20,6 +20,9 @@ final class WatchCaptureModel {
 
     @ObservationIgnored private var engine: WatchCaptureEngine?
     @ObservationIgnored private let diagnosticsCollector: WatchRelayDiagnosticsCollector?
+    @ObservationIgnored private let signposter: any WatchSignposting
+    @ObservationIgnored private let complicationRootURL: @MainActor () throws -> URL
+    @ObservationIgnored private let reloadComplicationTimelines: @MainActor () -> Void
 
     init(
         storage: WatchCaptureStorage,
@@ -27,28 +30,47 @@ final class WatchCaptureModel {
         session: any WatchConnectivitySession,
         diagnosticsCollector: WatchRelayDiagnosticsCollector,
         notificationScheduler: any WatchNotificationScheduling,
-        environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
+        environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding,
+        clock: any ObserverClock = SystemObserverClock(),
+        signposter: any WatchSignposting = WatchSignpost.live,
+        complicationRootURL: @escaping @MainActor () throws -> URL = { try AppGroupContainer.rootURL() },
+        reloadComplicationTimelines: @escaping @MainActor () -> Void = {
+            WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationSnapshot.widgetKind)
+        }
     ) {
         self.diagnosticsCollector = diagnosticsCollector
+        self.signposter = signposter
+        self.complicationRootURL = complicationRootURL
+        self.reloadComplicationTimelines = reloadComplicationTimelines
         let engine = WatchCaptureEngine(
             audioRecorder: LiveWatchAudioRecorder(),
             audioSession: LiveWatchAudioSessionController(),
             locationProvider: LiveWatchLocationProvider(),
             storage: storage,
+            clock: clock,
             audioProbe: LiveWatchAudioProbe(),
             notificationScheduler: notificationScheduler,
-            environmentProvider: environmentProvider
+            environmentProvider: environmentProvider,
+            signposter: signposter
         )
         engine.onPresentationChanged = { [weak self] presentation in
             self?.presentation = presentation
         }
-        engine.onRelayDrainRequested = { [weak relaySender] in
-            relaySender?.drain()
+        engine.onRelayDrainRequested = { [weak relaySender] trigger in
+            relaySender?.drain(trigger: trigger)
         }
-        engine.onPublishStatus = { [session] context in
+        engine.onPublishStatus = { [session, signposter] context in
+            let publication = signposter.begin(.statusPublication)
+            var result: RelayResult = .completed
+            defer {
+                signposter.end(publication, fields: WatchSignpostFields(result: result))
+            }
+            let primary = signposter.begin(.applicationContextPrimary)
             do {
                 try session.updateApplicationContext(context.applicationContext())
+                signposter.end(primary, fields: WatchSignpostFields(result: .completed))
             } catch {
+                signposter.end(primary, fields: WatchSignpostFields(result: .failed))
                 if context.diagnosticsEnvelope != nil,
                    let fallbackEnvelope = WatchRelayDiagnosticsCollector.unavailableEnvelopeData(
                     generatedAt: context.asOf,
@@ -66,13 +88,19 @@ final class WatchCaptureModel {
                         audioTerminalDisposition: context.audioTerminalDisposition,
                         diagnosticsEnvelope: fallbackEnvelope
                     )
+                    let fallback = signposter.begin(.applicationContextFallback)
                     do {
                         try session.updateApplicationContext(fallbackContext.applicationContext())
+                        signposter.end(fallback, fields: WatchSignpostFields(result: .completed))
+                        result = .partial
                         return
                     } catch {
+                        signposter.end(fallback, fields: WatchSignpostFields(result: .failed))
+                        result = .failed
                         watchCaptureModelLog.error("watch status fallback publish failed: \(String(describing: error), privacy: .public)")
                     }
                 }
+                result = .failed
                 watchCaptureModelLog.error("watch status publish failed: \(String(describing: error), privacy: .public)")
             }
         }
@@ -93,6 +121,11 @@ final class WatchCaptureModel {
 
     init(initializationError error: any Error) {
         self.diagnosticsCollector = nil
+        self.signposter = WatchSignpost.live
+        self.complicationRootURL = { try AppGroupContainer.rootURL() }
+        self.reloadComplicationTimelines = {
+            WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationSnapshot.widgetKind)
+        }
         self.presentation = WatchCaptureOwnerPresentation(
             status: .needsAttention(WatchCaptureFailureMapper.observerError(for: error)),
             queuedCount: 0
@@ -128,15 +161,21 @@ final class WatchCaptureModel {
     func republishStatusOnReconnect() { self.engine?.republishCurrentStatus() }
 
     private func publishComplicationSnapshot() {
+        let snapshotInterval = self.signposter.begin(.complicationSnapshot)
         do {
             // Reachability only changes link fields, which the complication snapshot does not persist.
             let snapshot = WatchComplicationSnapshot(presentation: self.presentation, isReachable: true)
-            let data = try JSONEncoder().encode(snapshot)
-            let url = try AppGroupContainer.rootURL()
+            let encoder = JSONEncoder()
+            // JSONEncoder does not guarantee object-key order; match sibling Watch encoders.
+            encoder.outputFormatting = [.sortedKeys]
+            let data = try encoder.encode(snapshot)
+            let url = try self.complicationRootURL()
                 .appendingPathComponent(WatchComplicationSnapshot.fileName, isDirectory: false)
             try data.write(to: url, options: .atomic)
-            WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationSnapshot.widgetKind)
+            self.reloadComplicationTimelines()
+            self.signposter.end(snapshotInterval, fields: WatchSignpostFields(result: .completed))
         } catch {
+            self.signposter.end(snapshotInterval, fields: WatchSignpostFields(result: .failed))
             watchCaptureModelLog.error("watch complication snapshot publish failed: \(String(describing: error), privacy: .public)")
         }
     }

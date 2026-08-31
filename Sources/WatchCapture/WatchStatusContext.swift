@@ -108,6 +108,8 @@ private extension WatchStatusContext {
     nonisolated static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
+        // JSONEncoder does not guarantee object-key order; match sibling Watch encoders.
+        encoder.outputFormatting = [.sortedKeys]
         return encoder
     }
 

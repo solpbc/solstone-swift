@@ -21,7 +21,7 @@ final class WatchCaptureEngine {
     }
 
     var onPresentationChanged: (@Sendable @MainActor (WatchCaptureOwnerPresentation) -> Void)?
-    var onRelayDrainRequested: (@MainActor () -> Void)?
+    var onRelayDrainRequested: (@MainActor (RelayTrigger) -> Void)?
     var onPublishStatus: (@MainActor (WatchStatusContext) -> Void)?
     var onDiagnosticsEnvelopeRequested: (@MainActor (Date) -> Data?)?
 
@@ -35,6 +35,7 @@ final class WatchCaptureEngine {
     private let notificationCenter: NotificationCenter
     private let audioSessionNotificationHandoff: WatchAudioSessionNotificationHandoff
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
+    private let signposter: any WatchSignposting
     private let sessionHistoryStore: WatchCaptureSessionHistoryStore
     let lifecycleSerializer: WatchCaptureLifecycleSerializer
 
@@ -90,6 +91,7 @@ final class WatchCaptureEngine {
         notificationScheduler: any WatchNotificationScheduling,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
         notificationCenter: NotificationCenter = .default,
+        signposter: any WatchSignposting = WatchSignpost.live,
         audioSessionNotificationHandoff: @escaping WatchAudioSessionNotificationHandoff = { operation in
             Task { @MainActor in operation() }
         }
@@ -102,6 +104,7 @@ final class WatchCaptureEngine {
         self.audioProbe = audioProbe
         self.notificationScheduler = notificationScheduler
         self.environmentProvider = environmentProvider
+        self.signposter = signposter
         self.sessionHistoryStore = WatchCaptureSessionHistoryStore(storage: storage)
         self.notificationCenter = notificationCenter
         self.audioSessionNotificationHandoff = audioSessionNotificationHandoff
@@ -176,10 +179,16 @@ final class WatchCaptureEngine {
     }
 
     private func reconcileOnLaunchInner(generation: Int) async {
+        let reconciliation = self.signposter.begin(.reconciliation)
+        defer {
+            self.signposter.end(reconciliation, fields: WatchSignpostFields(result: .completed))
+        }
         self.terminalReason = nil
         self.terminalDisposition = nil
         let reconciledSessionID = await self.reconcileSessionRecord(generation: generation)
         guard await self.continueLifecycleOperation(generation) else { return }
+        let manifestScan = self.signposter.begin(.manifestScan)
+        let didScanManifests: Bool
         do {
             let entries = try self.storage.scanManifests()
             for entry in entries {
@@ -195,14 +204,28 @@ final class WatchCaptureEngine {
                     break
                 }
             }
-            try self.refreshRelayCountsFromDiskThrowing()
+            self.signposter.end(manifestScan, fields: WatchSignpostFields(result: .completed))
+            didScanManifests = true
         } catch {
+            self.signposter.end(manifestScan, fields: WatchSignpostFields(result: .failed))
             watchCaptureLog.error("watch reconcile scan failed: \(String(describing: error), privacy: .public)")
             self.persistenceAdvisory = .manifestScanFailed
+            didScanManifests = false
+        }
+        if didScanManifests {
+            let relayCountRefresh = self.signposter.begin(.relayCountRefresh)
+            do {
+                try self.refreshRelayCountsFromDiskThrowing()
+                self.signposter.end(relayCountRefresh, fields: WatchSignpostFields(result: .completed))
+            } catch {
+                self.signposter.end(relayCountRefresh, fields: WatchSignpostFields(result: .failed))
+                watchCaptureLog.error("watch reconcile scan failed: \(String(describing: error), privacy: .public)")
+                self.persistenceAdvisory = .manifestScanFailed
+            }
         }
         self.republishCurrentStatus()
         self.notifyPresentationChanged()
-        self.requestRelayDrain()
+        self.requestRelayDrain(trigger: .launchReconciliation)
     }
 
     private func startInner(generation: Int) async {
@@ -442,6 +465,21 @@ extension WatchCaptureEngine: WatchAudioRecorderEventSink {
 }
 
 private extension WatchCaptureEngine {
+    func performSignposted<Value>(
+        _ boundary: WatchSignpostBoundary,
+        operation: () throws -> Value
+    ) rethrows -> Value {
+        let interval = self.signposter.begin(boundary)
+        do {
+            let value = try operation()
+            self.signposter.end(interval, fields: WatchSignpostFields(result: .completed))
+            return value
+        } catch {
+            self.signposter.end(interval, fields: WatchSignpostFields(result: .failed))
+            throw error
+        }
+    }
+
     static let heartbeatIntervalSeconds = 15
     static let zeroAudioCurrentTimeObservationLimit = 3
 
@@ -824,7 +862,11 @@ private extension WatchCaptureEngine {
                 return false
             }
         }
-        self.persistFinalization(prepared, sessionID: self.currentSessionID)
+        self.persistFinalization(
+            prepared,
+            sessionID: self.currentSessionID,
+            relayTrigger: .segmentFinalization
+        )
         return true
     }
 
@@ -838,7 +880,11 @@ private extension WatchCaptureEngine {
             audioDuration: audioDuration,
             end: end
         )
-        self.persistFinalization(prepared, sessionID: self.currentSessionID)
+        self.persistFinalization(
+            prepared,
+            sessionID: self.currentSessionID,
+            relayTrigger: .segmentFinalization
+        )
     }
 
     func prepareFinalization(
@@ -936,7 +982,11 @@ private extension WatchCaptureEngine {
         )
     }
 
-    func persistFinalization(_ prepared: PreparedFinalization, sessionID: String?) {
+    func persistFinalization(
+        _ prepared: PreparedFinalization,
+        sessionID: String?,
+        relayTrigger: RelayTrigger
+    ) {
         let segment = prepared.segment
         var manifest = prepared.manifest
         switch prepared.disposition {
@@ -979,7 +1029,7 @@ private extension WatchCaptureEngine {
             }
             self.queuedCount += 1
             self.incrementSegmentsProduced(sessionID: sessionID)
-            self.requestRelayDrain()
+            self.requestRelayDrain(trigger: relayTrigger)
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
         }
@@ -1015,7 +1065,11 @@ private extension WatchCaptureEngine {
             )
             self.status = .needsAttention(.unavailable(reason: "audio unavailable after restart"))
         }
-        self.persistFinalization(prepared, sessionID: sessionID)
+        self.persistFinalization(
+            prepared,
+            sessionID: sessionID,
+            relayTrigger: .launchReconciliation
+        )
     }
 
     func retainDeclaredSensors(
@@ -1254,8 +1308,13 @@ private extension WatchCaptureEngine {
         self.onPresentationChanged?(self.ownerPresentation)
     }
 
-    func requestRelayDrain() {
-        self.onRelayDrainRequested?()
+    func requestRelayDrain(trigger: RelayTrigger) {
+        let handoff = self.signposter.begin(
+            .relayHandoff,
+            fields: WatchSignpostFields(trigger: trigger)
+        )
+        self.onRelayDrainRequested?(trigger)
+        self.signposter.end(handoff, fields: WatchSignpostFields(trigger: trigger, result: .completed))
     }
 
     @discardableResult
@@ -1310,6 +1369,12 @@ private extension WatchCaptureEngine {
         if phase != .idle, self.currentSessionID == nil || self.sessionStartedAt == nil {
             self.beginStatusSession(startedAt: asOf)
         }
+        let diagnosticsInterval = self.signposter.begin(.diagnosticsCollection)
+        let diagnosticsEnvelope = self.onDiagnosticsEnvelopeRequested?(asOf)
+        self.signposter.end(
+            diagnosticsInterval,
+            fields: WatchSignpostFields(result: .completed)
+        )
         let context = WatchStatusContext(
             phase: phase,
             sessionID: self.currentSessionID,
@@ -1320,7 +1385,7 @@ private extension WatchCaptureEngine {
             transferringCount: max(0, self.transferringCount),
             audioTerminalReason: self.terminalReason,
             audioTerminalDisposition: self.terminalDisposition,
-            diagnosticsEnvelope: self.onDiagnosticsEnvelopeRequested?(asOf)
+            diagnosticsEnvelope: diagnosticsEnvelope
         )
         self.onPublishStatus?(context)
     }
@@ -1328,19 +1393,27 @@ private extension WatchCaptureEngine {
     func clearNoticeOwedAfterConfirmedSubmission(sessionID: String?) {
         guard let sessionID else { return }
         let asOf = self.clock.now()
-        do {
-            if var entry = self.sessionHistoryStore.entry(sessionID: sessionID, asOf: asOf) {
+        if var entry = self.performSignposted(.sessionHistory, operation: {
+            self.sessionHistoryStore.entry(sessionID: sessionID, asOf: asOf)
+        }) {
+            do {
                 entry.noticeOwed = false
-                try self.sessionHistoryStore.upsert(entry, asOf: asOf)
+                try self.performSignposted(.sessionHistory) {
+                    try self.sessionHistoryStore.upsert(entry, asOf: asOf)
+                }
+            } catch {
+                watchCaptureLog.error("watch history notice clear failed: \(String(describing: error), privacy: .public)")
+                self.persistenceAdvisory = .sessionRecordWriteFailed
             }
-        } catch {
-            watchCaptureLog.error("watch history notice clear failed: \(String(describing: error), privacy: .public)")
-            self.persistenceAdvisory = .sessionRecordWriteFailed
         }
-        guard var record = try? self.storage.readSessionRecord(), record.sessionID == sessionID else { return }
+        guard var record = try? self.performSignposted(.sessionRecord, operation: {
+            try self.storage.readSessionRecord()
+        }), record.sessionID == sessionID else { return }
         record.noticeOwed = false
         do {
-            try self.storage.writeSessionRecord(record)
+            try self.performSignposted(.sessionRecord) {
+                try self.storage.writeSessionRecord(record)
+            }
         } catch {
             watchCaptureLog.error("watch notice clear failed: \(String(describing: error), privacy: .public)")
             self.persistenceAdvisory = .sessionRecordWriteFailed
@@ -1560,14 +1633,16 @@ private extension WatchCaptureEngine {
                 copy: copy,
                 triggerDate: nil
             )
-            self.upsertTerminalNoticeFacts(
-                sessionID: sessionID,
-                decision: decision,
-                delivered: delivered,
-                authorization: authorization,
-                alertSetting: alertSetting,
-                settingsRoute: nil
-            )
+            self.performSignposted(.sessionHistory) {
+                self.upsertTerminalNoticeFacts(
+                    sessionID: sessionID,
+                    decision: decision,
+                    delivered: delivered,
+                    authorization: authorization,
+                    alertSetting: alertSetting,
+                    settingsRoute: nil
+                )
+            }
             if delivered {
                 self.clearNoticeOwedAfterConfirmedSubmission(sessionID: sessionID)
             }
@@ -1576,33 +1651,39 @@ private extension WatchCaptureEngine {
             if sessionID == self.currentSessionID {
                 self.setSettingsRouteIfVacant(resolvedRoute)
             }
-            self.upsertTerminalNoticeFacts(
-                sessionID: sessionID,
-                decision: decision,
-                delivered: false,
-                authorization: authorization,
-                alertSetting: alertSetting,
-                settingsRoute: resolvedRoute
-            )
+            self.performSignposted(.sessionHistory) {
+                self.upsertTerminalNoticeFacts(
+                    sessionID: sessionID,
+                    decision: decision,
+                    delivered: false,
+                    authorization: authorization,
+                    alertSetting: alertSetting,
+                    settingsRoute: resolvedRoute
+                )
+            }
         case .cancelLease:
             self.removeAudioTruthLease()
-            self.upsertTerminalNoticeFacts(
-                sessionID: sessionID,
-                decision: decision,
-                delivered: false,
-                authorization: authorization,
-                alertSetting: alertSetting,
-                settingsRoute: nil
-            )
+            self.performSignposted(.sessionHistory) {
+                self.upsertTerminalNoticeFacts(
+                    sessionID: sessionID,
+                    decision: decision,
+                    delivered: false,
+                    authorization: authorization,
+                    alertSetting: alertSetting,
+                    settingsRoute: nil
+                )
+            }
         case .none:
-            self.upsertTerminalNoticeFacts(
-                sessionID: sessionID,
-                decision: decision,
-                delivered: false,
-                authorization: authorization,
-                alertSetting: alertSetting,
-                settingsRoute: nil
-            )
+            self.performSignposted(.sessionHistory) {
+                self.upsertTerminalNoticeFacts(
+                    sessionID: sessionID,
+                    decision: decision,
+                    delivered: false,
+                    authorization: authorization,
+                    alertSetting: alertSetting,
+                    settingsRoute: nil
+                )
+            }
             break
         }
     }
@@ -1719,7 +1800,10 @@ private extension WatchCaptureEngine {
 
     func reconcileSessionRecord(generation: Int) async -> String? {
         do {
-            guard let record = try self.storage.readSessionRecord() else {
+            let record = try self.performSignposted(.sessionRecord) {
+                try self.storage.readSessionRecord()
+            }
+            guard let record else {
                 return nil
             }
             self.currentSessionID = record.sessionID
@@ -1740,7 +1824,9 @@ private extension WatchCaptureEngine {
                         noticeOwed: history.noticeOwed
                     )
                     do {
-                        try self.storage.writeSessionRecord(repaired)
+                        try self.performSignposted(.sessionRecord) {
+                            try self.storage.writeSessionRecord(repaired)
+                        }
                     } catch {
                         self.persistenceAdvisory = .sessionRecordWriteFailed
                     }
@@ -1753,13 +1839,15 @@ private extension WatchCaptureEngine {
                 self.status = .needsAttention(WatchCaptureTerminalReason.processExitedWhileActive.observerError(disposition: .inferredStoppedItself))
                 self.removeAudioTruthLease()
                 self.terminalClaimedSessionIDs.insert(record.sessionID)
-                _ = self.persistTerminalFact(
-                    reason: .processExitedWhileActive,
-                    disposition: .inferredStoppedItself,
-                    at: terminalAt,
-                    sessionID: record.sessionID,
-                    startedAt: record.startedAt
-                )
+                _ = self.performSignposted(.sessionHistory) {
+                    self.persistTerminalFact(
+                        reason: .processExitedWhileActive,
+                        disposition: .inferredStoppedItself,
+                        at: terminalAt,
+                        sessionID: record.sessionID,
+                        startedAt: record.startedAt
+                    )
+                }
                 await self.submitTerminalNotice(
                     reason: .processExitedWhileActive,
                     disposition: .inferredStoppedItself,
@@ -1802,13 +1890,15 @@ private extension WatchCaptureEngine {
                   let sessionStartedAt
             else { return nil }
             self.terminalClaimedSessionIDs.insert(currentSessionID)
-            _ = self.persistTerminalFact(
-                reason: .processExitedWhileActive,
-                disposition: .inferredStoppedItself,
-                at: now,
-                sessionID: currentSessionID,
-                startedAt: sessionStartedAt
-            )
+            _ = self.performSignposted(.sessionHistory) {
+                self.persistTerminalFact(
+                    reason: .processExitedWhileActive,
+                    disposition: .inferredStoppedItself,
+                    at: now,
+                    sessionID: currentSessionID,
+                    startedAt: sessionStartedAt
+                )
+            }
             await self.submitTerminalNotice(
                 reason: .processExitedWhileActive,
                 disposition: .inferredStoppedItself,

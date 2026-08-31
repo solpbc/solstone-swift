@@ -342,10 +342,16 @@ targets:
       - SolstoneWatchComplication/ComplicationViews.swift
       - SolstoneWatchComplication/WatchComplicationPalette.swift
       - Sources/SourceVocabulary.swift
-      - Sources/WatchCapture/WatchFacePresentation.swift
-      - Sources/WatchCapture/WatchCaptureModels.swift
-      - Sources/WatchCapture/WatchComplicationSnapshot.swift
-      - Sources/WatchCapture/WatchComplicationSnapshotLoader.swift
+      - path: Sources/WatchCapture
+        excludes:
+          - WatchSegmentDrain.swift
+      - Sources/WatchConnectivity
+      - Sources/Observer/ObserverClock.swift
+      - Sources/Services/AppGroupContainer.swift
+      - Sources/SourceModels.swift
+      - Watch/Sources/WatchCaptureModel.swift
+      - Watch/Sources/LiveWatchLocationProvider.swift
+      - Watch/Sources/WatchSessionModel.swift
       - Sources/Observer/ObserverError.swift
       - path: SolstoneWatchComplication/Assets.xcassets
         buildPhase: resources

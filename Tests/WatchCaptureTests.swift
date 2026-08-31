@@ -2873,6 +2873,90 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertNil(entries.first { $0.sessionID == current.sessionID }?.terminalDisposition)
     }
 
+    func testReconcileNoticeSuspensionClosesSynchronousIntervalsBeforePostResumeWrites() async throws {
+        let sink = WatchSignpostTestSink()
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            signposter: WatchSignposter(sink: sink)
+        )
+        let prior = WatchCaptureSessionRecord(
+            sessionID: "reconcile-signpost-prior",
+            startedAt: harness.clock.now().addingTimeInterval(-30),
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try harness.storage.writeSessionRecord(prior)
+        let gate = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGate = gate
+
+        harness.engine.reconcileOnLaunch()
+        await self.waitForGate(gate)
+
+        XCTAssertEqual(sink.openBoundaries, [.reconciliation])
+        XCTAssertEqual(sink.events.filter { $0.boundary == .sessionHistory }.count % 2, 0)
+        XCTAssertEqual(sink.events.filter { $0.boundary == .sessionRecord }.count % 2, 0)
+        let heldEventCount = sink.events.count
+        await Task.yield()
+        XCTAssertEqual(sink.events.count, heldEventCount)
+        XCTAssertEqual(sink.openBoundaries, [.reconciliation])
+
+        await self.advanceNotificationGate(
+            gate,
+            scheduler: harness.notificationScheduler,
+            keyPath: \MockWatchNotificationScheduler.addGate
+        )
+        await harness.engine.settled()
+
+        XCTAssertEqual(sink.openInvocationCount, 0)
+        XCTAssertGreaterThanOrEqual(sink.events.filter { $0.boundary == .sessionHistory }.count, 8)
+        XCTAssertGreaterThanOrEqual(sink.events.filter { $0.boundary == .sessionRecord }.count, 6)
+        XCTAssertEqual(sink.events.filter { $0.boundary == .sessionHistory }.count % 2, 0)
+        XCTAssertEqual(sink.events.filter { $0.boundary == .sessionRecord }.count % 2, 0)
+    }
+
+    func testLaunchReconciliationForwardsTriggerToRelayDrainInterval() async throws {
+        let sink = WatchSignpostTestSink()
+        let signposter = WatchSignposter(sink: sink)
+        let harness = try self.makeHarness(signposter: signposter)
+        let session = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: harness.storage, session: session, signposter: signposter)
+        session.activate()
+        harness.engine.onRelayDrainRequested = { trigger in
+            sender.drain(trigger: trigger)
+        }
+
+        harness.engine.reconcileOnLaunch()
+        await harness.engine.settled()
+
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .relayDrain && $0.fields.trigger == .launchReconciliation
+        })
+    }
+
+    func testSegmentFinalizationForwardsTriggerToRelayDrainInterval() async throws {
+        let sink = WatchSignpostTestSink()
+        let signposter = WatchSignposter(sink: sink)
+        let harness = try self.makeHarness(signposter: signposter)
+        let session = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(storage: harness.storage, session: session, signposter: signposter)
+        session.activate()
+        harness.engine.onRelayDrainRequested = { trigger in
+            sender.drain(trigger: trigger)
+        }
+
+        harness.engine.start()
+        await harness.engine.settled()
+        harness.engine.stop()
+        await harness.engine.settled()
+
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .relayDrain && $0.fields.trigger == .segmentFinalization
+        })
+    }
+
     func testTerminalizeTearsDownBeforeNoticeGateAndFirstClaimWins() async throws {
         let harness = try self.makeHarness(locationAuthorization: .authorized)
         harness.engine.start(); await harness.engine.settled()
@@ -4292,6 +4376,7 @@ private extension WatchCaptureTests {
         notificationAlertSetting: WatchNotificationAlertSetting = .enabled,
         fileWriter: (any WatchFileWriting)? = nil,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = MockWatchRelayDiagnosticsEnvironmentProvider(),
+        signposter: any WatchSignposting = WatchSignpost.live,
         audioSessionNotificationHandoff: @escaping WatchAudioSessionNotificationHandoff = { operation in
             Task { @MainActor in operation() }
         }
@@ -4322,6 +4407,7 @@ private extension WatchCaptureTests {
             notificationScheduler: notificationScheduler,
             environmentProvider: environmentProvider,
             notificationCenter: notificationCenter,
+            signposter: signposter,
             audioSessionNotificationHandoff: audioSessionNotificationHandoff
         )
         return Harness(
@@ -4909,6 +4995,9 @@ final class FailingWatchFileWriter: WatchFileWriting {
     private var writeDataFailures: [String: Set<Int>] = [:]
     private var fileSizeFailures: Set<String> = []
     private var readFailures: Set<String> = []
+    private var contentsCallCount = 0
+    private var contentsFailures: Set<Int> = []
+    private var removeItemFailures: Set<String> = []
 
     init(
         failAppend: Bool,
@@ -4979,6 +5068,9 @@ final class FailingWatchFileWriter: WatchFileWriting {
 
     func removeItem(at url: URL) throws {
         self.removeItemURLs.append(url)
+        if self.removeItemFailures.contains(url.path) {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
+        }
         try self.base.removeItem(at: url)
     }
 
@@ -4988,7 +5080,8 @@ final class FailingWatchFileWriter: WatchFileWriting {
     }
 
     func contentsOfDirectory(at url: URL) throws -> [URL] {
-        if self.failContents {
+        self.contentsCallCount += 1
+        if self.failContents || self.contentsFailures.contains(self.contentsCallCount) {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
         }
         return try self.base.contentsOfDirectory(at: url)
@@ -5022,6 +5115,16 @@ final class FailingWatchFileWriter: WatchFileWriting {
 
     func failRead(at url: URL) {
         self.readFailures.insert(url.path)
+    }
+
+    var currentContentsCallCount: Int { self.contentsCallCount }
+
+    func failContents(atOrdinal ordinal: Int) {
+        self.contentsFailures.insert(ordinal)
+    }
+
+    func failRemoveItem(at url: URL) {
+        self.removeItemFailures.insert(url.path)
     }
 
     func clearReadFailure(at url: URL) {

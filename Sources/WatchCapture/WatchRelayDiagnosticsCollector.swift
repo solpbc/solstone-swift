@@ -76,24 +76,38 @@ final class WatchRelayDiagnosticsCollector {
     private let session: any WatchConnectivitySession
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
     private let sessionHistoryStore: WatchCaptureSessionHistoryStore
+    private let signposter: any WatchSignposting
 
     init(
         storage: WatchCaptureStorage,
         diagnosticsStore: WatchRelayDiagnosticsStore,
         session: any WatchConnectivitySession,
-        environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider()
+        environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
+        signposter: any WatchSignposting = WatchSignpost.live
     ) {
         self.storage = storage
         self.diagnosticsStore = diagnosticsStore
         self.session = session
         self.environmentProvider = environmentProvider
+        self.signposter = signposter
         self.sessionHistoryStore = WatchCaptureSessionHistoryStore(storage: storage)
     }
 
     func makeEnvelopeData(asOf: Date) -> Data? {
         let environment = self.environmentProvider.snapshot()
+        let payloadInterval = self.signposter.begin(.diagnosticsPayloadAssembly)
         let fullPayload = self.makePayload(asOf: asOf, environment: environment)
-        return Self.encodeCompactedEnvelope(generatedAt: asOf, payload: fullPayload)
+        self.signposter.end(payloadInterval, fields: WatchSignpostFields(result: .completed))
+        let encodeInterval = self.signposter.begin(.diagnosticsFirstEncode)
+        let data = self.encodeCompactedEnvelope(generatedAt: asOf, payload: fullPayload)
+        self.signposter.end(
+            encodeInterval,
+            fields: WatchSignpostFields(
+                result: data == nil ? .failed : .completed,
+                encodedByteCount: data?.count
+            )
+        )
+        return data
     }
 
     nonisolated static func encodeCompactedEnvelope(
@@ -101,6 +115,101 @@ final class WatchRelayDiagnosticsCollector {
         payload: WatchRelayDiagnosticsPayload
     ) -> Data? {
         self._encodeCompactedEnvelope(generatedAt: generatedAt, payload: payload)
+    }
+
+    private func encodeCompactedEnvelope(
+        generatedAt: Date,
+        payload: WatchRelayDiagnosticsPayload
+    ) -> Data? {
+        let observations = payload.observedFileTransfers
+        let observationCount = observations.count
+        do {
+            let fullData = try Self.encodedEnvelopeData(
+                generatedAt: generatedAt,
+                payload: payload,
+                observations: observations,
+                retainedObservationCount: observationCount
+            )
+            guard fullData.count > WatchRelayDiagnosticsEnvelope.maxEncodedByteCount else {
+                return fullData
+            }
+
+            let emptyData = try self.encodeCompactionEnvelope(
+                generatedAt: generatedAt,
+                payload: payload,
+                observations: observations,
+                retainedObservationCount: 0
+            )
+            guard emptyData.count <= WatchRelayDiagnosticsEnvelope.maxEncodedByteCount else {
+                return Self.unavailableEnvelopeData(
+                    generatedAt: generatedAt,
+                    reason: WatchRelayDiagnosticsEnvelopeReason.publicationFailed
+                )
+            }
+
+            var low = 0
+            var lowData = emptyData
+            var high = observationCount
+            while high - low > 1 {
+                let mid = low + (high - low) / 2
+                let data = try self.encodeCompactionEnvelope(
+                    generatedAt: generatedAt,
+                    payload: payload,
+                    observations: observations,
+                    retainedObservationCount: mid
+                )
+                if data.count <= WatchRelayDiagnosticsEnvelope.maxEncodedByteCount {
+                    low = mid
+                    lowData = data
+                } else {
+                    high = mid
+                }
+            }
+            return lowData
+        } catch {
+            return Self.unavailableEnvelopeData(
+                generatedAt: generatedAt,
+                reason: WatchRelayDiagnosticsEnvelopeReason.encodeFailed
+            )
+        }
+    }
+
+    private func encodeCompactionEnvelope(
+        generatedAt: Date,
+        payload: WatchRelayDiagnosticsPayload,
+        observations: [WatchRelayTransferObservation],
+        retainedObservationCount: Int
+    ) throws -> Data {
+        let interval = self.signposter.begin(
+            .diagnosticsCompactionEncode,
+            fields: WatchSignpostFields(retainedObservationCount: retainedObservationCount)
+        )
+        do {
+            let data = try Self.encodedEnvelopeData(
+                generatedAt: generatedAt,
+                payload: payload,
+                observations: observations,
+                retainedObservationCount: retainedObservationCount
+            )
+            self.signposter.end(
+                interval,
+                fields: WatchSignpostFields(
+                    result: .completed,
+                    retainedObservationCount: retainedObservationCount,
+                    encodedByteCount: data.count
+                )
+            )
+            return data
+        } catch {
+            self.signposter.end(
+                interval,
+                fields: WatchSignpostFields(
+                    result: .failed,
+                    retainedObservationCount: retainedObservationCount
+                )
+            )
+            throw error
+        }
     }
 
     nonisolated static func unavailableEnvelopeData(generatedAt: Date, reason: String) -> Data? {
@@ -192,9 +301,11 @@ private extension WatchRelayDiagnosticsCollector {
         let activeEntries = entries.filter { entry in
             entry.manifest.state == .queued || entry.manifest.state == .transferring
         }
+        let manifestFactsInterval = self.signposter.begin(.diagnosticsManifestFacts)
         let activeFacts = activeEntries.map { entry in
             self.activeManifestFact(entry: entry)
         }
+        self.signposter.end(manifestFactsInterval, fields: WatchSignpostFields(result: .completed))
         let fileTransferObservations = self.session.outstandingFileTransfers
         let fileTransferSnapshots = fileTransferObservations.map(\.snapshot)
         let userInfoSnapshots = self.session.outstandingUserInfoTransferSnapshots
@@ -203,11 +314,14 @@ private extension WatchRelayDiagnosticsCollector {
             activeManifestIDs: activeIDs,
             fileTransfers: fileTransferSnapshots
         )
+        let perItemFactsInterval = self.signposter.begin(.diagnosticsPerItemFacts)
         let observations = self.observations(
             activeFacts: activeFacts,
             fileTransfers: fileTransferObservations,
             asOf: asOf
         )
+        self.signposter.end(perItemFactsInterval, fields: WatchSignpostFields(result: .completed))
+        let witnessInterval = self.signposter.begin(.diagnosticsChangedWitnessRevalidation)
         let lastFacts = self.diagnosticsStore.readSummary()
         let failureSegmentID = Self.failureSegmentID(from: lastFacts)
         let changedWitnessIDs = self.changedWitnessIDs(initialFacts: activeFacts)
@@ -215,6 +329,7 @@ private extension WatchRelayDiagnosticsCollector {
             observations,
             changedWitnessIDs: changedWitnessIDs
         )
+        self.signposter.end(witnessInterval, fields: WatchSignpostFields(result: .completed))
 
         let manifestSummary: DiagnosticAvailability<WatchRelayManifestSummary>
         switch entriesResult {
@@ -223,6 +338,7 @@ private extension WatchRelayDiagnosticsCollector {
         case .failure:
             manifestSummary = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
         }
+        let historyInterval = self.signposter.begin(.diagnosticsHistorySummaryRead)
         let historyResult = self.sessionHistoryStore.read(asOf: asOf)
         let historyWindow: DiagnosticAvailability<[WatchCaptureSessionHistoryEntry]>
         let historyDepth: Int
@@ -235,6 +351,7 @@ private extension WatchRelayDiagnosticsCollector {
             historyWindow = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable)
         }
         let counter = self.sessionHistoryStore.readCounter()
+        self.signposter.end(historyInterval, fields: WatchSignpostFields(result: .completed))
 
         return WatchRelayDiagnosticsPayload(
             watchAppMarketingVersion: environment.watchAppMarketingVersion,

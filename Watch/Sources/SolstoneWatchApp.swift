@@ -13,6 +13,10 @@ struct SolstoneWatchApp: App {
     private let notificationScheduler: LiveWatchNotificationScheduler
 
     init() {
+        let bootstrap = WatchSignpost.begin(.bootstrap)
+        defer {
+            WatchSignpost.end(bootstrap, fields: WatchSignpostFields(result: .completed))
+        }
         let session = LiveWatchConnectivitySession()
         self.notificationScheduler = LiveWatchNotificationScheduler()
         UNUserNotificationCenter.current().delegate = self.notificationScheduler

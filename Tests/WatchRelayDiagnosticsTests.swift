@@ -83,6 +83,68 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertTrue((try storage.scanManifests()).allSatisfy { $0.manifest.state == .transferring })
     }
 
+    func testCollectorEmitsFactAssemblyAndFirstEncodeSubspans() throws {
+        let now = Self.now
+        let storage = try self.storage("collector-subspans")
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let session = MockWatchConnectivitySession()
+        let entry = try self.writeManifest(id: Self.uuid(91_000), state: .transferring, storage: storage)
+        session.seedOutstandingTransfer(id: entry.manifest.id)
+        let history = WatchCaptureSessionHistoryStore(storage: storage)
+        try history.upsert(Self.historyEntry(1, at: now), asOf: now)
+        let sink = WatchSignpostTestSink()
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
+            signposter: WatchSignposter(sink: sink)
+        )
+
+        XCTAssertNotNil(collector.makeEnvelopeData(asOf: now))
+
+        for boundary in [
+            WatchSignpostBoundary.diagnosticsManifestFacts,
+            .diagnosticsPerItemFacts,
+            .diagnosticsChangedWitnessRevalidation,
+            .diagnosticsHistorySummaryRead,
+            .diagnosticsPayloadAssembly,
+            .diagnosticsFirstEncode,
+        ] {
+            XCTAssertEqual(sink.events.filter { $0.boundary == boundary }.map(\.kind), [.begin, .end])
+        }
+    }
+
+    func testCollectorEmitsBoundedCompactionEncodeSubspans() throws {
+        let now = Self.now
+        let storage = try self.storage("collector-compaction-subspans")
+        let store = WatchRelayDiagnosticsStore(storage: storage)
+        let session = MockWatchConnectivitySession()
+        for index in 0..<800 {
+            session.seedOutstandingTransfer(id: Self.uuid(92_000 + index))
+        }
+        let sink = WatchSignpostTestSink()
+        let collector = WatchRelayDiagnosticsCollector(
+            storage: storage,
+            diagnosticsStore: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
+            signposter: WatchSignposter(sink: sink)
+        )
+
+        XCTAssertNotNil(collector.makeEnvelopeData(asOf: now))
+
+        let compactionEnds = sink.events.filter {
+            $0.kind == .end && $0.boundary == .diagnosticsCompactionEncode
+        }
+        XCTAssertGreaterThan(compactionEnds.count, 1)
+        XCTAssertTrue(compactionEnds.allSatisfy {
+            $0.fields.result == .completed
+                && $0.fields.retainedObservationCount != nil
+                && $0.fields.encodedByteCount != nil
+        })
+    }
+
     func testTransferAttemptIdentityReachesEncodedDiagnosticsEnvelope() throws {
         let id = Self.uuid(90_001)
         let attemptID = Self.uuid(90_002)
@@ -696,7 +758,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             clock: { now }
         )
         writer.resetCounts()
-        sender.drain()
+        sender.drain(trigger: .testDirect)
 
         XCTAssertEqual(writer.writeCount(for: store.summaryURL()), 1)
         for entry in entries {
@@ -972,7 +1034,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         // This drain path proves relay effects still complete; store-level tests isolate marker tripping per record method.
         writer.failWrites = true
-        sender.drain()
+        sender.drain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.count, 1)
         XCTAssertEqual(try storage.readManifest(from: entry.manifestURL).state, .transferring)

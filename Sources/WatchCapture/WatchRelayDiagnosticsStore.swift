@@ -143,12 +143,13 @@ final class WatchRelayDiagnosticsStore {
         }
     }
 
+    @discardableResult
     func recordEnqueue(
         manifest: WatchSegmentManifest,
         directoryURL: URL,
         bundleURL: URL,
         at date: Date
-    ) {
+    ) -> Bool {
         self.performWrite("enqueue", segmentID: manifest.id) {
             let sourcePresent = self.storage.fileWriter.fileExists(at: bundleURL)
             let sourceBytes = self.sourceByteSize(at: bundleURL, sourcePresent: sourcePresent)
@@ -222,12 +223,13 @@ final class WatchRelayDiagnosticsStore {
         }
     }
 
+    @discardableResult
     func recordQueueReconciliation(
         counts: WatchRelayReconciliationCounts,
         observedFileTransferCount: Int,
         activeManifestCount: Int,
         at date: Date
-    ) {
+    ) -> Bool {
         self.performWrite("queue reconciliation", segmentID: nil) {
             let fact = WatchRelayQueueReconciliationFact(
                 at: date,
@@ -269,15 +271,17 @@ final class WatchRelayDiagnosticsStore {
 }
 
 private extension WatchRelayDiagnosticsStore {
-    func performWrite(_ label: String, segmentID: UUID?, _ body: () throws -> Void) {
+    func performWrite(_ label: String, segmentID: UUID?, _ body: () throws -> Void) -> Bool {
         do {
             try body()
+            return true
         } catch {
             self.historyUnavailableAfterWriteFailure = true
             let id = segmentID?.uuidString ?? "none"
             watchRelayDiagnosticsLog.error(
                 "watch relay diagnostic \(label, privacy: .public) write failed id=\(id, privacy: .public): \(String(describing: error), privacy: .private)"
             )
+            return false
         }
     }
 

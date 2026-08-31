@@ -33,17 +33,20 @@ final class WatchRelaySender {
     private let session: any WatchConnectivitySession
     private let diagnosticsStore: WatchRelayDiagnosticsStore?
     private let clock: @MainActor @Sendable () -> Date
+    private let signposter: any WatchSignposting
 
     init(
         storage: WatchCaptureStorage,
         session: any WatchConnectivitySession,
         diagnosticsStore: WatchRelayDiagnosticsStore? = nil,
-        clock: @escaping @MainActor @Sendable () -> Date = Date.init
+        clock: @escaping @MainActor @Sendable () -> Date = Date.init,
+        signposter: any WatchSignposting = WatchSignpost.live
     ) {
         self.storage = storage
         self.session = session
         self.diagnosticsStore = diagnosticsStore
         self.clock = clock
+        self.signposter = signposter
         self.session.onReceiveUserInfo = { [weak self] userInfo in
             self?.handleUserInfo(userInfo)
         }
@@ -52,9 +55,25 @@ final class WatchRelaySender {
         }
     }
 
-    func drain() {
+    func drain(trigger: RelayTrigger) {
+        var accounting = WatchRelayDrainAccounting(
+            trigger: trigger,
+            activation: self.relayActivation
+        )
+        let interval = self.signposter.begin(
+            .relayDrain,
+            fields: WatchSignpostFields(trigger: trigger, activation: accounting.activation)
+        )
+        defer {
+            self.signposter.end(interval, fields: accounting.fields)
+        }
+
+        var activeScan: WatchSignpostInvocation?
         do {
+            activeScan = self.signposter.begin(.relayCleanupScan)
             let entries = try self.storage.scanManifests()
+            accounting.entryWorkload = WorkloadBand.band(for: entries.count)
+            var cleanupFailed = false
             for entry in entries {
                 do {
                     switch entry.manifest.state {
@@ -66,18 +85,39 @@ final class WatchRelaySender {
                         break
                     }
                 } catch {
+                    cleanupFailed = true
+                    accounting.failureCount += 1
                     watchRelaySenderLog.error(
                         "watch relay segment cleanup failed id=\(entry.manifest.id.uuidString, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
                 }
             }
+            self.signposter.end(
+                activeScan,
+                fields: WatchSignpostFields(result: cleanupFailed ? .partial : .completed)
+            )
+            activeScan = nil
 
             guard self.session.activationState == .activated else { return }
 
+            activeScan = self.signposter.begin(.relayQueueReconciliation)
             let refreshedEntries = try self.storage.scanManifests()
+            accounting.refreshedWorkload = WorkloadBand.band(for: refreshedEntries.count)
+            accounting.transferCandidateCount = refreshedEntries.reduce(into: 0) { count, entry in
+                if entry.manifest.state == .queued || entry.manifest.state == .transferring {
+                    count += 1
+                }
+            }
             let observations = self.session.outstandingFileTransfers
             let outstanding = self.groupedOutstandingFileTransfers(observations)
-            self.recordQueueReconciliation(entries: refreshedEntries, observations: observations)
+            if !self.recordQueueReconciliation(entries: refreshedEntries, observations: observations) {
+                accounting.failureCount += 1
+            }
+            self.signposter.end(
+                activeScan,
+                fields: WatchSignpostFields(result: accounting.failureCount > 0 ? .partial : .completed)
+            )
+            activeScan = nil
             var manifestStatesByID: [UUID: WatchSegmentState] = [:]
             for entry in refreshedEntries {
                 manifestStatesByID[entry.manifest.id] = entry.manifest.state
@@ -85,25 +125,33 @@ final class WatchRelaySender {
 
             for entry in refreshedEntries {
                 let group = outstanding.grouped[entry.manifest.id] ?? []
+                let transition = self.signposter.begin(.relaySegmentTransition)
                 do {
                     switch entry.manifest.state {
                     case .queued:
                         if group.isEmpty {
-                            try self.promoteAndTransfer(entry: entry)
+                            try self.promoteAndTransfer(entry: entry, accounting: &accounting)
                         } else {
                             try self.adoptAsTransferring(entry)
                             self.cancelRedundant(group)
                         }
                     case .transferring:
                         if group.isEmpty {
-                            try self.transfer(directoryURL: entry.directoryURL, manifest: entry.manifest)
+                            try self.transfer(
+                                directoryURL: entry.directoryURL,
+                                manifest: entry.manifest,
+                                accounting: &accounting
+                            )
                         } else {
                             self.cancelRedundant(group)
                         }
                     case .captured, .persisted, .finalized, .delivered, .acked, .safeToDelete:
                         break
                     }
+                    self.signposter.end(transition, fields: WatchSignpostFields(result: .completed))
                 } catch {
+                    accounting.failureCount += 1
+                    self.signposter.end(transition, fields: WatchSignpostFields(result: .failed))
                     watchRelaySenderLog.error(
                         "watch relay segment drain failed id=\(entry.manifest.id.uuidString, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
@@ -125,6 +173,14 @@ final class WatchRelaySender {
                 }
             }
         } catch {
+            accounting.fatalFailure = true
+            accounting.failureCount += 1
+            if accounting.entryWorkload == .notSampled {
+                accounting.entryWorkload = .unknown
+            } else {
+                accounting.refreshedWorkload = .unknown
+            }
+            self.signposter.end(activeScan, fields: WatchSignpostFields(result: .failed))
             watchRelaySenderLog.error("watch relay drain failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -146,7 +202,7 @@ private extension WatchRelaySender {
 
         do {
             try self.acknowledge(id: id)
-            self.drain()
+            self.drain(trigger: .durableACK)
         } catch {
             watchRelaySenderLog.error("watch relay ack failed: \(String(describing: error), privacy: .public)")
         }
@@ -254,12 +310,15 @@ private extension WatchRelaySender {
         self.notifyStateChanged()
     }
 
-    func promoteAndTransfer(entry: WatchCaptureStorage.ManifestEntry) throws {
+    func promoteAndTransfer(
+        entry: WatchCaptureStorage.ManifestEntry,
+        accounting: inout WatchRelayDrainAccounting
+    ) throws {
         var manifest = entry.manifest
         manifest.state = .transferring
         try self.storage.writeManifest(manifest, in: entry.directoryURL)
         self.notifyStateChanged()
-        try self.transfer(directoryURL: entry.directoryURL, manifest: manifest)
+        try self.transfer(directoryURL: entry.directoryURL, manifest: manifest, accounting: &accounting)
     }
 
     func adoptAsTransferring(_ entry: WatchCaptureStorage.ManifestEntry) throws {
@@ -270,14 +329,34 @@ private extension WatchRelaySender {
         self.notifyStateChanged()
     }
 
-    func transfer(directoryURL: URL, manifest: WatchSegmentManifest) throws {
+    func transfer(
+        directoryURL: URL,
+        manifest: WatchSegmentManifest,
+        accounting: inout WatchRelayDrainAccounting
+    ) throws {
         let bundleURL = self.bundleURL(for: manifest.id)
-        try? self.storage.fileWriter.removeItem(at: bundleURL)
-        try WatchSegmentBundleCodec.writeBundle(
-            segmentDirectory: directoryURL,
-            storage: self.storage,
-            to: bundleURL
-        )
+        let bundleInterval = self.signposter.begin(.relayBundleWrite)
+        var bundleCleanupFailed = false
+        do {
+            try self.storage.fileWriter.removeItem(at: bundleURL)
+        } catch {
+            bundleCleanupFailed = true
+            accounting.failureCount += 1
+        }
+        do {
+            try WatchSegmentBundleCodec.writeBundle(
+                segmentDirectory: directoryURL,
+                storage: self.storage,
+                to: bundleURL
+            )
+            self.signposter.end(
+                bundleInterval,
+                fields: WatchSignpostFields(result: bundleCleanupFailed ? .partial : .completed)
+            )
+        } catch {
+            self.signposter.end(bundleInterval, fields: WatchSignpostFields(result: .failed))
+            throw error
+        }
         let attemptRecord = WatchRelayAttemptRecord(
             segmentID: manifest.id,
             generation: 0,
@@ -285,23 +364,52 @@ private extension WatchRelaySender {
             attemptStartedAt: self.clock()
         )
         let attemptURL = self.attemptURL(directoryURL: directoryURL)
+        let attemptInterval = self.signposter.begin(.relayAttemptPersistence)
         do {
             let data = try WatchRelayAttemptRecord.makeEncoder().encode(attemptRecord)
             try self.storage.fileWriter.writeData(data, to: attemptURL, options: .atomic)
-            self.session.transferFile(bundleURL, metadata: WatchSegmentBundleCodec.metadata(for: manifest, attempt: attemptRecord.tag))
+            self.signposter.end(attemptInterval, fields: WatchSignpostFields(result: .completed))
+            let enqueueInterval = self.signposter.begin(.relayTransferEnqueue)
+            self.session.transferFile(
+                bundleURL,
+                metadata: WatchSegmentBundleCodec.metadata(for: manifest, attempt: attemptRecord.tag)
+            )
+            self.signposter.end(enqueueInterval, fields: WatchSignpostFields(result: .completed))
         } catch {
-            try? self.storage.fileWriter.removeItem(at: attemptURL)
+            accounting.failureCount += 1
+            self.signposter.end(
+                attemptInterval,
+                fields: WatchSignpostFields(result: .failed, usedFallback: true)
+            )
+            do {
+                try self.storage.fileWriter.removeItem(at: attemptURL)
+            } catch {
+                accounting.failureCount += 1
+            }
             let failure = WatchConnectivityTransferFailureSnapshot(error: error)
             watchRelaySenderLog.error(
                 "watch relay attempt record write failed id=\(manifest.id.uuidString, privacy: .public): \(failure.boundedRedactedDescription, privacy: .public)"
             )
+            let enqueueInterval = self.signposter.begin(.relayTransferEnqueue)
             self.session.transferFile(bundleURL, metadata: WatchSegmentBundleCodec.metadata(for: manifest))
+            self.signposter.end(
+                enqueueInterval,
+                fields: WatchSignpostFields(result: .completed, usedFallback: true)
+            )
         }
-        self.diagnosticsStore?.recordEnqueue(
+        let diagnosticsInterval = self.signposter.begin(.relayDiagnosticsPersistence)
+        let diagnosticsSucceeded = self.diagnosticsStore?.recordEnqueue(
             manifest: manifest,
             directoryURL: directoryURL,
             bundleURL: bundleURL,
             at: self.clock()
+        )
+        if diagnosticsSucceeded == false {
+            accounting.failureCount += 1
+        }
+        self.signposter.end(
+            diagnosticsInterval,
+            fields: WatchSignpostFields(result: diagnosticsSucceeded == false ? .failed : .completed)
         )
         watchRelaySenderLog.info("watch relay transfer enqueued id=\(manifest.id.uuidString, privacy: .public)")
     }
@@ -344,8 +452,8 @@ private extension WatchRelaySender {
     func recordQueueReconciliation(
         entries: [WatchCaptureStorage.ManifestEntry],
         observations: [WatchConnectivityFileTransferObservation]
-    ) {
-        guard let diagnosticsStore else { return }
+    ) -> Bool {
+        guard let diagnosticsStore else { return true }
         let activeEntries = entries.filter { entry in
             entry.manifest.state == .queued || entry.manifest.state == .transferring
         }
@@ -354,7 +462,7 @@ private extension WatchRelaySender {
             activeManifestIDs: Set(activeEntries.map(\.manifest.id)),
             fileTransfers: snapshots
         )
-        diagnosticsStore.recordQueueReconciliation(
+        return diagnosticsStore.recordQueueReconciliation(
             counts: counts,
             observedFileTransferCount: snapshots.count,
             activeManifestCount: activeEntries.count,
@@ -364,5 +472,38 @@ private extension WatchRelaySender {
 
     func notifyStateChanged() {
         self.onStateChanged?()
+    }
+}
+
+private extension WatchRelaySender {
+    var relayActivation: RelayActivation {
+        self.session.activationState == .activated ? .activated : .notActivated
+    }
+}
+
+private struct WatchRelayDrainAccounting {
+    let trigger: RelayTrigger
+    let activation: RelayActivation
+    var entryWorkload: WorkloadBand = .notSampled
+    var refreshedWorkload: WorkloadBand = .notSampled
+    var transferCandidateCount: Int?
+    var failureCount = 0
+    var fatalFailure = false
+
+    var result: RelayResult {
+        if self.fatalFailure { return .failed }
+        return self.failureCount == 0 ? .completed : .partial
+    }
+
+    var fields: WatchSignpostFields {
+        WatchSignpostFields(
+            trigger: self.trigger,
+            result: self.result,
+            activation: self.activation,
+            entryWorkload: self.entryWorkload,
+            refreshedWorkload: self.refreshedWorkload,
+            transferCandidateCount: self.transferCandidateCount,
+            failureCount: self.failureCount
+        )
     }
 }

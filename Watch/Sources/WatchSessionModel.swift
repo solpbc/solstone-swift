@@ -50,7 +50,7 @@ private extension WatchSessionModel {
         let detail = didActivate ? "completed" : "failed"
         watchAppLog.info("watch app: activation \(detail, privacy: .public)")
         if didActivate {
-            self.relaySender?.drain()
+            self.relaySender?.drain(trigger: .connectivityActivation)
             self.onReachableRepublish?()
         }
     }
@@ -60,7 +60,7 @@ private extension WatchSessionModel {
         let detail = isReachable ? "reachable" : "not reachable"
         watchAppLog.info("watch app: reachability \(detail, privacy: .public)")
         if isReachable {
-            self.relaySender?.drain()
+            self.relaySender?.drain(trigger: .connectivityReachability)
             self.onReachableRepublish?()
         }
     }
