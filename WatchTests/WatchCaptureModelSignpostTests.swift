@@ -203,7 +203,11 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
 
         await writer.releaseRead()
         let didPublishNewerCounts = await self.waitForRelayCount(2, model: model)
-        XCTAssertTrue(didPublishNewerCounts)
+        let relayReadCount = await writer.readCount()
+        XCTAssertTrue(
+            didPublishNewerCounts,
+            "relay refresh did not publish the newer catalog; reads after arm: \(relayReadCount)"
+        )
         XCTAssertEqual(model.presentation.queuedCount, 2)
     }
 
@@ -265,7 +269,11 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         relaySender.onStateChanged?()
         await writer.releaseRead()
         let didPublishNewerCounts = await self.waitForRelayCount(2, model: model)
-        XCTAssertTrue(didPublishNewerCounts)
+        let relayReadCount = await writer.readCount()
+        XCTAssertTrue(
+            didPublishNewerCounts,
+            "coalesced relay refresh did not publish the newer catalog; reads after arm: \(relayReadCount)"
+        )
 
         let requestEnds = sink.events.filter {
             $0.kind == .end && $0.boundary == .relayStateRefreshRequest
