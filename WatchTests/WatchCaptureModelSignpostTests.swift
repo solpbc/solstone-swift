@@ -189,6 +189,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertTrue(didWriteInitialSnapshot)
         let didPublishInitialCounts = await self.waitForRelayCount(1, model: model)
         XCTAssertTrue(didPublishInitialCounts)
+        await model.requestDiagnosticsRefresh()
         await self.waitUntilReadsIdle(writer: writer)
 
         await writer.armNextRead()
@@ -251,6 +252,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         await writer.releaseRead()
         let didPublishInitialCounts = await self.waitForRelayCount(1, model: model)
         XCTAssertTrue(didPublishInitialCounts)
+        await model.requestDiagnosticsRefresh()
         await self.waitUntilReadsIdle(writer: writer)
         sink.reset()
 
