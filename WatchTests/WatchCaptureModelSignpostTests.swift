@@ -213,10 +213,11 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         await writer.releaseRead()
         let didPublishNewerCounts = await self.waitForRelayCount(2, model: model)
         let relayReadCount = await writer.readCount()
+        let relayReadTrace = await writer.traceSnapshot()
         XCTAssertTrue(
             didPublishNewerCounts,
             "relay refresh did not publish the newer catalog; reads after arm: \(relayReadCount); "
-                + "published queued counts: \(session.publishedQueuedCounts)"
+                + "published queued counts: \(session.publishedQueuedCounts); trace: \(relayReadTrace)"
         )
         XCTAssertEqual(model.presentation.queuedCount, 2)
     }
@@ -286,10 +287,11 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         await writer.releaseRead()
         let didPublishNewerCounts = await self.waitForRelayCount(2, model: model)
         let relayReadCount = await writer.readCount()
+        let relayReadTrace = await writer.traceSnapshot()
         XCTAssertTrue(
             didPublishNewerCounts,
             "coalesced relay refresh did not publish the newer catalog; reads after arm: \(relayReadCount); "
-                + "published queued counts: \(session.publishedQueuedCounts)"
+                + "published queued counts: \(session.publishedQueuedCounts); trace: \(relayReadTrace)"
         )
 
         let requestEnds = sink.events.filter {
@@ -1149,6 +1151,7 @@ private actor BlockingRelayStateRefreshWriter: WatchFileWriting {
     private var readEntered = false
     private var readEntryWaiters: [CheckedContinuation<Void, Never>] = []
     private var readReleaseWaiters: [CheckedContinuation<Void, Never>] = []
+    private var trace: [String] = []
 
     func createDirectory(at url: URL) async throws { try await self.base.createDirectory(at: url) }
     func createFileIfNeeded(at url: URL) async throws { try await self.base.createFileIfNeeded(at: url) }
@@ -1163,6 +1166,7 @@ private actor BlockingRelayStateRefreshWriter: WatchFileWriting {
 
     func readData(from url: URL) async throws -> Data {
         self.reads += 1
+        self.trace.append("read \(url.deletingLastPathComponent().lastPathComponent)/\(url.lastPathComponent)")
         if self.shouldBlockNextRead {
             self.shouldBlockNextRead = false
             self.readEntered = true
@@ -1190,13 +1194,18 @@ private actor BlockingRelayStateRefreshWriter: WatchFileWriting {
         try await self.base.moveItem(at: sourceURL, to: destinationURL)
     }
     func contentsOfDirectory(at url: URL) async throws -> [URL] {
-        try await self.base.contentsOfDirectory(at: url)
+        let contents = try await self.base.contentsOfDirectory(at: url)
+        self.trace.append(
+            "list \(url.lastPathComponent):\(contents.map(\.lastPathComponent).sorted())"
+        )
+        return contents
     }
 
     func armNextRead() {
         self.shouldBlockNextRead = true
         self.readEntered = false
         self.reads = 0
+        self.trace = []
     }
 
     func waitUntilReadEntered() async {
@@ -1216,6 +1225,10 @@ private actor BlockingRelayStateRefreshWriter: WatchFileWriting {
 
     func readCount() -> Int {
         self.reads
+    }
+
+    func traceSnapshot() -> [String] {
+        self.trace
     }
 }
 
