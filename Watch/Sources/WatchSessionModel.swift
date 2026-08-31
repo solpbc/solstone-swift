@@ -51,7 +51,7 @@ private extension WatchSessionModel {
         watchAppLog.info("watch app: activation \(detail, privacy: .public)")
         if didActivate {
             Task { @MainActor in
-                await self.relaySender?.drain(trigger: .connectivityActivation)
+                await self.relaySender?.requestDrain(trigger: .connectivityActivation)
             }
             self.onReachableRepublish?()
         }
@@ -63,7 +63,7 @@ private extension WatchSessionModel {
         watchAppLog.info("watch app: reachability \(detail, privacy: .public)")
         if isReachable {
             Task { @MainActor in
-                await self.relaySender?.drain(trigger: .connectivityReachability)
+                await self.relaySender?.requestDrain(trigger: .connectivityReachability)
             }
             self.onReachableRepublish?()
         }

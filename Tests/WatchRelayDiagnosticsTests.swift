@@ -30,7 +30,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         await WatchCaptureStorageActor(
             paths: storage.paths,
             fileWriter: storage.fileWriter
-        ).scanCatalog().entries
+        ).scanCatalog(transactionClass: .maintenance).entries
     }
 
     func testFifteenActiveManifestsAndMatchingAppleTransfersProduceExactTotalsAndCorrelations() async throws {
@@ -133,7 +133,11 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let entry = try await self.writeManifest(id: Self.uuid(91_000), state: .transferring, storage: storage)
         session.seedOutstandingTransfer(id: entry.manifest.id)
         let history = self.storageActor(for: storage)
-        try await history.upsertSessionHistory(Self.historyEntry(1, at: now), asOf: now)
+        try await history.upsertSessionHistory(
+            Self.historyEntry(1, at: now),
+            asOf: now,
+            transactionClass: .maintenance
+        )
         let sink = WatchSignpostTestSink()
         let diagnosticsSink = WatchDiagnosticsSignpostTestSink()
         let collector = WatchRelayDiagnosticsCollector(
@@ -300,7 +304,9 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertTrue(engineSource.contains("func reconcileOnLaunch() {\n        self.lifecycleSerializer.submit(.reconcile)"))
         XCTAssertTrue(engineSource.contains("func start() {\n        self.lifecycleSerializer.submit(.start)"))
         XCTAssertTrue(engineSource.contains("func stop() {\n        self.lifecycleSerializer.submit(.stop)"))
-        XCTAssertTrue(engineSource.contains("private func reconcileOnLaunchInner"))
+        XCTAssertFalse(engineSource.contains("reconcileOnLaunchInner"))
+        XCTAssertTrue(engineSource.contains("private func reconcileCaptureSafetyReadiness"))
+        XCTAssertTrue(engineSource.contains("private func startReconcileMaintenance"))
         XCTAssertTrue(engineSource.contains("private func startInner"))
         XCTAssertTrue(engineSource.contains("private func stopInner"))
     }
@@ -624,7 +630,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let storage = try self.storage("history-compaction")
         let history = self.storageActor(for: storage)
         for entry in entries {
-            try await history.upsertSessionHistory(entry, asOf: now)
+            try await history.upsertSessionHistory(entry, asOf: now, transactionClass: .maintenance)
             _ = try await history.incrementLifetimeSessionCounter()
         }
         let session = MockWatchConnectivitySession()
@@ -686,7 +692,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let storage = try self.storage("history-survives-observation-compaction")
         let history = self.storageActor(for: storage)
         for entry in entries {
-            try await history.upsertSessionHistory(entry, asOf: now)
+            try await history.upsertSessionHistory(entry, asOf: now, transactionClass: .maintenance)
             _ = try await history.incrementLifetimeSessionCounter()
         }
         let session = MockWatchConnectivitySession()
@@ -720,7 +726,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let storage = try self.storage("history-window-identity-order")
         let history = self.storageActor(for: storage)
         for entry in entries {
-            try await history.upsertSessionHistory(entry, asOf: now)
+            try await history.upsertSessionHistory(entry, asOf: now, transactionClass: .maintenance)
             _ = try await history.incrementLifetimeSessionCounter()
         }
         let collector = WatchRelayDiagnosticsCollector(
@@ -744,7 +750,11 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let storage = try self.storage("history-floor-under-cap")
         let history = self.storageActor(for: storage)
         for index in 0..<10 {
-            try await history.upsertSessionHistory(Self.historyEntry(index, at: now.addingTimeInterval(TimeInterval(index - 10))), asOf: now)
+            try await history.upsertSessionHistory(
+                Self.historyEntry(index, at: now.addingTimeInterval(TimeInterval(index - 10))),
+                asOf: now,
+                transactionClass: .maintenance
+            )
             _ = try await history.incrementLifetimeSessionCounter()
         }
         let collector = WatchRelayDiagnosticsCollector(
@@ -846,7 +856,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             clock: { now }
         )
         writer.resetCounts()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(writer.writeCount(for: WatchRelayDiagnosticsFiles.summaryURL(rootURL: storage.rootURL)), 1)
         for entry in entries {
@@ -1128,7 +1138,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         // This drain path proves relay effects still complete; store-level tests isolate marker tripping per record method.
         writer.failWrites = true
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.count, 1)
         let transitionedCandidate = await self.catalogEntries(for: storage)
@@ -1474,7 +1484,7 @@ final class WatchRelayDiagnosticsReadOnlyTests: XCTestCase {
         await WatchCaptureStorageActor(
             paths: storage.paths,
             fileWriter: storage.fileWriter
-        ).scanCatalog().entries
+        ).scanCatalog(transactionClass: .maintenance).entries
     }
 
     private func storageActor(for storage: WatchCaptureTestStorage) -> WatchCaptureStorageActor {
@@ -1557,7 +1567,7 @@ final class WatchCaptureStorageActorDiagnosticsTests: XCTestCase {
         await WatchCaptureStorageActor(
             paths: storage.paths,
             fileWriter: storage.fileWriter
-        ).scanCatalog().entries
+        ).scanCatalog(transactionClass: .maintenance).entries
     }
 
     private func storageActor(for storage: WatchCaptureTestStorage) -> WatchCaptureStorageActor {

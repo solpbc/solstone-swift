@@ -158,7 +158,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             fileWriter: FoundationWatchFileWriter()
         )
         try await externalActor.writeManifest(self.queuedManifest(storage: storage, id: UUID(), index: 0))
-        let initialCatalog = await externalActor.scanCatalog()
+        let initialCatalog = await externalActor.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(initialCatalog.entries.count, 1)
         await writer.armNextRead()
         let complicationRoot = self.temporaryDirectory.appendingPathComponent("relay-state-complication", isDirectory: true)
@@ -195,7 +195,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         await writer.waitUntilReadEntered()
 
         try await externalActor.writeManifest(self.queuedManifest(storage: storage, id: UUID(), index: 1))
-        let expandedCatalog = await externalActor.scanCatalog()
+        let expandedCatalog = await externalActor.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(expandedCatalog.entries.count, 2)
         relaySender.onStateChanged?()
 
@@ -462,7 +462,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             signposter: signposter
         )
         session.activationState = .activated
-        await relaySender.drain(trigger: .testDirect)
+        await relaySender.requestDrain(trigger: .testDirect)
         let attemptData = try await storage.fileWriter.readData(
             from: directory.appendingPathComponent(WatchRelayAttemptRecord.filename, isDirectory: false)
         )

@@ -63,7 +63,7 @@ final class WatchCaptureModel {
         }
         engine.onRelayDrainRequested = { [weak relaySender] trigger in
             Task { @MainActor in
-                await relaySender?.drain(trigger: trigger)
+                await relaySender?.requestDrain(trigger: trigger)
             }
         }
         engine.onPublishStatus = { [session, signposter] context in

@@ -321,7 +321,7 @@ private extension WatchRelayDiagnosticsCollector {
         asOf: Date,
         environment: WatchRelayDiagnosticsEnvironmentSnapshot
     ) async -> WatchRelayDiagnosticsPayload {
-        let catalog = await self.storageActor.scanCatalog()
+        let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
         let entries = catalog.entries
         let activeEntries = entries.filter { entry in
             entry.manifest.state == .queued || entry.manifest.state == .transferring
@@ -686,7 +686,10 @@ private extension WatchRelayDiagnosticsCollector {
     }
 
     func sourcePresent(for id: UUID) async -> DiagnosticAvailability<Bool> {
-        .available(await self.storageActor.fileExists(at: self.bundleURL(for: id)))
+        .available(await self.storageActor.fileExists(
+            at: self.bundleURL(for: id),
+            transactionClass: .maintenance
+        ))
     }
 
     func relayBundleFacts(for id: UUID) async -> (
@@ -694,7 +697,7 @@ private extension WatchRelayDiagnosticsCollector {
         bytes: DiagnosticAvailability<Int64>
     ) {
         let url = self.bundleURL(for: id)
-        let present = await self.storageActor.fileExists(at: url)
+        let present = await self.storageActor.fileExists(at: url, transactionClass: .maintenance)
         let bytes: DiagnosticAvailability<Int64>
         if let byteCount = await self.fileByteSize(at: url, sourcePresent: present) {
             bytes = .available(byteCount)
@@ -705,7 +708,7 @@ private extension WatchRelayDiagnosticsCollector {
     }
 
     func originalFileFact(at url: URL) async -> DiagnosticAvailability<WatchRelayOriginalFileFact> {
-        guard await self.storageActor.fileExists(at: url) else {
+        guard await self.storageActor.fileExists(at: url, transactionClass: .maintenance) else {
             return .available(WatchRelayOriginalFileFact(state: .missing, byteCount: 0))
         }
         guard let byteCount = await self.fileByteSize(at: url, sourcePresent: true) else {
@@ -719,7 +722,7 @@ private extension WatchRelayDiagnosticsCollector {
 
     func fileByteSize(at url: URL, sourcePresent: Bool) async -> Int64? {
         guard sourcePresent else { return nil }
-        return try? await self.storageActor.fileSize(at: url)
+        return try? await self.storageActor.fileSize(at: url, transactionClass: .maintenance)
     }
 
     func originalPayloadAggregate(activeFacts: [ActiveManifestFact]) -> OriginalPayloadAggregate {
@@ -813,7 +816,7 @@ private extension WatchRelayDiagnosticsCollector {
     func changedWitnessIDs(initialFacts: [ActiveManifestFact]) async -> Set<UUID> {
         guard !initialFacts.isEmpty else { return [] }
         let initialByID = Dictionary(uniqueKeysWithValues: initialFacts.map { ($0.entry.manifest.id, $0.witness) })
-        let catalog = await self.storageActor.scanCatalog()
+        let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
         guard catalog.canInferUUIDAbsence else {
             return Set(initialByID.keys)
         }

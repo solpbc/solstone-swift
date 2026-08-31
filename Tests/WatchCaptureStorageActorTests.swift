@@ -24,7 +24,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let catalog = await WatchCaptureStorageActor(
             paths: WatchCaptureStoragePaths(rootURL: self.root),
             fileWriter: FoundationWatchFileWriter()
-        ).scanCatalog()
+        ).scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(catalog.rootState, .unavailable(.missing))
         XCTAssertFalse(catalog.canInferUUIDAbsence)
     }
@@ -38,7 +38,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         try FileManager.default.createDirectory(at: bad, withIntermediateDirectories: true)
         try Data("not json".utf8).write(to: bad.appendingPathComponent("manifest.json"))
 
-        let catalog = await actor.scanCatalog()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(catalog.rootState, .partial)
         XCTAssertEqual(catalog.entries.map(\.manifest.id), [good.id])
         XCTAssertEqual(catalog.issues.map(\.kind), [.manifestDecodeFailure])
@@ -55,7 +55,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             .appendingPathComponent("20250101/120500_300/audio.m4a", isDirectory: true)
         try FileManager.default.createDirectory(at: malformedAudioURL, withIntermediateDirectories: true)
 
-        let catalog = await actor.scanCatalog()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
 
         XCTAssertEqual(catalog.rootState, .partial)
         XCTAssertEqual(catalog.entries.map(\.manifest.id), [healthy.id])
@@ -71,7 +71,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
     func testEmptyExistingRootIsAuthoritative() async throws {
         let actor = self.actor()
         try await actor.prepareRoot()
-        let catalog = await actor.scanCatalog()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(catalog.rootState, .emptyComplete)
         XCTAssertTrue(catalog.canInferUUIDAbsence)
     }
@@ -88,7 +88,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         try await writer.writeData(Data("history".utf8), to: paths.sessionHistoryURL(), options: .atomic)
         try await writer.writeData(Data("counter".utf8), to: paths.sessionHistoryCounterURL(), options: .atomic)
 
-        let catalog = await actor.scanCatalog()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(catalog.rootState, .complete)
         XCTAssertEqual(catalog.entries.map(\.manifest.id), [manifest.id])
         XCTAssertTrue(catalog.issues.isEmpty)
@@ -99,7 +99,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let actor = self.actor()
         let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
         try await actor.writeManifest(manifest)
-        let catalog = await actor.scanCatalog()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         let entry = try XCTUnwrap(catalog.entries.first)
         var replacement = manifest
         replacement.state = .transferring
@@ -136,6 +136,564 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         try await second
         let maximum = await writer.maximumConcurrentEntries()
         XCTAssertEqual(maximum, 1)
+    }
+
+    func testTransactionGatePrioritizesCaptureSafetyAndPreservesLaneFIFO() async throws {
+        let writer = BlockingStorageWriter()
+        let root = self.root!
+        let storage = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: root),
+            fileWriter: writer
+        )
+        let sentinel = MainActorProgressSentinel()
+        let ticker = self.startMainActorProgressTicker(sentinel)
+
+        let first = Task { try await storage.prepareRoot() }
+        await writer.waitUntilEntered()
+        let maintenanceOne = Task {
+            try await storage.writeComplicationSnapshot(
+                Data("one".utf8),
+                to: root.appendingPathComponent("maintenance-one.json")
+            )
+        }
+        await Task.yield()
+        let maintenanceTwo = Task {
+            try await storage.writeComplicationSnapshot(
+                Data("two".utf8),
+                to: root.appendingPathComponent("maintenance-two.json")
+            )
+        }
+        await Task.yield()
+        let captureSafety = Task { try await storage.prepareRoot() }
+        await Task.yield()
+
+        let progressBeforeHold = sentinel.count
+        for _ in 0..<100 { await Task.yield() }
+        XCTAssertGreaterThan(sentinel.count, progressBeforeHold)
+        let heldEntryCount = await writer.entryCount()
+        XCTAssertEqual(heldEntryCount, 1)
+
+        await writer.release()
+        try await first.value
+        try await captureSafety.value
+        try await maintenanceOne.value
+        try await maintenanceTwo.value
+        ticker.cancel()
+        await ticker.value
+
+        let priorityOperations = await writer.operations()
+        XCTAssertEqual(
+            priorityOperations,
+            [
+                "createDirectory",
+                "createDirectory",
+                "writeData:maintenance-one.json",
+                "writeData:maintenance-two.json",
+            ]
+        )
+    }
+
+    func testTransactionGateDoesNotReserveIdleBoundariesForCaptureSafety() async throws {
+        let writer = BlockingStorageWriter()
+        let root = self.root!
+        let storage = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: root),
+            fileWriter: writer
+        )
+
+        let first = Task { try await storage.prepareRoot() }
+        await writer.waitUntilEntered()
+        let maintenanceOne = Task {
+            try await storage.writeComplicationSnapshot(
+                Data("one".utf8),
+                to: root.appendingPathComponent("maintenance-one.json")
+            )
+        }
+        await Task.yield()
+        let maintenanceTwo = Task {
+            try await storage.writeComplicationSnapshot(
+                Data("two".utf8),
+                to: root.appendingPathComponent("maintenance-two.json")
+            )
+        }
+        await Task.yield()
+        let maintenanceThree = Task {
+            try await storage.writeComplicationSnapshot(
+                Data("three".utf8),
+                to: root.appendingPathComponent("maintenance-three.json")
+            )
+        }
+        await Task.yield()
+
+        await writer.release()
+        try await first.value
+        try await maintenanceOne.value
+        try await maintenanceTwo.value
+        try await maintenanceThree.value
+
+        let maintenanceOperations = await writer.operations()
+        XCTAssertEqual(
+            maintenanceOperations,
+            [
+                "createDirectory",
+                "writeData:maintenance-one.json",
+                "writeData:maintenance-two.json",
+                "writeData:maintenance-three.json",
+            ]
+        )
+    }
+
+    func testScanCatalogYieldsAtCheckpointAndReturnsPartialAfterInterruption() async throws {
+        let setup = self.actor()
+        let existing = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
+        try await setup.writeManifest(existing)
+
+        let writer = BlockingStorageWriter()
+        await writer.holdNextOperation("itemKind")
+        let storage = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: self.root),
+            fileWriter: writer
+        )
+        let scan = Task { await storage.scanCatalog(transactionClass: .maintenance) }
+        await writer.waitUntilEntered()
+        let captured = self.manifest(id: UUID(), segment: "120500_300", state: .captured)
+        let capture = Task {
+            try await storage.writeManifest(captured)
+        }
+        await Task.yield()
+
+        await writer.release()
+        let catalog = await scan.value
+        try await capture.value
+
+        XCTAssertEqual(catalog.rootState, .partial)
+        XCTAssertFalse(catalog.canInferUUIDAbsence)
+        XCTAssertTrue(catalog.issues.contains {
+            $0.kind == .incompleteSubtree && $0.namespace == "catalog"
+        })
+        let operations = await writer.operations()
+        let firstScanOperation = try XCTUnwrap(operations.firstIndex(of: "itemKind"))
+        let captureWrite = try XCTUnwrap(operations.firstIndex(of: "writeData:manifest.json"))
+        let nextScanOperation = try XCTUnwrap(operations.lastIndex(of: "itemKind"))
+        XCTAssertLessThan(firstScanOperation, captureWrite)
+        XCTAssertLessThan(captureWrite, nextScanOperation)
+    }
+
+    func testTerminalTupleResolverMergesCompatibleWitnessesAndFailsClosedForConflicts() async throws {
+        let date = Date(timeIntervalSince1970: 1_735_689_600)
+        let compatible = self.storage(named: "compatible")
+        let compatibleRecord = self.terminalRecord(
+            id: "session",
+            startedAt: date,
+            reason: .ownerStopped,
+            disposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try await compatible.writeSessionRecord(compatibleRecord, transactionClass: .captureSafety)
+        try await compatible.upsertSessionHistory(
+            self.terminalHistoryEntry(
+                id: "session",
+                startedAt: date,
+                reason: nil,
+                disposition: .ownerStopped,
+                terminalAt: date,
+                noticeOwed: false
+            ),
+            asOf: date,
+            transactionClass: .captureSafety
+        )
+
+        let compatibleResolution = await compatible.resolveAndPersistTerminalTuple(
+            recordProposal: nil,
+            proposedTerminal: self.terminalTuple(id: "session", startedAt: date, noticeOwed: false),
+            asOf: date.addingTimeInterval(1)
+        )
+        guard case let .resolvedAndPersisted(tuple) = compatibleResolution else {
+            return XCTFail("expected compatible terminal tuple to resolve")
+        }
+        XCTAssertEqual(tuple.reason, .ownerStopped)
+        XCTAssertEqual(tuple.disposition, .ownerStopped)
+        XCTAssertEqual(tuple.terminalAt, date)
+        let compatibleRecordValue = try await compatible.readSessionRecord(transactionClass: .captureSafety)
+        let persistedRecord = try XCTUnwrap(compatibleRecordValue)
+        XCTAssertEqual(persistedRecord.terminalReason, .ownerStopped)
+        XCTAssertEqual(persistedRecord.terminalDisposition, .ownerStopped)
+        XCTAssertEqual(persistedRecord.terminalAt, date)
+
+        let startMismatch = self.storage(named: "start-mismatch")
+        let original = self.terminalRecord(
+            id: "same-id",
+            startedAt: date,
+            reason: .ownerStopped,
+            disposition: .ownerStopped,
+            terminalAt: date,
+            noticeOwed: false
+        )
+        try await startMismatch.writeSessionRecord(original, transactionClass: .captureSafety)
+        let mismatchResolution = await startMismatch.resolveAndPersistTerminalTuple(
+            recordProposal: nil,
+            proposedTerminal: self.terminalTuple(
+                id: "same-id",
+                startedAt: date.addingTimeInterval(1),
+                reason: .ownerStopped,
+                disposition: .ownerStopped,
+                terminalAt: date,
+                noticeOwed: false
+            ),
+            asOf: date
+        )
+        XCTAssertEqual(mismatchResolution, .failClosed)
+        let mismatchedRecord = try await startMismatch.readSessionRecord(transactionClass: .captureSafety)
+        XCTAssertEqual(mismatchedRecord, original)
+
+        let conflict = self.storage(named: "conflict")
+        let conflictingRecord = self.terminalRecord(
+            id: "conflict",
+            startedAt: date,
+            reason: .ownerStopped,
+            disposition: .ownerStopped,
+            terminalAt: date,
+            noticeOwed: false
+        )
+        let conflictingHistory = self.terminalHistoryEntry(
+            id: "conflict",
+            startedAt: date,
+            reason: .audioEncodeError,
+            disposition: .ownerStopped,
+            terminalAt: date,
+            noticeOwed: false
+        )
+        try await conflict.writeSessionRecord(conflictingRecord, transactionClass: .captureSafety)
+        try await conflict.upsertSessionHistory(
+            conflictingHistory,
+            asOf: date,
+            transactionClass: .captureSafety
+        )
+        let conflictResolution = await conflict.resolveAndPersistTerminalTuple(
+            recordProposal: nil,
+            proposedTerminal: self.terminalTuple(id: "conflict", startedAt: date, noticeOwed: false),
+            asOf: date
+        )
+        XCTAssertEqual(conflictResolution, .failClosed)
+        let conflictingRecordAfterResolution = try await conflict.readSessionRecord(transactionClass: .captureSafety)
+        XCTAssertEqual(conflictingRecordAfterResolution, conflictingRecord)
+        let conflictingHistoryAfterResolution = await conflict.sessionHistoryEntry(
+            sessionID: "conflict",
+            asOf: date,
+            transactionClass: .captureSafety
+        )
+        XCTAssertEqual(conflictingHistoryAfterResolution, conflictingHistory)
+    }
+
+    func testTerminalTupleResolverFillsOnlyOwnerStoppedAndMintsTerminalDateOnce() async throws {
+        let date = Date(timeIntervalSince1970: 1_735_689_600)
+        let ownerStoppedCases: [(String, WatchCaptureTerminalReason?, WatchCaptureTerminalDisposition?)] = [
+            ("reason", WatchCaptureTerminalReason.ownerStopped, nil),
+            ("disposition", nil, WatchCaptureTerminalDisposition.ownerStopped),
+        ]
+        for (name, reason, disposition) in ownerStoppedCases {
+            let storage = self.storage(named: name)
+            try await storage.writeSessionRecord(
+                self.terminalRecord(
+                    id: name,
+                    startedAt: date,
+                    reason: reason,
+                    disposition: disposition,
+                    terminalAt: nil,
+                    noticeOwed: false
+                ),
+                transactionClass: .captureSafety
+            )
+            let resolution = await storage.resolveAndPersistTerminalTuple(
+                recordProposal: nil,
+                proposedTerminal: self.terminalTuple(id: name, startedAt: date, noticeOwed: false),
+                asOf: date
+            )
+            guard case let .resolvedAndPersisted(tuple) = resolution else {
+                return XCTFail("expected \(name) owner-stopped tuple to resolve")
+            }
+            XCTAssertEqual(tuple.reason, .ownerStopped)
+            XCTAssertEqual(tuple.disposition, .ownerStopped)
+        }
+
+        let noGuess = self.storage(named: "no-guess")
+        try await noGuess.writeSessionRecord(
+            self.terminalRecord(
+                id: "no-guess",
+                startedAt: date,
+                reason: nil,
+                disposition: nil,
+                terminalAt: nil,
+                noticeOwed: false,
+                state: .active
+            ),
+            transactionClass: .captureSafety
+        )
+        let noGuessResolution = await noGuess.resolveAndPersistTerminalTuple(
+            recordProposal: nil,
+            proposedTerminal: self.terminalTuple(
+                id: "no-guess",
+                startedAt: date,
+                reason: .audioEncodeError,
+                noticeOwed: false
+            ),
+            asOf: date
+        )
+        XCTAssertEqual(noGuessResolution, .failClosed)
+
+        let mintOnce = self.storage(named: "mint-once")
+        try await mintOnce.writeSessionRecord(
+            self.terminalRecord(
+                id: "mint-once",
+                startedAt: date,
+                reason: nil,
+                disposition: nil,
+                terminalAt: nil,
+                noticeOwed: true,
+                state: .active
+            ),
+            transactionClass: .captureSafety
+        )
+        let proposal = self.terminalTuple(
+            id: "mint-once",
+            startedAt: date,
+            reason: .processExitedWhileActive,
+            disposition: .inferredStoppedItself,
+            noticeOwed: true
+        )
+        let first = await mintOnce.resolveAndPersistTerminalTuple(
+            recordProposal: nil,
+            proposedTerminal: proposal,
+            asOf: date
+        )
+        let second = await mintOnce.resolveAndPersistTerminalTuple(
+            recordProposal: nil,
+            proposedTerminal: proposal,
+            asOf: date.addingTimeInterval(60)
+        )
+        guard case let .resolvedAndPersisted(firstTuple) = first,
+              case let .resolvedAndPersisted(secondTuple) = second
+        else {
+            return XCTFail("expected repeated resolution to succeed")
+        }
+        XCTAssertEqual(firstTuple.terminalAt, date)
+        XCTAssertEqual(secondTuple.terminalAt, firstTuple.terminalAt)
+    }
+
+    func testTerminalTupleResolverAppliesAgeBeforeCapacityAndRequiresHealthyCapacityPopulation() async throws {
+        let asOf = Date(timeIntervalSince1970: 1_735_689_600)
+        let expiredAt = asOf.addingTimeInterval(-8 * 24 * 60 * 60)
+        let failedHistoryRoot = self.root.appendingPathComponent("failed-history", isDirectory: true)
+        let failedHistoryWriter = BlockingStorageWriter()
+        await failedHistoryWriter.holdNextOperation("never")
+        let failedHistory = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: failedHistoryRoot),
+            fileWriter: failedHistoryWriter
+        )
+        try await failedHistory.prepareRoot()
+        let expiredRecord = self.terminalRecord(
+            id: "expired",
+            startedAt: expiredAt.addingTimeInterval(-60),
+            reason: nil,
+            disposition: nil,
+            terminalAt: nil,
+            noticeOwed: false,
+            state: .active
+        )
+        try await failedHistory.writeSessionRecord(expiredRecord, transactionClass: .captureSafety)
+        let failedHistoryURL = WatchCaptureStoragePaths(rootURL: failedHistoryRoot).sessionHistoryURL()
+        try await FoundationWatchFileWriter().writeData(Data("history".utf8), to: failedHistoryURL, options: .atomic)
+        await failedHistoryWriter.failReads(at: failedHistoryURL)
+        guard case .resolvedAndPersisted = await failedHistory.resolveAndPersistTerminalTuple(
+            recordProposal: nil,
+            proposedTerminal: self.terminalTuple(
+                id: "expired",
+                startedAt: expiredRecord.startedAt,
+                reason: .ownerStopped,
+                disposition: .ownerStopped,
+                terminalAt: expiredAt,
+                noticeOwed: false
+            ),
+            asOf: asOf
+        ) else {
+            return XCTFail("age expiry should resolve without a readable history population")
+        }
+
+        let failedCapacityRoot = self.root.appendingPathComponent("failed-capacity", isDirectory: true)
+        let failedCapacityWriter = BlockingStorageWriter()
+        await failedCapacityWriter.holdNextOperation("never")
+        let failedCapacity = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: failedCapacityRoot),
+            fileWriter: failedCapacityWriter
+        )
+        try await failedCapacity.prepareRoot()
+        let active = self.terminalRecord(
+            id: "fresh",
+            startedAt: asOf,
+            reason: nil,
+            disposition: nil,
+            terminalAt: nil,
+            noticeOwed: false,
+            state: .active
+        )
+        try await failedCapacity.writeSessionRecord(active, transactionClass: .captureSafety)
+        let failedCapacityURL = WatchCaptureStoragePaths(rootURL: failedCapacityRoot).sessionHistoryURL()
+        try await FoundationWatchFileWriter().writeData(Data("history".utf8), to: failedCapacityURL, options: .atomic)
+        await failedCapacityWriter.failReads(at: failedCapacityURL)
+        let failedCapacityResolution = await failedCapacity.resolveAndPersistTerminalTuple(
+            recordProposal: nil,
+            proposedTerminal: self.terminalTuple(
+                id: "fresh",
+                startedAt: asOf,
+                reason: .ownerStopped,
+                disposition: .ownerStopped,
+                terminalAt: asOf,
+                noticeOwed: false
+            ),
+            asOf: asOf
+        )
+        XCTAssertEqual(failedCapacityResolution, .failClosed)
+        let failedCapacityRecord = try await failedCapacity.readSessionRecord(transactionClass: .captureSafety)
+        XCTAssertEqual(failedCapacityRecord, active)
+
+        for (name, hasMalformedLine) in [("complete-capacity", false), ("malformed-capacity", true)] {
+            let root = self.root.appendingPathComponent(name, isDirectory: true)
+            let storage = WatchCaptureStorageActor(
+                paths: WatchCaptureStoragePaths(rootURL: root),
+                fileWriter: FoundationWatchFileWriter()
+            )
+            try await storage.prepareRoot()
+            let targetStart = asOf.addingTimeInterval(-10_000)
+            let target = self.terminalRecord(
+                id: "target",
+                startedAt: targetStart,
+                reason: nil,
+                disposition: nil,
+                terminalAt: nil,
+                noticeOwed: false,
+                state: .active
+            )
+            try await storage.writeSessionRecord(target, transactionClass: .captureSafety)
+            var history = (0..<40).map { index in
+                self.terminalHistoryEntry(
+                    id: "newer-\(index)",
+                    startedAt: asOf.addingTimeInterval(-Double(index)),
+                    reason: .ownerStopped,
+                    disposition: .ownerStopped,
+                    terminalAt: asOf,
+                    noticeOwed: false
+                )
+            }
+            history.append(self.terminalHistoryEntry(
+                id: "target",
+                startedAt: targetStart,
+                reason: nil,
+                disposition: nil,
+                terminalAt: nil,
+                noticeOwed: false
+            ))
+            let paths = WatchCaptureStoragePaths(rootURL: root)
+            try await self.writeRawHistory(
+                history,
+                malformedLine: hasMalformedLine ? Data("malformed".utf8) : nil,
+                to: paths.sessionHistoryURL()
+            )
+            guard case .resolvedAndPersisted = await storage.resolveAndPersistTerminalTuple(
+                recordProposal: nil,
+                proposedTerminal: self.terminalTuple(
+                    id: "target",
+                    startedAt: targetStart,
+                    reason: .ownerStopped,
+                    disposition: .ownerStopped,
+                    terminalAt: asOf,
+                    noticeOwed: false
+                ),
+                asOf: asOf
+            ) else {
+                return XCTFail("terminal tuple should resolve")
+            }
+            let raw = try Data(contentsOf: paths.sessionHistoryURL())
+            let storedIDs = self.rawHistoryEntries(from: raw).map(\.sessionID)
+            if hasMalformedLine {
+                XCTAssertTrue(storedIDs.contains("target"))
+                XCTAssertTrue(String(decoding: raw, as: UTF8.self).contains("malformed"))
+            } else {
+                XCTAssertFalse(storedIDs.contains("target"))
+                XCTAssertEqual(storedIDs.count, 40)
+            }
+        }
+    }
+
+    func testMergeTerminalNoticeMetadataRequiresTheExpectedTuple() async throws {
+        let date = Date(timeIntervalSince1970: 1_735_689_600)
+        let storage = self.storage(named: "notice")
+        let record = self.terminalRecord(
+            id: "notice",
+            startedAt: date,
+            reason: .ownerStopped,
+            disposition: .ownerStopped,
+            terminalAt: date,
+            noticeOwed: true
+        )
+        let entry = self.terminalHistoryEntry(
+            id: "notice",
+            startedAt: date,
+            reason: .ownerStopped,
+            disposition: .ownerStopped,
+            terminalAt: date,
+            noticeOwed: true
+        )
+        try await storage.writeSessionRecord(record, transactionClass: .captureSafety)
+        try await storage.upsertSessionHistory(entry, asOf: date, transactionClass: .captureSafety)
+        let expected = self.terminalTuple(
+            id: "notice",
+            startedAt: date,
+            reason: .ownerStopped,
+            disposition: .ownerStopped,
+            terminalAt: date,
+            noticeOwed: true
+        )
+        let didMergeNotice = await storage.mergeTerminalNoticeMetadata(
+            expected: expected,
+            update: WatchCaptureTerminalNoticeMetadata(
+                noticeOwed: false,
+                noticeDecision: "schedule",
+                noticeDelivered: true
+            )
+        )
+        XCTAssertTrue(didMergeNotice)
+        let noticeRecord = try await storage.readSessionRecord(transactionClass: .maintenance)
+        XCTAssertEqual(noticeRecord?.noticeOwed, false)
+        let updatedEntry = await storage.sessionHistoryEntry(
+            sessionID: "notice",
+            asOf: date,
+            transactionClass: .maintenance
+        )
+        XCTAssertEqual(updatedEntry?.noticeOwed, false)
+        XCTAssertEqual(updatedEntry?.noticeDecision, "schedule")
+        XCTAssertEqual(updatedEntry?.noticeDelivered, true)
+
+        let successor = self.terminalRecord(
+            id: "newer",
+            startedAt: date.addingTimeInterval(1),
+            reason: .ownerStopped,
+            disposition: .ownerStopped,
+            terminalAt: date.addingTimeInterval(1),
+            noticeOwed: true
+        )
+        try await storage.writeSessionRecord(successor, transactionClass: .captureSafety)
+        let didMergeSupersededNotice = await storage.mergeTerminalNoticeMetadata(
+            expected: expected,
+            update: WatchCaptureTerminalNoticeMetadata(noticeOwed: true, noticeDecision: "cannot-schedule")
+        )
+        XCTAssertFalse(didMergeSupersededNotice)
+        let historyAfterSupersededNotice = await storage.sessionHistoryEntry(
+            sessionID: "notice",
+            asOf: date,
+            transactionClass: .maintenance
+        )
+        XCTAssertEqual(historyAfterSupersededNotice, updatedEntry)
     }
 
     func testActorSignpostsMeasureSynchronousWorkAfterTransactionGateAdmission() async throws {
@@ -233,18 +791,18 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             storageSignposter: WatchStorageSignposter(sink: sink)
         )
 
-        let unavailableCatalog = await storage.scanCatalog()
+        let unavailableCatalog = await storage.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(unavailableCatalog.rootState, .unavailable(.missing))
         try await storage.prepareRoot()
         let malformedDirectory = self.root.appendingPathComponent("20250101/120500_300", isDirectory: true)
         try FileManager.default.createDirectory(at: malformedDirectory, withIntermediateDirectories: true)
         try Data("not json".utf8).write(to: malformedDirectory.appendingPathComponent("manifest.json"))
-        let partialCatalog = await storage.scanCatalog()
+        let partialCatalog = await storage.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(partialCatalog.rootState, .partial)
 
         let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
         try await storage.writeManifest(manifest)
-        let catalog = await storage.scanCatalog()
+        let catalog = await storage.scanCatalog(transactionClass: .maintenance)
         let entry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == manifest.id })
         var replacement = manifest
         replacement.state = .transferring
@@ -277,7 +835,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         try await storage.writeManifest(queued)
         try await storage.writeManifest(transferring)
         try await storage.writeManifest(locationManifest)
-        let initialCatalog = await storage.scanCatalog()
+        let initialCatalog = await storage.scanCatalog(transactionClass: .maintenance)
         let queuedEntry = try XCTUnwrap(initialCatalog.entries.first { $0.manifest.id == queued.id })
         let transferringEntry = try XCTUnwrap(initialCatalog.entries.first { $0.manifest.id == transferring.id })
         let locationURL = paths.locationURL(directory: paths.segmentDirectoryURL(
@@ -327,7 +885,11 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             activeManifestCount: 3,
             at: date
         )
-        async let historyWrite: Void = storage.upsertSessionHistory(history, asOf: date)
+        async let historyWrite: Void = storage.upsertSessionHistory(
+            history,
+            asOf: date,
+            transactionClass: .maintenance
+        )
         async let locationAppend: Void = storage.appendLocationFix(fix, at: locationURL)
         async let complicationWrite: Void = storage.writeComplicationSnapshot(
             Data(#"{"queued_count":1}"#.utf8),
@@ -350,7 +912,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertEqual(promoted.entry.manifest.state, .transferring)
         XCTAssertEqual(preparation.attempt, attempt)
 
-        let catalog = await storage.scanCatalog()
+        let catalog = await storage.scanCatalog(transactionClass: .maintenance)
         XCTAssertEqual(catalog.entries.first { $0.manifest.id == captured.id }?.manifest.state, .captured)
         XCTAssertEqual(catalog.entries.first { $0.manifest.id == queued.id }?.manifest.state, .transferring)
         XCTAssertEqual(catalog.entries.first { $0.manifest.id == transferring.id }?.manifest.state, .transferring)
@@ -477,7 +1039,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 state: .queued
             )
             try await actor.writeManifest(manifest)
-            let catalog = await actor.scanCatalog()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
             let stale = try XCTUnwrap(catalog.entries.first { $0.manifest.id == manifest.id })
             var current = manifest
             current.state = state
@@ -506,7 +1068,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let directory = self.root.appendingPathComponent("20250101/121000_300", isDirectory: true)
         let audioURL = directory.appendingPathComponent("audio.m4a")
         try Data("audio".utf8).write(to: audioURL, options: .atomic)
-        let catalog = await actor.scanCatalog()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         let stale = try XCTUnwrap(catalog.entries.first)
         try Data("other".utf8).write(to: audioURL, options: .atomic)
         let manifestURL = directory.appendingPathComponent("manifest.json")
@@ -527,7 +1089,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let actor = self.actor()
         let manifest = self.manifest(id: UUID(), segment: "122000_300", state: .safeToDelete)
         try await actor.writeManifest(manifest)
-        let catalog = await actor.scanCatalog()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         let stale = try XCTUnwrap(catalog.entries.first)
         let replacement = self.manifest(id: UUID(), segment: "122000_300", state: .safeToDelete)
         try await actor.writeManifest(replacement)
@@ -557,9 +1119,9 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         let actor = self.actor()
         let manifest = self.manifest(id: UUID(), segment: "123000_300", state: .safeToDelete)
         try await actor.writeManifest(manifest)
-        let catalog = await actor.scanCatalog()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
         let stale = try XCTUnwrap(catalog.entries.first)
-        try await actor.removeItem(at: stale.directoryURL)
+        try await actor.removeItem(at: stale.directoryURL, transactionClass: .maintenance)
 
         do {
             try await actor.deleteAcknowledgedRelaySegment(
@@ -577,6 +1139,116 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 )
             )
         }
+    }
+
+    private func storage(named name: String) -> WatchCaptureStorageActor {
+        WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(
+                rootURL: self.root.appendingPathComponent(name, isDirectory: true)
+            ),
+            fileWriter: FoundationWatchFileWriter()
+        )
+    }
+
+    private func terminalRecord(
+        id: String,
+        startedAt: Date,
+        reason: WatchCaptureTerminalReason?,
+        disposition: WatchCaptureTerminalDisposition?,
+        terminalAt: Date?,
+        noticeOwed: Bool,
+        state: WatchCaptureSessionRecordState = .terminal
+    ) -> WatchCaptureSessionRecord {
+        WatchCaptureSessionRecord(
+            sessionID: id,
+            startedAt: startedAt,
+            state: state,
+            terminalReason: reason,
+            terminalDisposition: disposition,
+            terminalAt: terminalAt,
+            noticeOwed: noticeOwed
+        )
+    }
+
+    private func terminalTuple(
+        id: String,
+        startedAt: Date,
+        reason: WatchCaptureTerminalReason? = nil,
+        disposition: WatchCaptureTerminalDisposition? = nil,
+        terminalAt: Date? = nil,
+        noticeOwed: Bool
+    ) -> WatchCaptureTerminalTuple {
+        WatchCaptureTerminalTuple(
+            sessionID: id,
+            startedAt: startedAt,
+            reason: reason,
+            disposition: disposition,
+            terminalAt: terminalAt,
+            noticeOwed: noticeOwed
+        )
+    }
+
+    private func terminalHistoryEntry(
+        id: String,
+        startedAt: Date,
+        reason: WatchCaptureTerminalReason?,
+        disposition: WatchCaptureTerminalDisposition?,
+        terminalAt: Date?,
+        noticeOwed: Bool
+    ) -> WatchCaptureSessionHistoryEntry {
+        WatchCaptureSessionHistoryEntry(
+            sessionID: id,
+            startedAt: startedAt,
+            terminalAt: terminalAt,
+            terminalReason: reason,
+            terminalDisposition: disposition,
+            startRefusalReason: nil,
+            settingsRoute: nil,
+            noticeOwed: noticeOwed,
+            noticeDecision: nil,
+            noticeDelivered: nil,
+            notificationAuthorizationStatus: nil,
+            notificationAlertSetting: nil,
+            wristAlertAssurance: nil,
+            audioArmed: false,
+            audioSessionIsActive: false,
+            locationArmed: false,
+            segmentsProduced: 0,
+            batteryLevelAtEnd: nil,
+            batteryStateAtEnd: nil,
+            lowPowerModeEnabledAtEnd: nil,
+            thermalStateAtEnd: nil,
+            lastVerifiedAudioAt: nil,
+            lastAudioCurrentTime: nil,
+            zeroAudioCurrentTimeObservationCount: nil,
+            locationAdvisory: nil,
+            persistenceAdvisory: nil
+        )
+    }
+
+    private func writeRawHistory(
+        _ entries: [WatchCaptureSessionHistoryEntry],
+        malformedLine: Data?,
+        to url: URL
+    ) async throws {
+        let encoder = WatchRelayDiagnosticsEnvelope.makeEncoder()
+        var data = Data()
+        for entry in entries {
+            data.append(try encoder.encode(entry))
+            data.append(0x0A)
+        }
+        if let malformedLine {
+            data.append(malformedLine)
+            data.append(0x0A)
+        }
+        try await FoundationWatchFileWriter().writeData(data, to: url, options: .atomic)
+    }
+
+    private func rawHistoryEntries(from data: Data) -> [WatchCaptureSessionHistoryEntry] {
+        let decoder = WatchRelayDiagnosticsEnvelope.makeDecoder()
+        return data
+            .split(separator: 0x0A, omittingEmptySubsequences: true)
+            .compactMap { try? decoder.decode(WatchCaptureSessionHistoryEntry.self, from: Data($0)) }
     }
 
     private func manifest(id: UUID, segment: String, state: WatchSegmentState) -> WatchSegmentManifest {
@@ -754,32 +1426,55 @@ private actor BlockingStorageWriter: WatchFileWriting {
     private var active = 0
     private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
     private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
-    private var shouldBlock = true
+    private var operationToBlock: String? = "createDirectory"
+    private var operationLog: [String] = []
+    private var failingReadURLs: Set<URL> = []
 
     func createDirectory(at url: URL) async throws {
-        self.active += 1
-        self.maximum = max(self.maximum, self.active)
-        self.entered += 1
-        let waiters = self.enteredWaiters
-        self.enteredWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
-        if self.shouldBlock {
-            await withCheckedContinuation { self.releaseWaiters.append($0) }
-            self.shouldBlock = false
-        }
+        await self.enter("createDirectory")
         defer { self.active -= 1 }
         try await self.base.createDirectory(at: url)
     }
 
+    func itemKind(at url: URL) async throws -> WatchCaptureStorageItemKind {
+        await self.enter("itemKind")
+        defer { self.active -= 1 }
+        return try await self.base.itemKind(at: url)
+    }
+
+    func readData(from url: URL) async throws -> Data {
+        if self.failingReadURLs.contains(url) {
+            throw CocoaError(.fileReadUnknown)
+        }
+        return try await self.base.readData(from: url)
+    }
+
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) async throws {
+        await self.enter("writeData:\(url.lastPathComponent)")
+        defer { self.active -= 1 }
+        try await self.base.writeData(data, to: url, options: options)
+    }
+
+    private func enter(_ operation: String) async {
+        self.active += 1
+        self.maximum = max(self.maximum, self.active)
+        self.entered += 1
+        self.operationLog.append(operation)
+        let waiters = self.enteredWaiters
+        self.enteredWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+        if self.operationToBlock == operation {
+            self.operationToBlock = nil
+            await withCheckedContinuation { self.releaseWaiters.append($0) }
+        }
+    }
+
     func fileExists(at url: URL) async -> Bool { await self.base.fileExists(at: url) }
-    func itemKind(at url: URL) async throws -> WatchCaptureStorageItemKind { try await self.base.itemKind(at: url) }
     func createFileIfNeeded(at url: URL) async throws { try await self.base.createFileIfNeeded(at: url) }
     func fileSize(at url: URL) async throws -> Int64 { try await self.base.fileSize(at: url) }
     func fileFingerprint(at url: URL) async throws -> WatchCaptureStorageFileFingerprint? {
         try await self.base.fileFingerprint(at: url)
     }
-    func readData(from url: URL) async throws -> Data { try await self.base.readData(from: url) }
-    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) async throws { try await self.base.writeData(data, to: url, options: options) }
     func appendLine(_ line: Data, to url: URL) async throws { try await self.base.appendLine(line, to: url) }
     func atomicReplaceFile(at url: URL, with data: Data) async throws { try await self.base.atomicReplaceFile(at: url, with: data) }
     func removeItem(at url: URL) async throws { try await self.base.removeItem(at: url) }
@@ -799,6 +1494,9 @@ private actor BlockingStorageWriter: WatchFileWriting {
 
     func entryCount() -> Int { self.entered }
     func maximumConcurrentEntries() -> Int { self.maximum }
+    func holdNextOperation(_ operation: String) { self.operationToBlock = operation }
+    func operations() -> [String] { self.operationLog }
+    func failReads(at url: URL) { self.failingReadURLs.insert(url) }
 }
 
 private actor WatchStorageOverlapDetector {

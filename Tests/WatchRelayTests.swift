@@ -27,7 +27,7 @@ final class WatchRelayTests: XCTestCase {
         await WatchCaptureStorageActor(
             paths: storage.paths,
             fileWriter: storage.fileWriter
-        ).scanCatalog().entries
+        ).scanCatalog(transactionClass: .maintenance).entries
     }
 
     private func storageActor(for storage: WatchCaptureTestStorage) -> WatchCaptureStorageActor {
@@ -45,7 +45,7 @@ final class WatchRelayTests: XCTestCase {
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
         let directoryExists = await storage.fileWriter.fileExists(at: directory)
@@ -58,7 +58,7 @@ final class WatchRelayTests: XCTestCase {
         let relaunchedSession = MockWatchConnectivitySession()
         let relaunchedSender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: relaunchedSession)
         relaunchedSession.activate()
-        await relaunchedSender.drain(trigger: .testDirect)
+        await relaunchedSender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(relaunchedSession.transferredFiles.count, 1)
         XCTAssertEqual(relaunchedSession.transferredFiles.first?.1["id"] as? String, id.uuidString)
@@ -77,7 +77,7 @@ final class WatchRelayTests: XCTestCase {
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertFalse(watchSession.isReachable)
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
@@ -140,14 +140,14 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [id.uuidString])
         XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
 
         watchSession.outstandingFileTransfers.first?.cancel()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         XCTAssertEqual(watchSession.transferredFiles.count, 2)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
@@ -176,7 +176,7 @@ final class WatchRelayTests: XCTestCase {
 
         watchSession.activate()
         phoneSession.emitReachability(true)
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(phoneSession.sentMessages.count, 1)
@@ -206,7 +206,7 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertTrue(phoneSession.sentMessages.isEmpty)
@@ -236,7 +236,7 @@ final class WatchRelayTests: XCTestCase {
 
         watchSession.activate()
         phoneSession.emitReachability(true)
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(phoneSession.callLedger.count, 2)
@@ -257,7 +257,7 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(phoneSession.callLedger.count, 1)
@@ -278,7 +278,7 @@ final class WatchRelayTests: XCTestCase {
 
         watchSession.activate()
         phoneSession.emitReachability(true)
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(phoneSession.sentMessages.count, 1)
@@ -310,13 +310,13 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(stagedIDs, [id])
 
         watchSession.outstandingFileTransfers.first?.cancel()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
         XCTAssertEqual(stagedIDs, [id, id])
@@ -339,7 +339,7 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(ledger.lifetimeReceived, 1)
@@ -381,13 +381,13 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
         let firstReceivedAt = try XCTUnwrap(receiver.lastReceivedAt)
         try await Task.sleep(for: .milliseconds(10))
 
         watchSession.outstandingFileTransfers.first?.cancel()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
         XCTAssertEqual(ledger.lifetimeReceived, 1)
@@ -433,7 +433,7 @@ final class WatchRelayTests: XCTestCase {
             defer { withExtendedLifetime(receiver) {} }
 
             watchSession.activate()
-            await sender.drain(trigger: .testDirect)
+            await sender.requestDrain(trigger: .testDirect)
             try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
             XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
@@ -460,13 +460,13 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
         XCTAssertEqual(stagedIDs, [id])
         XCTAssertEqual(ledger.lifetimeReceived, 1)
 
         watchSession.outstandingFileTransfers.first?.cancel()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
         XCTAssertEqual(phoneSession.transferredUserInfos.count, 2)
@@ -491,7 +491,7 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(stagedIDs, [id])
@@ -542,7 +542,7 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
@@ -567,7 +567,7 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
 
         XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
@@ -585,8 +585,8 @@ final class WatchRelayTests: XCTestCase {
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
         XCTAssertEqual(watchSession.transferredFiles.first?.1["id"] as? String, id.uuidString)
@@ -608,7 +608,7 @@ final class WatchRelayTests: XCTestCase {
         defer { withExtendedLifetime(receiver) {} }
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(watchSession.transferredFiles.count, 3)
         XCTAssertEqual(Set(watchSession.transferredFiles.compactMap { $0.1["id"] as? String }), Set(ids.map(\.uuidString)))
@@ -641,7 +641,7 @@ final class WatchRelayTests: XCTestCase {
 
         let successID = UUID()
         let successDirectory = try await self.writeSegment(storage: storage, id: successID, index: 0)
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         let successBundleURL = sender.bundleURL(for: successID)
         let successBundleExists = await storage.fileWriter.fileExists(at: successBundleURL)
         XCTAssertTrue(successBundleExists)
@@ -681,7 +681,7 @@ final class WatchRelayTests: XCTestCase {
 
         let failureID = UUID()
         _ = try await self.writeSegment(storage: storage, id: failureID, index: 2)
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         let transferCountBeforeFailure = watchSession.transferredFiles.count
         watchSession.finishTransfer(id: failureID, failure: Self.transferFailure("network unavailable"))
         await self.settleConnectivityCallback()
@@ -746,6 +746,62 @@ final class WatchRelayTests: XCTestCase {
         _ = sender
     }
 
+    func testRequestDrainCoalescesQueuedFollowUpAndSchedulesAnotherAfterItStarts() async throws {
+        let writer = BlockingRelayCallbackWriter()
+        let storage = try self.makeStorage("single-flight-owner", fileWriter: writer)
+        _ = try await self.writeSegment(storage: storage, id: UUID(), index: 0)
+        let session = MockWatchConnectivitySession()
+        let sink = WatchSignpostTestSink()
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: session,
+            signposter: WatchSignposter(sink: sink)
+        )
+
+        await writer.armNextRead()
+        let passA = Task { await sender.requestDrain(trigger: .launchReconciliation) }
+        await writer.waitUntilReadEntered()
+
+        let queuedSegment = Task { await sender.requestDrain(trigger: .segmentFinalization) }
+        await Task.yield()
+        let queuedActivation = Task { await sender.requestDrain(trigger: .connectivityActivation) }
+        await Task.yield()
+        let queuedReachability = Task { await sender.requestDrain(trigger: .connectivityReachability) }
+        await Task.yield()
+        let queuedACK = Task { await sender.requestDrain(trigger: .durableACK) }
+        await self.drain(until: {
+            sink.events.filter { $0.kind == .begin && $0.boundary == .relayDrainRequest }.count == 5
+        })
+
+        // This arms B before A is released. Requests above merge while B is
+        // queued; the durable ACK is the latest retained trigger.
+        await writer.armNextRead()
+        await writer.releaseRead()
+        await writer.waitUntilReadEntered()
+
+        let passC = Task { await sender.requestDrain(trigger: .testDirect) }
+        await Task.yield()
+        await writer.releaseRead()
+
+        await passA.value
+        await queuedSegment.value
+        await queuedActivation.value
+        await queuedReachability.value
+        await queuedACK.value
+        await passC.value
+
+        let passTriggers = sink.events.compactMap { event -> RelayTrigger? in
+            guard event.kind == .begin, event.boundary == .relayDrain else { return nil }
+            return event.fields.trigger
+        }
+        XCTAssertEqual(passTriggers, [.launchReconciliation, .durableACK, .testDirect])
+        XCTAssertEqual(
+            sink.events.filter { $0.kind == .begin && $0.boundary == .relayDrainRequest }.count,
+            6
+        )
+    }
+
     func testAC4DeliveredWithoutTimestampStampsAndDoesNotRetransfer() async throws {
         let storage = try self.makeStorage("ac4-delivered-nil")
         let id = UUID()
@@ -759,7 +815,7 @@ final class WatchRelayTests: XCTestCase {
         try marker.write(to: bundleURL, options: .atomic)
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertTrue(watchSession.transferredFiles.isEmpty)
         let state = try await self.manifestState(storage: storage, id: id)
@@ -789,7 +845,7 @@ final class WatchRelayTests: XCTestCase {
         try marker.write(to: bundleURL, options: .atomic)
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertTrue(watchSession.transferredFiles.isEmpty)
         let state = try await self.manifestState(storage: storage, id: id)
@@ -814,7 +870,7 @@ final class WatchRelayTests: XCTestCase {
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession, clock: { now })
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
         XCTAssertEqual(watchSession.transferredFiles.first?.1["id"] as? String, id.uuidString)
@@ -832,7 +888,7 @@ final class WatchRelayTests: XCTestCase {
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
 
         watchSession.finishTransfer(id: id, failure: Self.transferFailure("first failure"))
@@ -842,7 +898,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(firstFailureState, .queued)
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         XCTAssertEqual(watchSession.transferredFiles.count, 2)
         watchSession.finishTransfer(id: id, failure: Self.transferFailure("second failure"))
         await self.settleConnectivityCallback()
@@ -870,7 +926,7 @@ final class WatchRelayTests: XCTestCase {
         writer.failNextWriteData(at: sender.bundleURL(for: failedID))
         session.activate()
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.count, 1)
         XCTAssertEqual(session.transferredFiles[0].1["id"] as? String, healthyID.uuidString)
@@ -897,7 +953,7 @@ final class WatchRelayTests: XCTestCase {
         )
         session.activate()
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.count, 2)
         let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
@@ -921,7 +977,7 @@ final class WatchRelayTests: XCTestCase {
         session.seedOutstandingTransfer(id: orphanID)
         session.activate()
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.cancelledSegmentIDs, [orphanID])
         let diagnosticsSummary = await diagnostics.readDiagnosticsSummary()
@@ -955,7 +1011,7 @@ final class WatchRelayTests: XCTestCase {
         session.seedOutstandingTransfer(id: unknownID)
         session.activate()
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.map { $0.1["id"] as? String }, [healthyID.uuidString])
         XCTAssertFalse(session.cancelledSegmentIDs.contains(unknownID))
@@ -980,7 +1036,7 @@ final class WatchRelayTests: XCTestCase {
         try await writer.createDirectory(at: storage.rootURL)
         writer.failContents(atOrdinal: writer.currentContentsCallCount + 1)
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
         XCTAssertEqual(drain.fields.result, .failed)
@@ -1009,7 +1065,7 @@ final class WatchRelayTests: XCTestCase {
         session.activate()
         writer.failContents(atOrdinal: writer.currentContentsCallCount + callsPerScan + 1)
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
         XCTAssertEqual(drain.fields.result, .failed)
@@ -1038,7 +1094,7 @@ final class WatchRelayTests: XCTestCase {
         session.activate()
         writer.failContents(atOrdinal: writer.currentContentsCallCount + callsPerScan + 1)
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
         XCTAssertEqual(drain.fields.result, .failed)
@@ -1065,7 +1121,7 @@ final class WatchRelayTests: XCTestCase {
         )
         session.activate()
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
         XCTAssertEqual(drain.fields.transferCandidateCount, 2)
@@ -1085,7 +1141,7 @@ final class WatchRelayTests: XCTestCase {
             signposter: WatchSignposter(sink: sink)
         )
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
         XCTAssertEqual(drain.fields.result, .partial)
@@ -1113,7 +1169,7 @@ final class WatchRelayTests: XCTestCase {
         )
         session.activate()
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.count, 1)
         XCTAssertTrue(sink.events.contains {
@@ -1157,8 +1213,8 @@ final class WatchRelayTests: XCTestCase {
         let sessionA = MockWatchConnectivitySession()
         let senderA = WatchRelaySender(paths: storageA.paths, storageActor: self.storageActor(for: storageA), session: sessionA)
         sessionA.activate()
-        await senderA.drain(trigger: .testDirect)
-        await senderA.drain(trigger: .testDirect)
+        await senderA.requestDrain(trigger: .testDirect)
+        await senderA.requestDrain(trigger: .testDirect)
         XCTAssertEqual(sessionA.transferredFiles.count, 1)
         let absentState = try await self.manifestState(storage: storageA, id: absentID)
         XCTAssertEqual(absentState, .transferring)
@@ -1170,7 +1226,7 @@ final class WatchRelayTests: XCTestCase {
         sessionB.seedOutstandingTransfer(id: presentID)
         let senderB = WatchRelaySender(paths: storageB.paths, storageActor: self.storageActor(for: storageB), session: sessionB)
         sessionB.activate()
-        await senderB.drain(trigger: .testDirect)
+        await senderB.requestDrain(trigger: .testDirect)
         XCTAssertTrue(sessionB.transferredFiles.isEmpty)
         XCTAssertTrue(sessionB.cancelledSegmentIDs.isEmpty)
         let presentState = try await self.manifestState(storage: storageB, id: presentID)
@@ -1183,7 +1239,7 @@ final class WatchRelayTests: XCTestCase {
         sessionC.seedOutstandingTransfer(id: adoptID)
         let senderC = WatchRelaySender(paths: storageC.paths, storageActor: self.storageActor(for: storageC), session: sessionC)
         sessionC.activate()
-        await senderC.drain(trigger: .testDirect)
+        await senderC.requestDrain(trigger: .testDirect)
         XCTAssertTrue(sessionC.transferredFiles.isEmpty)
         XCTAssertEqual(sessionC.cancelledSegmentIDs, [])
         let adoptState = try await self.manifestState(storage: storageC, id: adoptID)
@@ -1197,7 +1253,7 @@ final class WatchRelayTests: XCTestCase {
         sessionD.seedOutstandingTransfer(id: duplicateID)
         let senderD = WatchRelaySender(paths: storageD.paths, storageActor: self.storageActor(for: storageD), session: sessionD)
         sessionD.activate()
-        await senderD.drain(trigger: .testDirect)
+        await senderD.requestDrain(trigger: .testDirect)
         XCTAssertEqual(sessionD.cancelledSegmentIDs, [duplicateID])
         XCTAssertEqual(sessionD.outstandingFileTransfers.map(\.snapshot.segmentID), [duplicateID])
         let duplicateDirectoryExists = await storageD.fileWriter.fileExists(at: duplicateDirectory)
@@ -1213,7 +1269,7 @@ final class WatchRelayTests: XCTestCase {
         sessionE.seedOutstandingTransfer(id: deliveredID)
         let senderE = WatchRelaySender(paths: storageE.paths, storageActor: self.storageActor(for: storageE), session: sessionE)
         sessionE.activate()
-        await senderE.drain(trigger: .testDirect)
+        await senderE.requestDrain(trigger: .testDirect)
         XCTAssertEqual(sessionE.cancelledSegmentIDs.count, 3)
         XCTAssertTrue(sessionE.cancelledSegmentIDs.contains { $0 == nil })
         XCTAssertTrue(sessionE.cancelledSegmentIDs.contains(missingID))
@@ -1232,7 +1288,7 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertTrue(watchSession.transferredFiles.isEmpty)
         XCTAssertTrue(watchSession.cancelledSegmentIDs.isEmpty)
@@ -1242,8 +1298,8 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(transferringState, .transferring)
 
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(watchSession.transferredFiles.count, 2)
         XCTAssertEqual(Set(watchSession.transferredFiles.compactMap { $0.1["id"] as? String }), Set([queuedID.uuidString, transferringID.uuidString]))
@@ -1265,7 +1321,7 @@ final class WatchRelayTests: XCTestCase {
             signposter: WatchSignposter(sink: sink)
         )
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         let outer = try XCTUnwrap(sink.events.last)
         XCTAssertEqual(outer.boundary, .relayDrain)
@@ -1290,7 +1346,7 @@ final class WatchRelayTests: XCTestCase {
         let watchSession = MockWatchConnectivitySession()
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
         watchSession.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         let bundleURL = sender.bundleURL(for: id)
         let bundleExists = await storage.fileWriter.fileExists(at: bundleURL)
         XCTAssertTrue(bundleExists)
@@ -1331,7 +1387,7 @@ final class WatchRelayTests: XCTestCase {
         let store = self.storageActor(for: storage)
         let sender = WatchRelaySender(paths: storage.paths, storageActor: store, session: session)
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.outstandingReadCount, 1)
         XCTAssertEqual(session.cancelledRuntimeTokens, [1])
@@ -1351,9 +1407,9 @@ final class WatchRelayTests: XCTestCase {
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session, clock: { now })
         session.activate()
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
         session.outstandingFileTransfers.first?.cancel()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.count, 2)
         let first = session.transferredFiles[0].1
@@ -1405,7 +1461,7 @@ final class WatchRelayTests: XCTestCase {
         writer.failNextWriteData(at: firstDirectory.appendingPathComponent(WatchRelayAttemptRecord.filename))
         session.activate()
 
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.count, 2)
         XCTAssertNil(session.transferredFiles[0].1["generation"])
@@ -1439,7 +1495,7 @@ final class WatchRelayTests: XCTestCase {
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session)
 
         session.activate()
-        await sender.drain(trigger: .testDirect)
+        await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.count, 1)
         XCTAssertTrue(probe.bundleWriteCompleted)

@@ -60,10 +60,10 @@ final class WatchCaptureStorageByteEquivalenceTests: XCTestCase {
         // This is the durable portion of launch reconciliation before it asks the
         // relay sender to drain. It intentionally leaves the actor's extra read
         // checks visible in `rawEvents`; AC12 freezes only mutations and transfer.
-        _ = try await actor.readSessionRecord()
-        _ = await actor.scanCatalog()
-        _ = await actor.scanCatalog()
-        await sender.drain(trigger: .launchReconciliation)
+        _ = try await actor.readSessionRecord(transactionClass: .maintenance)
+        _ = await actor.scanCatalog(transactionClass: .maintenance)
+        _ = await actor.scanCatalog(transactionClass: .maintenance)
+        await sender.requestDrain(trigger: .launchReconciliation)
 
         let expected = try self.traceFixture()
         let rawEvents = recorder.events
@@ -177,7 +177,7 @@ private extension WatchCaptureStorageByteEquivalenceTests {
             var transferring = manifest
             transferring.state = .transferring
             try await actor.writeManifest(transferring, ensuringDirectory: false)
-            let catalog = await actor.scanCatalog()
+            let catalog = await actor.scanCatalog(transactionClass: .maintenance)
             let transferEntry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == manifest.id })
             let bundleURL = self.root
                 .appendingPathComponent(".relay-bundles", isDirectory: true)

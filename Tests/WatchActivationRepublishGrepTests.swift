@@ -14,7 +14,7 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
             path: path.path
         )
         XCTAssertTrue(activation.contains("if didActivate {"))
-        XCTAssertTrue(activation.contains("await self.relaySender?.drain(trigger: .connectivityActivation)"))
+        XCTAssertTrue(activation.contains("await self.relaySender?.requestDrain(trigger: .connectivityActivation)"))
         XCTAssertTrue(activation.contains("self.onReachableRepublish?()"))
     }
 
@@ -28,7 +28,7 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
         )
 
         XCTAssertTrue(reachability.contains("if isReachable {"))
-        XCTAssertTrue(reachability.contains("await self.relaySender?.drain(trigger: .connectivityReachability)"))
+        XCTAssertTrue(reachability.contains("await self.relaySender?.requestDrain(trigger: .connectivityReachability)"))
         XCTAssertTrue(reachability.contains("self.onReachableRepublish?()"))
     }
 

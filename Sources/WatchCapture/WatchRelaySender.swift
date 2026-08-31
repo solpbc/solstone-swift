@@ -35,6 +35,9 @@ final class WatchRelaySender {
     private let clock: @MainActor @Sendable () -> Date
     private let signposter: any WatchSignposting
     private var relayCallbackTail: Task<Void, Never> = Task {}
+    private var drainOwnerTask: Task<Void, Never>?
+    private var queuedDrainTask: Task<Void, Never>?
+    private var queuedDrainTrigger: RelayTrigger?
 
     init(
         paths: WatchCaptureStoragePaths,
@@ -60,7 +63,63 @@ final class WatchRelaySender {
         }
     }
 
-    func drain(trigger: RelayTrigger) async {
+    func requestDrain(trigger: RelayTrigger) async {
+        let request = self.signposter.begin(
+            .relayDrainRequest,
+            fields: WatchSignpostFields(trigger: trigger)
+        )
+        if let queuedDrainTask = self.queuedDrainTask {
+            self.queuedDrainTrigger = trigger
+            self.signposter.end(
+                request,
+                fields: WatchSignpostFields(trigger: trigger, result: .mergedFollowUp)
+            )
+            await queuedDrainTask.value
+            return
+        }
+        if let drainOwnerTask = self.drainOwnerTask {
+            self.queuedDrainTrigger = trigger
+            let followUp = Task { @MainActor [weak self] in
+                await drainOwnerTask.value
+                guard let self else { return }
+                let resolvedTrigger = self.queuedDrainTrigger ?? trigger
+                // Clear the queued state before B begins. A request arriving
+                // while B is running must therefore schedule C, not merge into B.
+                self.queuedDrainTrigger = nil
+                self.queuedDrainTask = nil
+                await self.startOwnedDrainPass(trigger: resolvedTrigger)
+            }
+            self.queuedDrainTask = followUp
+            self.signposter.end(
+                request,
+                fields: WatchSignpostFields(trigger: trigger, result: .scheduledFollowUp)
+            )
+            await followUp.value
+            return
+        }
+
+        self.signposter.end(
+            request,
+            fields: WatchSignpostFields(trigger: trigger, result: .becameOwner)
+        )
+        await self.startOwnedDrainPass(trigger: trigger)
+    }
+
+    private func startOwnedDrainPass(trigger: RelayTrigger) async {
+        let owner = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runOwnedDrainPass(trigger: trigger)
+        }
+        self.drainOwnerTask = owner
+        await owner.value
+    }
+
+    private func runOwnedDrainPass(trigger: RelayTrigger) async {
+        defer { self.drainOwnerTask = nil }
+        await self.drainPass(trigger: trigger)
+    }
+
+    private func drainPass(trigger: RelayTrigger) async {
         var accounting = WatchRelayDrainAccounting(
             trigger: trigger,
             activation: self.relayActivation
@@ -76,7 +135,7 @@ final class WatchRelaySender {
         var activeScan: WatchSignpostInvocation?
         do {
             activeScan = self.signposter.begin(.relayCleanupScan)
-            let catalog = await self.storageActor.scanCatalog()
+            let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
             accounting.recordCatalog(rootState: catalog.rootState)
             let entries = catalog.entries
             let catalogResult = self.catalogResult(catalog.rootState)
@@ -111,7 +170,7 @@ final class WatchRelaySender {
             guard self.session.activationState == .activated else { return }
 
             activeScan = self.signposter.begin(.relayQueueReconciliation)
-            let refreshedCatalog = await self.storageActor.scanCatalog()
+            let refreshedCatalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
             accounting.recordCatalog(rootState: refreshedCatalog.rootState)
             let refreshedEntries = refreshedCatalog.entries
             let refreshedCatalogResult = self.catalogResult(refreshedCatalog.rootState)
@@ -227,7 +286,7 @@ private extension WatchRelaySender {
 
         do {
             try await self.acknowledge(id: id)
-            await self.drain(trigger: .durableACK)
+            await self.requestDrain(trigger: .durableACK)
         } catch {
             watchRelaySenderLog.error("watch relay ack failed: \(String(describing: error), privacy: .public)")
         }
@@ -236,7 +295,7 @@ private extension WatchRelaySender {
     func handleFileTransferFinished(_ completion: WatchConnectivityFileTransferCompletion) async {
         do {
             guard let id = completion.segmentID else { return }
-            let catalog = await self.storageActor.scanCatalog()
+            let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
             guard let entry = catalog.entries.first(where: { $0.manifest.id == id }) else { return }
             if let failure = completion.failure {
                 guard entry.manifest.state == .transferring else { return }
@@ -273,10 +332,13 @@ private extension WatchRelaySender {
     }
 
     func acknowledge(id: UUID) async throws {
-        let catalog = await self.storageActor.scanCatalog()
+        let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
         guard let entry = catalog.entries.first(where: { $0.manifest.id == id }) else {
             if catalog.canInferUUIDAbsence {
-                try? await self.storageActor.removeItem(at: self.bundleURL(for: id))
+                try? await self.storageActor.removeItem(
+                    at: self.bundleURL(for: id),
+                    transactionClass: .maintenance
+                )
             }
             return
         }

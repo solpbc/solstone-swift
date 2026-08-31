@@ -51,7 +51,14 @@ final class WatchSignpostTests: XCTestCase {
             .durableACK,
             .testDirect,
         ])
-        XCTAssertEqual(RelayResult.allCases, [.completed, .partial, .failed])
+        XCTAssertEqual(RelayResult.allCases, [
+            .completed,
+            .partial,
+            .failed,
+            .becameOwner,
+            .scheduledFollowUp,
+            .mergedFollowUp,
+        ])
         XCTAssertEqual(RelayActivation.allCases, [.activated, .notActivated])
         XCTAssertEqual(WorkloadBand.allCases, [.unknown, .notSampled, .empty, .small, .medium, .large])
         XCTAssertEqual(WorkloadBand.band(for: nil), .unknown)

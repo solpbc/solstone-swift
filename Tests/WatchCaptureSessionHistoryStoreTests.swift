@@ -23,14 +23,22 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
         let store = self.storageActor(for: storage)
         let now = Date(timeIntervalSince1970: 1_784_073_600)
         for index in 0..<41 {
-            try await store.upsertSessionHistory(self.entry(index, at: now.addingTimeInterval(TimeInterval(index))), asOf: now.addingTimeInterval(41))
+            try await store.upsertSessionHistory(
+                self.entry(index, at: now.addingTimeInterval(TimeInterval(index))),
+                asOf: now.addingTimeInterval(41),
+                transactionClass: .captureSafety
+            )
         }
         guard case let .available(entries) = await store.readSessionHistory(asOf: now.addingTimeInterval(41)) else {
             return XCTFail("history should be readable")
         }
         XCTAssertEqual(entries.count, 40)
         XCTAssertEqual(Set(entries.map(\.sessionID)), Set((1...40).map { "session-\($0)" }))
-        try await store.upsertSessionHistory(self.entry(99, at: now.addingTimeInterval(-8 * 24 * 60 * 60)), asOf: now)
+        try await store.upsertSessionHistory(
+            self.entry(99, at: now.addingTimeInterval(-8 * 24 * 60 * 60)),
+            asOf: now,
+            transactionClass: .captureSafety
+        )
         guard case let .available(retained) = await store.readSessionHistory(asOf: now) else { return XCTFail("history should be readable") }
         XCTAssertFalse(retained.contains { $0.sessionID == "session-99" })
         XCTAssertTrue(retained.contains { $0.sessionID == "session-40" })
@@ -51,7 +59,11 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
         let storage = try WatchCaptureTestStorage(rootURL: self.root)
         let store = self.storageActor(for: storage)
         let now = Date()
-        try await store.upsertSessionHistory(self.entry(1, at: now), asOf: now)
+        try await store.upsertSessionHistory(
+            self.entry(1, at: now),
+            asOf: now,
+            transactionClass: .captureSafety
+        )
         let url = storage.rootURL.appendingPathComponent(WatchCaptureStorageActor.historyFileName)
         var data = try await storage.fileWriter.readData(from: url)
         data.append(Data("bad tail\n".utf8))
@@ -96,10 +108,10 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
             segmentsProduced: 3
         )
 
-        let missing = try await actor.readSessionRecord()
+        let missing = try await actor.readSessionRecord(transactionClass: .captureSafety)
         XCTAssertNil(missing)
-        try await actor.writeSessionRecord(record)
-        let restored = try await actor.readSessionRecord()
+        try await actor.writeSessionRecord(record, transactionClass: .captureSafety)
+        let restored = try await actor.readSessionRecord(transactionClass: .captureSafety)
         XCTAssertEqual(restored, record)
     }
 
