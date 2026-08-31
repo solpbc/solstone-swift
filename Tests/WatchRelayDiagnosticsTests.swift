@@ -168,6 +168,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let now = Self.now
         let storage = try self.storage("collector-compaction-subspans")
         let store = self.storageActor(for: storage)
+        try await store.prepareRoot()
         let session = MockWatchConnectivitySession()
         for index in 0..<800 {
             session.seedOutstandingTransfer(id: Self.uuid(92_000 + index))
@@ -279,7 +280,8 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertTrue(modelSource.contains("self.diagnosticsCollector = diagnosticsCollector"))
         XCTAssertTrue(modelSource.contains("self.diagnosticsCollector = nil"))
         XCTAssertTrue(modelSource.contains("engine.onDiagnosticsEnvelopeRequested = { [weak self] _ in"))
-        XCTAssertTrue(modelSource.contains("self?.diagnosticsPublicationCache.envelopeData"))
+        XCTAssertTrue(modelSource.contains("let publication = self.diagnosticsPublicationCache.publication"))
+        XCTAssertTrue(modelSource.contains("return publication.envelopeData"))
         XCTAssertFalse(modelSource.contains("[weak diagnosticsCollector]"))
         XCTAssertTrue(appSource.contains("diagnosticsCollector: diagnosticsCollector"))
     }
@@ -706,6 +708,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let now = Self.now
         let storage = try self.storage("large")
         let store = self.storageActor(for: storage)
+        try await store.prepareRoot()
         let session = MockWatchConnectivitySession()
         var allObservations: [WatchRelayTransferObservation] = []
 
