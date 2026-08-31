@@ -147,16 +147,9 @@ final class WatchRelaySender {
                     switch entry.manifest.state {
                     case .acked, .safeToDelete:
                         let originalState = entry.manifest.state
-                        switch try await self.deleteIfSafe(entry) {
-                        case .removed:
-                            catalog = catalog.removingEntry(manifestID: entry.manifest.id)
-                            successfulBumps += originalState == .acked ? 2 : 1
-                        case let .retained(retained):
-                            catalog = catalog.replacingEntry(retained)
-                            if retained.manifest.state != originalState {
-                                successfulBumps += 1
-                            }
-                        }
+                        try await self.deleteIfSafe(entry)
+                        catalog = catalog.removingEntry(manifestID: entry.manifest.id)
+                        successfulBumps += originalState == .acked ? 2 : 1
                     case .delivered:
                         let transition = try await self.refreshDeliveredDeadline(entry)
                         if transition.didChange {
@@ -388,7 +381,7 @@ private extension WatchRelaySender {
         self.notifyStateChanged()
     }
 
-    func deleteIfSafe(_ entry: WatchCaptureCatalogEntry) async throws -> WatchRelayCleanupRemoval {
+    func deleteIfSafe(_ entry: WatchCaptureCatalogEntry) async throws {
         let safe = try await self.storageActor.markRelaySegmentSafeToDelete(entry)
         if safe.didChange {
             self.notifyStateChanged()
@@ -398,7 +391,6 @@ private extension WatchRelaySender {
             bundleURL: self.bundleURL(for: safe.entry.manifest.id)
         )
         self.notifyStateChanged()
-        return .removed
     }
 
     func refreshDeliveredDeadline(_ entry: WatchCaptureCatalogEntry) async throws -> WatchRelayStorageTransition {

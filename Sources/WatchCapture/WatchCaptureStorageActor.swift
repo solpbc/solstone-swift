@@ -197,11 +197,6 @@ nonisolated struct WatchRelayStorageTransition: Sendable {
     let didChange: Bool
 }
 
-nonisolated enum WatchRelayCleanupRemoval: Sendable {
-    case removed
-    case retained(WatchCaptureCatalogEntry)
-}
-
 nonisolated enum WatchComplicationSnapshotWriteOutcome: Equatable, Sendable {
     case written
     case unchanged

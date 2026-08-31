@@ -490,6 +490,42 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         })
     }
 
+    func testDiagnosticsEnvelopeStaysOwedUntilPrimaryApplicationContextAcceptsIt() async throws {
+        let (model, sink, session) = try self.makeStatusPublicationFixtureIncludingSession(
+            name: "owed-until-accepted"
+        )
+        let didLaunchAcceptPrimary = await self.waitUntilSettled {
+            sink.events.contains {
+                $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .completed
+            }
+        }
+        XCTAssertTrue(didLaunchAcceptPrimary)
+        XCTAssertFalse(model.diagnosticsEnvelopeOwedUntilAccepted)
+
+        sink.reset()
+        session.remainingPublicationFailures = 1
+        await model.requestDiagnosticsRefresh()
+        XCTAssertTrue(model.diagnosticsEnvelopeOwedUntilAccepted)
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .applicationContextPrimary && $0.fields.result == .failed
+        })
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .applicationContextFallback && $0.fields.result == .completed
+        })
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .partial
+        })
+
+        sink.reset()
+        session.remainingPublicationFailures = 0
+        await model.requestDiagnosticsRefresh()
+        XCTAssertFalse(model.diagnosticsEnvelopeOwedUntilAccepted)
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .applicationContextPrimary && $0.fields.result == .completed
+        })
+        XCTAssertFalse(sink.events.contains { $0.boundary == .applicationContextFallback })
+    }
+
     func testNoOpAndRecordingSignpostsPreservePublishedArtifactBytes() async throws {
         let noOp = try await self.signpostArtifacts(
             name: "noop-artifacts",
@@ -766,6 +802,16 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
                 return true
             }
             await Task.yield()
+        }
+        return false
+    }
+
+    private func waitUntilSettled(_ predicate: @escaping @MainActor () -> Bool) async -> Bool {
+        for _ in 0..<400 {
+            if predicate() {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(5))
         }
         return false
     }

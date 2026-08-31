@@ -10,7 +10,6 @@ private let watchCaptureModelLog = Logger(subsystem: "app.solstone.swift", categ
 
 struct WatchDiagnosticsPublicationCache {
     var envelopeData: Data?
-    var builtFromGeneration: UInt64?
     var owedUntilAccepted = false
 }
 
@@ -35,11 +34,13 @@ final class WatchCaptureModel {
     @ObservationIgnored private var diagnosticsPublicationCache = WatchDiagnosticsPublicationCache()
     @ObservationIgnored private var diagnosticsRefreshOwnerTask: Task<Void, Never>?
     @ObservationIgnored private var queuedDiagnosticsRefreshTask: Task<Void, Never>?
-    @ObservationIgnored private var hasQueuedDiagnosticsRefresh = false
     @ObservationIgnored private var relayStateRefreshOwnerTask: Task<Void, Never>?
     @ObservationIgnored private var queuedRelayStateRefreshTask: Task<Void, Never>?
-    @ObservationIgnored private var hasQueuedRelayStateRefresh = false
     @ObservationIgnored private var recoveryReloadOwed = true
+
+    var diagnosticsEnvelopeOwedUntilAccepted: Bool {
+        self.diagnosticsPublicationCache.owedUntilAccepted
+    }
 
     init(
         paths: WatchCaptureStoragePaths,
@@ -194,7 +195,6 @@ final class WatchCaptureModel {
     func requestDiagnosticsRefresh() async {
         let request = self.signposter.begin(.diagnosticsRefreshRequest)
         if let queuedDiagnosticsRefreshTask = self.queuedDiagnosticsRefreshTask {
-            self.hasQueuedDiagnosticsRefresh = true
             self.signposter.end(
                 request,
                 fields: WatchSignpostFields(result: .mergedFollowUp)
@@ -203,11 +203,9 @@ final class WatchCaptureModel {
             return
         }
         if let diagnosticsRefreshOwnerTask = self.diagnosticsRefreshOwnerTask {
-            self.hasQueuedDiagnosticsRefresh = true
             let followUp = Task { @MainActor [weak self] in
                 await diagnosticsRefreshOwnerTask.value
                 guard let self else { return }
-                self.hasQueuedDiagnosticsRefresh = false
                 self.queuedDiagnosticsRefreshTask = nil
                 await self.startOwnedDiagnosticsRefreshPass()
             }
@@ -246,7 +244,6 @@ final class WatchCaptureModel {
     private func requestRelayStateRefresh() async {
         let request = self.signposter.begin(.relayStateRefreshRequest)
         if let queuedRelayStateRefreshTask = self.queuedRelayStateRefreshTask {
-            self.hasQueuedRelayStateRefresh = true
             self.signposter.end(
                 request,
                 fields: WatchSignpostFields(result: .mergedFollowUp)
@@ -255,11 +252,9 @@ final class WatchCaptureModel {
             return
         }
         if let relayStateRefreshOwnerTask = self.relayStateRefreshOwnerTask {
-            self.hasQueuedRelayStateRefresh = true
             let followUp = Task { @MainActor [weak self] in
                 await relayStateRefreshOwnerTask.value
                 guard let self else { return }
-                self.hasQueuedRelayStateRefresh = false
                 self.queuedRelayStateRefreshTask = nil
                 await self.startOwnedRelayStateRefreshPass()
             }
@@ -311,13 +306,11 @@ final class WatchCaptureModel {
         let collection = self.signposter.begin(.diagnosticsCollection)
         let asOf = self.clock.now()
         let envelope = await diagnosticsCollector.makeEnvelopeData(asOf: asOf)
-        let generation = await self.storageActor?.currentRelevantMutationGeneration()
         self.signposter.end(
             collection,
             fields: WatchSignpostFields(result: envelope == nil ? .failed : .completed)
         )
         self.diagnosticsPublicationCache.envelopeData = envelope
-        self.diagnosticsPublicationCache.builtFromGeneration = generation
         self.diagnosticsPublicationCache.owedUntilAccepted = true
         await self.engine?.republishCurrentStatus()
     }
