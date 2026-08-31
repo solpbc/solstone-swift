@@ -117,6 +117,36 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(statuses.last?.diagnosticsEnvelope, cached)
     }
 
+    func testCaptureLifecycleDoesNotAwaitDiagnosticsRefreshWork() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        let diagnosticsGate = WatchCaptureHoldGate()
+        var diagnosticsTask: Task<Void, Never>?
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+        harness.engine.onDiagnosticsRefreshRequested = {
+            guard diagnosticsTask == nil else { return }
+            diagnosticsTask = Task {
+                await diagnosticsGate.suspend()
+            }
+        }
+
+        harness.engine.start()
+        await harness.engine.settled()
+        await self.waitForGate(diagnosticsGate)
+        XCTAssertEqual(harness.engine.ownerPresentation.status, .active)
+        XCTAssertEqual(statuses.last?.phase, .observing)
+
+        harness.engine.stop()
+        await harness.engine.settled()
+        XCTAssertEqual(harness.engine.ownerPresentation.status, .off)
+        XCTAssertEqual(statuses.suffix(2).map(\.phase), [.stopping, .idle])
+
+        await diagnosticsGate.open()
+        await diagnosticsTask?.value
+    }
+
     func testRepublishCurrentStatusEmitsCurrentPhaseImmediately() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []

@@ -321,7 +321,6 @@ private extension WatchRelaySender {
                 guard entry.manifest.state == .transferring else { return }
                 let transition = try await self.storageActor.requeueFailedRelayTransfer(entry)
                 guard transition.didChange else { return }
-                self.notifyStateChanged()
                 await self.storageActor.recordRelayTransferCompletion(
                     manifest: transition.entry.manifest,
                     directoryURL: transition.entry.directoryURL,
@@ -329,6 +328,7 @@ private extension WatchRelaySender {
                     failure: failure,
                     at: self.clock()
                 )
+                self.notifyStateChanged()
                 watchRelaySenderLog.notice(
                     "watch relay transfer failed id=\(id.uuidString, privacy: .public): \(failure.boundedRedactedDescription, privacy: .public)"
                 )
@@ -338,7 +338,6 @@ private extension WatchRelaySender {
             guard entry.manifest.state == .transferring || entry.manifest.state == .queued else { return }
             let transition = try await self.storageActor.markRelayTransferDelivered(entry, at: self.clock())
             guard transition.didChange else { return }
-            self.notifyStateChanged()
             await self.storageActor.recordRelayTransferCompletion(
                 manifest: transition.entry.manifest,
                 directoryURL: transition.entry.directoryURL,
@@ -346,6 +345,7 @@ private extension WatchRelaySender {
                 failure: nil,
                 at: self.clock()
             )
+            self.notifyStateChanged()
         } catch {
             watchRelaySenderLog.error("watch relay finish handling failed: \(String(describing: error), privacy: .public)")
         }
@@ -364,32 +364,35 @@ private extension WatchRelaySender {
         }
 
         let acknowledged = try await self.storageActor.acknowledgeRelaySegment(entry)
-        if acknowledged.didChange {
-            self.notifyStateChanged()
-        }
         await self.storageActor.recordRelayDurableACK(
             manifest: acknowledged.entry.manifest,
             directoryURL: acknowledged.entry.directoryURL,
             at: self.clock()
         )
 
-        let safe = try await self.storageActor.markRelaySegmentSafeToDelete(acknowledged.entry)
-        if safe.didChange {
+        do {
+            let safe = try await self.storageActor.markRelaySegmentSafeToDelete(acknowledged.entry)
+            try await self.storageActor.deleteAcknowledgedRelaySegment(safe.entry, bundleURL: self.bundleURL(for: id))
+        } catch {
             self.notifyStateChanged()
+            throw error
         }
-        try await self.storageActor.deleteAcknowledgedRelaySegment(safe.entry, bundleURL: self.bundleURL(for: id))
         self.notifyStateChanged()
     }
 
     func deleteIfSafe(_ entry: WatchCaptureCatalogEntry) async throws {
         let safe = try await self.storageActor.markRelaySegmentSafeToDelete(entry)
-        if safe.didChange {
-            self.notifyStateChanged()
+        do {
+            try await self.storageActor.deleteAcknowledgedRelaySegment(
+                safe.entry,
+                bundleURL: self.bundleURL(for: safe.entry.manifest.id)
+            )
+        } catch {
+            if safe.didChange {
+                self.notifyStateChanged()
+            }
+            throw error
         }
-        try await self.storageActor.deleteAcknowledgedRelaySegment(
-            safe.entry,
-            bundleURL: self.bundleURL(for: safe.entry.manifest.id)
-        )
         self.notifyStateChanged()
     }
 
@@ -413,8 +416,13 @@ private extension WatchRelaySender {
         accounting: inout WatchRelayDrainAccounting
     ) async throws {
         let transition = try await self.storageActor.promoteQueuedForRelay(entry)
+        do {
+            try await self.transfer(entry: transition.entry, accounting: &accounting)
+        } catch {
+            self.notifyStateChanged()
+            throw error
+        }
         self.notifyStateChanged()
-        try await self.transfer(entry: transition.entry, accounting: &accounting)
     }
 
     func adoptAsTransferring(_ entry: WatchCaptureCatalogEntry) async throws {

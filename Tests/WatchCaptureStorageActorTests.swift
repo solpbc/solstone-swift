@@ -53,6 +53,25 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertEqual(catalog.rootState, .emptyComplete)
     }
 
+    func testGenerationValidationWaitsForInFlightMutation() async throws {
+        let writer = BlockingStorageWriter()
+        let actor = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: self.root),
+            fileWriter: writer
+        )
+
+        async let mutation: Void = actor.prepareRoot()
+        await writer.waitUntilEntered()
+        let validation = Task {
+            try await actor.validateRelevantMutationGeneration(0)
+        }
+
+        await writer.release()
+        try await mutation
+        let remainedCurrent = try await validation.value
+        XCTAssertFalse(remainedCurrent)
+    }
+
     func testWriteComplicationSnapshotReturnsUnchangedForByteIdenticalPayload() async throws {
         let actor = self.actor()
         let url = self.root.appendingPathComponent("complication-snapshot.json")

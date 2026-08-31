@@ -10,7 +10,33 @@ private let watchCaptureModelLog = Logger(subsystem: "app.solstone.swift", categ
 
 struct WatchDiagnosticsPublicationCache {
     var envelopeData: Data?
-    var owedUntilAccepted = false
+    private(set) var generation: UInt64 = 0
+    private(set) var acceptedGeneration: UInt64?
+
+    init(envelopeData: Data?) {
+        self.envelopeData = envelopeData
+    }
+
+    var owedUntilAccepted: Bool {
+        self.acceptedGeneration != self.generation
+    }
+
+    var publication: (envelopeData: Data?, generation: UInt64) {
+        (self.envelopeData, self.generation)
+    }
+
+    mutating func replaceEnvelope(_ envelopeData: Data?) {
+        self.generation &+= 1
+        self.envelopeData = envelopeData
+    }
+
+    mutating func markAccepted(envelopeData: Data?, generation: UInt64) {
+        guard envelopeData != nil,
+              generation == self.generation,
+              envelopeData == self.envelopeData
+        else { return }
+        self.acceptedGeneration = generation
+    }
 }
 
 @MainActor
@@ -31,12 +57,14 @@ final class WatchCaptureModel {
     @ObservationIgnored private let reloadComplicationTimelines: @MainActor () -> Void
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private var complicationPublishTail: Task<Void, Never> = Task {}
-    @ObservationIgnored private var diagnosticsPublicationCache = WatchDiagnosticsPublicationCache()
+    @ObservationIgnored private var diagnosticsPublicationCache = WatchDiagnosticsPublicationCache(envelopeData: nil)
     @ObservationIgnored private var diagnosticsRefreshOwnerTask: Task<Void, Never>?
     @ObservationIgnored private var queuedDiagnosticsRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var diagnosticsPublicationGeneration: UInt64?
     @ObservationIgnored private var relayStateRefreshOwnerTask: Task<Void, Never>?
     @ObservationIgnored private var queuedRelayStateRefreshTask: Task<Void, Never>?
     @ObservationIgnored private var recoveryReloadOwed = true
+    @ObservationIgnored private var complicationRewriteOwed = false
 
     var diagnosticsEnvelopeOwedUntilAccepted: Bool {
         self.diagnosticsPublicationCache.owedUntilAccepted
@@ -60,6 +88,12 @@ final class WatchCaptureModel {
         self.storageActor = storageActor
         self.diagnosticsCollector = diagnosticsCollector
         self.clock = clock
+        self.diagnosticsPublicationCache = WatchDiagnosticsPublicationCache(
+            envelopeData: WatchRelayDiagnosticsEnvelope.unavailableData(
+                generatedAt: clock.now(),
+                reason: WatchRelayDiagnosticsEnvelopeReason.absent
+            )
+        )
         self.signposter = signposter
         self.complicationRootURL = complicationRootURL
         self.reloadComplicationTimelines = reloadComplicationTimelines
@@ -83,6 +117,8 @@ final class WatchCaptureModel {
             }
         }
         engine.onPublishStatus = { [weak self, session, signposter] context in
+            let diagnosticsGeneration = self?.diagnosticsPublicationGeneration
+            self?.diagnosticsPublicationGeneration = nil
             let publication = signposter.begin(.statusPublication)
             var result: RelayResult = .completed
             defer {
@@ -92,7 +128,12 @@ final class WatchCaptureModel {
             do {
                 try session.updateApplicationContext(context.applicationContext())
                 signposter.end(primary, fields: WatchSignpostFields(result: .completed))
-                self?.diagnosticsPublicationCache.owedUntilAccepted = false
+                if let diagnosticsGeneration {
+                    self?.diagnosticsPublicationCache.markAccepted(
+                        envelopeData: context.diagnosticsEnvelope,
+                        generation: diagnosticsGeneration
+                    )
+                }
             } catch {
                 signposter.end(primary, fields: WatchSignpostFields(result: .failed))
                 if context.diagnosticsEnvelope != nil,
@@ -129,10 +170,13 @@ final class WatchCaptureModel {
             }
         }
         engine.onDiagnosticsEnvelopeRequested = { [weak self] _ in
-            self?.diagnosticsPublicationCache.envelopeData
+            guard let self else { return nil }
+            let publication = self.diagnosticsPublicationCache.publication
+            self.diagnosticsPublicationGeneration = publication.generation
+            return publication.envelopeData
         }
         engine.onDiagnosticsRefreshRequested = { [weak self] in
-            await self?.requestDiagnosticsRefresh()
+            self?.enqueueDiagnosticsRefresh()
         }
         relaySender.onStateChanged = { [weak self] in
             self?.enqueueRelayStateRefresh()
@@ -144,9 +188,16 @@ final class WatchCaptureModel {
     }
 
     init(initializationError error: any Error) {
+        let clock = SystemObserverClock()
         self.storageActor = nil
         self.diagnosticsCollector = nil
-        self.clock = SystemObserverClock()
+        self.clock = clock
+        self.diagnosticsPublicationCache = WatchDiagnosticsPublicationCache(
+            envelopeData: WatchRelayDiagnosticsEnvelope.unavailableData(
+                generatedAt: clock.now(),
+                reason: WatchRelayDiagnosticsEnvelopeReason.absent
+            )
+        )
         self.signposter = WatchSignpost.live
         self.complicationRootURL = { try AppGroupContainer.rootURL() }
         self.reloadComplicationTimelines = {
@@ -187,8 +238,8 @@ final class WatchCaptureModel {
     func republishStatusOnReconnect() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await self.requestDiagnosticsRefresh()
             await self.engine?.republishCurrentStatus()
+            self.enqueueDiagnosticsRefresh()
         }
     }
 
@@ -241,6 +292,12 @@ final class WatchCaptureModel {
         }
     }
 
+    private func enqueueDiagnosticsRefresh() {
+        Task { @MainActor [weak self] in
+            await self?.requestDiagnosticsRefresh()
+        }
+    }
+
     private func requestRelayStateRefresh() async {
         let request = self.signposter.begin(.relayStateRefreshRequest)
         if let queuedRelayStateRefreshTask = self.queuedRelayStateRefreshTask {
@@ -288,7 +345,7 @@ final class WatchCaptureModel {
         guard let engine = self.engine else { return }
         await engine.refreshRelayCountsFromDisk()
         self.presentation = engine.ownerPresentation
-        await self.requestDiagnosticsRefresh()
+        self.enqueueDiagnosticsRefresh()
     }
 
     private func startOwnedDiagnosticsRefreshPass() async {
@@ -306,12 +363,15 @@ final class WatchCaptureModel {
         let collection = self.signposter.begin(.diagnosticsCollection)
         let asOf = self.clock.now()
         let envelope = await diagnosticsCollector.makeEnvelopeData(asOf: asOf)
+            ?? WatchRelayDiagnosticsEnvelope.unavailableData(
+                generatedAt: asOf,
+                reason: WatchRelayDiagnosticsEnvelopeReason.encodeFailed
+            )
         self.signposter.end(
             collection,
             fields: WatchSignpostFields(result: envelope == nil ? .failed : .completed)
         )
-        self.diagnosticsPublicationCache.envelopeData = envelope
-        self.diagnosticsPublicationCache.owedUntilAccepted = true
+        self.diagnosticsPublicationCache.replaceEnvelope(envelope)
         await self.engine?.republishCurrentStatus()
     }
 
@@ -335,10 +395,15 @@ final class WatchCaptureModel {
                 fileWriter: FoundationWatchFileWriter()
             )
             self.storageActor = storageActor
-            let outcome = try await storageActor.writeComplicationSnapshot(data, to: url)
+            let outcome = try await storageActor.writeComplicationSnapshot(
+                data,
+                to: url,
+                forceWrite: self.complicationRewriteOwed
+            )
             switch outcome {
             case .written:
                 self.reloadComplicationTimelines()
+                self.complicationRewriteOwed = false
                 self.recoveryReloadOwed = false
                 result = .completed
             case .unchanged where self.recoveryReloadOwed:
@@ -349,6 +414,7 @@ final class WatchCaptureModel {
                 result = .cached
             }
         } catch {
+            self.complicationRewriteOwed = true
             watchCaptureModelLog.error("watch complication snapshot publish failed: \(String(describing: error), privacy: .public)")
         }
     }

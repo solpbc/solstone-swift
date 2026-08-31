@@ -202,6 +202,14 @@ nonisolated enum WatchComplicationSnapshotWriteOutcome: Equatable, Sendable {
     case unchanged
 }
 
+nonisolated struct WatchRelayDiagnosticsEntryStorageFacts: Sendable {
+    let sidecar: DiagnosticAvailability<WatchRelaySegmentDiagnosticsSidecar>
+    let relayBundlePresent: DiagnosticAvailability<Bool>
+    let relayBundleBytes: DiagnosticAvailability<Int64>
+    let originalAudioFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
+    let originalLocationFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
+}
+
 nonisolated struct WatchRelayTransferPreparation: Sendable {
     let bundleURL: URL
     let manifest: WatchSegmentManifest
@@ -347,6 +355,12 @@ actor WatchCaptureStorageActor {
         self.relevantMutationGeneration
     }
 
+    func validateRelevantMutationGeneration(_ expected: UInt64) async throws -> Bool {
+        try await self.withCancellableTransaction(transactionClass: .maintenance) {
+            self.relevantMutationGeneration == expected
+        }
+    }
+
     func needsCatalogFallbackRescan(snapshot: WatchCaptureCatalog, successfulBumps: UInt64) -> Bool {
         !snapshot.canInferUUIDAbsence
             || self.relevantMutationGeneration != snapshot.relevantMutationGeneration &+ successfulBumps
@@ -433,14 +447,19 @@ actor WatchCaptureStorageActor {
     }
 
     @discardableResult
-    func writeComplicationSnapshot(_ data: Data, to url: URL) async throws -> WatchComplicationSnapshotWriteOutcome {
+    func writeComplicationSnapshot(
+        _ data: Data,
+        to url: URL,
+        forceWrite: Bool = false
+    ) async throws -> WatchComplicationSnapshotWriteOutcome {
         try await self.withTransaction(transactionClass: .maintenance) {
-            let snapshot = self.withSynchronousActorWork(.complicationSnapshot) { (data, url) }
-            if let existing = try? await self.fileWriter.readData(from: snapshot.1), existing == snapshot.0 {
+            let snapshot = self.withSynchronousActorWork(.complicationSnapshot) { (data, url, forceWrite) }
+            if !snapshot.2,
+               let existing = try? await self.fileWriter.readData(from: snapshot.1),
+               existing == snapshot.0 {
                 return .unchanged
             }
             try await self.fileWriter.writeData(snapshot.0, to: snapshot.1, options: .atomic)
-            self.bumpRelevantMutationGeneration()
             return .written
         }
     }
@@ -828,6 +847,42 @@ actor WatchCaptureStorageActor {
                 )
                 return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
             }
+        }
+    }
+
+    func readDiagnosticsEntryStorageFacts(
+        entry: WatchCaptureCatalogEntry,
+        bundleURL: URL
+    ) async throws -> WatchRelayDiagnosticsEntryStorageFacts {
+        try await self.withCancellableTransaction(transactionClass: .maintenance) {
+            let sidecar = await self.readDiagnosticsSidecarInner(
+                manifest: entry.manifest,
+                directoryURL: entry.directoryURL
+            )
+            let relayBundlePresent = await self.fileWriter.fileExists(at: bundleURL)
+            let relayBundleBytes: DiagnosticAvailability<Int64>
+            if relayBundlePresent {
+                do {
+                    relayBundleBytes = .available(try await self.fileWriter.fileSize(at: bundleURL))
+                } catch {
+                    relayBundleBytes = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+                }
+            } else {
+                relayBundleBytes = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+            }
+            let audioURL = self.withSynchronousActorWork(.diagnosticsManifestFacts) {
+                self.paths.audioURL(directory: entry.directoryURL)
+            }
+            let locationURL = self.withSynchronousActorWork(.diagnosticsManifestFacts) {
+                self.paths.locationURL(directory: entry.directoryURL)
+            }
+            return WatchRelayDiagnosticsEntryStorageFacts(
+                sidecar: sidecar,
+                relayBundlePresent: .available(relayBundlePresent),
+                relayBundleBytes: relayBundleBytes,
+                originalAudioFile: await self.originalFileFactInner(at: audioURL),
+                originalLocationFile: await self.originalFileFactInner(at: locationURL)
+            )
         }
     }
 
@@ -1770,6 +1825,53 @@ actor WatchCaptureStorageActor {
         guard sourcePresent else { return nil }
         let sourceURL = self.withSynchronousActorWork(boundary) { url }
         return try? await self.fileWriter.fileSize(at: sourceURL)
+    }
+
+    private func readDiagnosticsSidecarInner(
+        manifest: WatchSegmentManifest,
+        directoryURL: URL
+    ) async -> DiagnosticAvailability<WatchRelaySegmentDiagnosticsSidecar> {
+        let preflight = self.withSynchronousActorWork(.diagnosticsManifestFacts) {
+            (
+                self.diagnosticsUnavailableAfterWriteFailure,
+                WatchRelayDiagnosticsFiles.sidecarURL(directoryURL: directoryURL)
+            )
+        }
+        guard !preflight.0 else {
+            return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+        }
+        guard await self.fileWriter.fileExists(at: preflight.1) else {
+            return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+        }
+        do {
+            return .available(try await self.decodeDiagnosticsSidecar(
+                from: preflight.1,
+                expectedID: manifest.id,
+                boundary: .diagnosticsManifestFacts
+            ))
+        } catch {
+            await self.resetCorruptDiagnosticFile(
+                at: preflight.1,
+                error: error,
+                boundary: .diagnosticsManifestFacts
+            )
+            return .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
+        }
+    }
+
+    private func originalFileFactInner(
+        at url: URL
+    ) async -> DiagnosticAvailability<WatchRelayOriginalFileFact> {
+        guard await self.fileWriter.fileExists(at: url) else {
+            return .available(WatchRelayOriginalFileFact(state: .missing, byteCount: 0))
+        }
+        guard let byteCount = try? await self.fileWriter.fileSize(at: url) else {
+            return .available(WatchRelayOriginalFileFact(state: .unreadable, byteCount: nil))
+        }
+        if byteCount == 0 {
+            return .available(WatchRelayOriginalFileFact(state: .zeroLength, byteCount: 0))
+        }
+        return .available(WatchRelayOriginalFileFact(state: .readableNonempty, byteCount: byteCount))
     }
 
     private func decodeDiagnosticsSidecar(

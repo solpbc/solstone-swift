@@ -123,6 +123,7 @@ final class WatchRelayDiagnosticsCollector {
         var transfersByID: [UUID: Int] = [:]
         var unparseable = 0
         for transfer in fileTransfers {
+            guard !Task.isCancelled else { return .zero }
             guard transfer.idState == .parseable, let segmentID = transfer.segmentID else {
                 unparseable += 1
                 continue
@@ -134,6 +135,7 @@ final class WatchRelayDiagnosticsCollector {
         var appActiveNotObserved = 0
         var duplicate = 0
         for id in activeManifestIDs {
+            guard !Task.isCancelled else { return .zero }
             let count = transfersByID[id] ?? 0
             if count == 0 {
                 appActiveNotObserved += 1
@@ -144,9 +146,11 @@ final class WatchRelayDiagnosticsCollector {
             }
         }
 
-        let orphaned = transfersByID.reduce(into: 0) { total, pair in
+        var orphaned = 0
+        for pair in transfersByID {
+            guard !Task.isCancelled else { return .zero }
             if !activeManifestIDs.contains(pair.key) {
-                total += pair.value
+                orphaned += pair.value
             }
         }
 
@@ -328,42 +332,78 @@ private extension WatchRelayDiagnosticsCollector {
         }
         let manifestFactsInterval = self.signposter.begin(.diagnosticsManifestFacts)
         var activeFacts: [ActiveManifestFact] = []
-        for entry in activeEntries {
-            activeFacts.append(await self.activeManifestFact(entry: entry))
+        var entryFactsCompleted = catalog.canInferUUIDAbsence
+        if entryFactsCompleted {
+            for entry in activeEntries {
+                guard !Task.isCancelled,
+                      let fact = await self.activeManifestFact(entry: entry)
+                else {
+                    entryFactsCompleted = false
+                    break
+                }
+                activeFacts.append(fact)
+            }
         }
-        self.signposter.end(manifestFactsInterval, fields: WatchSignpostFields(result: .completed))
-        let fileTransferObservations = self.session.outstandingFileTransfers
-        let fileTransferSnapshots = fileTransferObservations.map(\.snapshot)
-        let userInfoSnapshots = self.session.outstandingUserInfoTransferSnapshots
-        let activeIDs = Set(activeEntries.map(\.manifest.id))
+        if Task.isCancelled {
+            entryFactsCompleted = false
+        }
+        self.signposter.end(
+            manifestFactsInterval,
+            fields: WatchSignpostFields(result: entryFactsCompleted ? .completed : .partial)
+        )
+        var canAssembleMembershipFacts = entryFactsCompleted && !Task.isCancelled
+        let fileTransferObservations = canAssembleMembershipFacts
+            ? self.session.outstandingFileTransfers
+            : []
+        var fileTransferSnapshots: [WatchConnectivityFileTransferSnapshot] = []
+        fileTransferSnapshots.reserveCapacity(fileTransferObservations.count)
+        for observation in fileTransferObservations {
+            guard !Task.isCancelled else {
+                canAssembleMembershipFacts = false
+                entryFactsCompleted = false
+                fileTransferSnapshots.removeAll(keepingCapacity: false)
+                break
+            }
+            fileTransferSnapshots.append(observation.snapshot)
+        }
+        let userInfoSnapshots = canAssembleMembershipFacts
+            ? self.session.outstandingUserInfoTransferSnapshots
+            : []
+        let activeIDs = canAssembleMembershipFacts
+            ? Set(activeEntries.map(\.manifest.id))
+            : []
         let reconciliation = Self.reconciliationCounts(
             activeManifestIDs: activeIDs,
             fileTransfers: fileTransferSnapshots
         )
+        if Task.isCancelled {
+            canAssembleMembershipFacts = false
+            entryFactsCompleted = false
+        }
         let perItemFactsInterval = self.signposter.begin(.diagnosticsPerItemFacts)
-        let observations = self.observations(
-            activeFacts: activeFacts,
-            fileTransfers: fileTransferObservations,
-            asOf: asOf
+        let observations = canAssembleMembershipFacts
+            ? self.observations(
+                activeFacts: activeFacts,
+                fileTransfers: fileTransferObservations,
+                asOf: asOf
+            )
+            : []
+        if Task.isCancelled {
+            canAssembleMembershipFacts = false
+            entryFactsCompleted = false
+        }
+        self.signposter.end(
+            perItemFactsInterval,
+            fields: WatchSignpostFields(result: canAssembleMembershipFacts ? .completed : .partial)
         )
-        self.signposter.end(perItemFactsInterval, fields: WatchSignpostFields(result: .completed))
-        let witnessInterval = self.signposter.begin(.diagnosticsChangedWitnessRevalidation)
-        let lastFacts = await self.storageActor.readDiagnosticsSummary()
+        let lastFacts: DiagnosticAvailability<WatchRelayLastFactsSummary> = !Task.isCancelled
+            ? await self.storageActor.readDiagnosticsSummary()
+            : .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
         let failureSegmentID = Self.failureSegmentID(from: lastFacts)
-        let changedWitnessIDs = await self.changedWitnessIDs(
-            initialFacts: activeFacts,
-            snapshotGeneration: catalog.relevantMutationGeneration,
-            canInferUUIDAbsence: catalog.canInferUUIDAbsence
-        )
-        let resolvedObservations = self.resolvedObservations(
-            observations,
-            changedWitnessIDs: changedWitnessIDs
-        )
-        self.signposter.end(witnessInterval, fields: WatchSignpostFields(result: .completed))
-
-        let manifestSummary = self.manifestSummary(catalog: catalog, activeFacts: activeFacts, asOf: asOf)
         let historyInterval = self.signposter.begin(.diagnosticsHistorySummaryRead)
-        let historyResult = await self.storageActor.readSessionHistory(asOf: asOf)
+        let historyResult = !Task.isCancelled
+            ? await self.storageActor.readSessionHistory(asOf: asOf)
+            : .unreadable
         let historyWindow: DiagnosticAvailability<[WatchCaptureSessionHistoryEntry]>
         let historyDepth: Int
         switch historyResult {
@@ -374,8 +414,26 @@ private extension WatchRelayDiagnosticsCollector {
             historyDepth = 0
             historyWindow = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable)
         }
-        let counter = await self.storageActor.readSessionHistoryCounter()
+        let counter = !Task.isCancelled ? await self.storageActor.readSessionHistoryCounter() : nil
         self.signposter.end(historyInterval, fields: WatchSignpostFields(result: .completed))
+
+        let witnessInterval = self.signposter.begin(.diagnosticsChangedWitnessRevalidation)
+        let membershipIsAuthoritative = await self.isMembershipAuthoritative(
+            snapshotGeneration: catalog.relevantMutationGeneration,
+            canInferUUIDAbsence: catalog.canInferUUIDAbsence,
+            entryFactsCompleted: entryFactsCompleted
+        ) && !Task.isCancelled
+        let resolvedObservations = membershipIsAuthoritative ? observations : []
+        self.signposter.end(
+            witnessInterval,
+            fields: WatchSignpostFields(result: membershipIsAuthoritative ? .completed : .partial)
+        )
+
+        let membershipUnavailableReason = WatchRelayObservationCollectionResolution
+            .snapshotChangedDuringCollection.rawValue
+        let manifestSummary = membershipIsAuthoritative
+            ? self.manifestSummary(catalog: catalog, activeFacts: activeFacts, asOf: asOf)
+            : .unavailable(reason: membershipUnavailableReason)
 
         return WatchRelayDiagnosticsPayload(
             watchAppMarketingVersion: environment.watchAppMarketingVersion,
@@ -391,13 +449,15 @@ private extension WatchRelayDiagnosticsCollector {
             watchLowPowerModeEnabled: environment.watchLowPowerModeEnabled,
             watchThermalState: environment.watchThermalState,
             manifestSummary: manifestSummary,
-            appleQueue: .available(WatchRelayAppleQueueSnapshot(
-                asOf: asOf,
-                outstandingFileTransferCount: fileTransferSnapshots.count,
-                outstandingUserInfoTransferCountWatchToPhone: userInfoSnapshots.count,
-                reconciliation: reconciliation,
-                exactObservationCountBeforeCompaction: resolvedObservations.count
-            )),
+            appleQueue: membershipIsAuthoritative
+                ? .available(WatchRelayAppleQueueSnapshot(
+                    asOf: asOf,
+                    outstandingFileTransferCount: fileTransferSnapshots.count,
+                    outstandingUserInfoTransferCountWatchToPhone: userInfoSnapshots.count,
+                    reconciliation: reconciliation,
+                    exactObservationCountBeforeCompaction: resolvedObservations.count
+                ))
+                : .unavailable(reason: membershipUnavailableReason),
             lastFacts: lastFacts,
             observedFileTransfers: self.orderedForCompaction(
                 resolvedObservations,
@@ -414,15 +474,17 @@ private extension WatchRelayDiagnosticsCollector {
         )
     }
 
-    func activeManifestFact(entry: WatchCaptureCatalogEntry) async -> ActiveManifestFact {
-        let sidecar = await self.storageActor.readDiagnosticsSidecar(
-            manifest: entry.manifest,
-            directoryURL: entry.directoryURL
-        )
-        let relayBundle = await self.relayBundleFacts(for: entry.manifest.id)
-        let sourcePresent = relayBundle.present
-        let originalAudioFile = await self.originalFileFact(at: self.paths.audioURL(directory: entry.directoryURL))
-        let originalLocationFile = await self.originalFileFact(at: self.paths.locationURL(directory: entry.directoryURL))
+    func activeManifestFact(entry: WatchCaptureCatalogEntry) async -> ActiveManifestFact? {
+        guard let storageFacts = try? await self.storageActor.readDiagnosticsEntryStorageFacts(
+            entry: entry,
+            bundleURL: self.bundleURL(for: entry.manifest.id)
+        ) else {
+            return nil
+        }
+        let sidecar = storageFacts.sidecar
+        let sourcePresent = storageFacts.relayBundlePresent
+        let originalAudioFile = storageFacts.originalAudioFile
+        let originalLocationFile = storageFacts.originalLocationFile
         let legacyAppOwnedSourceBytes = Self.legacySourceBytes(from: sidecar)
         let witnessValues = Self.sidecarWitnessValues(sidecar)
         let witness = ActiveManifestWitness(
@@ -433,8 +495,8 @@ private extension WatchRelayDiagnosticsCollector {
             sidecarBundleBytes: witnessValues.bundleBytes,
             legacySourcePresent: sourcePresent,
             legacyAppOwnedSourceBytes: legacyAppOwnedSourceBytes,
-            relayBundlePresent: relayBundle.present,
-            relayBundleBytes: relayBundle.bytes,
+            relayBundlePresent: storageFacts.relayBundlePresent,
+            relayBundleBytes: storageFacts.relayBundleBytes,
             originalAudioFile: originalAudioFile,
             originalLocationFile: originalLocationFile
         )
@@ -442,8 +504,8 @@ private extension WatchRelayDiagnosticsCollector {
             entry: entry,
             sidecar: sidecar,
             sourcePresent: sourcePresent,
-            relayBundlePresent: relayBundle.present,
-            relayBundleBytes: relayBundle.bytes,
+            relayBundlePresent: storageFacts.relayBundlePresent,
+            relayBundleBytes: storageFacts.relayBundleBytes,
             originalAudioFile: originalAudioFile,
             originalLocationFile: originalLocationFile,
             witness: witness
@@ -539,6 +601,7 @@ private extension WatchRelayDiagnosticsCollector {
         var unparseables: [(index: Int, transfer: WatchConnectivityFileTransferObservation)] = []
 
         for (index, transfer) in fileTransfers.enumerated() {
+            guard !Task.isCancelled else { return [] }
             guard transfer.snapshot.idState == .parseable,
                   let segmentID = transfer.snapshot.segmentID
             else {
@@ -554,6 +617,7 @@ private extension WatchRelayDiagnosticsCollector {
         var consumedIDs = Set<UUID>()
 
         for fact in activeFacts {
+            guard !Task.isCancelled else { return [] }
             let id = fact.entry.manifest.id
             let matching = transfersByID[id] ?? []
             if matching.isEmpty {
@@ -583,7 +647,9 @@ private extension WatchRelayDiagnosticsCollector {
         }
 
         for id in firstSeenOrder where activeByID[id] == nil && !consumedIDs.contains(id) {
+            guard !Task.isCancelled else { return [] }
             for (_, transfer) in transfersByID[id] ?? [] {
+                guard !Task.isCancelled else { return [] }
                 observations.append(self.observation(
                     asOf: transfer.snapshot.asOf,
                     segmentID: id,
@@ -596,6 +662,7 @@ private extension WatchRelayDiagnosticsCollector {
         }
 
         for (_, transfer) in unparseables {
+            guard !Task.isCancelled else { return [] }
             observations.append(self.observation(
                 asOf: transfer.snapshot.asOf,
                 segmentID: nil,
@@ -689,39 +756,6 @@ private extension WatchRelayDiagnosticsCollector {
         )
     }
 
-    func relayBundleFacts(for id: UUID) async -> (
-        present: DiagnosticAvailability<Bool>,
-        bytes: DiagnosticAvailability<Int64>
-    ) {
-        let url = self.bundleURL(for: id)
-        let present = await self.storageActor.fileExists(at: url, transactionClass: .maintenance)
-        let bytes: DiagnosticAvailability<Int64>
-        if let byteCount = await self.fileByteSize(at: url, sourcePresent: present) {
-            bytes = .available(byteCount)
-        } else {
-            bytes = .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
-        }
-        return (.available(present), bytes)
-    }
-
-    func originalFileFact(at url: URL) async -> DiagnosticAvailability<WatchRelayOriginalFileFact> {
-        guard await self.storageActor.fileExists(at: url, transactionClass: .maintenance) else {
-            return .available(WatchRelayOriginalFileFact(state: .missing, byteCount: 0))
-        }
-        guard let byteCount = await self.fileByteSize(at: url, sourcePresent: true) else {
-            return .available(WatchRelayOriginalFileFact(state: .unreadable, byteCount: nil))
-        }
-        if byteCount == 0 {
-            return .available(WatchRelayOriginalFileFact(state: .zeroLength, byteCount: 0))
-        }
-        return .available(WatchRelayOriginalFileFact(state: .readableNonempty, byteCount: byteCount))
-    }
-
-    func fileByteSize(at url: URL, sourcePresent: Bool) async -> Int64? {
-        guard sourcePresent else { return nil }
-        return try? await self.storageActor.fileSize(at: url, transactionClass: .maintenance)
-    }
-
     func originalPayloadAggregate(activeFacts: [ActiveManifestFact]) -> OriginalPayloadAggregate {
         var audioCounts = WatchRelayOriginalFileStateCounts.zero
         var locationCounts = WatchRelayOriginalFileStateCounts.zero
@@ -810,61 +844,15 @@ private extension WatchRelayDiagnosticsCollector {
         }
     }
 
-    func changedWitnessIDs(
-        initialFacts: [ActiveManifestFact],
+    func isMembershipAuthoritative(
         snapshotGeneration: UInt64,
-        canInferUUIDAbsence: Bool
-    ) async -> Set<UUID> {
-        guard !initialFacts.isEmpty else { return [] }
-        let ids = Set(initialFacts.map(\.entry.manifest.id))
-        guard canInferUUIDAbsence else {
-            return ids
+        canInferUUIDAbsence: Bool,
+        entryFactsCompleted: Bool
+    ) async -> Bool {
+        guard entryFactsCompleted, canInferUUIDAbsence else {
+            return false
         }
-        let currentGeneration = await self.storageActor.currentRelevantMutationGeneration()
-        if currentGeneration != snapshotGeneration {
-            return ids
-        }
-        return []
-    }
-
-    func resolvedObservations(
-        _ observations: [WatchRelayTransferObservation],
-        changedWitnessIDs: Set<UUID>
-    ) -> [WatchRelayTransferObservation] {
-        guard !changedWitnessIDs.isEmpty else { return observations }
-        return observations.map { observation in
-            guard let id = observation.segmentID,
-                  changedWitnessIDs.contains(id)
-            else {
-                return observation
-            }
-            return self.snapshotChangedObservation(observation)
-        }
-    }
-
-    func snapshotChangedObservation(_ observation: WatchRelayTransferObservation) -> WatchRelayTransferObservation {
-        let reason = WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue
-        return WatchRelayTransferObservation(
-            asOf: observation.asOf,
-            segmentID: observation.segmentID,
-            idState: observation.idState,
-            relation: observation.relation,
-            appManifestState: observation.appManifestState,
-            appOwnedEnqueueAgeSeconds: observation.appOwnedEnqueueAgeSeconds,
-            appOwnedSourceBytes: observation.appOwnedSourceBytes,
-            sourcePresent: observation.sourcePresent,
-            isTransferring: observation.isTransferring,
-            progress: observation.progress,
-            attemptID: observation.attemptID,
-            attemptIDState: observation.attemptIDState,
-            attemptStartedAt: observation.attemptStartedAt,
-            attemptStartedAtState: observation.attemptStartedAtState,
-            originalAudioFile: .unavailable(reason: reason),
-            originalLocationFile: .unavailable(reason: reason),
-            relayBundlePresent: .unavailable(reason: reason),
-            relayBundleBytes: .unavailable(reason: reason),
-            collectionResolution: .available(.snapshotChangedDuringCollection)
-        )
+        return (try? await self.storageActor.validateRelevantMutationGeneration(snapshotGeneration)) == true
     }
 
     func bundleURL(for id: UUID) -> URL {
@@ -878,6 +866,7 @@ private extension WatchRelayDiagnosticsCollector {
         activeFacts: [ActiveManifestFact],
         failureSegmentID: UUID?
     ) -> [WatchRelayTransferObservation] {
+        guard !observations.isEmpty else { return [] }
         let activeOrder = self.activeCompactionOrder(activeFacts)
         let indexed = observations.enumerated().map { index, observation in
             (index: index, observation: observation)

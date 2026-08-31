@@ -46,7 +46,7 @@ final class WatchCaptureEngine {
     var onRelayDrainRequested: (@MainActor (RelayTrigger) -> Void)?
     var onPublishStatus: (@MainActor (WatchStatusContext) -> Void)?
     var onDiagnosticsEnvelopeRequested: (@MainActor (Date) -> Data?)?
-    var onDiagnosticsRefreshRequested: (@MainActor () async -> Void)?
+    var onDiagnosticsRefreshRequested: (@MainActor () -> Void)?
 
     private let audioRecorder: any WatchAudioRecording
     private let audioSession: any WatchAudioSessionControlling
@@ -377,7 +377,7 @@ final class WatchCaptureEngine {
         }
         self.applyRelayCounts(from: refreshedCatalog)
         self.applyCatalogAdvisory(refreshedCatalog.rootState)
-        await self.onDiagnosticsRefreshRequested?()
+        self.onDiagnosticsRefreshRequested?()
         await self.republishCurrentStatus()
         self.notifyPresentationChanged()
         self.requestRelayDrain(trigger: .launchReconciliation)
@@ -464,7 +464,7 @@ final class WatchCaptureEngine {
             return
         }
         if self.activeSegment != nil {
-            await self.onDiagnosticsRefreshRequested?()
+            self.onDiagnosticsRefreshRequested?()
             await self.publishStatus(.observing)
             self.startHeartbeatTask(source: ownerSource)
         } else {
@@ -1112,7 +1112,7 @@ private extension WatchCaptureEngine {
         self.rolloverPriorSegment = nil
         self.rolloverPriorAudioDuration = nil
         guard await self.continueLifecycleOperation(generation) else { return }
-        await self.onDiagnosticsRefreshRequested?()
+        self.onDiagnosticsRefreshRequested?()
         await self.publishStatus(.observing)
         self.notifyPresentationChanged()
     }
@@ -2304,7 +2304,6 @@ private extension WatchCaptureEngine {
         case .detectedStoppedItself, .inferredStoppedItself:
             self.status = .needsAttention(reason.observerError(disposition: disposition))
         }
-        await self.onDiagnosticsRefreshRequested?()
         await self.publishStatus(.idle)
         self.notifyPresentationChanged()
 
@@ -2329,6 +2328,7 @@ private extension WatchCaptureEngine {
             )
         }
         self.notifyPresentationChanged()
+        self.onDiagnosticsRefreshRequested?()
         if let record {
             await self.submitTerminalNotice(expected: WatchCaptureTerminalTuple(
                 sessionID: record.sessionID,

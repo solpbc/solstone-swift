@@ -92,7 +92,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertTrue(manifests.allSatisfy { $0.manifest.state == .transferring })
     }
 
-    func testCollectorReportsPartialCatalogAlongsideHealthyManifestFacts() async throws {
+    func testCollectorDoesNotPublishAuthoritativeMembershipFromPartialCatalog() async throws {
         let storage = try self.storage("partial-catalog")
         let store = self.storageActor(for: storage)
         let session = MockWatchConnectivitySession()
@@ -116,13 +116,10 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let envelopeData = await collector.makeEnvelopeData(asOf: Self.now)
         let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
-        let summary = try XCTUnwrap(payload.manifestSummary.value)
-        XCTAssertEqual(summary.catalogRootState, .partial)
-        XCTAssertEqual(summary.catalogIssues, [
-            WatchRelayCatalogIssueSummary(kind: .manifestDecodeFailure, count: 1),
-        ])
-        XCTAssertEqual(summary.counts.transferring, 1)
-        XCTAssertEqual(payload.appleQueue.value?.reconciliation.matched, 1)
+        let reason = WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue
+        XCTAssertEqual(payload.manifestSummary.unavailableReason, reason)
+        XCTAssertEqual(payload.appleQueue.unavailableReason, reason)
+        XCTAssertTrue(payload.observedFileTransfers.isEmpty)
     }
 
     func testCollectorEmitsFactAssemblyAndFirstEncodeSubspans() async throws {
@@ -492,7 +489,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertEqual(oldObservation.attemptStartedAtState, .missing)
     }
 
-    func testSnapshotWitnessMarksChangedFactsUnresolvedWithoutWritesOrSessionCalls() async throws {
+    func testPartialCatalogSuppressesObservationsWithoutWritesOrSessionCalls() async throws {
         let now = Self.now
         let writer = MutatingWatchFileWriter()
         let storage = try self.storage("snapshot-witness", fileWriter: writer)
@@ -515,15 +512,64 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         )
         let envelopeData = await collector.makeEnvelopeData(asOf: now)
         let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
-        let observation = try XCTUnwrap(payload.observedFileTransfers.first { $0.segmentID == entry.manifest.id })
+        let reason = WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue
 
-        XCTAssertEqual(observation.collectionResolution.value, .snapshotChangedDuringCollection)
-        XCTAssertEqual(observation.originalAudioFile.unavailableReason, WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue)
-        XCTAssertEqual(observation.originalLocationFile.unavailableReason, WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue)
-        XCTAssertEqual(observation.relayBundlePresent.unavailableReason, WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue)
-        XCTAssertEqual(observation.relayBundleBytes.unavailableReason, WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue)
+        XCTAssertEqual(payload.manifestSummary.unavailableReason, reason)
+        XCTAssertEqual(payload.appleQueue.unavailableReason, reason)
+        XCTAssertTrue(payload.observedFileTransfers.isEmpty)
         XCTAssertTrue(session.callLedger.isEmpty)
         XCTAssertEqual(writer.writeCount, 0)
+    }
+
+    func testActiveEntryFactsUseOneBoundedStorageAdmission() async throws {
+        let storage = try self.storage("one-bounded-admission-per-entry")
+        let entry = try await self.writeManifest(id: Self.uuid(134), state: .transferring, storage: storage)
+        let sink = WatchDiagnosticsSignpostTestSink()
+        let store = WatchCaptureStorageActor(
+            paths: storage.paths,
+            fileWriter: storage.fileWriter,
+            storageSignposter: WatchStorageSignposter(sink: sink)
+        )
+        let bundleURL = storage.rootURL
+            .appendingPathComponent(".relay-bundles", isDirectory: true)
+            .appendingPathComponent("\(entry.manifest.id.uuidString).watchrelay", isDirectory: false)
+
+        let facts = try await store.readDiagnosticsEntryStorageFacts(entry: entry, bundleURL: bundleURL)
+        XCTAssertEqual(facts.relayBundlePresent.value, false)
+        XCTAssertEqual(facts.originalAudioFile.value?.state, .missing)
+        XCTAssertEqual(facts.originalLocationFile.value?.state, .missing)
+
+        let transactionBegins = sink.snapshot().filter {
+            $0.kind == .begin && $0.boundary == .storageActorTransactionElapsed
+        }
+        XCTAssertEqual(transactionBegins.count, 1)
+    }
+
+    func testCancellationDuringFinalEntryPublishesConservativeMembership() async throws {
+        let writer = BlockingDiagnosticsEntryWriter()
+        let storage = try self.storage("final-entry-cancellation", fileWriter: writer)
+        let store = self.storageActor(for: storage)
+        let entry = try await self.writeManifest(id: Self.uuid(135), state: .transferring, storage: storage)
+        await writer.armFileExistsBlock(at: storage.audioURL(directory: entry.directoryURL))
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: store,
+            session: MockWatchConnectivitySession(),
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let collection = Task { @MainActor in
+            await collector.makeEnvelopeData(asOf: Self.now)
+        }
+
+        await writer.waitUntilFileExistsBlocked()
+        collection.cancel()
+        await writer.releaseFileExists()
+        let envelopeData = await collection.value
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
+        let reason = WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue
+        XCTAssertEqual(payload.manifestSummary.unavailableReason, reason)
+        XCTAssertEqual(payload.appleQueue.unavailableReason, reason)
+        XCTAssertTrue(payload.observedFileTransfers.isEmpty)
     }
 
     func testMakePayloadDoesNotRescanOrReprobeWhenGenerationUnchanged() async throws {
@@ -3114,4 +3160,81 @@ private extension WatchRelayDiagnosticsPublicationTests {
 
 private extension WatchRelayCompatibilityTests {
     static let now = WatchRelayDiagnosticsCollectorTests.now
+}
+
+private actor BlockingDiagnosticsEntryWriter: WatchFileWriting {
+    private let base = FoundationWatchFileWriter()
+    private var blockedPath: String?
+    private var didEnterBlock = false
+    private var entryWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func createDirectory(at url: URL) async throws { try await self.base.createDirectory(at: url) }
+    func createFileIfNeeded(at url: URL) async throws { try await self.base.createFileIfNeeded(at: url) }
+
+    func fileExists(at url: URL) async -> Bool {
+        if self.blockedPath == url.standardizedFileURL.path {
+            self.blockedPath = nil
+            self.didEnterBlock = true
+            let waiters = self.entryWaiters
+            self.entryWaiters.removeAll()
+            for waiter in waiters { waiter.resume() }
+            await withCheckedContinuation { continuation in
+                self.releaseWaiters.append(continuation)
+            }
+        }
+        return await self.base.fileExists(at: url)
+    }
+
+    func itemKind(at url: URL) async throws -> WatchCaptureStorageItemKind {
+        try await self.base.itemKind(at: url)
+    }
+
+    func fileSize(at url: URL) async throws -> Int64 { try await self.base.fileSize(at: url) }
+
+    func fileFingerprint(at url: URL) async throws -> WatchCaptureStorageFileFingerprint? {
+        try await self.base.fileFingerprint(at: url)
+    }
+
+    func readData(from url: URL) async throws -> Data { try await self.base.readData(from: url) }
+
+    func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) async throws {
+        try await self.base.writeData(data, to: url, options: options)
+    }
+
+    func appendLine(_ line: Data, to url: URL) async throws {
+        try await self.base.appendLine(line, to: url)
+    }
+
+    func atomicReplaceFile(at url: URL, with data: Data) async throws {
+        try await self.base.atomicReplaceFile(at: url, with: data)
+    }
+
+    func removeItem(at url: URL) async throws { try await self.base.removeItem(at: url) }
+
+    func moveItem(at sourceURL: URL, to destinationURL: URL) async throws {
+        try await self.base.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    func contentsOfDirectory(at url: URL) async throws -> [URL] {
+        try await self.base.contentsOfDirectory(at: url)
+    }
+
+    func armFileExistsBlock(at url: URL) {
+        self.blockedPath = url.standardizedFileURL.path
+        self.didEnterBlock = false
+    }
+
+    func waitUntilFileExistsBlocked() async {
+        guard !self.didEnterBlock else { return }
+        await withCheckedContinuation { continuation in
+            self.entryWaiters.append(continuation)
+        }
+    }
+
+    func releaseFileExists() {
+        let waiters = self.releaseWaiters
+        self.releaseWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
 }
