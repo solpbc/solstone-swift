@@ -278,10 +278,10 @@ enum WatchSignpost {
 
 @MainActor
 final class LiveWatchSignpostIntervalSink: WatchSignpostIntervalSink {
-    let isEnabled = true
-
     private let signposter = OSSignposter(logHandle: OSLog(subsystem: "app.solstone.swift", category: "watch-signpost"))
     private var states: [ObjectIdentifier: OSSignpostIntervalState] = [:]
+
+    var isEnabled: Bool { self.signposter.isEnabled }
 
     func begin(
         _ boundary: WatchSignpostBoundary,

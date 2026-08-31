@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import Foundation
 import XCTest
 
 @MainActor
@@ -24,6 +25,21 @@ final class WatchSignpostTests: XCTestCase {
         let signposter = WatchSignposter(sink: NoOpWatchSignpostIntervalSink())
 
         XCTAssertNil(signposter.begin(.relayDrain))
+    }
+
+    func testLiveSinkDefersEnablementToOSSignposter() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/WatchCapture/WatchSignpost.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let liveSink = try XCTUnwrap(
+            source.split(separator: "final class NoOpWatchSignpostIntervalSink", maxSplits: 1).first?
+                .split(separator: "final class LiveWatchSignpostIntervalSink", maxSplits: 1).last
+        )
+
+        XCTAssertTrue(liveSink.contains("var isEnabled: Bool { self.signposter.isEnabled }"))
+        XCTAssertFalse(liveSink.contains("let isEnabled = true"))
     }
 
     func testClosedEnumsAndWorkloadBandBoundaries() {
