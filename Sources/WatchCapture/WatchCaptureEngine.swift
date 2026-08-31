@@ -45,7 +45,8 @@ final class WatchCaptureEngine {
     var onPresentationChanged: (@Sendable @MainActor (WatchCaptureOwnerPresentation) -> Void)?
     var onRelayDrainRequested: (@MainActor (RelayTrigger) -> Void)?
     var onPublishStatus: (@MainActor (WatchStatusContext) -> Void)?
-    var onDiagnosticsEnvelopeRequested: (@MainActor (Date) async -> Data?)?
+    var onDiagnosticsEnvelopeRequested: (@MainActor (Date) -> Data?)?
+    var onDiagnosticsRefreshRequested: (@MainActor () async -> Void)?
 
     private let audioRecorder: any WatchAudioRecording
     private let audioSession: any WatchAudioSessionControlling
@@ -192,7 +193,8 @@ final class WatchCaptureEngine {
             handedOff: self.handedOffCount
         )
         let catalog = await self.refreshRelayCountsFromDiskCatalog()
-        if !catalog.canInferUUIDAbsence, !Task.isCancelled {
+        if !Task.isCancelled,
+           await self.storageActor.needsCatalogFallbackRescan(snapshot: catalog, successfulBumps: 0) {
             _ = await self.refreshRelayCountsFromDiskCatalog()
         }
         let refreshed = RelayCounts(
@@ -315,8 +317,9 @@ final class WatchCaptureEngine {
         }
 
         var maintenanceFailed = false
-        let finalizedCatalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
-        for entry in finalizedCatalog.entries where entry.manifest.state == .finalized {
+        var catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
+        var successfulBumps: UInt64 = 0
+        for entry in catalog.entries where entry.manifest.state == .finalized {
             guard !Task.isCancelled else {
                 result = .partial
                 return
@@ -324,12 +327,14 @@ final class WatchCaptureEngine {
             do {
                 var manifest = entry.manifest
                 manifest.state = .queued
-                try await self.storageActor.writeManifest(
+                let written = try await self.storageActor.writeManifest(
                     manifest,
                     entry: entry,
                     ensuringDirectory: false,
                     transactionClass: .maintenance
                 )
+                catalog = catalog.replacingEntry(written)
+                successfulBumps += 1
             } catch {
                 maintenanceFailed = true
                 watchCaptureLog.error(
@@ -339,11 +344,24 @@ final class WatchCaptureEngine {
         }
 
         let relayCountRefresh = self.signposter.begin(.relayCountRefresh)
-        let refreshedCatalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
-        self.signposter.end(
-            relayCountRefresh,
-            fields: WatchSignpostFields(result: self.catalogResult(refreshedCatalog.rootState))
+        let fallbackNeeded = await self.storageActor.needsCatalogFallbackRescan(
+            snapshot: catalog,
+            successfulBumps: successfulBumps
         )
+        let refreshedCatalog: WatchCaptureCatalog
+        if fallbackNeeded {
+            refreshedCatalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
+            self.signposter.end(
+                relayCountRefresh,
+                fields: WatchSignpostFields(result: self.catalogResult(refreshedCatalog.rootState))
+            )
+        } else {
+            refreshedCatalog = catalog
+            self.signposter.end(
+                relayCountRefresh,
+                fields: WatchSignpostFields(result: .cached)
+            )
+        }
         guard !Task.isCancelled else {
             result = .partial
             return
@@ -359,6 +377,7 @@ final class WatchCaptureEngine {
         }
         self.applyRelayCounts(from: refreshedCatalog)
         self.applyCatalogAdvisory(refreshedCatalog.rootState)
+        await self.onDiagnosticsRefreshRequested?()
         await self.republishCurrentStatus()
         self.notifyPresentationChanged()
         self.requestRelayDrain(trigger: .launchReconciliation)
@@ -445,6 +464,7 @@ final class WatchCaptureEngine {
             return
         }
         if self.activeSegment != nil {
+            await self.onDiagnosticsRefreshRequested?()
             await self.publishStatus(.observing)
             self.startHeartbeatTask(source: ownerSource)
         } else {
@@ -1092,6 +1112,7 @@ private extension WatchCaptureEngine {
         self.rolloverPriorSegment = nil
         self.rolloverPriorAudioDuration = nil
         guard await self.continueLifecycleOperation(generation) else { return }
+        await self.onDiagnosticsRefreshRequested?()
         await self.publishStatus(.observing)
         self.notifyPresentationChanged()
     }
@@ -1655,12 +1676,7 @@ private extension WatchCaptureEngine {
         if phase != .idle, self.currentSessionID == nil || self.sessionStartedAt == nil {
             _ = await self.beginStatusSession(startedAt: asOf)
         }
-        let diagnosticsInterval = self.signposter.begin(.diagnosticsCollection)
-        let diagnosticsEnvelope = await self.onDiagnosticsEnvelopeRequested?(asOf)
-        self.signposter.end(
-            diagnosticsInterval,
-            fields: WatchSignpostFields(result: .completed)
-        )
+        let diagnosticsEnvelope = self.onDiagnosticsEnvelopeRequested?(asOf)
         let context = WatchStatusContext(
             phase: phase,
             sessionID: self.currentSessionID,
@@ -2288,6 +2304,7 @@ private extension WatchCaptureEngine {
         case .detectedStoppedItself, .inferredStoppedItself:
             self.status = .needsAttention(reason.observerError(disposition: disposition))
         }
+        await self.onDiagnosticsRefreshRequested?()
         await self.publishStatus(.idle)
         self.notifyPresentationChanged()
 

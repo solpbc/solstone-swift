@@ -145,8 +145,40 @@ nonisolated struct WatchCaptureCatalog: Sendable {
     let rootState: WatchCaptureCatalogRootState
     let entries: [WatchCaptureCatalogEntry]
     let issues: [WatchCaptureCatalogIssue]
+    let relevantMutationGeneration: UInt64
 
     var canInferUUIDAbsence: Bool { self.rootState.canInferUUIDAbsence }
+
+    func replacingEntry(_ entry: WatchCaptureCatalogEntry) -> WatchCaptureCatalog {
+        var entries = self.entries
+        if let index = entries.firstIndex(where: { $0.manifest.id == entry.manifest.id }) {
+            entries[index] = entry
+        }
+        return WatchCaptureCatalog(
+            rootState: self.rootState,
+            entries: entries,
+            issues: self.issues,
+            relevantMutationGeneration: self.relevantMutationGeneration
+        )
+    }
+
+    func removingEntry(manifestID: UUID) -> WatchCaptureCatalog {
+        WatchCaptureCatalog(
+            rootState: self.rootState,
+            entries: self.entries.filter { $0.manifest.id != manifestID },
+            issues: self.issues,
+            relevantMutationGeneration: self.relevantMutationGeneration
+        )
+    }
+
+    func withRelevantMutationGeneration(_ generation: UInt64) -> WatchCaptureCatalog {
+        WatchCaptureCatalog(
+            rootState: self.rootState,
+            entries: self.entries,
+            issues: self.issues,
+            relevantMutationGeneration: generation
+        )
+    }
 }
 
 nonisolated enum WatchCaptureStorageConflict: Error, Equatable, Sendable {
@@ -163,6 +195,16 @@ nonisolated struct WatchCaptureLocationLogFinalizedStats: Equatable, Sendable {
 nonisolated struct WatchRelayStorageTransition: Sendable {
     let entry: WatchCaptureCatalogEntry
     let didChange: Bool
+}
+
+nonisolated enum WatchRelayCleanupRemoval: Sendable {
+    case removed
+    case retained(WatchCaptureCatalogEntry)
+}
+
+nonisolated enum WatchComplicationSnapshotWriteOutcome: Equatable, Sendable {
+    case written
+    case unchanged
 }
 
 nonisolated struct WatchRelayTransferPreparation: Sendable {
@@ -268,6 +310,7 @@ actor WatchCaptureStorageActor {
     private var captureSafetyWaiters: [TransactionWaiter] = []
     private var maintenanceWaiters: [TransactionWaiter] = []
     private var transactionAdmissionCount = 0
+    private var relevantMutationGeneration: UInt64 = 0
     private var loggedCorruptDiagnosticURLs: Set<String> = []
     private var diagnosticsUnavailableAfterWriteFailure = false
 
@@ -305,12 +348,22 @@ actor WatchCaptureStorageActor {
         self.diagnosticsDecoder = diagnosticsDecoder
     }
 
+    func currentRelevantMutationGeneration() -> UInt64 {
+        self.relevantMutationGeneration
+    }
+
+    func needsCatalogFallbackRescan(snapshot: WatchCaptureCatalog, successfulBumps: UInt64) -> Bool {
+        !snapshot.canInferUUIDAbsence
+            || self.relevantMutationGeneration != snapshot.relevantMutationGeneration &+ successfulBumps
+    }
+
     func prepareRoot() async throws {
         try await self.withTransaction(transactionClass: .captureSafety) {
             let rootURL = self.withSynchronousActorWork(.capturePreparation) {
                 self.paths.rootURL
             }
             try await self.fileWriter.createDirectory(at: rootURL)
+            self.bumpRelevantMutationGeneration()
         }
     }
 
@@ -330,6 +383,7 @@ actor WatchCaptureStorageActor {
                 }
             }
             try await self.fileWriter.createDirectory(at: directory)
+            self.bumpRelevantMutationGeneration()
             return directory
         }
     }
@@ -347,6 +401,7 @@ actor WatchCaptureStorageActor {
             }
             guard let finalURL else { return currentURL }
             try await self.fileWriter.moveItem(at: currentURL, to: finalURL)
+            self.bumpRelevantMutationGeneration()
             return finalURL
         }
     }
@@ -378,13 +433,20 @@ actor WatchCaptureStorageActor {
         try await self.withTransaction(transactionClass: transactionClass) {
             let fileURL = self.withSynchronousActorWork(.storageActorFileOperation) { url }
             try await self.fileWriter.removeItem(at: fileURL)
+            self.bumpRelevantMutationGeneration()
         }
     }
 
-    func writeComplicationSnapshot(_ data: Data, to url: URL) async throws {
+    @discardableResult
+    func writeComplicationSnapshot(_ data: Data, to url: URL) async throws -> WatchComplicationSnapshotWriteOutcome {
         try await self.withTransaction(transactionClass: .maintenance) {
             let snapshot = self.withSynchronousActorWork(.complicationSnapshot) { (data, url) }
+            if let existing = try? await self.fileWriter.readData(from: snapshot.1), existing == snapshot.0 {
+                return .unchanged
+            }
             try await self.fileWriter.writeData(snapshot.0, to: snapshot.1, options: .atomic)
+            self.bumpRelevantMutationGeneration()
+            return .written
         }
     }
 
@@ -407,6 +469,7 @@ actor WatchCaptureStorageActor {
             }
             do {
                 try await self.fileWriter.removeItem(at: directory)
+                self.bumpRelevantMutationGeneration()
                 return true
             } catch {
                 return false
@@ -435,28 +498,33 @@ actor WatchCaptureStorageActor {
         )
     }
 
+    @discardableResult
     func writeManifest(
         _ manifest: WatchSegmentManifest,
         entry: WatchCaptureCatalogEntry? = nil,
         ensuringDirectory: Bool = true,
         transactionClass: WatchCaptureStorageTransactionClass
-    ) async throws {
+    ) async throws -> WatchCaptureCatalogEntry {
         switch transactionClass {
         case .captureSafety:
-            try await self.withTransaction(transactionClass: transactionClass) {
-                try await self.writeManifestInner(
+            return try await self.withTransaction(transactionClass: transactionClass) {
+                let written = try await self.writeManifestInner(
                     manifest,
                     entry: entry,
                     ensuringDirectory: ensuringDirectory
                 )
+                self.bumpRelevantMutationGeneration()
+                return written
             }
         case .maintenance:
-            try await self.withCancellableTransaction(transactionClass: transactionClass) {
-                try await self.writeManifestInner(
+            return try await self.withCancellableTransaction(transactionClass: transactionClass) {
+                let written = try await self.writeManifestInner(
                     manifest,
                     entry: entry,
                     ensuringDirectory: ensuringDirectory
                 )
+                self.bumpRelevantMutationGeneration()
+                return written
             }
         }
     }
@@ -631,6 +699,7 @@ actor WatchCaptureStorageActor {
             }
             try await self.fileWriter.removeItem(at: current.directoryURL)
             try? await self.fileWriter.removeItem(at: bundleURL)
+            self.bumpRelevantMutationGeneration()
         }
     }
 
@@ -688,6 +757,7 @@ actor WatchCaptureStorageActor {
             }
             let bundleData = try await self.relayBundleData(for: current, boundary: .relayBundleWrite)
             try await self.fileWriter.writeData(bundleData, to: bundleURL, options: .atomic)
+            self.bumpRelevantMutationGeneration()
 
             let attemptURL = self.withSynchronousActorWork(.relayAttemptPersistence) {
                 current.directoryURL.appendingPathComponent(WatchRelayAttemptRecord.filename, isDirectory: false)
@@ -804,7 +874,7 @@ actor WatchCaptureStorageActor {
         at date: Date
     ) async -> Bool {
         await self.withTransaction(transactionClass: .maintenance) {
-            await self.performDiagnosticsWrite(
+            let succeeded = await self.performDiagnosticsWrite(
                 "enqueue",
                 segmentID: manifest.id,
                 boundary: .relayDiagnosticsPersistence
@@ -839,6 +909,10 @@ actor WatchCaptureStorageActor {
                 summary.lastEnqueue = fact
                 try await self.writeDiagnosticsSummary(summary, boundary: .relayDiagnosticsPersistence)
             }
+            if succeeded {
+                self.bumpRelevantMutationGeneration()
+            }
+            return succeeded
         }
     }
 
@@ -1212,12 +1286,13 @@ actor WatchCaptureStorageActor {
         transactionClass: WatchCaptureStorageTransactionClass,
         boundary: WatchSignpostBoundary
     ) async -> WatchCaptureCatalog {
+        let generation = self.relevantMutationGeneration
         let rootStep = await self.scanCatalogStep(transactionClass: transactionClass) {
             await self.scanCatalogRootStep(boundary: boundary)
         }
         let root = rootStep.value
         if let terminalCatalog = root.terminalCatalog {
-            return terminalCatalog
+            return terminalCatalog.withRelevantMutationGeneration(generation)
         }
 
         var entries: [WatchCaptureCatalogEntry] = []
@@ -1278,7 +1353,12 @@ actor WatchCaptureStorageActor {
             if !issues.isEmpty { rootState = .partial }
             else if entries.isEmpty { rootState = .emptyComplete }
             else { rootState = .complete }
-            return WatchCaptureCatalog(rootState: rootState, entries: entries, issues: issues.sorted { $0.id < $1.id })
+            return WatchCaptureCatalog(
+                rootState: rootState,
+                entries: entries,
+                issues: issues.sorted { $0.id < $1.id },
+                relevantMutationGeneration: generation
+            )
         }
     }
 
@@ -1288,25 +1368,25 @@ actor WatchCaptureStorageActor {
         do { rootKind = try await self.fileWriter.itemKind(at: rootURL) }
         catch {
             return CatalogRootInspection(
-                terminalCatalog: WatchCaptureCatalog(rootState: .unavailable(.unreadable), entries: [], issues: []),
+                terminalCatalog: WatchCaptureCatalog(rootState: .unavailable(.unreadable), entries: [], issues: [], relevantMutationGeneration: 0),
                 days: []
             )
         }
         guard rootKind != .missing else {
             return CatalogRootInspection(
-                terminalCatalog: WatchCaptureCatalog(rootState: .unavailable(.missing), entries: [], issues: []),
+                terminalCatalog: WatchCaptureCatalog(rootState: .unavailable(.missing), entries: [], issues: [], relevantMutationGeneration: 0),
                 days: []
             )
         }
         guard rootKind == .directory else {
             return CatalogRootInspection(
-                terminalCatalog: WatchCaptureCatalog(rootState: .unavailable(.notDirectory), entries: [], issues: []),
+                terminalCatalog: WatchCaptureCatalog(rootState: .unavailable(.notDirectory), entries: [], issues: [], relevantMutationGeneration: 0),
                 days: []
             )
         }
         guard let days = try? await self.fileWriter.contentsOfDirectory(at: rootURL) else {
             return CatalogRootInspection(
-                terminalCatalog: WatchCaptureCatalog(rootState: .unavailable(.notEnumerable), entries: [], issues: []),
+                terminalCatalog: WatchCaptureCatalog(rootState: .unavailable(.notEnumerable), entries: [], issues: [], relevantMutationGeneration: 0),
                 days: []
             )
         }
@@ -1503,6 +1583,7 @@ actor WatchCaptureStorageActor {
             try self.manifestEncoder.encode(manifest)
         }
         try await self.fileWriter.writeData(data, to: entry.manifestURL, options: .atomic)
+        self.bumpRelevantMutationGeneration()
         let witness = await self.contentWitness(
             manifestData: data,
             directoryURL: entry.directoryURL,
@@ -2456,7 +2537,7 @@ actor WatchCaptureStorageActor {
         _ manifest: WatchSegmentManifest,
         entry: WatchCaptureCatalogEntry?,
         ensuringDirectory: Bool
-    ) async throws {
+    ) async throws -> WatchCaptureCatalogEntry {
         let directory = self.withSynchronousActorWork(.storageActorManifestWrite) {
             entry?.directoryURL ?? self.paths.segmentDirectoryURL(day: manifest.day, segment: manifest.segment)
         }
@@ -2474,11 +2555,32 @@ actor WatchCaptureStorageActor {
         let data = try self.withSynchronousActorWork(.storageActorManifestWrite) {
             try self.manifestEncoder.encode(manifest)
         }
+        let manifestURL = self.withSynchronousActorWork(.storageActorManifestWrite) {
+            self.paths.manifestURL(directory: directory)
+        }
         try await self.fileWriter.writeData(
             data,
-            to: self.paths.manifestURL(directory: directory),
+            to: manifestURL,
             options: .atomic
         )
+        let witness = await self.contentWitness(
+            manifestData: data,
+            directoryURL: directory,
+            boundary: .storageActorManifestWrite
+        )
+        return self.withSynchronousActorWork(.storageActorManifestWrite) {
+            WatchCaptureCatalogEntry(
+                id: entry?.id ?? WatchCaptureCatalogEntryID(day: manifest.day, segment: manifest.segment),
+                directoryURL: directory,
+                manifestURL: manifestURL,
+                manifest: manifest,
+                witness: witness
+            )
+        }
+    }
+
+    private func bumpRelevantMutationGeneration() {
+        self.relevantMutationGeneration &+= 1
     }
 
     private func withTransaction<Value: Sendable>(

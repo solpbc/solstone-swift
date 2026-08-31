@@ -58,6 +58,8 @@ final class WatchSignpostTests: XCTestCase {
             .becameOwner,
             .scheduledFollowUp,
             .mergedFollowUp,
+            .cached,
+            .recoveryReloaded,
         ])
         XCTAssertEqual(RelayActivation.allCases, [.activated, .notActivated])
         XCTAssertEqual(WorkloadBand.allCases, [.unknown, .notSampled, .empty, .small, .medium, .large])

@@ -20,6 +20,8 @@ nonisolated enum RelayResult: String, CaseIterable, Sendable {
     case becameOwner
     case scheduledFollowUp
     case mergedFollowUp
+    case cached
+    case recoveryReloaded
 }
 
 nonisolated enum RelayActivation: String, CaseIterable, Sendable {
@@ -66,6 +68,8 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
     case statusPublication
     case relayHandoff
     case relayDrainRequest
+    case diagnosticsRefreshRequest
+    case relayStateRefreshRequest
     case applicationContextPrimary
     case applicationContextFallback
     case relayDrain
@@ -119,6 +123,10 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
             "watch.relay_handoff"
         case .relayDrainRequest:
             "watch.relay_drain_request"
+        case .diagnosticsRefreshRequest:
+            "watch.diagnostics_refresh_request"
+        case .relayStateRefreshRequest:
+            "watch.relay_state_refresh_request"
         case .applicationContextPrimary:
             "watch.application_context_primary"
         case .applicationContextFallback:

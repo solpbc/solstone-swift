@@ -8,6 +8,12 @@ import WidgetKit
 
 private let watchCaptureModelLog = Logger(subsystem: "app.solstone.swift", category: "watch-capture")
 
+struct WatchDiagnosticsPublicationCache {
+    var envelopeData: Data?
+    var builtFromGeneration: UInt64?
+    var owedUntilAccepted = false
+}
+
 @MainActor
 @Observable
 final class WatchCaptureModel {
@@ -24,8 +30,16 @@ final class WatchCaptureModel {
     @ObservationIgnored private let signposter: any WatchSignposting
     @ObservationIgnored private let complicationRootURL: @MainActor () throws -> URL
     @ObservationIgnored private let reloadComplicationTimelines: @MainActor () -> Void
+    @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private var complicationPublishTail: Task<Void, Never> = Task {}
-    @ObservationIgnored private var relayStateRefreshTail: Task<Void, Never> = Task {}
+    @ObservationIgnored private var diagnosticsPublicationCache = WatchDiagnosticsPublicationCache()
+    @ObservationIgnored private var diagnosticsRefreshOwnerTask: Task<Void, Never>?
+    @ObservationIgnored private var queuedDiagnosticsRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var hasQueuedDiagnosticsRefresh = false
+    @ObservationIgnored private var relayStateRefreshOwnerTask: Task<Void, Never>?
+    @ObservationIgnored private var queuedRelayStateRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var hasQueuedRelayStateRefresh = false
+    @ObservationIgnored private var recoveryReloadOwed = true
 
     init(
         paths: WatchCaptureStoragePaths,
@@ -44,6 +58,7 @@ final class WatchCaptureModel {
     ) {
         self.storageActor = storageActor
         self.diagnosticsCollector = diagnosticsCollector
+        self.clock = clock
         self.signposter = signposter
         self.complicationRootURL = complicationRootURL
         self.reloadComplicationTimelines = reloadComplicationTimelines
@@ -66,7 +81,7 @@ final class WatchCaptureModel {
                 await relaySender?.requestDrain(trigger: trigger)
             }
         }
-        engine.onPublishStatus = { [session, signposter] context in
+        engine.onPublishStatus = { [weak self, session, signposter] context in
             let publication = signposter.begin(.statusPublication)
             var result: RelayResult = .completed
             defer {
@@ -76,6 +91,7 @@ final class WatchCaptureModel {
             do {
                 try session.updateApplicationContext(context.applicationContext())
                 signposter.end(primary, fields: WatchSignpostFields(result: .completed))
+                self?.diagnosticsPublicationCache.owedUntilAccepted = false
             } catch {
                 signposter.end(primary, fields: WatchSignpostFields(result: .failed))
                 if context.diagnosticsEnvelope != nil,
@@ -111,8 +127,11 @@ final class WatchCaptureModel {
                 watchCaptureModelLog.error("watch status publish failed: \(String(describing: error), privacy: .public)")
             }
         }
-        engine.onDiagnosticsEnvelopeRequested = { [diagnosticsCollector] asOf in
-            await diagnosticsCollector.makeEnvelopeData(asOf: asOf)
+        engine.onDiagnosticsEnvelopeRequested = { [weak self] _ in
+            self?.diagnosticsPublicationCache.envelopeData
+        }
+        engine.onDiagnosticsRefreshRequested = { [weak self] in
+            await self?.requestDiagnosticsRefresh()
         }
         relaySender.onStateChanged = { [weak self] in
             self?.enqueueRelayStateRefresh()
@@ -126,6 +145,7 @@ final class WatchCaptureModel {
     init(initializationError error: any Error) {
         self.storageActor = nil
         self.diagnosticsCollector = nil
+        self.clock = SystemObserverClock()
         self.signposter = WatchSignpost.live
         self.complicationRootURL = { try AppGroupContainer.rootURL() }
         self.reloadComplicationTimelines = {
@@ -165,8 +185,46 @@ final class WatchCaptureModel {
 
     func republishStatusOnReconnect() {
         Task { @MainActor [weak self] in
-            await self?.engine?.republishCurrentStatus()
+            guard let self else { return }
+            await self.requestDiagnosticsRefresh()
+            await self.engine?.republishCurrentStatus()
         }
+    }
+
+    func requestDiagnosticsRefresh() async {
+        let request = self.signposter.begin(.diagnosticsRefreshRequest)
+        if let queuedDiagnosticsRefreshTask = self.queuedDiagnosticsRefreshTask {
+            self.hasQueuedDiagnosticsRefresh = true
+            self.signposter.end(
+                request,
+                fields: WatchSignpostFields(result: .mergedFollowUp)
+            )
+            await queuedDiagnosticsRefreshTask.value
+            return
+        }
+        if let diagnosticsRefreshOwnerTask = self.diagnosticsRefreshOwnerTask {
+            self.hasQueuedDiagnosticsRefresh = true
+            let followUp = Task { @MainActor [weak self] in
+                await diagnosticsRefreshOwnerTask.value
+                guard let self else { return }
+                self.hasQueuedDiagnosticsRefresh = false
+                self.queuedDiagnosticsRefreshTask = nil
+                await self.startOwnedDiagnosticsRefreshPass()
+            }
+            self.queuedDiagnosticsRefreshTask = followUp
+            self.signposter.end(
+                request,
+                fields: WatchSignpostFields(result: .scheduledFollowUp)
+            )
+            await followUp.value
+            return
+        }
+
+        self.signposter.end(
+            request,
+            fields: WatchSignpostFields(result: .becameOwner)
+        )
+        await self.startOwnedDiagnosticsRefreshPass()
     }
 
     private func enqueueComplicationSnapshotPublication() {
@@ -180,13 +238,88 @@ final class WatchCaptureModel {
     }
 
     private func enqueueRelayStateRefresh() {
-        let previous = self.relayStateRefreshTail
-        self.relayStateRefreshTail = Task { @MainActor [weak self] in
-            await previous.value
-            guard let self, let engine = self.engine else { return }
-            await engine.refreshRelayCountsFromDisk()
-            self.presentation = engine.ownerPresentation
+        Task { @MainActor [weak self] in
+            await self?.requestRelayStateRefresh()
         }
+    }
+
+    private func requestRelayStateRefresh() async {
+        let request = self.signposter.begin(.relayStateRefreshRequest)
+        if let queuedRelayStateRefreshTask = self.queuedRelayStateRefreshTask {
+            self.hasQueuedRelayStateRefresh = true
+            self.signposter.end(
+                request,
+                fields: WatchSignpostFields(result: .mergedFollowUp)
+            )
+            await queuedRelayStateRefreshTask.value
+            return
+        }
+        if let relayStateRefreshOwnerTask = self.relayStateRefreshOwnerTask {
+            self.hasQueuedRelayStateRefresh = true
+            let followUp = Task { @MainActor [weak self] in
+                await relayStateRefreshOwnerTask.value
+                guard let self else { return }
+                self.hasQueuedRelayStateRefresh = false
+                self.queuedRelayStateRefreshTask = nil
+                await self.startOwnedRelayStateRefreshPass()
+            }
+            self.queuedRelayStateRefreshTask = followUp
+            self.signposter.end(
+                request,
+                fields: WatchSignpostFields(result: .scheduledFollowUp)
+            )
+            await followUp.value
+            return
+        }
+
+        self.signposter.end(
+            request,
+            fields: WatchSignpostFields(result: .becameOwner)
+        )
+        await self.startOwnedRelayStateRefreshPass()
+    }
+
+    private func startOwnedRelayStateRefreshPass() async {
+        let owner = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runOwnedRelayStateRefreshPass()
+        }
+        self.relayStateRefreshOwnerTask = owner
+        await owner.value
+    }
+
+    private func runOwnedRelayStateRefreshPass() async {
+        defer { self.relayStateRefreshOwnerTask = nil }
+        guard let engine = self.engine else { return }
+        await engine.refreshRelayCountsFromDisk()
+        self.presentation = engine.ownerPresentation
+        await self.requestDiagnosticsRefresh()
+    }
+
+    private func startOwnedDiagnosticsRefreshPass() async {
+        let owner = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.runOwnedDiagnosticsRefreshPass()
+        }
+        self.diagnosticsRefreshOwnerTask = owner
+        await owner.value
+    }
+
+    private func runOwnedDiagnosticsRefreshPass() async {
+        defer { self.diagnosticsRefreshOwnerTask = nil }
+        guard let diagnosticsCollector else { return }
+        let collection = self.signposter.begin(.diagnosticsCollection)
+        let asOf = self.clock.now()
+        let envelope = await diagnosticsCollector.makeEnvelopeData(asOf: asOf)
+        let generation = await self.storageActor?.currentRelevantMutationGeneration()
+        self.signposter.end(
+            collection,
+            fields: WatchSignpostFields(result: envelope == nil ? .failed : .completed)
+        )
+        self.diagnosticsPublicationCache.envelopeData = envelope
+        self.diagnosticsPublicationCache.builtFromGeneration = generation
+        self.diagnosticsPublicationCache.owedUntilAccepted = true
+        await self.engine?.republishCurrentStatus()
     }
 
     private func publishComplicationSnapshot(_ presentation: WatchCaptureOwnerPresentation) async {
@@ -209,9 +342,19 @@ final class WatchCaptureModel {
                 fileWriter: FoundationWatchFileWriter()
             )
             self.storageActor = storageActor
-            try await storageActor.writeComplicationSnapshot(data, to: url)
-            self.reloadComplicationTimelines()
-            result = .completed
+            let outcome = try await storageActor.writeComplicationSnapshot(data, to: url)
+            switch outcome {
+            case .written:
+                self.reloadComplicationTimelines()
+                self.recoveryReloadOwed = false
+                result = .completed
+            case .unchanged where self.recoveryReloadOwed:
+                self.reloadComplicationTimelines()
+                self.recoveryReloadOwed = false
+                result = .recoveryReloaded
+            case .unchanged:
+                result = .cached
+            }
         } catch {
             watchCaptureModelLog.error("watch complication snapshot publish failed: \(String(describing: error), privacy: .public)")
         }

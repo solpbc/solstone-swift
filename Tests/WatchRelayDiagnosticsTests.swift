@@ -281,7 +281,8 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertTrue(modelSource.contains("@ObservationIgnored private let diagnosticsCollector: WatchRelayDiagnosticsCollector?"))
         XCTAssertTrue(modelSource.contains("self.diagnosticsCollector = diagnosticsCollector"))
         XCTAssertTrue(modelSource.contains("self.diagnosticsCollector = nil"))
-        XCTAssertTrue(modelSource.contains("engine.onDiagnosticsEnvelopeRequested = { [diagnosticsCollector] asOf in"))
+        XCTAssertTrue(modelSource.contains("engine.onDiagnosticsEnvelopeRequested = { [weak self] _ in"))
+        XCTAssertTrue(modelSource.contains("self?.diagnosticsPublicationCache.envelopeData"))
         XCTAssertFalse(modelSource.contains("[weak diagnosticsCollector]"))
         XCTAssertTrue(appSource.contains("diagnosticsCollector: diagnosticsCollector"))
     }
@@ -501,9 +502,9 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let audioURL = storage.audioURL(directory: entry.directoryURL)
         try await storage.fileWriter.writeData(Data(repeating: 9, count: 10), to: audioURL, options: .atomic)
         try await self.recordRelayEnqueue(store: store, entry: entry, storage: storage, byte: 9, at: now)
-        writer.mutateBeforeFileExists(at: audioURL, ordinal: 2) {
-            try? FileManager.default.removeItem(at: audioURL)
-        }
+        let malformed = storage.rootURL.appendingPathComponent("20260715/malformed", isDirectory: true)
+        try FileManager.default.createDirectory(at: malformed, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: storage.manifestURL(directory: malformed))
         writer.resetWriteCount()
 
         let collector = WatchRelayDiagnosticsCollector(
@@ -523,6 +524,81 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertEqual(observation.relayBundleBytes.unavailableReason, WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue)
         XCTAssertTrue(session.callLedger.isEmpty)
         XCTAssertEqual(writer.writeCount, 0)
+    }
+
+    func testMakePayloadDoesNotRescanOrReprobeWhenGenerationUnchanged() async throws {
+        let now = Self.now
+        let writer = MutatingWatchFileWriter()
+        let storage = try self.storage("one-admission-no-rescan", fileWriter: writer)
+        let store = self.storageActor(for: storage)
+        let session = MockWatchConnectivitySession()
+        let entry = try await self.writeManifest(id: Self.uuid(131), state: .transferring, storage: storage)
+        try await self.recordRelayEnqueue(store: store, entry: entry, storage: storage, byte: 4, at: now)
+        writer.resetFileExistsCounts()
+        writer.resetContentsOfDirectoryCount()
+        _ = await store.scanCatalog(transactionClass: .maintenance)
+        let callsPerScan = writer.contentsOfDirectoryCount
+        writer.resetFileExistsCounts()
+        writer.resetContentsOfDirectoryCount()
+
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let envelopeData = await collector.makeEnvelopeData(asOf: now)
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
+        let observation = try XCTUnwrap(payload.observedFileTransfers.first { $0.segmentID == entry.manifest.id })
+
+        XCTAssertEqual(writer.contentsOfDirectoryCount, callsPerScan)
+        XCTAssertEqual(observation.collectionResolution.value, .stable)
+        XCTAssertEqual(writer.fileExistsCount(for: storage.audioURL(directory: entry.directoryURL)), 1)
+    }
+
+    func testActiveManifestFactDoesNotDoubleFileExistsOnRelayBundlePath() async throws {
+        let now = Self.now
+        let writer = MutatingWatchFileWriter()
+        let storage = try self.storage("bundle-exists-once", fileWriter: writer)
+        let store = self.storageActor(for: storage)
+        let session = MockWatchConnectivitySession()
+        let entry = try await self.writeManifest(id: Self.uuid(132), state: .transferring, storage: storage)
+        try await self.recordRelayEnqueue(store: store, entry: entry, storage: storage, byte: 4, at: now)
+        let bundleURL = storage.rootURL
+            .appendingPathComponent(".relay-bundles", isDirectory: true)
+            .appendingPathComponent("\(entry.manifest.id.uuidString).watchrelay", isDirectory: false)
+        writer.resetFileExistsCounts()
+
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        _ = await collector.makeEnvelopeData(asOf: now)
+        XCTAssertEqual(writer.fileExistsCount(for: bundleURL), 1)
+    }
+
+    func testChangedWitnessDoesNotReadmitActiveManifestFactWhenGenerationUnchanged() async throws {
+        let now = Self.now
+        let writer = MutatingWatchFileWriter()
+        let storage = try self.storage("no-readmit", fileWriter: writer)
+        let store = self.storageActor(for: storage)
+        let session = MockWatchConnectivitySession()
+        let entry = try await self.writeManifest(id: Self.uuid(133), state: .transferring, storage: storage)
+        let audioURL = storage.audioURL(directory: entry.directoryURL)
+        try await storage.fileWriter.writeData(Data(repeating: 1, count: 8), to: audioURL, options: .atomic)
+        try await self.recordRelayEnqueue(store: store, entry: entry, storage: storage, byte: 1, at: now)
+        writer.resetFileExistsCounts()
+
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        _ = await collector.makeEnvelopeData(asOf: now)
+        XCTAssertEqual(writer.fileExistsCount(for: audioURL), 1)
     }
 
     func testReconciliationDistinguishesMatchedMissingDuplicateOrphanedAndUnparseable() async {
@@ -2602,6 +2678,7 @@ private final class MutatingWatchFileWriter: WatchFileWriting {
     private var mutationOrdinal: Int?
     private var mutation: (() -> Void)?
     private(set) var writeCount = 0
+    private(set) var contentsOfDirectoryCount = 0
 
     func mutateBeforeSecondFileExists(at url: URL, _ mutation: @escaping () -> Void) {
         self.mutateBeforeFileExists(at: url, ordinal: 2, mutation)
@@ -2615,6 +2692,18 @@ private final class MutatingWatchFileWriter: WatchFileWriting {
 
     func resetWriteCount() {
         self.writeCount = 0
+    }
+
+    func resetFileExistsCounts() {
+        self.fileExistsCounts = [:]
+    }
+
+    func resetContentsOfDirectoryCount() {
+        self.contentsOfDirectoryCount = 0
+    }
+
+    func fileExistsCount(for url: URL) -> Int {
+        self.fileExistsCounts[url.standardizedFileURL.path] ?? 0
     }
 
     nonisolated func createDirectory(at url: URL) async throws {
@@ -2676,7 +2765,8 @@ private final class MutatingWatchFileWriter: WatchFileWriting {
     }
 
     nonisolated func contentsOfDirectory(at url: URL) async throws -> [URL] {
-        try await self.base.contentsOfDirectory(at: url)
+        await MainActor.run { self.contentsOfDirectoryCount += 1 }
+        return try await self.base.contentsOfDirectory(at: url)
     }
 }
 

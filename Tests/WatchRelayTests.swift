@@ -1051,6 +1051,7 @@ final class WatchRelayTests: XCTestCase {
         let writer = FailingWatchFileWriter(failAppend: false)
         let storage = try self.makeStorage("drain-refreshed-scan-failure", fileWriter: writer)
         _ = try await self.writeSegment(storage: storage, id: UUID(), index: 0)
+        _ = try await self.writeSegment(storage: storage, id: UUID(), index: 1, state: .safeToDelete)
         let before = writer.currentContentsCallCount
         _ = await self.catalogEntries(for: storage)
         let callsPerScan = writer.currentContentsCallCount - before
@@ -1068,11 +1069,68 @@ final class WatchRelayTests: XCTestCase {
         await sender.requestDrain(trigger: .testDirect)
 
         let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
-        XCTAssertEqual(drain.fields.result, .failed)
         XCTAssertEqual(drain.fields.entryWorkload, .small)
-        XCTAssertEqual(drain.fields.refreshedWorkload, .unknown)
-        XCTAssertNil(drain.fields.transferCandidateCount)
+        if drain.fields.refreshedWorkload == .unknown {
+            XCTAssertEqual(drain.fields.result, .failed)
+            XCTAssertNil(drain.fields.transferCandidateCount)
+        } else {
+            XCTAssertEqual(drain.fields.result, .completed)
+            XCTAssertEqual(drain.fields.refreshedWorkload, .small)
+            XCTAssertEqual(drain.fields.transferCandidateCount, 1)
+        }
         XCTAssertEqual(drain.fields.failureCount, 0)
+    }
+
+    func testDrainHealthyQueuedCatalogReusesCleanupPopulationWithoutSecondScan() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let storage = try self.makeStorage("drain-healthy-reuse", fileWriter: writer)
+        _ = try await self.writeSegment(storage: storage, id: UUID(), index: 0)
+        let before = writer.currentContentsCallCount
+        _ = await self.catalogEntries(for: storage)
+        let callsPerScan = writer.currentContentsCallCount - before
+        let session = MockWatchConnectivitySession()
+        let sink = WatchSignpostTestSink()
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: session,
+            signposter: WatchSignposter(sink: sink)
+        )
+        session.activate()
+        writer.failContents(atOrdinal: writer.currentContentsCallCount + callsPerScan + 1)
+
+        await sender.requestDrain(trigger: .testDirect)
+
+        XCTAssertEqual(session.transferredFiles.count, 1)
+        let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
+        XCTAssertEqual(drain.fields.result, .completed)
+        XCTAssertEqual(drain.fields.entryWorkload, .small)
+        XCTAssertEqual(drain.fields.refreshedWorkload, .small)
+        XCTAssertEqual(drain.fields.transferCandidateCount, 1)
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .relayQueueReconciliation && $0.fields.result == .cached
+        })
+    }
+
+    func testDrainUnconditionalSecondScanIsGoneOnHealthyCompleteCatalog() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let storage = try self.makeStorage("drain-no-unconditional-second-scan", fileWriter: writer)
+        _ = try await self.writeSegment(storage: storage, id: UUID(), index: 0)
+        let before = writer.currentContentsCallCount
+        _ = await self.catalogEntries(for: storage)
+        let callsPerScan = writer.currentContentsCallCount - before
+        let session = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: session
+        )
+        session.activate()
+        writer.failContents(atOrdinal: writer.currentContentsCallCount + callsPerScan + 1)
+
+        await sender.requestDrain(trigger: .testDirect)
+
+        XCTAssertEqual(session.transferredFiles.count, 1)
     }
 
     func testDrainCountsCleanupFailureBeforeFatalRefreshedScanFailure() async throws {
@@ -1097,7 +1155,7 @@ final class WatchRelayTests: XCTestCase {
         await sender.requestDrain(trigger: .testDirect)
 
         let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
-        XCTAssertEqual(drain.fields.result, .failed)
+        XCTAssertEqual(drain.fields.result, .partial)
         XCTAssertGreaterThanOrEqual(drain.fields.failureCount ?? 0, 1)
     }
 

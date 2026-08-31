@@ -189,6 +189,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertTrue(didWriteInitialSnapshot)
         let didPublishInitialCounts = await self.waitForRelayCount(1, model: model)
         XCTAssertTrue(didPublishInitialCounts)
+        await self.waitUntilReadsIdle(writer: writer)
 
         await writer.armNextRead()
         relaySender.onStateChanged?()
@@ -200,11 +201,181 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         relaySender.onStateChanged?()
 
         await writer.releaseRead()
-        let didRunSecondRefresh = await self.waitForReadCount(2, writer: writer)
-        XCTAssertTrue(didRunSecondRefresh)
         let didPublishNewerCounts = await self.waitForRelayCount(2, model: model)
         XCTAssertTrue(didPublishNewerCounts)
         XCTAssertEqual(model.presentation.queuedCount, 2)
+    }
+
+    func testRelayStateRefreshDoesNotFanOutOneScanPerStateChanged() async throws {
+        let sink = WatchModelSignpostSink()
+        let signposter = WatchSignposter(sink: sink)
+        let writer = BlockingRelayStateRefreshWriter()
+        let storage = try WatchModelTestStorage(
+            rootURL: self.temporaryDirectory.appendingPathComponent("relay-fanout-storage"),
+            fileWriter: writer
+        )
+        let storageActor = WatchCaptureStorageActor(
+            paths: storage.paths,
+            fileWriter: writer
+        )
+        try await storageActor.prepareRoot()
+        let externalActor = WatchCaptureStorageActor(
+            paths: storage.paths,
+            fileWriter: FoundationWatchFileWriter()
+        )
+        try await externalActor.writeManifest(self.queuedManifest(storage: storage, id: UUID(), index: 0), transactionClass: .captureSafety)
+        await writer.armNextRead()
+        let complicationRoot = self.temporaryDirectory.appendingPathComponent("relay-fanout-complication", isDirectory: true)
+        try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
+        let session = WatchModelConnectivitySession()
+        let relaySender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session)
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: session,
+            environmentProvider: WatchModelEnvironmentProvider()
+        )
+        let model = WatchCaptureModel(
+            paths: storage.paths,
+            storageActor: storageActor,
+            relaySender: relaySender,
+            session: session,
+            diagnosticsCollector: collector,
+            notificationScheduler: WatchModelNotificationScheduler(),
+            environmentProvider: WatchModelEnvironmentProvider(),
+            signposter: signposter,
+            complicationRootURL: { complicationRoot },
+            reloadComplicationTimelines: {}
+        )
+        await writer.waitUntilReadEntered()
+        await writer.releaseRead()
+        let didPublishInitialCounts = await self.waitForRelayCount(1, model: model)
+        XCTAssertTrue(didPublishInitialCounts)
+        await self.waitUntilReadsIdle(writer: writer)
+        sink.reset()
+
+        await writer.armNextRead()
+        relaySender.onStateChanged?()
+        await writer.waitUntilReadEntered()
+        try await externalActor.writeManifest(self.queuedManifest(storage: storage, id: UUID(), index: 1), transactionClass: .captureSafety)
+        relaySender.onStateChanged?()
+        relaySender.onStateChanged?()
+        relaySender.onStateChanged?()
+        await writer.releaseRead()
+        let didPublishNewerCounts = await self.waitForRelayCount(2, model: model)
+        XCTAssertTrue(didPublishNewerCounts)
+
+        let requestEnds = sink.events.filter {
+            $0.kind == .end && $0.boundary == .relayStateRefreshRequest
+        }
+        XCTAssertEqual(requestEnds.filter { $0.fields.result == .becameOwner }.count, 1)
+        XCTAssertEqual(requestEnds.filter { $0.fields.result == .scheduledFollowUp }.count, 1)
+        XCTAssertEqual(requestEnds.filter { $0.fields.result == .mergedFollowUp }.count, 2)
+        _ = model
+    }
+
+    func testIdenticalComplicationSnapshotDoesNotWriteOrReloadAfterRecovery() async throws {
+        let writer = BlockingComplicationSnapshotWriter()
+        let storage = try WatchModelTestStorage(
+            rootURL: self.temporaryDirectory.appendingPathComponent("identical-snapshot-storage")
+        )
+        let storageActor = WatchCaptureStorageActor(
+            paths: storage.paths,
+            fileWriter: writer
+        )
+        try await storageActor.prepareRoot()
+        let complicationRoot = self.temporaryDirectory.appendingPathComponent("identical-snapshot-complication", isDirectory: true)
+        try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
+        var reloadCount = 0
+        let session = WatchModelConnectivitySession()
+        let relaySender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session)
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: session,
+            environmentProvider: WatchModelEnvironmentProvider()
+        )
+        let model = WatchCaptureModel(
+            paths: storage.paths,
+            storageActor: storageActor,
+            relaySender: relaySender,
+            session: session,
+            diagnosticsCollector: collector,
+            notificationScheduler: WatchModelNotificationScheduler(),
+            environmentProvider: WatchModelEnvironmentProvider(),
+            complicationRootURL: { complicationRoot },
+            reloadComplicationTimelines: { reloadCount += 1 }
+        )
+        await writer.waitUntilWriteEntered()
+        await writer.release()
+        let snapshotURL = complicationRoot.appendingPathComponent(WatchComplicationSnapshot.fileName)
+        let didWriteSnapshot = await self.waitForFile(at: snapshotURL)
+        XCTAssertTrue(didWriteSnapshot)
+        let didReloadOnce = await self.waitUntil { reloadCount == 1 }
+        XCTAssertTrue(didReloadOnce)
+        await self.waitUntilWritesIdle(writer: writer)
+        let writesAfterRecovery = await writer.writeCount()
+        let reloadsAfterRecovery = reloadCount
+
+        model.presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, confirmingCount: 4)
+        await self.waitUntilWritesIdle(writer: writer)
+        let writesAfterIdentical = await writer.writeCount()
+        XCTAssertEqual(writesAfterIdentical, writesAfterRecovery)
+        XCTAssertEqual(reloadCount, reloadsAfterRecovery)
+        _ = model
+    }
+
+    func testFirstUnchangedComplicationStillReloadsOnce() async throws {
+        let storage = try WatchModelTestStorage(
+            rootURL: self.temporaryDirectory.appendingPathComponent("recovery-reload-storage")
+        )
+        let storageActor = self.storageActor(for: storage)
+        try await storageActor.prepareRoot()
+        let complicationRoot = self.temporaryDirectory.appendingPathComponent("recovery-reload-complication", isDirectory: true)
+        try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
+        let snapshotURL = complicationRoot.appendingPathComponent(WatchComplicationSnapshot.fileName)
+        let initialPresentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(WatchComplicationSnapshot(presentation: initialPresentation, isReachable: true))
+            .write(to: snapshotURL, options: .atomic)
+        var reloadCount = 0
+        let session = WatchModelConnectivitySession()
+        let relaySender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session)
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: session,
+            environmentProvider: WatchModelEnvironmentProvider()
+        )
+        let sink = WatchModelSignpostSink()
+        let model = WatchCaptureModel(
+            paths: storage.paths,
+            storageActor: storageActor,
+            relaySender: relaySender,
+            session: session,
+            diagnosticsCollector: collector,
+            notificationScheduler: WatchModelNotificationScheduler(),
+            environmentProvider: WatchModelEnvironmentProvider(),
+            signposter: WatchSignposter(sink: sink),
+            complicationRootURL: { complicationRoot },
+            reloadComplicationTimelines: { reloadCount += 1 }
+        )
+        let didRecoveryReload = await self.waitUntil { reloadCount == 1 }
+        XCTAssertTrue(didRecoveryReload)
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .complicationSnapshot && $0.fields.result == .recoveryReloaded
+        })
+
+        model.presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, confirmingCount: 2)
+        let didCacheIdenticalSnapshot = await self.waitUntil {
+            sink.events.contains {
+                $0.kind == .end && $0.boundary == .complicationSnapshot && $0.fields.result == .cached
+            }
+        }
+        XCTAssertTrue(didCacheIdenticalSnapshot)
+        XCTAssertEqual(reloadCount, 1)
+        _ = model
     }
 
     func testStatusPublicationReportsPrimaryAndFallbackOutcomes() async throws {
@@ -613,13 +784,45 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
     }
 
     private func waitForRelayCount(_ count: Int, model: WatchCaptureModel) async -> Bool {
-        for _ in 0..<100 {
+        for _ in 0..<400 {
             if model.presentation.queuedCount == count {
                 return true
             }
             try? await Task.sleep(for: .milliseconds(5))
         }
         return false
+    }
+
+    private func waitUntilReadsIdle(writer: BlockingRelayStateRefreshWriter) async {
+        var last = await writer.readCount()
+        var stable = 0
+        for _ in 0..<200 {
+            try? await Task.sleep(for: .milliseconds(10))
+            let current = await writer.readCount()
+            if current == last {
+                stable += 1
+                if stable >= 8 { return }
+            } else {
+                stable = 0
+                last = current
+            }
+        }
+    }
+
+    private func waitUntilWritesIdle(writer: BlockingComplicationSnapshotWriter) async {
+        var last = await writer.writeCount()
+        var stable = 0
+        for _ in 0..<200 {
+            try? await Task.sleep(for: .milliseconds(10))
+            let current = await writer.writeCount()
+            if current == last {
+                stable += 1
+                if stable >= 8 { return }
+            } else {
+                stable = 0
+                last = current
+            }
+        }
     }
 }
 

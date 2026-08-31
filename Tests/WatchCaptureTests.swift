@@ -87,6 +87,36 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(heartbeat.startedAt, initial.startedAt)
     }
 
+    func testHeartbeatPublishDoesNotCollectDiagnosticsWhenCacheIsWarm() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        var statuses: [WatchStatusContext] = []
+        var refreshCount = 0
+        var envelopeReads = 0
+        let cached = Data("cached-envelope".utf8)
+        harness.engine.onPublishStatus = { status in
+            statuses.append(status)
+        }
+        harness.engine.onDiagnosticsRefreshRequested = {
+            refreshCount += 1
+        }
+        harness.engine.onDiagnosticsEnvelopeRequested = { _ in
+            envelopeReads += 1
+            return cached
+        }
+
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } && self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let initial = try XCTUnwrap(statuses.last)
+        let refreshesAfterStart = refreshCount
+        let readsAfterStart = envelopeReads
+        harness.clock.advance(by: 15)
+        await self.drain(until: { statuses.count >= 2 && statuses.last?.seq == initial.seq + 1 })
+
+        XCTAssertEqual(refreshCount, refreshesAfterStart)
+        XCTAssertEqual(envelopeReads, readsAfterStart + 1)
+        XCTAssertEqual(statuses.last?.diagnosticsEnvelope, cached)
+    }
+
     func testRepublishCurrentStatusEmitsCurrentPhaseImmediately() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []
@@ -3263,6 +3293,46 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertTrue(sink.events.contains {
             $0.kind == .end && $0.boundary == .relayDrain && $0.fields.trigger == .launchReconciliation
         })
+    }
+
+    func testLaunchMaintenanceHealthyPathSignpostsCachedRelayCountRefresh() async throws {
+        let sink = WatchSignpostTestSink()
+        let signposter = WatchSignposter(sink: sink)
+        let harness = try self.makeHarness(signposter: signposter)
+        _ = try await self.writeManifest(
+            storage: harness.storage,
+            startedAt: Date(timeIntervalSince1970: 1_713_624_000),
+            state: .finalized,
+            sensors: [.audio]
+        )
+
+        harness.engine.reconcileOnLaunch()
+        await harness.engine.settled()
+
+        XCTAssertEqual(harness.engine.ownerPresentation.queuedCount, 1)
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .relayCountRefresh && $0.fields.result == .cached
+        })
+    }
+
+    func testLaunchMaintenanceDoesNotUnconditionallyScanTwice() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(fileWriter: writer)
+        _ = try await self.writeManifest(
+            storage: harness.storage,
+            startedAt: Date(timeIntervalSince1970: 1_713_624_000),
+            state: .finalized,
+            sensors: [.audio]
+        )
+        let before = writer.currentContentsCallCount
+        _ = await harness.storageActor.scanCatalog(transactionClass: .maintenance)
+        let callsPerScan = writer.currentContentsCallCount - before
+        writer.failContents(atOrdinal: writer.currentContentsCallCount + (2 * callsPerScan) + 1)
+
+        harness.engine.reconcileOnLaunch()
+        await harness.engine.settled()
+
+        XCTAssertEqual(harness.engine.ownerPresentation.queuedCount, 1)
     }
 
     func testSegmentFinalizationForwardsTriggerToRelayDrainInterval() async throws {

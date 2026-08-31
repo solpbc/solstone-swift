@@ -135,19 +135,34 @@ final class WatchRelaySender {
         var activeScan: WatchSignpostInvocation?
         do {
             activeScan = self.signposter.begin(.relayCleanupScan)
-            let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
+            var catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
             accounting.recordCatalog(rootState: catalog.rootState)
             let entries = catalog.entries
             let catalogResult = self.catalogResult(catalog.rootState)
             accounting.entryWorkload = self.workloadBand(for: catalog)
             var cleanupFailed = false
+            var successfulBumps: UInt64 = 0
             for entry in entries {
                 do {
                     switch entry.manifest.state {
                     case .acked, .safeToDelete:
-                        try await self.deleteIfSafe(entry)
+                        let originalState = entry.manifest.state
+                        switch try await self.deleteIfSafe(entry) {
+                        case .removed:
+                            catalog = catalog.removingEntry(manifestID: entry.manifest.id)
+                            successfulBumps += originalState == .acked ? 2 : 1
+                        case let .retained(retained):
+                            catalog = catalog.replacingEntry(retained)
+                            if retained.manifest.state != originalState {
+                                successfulBumps += 1
+                            }
+                        }
                     case .delivered:
-                        try await self.refreshDeliveredDeadline(entry)
+                        let transition = try await self.refreshDeliveredDeadline(entry)
+                        if transition.didChange {
+                            catalog = catalog.replacingEntry(transition.entry)
+                            successfulBumps += 1
+                        }
                     case .captured, .persisted, .finalized, .queued, .transferring:
                         break
                     }
@@ -170,7 +185,17 @@ final class WatchRelaySender {
             guard self.session.activationState == .activated else { return }
 
             activeScan = self.signposter.begin(.relayQueueReconciliation)
-            let refreshedCatalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
+            let reusedCatalog = catalog
+            let fallbackNeeded = await self.storageActor.needsCatalogFallbackRescan(
+                snapshot: reusedCatalog,
+                successfulBumps: successfulBumps
+            )
+            let refreshedCatalog: WatchCaptureCatalog
+            if fallbackNeeded {
+                refreshedCatalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
+            } else {
+                refreshedCatalog = reusedCatalog
+            }
             accounting.recordCatalog(rootState: refreshedCatalog.rootState)
             let refreshedEntries = refreshedCatalog.entries
             let refreshedCatalogResult = self.catalogResult(refreshedCatalog.rootState)
@@ -190,9 +215,11 @@ final class WatchRelaySender {
             self.signposter.end(
                 activeScan,
                 fields: WatchSignpostFields(
-                    result: refreshedCatalogResult == .failed
-                        ? .failed
-                        : (accounting.failureCount > 0 ? .partial : refreshedCatalogResult)
+                    result: fallbackNeeded
+                        ? (refreshedCatalogResult == .failed
+                            ? .failed
+                            : (accounting.failureCount > 0 ? .partial : refreshedCatalogResult))
+                        : .cached
                 )
             )
             activeScan = nil
@@ -361,7 +388,7 @@ private extension WatchRelaySender {
         self.notifyStateChanged()
     }
 
-    func deleteIfSafe(_ entry: WatchCaptureCatalogEntry) async throws {
+    func deleteIfSafe(_ entry: WatchCaptureCatalogEntry) async throws -> WatchRelayCleanupRemoval {
         let safe = try await self.storageActor.markRelaySegmentSafeToDelete(entry)
         if safe.didChange {
             self.notifyStateChanged()
@@ -371,10 +398,13 @@ private extension WatchRelaySender {
             bundleURL: self.bundleURL(for: safe.entry.manifest.id)
         )
         self.notifyStateChanged()
+        return .removed
     }
 
-    func refreshDeliveredDeadline(_ entry: WatchCaptureCatalogEntry) async throws {
-        guard entry.manifest.state == .delivered else { return }
+    func refreshDeliveredDeadline(_ entry: WatchCaptureCatalogEntry) async throws -> WatchRelayStorageTransition {
+        guard entry.manifest.state == .delivered else {
+            return WatchRelayStorageTransition(entry: entry, didChange: false)
+        }
         let transition = try await self.storageActor.refreshRelayDeliveredDeadline(
             entry,
             at: self.clock(),
@@ -383,6 +413,7 @@ private extension WatchRelaySender {
         if transition.didChange {
             self.notifyStateChanged()
         }
+        return transition
     }
 
     func promoteAndTransfer(

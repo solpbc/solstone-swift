@@ -20,6 +20,79 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         self.root = nil
     }
 
+    func testRelevantMutationGenerationBumpsOnWriteAndDeleteNotOnScanOrExists() async throws {
+        let actor = self.actor()
+        let initial = await actor.currentRelevantMutationGeneration()
+        XCTAssertEqual(initial, 0)
+        try await actor.prepareRoot()
+        let afterRoot = await actor.currentRelevantMutationGeneration()
+        XCTAssertEqual(afterRoot, 1)
+        let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
+        try await actor.writeManifest(manifest, transactionClass: .captureSafety)
+        let afterWrite = await actor.currentRelevantMutationGeneration()
+        XCTAssertEqual(afterWrite, 2)
+        _ = await actor.scanCatalog(transactionClass: .maintenance)
+        let afterScan = await actor.currentRelevantMutationGeneration()
+        XCTAssertEqual(afterScan, afterWrite)
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first)
+        _ = await actor.fileExists(at: entry.manifestURL, transactionClass: .maintenance)
+        let afterExists = await actor.currentRelevantMutationGeneration()
+        XCTAssertEqual(afterExists, afterWrite)
+        try await actor.removeItem(at: entry.directoryURL, transactionClass: .maintenance)
+        let afterDelete = await actor.currentRelevantMutationGeneration()
+        XCTAssertEqual(afterDelete, afterWrite + 1)
+    }
+
+    func testScanCatalogCarriesGenerationSampledAtStart() async throws {
+        let actor = self.actor()
+        try await actor.prepareRoot()
+        let generation = await actor.currentRelevantMutationGeneration()
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        XCTAssertEqual(catalog.relevantMutationGeneration, generation)
+        XCTAssertEqual(catalog.rootState, .emptyComplete)
+    }
+
+    func testWriteComplicationSnapshotReturnsUnchangedForByteIdenticalPayload() async throws {
+        let actor = self.actor()
+        let url = self.root.appendingPathComponent("complication-snapshot.json")
+        let data = Data(#"{"mark":"paused"}"#.utf8)
+        let first = try await actor.writeComplicationSnapshot(data, to: url)
+        XCTAssertEqual(first, .written)
+        let afterWrite = await actor.currentRelevantMutationGeneration()
+        let second = try await actor.writeComplicationSnapshot(data, to: url)
+        XCTAssertEqual(second, .unchanged)
+        let afterUnchanged = await actor.currentRelevantMutationGeneration()
+        XCTAssertEqual(afterUnchanged, afterWrite)
+        XCTAssertEqual(try Data(contentsOf: url), data)
+    }
+
+    func testNeedsCatalogFallbackRescanWhenPartialOrGenerationDrifted() async throws {
+        let actor = self.actor()
+        try await actor.prepareRoot()
+        let complete = await actor.scanCatalog(transactionClass: .maintenance)
+        let completeUnchanged = await actor.needsCatalogFallbackRescan(snapshot: complete, successfulBumps: 0)
+        XCTAssertFalse(completeUnchanged)
+        let manifest = self.manifest(id: UUID(), segment: "120000_300", state: .queued)
+        try await actor.writeManifest(manifest, transactionClass: .captureSafety)
+        let drifted = await actor.needsCatalogFallbackRescan(snapshot: complete, successfulBumps: 0)
+        XCTAssertTrue(drifted)
+        let current = await actor.currentRelevantMutationGeneration()
+        let accounted = await actor.needsCatalogFallbackRescan(
+            snapshot: complete,
+            successfulBumps: current - complete.relevantMutationGeneration
+        )
+        XCTAssertFalse(accounted)
+
+        let bad = self.root.appendingPathComponent("20250101/120500_300", isDirectory: true)
+        try FileManager.default.createDirectory(at: bad, withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: bad.appendingPathComponent("manifest.json"))
+        let partial = await actor.scanCatalog(transactionClass: .maintenance)
+        XCTAssertEqual(partial.rootState, .partial)
+        let partialNeedsFallback = await actor.needsCatalogFallbackRescan(snapshot: partial, successfulBumps: 0)
+        XCTAssertTrue(partialNeedsFallback)
+    }
+
     func testMissingRootIsUnavailableRatherThanEmpty() async {
         let catalog = await WatchCaptureStorageActor(
             paths: WatchCaptureStoragePaths(rootURL: self.root),
@@ -917,7 +990,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             .appendingPathComponent("WatchCaptureStorageActorTests-complication-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("snapshot.json", isDirectory: false)
 
-        async let manifestWrite: Void = storage.writeManifest(captured, transactionClass: .captureSafety)
+        async let manifestWrite = storage.writeManifest(captured, transactionClass: .captureSafety)
         async let relayPromotion: WatchRelayStorageTransition = storage.promoteQueuedForRelay(queuedEntry)
         async let relayTransfer: WatchRelayTransferPreparation = storage.prepareRelayTransfer(
             transferringEntry,
@@ -936,7 +1009,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             transactionClass: .maintenance
         )
         async let locationAppend: Void = storage.appendLocationFix(fix, at: locationURL)
-        async let complicationWrite: Void = storage.writeComplicationSnapshot(
+        async let complicationWrite = storage.writeComplicationSnapshot(
             Data(#"{"queued_count":1}"#.utf8),
             to: complicationURL
         )

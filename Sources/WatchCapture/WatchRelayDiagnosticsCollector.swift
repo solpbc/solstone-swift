@@ -350,7 +350,11 @@ private extension WatchRelayDiagnosticsCollector {
         let witnessInterval = self.signposter.begin(.diagnosticsChangedWitnessRevalidation)
         let lastFacts = await self.storageActor.readDiagnosticsSummary()
         let failureSegmentID = Self.failureSegmentID(from: lastFacts)
-        let changedWitnessIDs = await self.changedWitnessIDs(initialFacts: activeFacts)
+        let changedWitnessIDs = await self.changedWitnessIDs(
+            initialFacts: activeFacts,
+            snapshotGeneration: catalog.relevantMutationGeneration,
+            canInferUUIDAbsence: catalog.canInferUUIDAbsence
+        )
         let resolvedObservations = self.resolvedObservations(
             observations,
             changedWitnessIDs: changedWitnessIDs
@@ -415,8 +419,8 @@ private extension WatchRelayDiagnosticsCollector {
             manifest: entry.manifest,
             directoryURL: entry.directoryURL
         )
-        let sourcePresent = await self.sourcePresent(for: entry.manifest.id)
         let relayBundle = await self.relayBundleFacts(for: entry.manifest.id)
+        let sourcePresent = relayBundle.present
         let originalAudioFile = await self.originalFileFact(at: self.paths.audioURL(directory: entry.directoryURL))
         let originalLocationFile = await self.originalFileFact(at: self.paths.locationURL(directory: entry.directoryURL))
         let legacyAppOwnedSourceBytes = Self.legacySourceBytes(from: sidecar)
@@ -685,13 +689,6 @@ private extension WatchRelayDiagnosticsCollector {
         )
     }
 
-    func sourcePresent(for id: UUID) async -> DiagnosticAvailability<Bool> {
-        .available(await self.storageActor.fileExists(
-            at: self.bundleURL(for: id),
-            transactionClass: .maintenance
-        ))
-    }
-
     func relayBundleFacts(for id: UUID) async -> (
         present: DiagnosticAvailability<Bool>,
         bytes: DiagnosticAvailability<Int64>
@@ -813,26 +810,21 @@ private extension WatchRelayDiagnosticsCollector {
         }
     }
 
-    func changedWitnessIDs(initialFacts: [ActiveManifestFact]) async -> Set<UUID> {
+    func changedWitnessIDs(
+        initialFacts: [ActiveManifestFact],
+        snapshotGeneration: UInt64,
+        canInferUUIDAbsence: Bool
+    ) async -> Set<UUID> {
         guard !initialFacts.isEmpty else { return [] }
-        let initialByID = Dictionary(uniqueKeysWithValues: initialFacts.map { ($0.entry.manifest.id, $0.witness) })
-        let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
-        guard catalog.canInferUUIDAbsence else {
-            return Set(initialByID.keys)
+        let ids = Set(initialFacts.map(\.entry.manifest.id))
+        guard canInferUUIDAbsence else {
+            return ids
         }
-        let entriesByID = Dictionary(uniqueKeysWithValues: catalog.entries.map { ($0.manifest.id, $0) })
-        var changed = Set<UUID>()
-        for (id, initialWitness) in initialByID {
-            guard let entry = entriesByID[id] else {
-                changed.insert(id)
-                continue
-            }
-            let currentWitness = (await self.activeManifestFact(entry: entry)).witness
-            if currentWitness != initialWitness {
-                changed.insert(id)
-            }
+        let currentGeneration = await self.storageActor.currentRelevantMutationGeneration()
+        if currentGeneration != snapshotGeneration {
+            return ids
         }
-        return changed
+        return []
     }
 
     func resolvedObservations(
