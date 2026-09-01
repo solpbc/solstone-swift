@@ -57,13 +57,15 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertTrue(text.contains("UIAccessibility.prefersCrossFadeTransitions"))
         XCTAssertTrue(text.contains("UIAccessibility.prefersCrossFadeTransitionsStatusDidChange"))
         XCTAssertFalse(text.contains("extension EnvironmentValues"))
-        // The shelf drawer pushes the shell rather than floating over it (2026-09-01),
-        // so the cross-fade preference is honoured by removing the translation and
-        // fading the panel in place — not by a `.transition`. Same guarantee: an owner
-        // who prefers cross-fade gets no sliding motion.
-        XCTAssertTrue(text.contains("self.prefersCrossFade ? 0 : (isOpen ? panelWidth : 0)"))
-        XCTAssertTrue(text.contains("self.prefersCrossFade ? 0 : (isOpen ? 0 : -panelWidth)"))
-        XCTAssertTrue(text.contains(".opacity(self.prefersCrossFade ? (isOpen ? 1 : 0) : 1)"))
+        // The shelf drawer pushes the shell rather than floating over it (2026-09-01).
+        // The cross-fade preference is honoured in two places and BOTH are asserted,
+        // because either one alone still leaves sliding motion on screen: `pushes`
+        // drops the shell's translation, and the panel's own transition becomes a
+        // plain opacity fade rather than a move. Same guarantee as before — an owner
+        // who prefers cross-fade gets no sliding motion anywhere in the drawer.
+        XCTAssertTrue(text.contains("let pushes = isOpen && !fillsWindow && !self.prefersCrossFade"))
+        XCTAssertTrue(text.contains(".offset(x: pushes ? panelWidth : 0)"))
+        XCTAssertTrue(text.contains("self.prefersCrossFade ? .opacity : .move(edge: .leading)"))
         XCTAssertFalse(text.contains(".move(edge: .bottom)"))
         XCTAssertTrue(text.contains("self.reduceMotion || self.prefersCrossFade"))
         XCTAssertFalse(text.contains("--accessibility-prefers-cross-fade"))
