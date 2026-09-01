@@ -1741,6 +1741,10 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         try FileManager.default.removeItem(at: receiptURL)
 
         let bundleMarker = Data("bundle-marker".utf8)
+        try FileManager.default.createDirectory(
+            at: seeded.bundleURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try bundleMarker.write(to: seeded.bundleURL, options: .atomic)
         await writer.overrideItemKind(.other, at: seeded.bundleURL)
         do {
