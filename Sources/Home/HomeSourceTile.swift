@@ -177,6 +177,9 @@ private struct HomeDestinationTile: View {
     let subline: String
     let badgeVisible: Bool
     let identifier: String
+    /// An empty slot rather than a thing the owner has: drawn as a dashed outline on
+    /// the ground, so `add more` never reads as a sixth source at a glance.
+    var isSlot: Bool = false
     let action: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -217,9 +220,16 @@ private struct HomeDestinationTile: View {
             .contentShape(ShellMetrics.tileShape)
         }
         .buttonStyle(.plain)
-        .background(Color.deckSurface, in: ShellMetrics.tileShape)
+        .background(self.isSlot ? Color.clear : Color.deckSurface, in: ShellMetrics.tileShape)
         .overlay {
-            ShellMetrics.tileShape.stroke(Color.deckHairline, lineWidth: 0.5)
+            if self.isSlot {
+                ShellMetrics.tileShape.stroke(
+                    Color.deckHairline,
+                    style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])
+                )
+            } else {
+                ShellMetrics.tileShape.stroke(Color.deckHairline, lineWidth: 0.5)
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isButton)
@@ -241,6 +251,7 @@ struct HomeAddMoreTile: View {
             subline: SourceVocabulary.addMoreSubline,
             badgeVisible: self.badgeVisible,
             identifier: "dayHome.sourcesEntry",
+            isSlot: true,
             action: self.onTap
         )
     }

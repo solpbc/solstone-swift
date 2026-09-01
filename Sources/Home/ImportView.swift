@@ -54,6 +54,7 @@ struct ImportView: View {
                             .frame(maxWidth: .infinity, minHeight: 44)
                         }
                         .accessibilityLabel(SourceVocabulary.onThisPhoneOpenAction)
+                        .accessibilityIdentifier("import.onThisDeviceEntry")
                         .accessibilityHint("Shows what you've sent to your journal.")
                     }
                 }

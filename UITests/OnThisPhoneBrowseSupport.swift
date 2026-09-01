@@ -13,7 +13,7 @@ extension XCTestCase {
         }
         importEntry.tap()
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 5))
-        let onThisDevice = app.buttons["on this device"]
+        let onThisDevice = app.buttons["import.onThisDeviceEntry"]
         XCTAssertTrue(onThisDevice.waitForExistence(timeout: 5))
         onThisDevice.tap()
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))

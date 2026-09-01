@@ -233,7 +233,7 @@ private extension ShellPaneShotTests {
         )
         self.attach(app, "25-import-\(suffix)")
 
-        let onThisDevice = app.buttons["on this device"]
+        let onThisDevice = app.buttons["import.onThisDeviceEntry"]
         XCTAssertTrue(onThisDevice.waitForExistence(timeout: 10), "on this device door missing")
         onThisDevice.tap()
         XCTAssertTrue(

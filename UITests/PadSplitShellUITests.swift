@@ -123,7 +123,7 @@ final class PadSplitShellUITests: XCTestCase {
             app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 10)
         )
 
-        let onThisDevice = app.buttons["on this device"]
+        let onThisDevice = app.buttons["import.onThisDeviceEntry"]
         XCTAssertTrue(onThisDevice.waitForExistence(timeout: 10), "in-pane link missing")
         onThisDevice.tap()
         XCTAssertTrue(
