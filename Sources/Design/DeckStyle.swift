@@ -157,8 +157,13 @@ nonisolated enum ShellFont {
         appearance.configureWithTransparentBackground()
 
         if let large = UIFont(name: "Comfortaa-Bold", size: 32) {
+            // Capped, the way Apple's own large titles are: a navigation title is a
+            // single truncating line, so letting it grow the full accessibility range
+            // turns `good evening` into `good eveni…` and loses the word. Everything
+            // below it still scales without a ceiling.
             appearance.largeTitleTextAttributes = [
-                .font: UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: large),
+                .font: UIFontMetrics(forTextStyle: .largeTitle)
+                    .scaledFont(for: large, maximumPointSize: 40),
             ]
         }
         if let inline = UIFont(name: "Comfortaa-Bold", size: 17) {

@@ -30,6 +30,7 @@ struct HomeSourceTile: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
     @Environment(ShellNavModel.self) private var nav
+    @ScaledMetric(relativeTo: .headline) private var glyphSize: CGFloat = 20
 
     var body: some View {
         Button {
@@ -81,7 +82,7 @@ struct HomeSourceTile: View {
 
     private var glyph: some View {
         Image(systemName: self.source.kind.glyph)
-            .font(.system(size: 20, weight: .medium))
+            .font(.system(size: self.glyphSize, weight: .medium))
             .foregroundStyle(self.glyphTint)
             .symbolRenderingMode(.hierarchical)
             .accessibilityHidden(true)
@@ -179,12 +180,13 @@ private struct HomeDestinationTile: View {
     let action: () -> Void
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .headline) private var glyphSize: CGFloat = 20
 
     var body: some View {
         Button(action: self.action) {
             VStack(alignment: .leading, spacing: 12) {
                 Image(systemName: self.glyph)
-                    .font(.system(size: 20, weight: .medium))
+                    .font(.system(size: self.glyphSize, weight: .medium))
                     .foregroundStyle(.secondary)
                     .frame(minHeight: 22, alignment: .top)
                     .overlay(alignment: .topTrailing) {

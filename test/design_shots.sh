@@ -40,8 +40,14 @@ LOG="$OUT_DIR/run.log"
 
 log() { printf '[design-shots] %s\n' "$*" | tee -a "$LOG"; }
 
-SIM_UDID="$(xcrun simctl list devices available \
-  | awk -v n="$SIM_NAME" -F'[()]' '$0 ~ n" \\(" {print $2; exit}')"
+# Matched literally, not as a regex: device names contain parentheses
+# ("iPad Pro 13-inch (M4)"), and interpolating one into an awk regex turns `(M4)`
+# into a capture group that matches nothing — a present simulator reported as
+# absent. The trailing " (" keeps "iPhone 17 Pro" from also matching "…Pro Max".
+# A booted device wins, so a run reuses the simulator already up.
+sim_line() { xcrun simctl list devices available | grep -F "$SIM_NAME ("; }
+SIM_UDID="$( { sim_line | grep -F '(Booted)'; sim_line; } \
+  | sed -nE 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/p' | head -1 )"
 if [[ -z "$SIM_UDID" ]]; then
   log "no available simulator named '$SIM_NAME'"
   echo "EXIT=1" >> "$LOG"; exit 1

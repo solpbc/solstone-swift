@@ -90,7 +90,10 @@ struct ProblemReportsView: View {
                 }
             }
         }
-        .navigationTitle(SourceVocabulary.problemReportsTitle)
+        // Presented as the shelf's `help` pane, the surface already has a title in the
+        // bar; setting a second one rendered `help` inline above a large `problem
+        // reports`, naming one screen twice.
+        .navigationTitle(self.showsSupportHeader ? "" : SourceVocabulary.problemReportsTitle)
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if let shareAllURL {

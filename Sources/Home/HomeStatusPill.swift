@@ -49,11 +49,14 @@ struct HomeStatusDot: View {
     let state: HomeStatusPillState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulsing = false
+    /// Scales with the label it sits beside; a fixed 8 pt dot beside accessibility-
+    /// sized text reads as a stray speck rather than as that text's state.
+    @ScaledMetric(relativeTo: .subheadline) private var size: CGFloat = 8
 
     var body: some View {
         Circle()
             .fill(self.tint)
-            .frame(width: 8, height: 8)
+            .frame(width: self.size, height: self.size)
             .opacity(self.shouldPulse && self.pulsing ? 0.35 : 1)
             .animation(
                 self.shouldPulse
@@ -92,9 +95,11 @@ struct HomeStatusPillLabel: View {
     let backlog: WatchAwareBacklog
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        // Centre-aligned, not baseline-aligned: a baseline guide on a circle drifts
+        // away from its label as the text scales, and at accessibility sizes the dot
+        // ended up detached below the word it belongs to.
+        HStack(alignment: .center, spacing: 6) {
             HomeStatusDot(state: self.state)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
             if let count = self.countText {
                 Text(count)
                     .font(.subheadline.monospacedDigit().weight(.semibold))
