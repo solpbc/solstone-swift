@@ -68,11 +68,12 @@ nonisolated protocol WatchFileWriting: Sendable {
     func contentsOfDirectory(at url: URL) async throws -> [URL]
 }
 
-nonisolated enum WatchCaptureStorageItemKind: Sendable {
+nonisolated enum WatchCaptureStorageItemKind: Equatable, Sendable {
     case missing
     case file
     case directory
     case symlink
+    case other
 }
 
 nonisolated struct WatchCaptureStorageFileFingerprint: Codable, Equatable, Sendable {
@@ -105,16 +106,32 @@ nonisolated struct FoundationWatchFileWriter: WatchFileWriting {
     }
 
     func itemKind(at url: URL) async throws -> WatchCaptureStorageItemKind {
-        let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
-        if values?.isSymbolicLink == true {
+        let values: URLResourceValues
+        do {
+            values = try url.resourceValues(forKeys: [
+                .isSymbolicLinkKey,
+                .isDirectoryKey,
+                .isRegularFileKey,
+            ])
+        } catch {
+            let failure = error as NSError
+            if failure.domain == NSCocoaErrorDomain,
+               failure.code == NSFileNoSuchFileError || failure.code == NSFileReadNoSuchFileError
+            {
+                return .missing
+            }
+            throw error
+        }
+        if values.isSymbolicLink == true {
             return .symlink
         }
-        if let isDirectory = values?.isDirectory {
-            return isDirectory ? .directory : .file
+        if values.isDirectory == true {
+            return .directory
         }
-        var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return .missing }
-        return isDirectory.boolValue ? .directory : .file
+        if values.isRegularFile == true {
+            return .file
+        }
+        return FileManager.default.fileExists(atPath: url.path) ? .other : .missing
     }
 
     func fileSize(at url: URL) async throws -> Int64 {

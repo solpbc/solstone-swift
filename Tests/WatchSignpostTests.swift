@@ -87,6 +87,8 @@ final class WatchSignpostTests: XCTestCase {
             "usedFallback",
             "retainedObservationCount",
             "encodedByteCount",
+            "wholeFileReadCount",
+            "wholeFileReadByteCount",
         ])
         XCTAssertFalse(labels.contains("description"))
         XCTAssertFalse(labels.contains("error"))

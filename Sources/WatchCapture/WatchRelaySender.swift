@@ -468,7 +468,11 @@ private extension WatchRelaySender {
             }
             self.signposter.end(
                 bundleInterval,
-                fields: WatchSignpostFields(result: result)
+                fields: WatchSignpostFields(
+                    result: result,
+                    wholeFileReadCount: preparation.wholeFileReads.count,
+                    wholeFileReadByteCount: preparation.wholeFileReads.byteCount
+                )
             )
         } catch {
             self.signposter.end(bundleInterval, fields: WatchSignpostFields(result: .failed))

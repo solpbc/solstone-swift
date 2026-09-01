@@ -104,6 +104,7 @@ nonisolated enum WatchCaptureSourceMediaState: String, Codable, Equatable, Senda
 
 nonisolated struct WatchCaptureContentWitness: Codable, Equatable, Sendable {
     let manifestData: Data
+    let manifestFingerprint: WatchCaptureStorageFileFingerprint?
     let audioState: WatchCaptureSourceMediaState
     let audioFingerprint: WatchCaptureStorageFileFingerprint?
     let locationState: WatchCaptureSourceMediaState
@@ -111,12 +112,14 @@ nonisolated struct WatchCaptureContentWitness: Codable, Equatable, Sendable {
 
     init(
         manifestData: Data,
+        manifestFingerprint: WatchCaptureStorageFileFingerprint? = nil,
         audioState: WatchCaptureSourceMediaState,
         audioFingerprint: WatchCaptureStorageFileFingerprint? = nil,
         locationState: WatchCaptureSourceMediaState,
         locationFingerprint: WatchCaptureStorageFileFingerprint? = nil
     ) {
         self.manifestData = manifestData
+        self.manifestFingerprint = manifestFingerprint
         self.audioState = audioState
         self.audioFingerprint = audioFingerprint
         self.locationState = locationState
@@ -124,13 +127,27 @@ nonisolated struct WatchCaptureContentWitness: Codable, Equatable, Sendable {
     }
 
     var hasCompleteMediaEvidence: Bool {
-        Self.isComplete(self.audioState) && Self.isComplete(self.locationState)
+        Self.isComplete(self.audioState, fingerprint: self.audioFingerprint)
+            && Self.isComplete(self.locationState, fingerprint: self.locationFingerprint)
     }
 
-    private static func isComplete(_ state: WatchCaptureSourceMediaState) -> Bool {
+    var hasCompleteSourceEvidence: Bool {
+        self.manifestFingerprint.map {
+            $0.byteCount == Int64(self.manifestData.count) && $0.modificationDate != nil
+        } == true && self.hasCompleteMediaEvidence
+    }
+
+    private static func isComplete(
+        _ state: WatchCaptureSourceMediaState,
+        fingerprint: WatchCaptureStorageFileFingerprint?
+    ) -> Bool {
         switch state {
-        case .missing, .zeroLength, .readableNonempty:
-            true
+        case .missing:
+            fingerprint == nil
+        case .zeroLength:
+            fingerprint?.byteCount == 0 && fingerprint?.modificationDate != nil
+        case .readableNonempty:
+            fingerprint.map { $0.byteCount > 0 && $0.modificationDate != nil } == true
         case .directoryShaped, .unreadable:
             false
         }
@@ -206,6 +223,7 @@ nonisolated enum WatchCaptureStorageConflict: Error, Equatable, Sendable {
     case contentWitnessChanged(id: WatchCaptureCatalogEntryID)
     case staleAcknowledgementReplacement(id: UUID, expected: WatchCaptureCatalogEntryID, found: WatchCaptureCatalogEntryID?)
     case relayReceiptUnexpectedShape(id: WatchCaptureCatalogEntryID)
+    case relayBundleUnexpectedShape(id: WatchCaptureCatalogEntryID)
 }
 
 nonisolated struct WatchCaptureLocationLogFinalizedStats: Equatable, Sendable {
@@ -236,6 +254,30 @@ nonisolated enum WatchRelayBundleDisposition: Equatable, Sendable {
     case rebuilt
 }
 
+nonisolated struct WatchRelayWholeFileReadAccounting: Equatable, Sendable {
+    var count = 0
+    var byteCount = 0
+
+    mutating func record(byteCount: Int) {
+        self.count += 1
+        self.byteCount += byteCount
+    }
+}
+
+nonisolated private final class WatchRelayWholeFileReadRecorder: Sendable {
+    private let accounting = OSAllocatedUnfairLock(
+        initialState: WatchRelayWholeFileReadAccounting()
+    )
+
+    func record(byteCount: Int) {
+        self.accounting.withLock { $0.record(byteCount: byteCount) }
+    }
+
+    func snapshot() -> WatchRelayWholeFileReadAccounting {
+        self.accounting.withLock { $0 }
+    }
+}
+
 nonisolated struct WatchRelayTransferPreparation: Sendable {
     let bundleURL: URL
     let manifest: WatchSegmentManifest
@@ -245,6 +287,15 @@ nonisolated struct WatchRelayTransferPreparation: Sendable {
     let receiptPersistenceFailed: Bool
     let attemptCleanupFailed: Bool
     let attemptFailure: WatchConnectivityTransferFailureSnapshot?
+    let wholeFileReads: WatchRelayWholeFileReadAccounting
+}
+
+nonisolated private struct WatchRelayBundleReuseCheck: Sendable {
+    let canReuse: Bool
+}
+
+nonisolated private struct WatchRelaySourceRevalidation: Sendable {
+    let matches: Bool
 }
 
 nonisolated enum WatchCaptureStorageTransactionClass: Sendable {
@@ -782,8 +833,26 @@ actor WatchCaptureStorageActor {
         bundleURL: URL,
         attempt: WatchRelayAttemptRecord
     ) async throws -> WatchRelayTransferPreparation {
-        try await self.withTransaction(transactionClass: .maintenance) {
-            let current = try await self.currentRelayEntry(entry, boundary: .relayBundleWrite)
+        return try await self.withTransaction(transactionClass: .maintenance) {
+            let ioInvocation = self.storageSignposter.begin(.relayBundlePreparation)
+            let wholeFileReads = WatchRelayWholeFileReadRecorder()
+            var ioResult = RelayResult.failed
+            defer {
+                let accounting = wholeFileReads.snapshot()
+                self.storageSignposter.end(
+                    ioInvocation,
+                    fields: WatchSignpostFields(
+                        result: ioResult,
+                        wholeFileReadCount: accounting.count,
+                        wholeFileReadByteCount: accounting.byteCount
+                    )
+                )
+            }
+            let current = try await self.currentRelayEntry(
+                entry,
+                boundary: .relayBundleWrite,
+                wholeFileReads: wholeFileReads
+            )
             try self.withSynchronousActorWork(.relayBundleWrite) {
                 guard current.manifest.state == .transferring else {
                     throw self.staleState(entry, expected: .transferring, actual: current.manifest.state)
@@ -803,20 +872,22 @@ actor WatchCaptureStorageActor {
                 throw WatchCaptureStorageConflict.relayReceiptUnexpectedShape(id: current.id)
             }
             switch receiptKind {
-            case .directory, .symlink:
+            case .directory, .symlink, .other:
                 throw WatchCaptureStorageConflict.relayReceiptUnexpectedShape(id: current.id)
             case .file, .missing:
                 break
             }
 
             if receiptKind == .file {
-                let reused = await self.canReuseRelayBundle(
+                let reuse = await self.canReuseRelayBundle(
                     receiptURL: receiptURL,
                     bundleURL: bundleURL,
                     sourceWitness: startWitness,
-                    expectedSegmentID: current.manifest.id
+                    expectedSegmentID: current.manifest.id,
+                    wholeFileReads: wholeFileReads
                 )
-                if reused {
+                if reuse.canReuse {
+                    ioResult = .cached
                     return try await self.persistRelayAttempt(
                         bundleURL: bundleURL,
                         manifest: current.manifest,
@@ -824,41 +895,72 @@ actor WatchCaptureStorageActor {
                         directoryURL: current.directoryURL,
                         disposition: .reused,
                         bundleCleanupFailed: false,
-                        receiptPersistenceFailed: false
+                        receiptPersistenceFailed: false,
+                        wholeFileReads: wholeFileReads.snapshot()
                     )
                 }
+                let invalidationKind: WatchCaptureStorageItemKind
                 do {
-                    try await self.fileWriter.removeItem(at: receiptURL)
+                    invalidationKind = try await self.fileWriter.itemKind(at: receiptURL)
                 } catch {
-                    throw error
+                    throw WatchCaptureStorageConflict.relayReceiptUnexpectedShape(id: current.id)
                 }
-                self.bumpRelevantMutationGeneration()
+                switch invalidationKind {
+                case .missing:
+                    break
+                case .file:
+                    try await self.fileWriter.removeItem(at: receiptURL)
+                    self.bumpRelevantMutationGeneration()
+                case .directory, .symlink, .other:
+                    throw WatchCaptureStorageConflict.relayReceiptUnexpectedShape(id: current.id)
+                }
             }
 
             var bundleCleanupFailed = false
-            let bundleKind = try? await self.fileWriter.itemKind(at: bundleURL)
-            if bundleKind != .missing {
+            let bundleKind: WatchCaptureStorageItemKind
+            do {
+                bundleKind = try await self.fileWriter.itemKind(at: bundleURL)
+            } catch {
+                throw WatchCaptureStorageConflict.relayBundleUnexpectedShape(id: current.id)
+            }
+            switch bundleKind {
+            case .missing:
+                break
+            case .file:
                 do {
                     try await self.fileWriter.removeItem(at: bundleURL)
                 } catch {
                     bundleCleanupFailed = true
                 }
+            case .directory, .symlink, .other:
+                throw WatchCaptureStorageConflict.relayBundleUnexpectedShape(id: current.id)
             }
 
             let bundleData = try await self.relayBundleData(
                 for: current,
                 manifestData: heldManifestData,
-                boundary: .relayBundleWrite
+                boundary: .relayBundleWrite,
+                wholeFileReads: wholeFileReads
             )
-            try await self.revalidateRelaySource(
+            let prewriteValidation = await self.revalidateRelaySource(
                 directoryURL: current.directoryURL,
                 expectedWitness: startWitness,
-                rereadManifest: false,
-                id: current.id,
                 boundary: .relayBundleWrite
             )
+            guard prewriteValidation.matches else {
+                throw WatchCaptureStorageConflict.contentWitnessChanged(id: current.id)
+            }
             try await self.fileWriter.writeData(bundleData, to: bundleURL, options: .atomic)
             self.bumpRelevantMutationGeneration()
+
+            let postwriteValidation = await self.revalidateRelaySource(
+                directoryURL: current.directoryURL,
+                expectedWitness: startWitness,
+                boundary: .relayBundleWrite
+            )
+            guard postwriteValidation.matches else {
+                throw WatchCaptureStorageConflict.contentWitnessChanged(id: current.id)
+            }
 
             var receiptPersistenceFailed = false
             let bundleFingerprint: WatchCaptureStorageFileFingerprint?
@@ -868,41 +970,35 @@ actor WatchCaptureStorageActor {
                 bundleFingerprint = nil
                 receiptPersistenceFailed = true
             }
-            if bundleFingerprint == nil {
+            let prepublicationValidation = await self.revalidateRelaySource(
+                directoryURL: current.directoryURL,
+                expectedWitness: startWitness,
+                boundary: .relayBundleWrite
+            )
+            guard prepublicationValidation.matches else {
+                throw WatchCaptureStorageConflict.contentWitnessChanged(id: current.id)
+            }
+            if bundleFingerprint?.modificationDate == nil {
                 receiptPersistenceFailed = true
             }
             if let bundleFingerprint, receiptPersistenceFailed == false {
-                let stillMatches: Bool
                 do {
-                    try await self.revalidateRelaySource(
-                        directoryURL: current.directoryURL,
-                        expectedWitness: startWitness,
-                        rereadManifest: true,
-                        id: current.id,
-                        boundary: .relayBundleWrite
-                    )
-                    stillMatches = true
-                } catch {
-                    stillMatches = false
-                }
-                if stillMatches {
-                    do {
-                        let receiptData = try self.withSynchronousActorWork(.relayBundleWrite) {
-                            try WatchRelayBundleReceipt.makeEncoder().encode(
-                                WatchRelayBundleReceipt(
-                                    segmentID: current.manifest.id,
-                                    source: startWitness,
-                                    bundle: bundleFingerprint
-                                )
+                    let receiptData = try self.withSynchronousActorWork(.relayBundleWrite) {
+                        try WatchRelayBundleReceipt.makeEncoder().encode(
+                            WatchRelayBundleReceipt(
+                                segmentID: current.manifest.id,
+                                source: startWitness,
+                                bundle: bundleFingerprint
                             )
-                        }
-                        try await self.fileWriter.writeData(receiptData, to: receiptURL, options: .atomic)
-                    } catch {
-                        receiptPersistenceFailed = true
+                        )
                     }
+                    try await self.fileWriter.writeData(receiptData, to: receiptURL, options: .atomic)
+                } catch {
+                    receiptPersistenceFailed = true
                 }
             }
 
+            ioResult = bundleCleanupFailed || receiptPersistenceFailed ? .partial : .completed
             return try await self.persistRelayAttempt(
                 bundleURL: bundleURL,
                 manifest: current.manifest,
@@ -910,7 +1006,8 @@ actor WatchCaptureStorageActor {
                 directoryURL: current.directoryURL,
                 disposition: .rebuilt,
                 bundleCleanupFailed: bundleCleanupFailed,
-                receiptPersistenceFailed: receiptPersistenceFailed
+                receiptPersistenceFailed: receiptPersistenceFailed,
+                wholeFileReads: wholeFileReads.snapshot()
             )
         }
     }
@@ -1624,7 +1721,7 @@ actor WatchCaptureStorageActor {
             for mediaURL in mediaURLs {
                 do {
                     switch try await self.fileWriter.itemKind(at: mediaURL) {
-                    case .directory, .symlink:
+                    case .directory, .symlink, .other:
                         issues.append(self.issue(
                             .unexpectedShape,
                             namespace: "\(namespace)/\(mediaURL.lastPathComponent)"
@@ -1667,11 +1764,21 @@ actor WatchCaptureStorageActor {
 
     private func currentRelayEntry(
         _ expected: WatchCaptureCatalogEntry,
-        boundary: WatchSignpostBoundary
+        boundary: WatchSignpostBoundary,
+        wholeFileReads: WatchRelayWholeFileReadRecorder? = nil
     ) async throws -> WatchCaptureCatalogEntry {
         let manifestURL = self.withSynchronousActorWork(boundary) { expected.manifestURL }
-        guard await self.fileWriter.fileExists(at: manifestURL),
+        guard let fingerprintBeforeRead = try? await self.fileWriter.fileFingerprint(at: manifestURL),
+              fingerprintBeforeRead.modificationDate != nil,
               let manifestData = try? await self.fileWriter.readData(from: manifestURL)
+        else {
+            throw WatchCaptureStorageConflict.contentWitnessChanged(id: expected.id)
+        }
+        wholeFileReads?.record(byteCount: manifestData.count)
+        guard let manifestFingerprint = try? await self.fileWriter.fileFingerprint(at: manifestURL),
+              manifestFingerprint == fingerprintBeforeRead,
+              manifestFingerprint.byteCount == Int64(manifestData.count),
+              manifestFingerprint.modificationDate != nil
         else {
             throw WatchCaptureStorageConflict.contentWitnessChanged(id: expected.id)
         }
@@ -1687,6 +1794,7 @@ actor WatchCaptureStorageActor {
         }
         let witness = await self.contentWitness(
             manifestData: manifestData,
+            manifestFingerprint: manifestFingerprint,
             directoryURL: expected.directoryURL,
             boundary: boundary
         )
@@ -1716,8 +1824,8 @@ actor WatchCaptureStorageActor {
         _ current: WatchCaptureCatalogEntry,
         against expected: WatchCaptureCatalogEntry
     ) throws {
-        guard current.witness.hasCompleteMediaEvidence,
-              expected.witness.hasCompleteMediaEvidence,
+        guard current.witness.hasCompleteSourceEvidence,
+              expected.witness.hasCompleteSourceEvidence,
               current.witness == expected.witness
         else {
             throw WatchCaptureStorageConflict.contentWitnessChanged(id: expected.id)
@@ -1753,7 +1861,8 @@ actor WatchCaptureStorageActor {
     private func relayBundleData(
         for entry: WatchCaptureCatalogEntry,
         manifestData: Data,
-        boundary: WatchSignpostBoundary
+        boundary: WatchSignpostBoundary,
+        wholeFileReads: WatchRelayWholeFileReadRecorder
     ) async throws -> Data {
         var files: [String: Data] = [:]
         try self.withSynchronousActorWork(boundary) {
@@ -1766,15 +1875,29 @@ actor WatchCaptureStorageActor {
         let audioURL = self.withSynchronousActorWork(boundary) {
             self.paths.audioURL(directory: entry.directoryURL)
         }
-        if await self.fileWriter.fileExists(at: audioURL) {
-            files[WatchSegmentBundleCodec.audioFilename] = try await self.fileWriter.readData(from: audioURL)
+        switch entry.witness.audioState {
+        case .missing:
+            break
+        case .zeroLength, .readableNonempty:
+            let audioData = try await self.fileWriter.readData(from: audioURL)
+            files[WatchSegmentBundleCodec.audioFilename] = audioData
+            wholeFileReads.record(byteCount: audioData.count)
+        case .directoryShaped, .unreadable:
+            throw WatchCaptureStorageConflict.contentWitnessChanged(id: entry.id)
         }
 
         let locationURL = self.withSynchronousActorWork(boundary) {
             self.paths.locationURL(directory: entry.directoryURL)
         }
-        if await self.fileWriter.fileExists(at: locationURL) {
-            files[WatchSegmentBundleCodec.locationFilename] = try await self.fileWriter.readData(from: locationURL)
+        switch entry.witness.locationState {
+        case .missing:
+            break
+        case .zeroLength, .readableNonempty:
+            let locationData = try await self.fileWriter.readData(from: locationURL)
+            files[WatchSegmentBundleCodec.locationFilename] = locationData
+            wholeFileReads.record(byteCount: locationData.count)
+        case .directoryShaped, .unreadable:
+            throw WatchCaptureStorageConflict.contentWitnessChanged(id: entry.id)
         }
 
         return try self.withSynchronousActorWork(boundary) {
@@ -1788,20 +1911,29 @@ actor WatchCaptureStorageActor {
 
     private func contentWitness(
         manifestData: Data,
+        manifestFingerprint suppliedManifestFingerprint: WatchCaptureStorageFileFingerprint? = nil,
         directoryURL: URL,
         boundary: WatchSignpostBoundary
     ) async -> WatchCaptureContentWitness {
         let urls = self.withSynchronousActorWork(boundary) {
             (
+                self.paths.manifestURL(directory: directoryURL),
                 self.paths.audioURL(directory: directoryURL),
                 self.paths.locationURL(directory: directoryURL)
             )
         }
-        let audio = await self.sourceMediaEvidence(at: urls.0)
-        let location = await self.sourceMediaEvidence(at: urls.1)
+        let manifestFingerprint: WatchCaptureStorageFileFingerprint?
+        if let suppliedManifestFingerprint {
+            manifestFingerprint = suppliedManifestFingerprint
+        } else {
+            manifestFingerprint = try? await self.fileWriter.fileFingerprint(at: urls.0)
+        }
+        let audio = await self.sourceMediaEvidence(at: urls.1)
+        let location = await self.sourceMediaEvidence(at: urls.2)
         return self.withSynchronousActorWork(boundary) {
             WatchCaptureContentWitness(
                 manifestData: manifestData,
+                manifestFingerprint: manifestFingerprint,
                 audioState: audio.state,
                 audioFingerprint: audio.fingerprint,
                 locationState: location.state,
@@ -1822,7 +1954,7 @@ actor WatchCaptureStorageActor {
         switch kind {
         case .missing:
             return (.missing, nil)
-        case .directory:
+        case .directory, .other:
             return (.directoryShaped, nil)
         case .symlink:
             return (.unreadable, nil)
@@ -1831,7 +1963,10 @@ actor WatchCaptureStorageActor {
         }
         do {
             let byteCount = try await self.fileWriter.fileSize(at: url)
-            guard let fingerprint = try await self.fileWriter.fileFingerprint(at: url) else {
+            guard let fingerprint = try await self.fileWriter.fileFingerprint(at: url),
+                  fingerprint.byteCount == byteCount,
+                  fingerprint.modificationDate != nil
+            else {
                 return (.unreadable, nil)
             }
             if byteCount == 0 {
@@ -1847,64 +1982,53 @@ actor WatchCaptureStorageActor {
         receiptURL: URL,
         bundleURL: URL,
         sourceWitness: WatchCaptureContentWitness,
-        expectedSegmentID: UUID
-    ) async -> Bool {
-        guard let receiptData = try? await self.fileWriter.readData(from: receiptURL),
-              let receipt = try? WatchRelayBundleReceipt.makeDecoder().decode(
+        expectedSegmentID: UUID,
+        wholeFileReads: WatchRelayWholeFileReadRecorder
+    ) async -> WatchRelayBundleReuseCheck {
+        guard let receiptData = try? await self.fileWriter.readData(from: receiptURL) else {
+            return WatchRelayBundleReuseCheck(canReuse: false)
+        }
+        wholeFileReads.record(byteCount: receiptData.count)
+        guard let receipt = try? WatchRelayBundleReceipt.makeDecoder().decode(
                 WatchRelayBundleReceipt.self,
                 from: receiptData
               ),
               receipt.version == WatchRelayBundleReceipt.currentVersion,
               receipt.segmentID == expectedSegmentID,
+              receipt.source.hasCompleteSourceEvidence,
               receipt.source == sourceWitness,
               receipt.bundle.modificationDate != nil
         else {
-            return false
+            return WatchRelayBundleReuseCheck(canReuse: false)
         }
         let bundleKind: WatchCaptureStorageItemKind
         do {
             bundleKind = try await self.fileWriter.itemKind(at: bundleURL)
         } catch {
-            return false
+            return WatchRelayBundleReuseCheck(canReuse: false)
         }
         guard bundleKind == .file,
               let liveFingerprint = try? await self.fileWriter.fileFingerprint(at: bundleURL),
               liveFingerprint == receipt.bundle
         else {
-            return false
+            return WatchRelayBundleReuseCheck(canReuse: false)
         }
-        return true
+        return WatchRelayBundleReuseCheck(canReuse: true)
     }
 
     private func revalidateRelaySource(
         directoryURL: URL,
         expectedWitness: WatchCaptureContentWitness,
-        rereadManifest: Bool,
-        id: WatchCaptureCatalogEntryID,
         boundary: WatchSignpostBoundary
-    ) async throws {
-        let manifestData: Data
-        if rereadManifest {
-            let manifestURL = self.withSynchronousActorWork(boundary) {
-                self.paths.manifestURL(directory: directoryURL)
-            }
-            guard await self.fileWriter.fileExists(at: manifestURL),
-                  let fresh = try? await self.fileWriter.readData(from: manifestURL)
-            else {
-                throw WatchCaptureStorageConflict.contentWitnessChanged(id: id)
-            }
-            manifestData = fresh
-        } else {
-            manifestData = expectedWitness.manifestData
-        }
+    ) async -> WatchRelaySourceRevalidation {
         let live = await self.contentWitness(
-            manifestData: manifestData,
+            manifestData: expectedWitness.manifestData,
             directoryURL: directoryURL,
             boundary: boundary
         )
-        guard live.hasCompleteMediaEvidence, live == expectedWitness else {
-            throw WatchCaptureStorageConflict.contentWitnessChanged(id: id)
-        }
+        return WatchRelaySourceRevalidation(
+            matches: live.hasCompleteSourceEvidence && live == expectedWitness
+        )
     }
 
     private func persistRelayAttempt(
@@ -1914,7 +2038,8 @@ actor WatchCaptureStorageActor {
         directoryURL: URL,
         disposition: WatchRelayBundleDisposition,
         bundleCleanupFailed: Bool,
-        receiptPersistenceFailed: Bool
+        receiptPersistenceFailed: Bool,
+        wholeFileReads: WatchRelayWholeFileReadAccounting
     ) async throws -> WatchRelayTransferPreparation {
         let attemptURL = self.withSynchronousActorWork(.relayAttemptPersistence) {
             directoryURL.appendingPathComponent(WatchRelayAttemptRecord.filename, isDirectory: false)
@@ -1936,7 +2061,8 @@ actor WatchCaptureStorageActor {
                 bundleCleanupFailed: bundleCleanupFailed,
                 receiptPersistenceFailed: receiptPersistenceFailed,
                 attemptCleanupFailed: false,
-                attemptFailure: nil
+                attemptFailure: nil,
+                wholeFileReads: wholeFileReads
             )
         } catch {
             let failure = self.withSynchronousActorWork(.relayAttemptPersistence) {
@@ -1956,7 +2082,8 @@ actor WatchCaptureStorageActor {
                 bundleCleanupFailed: bundleCleanupFailed,
                 receiptPersistenceFailed: receiptPersistenceFailed,
                 attemptCleanupFailed: attemptCleanupFailed,
-                attemptFailure: failure
+                attemptFailure: failure,
+                wholeFileReads: wholeFileReads
             )
         }
     }

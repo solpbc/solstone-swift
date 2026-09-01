@@ -76,6 +76,7 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
     case relayCleanupScan
     case relayQueueReconciliation
     case relaySegmentTransition
+    case relayBundlePreparation
     case relayBundleWrite
     case relayAttemptPersistence
     case relayDiagnosticsPersistence
@@ -139,6 +140,8 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
             "watch.relay_queue_reconciliation"
         case .relaySegmentTransition:
             "watch.relay_segment_transition"
+        case .relayBundlePreparation:
+            "watch.relay_bundle_preparation"
         case .relayBundleWrite:
             "watch.relay_bundle_write"
         case .relayAttemptPersistence:
@@ -190,6 +193,8 @@ nonisolated struct WatchSignpostFields: Equatable, Sendable {
     var usedFallback: Bool?
     var retainedObservationCount: Int?
     var encodedByteCount: Int?
+    var wholeFileReadCount: Int?
+    var wholeFileReadByteCount: Int?
 
     init(
         trigger: RelayTrigger? = nil,
@@ -201,7 +206,9 @@ nonisolated struct WatchSignpostFields: Equatable, Sendable {
         failureCount: Int? = nil,
         usedFallback: Bool? = nil,
         retainedObservationCount: Int? = nil,
-        encodedByteCount: Int? = nil
+        encodedByteCount: Int? = nil,
+        wholeFileReadCount: Int? = nil,
+        wholeFileReadByteCount: Int? = nil
     ) {
         self.trigger = trigger
         self.result = result
@@ -213,6 +220,8 @@ nonisolated struct WatchSignpostFields: Equatable, Sendable {
         self.usedFallback = usedFallback
         self.retainedObservationCount = retainedObservationCount
         self.encodedByteCount = encodedByteCount
+        self.wholeFileReadCount = wholeFileReadCount
+        self.wholeFileReadByteCount = wholeFileReadByteCount
     }
 
     var signpostDescription: String {
@@ -227,6 +236,8 @@ nonisolated struct WatchSignpostFields: Equatable, Sendable {
         if let usedFallback { parts.append("usedFallback=\(usedFallback)") }
         if let retainedObservationCount { parts.append("retainedObservationCount=\(retainedObservationCount)") }
         if let encodedByteCount { parts.append("encodedByteCount=\(encodedByteCount)") }
+        if let wholeFileReadCount { parts.append("wholeFileReadCount=\(wholeFileReadCount)") }
+        if let wholeFileReadByteCount { parts.append("wholeFileReadByteCount=\(wholeFileReadByteCount)") }
         return parts.joined(separator: " ")
     }
 }

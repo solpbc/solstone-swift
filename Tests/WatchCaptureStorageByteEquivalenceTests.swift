@@ -124,7 +124,7 @@ final class WatchCaptureStorageByteEquivalenceTests: XCTestCase {
         XCTAssertEqual(self.wholeReads(beforeWrite, path: seeded.locationPath), 1)
         XCTAssertEqual(self.wholeReads(events, path: seeded.bundlePath), 0)
         XCTAssertEqual(self.writes(events, path: seeded.bundlePath), 1)
-        XCTAssertEqual(self.wholeReads(afterWrite, path: seeded.manifestPath), 1)
+        XCTAssertEqual(self.wholeReads(afterWrite, path: seeded.manifestPath), 0)
         XCTAssertEqual(self.writes(events, path: seeded.receiptPath), 1)
         let decoded = try XCTUnwrap(
             PropertyListSerialization.propertyList(
@@ -805,6 +805,8 @@ private struct RecordingWatchFileWriter: WatchFileWriting {
                 return "directory"
             case .symlink:
                 return "symlink"
+            case .other:
+                return "other"
             }
         }) {
             try await self.base.itemKind(at: url)
