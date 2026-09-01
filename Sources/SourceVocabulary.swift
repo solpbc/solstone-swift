@@ -248,7 +248,7 @@ nonisolated enum SourceVocabulary {
     static let watchComplicationUnknownDetail = "open the solstone app on your watch"
     static let watchComplicationUnknownInline = "hasn't checked in"
     static let watchActivationFailedSubtext = "can't check your watch right now."
-    static let watchNoWatchPairedSubtext = "no watch paired with this iPhone."
+    static let watchNoWatchPairedSubtext = "no watch paired with this iphone."
     static let watchReadyToSetUpSubtext = "the solstone app can be on your watch. tap to set it up."
     static let watchInstalledNeverOpenedSubtext = "installed. now open the solstone app on your watch."
     static let watchReceivingNowSubtext = "receiving from your watch"
