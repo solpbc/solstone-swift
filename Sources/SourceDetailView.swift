@@ -274,7 +274,7 @@ private extension SourceDetailView {
     var buttonFill: Color {
         switch self.observerManager.state {
         case .error:
-            Color(.systemBackground)
+            Color.deckSurface
         case .idle, .starting, .active, .stopping:
             Color.solOrange
         }

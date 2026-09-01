@@ -106,7 +106,7 @@ struct InAppJournalView: View {
         case .loading:
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(.systemBackground).opacity(0.75))
+                .background(Color.deckGround.opacity(0.75))
         case .loaded:
             EmptyView()
         case .error(let message):
@@ -127,7 +127,7 @@ struct InAppJournalView: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemBackground))
+        .background(Color.deckGround)
     }
 
     private func retry() {
