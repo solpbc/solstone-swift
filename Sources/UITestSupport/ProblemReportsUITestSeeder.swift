@@ -50,7 +50,7 @@ enum ProblemReportsUITestSeeder {
                 try self.writeReport(
                     rootURL: rootURL,
                     id: Self.detailReportID,
-                    date: Date(timeIntervalSince1970: 1_780_480_800),
+                    date: Self.seedDate(minutesAgo: 2),
                     kind: .crash,
                     source: .diagnostic,
                     rawJSON: Self.crashJSON,
@@ -64,6 +64,19 @@ enum ProblemReportsUITestSeeder {
 }
 
 extension ProblemReportsUITestSeeder {
+    /// Fixture dates are relative to now, never absolute.
+    ///
+    /// ⚠ These were frozen at `2026-06-03` and `ProblemReportStore` prunes anything
+    /// older than `maxReportAge` (90 days) when it loads. On **2026-09-01** the
+    /// fixtures crossed that line mid-morning and every seeded-list test began
+    /// reading back an empty store — a green suite that turned red on a date, with
+    /// nothing in the diff to explain it. An absolute date in a fixture is an expiry
+    /// date; the store's own tests avoid this by injecting `now`, which this seeder
+    /// cannot because it runs inside the app under UI test.
+    static func seedDate(minutesAgo: Double) -> Date {
+        Date().addingTimeInterval(-minutesAgo * 60)
+    }
+
     static func seedMode(arguments: [String]) -> SeedMode? {
         guard let raw = arguments.first(where: { $0.hasPrefix(Self.seedPrefix) }) else { return nil }
         return SeedMode(rawValue: String(raw.dropFirst(Self.seedPrefix.count)))
@@ -80,7 +93,7 @@ extension ProblemReportsUITestSeeder {
         try self.writeReport(
             rootURL: rootURL,
             id: UUID(uuidString: "10000000-0000-0000-0000-000000000001")!,
-            date: Date(timeIntervalSince1970: 1_780_480_900),
+            date: Self.seedDate(minutesAgo: 1),
             kind: .crash,
             source: .diagnostic,
             rawJSON: Self.crashJSON,
@@ -89,7 +102,7 @@ extension ProblemReportsUITestSeeder {
         try self.writeReport(
             rootURL: rootURL,
             id: UUID(uuidString: "10000000-0000-0000-0000-000000000002")!,
-            date: Date(timeIntervalSince1970: 1_780_480_800),
+            date: Self.seedDate(minutesAgo: 2),
             kind: .appExit,
             source: .metric,
             rawJSON: Self.appExitJSON,
@@ -98,7 +111,7 @@ extension ProblemReportsUITestSeeder {
         try self.writeReport(
             rootURL: rootURL,
             id: UUID(uuidString: "10000000-0000-0000-0000-000000000003")!,
-            date: Date(timeIntervalSince1970: 1_780_480_700),
+            date: Self.seedDate(minutesAgo: 3),
             kind: .unknown("futureThermalDiagnostics"),
             source: .diagnostic,
             rawJSON: Self.unknownJSON,
