@@ -8,6 +8,9 @@ private let shelfLog = Logger(subsystem: "app.solstone.swift", category: "pairin
 
 struct ShelfPane: View {
     let presentation: ShellPanePresentation
+    /// Carried through so the `your journal` pane behind this list can show the full
+    /// mark card. The shelf *row* stays plain text (journal-mark.md section 7.5).
+    var journalMark: JournalMark? = nil
     let onOpenJournal: () -> Void
     var onDismiss: (() -> Void)? = nil
 
@@ -72,6 +75,7 @@ struct ShelfPane: View {
                 .navigationDestination(for: ShellDestination.self) { destination in
                     ShellDestinationView(
                         destination: destination,
+                        journalMark: self.journalMark,
                         onOpenJournal: self.onOpenJournal
                     )
                 }
@@ -208,6 +212,7 @@ struct ShelfPane: View {
 }
 
 struct JournalSettingsPane: View {
+    var journalMark: JournalMark? = nil
     let onOpenJournal: () -> Void
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
@@ -224,6 +229,14 @@ struct JournalSettingsPane: View {
 
     var body: some View {
         List {
+            Section {
+                JournalMarkView(mark: self.journalMark)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+
             Section {
                 Button(SourceVocabulary.openJournalLink) {
                     self.onOpenJournal()

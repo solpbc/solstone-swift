@@ -38,8 +38,8 @@ struct HomeSourceTile: View {
         } label: {
             VStack(alignment: .leading, spacing: 10) {
                 self.topLine
-                Spacer(minLength: 0)
                 self.caption
+                Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(ShellMetrics.tilePadding)
@@ -201,7 +201,6 @@ private struct HomeDestinationTile: View {
                         }
                     }
                     .accessibilityHidden(true)
-                Spacer(minLength: 0)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(self.title)
                         .font(ShellFont.tileName)
@@ -213,6 +212,7 @@ private struct HomeDestinationTile: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .accessibilityHidden(true)
+                Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(ShellMetrics.tilePadding)

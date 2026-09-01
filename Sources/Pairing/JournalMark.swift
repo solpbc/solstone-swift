@@ -161,56 +161,75 @@ private struct JournalMarkWordLine: View {
     }
 }
 
-private struct JournalMarkGenericChip: View {
+/// The no-identity-yet chip: same tile, dashed border, no glyph.
+/// journal-mark.md section 4.3. Parameterised by side for the same reason the
+/// identified chip is — one drawing, every surface.
+struct JournalMarkGenericChip: View {
     let hex: String
     let rotated: Bool
+    var side: CGFloat = MarkGeometry.size
 
     var body: some View {
-        let side = MarkGeometry.size
         let color = MarkGeometry.color(hex: self.hex)
-        RoundedRectangle(cornerRadius: MarkGeometry.chipRadius, style: .continuous)
+        let radius = MarkGeometry.chipRadius(side: self.side)
+        return RoundedRectangle(cornerRadius: radius, style: .continuous)
             .fill(color.opacity(JournalMarkGeneric.fillOpacity))
             .overlay {
-                RoundedRectangle(cornerRadius: MarkGeometry.chipRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .stroke(
                         color,
                         style: StrokeStyle(
-                            lineWidth: MarkGeometry.chipBorderWidth,
+                            lineWidth: MarkGeometry.chipBorderWidth(side: self.side),
                             dash: [
-                                JournalMarkGeneric.dashOn(side: side),
-                                JournalMarkGeneric.dashOff(side: side),
+                                JournalMarkGeneric.dashOn(side: self.side),
+                                JournalMarkGeneric.dashOff(side: self.side),
                             ]
                         )
                     )
             }
-            .frame(width: side, height: side)
+            .frame(width: self.side, height: self.side)
             .rotationEffect(.degrees(self.rotated ? 45 : 0))
     }
 }
 
-private struct JournalMarkIconChip: View {
+/// One chip: a tinted, bordered tile holding the stroked glyph.
+///
+/// journal-mark.md section 2.1. The 12% tint and the coloured border are what make a
+/// chip read as *a designed mark* rather than a stray icon, and the whole chip —
+/// fill, border and glyph together — rotates as one rigid unit at rot 45. The glyph
+/// is never counter-rotated.
+///
+/// ⚠ Used at every size the mark appears at. There was a second, bare-glyph
+/// implementation for the home pill, which is exactly how the pill came to render
+/// two floating outlines instead of the mark.
+struct JournalMarkIconChip: View {
     let icon: JournalMark.Icon
+    var side: CGFloat = MarkGeometry.size
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: MarkGeometry.chipRadius, style: .continuous)
-                .fill(MarkGeometry.color(hex: self.icon.color.hex).opacity(MarkGeometry.iconFillOpacity))
+        let tint = MarkGeometry.color(hex: self.icon.color.hex)
+        let radius = MarkGeometry.chipRadius(side: self.side)
+        return ZStack {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(tint.opacity(MarkGeometry.iconFillOpacity))
                 .overlay {
-                    RoundedRectangle(cornerRadius: MarkGeometry.chipRadius, style: .continuous)
-                        .stroke(MarkGeometry.chipBorder, lineWidth: MarkGeometry.chipBorderWidth)
+                    // The border carries the colour, not the card's neutral: section 2.1
+                    // calls it "the color's hard edge".
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .stroke(tint, lineWidth: MarkGeometry.chipBorderWidth(side: self.side))
                 }
 
             GeometryReader { proxy in
-                let side = min(proxy.size.width, proxy.size.height) * MarkGeometry.glyphScale
+                let glyph = min(proxy.size.width, proxy.size.height) * MarkGeometry.glyphScale
                 let rect = CGRect(
-                    x: (proxy.size.width - side) / 2,
-                    y: (proxy.size.height - side) / 2,
-                    width: side,
-                    height: side
+                    x: (proxy.size.width - glyph) / 2,
+                    y: (proxy.size.height - glyph) / 2,
+                    width: glyph,
+                    height: glyph
                 )
                 GlyphShape(svg: self.icon.svg)
                     .stroke(
-                        MarkGeometry.color(hex: self.icon.color.hex),
+                        tint,
                         style: StrokeStyle(
                             lineWidth: MarkGeometry.glyphLineWidth(for: rect),
                             lineCap: .round,
@@ -221,7 +240,7 @@ private struct JournalMarkIconChip: View {
                     .position(x: rect.midX, y: rect.midY)
             }
         }
-        .frame(width: MarkGeometry.size, height: MarkGeometry.size)
+        .frame(width: self.side, height: self.side)
         .rotationEffect(.degrees(self.icon.rot == 45 ? 45 : 0))
     }
 }
@@ -234,13 +253,22 @@ private struct GlyphShape: Shape {
     }
 }
 
-private enum MarkGeometry {
+enum MarkGeometry {
     static let size: CGFloat = 64
     static let chipRadius: CGFloat = size * 0.25
     static let chipBorderWidth: CGFloat = 2
     static let iconFillOpacity = 0.12
     static let glyphScale: CGFloat = 0.58
     static let iconGap: CGFloat = size * 0.23
+
+    /// Every chip ratio is defined against its own side, so the pill-sized chip and
+    /// the card-sized chip are the same mark at two scales rather than two drawings.
+    /// journal-mark.md section 5: radius 0.25 x side, glyph 0.58 x side, gap 0.23 x side.
+    static func chipRadius(side: CGFloat) -> CGFloat { side * 0.25 }
+    static func glyphSide(side: CGFloat) -> CGFloat { side * Self.glyphScale }
+    static func iconGap(side: CGFloat) -> CGFloat { side * 0.23 }
+    /// The 2 pt border is fixed at or below the 64 pt baseline and scales above it.
+    static func chipBorderWidth(side: CGFloat) -> CGFloat { max(1, min(2, side / 32)) }
     static let verticalGap: CGFloat = 10
     static let wordFontSize: CGFloat = 19
     static let cardRadius: CGFloat = 12

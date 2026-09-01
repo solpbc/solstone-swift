@@ -143,10 +143,14 @@ struct ShellDestinationView: View {
         case .shelf:
             ShelfPane(
                 presentation: .detail,
+                journalMark: self.journalMark,
                 onOpenJournal: { self.openJournal() }
             )
         case .shelfJournal:
-            JournalSettingsPane(onOpenJournal: { self.openJournal() })
+            JournalSettingsPane(
+                journalMark: self.journalMark,
+                onOpenJournal: { self.openJournal() }
+            )
         case .shelfThisDevice:
             ThisDevicePane()
         case .shelfNotifications:

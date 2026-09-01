@@ -3,81 +3,54 @@
 
 import SwiftUI
 
+/// The mark's chip pair at pill size.
+///
+/// ⚠ This drew its own bare, unfilled glyph outlines until 2026-09-01 — no tile, no
+/// tint, no border — so the home pill showed two floating strokes that did not read
+/// as the owner's mark at all. [`journal-mark.md`](journal-mark.md) § 2.1 is explicit
+/// that a chip is *a tinted, bordered tile holding the stroked glyph*, and names the
+/// 12% tint as the thing that makes it "a designed mark, not a stray icon."
+///
+/// ✅ It now renders `JournalMarkIconChip` — the same drawing the full card uses, at a
+/// smaller side. One renderer is the point: two implementations of one mark is how
+/// the pill drifted from the card in the first place.
 struct JournalMarkCompactChips: View {
     let mark: JournalMark
-    private let size: CGFloat = 18
+    /// Pill scale. Every ratio in § 5 is relative to the side, so the mark holds its
+    /// proportions here exactly as it does on the card.
+    @ScaledMetric(relativeTo: .subheadline) private var side: CGFloat = 22
 
     var body: some View {
-        HStack(spacing: 4) {
-            self.chip(self.mark.icon1)
-            self.chip(self.mark.icon2)
+        HStack(spacing: MarkGeometry.iconGap(side: self.side)) {
+            JournalMarkIconChip(icon: self.mark.icon1, side: self.side)
+            JournalMarkIconChip(icon: self.mark.icon2, side: self.side)
         }
+        // A rot-45 chip's corners swing outside its own square frame; give the pair
+        // room so the diamond is not clipped against its neighbour or the pill.
+        .padding(.horizontal, self.side * 0.2)
         .accessibilityHidden(true)
-    }
-
-    private func chip(_ icon: JournalMark.Icon) -> some View {
-        CompactGlyphShape(svg: icon.svg)
-            .stroke(
-                Self.markTint(hex: icon.color.hex),
-                style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round)
-            )
-            .frame(width: self.size, height: self.size)
-            .rotationEffect(.degrees(icon.rot == 45 ? 45 : 0))
-    }
-
-    static func markTint(hex: String) -> Color {
-        let trimmed = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        guard trimmed.count == 6, let value = Int(trimmed, radix: 16) else {
-            return .primary
-        }
-        return Color(
-            red: Double((value >> 16) & 0xff) / 255.0,
-            green: Double((value >> 8) & 0xff) / 255.0,
-            blue: Double(value & 0xff) / 255.0
-        )
     }
 }
 
-/// The generic mark at pill size: two dashed chips, no glyphs.
-///
-/// The shell contract makes the generic mark the org-wide no-journal-yet treatment
-/// and puts it on the home pill, but the pill had been rendering no chips at all when
-/// there was no mark to draw — so the one place identity lives went blank exactly
-/// when an owner most needs to see that a journal is missing. Same two colours and
-/// the same dashed outline as the full card, sized for the pill.
+/// The generic mark's chip pair at pill size — same tile, dashed border, no glyph.
+/// [`journal-mark.md`](journal-mark.md) § 4.3.
 struct JournalMarkCompactGenericChips: View {
-    private let size: CGFloat = 18
+    @ScaledMetric(relativeTo: .subheadline) private var side: CGFloat = 22
 
     var body: some View {
-        HStack(spacing: 4) {
-            self.chip(hex: JournalMarkGeneric.orangeHex, rotated: false)
-            self.chip(hex: JournalMarkGeneric.goldHex, rotated: true)
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func chip(hex: String, rotated: Bool) -> some View {
-        let color = JournalMarkCompactChips.markTint(hex: hex)
-        return RoundedRectangle(cornerRadius: 4, style: .continuous)
-            .stroke(
-                color,
-                style: StrokeStyle(
-                    lineWidth: 1.25,
-                    dash: [
-                        JournalMarkGeneric.dashOn(side: self.size),
-                        JournalMarkGeneric.dashOff(side: self.size),
-                    ]
-                )
+        HStack(spacing: MarkGeometry.iconGap(side: self.side)) {
+            JournalMarkGenericChip(
+                hex: JournalMarkGeneric.orangeHex,
+                rotated: false,
+                side: self.side
             )
-            .frame(width: self.size, height: self.size)
-            .rotationEffect(.degrees(rotated ? 45 : 0))
-    }
-}
-
-private struct CompactGlyphShape: Shape {
-    let svg: String
-
-    func path(in rect: CGRect) -> Path {
-        GlyphParser.parse(innerMarkup: self.svg, in: rect) ?? Path()
+            JournalMarkGenericChip(
+                hex: JournalMarkGeneric.goldHex,
+                rotated: true,
+                side: self.side
+            )
+        }
+        .padding(.horizontal, self.side * 0.2)
+        .accessibilityHidden(true)
     }
 }
