@@ -36,37 +36,16 @@ struct ShelfPane: View {
     }
 
     private var phoneDrawer: some View {
-        GeometryReader { geometry in
-            Group {
-                if self.isCompactHeight {
-                    self.phonePanel
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color.deckGround)
-                } else {
-                    let panelWidth = min(geometry.size.width - 24, 320)
-                    HStack(spacing: 0) {
-                        self.phonePanel
-                            .frame(width: panelWidth)
-                            .frame(maxHeight: .infinity, alignment: .leading)
-                            .background(Color.deckGround)
-                            .clipped()
-                            .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                        Color.black.opacity(0.24)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .allowsHitTesting(true)
-                            .accessibilityHidden(true)
-                    }
-                }
-            }
+        self.phonePanel
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .background(Color.deckGround.ignoresSafeArea())
             .accessibilityAddTraits(.isModal)
             .accessibilityIdentifier("shell.pane.shelf")
-        }
-        .accessibilityAction(.escape) {
-            self.dismissOneLevel()
-        }
-        .onAppear { self.headingFocused = true }
-        .unpairThisDeviceAlert(isPresented: self.$showingUnpairConfirm)
+            .accessibilityAction(.escape) {
+                self.dismissOneLevel()
+            }
+            .onAppear { self.headingFocused = true }
+            .unpairThisDeviceAlert(isPresented: self.$showingUnpairConfirm)
     }
 
     private var phonePanel: some View {
@@ -82,24 +61,24 @@ struct ShelfPane: View {
         }
     }
 
+    /// ⛔ **No close button on the phone drawer, deliberately.** The dimmed shell beside
+    /// it is the way back, and that is the one gesture every owner already has. The
+    /// previous build put a *filled capsule* labelled `done` in the bar, which reads as
+    /// a primary action — the loudest control on the surface was the one for leaving
+    /// it. Dismissal is: tap the shell, swipe the panel left, or the escape action.
     private var pane: some View {
         self.shelfContent
-            .navigationTitle(self.headingString)
+            .navigationTitle(self.presentation.isPhoneModal ? "" : self.headingString)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if self.presentation.isPhoneModal {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("done") {
-                            self.onDismiss?()
-                        }
+                if !self.presentation.isPhoneModal {
+                    ToolbarItem(placement: .principal) {
+                        Text(self.headingString)
+                            .font(ShellFont.sectionTitle)
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("shell.pane.shelf.heading")
+                            .accessibilityFocused(self.$headingFocused)
                     }
-                }
-                ToolbarItem(placement: .principal) {
-                    Text(self.headingString)
-                        .font(ShellFont.sectionTitle)
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("shell.pane.shelf.heading")
-                        .accessibilityFocused(self.$headingFocused)
                 }
                 if self.isCompactHeight, self.appConfig.isPaired {
                     ToolbarItem(placement: .topBarLeading) {
@@ -117,22 +96,76 @@ struct ShelfPane: View {
             }
     }
 
+    /// The panel's own heading, in the panel rather than in a bar.
+    ///
+    /// A drawer has no navigation bar to belong to, and borrowing one gave the surface
+    /// a centred inline title with a button crowding it. Left-aligned and large is what
+    /// a settings surface looks like on this platform.
+    private var panelHeading: some View {
+        Text(self.headingString)
+            .font(ShellFont.display(28, relativeTo: .largeTitle))
+            .foregroundStyle(.primary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, ShelfMetrics.panelPadding)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("shell.pane.shelf.heading")
+            .accessibilityFocused(self.$headingFocused)
+    }
+
     @ViewBuilder
     private var shelfContent: some View {
         if self.isCompactHeight {
             ScrollView {
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12),
-                    ],
-                    spacing: 12
-                ) {
-                    self.shelfRows
+                VStack(alignment: .leading, spacing: 0) {
+                    // Landscape gets the heading too. The drawer has no navigation bar
+                    // to carry one, and it is the surface's only standing name — the
+                    // shell contract requires every pane to have one.
+                    if self.presentation.isPhoneModal {
+                        self.panelHeading
+                    }
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12),
+                        ],
+                        spacing: 12
+                    ) {
+                        self.shelfRows
+                    }
+                    .padding()
                 }
-                .padding()
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.deckGround)
             .accessibilityIdentifier("shell.pane.shelf.panel")
+        } else if self.presentation.isPhoneModal {
+            // The drawer: rows on the panel's own ground. ⛔ No inset card and no
+            // per-row separators — a card inside a panel inside a dimmed shell is
+            // three surfaces to say one thing, and the rows already read as a list.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    self.panelHeading
+                    self.shelfRows
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 8)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            // The NavigationStack this sits in paints `systemBackground` over any
+            // `.background()` applied outside it, which is why the panel came out
+            // white instead of the shell's own ground.
+            .scrollContentBackground(.hidden)
+            .background(Color.deckGround)
+            .accessibilityIdentifier("shell.pane.shelf.panel")
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // Width of this strip is the panel width, not the modal overlay.
+                Text("\u{200B}")
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 1)
+                    .accessibilityIdentifier("shell.pane.shelf.panelWidthProbe")
+            }
         } else {
             List {
                 self.shelfRows
@@ -140,7 +173,6 @@ struct ShelfPane: View {
             .shellSurface()
             .accessibilityIdentifier("shell.pane.shelf.panel")
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                // Width of this strip is the panel width, not the modal overlay.
                 Text("\u{200B}")
                     .frame(maxWidth: .infinity)
                     .frame(height: 1)
@@ -169,15 +201,16 @@ struct ShelfPane: View {
     /// unfinished list rather than the shell's second surface.
     private func shelfRow(_ destination: ShellDestination) -> some View {
         NavigationLink(value: destination) {
-            HStack(spacing: 14) {
+            HStack(spacing: 16) {
                 Image(systemName: destination.shelfGlyph)
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 19, weight: .medium))
                     .foregroundStyle(Color.solOrangeAdaptive)
-                    .frame(width: 26, alignment: .center)
+                    .frame(width: 24, alignment: .center)
                     .accessibilityHidden(true)
                 Text(destination.shelfTitle)
                     .font(ShellFont.tileName)
                     .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 if let value = self.shelfRowValue(destination) {
                     Text(value)
@@ -185,11 +218,27 @@ struct ShelfPane: View {
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                 }
+                if self.presentation.isPhoneModal {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .padding(.horizontal, self.presentation.isPhoneModal ? ShelfMetrics.panelPadding : 0)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: self.presentation.isPhoneModal ? ShelfMetrics.rowHeight : 48,
+                alignment: .leading
+            )
+            .contentShape(Rectangle())
             .accessibilityLabel(destination.shelfTitle)
             .accessibilityValue(self.shelfRowValue(destination) ?? "")
         }
+        // Outside a `List`, a NavigationLink paints its whole label in the accent
+        // colour — the drawer's rows came out system blue. `.plain` hands the colours
+        // back to the row, which sets them itself.
+        .buttonStyle(.plain)
         .accessibilityIdentifier(destination.shelfRowIdentifier)
     }
 

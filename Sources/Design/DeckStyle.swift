@@ -124,6 +124,36 @@ extension View {
     }
 }
 
+/// The shelf drawer's measurements.
+///
+/// Taken from a working reference the founder supplied (Bluesky on iPhone, screen
+/// recording sampled frame by frame 2026-09-01), because the shelf is one of the few
+/// surfaces where a widely-used app has already answered the question and an owner
+/// arrives with the expectation already formed.
+///
+/// Measured there: panel **320 pt of a 402 pt screen** (~80%), the shell **translated
+/// right by exactly the panel width** rather than being covered, a black scrim at
+/// **~0.41** over the displaced shell, a row pitch of ~54 pt, and the whole motion
+/// settling in roughly **0.3 s**. No close button anywhere — the dimmed shell is the
+/// way back, which is the part every owner already knows.
+nonisolated enum ShelfMetrics {
+    /// The scrim leaves the shell clearly legible while making it plainly inactive.
+    static let scrimOpacity: Double = 0.4
+    static let openDuration: Double = 0.3
+    /// A row: glyph, label, and room to hit.
+    static let rowHeight: CGFloat = 54
+    /// The gutter the panel's content sits in.
+    static let panelPadding: CGFloat = 20
+    /// How much shell stays visible beside the panel. It has to be worth tapping and
+    /// worth reading — a sliver reads as a rendering artefact rather than as "your
+    /// day is still there". ⚠ A UI test independently requires at least 24 pt.
+    static let minimumShellSliver: CGFloat = 72
+
+    static func panelWidth(containerWidth: CGFloat) -> CGFloat {
+        max(240, min(320, containerWidth - self.minimumShellSliver))
+    }
+}
+
 /// The brand display face, and where it is allowed.
 ///
 /// Comfortaa is bundled and was already being used for a few block titles, but the

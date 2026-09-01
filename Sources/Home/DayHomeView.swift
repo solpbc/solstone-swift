@@ -557,11 +557,19 @@ private extension DayHomeView {
         }
     }
 
+    /// The shelf control.
+    ///
+    /// ⚠ This was `ellipsis.circle`, which is the platform's word for *more actions* —
+    /// it promises a popup menu of verbs. The shelf is not that: it is a panel of
+    /// places. Three lines is the one glyph every owner already reads as "a panel of
+    /// navigation lives behind this", and it is what the reference apps use. The
+    /// contract deliberately leaves this glyph an open slot.
     var shelfButton: some View {
         Button {
             self.onOpenYourSolstone()
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "line.3.horizontal")
+                .font(.system(size: 17, weight: .semibold))
         }
         .frame(minWidth: 44, minHeight: 44)
         .accessibilityLabel(SourceVocabulary.settingsTitle)

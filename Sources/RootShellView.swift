@@ -33,22 +33,54 @@ struct RootShellView: View {
 
     private var prefersCrossFade: Bool { self.crossFadePreference.prefersCrossFadeTransitions }
 
-    /// The shell with the shelf layered over it. Kept separate from `body` so
-    /// neither expression grows past what the type-checker will take.
+    /// The shell with the shelf beside it.
+    ///
+    /// The shelf **pushes** the shell aside rather than floating over a hole in it:
+    /// the shell translates right by exactly the panel's width and carries a dimming
+    /// scrim with it, so the owner watches their own content move out of the way and
+    /// can see where tapping returns them.
+    ///
+    /// ⚠ **The previous build layered the panel over the shell in a `ZStack` and the
+    /// shell did not composite behind it** — measured on a screenshot, the exposed
+    /// strip was a flat, perfectly uniform `(194,194,194)`, which is 24% black over
+    /// *white*, not over the cream deck. So the drawer opened onto a dead grey slab.
+    /// ✅ Pushing makes that failure structurally impossible: there is no hole to fill,
+    /// because the shell is still on screen, merely displaced and dimmed.
     private var shellLayers: some View {
-        ZStack {
-            self.shellBehindShelf
+        GeometryReader { proxy in
+            let panelWidth = ShelfMetrics.panelWidth(containerWidth: proxy.size.width)
+            let isOpen = self.presentedPane == .shelf
 
-            if self.presentedPane == .shelf {
+            ZStack(alignment: .leading) {
+                self.shellBehindShelf
+                    // The scrim rides ON the shell, so it translates with it.
+                    .overlay {
+                        Color.black
+                            .opacity(isOpen ? ShelfMetrics.scrimOpacity : 0)
+                            .ignoresSafeArea()
+                            .allowsHitTesting(isOpen)
+                            .onTapGesture { self.presentedPane = nil }
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityLabel(SourceVocabulary.shelfDismissLabel)
+                            .accessibilityHidden(!isOpen)
+                    }
+                    .offset(x: isOpen ? panelWidth : 0)
+
                 ShelfPane(
                     presentation: .phoneModal,
+                    journalMark: self.journalMark,
                     onOpenJournal: { self.presentedPane = .journal },
                     onDismiss: { self.presentedPane = nil }
                 )
-                    .transition(self.prefersCrossFade ? .opacity : .move(edge: .leading))
+                .frame(width: panelWidth)
+                .offset(x: isOpen ? 0 : -panelWidth)
             }
+            .animation(
+                self.prefersCrossFade ? .easeInOut(duration: ShelfMetrics.openDuration)
+                                      : .easeOut(duration: ShelfMetrics.openDuration),
+                value: self.presentedPane
+            )
         }
-        .animation(self.prefersCrossFade ? .easeInOut : .default, value: self.presentedPane)
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .environment(self.observerSourcePauseState)
         .task {
@@ -124,13 +156,22 @@ struct RootShellView: View {
     }
 
     /// The shell, with the deck taken out of the accessibility tree while the
-    /// shelf covers it.
+    /// shelf is open.
+    ///
+    /// 🔴 **This carried `.accessibilityChildren { EmptyView() }` until 2026-09-01, and
+    /// that modifier removed the shell from the RENDER tree, not just the accessibility
+    /// tree.** So the whole time the shelf was open there was nothing behind it — the
+    /// exposed strip beside the panel was the window's own white, dimmed by the scrim,
+    /// which is why it read as a dead grey slab rather than as the owner's day.
+    /// Measured before: a flat `(194,194,194)` = 24% black over white. After: the deck's
+    /// cream `(252,243,228)` and its tile surface, correctly dimmed.
+    /// ⛔ Do not reintroduce it — `.accessibilityHidden(true)` alone takes the subtree
+    /// out of the accessibility tree, which is all that was wanted.
     @ViewBuilder
     private var shellBehindShelf: some View {
         if self.presentedPane == .shelf {
             self.splitShell
                 .accessibilityHidden(true)
-                .accessibilityChildren { EmptyView() }
         } else {
             self.splitShell
         }

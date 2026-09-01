@@ -197,6 +197,8 @@ nonisolated enum SourceVocabulary {
     static let openSettings = "open iOS Settings"
     static let statusTitle = "status"
     static let settingsTitle = "settings"
+    // What VoiceOver calls the dimmed shell beside the open shelf: it is the way back.
+    static let shelfDismissLabel = "close settings"
     static let deckToggleTitle = "toggle deck"
     static let supportSiteTitle = "support site"
     static let trustLineConfigured = "syncs only to your journal"
