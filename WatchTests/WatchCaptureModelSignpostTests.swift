@@ -885,22 +885,20 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             complicationRootURL: { complicationRoot },
             reloadComplicationTimelines: {}
         )
+        await snapshotModel.settled()
         let artifactPresentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 1)
         snapshotModel.presentation = artifactPresentation
+        await snapshotModel.settled()
         let snapshotURL = complicationRoot.appendingPathComponent(WatchComplicationSnapshot.fileName)
         let expectedSnapshot = WatchComplicationSnapshot(
             presentation: artifactPresentation,
-            isReachable: snapshotSession.isReachable
+            isReachable: true
         )
-        let didWriteSnapshot = await self.waitUntilSettled {
-            guard let data = try? Data(contentsOf: snapshotURL),
-                  let snapshot = try? JSONDecoder().decode(WatchComplicationSnapshot.self, from: data)
-            else {
-                return false
-            }
-            return snapshot == expectedSnapshot
-        }
-        XCTAssertTrue(didWriteSnapshot)
+        let writtenSnapshot = try JSONDecoder().decode(
+            WatchComplicationSnapshot.self,
+            from: Data(contentsOf: snapshotURL)
+        )
+        XCTAssertEqual(writtenSnapshot, expectedSnapshot)
         let envelopeData = await snapshotCollector.makeEnvelopeData(asOf: now)
         let diagnosticsEnvelope = try XCTUnwrap(envelopeData)
         let statusPayload = try XCTUnwrap(WatchStatusContext(

@@ -258,6 +258,19 @@ final class WatchCaptureModel {
         }
     }
 
+    func settled() async {
+        while true {
+            await self.engine?.settled()
+            if let refreshCoordinatorTask = self.refreshCoordinatorTask {
+                await refreshCoordinatorTask.value
+                continue
+            }
+            await self.complicationPublishTail.value
+            guard self.refreshCoordinatorTask == nil else { continue }
+            return
+        }
+    }
+
     private func admitDiagnosticsRefresh() -> UInt64 {
         let request = self.signposter.begin(.diagnosticsRefreshRequest)
         let result: RelayResult
