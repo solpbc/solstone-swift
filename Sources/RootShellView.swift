@@ -17,6 +17,7 @@ struct RootShellView: View {
     @Environment(PendingJournalOpenState.self) private var pendingJournalOpen
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(ShellNavModel.self) private var nav
     @Environment(ShellStatusContext.self) private var shellStatusContext
@@ -30,6 +31,10 @@ struct RootShellView: View {
     @State private var showingSources = false
     @State private var observerSourcePauseState = ObserverSourcePauseState()
     @State private var crossFadePreference = AccessibilityCrossFadePreference()
+    /// Measured rather than read from a `GeometryReader`: wrapping the whole shell in
+    /// one disturbed layout and presentation across surfaces that have nothing to do
+    /// with the shelf.
+    @State private var shellWidth: CGFloat = 0
 
     private var prefersCrossFade: Bool { self.crossFadePreference.prefersCrossFadeTransitions }
 
@@ -46,45 +51,73 @@ struct RootShellView: View {
     /// *white*, not over the cream deck. So the drawer opened onto a dead grey slab.
     /// ✅ Pushing makes that failure structurally impossible: there is no hole to fill,
     /// because the shell is still on screen, merely displaced and dimmed.
+    /// Whether the shelf takes the whole window instead of being a drawer.
+    ///
+    /// A landscape phone has no room for a panel *and* a legible strip of shell, so the
+    /// shelf covers everything — which also means there is no dimmed shell to tap, and
+    /// the panel keeps an explicit close control in that case alone.
+    private var shelfFillsWindow: Bool { self.verticalSizeClass == .compact }
+
+    /// The shell with the shelf beside it.
+    ///
+    /// As a drawer the shelf **pushes**: the shell translates right by exactly the
+    /// panel's width and carries a dimming scrim with it, so the owner watches their own
+    /// content move aside and can see where tapping returns them.
+    ///
+    /// ⚠ **The previous build layered the panel over the shell and the shell was not
+    /// there at all.** `shellBehindShelf` carried `.accessibilityChildren { EmptyView() }`,
+    /// which removes a subtree from the RENDER tree and not merely the accessibility
+    /// tree. Measured on a screenshot, the exposed strip was a flat, uniform
+    /// `(194,194,194)` — 24% black over *white*, not over the cream deck. The trailing
+    /// band was always meant to show the deck (`PaneHostUITests` AC2 says so in as many
+    /// words); it never did.
     private var shellLayers: some View {
-        GeometryReader { proxy in
-            let panelWidth = ShelfMetrics.panelWidth(containerWidth: proxy.size.width)
-            let isOpen = self.presentedPane == .shelf
+        let isOpen = self.presentedPane == .shelf
+        let fillsWindow = self.shelfFillsWindow
+        let panelWidth = fillsWindow
+            ? self.shellWidth
+            : ShelfMetrics.panelWidth(containerWidth: self.shellWidth)
+        // ⚠ An owner who prefers cross-fade gets no translation at all: the shell stays
+        // put and the panel fades in over it. Re-easing a slide is not a cross-fade.
+        let pushes = isOpen && !fillsWindow && !self.prefersCrossFade
 
-            ZStack(alignment: .leading) {
-                self.shellBehindShelf
-                    // The scrim rides ON the shell, so it translates with it.
-                    .overlay {
-                        Color.black
-                            .opacity(isOpen ? ShelfMetrics.scrimOpacity : 0)
-                            .ignoresSafeArea()
-                            .allowsHitTesting(isOpen)
-                            .onTapGesture { self.presentedPane = nil }
-                            .accessibilityAddTraits(.isButton)
-                            .accessibilityLabel(SourceVocabulary.shelfDismissLabel)
-                            .accessibilityHidden(!isOpen)
-                    }
-                    // ⚠ An owner who prefers cross-fade gets no translation at all —
-                    // the shell stays put and the panel fades in over it. Swapping the
-                    // easing curve is not a cross-fade; the motion has to actually go.
-                    .offset(x: self.prefersCrossFade ? 0 : (isOpen ? panelWidth : 0))
+        return ZStack(alignment: .leading) {
+            self.shellBehindShelf
+                // The scrim rides ON the shell, so it translates with it.
+                .overlay {
+                    Color.black
+                        .opacity(isOpen && !fillsWindow ? ShelfMetrics.scrimOpacity : 0)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(isOpen && !fillsWindow)
+                        .onTapGesture { self.presentedPane = nil }
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityLabel(SourceVocabulary.shelfDismissLabel)
+                        .accessibilityHidden(!isOpen || fillsWindow)
+                }
+                .offset(x: pushes ? panelWidth : 0)
 
+            if isOpen {
                 ShelfPane(
                     presentation: .phoneModal,
                     journalMark: self.journalMark,
                     onOpenJournal: { self.presentedPane = .journal },
                     onDismiss: { self.presentedPane = nil }
                 )
-                .frame(width: panelWidth)
-                .offset(x: self.prefersCrossFade ? 0 : (isOpen ? 0 : -panelWidth))
-                .opacity(self.prefersCrossFade ? (isOpen ? 1 : 0) : 1)
+                .frame(width: fillsWindow ? nil : panelWidth)
+                .frame(maxWidth: fillsWindow ? .infinity : nil)
+                .transition(
+                    self.prefersCrossFade ? .opacity : .move(edge: .leading)
+                )
             }
-            .animation(
-                self.prefersCrossFade ? .easeInOut(duration: ShelfMetrics.openDuration)
-                                      : .easeOut(duration: ShelfMetrics.openDuration),
-                value: self.presentedPane
-            )
         }
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.width
+        } action: { self.shellWidth = $0 }
+        .animation(
+            self.prefersCrossFade ? .easeInOut(duration: ShelfMetrics.openDuration)
+                                  : .easeOut(duration: ShelfMetrics.openDuration),
+            value: self.presentedPane
+        )
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .environment(self.observerSourcePauseState)
         .task {
@@ -175,13 +208,18 @@ struct RootShellView: View {
     private var shellBehindShelf: some View {
         if self.presentedPane == .shelf {
             self.splitShell
+                // ⛔ NOT `.accessibilityChildren { EmptyView() }` — that is what used to
+                // be here, and it removes the subtree from the RENDER tree too, which is
+                // why nothing was ever behind the drawer. `children: .ignore` collapses
+                // the shell to one element and `accessibilityHidden` hides that element,
+                // with no effect on what is drawn.
+                .accessibilityElement(children: .ignore)
                 .accessibilityHidden(true)
-                // ⚠ `accessibilityHidden` cannot reach the shell's toolbar: SwiftUI
-                // hoists toolbar content out of the subtree and into the navigation
-                // bar, so the deck's own shelf control stayed in the accessibility
-                // tree behind the open drawer — reachable by VoiceOver, and by a UI
-                // test's `navigationBars.buttons.firstMatch`, which then tapped it and
-                // closed the drawer instead of going back. The scrim blocks touches;
+                // ⚠ Neither reaches the shell's TOOLBAR: SwiftUI hoists toolbar content
+                // out of the subtree and into the navigation bar, so the deck's own
+                // shelf control stayed reachable behind the open drawer — by VoiceOver,
+                // and by a UI test's `navigationBars.buttons.firstMatch`, which tapped it
+                // and closed the drawer instead of going back. The scrim blocks touches;
                 // it cannot block the accessibility tree.
                 .toolbar(.hidden, for: .navigationBar)
         } else {
@@ -270,6 +308,13 @@ struct RootShellView: View {
     private var phoneStack: some View {
         NavigationStack(path: self.phonePath) {
             self.deckColumn
+                // ⚠ Hidden from assistive tech HERE, inside the stack, not outside it.
+                // A `NavigationStack` hosts its content separately, so an
+                // `.accessibilityHidden` applied to the stack from outside does not
+                // reach the deck — which is why this once used
+                // `.accessibilityChildren { EmptyView() }`, the modifier that also
+                // stopped the shell rendering. Applied to the content it simply works.
+                .accessibilityHidden(self.presentedPane == .shelf)
                 .navigationDestination(for: ShellDestination.self) { destination in
                     ShellDestinationView(destination: destination, journalMark: self.journalMark)
                 }

@@ -109,7 +109,10 @@ nonisolated final class PaneHostUITests: XCTestCase {
         opener.tap()
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["done"].waitForExistence(timeout: 5))
+        // Portrait is a drawer and has no close button by design (2026-09-01): the
+        // dimmed shell beside it is the dismiss control, exposed as one. `done` survives
+        // only in landscape, where the panel fills the window and there is nothing to tap.
+        XCTAssertTrue(app.buttons["close settings"].waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -147,7 +150,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["dayHome.statusPill"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["dayHome.tile.audio"].exists)
-        app.buttons["done"].tap()
+        app.buttons["close settings"].tap()
         XCTAssertTrue(app.buttons["dayHome.yourSolstoneEntry"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["shell.pane.shelf"].exists)
     }

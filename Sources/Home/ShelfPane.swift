@@ -61,11 +61,15 @@ struct ShelfPane: View {
         }
     }
 
-    /// ⛔ **No close button on the phone drawer, deliberately.** The dimmed shell beside
+    /// The dismiss affordance follows the presentation.
+    ///
+    /// ⛔ **As a drawer there is no close button, deliberately** — the dimmed shell beside
     /// it is the way back, and that is the one gesture every owner already has. The
-    /// previous build put a *filled capsule* labelled `done` in the bar, which reads as
-    /// a primary action — the loudest control on the surface was the one for leaving
-    /// it. Dismissal is: tap the shell, swipe the panel left, or the escape action.
+    /// previous build put a *filled capsule* labelled `done` in the bar, so the loudest
+    /// control on the surface was the one for leaving it.
+    /// ⚠ **In landscape the shelf fills the window, so there is no shell to tap** — and
+    /// there the explicit control stays. A dismiss gesture with nothing to aim at is not
+    /// a dismiss gesture.
     private var pane: some View {
         self.shelfContent
             .navigationTitle(self.presentation.isPhoneModal ? "" : self.headingString)
@@ -75,6 +79,13 @@ struct ShelfPane: View {
             // BACK BUTTON from every pane a row pushes. The root's bar is empty (the
             // heading lives in the panel) and that is the correct cost.
             .toolbar {
+                if self.presentation.isPhoneModal, self.isCompactHeight {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("done") {
+                            self.onDismiss?()
+                        }
+                    }
+                }
                 if !self.presentation.isPhoneModal {
                     ToolbarItem(placement: .principal) {
                         Text(self.headingString)
