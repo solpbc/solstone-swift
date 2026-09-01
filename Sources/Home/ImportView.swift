@@ -38,19 +38,31 @@ struct ImportView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
-                        NavigationLink(SourceVocabulary.onThisPhone) {
+                        // The action names what it opens rather than restating the
+                        // heading it sits under: a button reading `on this device`
+                        // inside a block titled `on this device` says nothing twice.
+                        NavigationLink {
                             OnThisPhoneView()
+                        } label: {
+                            HStack {
+                                Text(SourceVocabulary.onThisPhoneOpenAction)
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44)
                         }
-                        .buttonStyle(.bordered)
-                        .accessibilityLabel(SourceVocabulary.onThisPhone)
+                        .accessibilityLabel(SourceVocabulary.onThisPhoneOpenAction)
                         .accessibilityHint("Shows what you've sent to your journal.")
                     }
                 }
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
-            .padding()
+            .padding(ShellMetrics.screenMargin)
             .frame(maxWidth: .infinity)
         }
+        .background(Color.deckGround.ignoresSafeArea())
         .navigationTitle(SourceVocabulary.importTitle)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("shell.pane.import")

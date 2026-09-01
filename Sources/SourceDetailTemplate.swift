@@ -50,10 +50,19 @@ struct SourceHomeTileControl: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle(SourceVocabulary.giveThisATileOnHome, isOn: self.isOnHome)
+                .font(ShellFont.tileName)
+                .tint(.solOrange)
                 .frame(minHeight: 44)
             Text(SourceVocabulary.hidingThisNeverTurnsItOff)
-                .font(.subheadline)
+                .font(.footnote)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(ShellMetrics.surfacePadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.deckSurface, in: ShellMetrics.cardShape)
+        .overlay {
+            ShellMetrics.cardShape.stroke(Color.deckHairline, lineWidth: 0.5)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("source.homeTile.\(self.sourceID)")

@@ -132,3 +132,7 @@ OmiLaunchCaptureRecord.swift|"Quarantine"
 OmiLaunchCaptureRecord.swift|"SOLLCAP1"
 OmiLaunchCaptureRecord.swift|"Materialized"
 OmiLaunchCaptureRecord.swift|"ReservedCapture"
+
+# Bundled brand display face — a font resource name, same class as the asset names
+# the structural skip already covers (Image("…"), Color("…")).
+*|Comfortaa-Bold

@@ -15,13 +15,17 @@ struct SourceDetailBlock<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(self.title)
-                .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
+                .font(ShellFont.sectionTitle)
+                .foregroundStyle(.primary)
 
             self.content
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(14)
+        .padding(ShellMetrics.surfacePadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
+        .background(Color.deckSurface, in: ShellMetrics.cardShape)
+        .overlay {
+            ShellMetrics.cardShape.stroke(Color.deckHairline, lineWidth: 0.5)
+        }
     }
 }

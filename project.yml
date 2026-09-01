@@ -75,6 +75,15 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        # The brand face must be registered HERE, not through the
+        # INFOPLIST_KEY_UIAppFonts setting above: INFOPLIST_KEY_* settings are only
+        # merged into a *generated* Info.plist, and this target ships an explicit one,
+        # so that setting was silently dropped. Comfortaa-Bold shipped inside the .app
+        # but was never registered, so every `.font(.custom("Comfortaa-Bold", ...))` in
+        # the app — the journal mark's own words included — fell back to the system
+        # face. Verified against the built Info.plist, which had no UIAppFonts key.
+        UIAppFonts:
+          - Comfortaa-Bold.ttf
         CFBundleURLTypes:
           - CFBundleURLName: app.solstone.swift
             CFBundleURLSchemes:

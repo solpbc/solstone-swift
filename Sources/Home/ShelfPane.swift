@@ -38,14 +38,14 @@ struct ShelfPane: View {
                 if self.isCompactHeight {
                     self.phonePanel
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(.systemBackground))
+                        .background(Color.deckGround)
                 } else {
                     let panelWidth = min(geometry.size.width - 24, 320)
                     HStack(spacing: 0) {
                         self.phonePanel
                             .frame(width: panelWidth)
                             .frame(maxHeight: .infinity, alignment: .leading)
-                            .background(Color(.systemBackground))
+                            .background(Color.deckGround)
                             .clipped()
                             .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
@@ -92,6 +92,7 @@ struct ShelfPane: View {
                 }
                 ToolbarItem(placement: .principal) {
                     Text(self.headingString)
+                        .font(ShellFont.sectionTitle)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("shell.pane.shelf.heading")
                         .accessibilityFocused(self.$headingFocused)
@@ -157,12 +158,43 @@ struct ShelfPane: View {
             .hoverEffect(.highlight)
     }
 
+    /// A shelf row carries a glyph, its name, and — where the app already knows one —
+    /// the value an owner would otherwise have to open the row to read. The shipped
+    /// row was a bare word, which is what made the settings root read as an
+    /// unfinished list rather than the shell's second surface.
     private func shelfRow(_ destination: ShellDestination) -> some View {
         NavigationLink(value: destination) {
-            Text(destination.shelfTitle)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            HStack(spacing: 14) {
+                Image(systemName: destination.shelfGlyph)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color.solOrangeAdaptive)
+                    .frame(width: 26, alignment: .center)
+                    .accessibilityHidden(true)
+                Text(destination.shelfTitle)
+                    .font(ShellFont.tileName)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                if let value = self.shelfRowValue(destination) {
+                    Text(value)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .accessibilityLabel(destination.shelfTitle)
+            .accessibilityValue(self.shelfRowValue(destination) ?? "")
         }
         .accessibilityIdentifier(destination.shelfRowIdentifier)
+    }
+
+    private func shelfRowValue(_ destination: ShellDestination) -> String? {
+        switch destination {
+        case .shelfAbout:
+            AppVersion.shortVersion
+        default:
+            nil
+        }
     }
 
     private func dismissOneLevel() {

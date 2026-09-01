@@ -70,8 +70,14 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         )
     }
 
+    /// The sub-line a list row shows under the state word.
+    ///
+    /// Suppressed when it would only restate the state word: `screen` supplies `off`
+    /// as its own override, which rendered as "off / off". A sub-line that repeats
+    /// the line above it is noise, not information.
     var rowSubtext: String? {
-        self.showsSubtext ? self.subtext : nil
+        guard self.showsSubtext, self.subtext != self.state.label else { return nil }
+        return self.subtext
     }
 
     var voiceOverText: String {

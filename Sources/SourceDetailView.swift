@@ -28,9 +28,10 @@ struct SourceDetailView: View {
                 SourceHomeTileControl(sourceID: "audio")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
-            .padding()
+            .padding(ShellMetrics.screenMargin)
             .frame(maxWidth: .infinity)
         }
+        .background(Color.deckGround.ignoresSafeArea())
         .navigationTitle("audio")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: self.tunnelManager.activeConnection?.port) {
@@ -395,14 +396,21 @@ private struct AudioEnrollmentContent: View {
         VStack(alignment: .leading, spacing: 16) {
             self.valueBlock
 
-            Button(self.presentation.turnOnAudio) {
+            // The label carries the width, not the styled button: a frame on the
+            // button expands its hit area while the bordered background stays sized to
+            // its text, which is what left this action floating mid-screen.
+            Button {
                 Task {
                     await self.confirm()
                 }
+            } label: {
+                Text(self.presentation.turnOnAudio)
+                    .font(ShellFont.tileName)
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .frame(maxWidth: .infinity, minHeight: 44)
+            .tint(.solOrange)
             .disabled(self.isStarting)
             .accessibilityHint("starts taking in audio on this device, and it goes into your journal.")
 
@@ -431,9 +439,12 @@ private extension AudioEnrollmentContent {
         Text(self.presentation.preEnrollmentValue)
             .font(.subheadline)
             .foregroundStyle(.secondary)
-            .padding(14)
+            .padding(ShellMetrics.surfacePadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
+            .background(Color.deckSurface, in: ShellMetrics.cardShape)
+            .overlay {
+                ShellMetrics.cardShape.stroke(Color.deckHairline, lineWidth: 0.5)
+            }
             .accessibilityIdentifier("audioEnrollment.value")
     }
 

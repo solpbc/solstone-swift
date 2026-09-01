@@ -411,8 +411,34 @@ struct RootShellView: View {
                 self.openStatus()
             case "journal":
                 self.openJournal()
+            case "journalSetup":
+                self.openJournalSetup()
             case "shelf":
                 self.openYourSolstone()
+            case "addMore":
+                self.openSources()
+            case "import":
+                self.nav.selectFromDeck(.import)
+            case "shelfJournal":
+                self.nav.selectFromDeck(.shelfJournal)
+            case "shelfThisDevice":
+                self.nav.selectFromDeck(.shelfThisDevice)
+            case "shelfNotifications":
+                self.nav.selectFromDeck(.shelfNotifications)
+            case "shelfHelp":
+                self.nav.selectFromDeck(.shelfHelp)
+            case "shelfAbout":
+                self.nav.selectFromDeck(.shelfAbout)
+            case "source:audio":
+                self.nav.selectFromDeck(.source(.audio))
+            case "source:location":
+                self.nav.selectFromDeck(.source(.location))
+            case "source:screencast":
+                self.nav.selectFromDeck(.source(.screencast))
+            case "source:omi":
+                self.nav.selectFromDeck(.source(.omi))
+            case "source:watch":
+                self.nav.selectFromDeck(.source(.watch))
             default:
                 break
             }

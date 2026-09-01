@@ -176,14 +176,18 @@ struct DayHomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: ShellMetrics.gutter) {
                 if self.dynamicTypeSize.isAccessibilitySize {
                     self.statusPill
                 }
                 self.deckGrid
             }
-            .padding()
-            .padding(.bottom, 24)
+            .padding(ShellMetrics.screenMargin)
+            .padding(.bottom, 8)
+            // The deck is the container its tiles are concentric within. Without this
+            // `ConcentricRectangle` has no container to derive from and every tile
+            // renders as a hard-cornered rectangle, which is what shipped.
+            .containerShape(.rect(cornerRadius: ShellMetrics.containerRadius))
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
@@ -202,7 +206,7 @@ struct DayHomeView: View {
                 }
             }
         }
-        .background(Color(.systemGroupedBackground).ignoresSafeArea())
+        .background(Color.deckGround.ignoresSafeArea())
         .task { await refreshNowPeriodically { self.now = Date() } }
         .task(id: self.appGroupSnapshotInputs) {
             _ = self.appGroupMirror.updateSessionAndSources(
@@ -289,12 +293,18 @@ private extension DayHomeView {
         deckLayout(columnWidth: self.deckColumnWidth, dynamicTypeSize: self.dynamicTypeSize)
     }
 
+    /// Two equal columns, or one. `.adaptive` was letting the grid pick a column
+    /// count per row, which is what produced the ragged deck; the contract calls for
+    /// an even grid, so the columns are fixed and equal.
     var gridColumns: [GridItem] {
         let layout = self.layout
         if layout.columnCount < 2 {
             return [GridItem(.flexible(), spacing: DeckMetrics.tileSpacing)]
         }
-        return [GridItem(.adaptive(minimum: layout.tileMinimum), spacing: DeckMetrics.tileSpacing)]
+        return Array(
+            repeating: GridItem(.flexible(), spacing: DeckMetrics.tileSpacing),
+            count: 2
+        )
     }
 
     var hiddenHomeSourceIDs: Set<String> {
@@ -454,36 +464,17 @@ private extension DayHomeView {
         )
     }
 
+    var statusPillState: HomeStatusPillState {
+        HomeStatusPillState.resolve(
+            isPaired: self.appConfig.isPaired,
+            status: self.connectionSyncModel.status,
+            hasBacklog: self.backlogCount.knownCount > 0
+        )
+    }
+
     var statusPill: some View {
         Button(action: self.onOpenStatus) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(self.statusLine)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                switch self.backlogCount {
-                case .known(let count) where count > 0:
-                    Text("\(count)")
-                        .font(.subheadline.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .layoutPriority(1)
-                        .accessibilityAddTraits(.updatesFrequently)
-                case .partiallyUnknown(let known, _):
-                    HStack(spacing: 2) {
-                        Text("\(known)+")
-                            .font(.subheadline.monospacedDigit().weight(.semibold))
-                        // L4.4 placeholder glyph pending signoff — not a final choice.
-                        Image(systemName: "questionmark.circle")
-                    }
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-                    .accessibilityAddTraits(.updatesFrequently)
-                case .known:
-                    EmptyView()
-                }
-            }
+            HomeStatusPillLabel(state: self.statusPillState, backlog: self.backlogCount)
         }
         .tint(.primary)
         .matchedTransitionSource(id: HomeChromeID.status, in: self.homeChrome)
@@ -521,11 +512,12 @@ private extension DayHomeView {
                     JournalMarkCompactChips(mark: mark)
                 }
                 Text(self.journalPillTitle)
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
             }
             .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(.glass)
         .tint(.primary)
         .controlSize(.regular)
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
@@ -535,12 +527,15 @@ private extension DayHomeView {
         )
     }
 
+    /// The pill is the journal's identity, not an action label. It carries the mark's
+    /// chips *and* its two words whenever there is a journal to name, so home always
+    /// answers "which journal am I feeding" — the one question the shell puts here and
+    /// nowhere else. Only the no-journal case has no name to show, so only it reads as
+    /// an invitation.
     var journalPillTitle: String {
         switch self.journalState {
-        case .linkedOnline:
-            SourceVocabulary.openInJournal
-        case .linkedOffline:
-            SourceVocabulary.journalLivesRepairAction
+        case .linkedOnline, .linkedOffline:
+            journalPaneTitle(mark: self.journalMark)
         case .noJournal:
             SourceVocabulary.onThisPhoneConnectJournalButton
         }

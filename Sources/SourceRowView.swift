@@ -10,21 +10,31 @@ struct SourceRowView: View {
 
     var body: some View {
         Button(action: self.onTap) {
-            HStack(alignment: .center, spacing: 12) {
-                Image(systemName: self.source.state.symbol)
-                    .font(.title3.weight(.semibold))
+            // Top-aligned, not centred: a row whose sub-line runs to three lines left
+            // the glyph floating in the middle of the card, unattached to the name it
+            // belongs to.
+            HStack(alignment: .top, spacing: 14) {
+                // The source's own glyph, not the state's. Every row was rendering
+                // `state.symbol`, so five different sources showed the same power
+                // icon and the list read as one repeated thing.
+                Image(systemName: self.source.kind.glyph)
+                    .font(.system(size: 20, weight: .medium))
                     .foregroundStyle(self.indicatorColor)
-                    .frame(width: 28)
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 28, height: 24, alignment: .center)
 
                 VStack(alignment: .leading, spacing: 5) {
                     Text(self.source.displayName)
-                        .font(.headline)
+                        .font(ShellFont.tileName)
                         .foregroundStyle(.primary)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(self.source.state.label)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(self.stateLabelColor)
+                        HStack(spacing: 6) {
+                            HomeSourceStateDot(state: self.source.state)
+                            Text(self.source.state.label)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(self.stateLabelColor)
+                        }
                         if let rowSubtext = self.source.rowSubtext {
                             Text(rowSubtext)
                                 .font(.subheadline)
@@ -44,11 +54,15 @@ struct SourceRowView: View {
                 Image(systemName: "chevron.right")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.tertiary)
+                    .frame(height: 24)
             }
-            .padding(14)
+            .padding(ShellMetrics.surfacePadding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
+            .contentShape(ShellMetrics.cardShape)
+            .background(Color.deckSurface, in: ShellMetrics.cardShape)
+            .overlay {
+                ShellMetrics.cardShape.stroke(Color.deckHairline, lineWidth: 0.5)
+            }
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)

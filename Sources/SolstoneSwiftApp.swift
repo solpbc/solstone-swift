@@ -215,6 +215,7 @@ struct SolstoneSwiftApp: App {
 
     init() {
         SPLLogging.configure(subsystem: "app.solstone.swift")
+        ShellFont.applyNavigationBarAppearance()
         Self.purgeLegacyKeychainEntries()
         InnerTLS.purgeOrphanedIdentities()
 #if DEBUG

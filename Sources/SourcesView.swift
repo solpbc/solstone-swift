@@ -14,8 +14,11 @@ struct SourcesView: View {
                 .navigationTitle("")
                 .toolbar {
                     ToolbarItem(placement: .principal) {
-                        Text("sources")
-                            .font(.custom("Comfortaa-Bold", size: 22, relativeTo: .title2))
+                        // The surface is `add more`: the name of the tile that opens it,
+                        // and the name the shell contract gives it. Titled `sources`, a
+                        // tap on `add more` appeared to land somewhere else.
+                        Text(SourceVocabulary.addMoreTitle)
+                            .font(ShellFont.display(22, relativeTo: .title2))
                     }
                 }
                 .navigationDestination(item: self.$selectedSourceRoute) { route in

@@ -18,23 +18,58 @@ struct AddMoreView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(self.rows) { row in
-                    SourceRowView(source: row.source) {
-                        self.onSelect(row.route)
-                    }
-                }
+            VStack(alignment: .leading, spacing: ShellMetrics.sectionGap) {
+                // The two groups the surface exists to distinguish: what could join
+                // home, then what is already there. The ordering was already correct
+                // and unlabelled, so the list read as one undifferentiated column.
+                self.section(SourceVocabulary.addMoreNotOnHome, rows: self.notOnHome)
+                self.section(SourceVocabulary.addMoreAlreadyOnHome, rows: self.alreadyOnHome)
+                Text(SourceVocabulary.addMoreFooter)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
-            .padding()
+            .padding(ShellMetrics.screenMargin)
             .frame(maxWidth: .infinity)
         }
+        .background(Color.deckGround.ignoresSafeArea())
         .navigationTitle(SourceVocabulary.addMoreTitle)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("shell.pane.addMore")
         .task {
             await refreshNowPeriodically { self.now = Date() }
         }
+    }
+
+    @ViewBuilder
+    private func section(_ title: String, rows: [SourcesViewRow]) -> some View {
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: ShellMetrics.sectionSpacing) {
+                Text(title)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(nil)
+                    .padding(.leading, 4)
+                VStack(alignment: .leading, spacing: ShellMetrics.gutter) {
+                    ForEach(rows) { row in
+                        SourceRowView(source: row.source) {
+                            self.onSelect(row.route)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var notOnHome: [SourcesViewRow] {
+        let hidden = UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)
+        return self.rows.filter { !isHomeSourceVisible(id: $0.source.id, hiddenIDs: hidden) }
+    }
+
+    private var alreadyOnHome: [SourcesViewRow] {
+        let hidden = UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)
+        return self.rows.filter { isHomeSourceVisible(id: $0.source.id, hiddenIDs: hidden) }
     }
 
     private var rows: [SourcesViewRow] {

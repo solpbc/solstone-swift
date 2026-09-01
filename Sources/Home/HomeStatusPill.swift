@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+import SwiftUI
+
+/// The status pill's four states, per the shell contract.
+///
+/// The shipped pill rendered `connectionSyncStatus.statusLine` verbatim, which for a
+/// transferring connection reads `connected · syncing` — two of the four states at
+/// once, and the word `connected` doing no work next to `syncing`. Here the pill
+/// resolves to exactly one state and leads with the count while there is one.
+nonisolated enum HomeStatusPillState: Equatable, Sendable {
+    /// A journal, reachable, nothing waiting.
+    case caughtUp
+    /// Material is moving or queued to move. Carries the count.
+    case syncing
+    /// No route to the journal right now. Carries what is held on the device.
+    case offline(line: String)
+    /// No journal yet.
+    case notPaired
+
+    nonisolated static func resolve(
+        isPaired: Bool,
+        status: ConnectionSyncStatus,
+        hasBacklog: Bool
+    ) -> HomeStatusPillState {
+        guard isPaired else { return .notPaired }
+        switch status {
+        case .connectedIdle, .connectedWaiting, .connectedTransferring:
+            return hasBacklog ? .syncing : .caughtUp
+        case .offline, .connecting, .waitingForHome, .reconnecting, .unreachable:
+            return .offline(line: status.statusLine)
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .caughtUp: SourceVocabulary.connectedLabel
+        case .syncing: SourceVocabulary.syncingLabel
+        case .offline(let line): line
+        case .notPaired: SourceVocabulary.dayLocalityNoJournal
+        }
+    }
+}
+
+/// The pill's own dot. A live connection pulses; everything else is calm, so motion
+/// is never decorative — it means material is moving right now.
+struct HomeStatusDot: View {
+    let state: HomeStatusPillState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulsing = false
+
+    var body: some View {
+        Circle()
+            .fill(self.tint)
+            .frame(width: 8, height: 8)
+            .opacity(self.shouldPulse && self.pulsing ? 0.35 : 1)
+            .animation(
+                self.shouldPulse
+                    ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
+                    : .default,
+                value: self.pulsing
+            )
+            .onAppear { if self.shouldPulse { self.pulsing = true } }
+            .accessibilityHidden(true)
+    }
+
+    private var shouldPulse: Bool {
+        if self.reduceMotion { return false }
+        if case .syncing = self.state { return true }
+        return false
+    }
+
+    private var tint: Color {
+        switch self.state {
+        case .caughtUp: .solSavedGreen
+        case .syncing: .solOrange
+        case .offline, .notPaired: .secondary
+        }
+    }
+}
+
+/// The trailing toolbar control on home.
+///
+/// The count leads the words while there is one: it is the only number the shell
+/// shows, and the thing an owner checks the pill *for*. `+` is the wrist's
+/// "there may be more than this" flag — it is the flag itself, not a second number,
+/// which is why no separate glyph rides beside it. (A `questionmark.circle` did, as a
+/// declared placeholder; it read as a help affordance and is gone.)
+struct HomeStatusPillLabel: View {
+    let state: HomeStatusPillState
+    let backlog: WatchAwareBacklog
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HomeStatusDot(state: self.state)
+                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+            if let count = self.countText {
+                Text(count)
+                    .font(.subheadline.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+                    .accessibilityAddTraits(.updatesFrequently)
+            }
+            Text(self.state.label)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(self.countText == nil ? .primary : .secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Only shown when there is something waiting. `known(0)` is not a number worth
+    /// putting on the pill — `connected` already says it, in words.
+    private var countText: String? {
+        switch self.backlog {
+        case .known(let count):
+            count > 0 ? "\(count)" : nil
+        case .partiallyUnknown(let known, _):
+            "\(known)+"
+        }
+    }
+}

@@ -49,6 +49,26 @@ nonisolated enum ShellDestination: Hashable, Sendable {
         }
     }
 
+    /// The glyph a shelf row carries. Same slot the deck tile fills for a source, so
+    /// the shell's two lists are legible the same way.
+    var shelfGlyph: String {
+        switch self {
+        case .shelfJournal:
+            "book.closed"
+        case .shelfThisDevice:
+            "iphone"
+        case .shelfNotifications:
+            "bell"
+        case .shelfHelp:
+            "lifepreserver"
+        case .shelfAbout:
+            "sun.max"
+        case .status, .journal, .journalSetup, .source, .addMore, .import, .shelf,
+             .diagnostics, .problemReports, .pairFlow:
+            preconditionFailure("shelfGlyph is only available for shelf destinations")
+        }
+    }
+
     var shelfRowIdentifier: String {
         switch self {
         case .shelfJournal:

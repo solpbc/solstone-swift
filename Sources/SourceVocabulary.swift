@@ -71,6 +71,30 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         self.universalSubtext(isJournalPaired: isJournalPaired) ?? activeSubtext
     }
 
+    /// The deck tile's sub-line.
+    ///
+    /// Same information as `subtext(...)`, said in the room a tile has. The detail
+    /// view is where a state explains itself in full ("not sending to your journal.
+    /// turn it on any time."); on a tile that wraps to three lines and truncates, so
+    /// the tile takes the short half of the same sentence. ⛔ Not a second vocabulary:
+    /// every string here is the tail of the long form, never a new claim.
+    func compactSubtext(activeSubtext: String) -> String? {
+        switch self {
+        case .off:
+            SourceVocabulary.offSubtextCompact
+        case .enrolling:
+            SourceVocabulary.enrollingSubtextCompact
+        case .paused:
+            SourceVocabulary.pausedSubtextCompact
+        case .needsAttention:
+            SourceVocabulary.needsAttentionSubtext
+        case .checking:
+            nil
+        case .active, .readyToSetUp:
+            activeSubtext
+        }
+    }
+
     func voiceOverText(activeSubtext: String, isJournalPaired: Bool) -> String {
         switch self {
         case .off:
@@ -98,6 +122,11 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
 nonisolated enum SourceVocabulary {
     private static let offSubtextUnpaired = "turn it on any time."
     private static let offSubtextPaired = "not sending to your journal. turn it on any time."
+    // The tile-sized half of the sub-lines above. Each is the tail of its long form.
+    static let offSubtextCompact = "turn it on any time."
+    static let enrollingSubtextCompact = "getting ready…"
+    static let pausedSubtextCompact = "you paused this."
+
     private static let enrollingSubtextUnpaired = "getting ready…"
     private static let enrollingSubtextPaired = "getting ready — connecting to your journal."
     static let sourceStateReadyToSetUpLabel = "ready to set up"
@@ -142,12 +171,28 @@ nonisolated enum SourceVocabulary {
     static let screencastFinalizeFailedText = "screen video could not be saved"
     static let screencastPointerFailedText = "screen could not connect to this journal"
 
+    // The status pill resolves to one of four states and names it in one word or
+    // phrase. `connected · syncing` was two of those states at once.
+    static let connectedLabel = "connected"
+    static let syncingLabel = "syncing"
+
     static let addMoreTitle = "add more"
     static let addMoreSubline = "sources and devices"
+    // The status view's own lead. `all caught up` is words, never a zero.
+    static let whatIsWaitingSection = "what is waiting"
+    static let syncingToYourJournal = "syncing to your journal…"
+    static let heldOnThisDevice = "on this device"
+
+    static let addMoreNotOnHome = "not on home"
+    static let addMoreAlreadyOnHome = "already on home"
+    static let addMoreFooter = "open any source to change what it does, and to add or remove its tile."
     static let importTitle = "import"
-    static let importSubline = "photos, files, anything"
+    // `anything` is not an honest category: the import surface names photos and files
+    // and nothing else, so the tile names those two and stops.
+    static let importSubline = "photos and files"
     static let giveThisATileOnHome = "give this a tile on home"
-    static let hidingThisNeverTurnsItOff = "hiding this never turns it off."
+    static let hidingThisNeverTurnsItOff =
+        "taking a tile off home does not turn the source off. it just keeps home to what you actually look at."
     static let whatItAddsTitle = "what it adds"
     static let openSettings = "open iOS Settings"
     static let statusTitle = "status"
@@ -203,7 +248,7 @@ nonisolated enum SourceVocabulary {
     static let watchComplicationUnknownDetail = "open the solstone app on your watch"
     static let watchComplicationUnknownInline = "hasn't checked in"
     static let watchActivationFailedSubtext = "can't check your watch right now."
-    static let watchNoWatchPairedSubtext = "no watch paired with this iphone."
+    static let watchNoWatchPairedSubtext = "no watch paired with this iPhone."
     static let watchReadyToSetUpSubtext = "the solstone app can be on your watch. tap to set it up."
     static let watchInstalledNeverOpenedSubtext = "installed. now open the solstone app on your watch."
     static let watchReceivingNowSubtext = "receiving from your watch"
@@ -398,6 +443,9 @@ nonisolated enum SourceVocabulary {
     static let turnOnAudio = "turn on audio"
     static let importerWhatItAdds = "adds PDFs, audio, and images you send from the share sheet."
     static let onThisPhone = "on this device"
+    // The row that opens the list, named for what it shows rather than for the
+    // section it sits in.
+    static let onThisPhoneOpenAction = "see what is here"
     static let greetingMorning = "good morning"
     static let greetingAfternoon = "good afternoon"
     static let greetingEvening = "good evening"
