@@ -48,6 +48,11 @@ nonisolated enum DeckMetrics {
     /// truncates the source name mid-word rather than merely wrapping it.
     static let tileMinimum: CGFloat = 160
 
+    /// The deck never goes wider than this many columns, however much room there is.
+    /// Past four, tiles stop reading as a set of things the owner owns and start
+    /// reading as a toolbar.
+    static let maximumColumns: Int = 4
+
     /// The column width at which two tiles first fit at the default text size.
     /// Derived, so it cannot drift from `tileMinimum`.
     static var twoColumnThreshold: CGFloat {
@@ -69,7 +74,9 @@ nonisolated enum DeckMetrics {
 nonisolated struct DeckLayout: Equatable, Sendable {
     /// The scaled minimum width of one tile.
     let tileMinimum: CGFloat
-    /// 1 for a single flexible column, 2 for an adaptive grid of at least two.
+    /// How many equal columns the deck draws: 1 when only one tile fits, 2 at every
+    /// phone-portrait and pinned-column width, more on a wide deck up to
+    /// `DeckMetrics.maximumColumns`.
     let columnCount: Int
 }
 
@@ -113,8 +120,15 @@ nonisolated func deckLayout(columnWidth: CGFloat, dynamicTypeSize: DynamicTypeSi
         return DeckLayout(tileMinimum: minimum, columnCount: 1)
     }
     let available = columnWidth - DeckMetrics.horizontalPadding
-    let fitsTwo = available >= 2 * minimum + DeckMetrics.tileSpacing
-    return DeckLayout(tileMinimum: minimum, columnCount: fitsTwo ? 2 : 1)
+    // As many equal columns as the width honestly holds, capped. Two is the answer
+    // at every phone-portrait and pinned-column width; a landscape phone is twice
+    // that wide, and holding it to two there pushed the last tiles off a screen only
+    // ~390 pt tall — the deck's whole job is to show every source at once.
+    let fits = Int((available + DeckMetrics.tileSpacing) / (minimum + DeckMetrics.tileSpacing))
+    return DeckLayout(
+        tileMinimum: minimum,
+        columnCount: max(1, min(DeckMetrics.maximumColumns, fits))
+    )
 }
 
 /// Whether a split shell has to collapse rather than show a one-column deck.
@@ -298,12 +312,9 @@ private extension DayHomeView {
     /// an even grid, so the columns are fixed and equal.
     var gridColumns: [GridItem] {
         let layout = self.layout
-        if layout.columnCount < 2 {
-            return [GridItem(.flexible(), spacing: DeckMetrics.tileSpacing)]
-        }
         return Array(
             repeating: GridItem(.flexible(), spacing: DeckMetrics.tileSpacing),
-            count: 2
+            count: max(1, layout.columnCount)
         )
     }
 
