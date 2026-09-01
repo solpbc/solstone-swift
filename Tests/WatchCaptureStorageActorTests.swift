@@ -1819,13 +1819,14 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             fileWriter: writer,
             storageSignposter: WatchStorageSignposter(sink: sink)
         )
+        let queuedAttempt = self.attempt(id: seeded.manifest.id, attemptID: UUID())
 
         async let held: Void = actor.prepareRoot()
         await writer.waitUntilEntered()
         async let queued = actor.prepareRelayTransfer(
             seeded.entry,
             bundleURL: seeded.bundleURL,
-            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+            attempt: queuedAttempt
         )
         try await Task.sleep(for: .milliseconds(30))
 
