@@ -133,6 +133,7 @@ struct ShelfPane: View {
             List {
                 self.shelfRows
             }
+            .shellSurface()
             .accessibilityIdentifier("shell.pane.shelf.panel")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 // Width of this strip is the panel width, not the modal overlay.

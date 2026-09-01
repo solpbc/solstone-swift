@@ -213,7 +213,7 @@ private extension SourceDetailView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
+                .background(Color.deckSurface, in: ShellMetrics.cardShape)
             }
         case .loadedEmpty:
             Text(SourceVocabulary.recentEmpty)

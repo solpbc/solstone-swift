@@ -112,6 +112,11 @@ struct ShellDestinationView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
+        self.content.shellSurface()
+    }
+
+    @ViewBuilder
+    private var content: some View {
         switch self.destination {
         case .source(.audio):
             SourceDetailView()

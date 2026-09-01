@@ -230,7 +230,7 @@ struct PairFlowView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .padding(12)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.deckSurface, in: ShellMetrics.cardShape)
                 Button(self.pairButtonTitle) {
                     self.startPastedURL()
                 }

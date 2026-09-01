@@ -508,8 +508,13 @@ private extension DayHomeView {
             }
         } label: {
             HStack(spacing: 8) {
+                // Identity is on the pill in every state: the journal's own mark when
+                // there is one, the generic dashed mark when there is not. The pill had
+                // shown no chips at all while unpaired.
                 if let mark = self.journalMark {
                     JournalMarkCompactChips(mark: mark)
+                } else {
+                    JournalMarkCompactGenericChips()
                 }
                 Text(self.journalPillTitle)
                     .font(.subheadline.weight(.medium))

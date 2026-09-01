@@ -10,22 +10,45 @@ struct ProblemReportsView: View {
     @State private var shareAllURL: URL?
     @State private var showingDeleteAllConfirm = false
 
+    private func supportRow(glyph: String, title: String, destination: URL) -> some View {
+        Link(destination: destination) {
+            HStack(spacing: 14) {
+                Image(systemName: glyph)
+                    .font(.system(size: 17, weight: .medium))
+                    .foregroundStyle(Color.solOrangeAdaptive)
+                    .frame(width: 26)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(ShellFont.tileName)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        }
+        .accessibilityLabel(title)
+    }
+
     var body: some View {
         List {
             if self.showsSupportHeader {
+                // Rows, not buttons. `.bordered` inside a grouped list draws a filled
+                // capsule centred in its row, so the two ways to reach support read as
+                // a pair of floating chips rather than as the list they sit in.
                 Section {
-                    Link(
-                        SourceVocabulary.supportSiteTitle,
+                    self.supportRow(
+                        glyph: "lifepreserver",
+                        title: SourceVocabulary.supportSiteTitle,
                         destination: URL(string: "https://support.solstone.app")!
                     )
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    Link(
-                        SourceVocabulary.journalMarkMismatchEmailSupport,
+                    self.supportRow(
+                        glyph: "envelope",
+                        title: SourceVocabulary.journalMarkMismatchEmailSupport,
                         destination: URL(string: "mailto:support@solstone.app")!
                     )
-                    .buttonStyle(.bordered)
-                    .frame(maxWidth: .infinity, minHeight: 44)
                 }
             }
 

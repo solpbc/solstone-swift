@@ -69,9 +69,14 @@ for pane in "${PANES[@]}"; do
   args=( "${BASE_ARGS[@]}" )
   [[ "$pane" != "home" ]] && args+=( "--ui-test-open-pane=$pane" )
 
+  # `--terminate-running-process` is load-bearing: `simctl launch` against an
+  # already-running app just foregrounds it and returns the existing pid, so the
+  # capture silently shows whatever pane the PREVIOUS launch left open — a wrong
+  # screenshot that looks like a real one. A bare `terminate` first is not enough;
+  # it races the next launch.
   xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1
   sleep 1
-  if ! xcrun simctl launch "$SIM_UDID" "$BUNDLE_ID" "${args[@]}" >/dev/null 2>&1; then
+  if ! xcrun simctl launch --terminate-running-process "$SIM_UDID" "$BUNDLE_ID" "${args[@]}" >/dev/null 2>&1; then
     log "LAUNCH FAILED: $pane"; FAILED=$((FAILED+1)); continue
   fi
   sleep "$SETTLE"

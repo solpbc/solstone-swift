@@ -430,7 +430,7 @@ private extension LocationEnrollmentContent {
             .foregroundStyle(.secondary)
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
+            .background(Color.deckSurface, in: ShellMetrics.cardShape)
     }
 
     func tierOption(_ tier: LocationTier) -> some View {
@@ -465,7 +465,7 @@ private extension LocationEnrollmentContent {
             }
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .background(Color(.tertiarySystemBackground), in: ConcentricRectangle())
+            .background(Color.deckSurfaceRaised, in: ShellMetrics.cardShape)
             .overlay {
                 ConcentricRectangle()
                     .stroke(isSelected ? Color.solOrange : Color(.separator), lineWidth: isSelected ? 2 : 1)

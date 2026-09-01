@@ -15,7 +15,7 @@ struct WelcomeScreen: View {
             title: "welcome to solstone.",
             subtitle: "the solstone app takes in what you share with it, and all of it goes into your journal.",
             showsBrandMark: true,
-            ground: Color(.systemBackground),
+            ground: .deckGround,
             alignment: .center
         ) {
             VStack(alignment: .center, spacing: 16) {

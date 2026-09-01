@@ -1033,7 +1033,7 @@ private struct OnThisPhoneRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.deckSurface, in: ShellMetrics.cardShape)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(self.item.voiceOverText)
         .accessibilityIdentifier("onThisPhone.row.\(self.item.id)")

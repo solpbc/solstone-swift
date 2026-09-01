@@ -100,6 +100,30 @@ nonisolated enum ShellMetrics {
     static let sectionGap: CGFloat = 24
 }
 
+/// Puts a surface on the shell's ground and accent.
+///
+/// Applied once at the shell's destination container rather than per-view, so a pane
+/// cannot be added later and quietly arrive on `systemGroupedBackground` with a
+/// system-green switch — which is exactly how the five shelf panes had drifted from
+/// the deck they open from.
+///
+/// `scrollContentBackground(.hidden)` is what lets a `List` show the ground through;
+/// without it the List paints its own grouped grey over everything below.
+struct ShellSurface: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .background(Color.deckGround.ignoresSafeArea())
+            .tint(.solOrange)
+    }
+}
+
+extension View {
+    func shellSurface() -> some View {
+        self.modifier(ShellSurface())
+    }
+}
+
 /// The brand display face, and where it is allowed.
 ///
 /// Comfortaa is bundled and was already being used for a few block titles, but the

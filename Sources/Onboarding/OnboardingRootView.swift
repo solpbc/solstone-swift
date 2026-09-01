@@ -44,7 +44,7 @@ struct OnboardingScaffold<Content: View>: View {
         subtitle: String,
         titleAccessibilityIdentifier: String? = nil,
         showsBrandMark: Bool = false,
-        ground: Color = Color(.systemGroupedBackground),
+        ground: Color = .deckGround,
         alignment: HorizontalAlignment = .leading,
         @ViewBuilder content: () -> Content
     ) {
@@ -78,7 +78,7 @@ struct OnboardingScaffold<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: self.frameAlignment)
             .padding(24)
         }
-        .background(self.ground)
+        .background(self.ground.ignoresSafeArea())
     }
 
     private var isCentered: Bool {
@@ -99,15 +99,18 @@ struct OnboardingScaffold<Content: View>: View {
         }
     }
 
+    /// Onboarding is the first surface an owner sees, so it carries the brand face
+    /// rather than the system's — the same pairing the shell uses everywhere else:
+    /// Comfortaa names the thing, SF carries what has to be read closely.
     @ViewBuilder
     private var titleText: some View {
         if self.isCentered {
             Text(self.title)
-                .font(.largeTitle.weight(.bold))
+                .font(ShellFont.display(30, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
         } else {
             Text(self.title)
-                .font(.largeTitle.weight(.bold))
+                .font(ShellFont.display(30, relativeTo: .largeTitle))
         }
     }
 

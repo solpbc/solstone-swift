@@ -55,7 +55,7 @@ private extension OmiSourceDetailView {
                 .foregroundStyle(.secondary)
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.secondarySystemBackground), in: ConcentricRectangle())
+                .background(Color.deckSurface, in: ShellMetrics.cardShape)
 
             SourceDetailBlock(title: "state") {
                 VStack(alignment: .leading, spacing: 12) {
