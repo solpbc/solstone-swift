@@ -67,8 +67,8 @@ nonisolated final class JournalMarkAccessibilityTests: XCTestCase {
 
     func testGenericChipHasNoGlyph() throws {
         let text = try Self.source("Sources/Pairing/JournalMark.swift")
-        let start = try XCTUnwrap(text.range(of: "private struct JournalMarkGenericChip"))
-        let end = try XCTUnwrap(text.range(of: "private struct JournalMarkIconChip"))
+        let start = try XCTUnwrap(text.range(of: "struct JournalMarkGenericChip"))
+        let end = try XCTUnwrap(text.range(of: "struct JournalMarkIconChip"))
         let chip = String(text[start.lowerBound..<end.lowerBound])
         XCTAssertTrue(chip.contains("dash:"))
         XCTAssertTrue(chip.contains("JournalMarkGeneric.dashOn"))
