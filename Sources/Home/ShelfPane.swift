@@ -70,6 +70,10 @@ struct ShelfPane: View {
         self.shelfContent
             .navigationTitle(self.presentation.isPhoneModal ? "" : self.headingString)
             .navigationBarTitleDisplayMode(.inline)
+            // ⛔ Do NOT hide this bar to tidy the drawer's root: toolbar visibility
+            // propagates down a NavigationStack, so hiding it here also removes the
+            // BACK BUTTON from every pane a row pushes. The root's bar is empty (the
+            // heading lives in the panel) and that is the correct cost.
             .toolbar {
                 if !self.presentation.isPhoneModal {
                     ToolbarItem(placement: .principal) {

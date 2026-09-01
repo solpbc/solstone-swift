@@ -47,7 +47,13 @@ private extension OnboardingAccessibilityTests {
         notifications.tap()
         self.scrollToElement(app.buttons["enable notifications"], in: app)
         self.assertMetadata(for: app.buttons["enable notifications"], in: app)
-        app.navigationBars.buttons.firstMatch.tap()
+        // ⚠ Scoped to the shelf's own bar. `app.navigationBars.buttons.firstMatch` used
+        // to be unambiguous only because the shell behind the drawer was not rendering
+        // at all; now that it is, the first navigation bar in the tree is the DECK's and
+        // its first button is the shelf control — so the "back" tap closed the drawer
+        // instead of popping the pane.
+        app.descendants(matching: .any)["shell.pane.shelf"]
+            .navigationBars.buttons.firstMatch.tap()
 
         let thisDevice = app.descendants(matching: .any)["shell.pane.shelf.thisDevice"]
         XCTAssertTrue(thisDevice.waitForExistence(timeout: 5))

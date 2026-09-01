@@ -479,7 +479,9 @@ final class PadSplitShellUITests: XCTestCase {
         XCTAssertTrue(
             app.descendants(matching: .any)["shell.pane.shelf.heading"].waitForExistence(timeout: 10)
         )
-        XCTAssertTrue(app.buttons["done"].waitForExistence(timeout: 5))
+        // The drawer has no close button by design (2026-09-01): the dimmed shell
+        // beside it is the dismiss control, and it is exposed as one.
+        XCTAssertTrue(app.buttons["close settings"].waitForExistence(timeout: 5))
     }
 
     /// The hit strip is a phone-shell edge gesture: on iPad the leading edge

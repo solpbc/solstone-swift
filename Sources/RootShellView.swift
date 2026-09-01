@@ -176,6 +176,14 @@ struct RootShellView: View {
         if self.presentedPane == .shelf {
             self.splitShell
                 .accessibilityHidden(true)
+                // ⚠ `accessibilityHidden` cannot reach the shell's toolbar: SwiftUI
+                // hoists toolbar content out of the subtree and into the navigation
+                // bar, so the deck's own shelf control stayed in the accessibility
+                // tree behind the open drawer — reachable by VoiceOver, and by a UI
+                // test's `navigationBars.buttons.firstMatch`, which then tapped it and
+                // closed the drawer instead of going back. The scrim blocks touches;
+                // it cannot block the accessibility tree.
+                .toolbar(.hidden, for: .navigationBar)
         } else {
             self.splitShell
         }
