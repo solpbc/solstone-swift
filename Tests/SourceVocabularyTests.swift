@@ -68,9 +68,12 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.addMoreTitle, "add more")
         XCTAssertEqual(SourceVocabulary.addMoreSubline, "sources and devices")
         XCTAssertEqual(SourceVocabulary.importTitle, "import")
-        XCTAssertEqual(SourceVocabulary.importSubline, "photos, files, anything")
+        XCTAssertEqual(SourceVocabulary.importSubline, "photos and files")
         XCTAssertEqual(SourceVocabulary.giveThisATileOnHome, "give this a tile on home")
-        XCTAssertEqual(SourceVocabulary.hidingThisNeverTurnsItOff, "hiding this never turns it off.")
+        XCTAssertEqual(
+            SourceVocabulary.hidingThisNeverTurnsItOff,
+            "taking a tile off home does not turn the source off. it just keeps home to what you actually look at."
+        )
         XCTAssertEqual(SourceVocabulary.whatItAddsTitle, "what it adds")
         XCTAssertEqual(SourceVocabulary.openSettings, "open iOS Settings")
         XCTAssertEqual(
