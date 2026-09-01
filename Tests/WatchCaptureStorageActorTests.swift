@@ -1773,10 +1773,8 @@ final class WatchCaptureStorageActorTests: XCTestCase {
 
     func testFoundationItemKindRecognizesAbsentURL() async throws {
         let missingURL = self.root.appendingPathComponent("not-created", isDirectory: false)
-        XCTAssertEqual(
-            try await FoundationWatchFileWriter().itemKind(at: missingURL),
-            .missing
-        )
+        let kind = try await FoundationWatchFileWriter().itemKind(at: missingURL)
+        XCTAssertEqual(kind, .missing)
     }
 
     func testFailedRelayBundlePreparationReportsCompletedWholeFileReads() async throws {
