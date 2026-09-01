@@ -20,7 +20,7 @@ settings:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 7QCG8V4M6H
     MARKETING_VERSION: "0.1.2"
-    CURRENT_PROJECT_VERSION: 68
+    CURRENT_PROJECT_VERSION: 69
     TARGETED_DEVICE_FAMILY: "1,2"
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
@@ -70,15 +70,14 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"
-        INFOPLIST_KEY_UIAppFonts: "[Comfortaa-Bold.ttf]"
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift
     info:
       path: Sources/Info.plist
       properties:
-        # The brand face must be registered HERE, not through the
-        # INFOPLIST_KEY_UIAppFonts setting above: INFOPLIST_KEY_* settings are only
-        # merged into a *generated* Info.plist, and this target ships an explicit one,
-        # so that setting was silently dropped. Comfortaa-Bold shipped inside the .app
+        # The brand face is registered HERE, and only here. It was previously declared
+        # as an INFOPLIST_KEY_UIAppFonts build setting, but INFOPLIST_KEY_* settings are
+        # only merged into a *generated* Info.plist and this target ships an explicit
+        # one, so that declaration was silently dropped. Comfortaa-Bold shipped inside the .app
         # but was never registered, so every `.font(.custom("Comfortaa-Bold", ...))` in
         # the app — the journal mark's own words included — fell back to the system
         # face. Verified against the built Info.plist, which had no UIAppFonts key.
@@ -218,7 +217,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: SolstoneBroadcastExtension/SolstoneBroadcastExtension.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
         MARKETING_VERSION: "0.1.2"
-        CURRENT_PROJECT_VERSION: 68
+        CURRENT_PROJECT_VERSION: 69
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"
     info:
