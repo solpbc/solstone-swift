@@ -51,7 +51,9 @@ final class ShellPaneShotTests: XCTestCase {
             "shelf heading missing"
         )
         attach(app, "01-shelf")
-        app.buttons["done"].tap()
+        // Portrait shelf is a drawer with no close button (2026-09-01); the dimmed
+        // shell beside it is the dismiss control and is exposed as one.
+        app.buttons["close settings"].tap()
 
         // status — the zoom-anchored sheet
         let statusOpener = app.buttons["dayHome.statusPill"]
