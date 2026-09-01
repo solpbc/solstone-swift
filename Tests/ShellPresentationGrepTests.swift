@@ -57,9 +57,14 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertTrue(text.contains("UIAccessibility.prefersCrossFadeTransitions"))
         XCTAssertTrue(text.contains("UIAccessibility.prefersCrossFadeTransitionsStatusDidChange"))
         XCTAssertFalse(text.contains("extension EnvironmentValues"))
-        XCTAssertTrue(text.contains(".transition(self.prefersCrossFade ? .opacity : .move(edge: .leading))"))
+        // The shelf drawer pushes the shell rather than floating over it (2026-09-01),
+        // so the cross-fade preference is honoured by removing the translation and
+        // fading the panel in place — not by a `.transition`. Same guarantee: an owner
+        // who prefers cross-fade gets no sliding motion.
+        XCTAssertTrue(text.contains("self.prefersCrossFade ? 0 : (isOpen ? panelWidth : 0)"))
+        XCTAssertTrue(text.contains("self.prefersCrossFade ? 0 : (isOpen ? 0 : -panelWidth)"))
+        XCTAssertTrue(text.contains(".opacity(self.prefersCrossFade ? (isOpen ? 1 : 0) : 1)"))
         XCTAssertFalse(text.contains(".move(edge: .bottom)"))
-        XCTAssertFalse(text.contains(".transition(self.prefersCrossFade ? .opacity : .identity)"))
         XCTAssertTrue(text.contains("self.reduceMotion || self.prefersCrossFade"))
         XCTAssertFalse(text.contains("--accessibility-prefers-cross-fade"))
     }

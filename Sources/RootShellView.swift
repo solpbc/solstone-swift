@@ -64,7 +64,10 @@ struct RootShellView: View {
                             .accessibilityLabel(SourceVocabulary.shelfDismissLabel)
                             .accessibilityHidden(!isOpen)
                     }
-                    .offset(x: isOpen ? panelWidth : 0)
+                    // ⚠ An owner who prefers cross-fade gets no translation at all —
+                    // the shell stays put and the panel fades in over it. Swapping the
+                    // easing curve is not a cross-fade; the motion has to actually go.
+                    .offset(x: self.prefersCrossFade ? 0 : (isOpen ? panelWidth : 0))
 
                 ShelfPane(
                     presentation: .phoneModal,
@@ -73,7 +76,8 @@ struct RootShellView: View {
                     onDismiss: { self.presentedPane = nil }
                 )
                 .frame(width: panelWidth)
-                .offset(x: isOpen ? 0 : -panelWidth)
+                .offset(x: self.prefersCrossFade ? 0 : (isOpen ? 0 : -panelWidth))
+                .opacity(self.prefersCrossFade ? (isOpen ? 1 : 0) : 1)
             }
             .animation(
                 self.prefersCrossFade ? .easeInOut(duration: ShelfMetrics.openDuration)
