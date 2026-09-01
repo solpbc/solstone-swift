@@ -72,11 +72,18 @@ nonisolated enum WatchCaptureStorageItemKind: Sendable {
     case missing
     case file
     case directory
+    case symlink
 }
 
-nonisolated struct WatchCaptureStorageFileFingerprint: Equatable, Sendable {
+nonisolated struct WatchCaptureStorageFileFingerprint: Codable, Equatable, Sendable {
     let byteCount: Int64
     let modificationDate: Date?
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.byteCount == rhs.byteCount
+            && lhs.modificationDate?.timeIntervalSince1970.bitPattern
+                == rhs.modificationDate?.timeIntervalSince1970.bitPattern
+    }
 }
 
 nonisolated struct FoundationWatchFileWriter: WatchFileWriting {
@@ -98,6 +105,13 @@ nonisolated struct FoundationWatchFileWriter: WatchFileWriting {
     }
 
     func itemKind(at url: URL) async throws -> WatchCaptureStorageItemKind {
+        let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey])
+        if values?.isSymbolicLink == true {
+            return .symlink
+        }
+        if let isDirectory = values?.isDirectory {
+            return isDirectory ? .directory : .file
+        }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return .missing }
         return isDirectory.boolValue ? .directory : .file

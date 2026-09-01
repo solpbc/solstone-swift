@@ -44,6 +44,9 @@ nonisolated struct WatchCaptureStoragePaths: Sendable {
     func manifestURL(directory: URL) -> URL { directory.appendingPathComponent("manifest.json") }
     func audioURL(directory: URL) -> URL { directory.appendingPathComponent("audio.m4a") }
     func locationURL(directory: URL) -> URL { directory.appendingPathComponent("location.jsonl") }
+    func relayReceiptURL(directory: URL) -> URL {
+        directory.appendingPathComponent(WatchRelayBundleReceipt.filename, isDirectory: false)
+    }
     func sessionRecordURL() -> URL { self.rootURL.appendingPathComponent(Self.sessionRecordFileName) }
     func sessionHistoryURL() -> URL { self.rootURL.appendingPathComponent(WatchCaptureStorageActor.historyFileName) }
     func sessionHistoryCounterURL() -> URL { self.rootURL.appendingPathComponent(WatchCaptureStorageActor.counterFileName) }
@@ -91,29 +94,46 @@ nonisolated struct WatchCaptureCatalogEntryID: Codable, Hashable, Sendable {
     let segment: String
 }
 
-nonisolated struct WatchCaptureContentWitness: Equatable, Sendable {
+nonisolated enum WatchCaptureSourceMediaState: String, Codable, Equatable, Sendable {
+    case missing
+    case zeroLength
+    case readableNonempty
+    case directoryShaped
+    case unreadable
+}
+
+nonisolated struct WatchCaptureContentWitness: Codable, Equatable, Sendable {
     let manifestData: Data
-    let audioBytes: Int64?
-    let locationBytes: Int64?
+    let audioState: WatchCaptureSourceMediaState
     let audioFingerprint: WatchCaptureStorageFileFingerprint?
+    let locationState: WatchCaptureSourceMediaState
     let locationFingerprint: WatchCaptureStorageFileFingerprint?
 
     init(
         manifestData: Data,
-        audioBytes: Int64?,
-        locationBytes: Int64?,
+        audioState: WatchCaptureSourceMediaState,
         audioFingerprint: WatchCaptureStorageFileFingerprint? = nil,
+        locationState: WatchCaptureSourceMediaState,
         locationFingerprint: WatchCaptureStorageFileFingerprint? = nil
     ) {
         self.manifestData = manifestData
-        self.audioBytes = audioBytes
-        self.locationBytes = locationBytes
+        self.audioState = audioState
         self.audioFingerprint = audioFingerprint
+        self.locationState = locationState
         self.locationFingerprint = locationFingerprint
     }
 
     var hasCompleteMediaEvidence: Bool {
-        self.audioBytes != nil && self.locationBytes != nil
+        Self.isComplete(self.audioState) && Self.isComplete(self.locationState)
+    }
+
+    private static func isComplete(_ state: WatchCaptureSourceMediaState) -> Bool {
+        switch state {
+        case .missing, .zeroLength, .readableNonempty:
+            true
+        case .directoryShaped, .unreadable:
+            false
+        }
     }
 }
 
@@ -185,6 +205,7 @@ nonisolated enum WatchCaptureStorageConflict: Error, Equatable, Sendable {
     case staleRelayState(id: UUID, expected: WatchSegmentState, actual: WatchSegmentState)
     case contentWitnessChanged(id: WatchCaptureCatalogEntryID)
     case staleAcknowledgementReplacement(id: UUID, expected: WatchCaptureCatalogEntryID, found: WatchCaptureCatalogEntryID?)
+    case relayReceiptUnexpectedShape(id: WatchCaptureCatalogEntryID)
 }
 
 nonisolated struct WatchCaptureLocationLogFinalizedStats: Equatable, Sendable {
@@ -210,11 +231,18 @@ nonisolated struct WatchRelayDiagnosticsEntryStorageFacts: Sendable {
     let originalLocationFile: DiagnosticAvailability<WatchRelayOriginalFileFact>
 }
 
+nonisolated enum WatchRelayBundleDisposition: Equatable, Sendable {
+    case reused
+    case rebuilt
+}
+
 nonisolated struct WatchRelayTransferPreparation: Sendable {
     let bundleURL: URL
     let manifest: WatchSegmentManifest
     let attempt: WatchRelayAttemptRecord?
+    let disposition: WatchRelayBundleDisposition
     let bundleCleanupFailed: Bool
+    let receiptPersistenceFailed: Bool
     let attemptCleanupFailed: Bool
     let attemptFailure: WatchConnectivityTransferFailureSnapshot?
 }
@@ -762,56 +790,128 @@ actor WatchCaptureStorageActor {
                 }
                 try self.verifyRelayWitness(current, against: entry)
             }
+            let startWitness = current.witness
+            let heldManifestData = startWitness.manifestData
+            let receiptURL = self.withSynchronousActorWork(.relayBundleWrite) {
+                self.paths.relayReceiptURL(directory: current.directoryURL)
+            }
+
+            let receiptKind: WatchCaptureStorageItemKind
+            do {
+                receiptKind = try await self.fileWriter.itemKind(at: receiptURL)
+            } catch {
+                throw WatchCaptureStorageConflict.relayReceiptUnexpectedShape(id: current.id)
+            }
+            switch receiptKind {
+            case .directory, .symlink:
+                throw WatchCaptureStorageConflict.relayReceiptUnexpectedShape(id: current.id)
+            case .file, .missing:
+                break
+            }
+
+            if receiptKind == .file {
+                let reused = await self.canReuseRelayBundle(
+                    receiptURL: receiptURL,
+                    bundleURL: bundleURL,
+                    sourceWitness: startWitness,
+                    expectedSegmentID: current.manifest.id
+                )
+                if reused {
+                    return try await self.persistRelayAttempt(
+                        bundleURL: bundleURL,
+                        manifest: current.manifest,
+                        attempt: attempt,
+                        directoryURL: current.directoryURL,
+                        disposition: .reused,
+                        bundleCleanupFailed: false,
+                        receiptPersistenceFailed: false
+                    )
+                }
+                do {
+                    try await self.fileWriter.removeItem(at: receiptURL)
+                } catch {
+                    throw error
+                }
+                self.bumpRelevantMutationGeneration()
+            }
 
             var bundleCleanupFailed = false
-            do {
-                try await self.fileWriter.removeItem(at: bundleURL)
-            } catch {
-                bundleCleanupFailed = true
+            let bundleKind = try? await self.fileWriter.itemKind(at: bundleURL)
+            if bundleKind != .missing {
+                do {
+                    try await self.fileWriter.removeItem(at: bundleURL)
+                } catch {
+                    bundleCleanupFailed = true
+                }
             }
-            let bundleData = try await self.relayBundleData(for: current, boundary: .relayBundleWrite)
+
+            let bundleData = try await self.relayBundleData(
+                for: current,
+                manifestData: heldManifestData,
+                boundary: .relayBundleWrite
+            )
+            try await self.revalidateRelaySource(
+                directoryURL: current.directoryURL,
+                expectedWitness: startWitness,
+                rereadManifest: false,
+                id: current.id,
+                boundary: .relayBundleWrite
+            )
             try await self.fileWriter.writeData(bundleData, to: bundleURL, options: .atomic)
             self.bumpRelevantMutationGeneration()
 
-            let attemptURL = self.withSynchronousActorWork(.relayAttemptPersistence) {
-                current.directoryURL.appendingPathComponent(WatchRelayAttemptRecord.filename, isDirectory: false)
-            }
+            var receiptPersistenceFailed = false
+            let bundleFingerprint: WatchCaptureStorageFileFingerprint?
             do {
-                let attemptData = try self.withSynchronousActorWork(.relayAttemptPersistence) {
-                    try WatchRelayAttemptRecord.makeEncoder().encode(attempt)
-                }
-                try await self.fileWriter.writeData(
-                    attemptData,
-                    to: attemptURL,
-                    options: .atomic
-                )
-                return WatchRelayTransferPreparation(
-                    bundleURL: bundleURL,
-                    manifest: current.manifest,
-                    attempt: attempt,
-                    bundleCleanupFailed: bundleCleanupFailed,
-                    attemptCleanupFailed: false,
-                    attemptFailure: nil
-                )
+                bundleFingerprint = try await self.fileWriter.fileFingerprint(at: bundleURL)
             } catch {
-                let failure = self.withSynchronousActorWork(.relayAttemptPersistence) {
-                    WatchConnectivityTransferFailureSnapshot(error: error)
-                }
-                var attemptCleanupFailed = false
-                do {
-                    try await self.fileWriter.removeItem(at: attemptURL)
-                } catch {
-                    attemptCleanupFailed = true
-                }
-                return WatchRelayTransferPreparation(
-                    bundleURL: bundleURL,
-                    manifest: current.manifest,
-                    attempt: nil,
-                    bundleCleanupFailed: bundleCleanupFailed,
-                    attemptCleanupFailed: attemptCleanupFailed,
-                    attemptFailure: failure
-                )
+                bundleFingerprint = nil
+                receiptPersistenceFailed = true
             }
+            if bundleFingerprint == nil {
+                receiptPersistenceFailed = true
+            }
+            if let bundleFingerprint, receiptPersistenceFailed == false {
+                let stillMatches: Bool
+                do {
+                    try await self.revalidateRelaySource(
+                        directoryURL: current.directoryURL,
+                        expectedWitness: startWitness,
+                        rereadManifest: true,
+                        id: current.id,
+                        boundary: .relayBundleWrite
+                    )
+                    stillMatches = true
+                } catch {
+                    stillMatches = false
+                }
+                if stillMatches {
+                    do {
+                        let receiptData = try self.withSynchronousActorWork(.relayBundleWrite) {
+                            try WatchRelayBundleReceipt.makeEncoder().encode(
+                                WatchRelayBundleReceipt(
+                                    segmentID: current.manifest.id,
+                                    source: startWitness,
+                                    bundle: bundleFingerprint
+                                )
+                            )
+                        }
+                        try await self.fileWriter.writeData(receiptData, to: receiptURL, options: .atomic)
+                    } catch {
+                        receiptPersistenceFailed = true
+                    }
+                }
+            }
+
+            return try await self.persistRelayAttempt(
+                bundleURL: bundleURL,
+                manifest: current.manifest,
+                attempt: attempt,
+                directoryURL: current.directoryURL,
+                disposition: .rebuilt,
+                bundleCleanupFailed: bundleCleanupFailed,
+                receiptPersistenceFailed: receiptPersistenceFailed
+            )
         }
     }
 
@@ -1524,7 +1624,7 @@ actor WatchCaptureStorageActor {
             for mediaURL in mediaURLs {
                 do {
                     switch try await self.fileWriter.itemKind(at: mediaURL) {
-                    case .directory:
+                    case .directory, .symlink:
                         issues.append(self.issue(
                             .unexpectedShape,
                             namespace: "\(namespace)/\(mediaURL.lastPathComponent)"
@@ -1652,10 +1752,10 @@ actor WatchCaptureStorageActor {
 
     private func relayBundleData(
         for entry: WatchCaptureCatalogEntry,
+        manifestData: Data,
         boundary: WatchSignpostBoundary
     ) async throws -> Data {
         var files: [String: Data] = [:]
-        let manifestData = try await self.fileWriter.readData(from: entry.manifestURL)
         try self.withSynchronousActorWork(boundary) {
             guard manifestData == entry.witness.manifestData else {
                 throw WatchCaptureStorageConflict.contentWitnessChanged(id: entry.id)
@@ -1697,17 +1797,166 @@ actor WatchCaptureStorageActor {
                 self.paths.locationURL(directory: directoryURL)
             )
         }
-        let audioBytes = try? await self.fileWriter.fileSize(at: urls.0)
-        let locationBytes = try? await self.fileWriter.fileSize(at: urls.1)
-        let audioFingerprint = try? await self.fileWriter.fileFingerprint(at: urls.0)
-        let locationFingerprint = try? await self.fileWriter.fileFingerprint(at: urls.1)
+        let audio = await self.sourceMediaEvidence(at: urls.0)
+        let location = await self.sourceMediaEvidence(at: urls.1)
         return self.withSynchronousActorWork(boundary) {
             WatchCaptureContentWitness(
                 manifestData: manifestData,
-                audioBytes: audioBytes,
-                locationBytes: locationBytes,
-                audioFingerprint: audioFingerprint,
-                locationFingerprint: locationFingerprint
+                audioState: audio.state,
+                audioFingerprint: audio.fingerprint,
+                locationState: location.state,
+                locationFingerprint: location.fingerprint
+            )
+        }
+    }
+
+    private func sourceMediaEvidence(
+        at url: URL
+    ) async -> (state: WatchCaptureSourceMediaState, fingerprint: WatchCaptureStorageFileFingerprint?) {
+        let kind: WatchCaptureStorageItemKind
+        do {
+            kind = try await self.fileWriter.itemKind(at: url)
+        } catch {
+            return (.unreadable, nil)
+        }
+        switch kind {
+        case .missing:
+            return (.missing, nil)
+        case .directory:
+            return (.directoryShaped, nil)
+        case .symlink:
+            return (.unreadable, nil)
+        case .file:
+            break
+        }
+        do {
+            let byteCount = try await self.fileWriter.fileSize(at: url)
+            guard let fingerprint = try await self.fileWriter.fileFingerprint(at: url) else {
+                return (.unreadable, nil)
+            }
+            if byteCount == 0 {
+                return (.zeroLength, fingerprint)
+            }
+            return (.readableNonempty, fingerprint)
+        } catch {
+            return (.unreadable, nil)
+        }
+    }
+
+    private func canReuseRelayBundle(
+        receiptURL: URL,
+        bundleURL: URL,
+        sourceWitness: WatchCaptureContentWitness,
+        expectedSegmentID: UUID
+    ) async -> Bool {
+        guard let receiptData = try? await self.fileWriter.readData(from: receiptURL),
+              let receipt = try? WatchRelayBundleReceipt.makeDecoder().decode(
+                WatchRelayBundleReceipt.self,
+                from: receiptData
+              ),
+              receipt.version == WatchRelayBundleReceipt.currentVersion,
+              receipt.segmentID == expectedSegmentID,
+              receipt.source == sourceWitness,
+              receipt.bundle.modificationDate != nil
+        else {
+            return false
+        }
+        let bundleKind: WatchCaptureStorageItemKind
+        do {
+            bundleKind = try await self.fileWriter.itemKind(at: bundleURL)
+        } catch {
+            return false
+        }
+        guard bundleKind == .file,
+              let liveFingerprint = try? await self.fileWriter.fileFingerprint(at: bundleURL),
+              liveFingerprint == receipt.bundle
+        else {
+            return false
+        }
+        return true
+    }
+
+    private func revalidateRelaySource(
+        directoryURL: URL,
+        expectedWitness: WatchCaptureContentWitness,
+        rereadManifest: Bool,
+        id: WatchCaptureCatalogEntryID,
+        boundary: WatchSignpostBoundary
+    ) async throws {
+        let manifestData: Data
+        if rereadManifest {
+            let manifestURL = self.withSynchronousActorWork(boundary) {
+                self.paths.manifestURL(directory: directoryURL)
+            }
+            guard await self.fileWriter.fileExists(at: manifestURL),
+                  let fresh = try? await self.fileWriter.readData(from: manifestURL)
+            else {
+                throw WatchCaptureStorageConflict.contentWitnessChanged(id: id)
+            }
+            manifestData = fresh
+        } else {
+            manifestData = expectedWitness.manifestData
+        }
+        let live = await self.contentWitness(
+            manifestData: manifestData,
+            directoryURL: directoryURL,
+            boundary: boundary
+        )
+        guard live.hasCompleteMediaEvidence, live == expectedWitness else {
+            throw WatchCaptureStorageConflict.contentWitnessChanged(id: id)
+        }
+    }
+
+    private func persistRelayAttempt(
+        bundleURL: URL,
+        manifest: WatchSegmentManifest,
+        attempt: WatchRelayAttemptRecord,
+        directoryURL: URL,
+        disposition: WatchRelayBundleDisposition,
+        bundleCleanupFailed: Bool,
+        receiptPersistenceFailed: Bool
+    ) async throws -> WatchRelayTransferPreparation {
+        let attemptURL = self.withSynchronousActorWork(.relayAttemptPersistence) {
+            directoryURL.appendingPathComponent(WatchRelayAttemptRecord.filename, isDirectory: false)
+        }
+        do {
+            let attemptData = try self.withSynchronousActorWork(.relayAttemptPersistence) {
+                try WatchRelayAttemptRecord.makeEncoder().encode(attempt)
+            }
+            try await self.fileWriter.writeData(
+                attemptData,
+                to: attemptURL,
+                options: .atomic
+            )
+            return WatchRelayTransferPreparation(
+                bundleURL: bundleURL,
+                manifest: manifest,
+                attempt: attempt,
+                disposition: disposition,
+                bundleCleanupFailed: bundleCleanupFailed,
+                receiptPersistenceFailed: receiptPersistenceFailed,
+                attemptCleanupFailed: false,
+                attemptFailure: nil
+            )
+        } catch {
+            let failure = self.withSynchronousActorWork(.relayAttemptPersistence) {
+                WatchConnectivityTransferFailureSnapshot(error: error)
+            }
+            var attemptCleanupFailed = false
+            do {
+                try await self.fileWriter.removeItem(at: attemptURL)
+            } catch {
+                attemptCleanupFailed = true
+            }
+            return WatchRelayTransferPreparation(
+                bundleURL: bundleURL,
+                manifest: manifest,
+                attempt: nil,
+                disposition: disposition,
+                bundleCleanupFailed: bundleCleanupFailed,
+                receiptPersistenceFailed: receiptPersistenceFailed,
+                attemptCleanupFailed: attemptCleanupFailed,
+                attemptFailure: failure
             )
         }
     }

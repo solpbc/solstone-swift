@@ -1278,6 +1278,312 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         }
     }
 
+    func testRelayReceiptRoundTripPreservesFractionalModificationDates() async throws {
+        let fingerprint = WatchCaptureStorageFileFingerprint(
+            byteCount: 13,
+            modificationDate: Date(timeIntervalSince1970: 1_735_689_600.125)
+        )
+        let witness = WatchCaptureContentWitness(
+            manifestData: Data("manifest".utf8),
+            audioState: .readableNonempty,
+            audioFingerprint: fingerprint,
+            locationState: .missing
+        )
+        let receipt = WatchRelayBundleReceipt(
+            segmentID: UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!,
+            source: witness,
+            bundle: fingerprint
+        )
+        let encoded = try WatchRelayBundleReceipt.makeEncoder().encode(receipt)
+        let decoded = try WatchRelayBundleReceipt.makeDecoder().decode(WatchRelayBundleReceipt.self, from: encoded)
+        XCTAssertEqual(decoded, receipt)
+        XCTAssertEqual(decoded.bundle.modificationDate, fingerprint.modificationDate)
+        XCTAssertEqual(decoded.source.audioFingerprint?.modificationDate, fingerprint.modificationDate)
+    }
+
+    func testPrepareReusesThenRebuildsWhenSourceAudioChanges() async throws {
+        let actor = self.actor()
+        let seeded = try await self.seedTransferringSegment(actor: actor)
+        let first = try await actor.prepareRelayTransfer(
+            seeded.entry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        XCTAssertEqual(first.disposition, .rebuilt)
+        let paths = WatchCaptureStoragePaths(rootURL: self.root)
+        let receiptURL = paths.relayReceiptURL(directory: seeded.directory)
+        let receipt = try WatchRelayBundleReceipt.makeDecoder().decode(
+            WatchRelayBundleReceipt.self,
+            from: Data(contentsOf: receiptURL)
+        )
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == seeded.manifest.id })
+        XCTAssertEqual(receipt.segmentID, seeded.manifest.id)
+        XCTAssertEqual(receipt.source, entry.witness)
+        let reuseID = UUID()
+        let reused = try await actor.prepareRelayTransfer(
+            entry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: reuseID)
+        )
+        XCTAssertEqual(reused.disposition, .reused)
+        XCTAssertEqual(reused.attempt?.attemptID, reuseID)
+
+        try Data("audio-changed".utf8).write(to: seeded.audioURL, options: .atomic)
+        let changedCatalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let changed = try XCTUnwrap(changedCatalog.entries.first { $0.manifest.id == seeded.manifest.id })
+        let rebuilt = try await actor.prepareRelayTransfer(
+            changed,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        XCTAssertEqual(rebuilt.disposition, .rebuilt)
+        let decoded = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: seeded.bundleURL),
+                options: [],
+                format: nil
+            ) as? [String: Data]
+        )
+        XCTAssertEqual(decoded[WatchSegmentBundleCodec.audioFilename], Data("audio-changed".utf8))
+    }
+
+    func testMalformedAndMismatchedReceiptsMissThenRebuildOnce() async throws {
+        let actor = self.actor()
+        let seeded = try await self.seedTransferringSegment(actor: actor)
+        _ = try await actor.prepareRelayTransfer(
+            seeded.entry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        let receiptURL = WatchCaptureStoragePaths(rootURL: self.root).relayReceiptURL(directory: seeded.directory)
+        try Data("{".utf8).write(to: receiptURL, options: .atomic)
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == seeded.manifest.id })
+        let rebuilt = try await actor.prepareRelayTransfer(
+            entry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        XCTAssertEqual(rebuilt.disposition, .rebuilt)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: receiptURL.path))
+    }
+
+    func testCrashWindowsRebuildOrReuseWithFreshAttempt() async throws {
+        let actor = self.actor()
+        let seeded = try await self.seedTransferringSegment(actor: actor)
+        let firstID = UUID()
+        _ = try await actor.prepareRelayTransfer(
+            seeded.entry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: firstID)
+        )
+        let paths = WatchCaptureStoragePaths(rootURL: self.root)
+        let receiptURL = paths.relayReceiptURL(directory: seeded.directory)
+        let attemptURL = seeded.directory.appendingPathComponent(WatchRelayAttemptRecord.filename)
+
+        try FileManager.default.removeItem(at: receiptURL)
+        let noReceiptCatalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let noReceiptEntry = try XCTUnwrap(noReceiptCatalog.entries.first)
+        let noReceipt = try await actor.prepareRelayTransfer(
+            noReceiptEntry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        XCTAssertEqual(noReceipt.disposition, .rebuilt)
+
+        try Data("replaced-bundle".utf8).write(to: seeded.bundleURL, options: .atomic)
+        let staleCatalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let staleEntry = try XCTUnwrap(staleCatalog.entries.first)
+        let stale = try await actor.prepareRelayTransfer(
+            staleEntry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        XCTAssertEqual(stale.disposition, .rebuilt)
+
+        try FileManager.default.removeItem(at: seeded.bundleURL)
+        let missingBundleCatalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let missingBundleEntry = try XCTUnwrap(missingBundleCatalog.entries.first)
+        let missingBundle = try await actor.prepareRelayTransfer(
+            missingBundleEntry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        XCTAssertEqual(missingBundle.disposition, .rebuilt)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: receiptURL.path))
+        try FileManager.default.removeItem(at: attemptURL)
+        let noAttemptCatalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let noAttemptEntry = try XCTUnwrap(noAttemptCatalog.entries.first { $0.manifest.id == seeded.manifest.id })
+        let freshAttemptID = UUID()
+        let noAttempt = try await actor.prepareRelayTransfer(
+            noAttemptEntry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: freshAttemptID)
+        )
+        XCTAssertEqual(noAttempt.disposition, .reused)
+        XCTAssertEqual(noAttempt.attempt?.attemptID, freshAttemptID)
+    }
+
+    func testDirectoryShapedAudioFailsPreparationWithoutEnqueueing() async throws {
+        let actor = self.actor()
+        let seeded = try await self.seedTransferringSegment(actor: actor)
+        try FileManager.default.removeItem(at: seeded.audioURL)
+        try FileManager.default.createDirectory(at: seeded.audioURL, withIntermediateDirectories: true)
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        XCTAssertTrue(catalog.entries.isEmpty)
+    }
+
+    func testReceiptPathDirectoryAndSymlinkHazardsDoNotMutate() async throws {
+        let scratch = URL(fileURLWithPath: "/var/tmp")
+            .appendingPathComponent("WatchCaptureReceiptHazard-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: scratch) }
+
+        let actor = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: scratch),
+            fileWriter: FoundationWatchFileWriter()
+        )
+        let seeded = try await self.seedTransferringSegment(actor: actor, root: scratch)
+        _ = try await actor.prepareRelayTransfer(
+            seeded.entry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        let receiptURL = WatchCaptureStoragePaths(rootURL: scratch).relayReceiptURL(directory: seeded.directory)
+        let originalBundle = try Data(contentsOf: seeded.bundleURL)
+        try FileManager.default.removeItem(at: receiptURL)
+
+        let markerDir = scratch.appendingPathComponent("marker-dir", isDirectory: true)
+        try FileManager.default.createDirectory(at: markerDir, withIntermediateDirectories: true)
+        let marker = markerDir.appendingPathComponent("marker.txt")
+        try Data("keep".utf8).write(to: marker)
+
+        try FileManager.default.createDirectory(at: receiptURL, withIntermediateDirectories: true)
+        try Data("keep".utf8).write(to: receiptURL.appendingPathComponent("marker.txt"))
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first)
+        do {
+            _ = try await actor.prepareRelayTransfer(
+                entry,
+                bundleURL: seeded.bundleURL,
+                attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+            )
+            XCTFail("directory-shaped receipt should throw")
+        } catch let conflict as WatchCaptureStorageConflict {
+            XCTAssertEqual(conflict, .relayReceiptUnexpectedShape(id: entry.id))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: receiptURL.appendingPathComponent("marker.txt").path))
+        XCTAssertEqual(try Data(contentsOf: seeded.bundleURL), originalBundle)
+
+        try FileManager.default.removeItem(at: receiptURL)
+        try FileManager.default.createSymbolicLink(at: receiptURL, withDestinationURL: marker)
+        let linkedCatalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let linkedEntry = try XCTUnwrap(linkedCatalog.entries.first)
+        do {
+            _ = try await actor.prepareRelayTransfer(
+                linkedEntry,
+                bundleURL: seeded.bundleURL,
+                attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+            )
+            XCTFail("symlink receipt should throw")
+        } catch let conflict as WatchCaptureStorageConflict {
+            XCTAssertEqual(conflict, .relayReceiptUnexpectedShape(id: linkedEntry.id))
+        }
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: receiptURL.path), marker.path)
+        XCTAssertEqual(try Data(contentsOf: marker), Data("keep".utf8))
+        XCTAssertEqual(try Data(contentsOf: seeded.bundleURL), originalBundle)
+
+        try FileManager.default.removeItem(at: receiptURL)
+        try FileManager.default.createSymbolicLink(at: receiptURL, withDestinationURL: markerDir)
+        let dirLinkCatalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let dirLinkEntry = try XCTUnwrap(dirLinkCatalog.entries.first)
+        do {
+            _ = try await actor.prepareRelayTransfer(
+                dirLinkEntry,
+                bundleURL: seeded.bundleURL,
+                attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+            )
+            XCTFail("symlink-to-directory receipt should throw")
+        } catch let conflict as WatchCaptureStorageConflict {
+            XCTAssertEqual(conflict, .relayReceiptUnexpectedShape(id: dirLinkEntry.id))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+        XCTAssertEqual(try Data(contentsOf: seeded.bundleURL), originalBundle)
+    }
+
+    func testReceiptInvalidationFailureStopsBeforeBundleMutation() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let actor = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: self.root),
+            fileWriter: writer
+        )
+        let seeded = try await self.seedTransferringSegment(actor: actor)
+        _ = try await actor.prepareRelayTransfer(
+            seeded.entry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        let originalBundle = try Data(contentsOf: seeded.bundleURL)
+        try Data("audio-changed-again".utf8).write(to: seeded.audioURL, options: .atomic)
+        let receiptURL = WatchCaptureStoragePaths(rootURL: self.root).relayReceiptURL(directory: seeded.directory)
+        writer.failRemoveItem(at: receiptURL)
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first)
+        do {
+            _ = try await actor.prepareRelayTransfer(
+                entry,
+                bundleURL: seeded.bundleURL,
+                attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+            )
+            XCTFail("invalidation failure should stop preparation")
+        } catch {
+            XCTAssertEqual(try Data(contentsOf: seeded.bundleURL), originalBundle)
+        }
+    }
+
+    func testReceiptWriteFailureStillReturnsRebuiltPreparation() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let actor = WatchCaptureStorageActor(
+            paths: WatchCaptureStoragePaths(rootURL: self.root),
+            fileWriter: writer
+        )
+        let seeded = try await self.seedTransferringSegment(actor: actor)
+        let receiptURL = WatchCaptureStoragePaths(rootURL: self.root).relayReceiptURL(directory: seeded.directory)
+        writer.failNextWriteData(at: receiptURL)
+        let preparation = try await actor.prepareRelayTransfer(
+            seeded.entry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        XCTAssertEqual(preparation.disposition, .rebuilt)
+        XCTAssertTrue(preparation.receiptPersistenceFailed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: receiptURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: seeded.bundleURL.path))
+    }
+
+    func testACKRemovesSourceReceiptAndBundle() async throws {
+        let actor = self.actor()
+        let seeded = try await self.seedTransferringSegment(actor: actor)
+        _ = try await actor.prepareRelayTransfer(
+            seeded.entry,
+            bundleURL: seeded.bundleURL,
+            attempt: self.attempt(id: seeded.manifest.id, attemptID: UUID())
+        )
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first)
+        let acknowledged = try await actor.acknowledgeRelaySegment(entry)
+        let safe = try await actor.markRelaySegmentSafeToDelete(acknowledged.entry)
+        try await actor.deleteAcknowledgedRelaySegment(safe.entry, bundleURL: seeded.bundleURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: seeded.directory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: seeded.bundleURL.path))
+    }
+
+    // Same-size replacement that also restores the prior modification instant is
+    // unsupported: fingerprints compare byte count + mtime, not content, so that
+    // substitution is not detected and may reuse the previous bundle.
+
     private func storage(named name: String) -> WatchCaptureStorageActor {
         WatchCaptureStorageActor(
             paths: WatchCaptureStoragePaths(
@@ -1449,6 +1755,54 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         WatchCaptureStorageActor(
             paths: WatchCaptureStoragePaths(rootURL: self.root),
             fileWriter: FoundationWatchFileWriter()
+        )
+    }
+
+    private struct SeededRelaySegment {
+        let manifest: WatchSegmentManifest
+        let entry: WatchCaptureCatalogEntry
+        let directory: URL
+        let bundleURL: URL
+        let audioURL: URL
+        let locationURL: URL
+    }
+
+    private func seedTransferringSegment(
+        actor: WatchCaptureStorageActor,
+        root: URL? = nil,
+        id: UUID = UUID()
+    ) async throws -> SeededRelaySegment {
+        let rootURL = root ?? self.root!
+        let paths = WatchCaptureStoragePaths(rootURL: rootURL)
+        let segment = String(format: "%06d_300", abs(id.hashValue % 100_000))
+        let manifest = self.manifest(id: id, segment: segment, state: .transferring)
+        let directory = try await actor.prepareSegmentDirectory(day: manifest.day, segment: manifest.segment)
+        let audioURL = paths.audioURL(directory: directory)
+        let locationURL = paths.locationURL(directory: directory)
+        try Data("audio-\(id.uuidString)".utf8).write(to: audioURL, options: .atomic)
+        try Data("location-\(id.uuidString)".utf8).write(to: locationURL, options: .atomic)
+        try await actor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == id })
+        let bundleURL = rootURL
+            .appendingPathComponent(".relay-bundles", isDirectory: true)
+            .appendingPathComponent("\(id.uuidString).watchrelay", isDirectory: false)
+        return SeededRelaySegment(
+            manifest: manifest,
+            entry: entry,
+            directory: directory,
+            bundleURL: bundleURL,
+            audioURL: audioURL,
+            locationURL: locationURL
+        )
+    }
+
+    private func attempt(id: UUID, attemptID: UUID) -> WatchRelayAttemptRecord {
+        WatchRelayAttemptRecord(
+            segmentID: id,
+            generation: 0,
+            attemptID: attemptID,
+            attemptStartedAt: Date(timeIntervalSince1970: 1_735_689_600)
         )
     }
 }

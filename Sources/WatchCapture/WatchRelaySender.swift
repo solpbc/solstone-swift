@@ -455,9 +455,20 @@ private extension WatchRelaySender {
             if preparation.bundleCleanupFailed {
                 accounting.failureCount += 1
             }
+            if preparation.receiptPersistenceFailed {
+                accounting.failureCount += 1
+            }
+            let result: RelayResult
+            if preparation.disposition == .reused {
+                result = .cached
+            } else if preparation.bundleCleanupFailed || preparation.receiptPersistenceFailed {
+                result = .partial
+            } else {
+                result = .completed
+            }
             self.signposter.end(
                 bundleInterval,
-                fields: WatchSignpostFields(result: preparation.bundleCleanupFailed ? .partial : .completed)
+                fields: WatchSignpostFields(result: result)
             )
         } catch {
             self.signposter.end(bundleInterval, fields: WatchSignpostFields(result: .failed))

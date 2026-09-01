@@ -91,6 +91,131 @@ final class WatchCaptureStorageByteEquivalenceTests: XCTestCase {
         )
         XCTAssertEqual(session.transferredFiles.count, 1)
     }
+
+    func testFirstPreparationCountsOneManifestMediaWriteAndReceipt() async throws {
+        let recorder = FixtureTraceRecorder(rootURL: self.root)
+        let writer = RecordingWatchFileWriter(rootURL: self.root, recorder: recorder)
+        let paths = WatchCaptureStoragePaths(rootURL: self.root)
+        let actor = WatchCaptureStorageActor(paths: paths, fileWriter: writer)
+        let seeded = try await self.seedTransferringSegment(actor: actor, writer: writer, paths: paths)
+        let before = recorder.events.count
+        let attempt = WatchRelayAttemptRecord(
+            segmentID: seeded.manifest.id,
+            generation: 0,
+            attemptID: UUID(),
+            attemptStartedAt: Self.traceClock
+        )
+        let preparation = try await actor.prepareRelayTransfer(
+            seeded.entry,
+            bundleURL: seeded.bundleURL,
+            attempt: attempt
+        )
+        XCTAssertEqual(preparation.disposition, .rebuilt)
+        XCTAssertEqual(preparation.attempt, attempt)
+        let events = Array(recorder.events.dropFirst(before))
+        let bundleWrite = events.firstIndex {
+            $0.kind == "writer" && $0.method == "writeData" && $0.path == seeded.bundlePath && $0.phase == "returned"
+        }
+        XCTAssertNotNil(bundleWrite)
+        let beforeWrite = events.prefix(bundleWrite ?? events.count)
+        let afterWrite = events.suffix(from: (bundleWrite ?? 0) + 1)
+        XCTAssertEqual(self.wholeReads(beforeWrite, path: seeded.manifestPath), 1)
+        XCTAssertEqual(self.wholeReads(beforeWrite, path: seeded.audioPath), 1)
+        XCTAssertEqual(self.wholeReads(beforeWrite, path: seeded.locationPath), 1)
+        XCTAssertEqual(self.wholeReads(events, path: seeded.bundlePath), 0)
+        XCTAssertEqual(self.writes(events, path: seeded.bundlePath), 1)
+        XCTAssertEqual(self.wholeReads(afterWrite, path: seeded.manifestPath), 1)
+        XCTAssertEqual(self.writes(events, path: seeded.receiptPath), 1)
+        let decoded = try XCTUnwrap(
+            PropertyListSerialization.propertyList(
+                from: Data(contentsOf: seeded.bundleURL),
+                options: [],
+                format: nil
+            ) as? [String: Data]
+        )
+        XCTAssertEqual(
+            decoded[WatchSegmentBundleCodec.manifestFilename],
+            try Data(contentsOf: seeded.entry.manifestURL)
+        )
+        XCTAssertEqual(decoded[WatchSegmentBundleCodec.audioFilename], seeded.audioData)
+        XCTAssertEqual(decoded[WatchSegmentBundleCodec.locationFilename], seeded.locationData)
+    }
+
+    func testUnchangedRetryReusesBundleWithoutWholeMediaReads() async throws {
+        try FileManager.default.createDirectory(at: self.root, withIntermediateDirectories: true)
+        let paths = WatchCaptureStoragePaths(rootURL: self.root)
+        let writer = FoundationWatchFileWriter()
+        let actor = WatchCaptureStorageActor(paths: paths, fileWriter: writer)
+        let seeded = try await self.seedTransferringSegment(actor: actor, writer: writer, paths: paths)
+        let fractional = Date(timeIntervalSince1970: 1_735_689_600.375)
+        for url in [seeded.audioURL, seeded.locationURL] {
+            try FileManager.default.setAttributes([.modificationDate: fractional], ofItemAtPath: url.path)
+        }
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == seeded.manifest.id })
+        let firstAttempt = WatchRelayAttemptRecord(
+            segmentID: seeded.manifest.id,
+            generation: 0,
+            attemptID: UUID(),
+            attemptStartedAt: Self.traceClock
+        )
+        let first = try await actor.prepareRelayTransfer(entry, bundleURL: seeded.bundleURL, attempt: firstAttempt)
+        XCTAssertEqual(first.disposition, .rebuilt)
+        let receiptBefore = try Data(contentsOf: paths.relayReceiptURL(directory: entry.directoryURL))
+        let decodedReceipt = try WatchRelayBundleReceipt.makeDecoder().decode(
+            WatchRelayBundleReceipt.self,
+            from: receiptBefore
+        )
+        XCTAssertEqual(decodedReceipt.source.audioFingerprint?.modificationDate, fractional)
+        XCTAssertEqual(decodedReceipt.source.locationFingerprint?.modificationDate, fractional)
+
+        let recorder = FixtureTraceRecorder(rootURL: self.root)
+        let recordingWriter = RecordingWatchFileWriter(rootURL: self.root, recorder: recorder)
+        let retryActor = WatchCaptureStorageActor(paths: paths, fileWriter: recordingWriter)
+        let retryCatalog = await retryActor.scanCatalog(transactionClass: .maintenance)
+        let retryEntry = try XCTUnwrap(retryCatalog.entries.first { $0.manifest.id == seeded.manifest.id })
+        let beforeRetry = recorder.events.count
+        let secondAttempt = WatchRelayAttemptRecord(
+            segmentID: seeded.manifest.id,
+            generation: 0,
+            attemptID: UUID(),
+            attemptStartedAt: Self.traceClock
+        )
+        XCTAssertNotEqual(secondAttempt.attemptID, firstAttempt.attemptID)
+        let second = try await retryActor.prepareRelayTransfer(
+            retryEntry,
+            bundleURL: seeded.bundleURL,
+            attempt: secondAttempt
+        )
+        XCTAssertEqual(second.disposition, .reused)
+        XCTAssertEqual(second.attempt, secondAttempt)
+        let retryEvents = Array(recorder.events.dropFirst(beforeRetry))
+        XCTAssertEqual(self.wholeReads(retryEvents, path: seeded.manifestPath), 1)
+        XCTAssertEqual(self.wholeReads(retryEvents, path: seeded.receiptPath), 1)
+        XCTAssertEqual(self.wholeReads(retryEvents, path: seeded.audioPath), 0)
+        XCTAssertEqual(self.wholeReads(retryEvents, path: seeded.locationPath), 0)
+        XCTAssertEqual(self.wholeReads(retryEvents, path: seeded.bundlePath), 0)
+        XCTAssertEqual(self.writes(retryEvents, path: seeded.bundlePath), 0)
+        XCTAssertEqual(self.removes(retryEvents, path: seeded.bundlePath), 0)
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_735_689_600.875)],
+            ofItemAtPath: seeded.audioURL.path
+        )
+        let changedCatalog = await retryActor.scanCatalog(transactionClass: .maintenance)
+        let changedEntry = try XCTUnwrap(changedCatalog.entries.first { $0.manifest.id == seeded.manifest.id })
+        let third = try await retryActor.prepareRelayTransfer(
+            changedEntry,
+            bundleURL: seeded.bundleURL,
+            attempt: WatchRelayAttemptRecord(
+                segmentID: seeded.manifest.id,
+                generation: 0,
+                attemptID: UUID(),
+                attemptStartedAt: Self.traceClock
+            )
+        )
+        XCTAssertEqual(third.disposition, .rebuilt)
+    }
 }
 
 private extension WatchCaptureStorageByteEquivalenceTests {
@@ -194,6 +319,7 @@ private extension WatchCaptureStorageByteEquivalenceTests {
                 attempt: attempt
             )
             XCTAssertEqual(preparation.attempt, attempt)
+            try? FileManager.default.removeItem(at: paths.relayReceiptURL(directory: directory))
 
             let sourceBytes = try XCTUnwrap(sourceSizes[manifest.id])
             try await writer.writeData(
@@ -401,6 +527,85 @@ private extension WatchCaptureStorageByteEquivalenceTests {
         }
     }
 
+    struct SeededTransfer {
+        let manifest: WatchSegmentManifest
+        let entry: WatchCaptureCatalogEntry
+        let bundleURL: URL
+        let audioURL: URL
+        let locationURL: URL
+        let manifestData: Data
+        let audioData: Data
+        let locationData: Data
+        let manifestPath: String
+        let audioPath: String
+        let locationPath: String
+        let bundlePath: String
+        let receiptPath: String
+    }
+
+    func seedTransferringSegment(
+        actor: WatchCaptureStorageActor,
+        writer: any WatchFileWriting,
+        paths: WatchCaptureStoragePaths,
+        id: UUID = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+    ) async throws -> SeededTransfer {
+        let manifest = WatchSegmentManifest(
+            id: id,
+            day: "20250101",
+            segment: "120000_300",
+            startedAt: Self.fixtureDate,
+            duration: 300,
+            sensors: [.audio, .location],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 1,
+            state: .transferring,
+            failureReason: nil
+        )
+        let directory = try await actor.prepareSegmentDirectory(day: manifest.day, segment: manifest.segment)
+        let audioData = Data("audio-\(id.uuidString)".utf8)
+        let locationData = Data("location-\(id.uuidString)".utf8)
+        try await writer.writeData(audioData, to: paths.audioURL(directory: directory), options: .atomic)
+        try await writer.writeData(locationData, to: paths.locationURL(directory: directory), options: .atomic)
+        try await actor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == id })
+        let bundleURL = self.root
+            .appendingPathComponent(".relay-bundles", isDirectory: true)
+            .appendingPathComponent("\(id.uuidString).watchrelay", isDirectory: false)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return SeededTransfer(
+            manifest: manifest,
+            entry: entry,
+            bundleURL: bundleURL,
+            audioURL: paths.audioURL(directory: directory),
+            locationURL: paths.locationURL(directory: directory),
+            manifestData: try encoder.encode(manifest),
+            audioData: audioData,
+            locationData: locationData,
+            manifestPath: "20250101/120000_300/manifest.json",
+            audioPath: "20250101/120000_300/audio.m4a",
+            locationPath: "20250101/120000_300/location.jsonl",
+            bundlePath: ".relay-bundles/\(id.uuidString).watchrelay",
+            receiptPath: "20250101/120000_300/\(WatchRelayBundleReceipt.filename)"
+        )
+    }
+
+    func wholeReads(_ events: some Sequence<FixtureTraceEvent>, path: String) -> Int {
+        events.filter { $0.kind == "writer" && $0.method == "readData" && $0.path == path && $0.phase == "returned" }.count
+    }
+
+    func writes(_ events: some Sequence<FixtureTraceEvent>, path: String) -> Int {
+        events.filter { $0.kind == "writer" && $0.method == "writeData" && $0.path == path && $0.phase == "returned" }.count
+    }
+
+    func removes(_ events: some Sequence<FixtureTraceEvent>, path: String) -> Int {
+        events.filter { $0.kind == "writer" && $0.method == "removeItem" && $0.path == path && $0.phase == "returned" }.count
+    }
+
     static let fixtureLocation = WatchLocationFix(
         t: fixtureDate,
         lat: 40,
@@ -463,12 +668,18 @@ private struct FixtureTraceEvent: Codable, Equatable, Sendable {
             )
         }
         guard event.kind == "writer", Self.mutatingMethods.contains(event.method) else { return nil }
+        let dataDescription: String?
+        if event.method == "writeData", event.path.hasSuffix("relay-bundle-receipt.json") {
+            dataDescription = nil
+        } else {
+            dataDescription = event.dataDescription
+        }
         return FixtureMutationEvent(
             kind: event.kind,
             method: event.method,
             path: event.path,
             phase: event.phase,
-            dataDescription: event.dataDescription,
+            dataDescription: dataDescription,
             metadata: nil,
             segmentID: nil
         )
@@ -592,6 +803,8 @@ private struct RecordingWatchFileWriter: WatchFileWriting {
                 return "file"
             case .directory:
                 return "directory"
+            case .symlink:
+                return "symlink"
             }
         }) {
             try await self.base.itemKind(at: url)

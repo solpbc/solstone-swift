@@ -1501,6 +1501,83 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(lateCompletionState, .delivered)
     }
 
+    func testUnchangedRetryReportsCachedBundleWriteSignpost() async throws {
+        let storage = try self.makeStorage("reuse-cached-signpost")
+        let id = UUID()
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0)
+        let session = MockWatchConnectivitySession()
+        let sink = WatchSignpostTestSink()
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: session,
+            signposter: WatchSignposter(sink: sink)
+        )
+        session.activate()
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(session.transferredFiles.count, 1)
+        XCTAssertTrue(sink.events.contains {
+            $0.boundary == .relayBundleWrite && $0.kind == .end && $0.fields.result == .completed
+        })
+
+        let retrySession = MockWatchConnectivitySession()
+        let retrySink = WatchSignpostTestSink()
+        let retrySender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: retrySession,
+            signposter: WatchSignposter(sink: retrySink)
+        )
+        retrySession.activate()
+        await retrySender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(retrySession.transferredFiles.count, 1)
+        XCTAssertTrue(retrySink.events.contains {
+            $0.boundary == .relayBundleWrite && $0.kind == .end && $0.fields.result == .cached
+        })
+        XCTAssertNotEqual(
+            session.transferredFiles[0].1["attempt_id"] as? String,
+            retrySession.transferredFiles[0].1["attempt_id"] as? String
+        )
+    }
+
+    func testReceiptWriteFailureEnqueuesPartialAndNextAttemptRebuilds() async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let storage = try self.makeStorage("receipt-write-failure", fileWriter: writer)
+        let id = UUID()
+        let directory = try await self.writeSegment(storage: storage, id: id, index: 0)
+        let receiptURL = directory.appendingPathComponent(WatchRelayBundleReceipt.filename)
+        writer.failNextWriteData(at: receiptURL)
+        let session = MockWatchConnectivitySession()
+        let sink = WatchSignpostTestSink()
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: session,
+            signposter: WatchSignposter(sink: sink)
+        )
+        session.activate()
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(session.transferredFiles.count, 1)
+        XCTAssertTrue(sink.events.contains {
+            $0.boundary == .relayBundleWrite && $0.kind == .end && $0.fields.result == .partial
+        })
+        let receiptExists = await writer.fileExists(at: receiptURL)
+        XCTAssertFalse(receiptExists)
+
+        writer.clearReadFailure(at: receiptURL)
+        let retrySession = MockWatchConnectivitySession()
+        let retrySender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: retrySession
+        )
+        retrySession.activate()
+        await retrySender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(retrySession.transferredFiles.count, 1)
+        let receiptExistsAfterRetry = await writer.fileExists(at: receiptURL)
+        XCTAssertTrue(receiptExistsAfterRetry)
+    }
+
     func testAttemptRecordWriteFailureFallsBackToLegacyTransferAndContinuesDrain() async throws {
         let writer = FailingWatchFileWriter(failAppend: false)
         let storage = try self.makeStorage("attempt-write-failure", fileWriter: writer)

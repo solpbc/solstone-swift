@@ -1391,8 +1391,8 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             manifest: manifest,
             witness: WatchCaptureContentWitness(
                 manifestData: try await storage.fileWriter.readData(from: storage.manifestURL(directory: directoryURL)),
-                audioBytes: nil,
-                locationBytes: nil
+                audioState: .unreadable,
+                locationState: .unreadable
             )
         )
     }
@@ -2100,8 +2100,8 @@ final class WatchCaptureStorageActorDiagnosticsTests: XCTestCase {
             manifest: manifest,
             witness: WatchCaptureContentWitness(
                 manifestData: try await storage.fileWriter.readData(from: storage.manifestURL(directory: directoryURL)),
-                audioBytes: nil,
-                locationBytes: nil
+                audioState: .unreadable,
+                locationState: .unreadable
             )
         )
     }
