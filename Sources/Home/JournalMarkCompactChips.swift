@@ -18,14 +18,14 @@ struct JournalMarkCompactChips: View {
     private func chip(_ icon: JournalMark.Icon) -> some View {
         CompactGlyphShape(svg: icon.svg)
             .stroke(
-                Self.markColor(hex: icon.color.hex),
+                Self.markTint(hex: icon.color.hex),
                 style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round)
             )
             .frame(width: self.size, height: self.size)
             .rotationEffect(.degrees(icon.rot == 45 ? 45 : 0))
     }
 
-    static func markColor(hex: String) -> Color {
+    static func markTint(hex: String) -> Color {
         let trimmed = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         guard trimmed.count == 6, let value = Int(trimmed, radix: 16) else {
             return .primary
@@ -57,7 +57,7 @@ struct JournalMarkCompactGenericChips: View {
     }
 
     private func chip(hex: String, rotated: Bool) -> some View {
-        let color = JournalMarkCompactChips.markColor(hex: hex)
+        let color = JournalMarkCompactChips.markTint(hex: hex)
         return RoundedRectangle(cornerRadius: 4, style: .continuous)
             .stroke(
                 color,
