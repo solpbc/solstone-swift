@@ -337,6 +337,36 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(snapshot.counters.queuedCount, 0)
     }
 
+    func testSyncStateDetailSurfacesServerRejectionReasonAndOldestAge() async throws {
+        // The client-side mirror of a server ingest rejection: once an item lands
+        // in .attention, SourceSyncStateDetail must surface the exact reason the
+        // server gave (not just a count), and the oldest still-waiting item's
+        // creation time, from data TransferEngine already tracks.
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"failed","reason_code":"envelope_invalid"}"#.utf8))
+        }
+        let engine = self.makeEngine()
+        try await engine.start()
+        let createdAt = Self.baseDate.addingTimeInterval(-42)
+        _ = try await engine.enqueue(
+            manifest: self.makeManifest(source: ObserverAudioTransferSource.watch, createdAt: createdAt),
+            payloads: self.audioPayloads()
+        )
+        try await self.waitFor("watch ingest attention") { (await engine.snapshot()).counters.attentionCount == 1 }
+
+        let detail = await SourceSyncStateDetail.build(from: engine, sourceKey: ObserverAudioTransferSource.watch)
+
+        XCTAssertEqual(detail.attentionItemCount, 1)
+        XCTAssertEqual(detail.mostRecentAttention?.reason, "http_client_error")
+        XCTAssertEqual(detail.mostRecentAttention?.shortDetail, "reason_code=envelope_invalid")
+        XCTAssertEqual(detail.oldestPendingItemCreatedAt, createdAt)
+
+        let otherSourceDetail = await SourceSyncStateDetail.build(from: engine, sourceKey: ObserverAudioTransferSource.omi)
+        XCTAssertEqual(otherSourceDetail.attentionItemCount, 0)
+        XCTAssertNil(otherSourceDetail.mostRecentAttention)
+        XCTAssertNil(otherSourceDetail.oldestPendingItemCreatedAt)
+    }
+
     func testHeldObserverEndpointMakesZeroNetworkCalls() async throws {
         let engine = self.makeEngine(resolver: TransferEndpointResolverStub(.unavailable("held")))
         try await engine.start()
