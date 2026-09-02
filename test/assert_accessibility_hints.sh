@@ -13,7 +13,6 @@ required_hints=(
   'Sources/Location/LocationSourceDetailView.swift:Changes the detail level to what ios allows.'
   'Sources/Location/LocationSourceDetailView.swift:Resumes location updates to your journal.'
   'Sources/Location/LocationSourceDetailView.swift:Pauses location updates to your journal.'
-  'Sources/Location/LocationSourceDetailView.swift:Tries sending location updates again.'
   "Sources/Location/LocationSourceDetailView.swift:Removes location's contributions from your journal."
   'Sources/Location/LocationSourceDetailView.swift:opens your journal inside the solstone app.'
   'Sources/Location/LocationSourceDetailView.swift:Uses places only from now on.'
