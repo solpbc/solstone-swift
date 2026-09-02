@@ -96,7 +96,7 @@ func syncStateSummaryLines(
 
         if let info = row.detail.mostRecentAttention {
             lines.append(
-                "  \(row.name) stuck: \(info.reason) — \(info.shortDetail)"
+                "  \(row.name) stuck: \(info.reason), \(info.shortDetail)"
                     + " (\(age(from: info.movedAt, to: now)) ago, \(row.detail.attentionItemCount) item(s))"
             )
         } else if let recentError = row.recentErrorDetail, row.recentErrorCount > 0 {
