@@ -135,7 +135,7 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
     }
 
     @MainActor
-    func testNotReachedExcludesSending() {
+    func testBacklogCountsSendingTogetherWithSavedOnThisPhone() {
         let migration = onThisPhoneMigration(
             snapshot: Self.snapshot(states: [
                 .savedOnThisPhone,
