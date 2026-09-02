@@ -196,7 +196,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
             engine: harness.engine,
             sourceManager: manager,
             onReconciliationPhase: { phase in
-                if phase == .afterSealedOwnerGatedEnqueued, !didSuspend {
+                if phase == .afterSealedOwnerAdopted, !didSuspend {
                     didSuspend = true
                     await barrier.suspend()
                 }
@@ -233,6 +233,14 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         try await harness.engine.initialize()
         let envelope = try OmiPendingHandoffStore.read(from: partition.envelopeURL)
         _ = try await harness.engine.enqueue(manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: partition.itemID, sidecar: envelope.sidecar), payloads: ["audio": Data(contentsOf: partition.audioURL)])
+        // Simulate a properly-settled prior commit, not a genuinely-stuck one: the
+        // live materialized envelope is removed once TransferEngine owns the item, so
+        // this owner + its still-present live envelope is not the leftover-uncommit
+        // migration's detection shape (TE ownership + a live envelope under
+        // Materialized/) — that shape is intentionally treated as ambiguous and
+        // reversed by `uncommitLaunchCaptureLeftovers`, which runs at the top of every
+        // reconcile pass regardless of whether recovery is enabled.
+        try FileManager.default.removeItem(at: partition.envelopeURL)
         let defaults = self.defaults(enabled: false)
         let ingress = OmiLaunchCaptureIngress(appGroupRoot: { self.rootURL }, generationID: generation, clock: clock)
         XCTAssertTrue(ingress.arm())
@@ -283,18 +291,28 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         let initialBarrier = CutoverBarrier()
         let resumeBarrier = CutoverBarrier()
         let resumePasses = CutoverPassCounter()
+        // `.afterSealedOwnershipVerified` fires before the recovery-enabled decision
+        // (and thus before any TransferEngine call) — decide-then-commit means the
+        // owner has not been adopted yet at this phase, so this is the correct point
+        // to simulate a mid-flight disable. The old `.afterSealedOwnerAdopted` phase
+        // fires only after adopt has already succeeded and committed the owner, which
+        // is too late for a disable to have any effect.
+        var initialPassCount = 0
         let coordinator = OmiLaunchCaptureCommitCoordinator(
             rootURL: self.captureRoot,
             engine: harness.engine,
             sourceManager: manager,
             onReconciliationPhase: { phase in
                 switch phase {
-                case .afterSealedOwnerGatedEnqueued:
-                    await initialBarrier.suspend()
                 case .afterSealedOwnershipVerified:
-                    await resumePasses.increment()
-                    await resumeBarrier.suspend()
-                case .afterCutIntentCommittedBeforeRouteSwap:
+                    initialPassCount += 1
+                    if initialPassCount == 1 {
+                        await initialBarrier.suspend()
+                    } else {
+                        await resumePasses.increment()
+                        await resumeBarrier.suspend()
+                    }
+                case .afterCutIntentCommittedBeforeRouteSwap, .afterSealedOwnerAdopted:
                     break
                 case .afterSealedCursorAcknowledged, .afterSealedEnvelopeCleaned,
                      .beforeSealedOwnerReleased, .afterSealedOwnerReleased,
@@ -313,13 +331,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         await recovery.value
         XCTAssertEqual(CutoverTransferURLProtocol.requests.count, 0)
         let heldSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
-        XCTAssertEqual(heldSnapshots.count, 1)
-        let heldID = try XCTUnwrap(heldSnapshots.first?.itemID)
-        guard case .gated(let restoredToken) = await harness.engine.restoreGateFromHold(itemID: heldID) else {
-            return XCTFail("disabled recovery did not retain a lifetime hold")
-        }
-        let heldSettlement = await harness.engine.convertGateToHold(restoredToken)
-        XCTAssertEqual(heldSettlement, .settled)
+        XCTAssertTrue(heldSnapshots.isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: self.captureRoot.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true).path))
 
         manager.enable()
@@ -435,20 +447,30 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
     }
 
     @MainActor func testCallbacksAtEveryCutoverAwaitRemainExclusivelyClassifiedOnce() async throws {
+        // Chronological order, matched to actual runtime phase order. Decide-then-
+        // commit runs settlement-handoff prepare/cleanup before adopt, so
+        // `.afterSealedOwnerAdopted` now fires after `.afterSealedEnvelopeCleaned` /
+        // `.beforeSealedOwnerReleased`, not before them.
         let phases: [OmiLaunchCaptureCommitCoordinator.ReconciliationPhase] = [
             .afterCutIntentCommittedBeforeRouteSwap,
-            .afterSealedOwnerGatedEnqueued,
             .afterSealedOwnershipVerified,
             .afterSealedCursorAcknowledged,
             .afterSealedEnvelopeCleaned,
             .beforeSealedOwnerReleased,
+            .afterSealedOwnerAdopted,
             .afterSealedOwnerReleased,
             .afterFinalMarkerCommittedBeforeReservedMaterialization,
             .beforeReservedOwnerReleased,
             .afterReservedOwnerReleased,
         ]
         let frame = try Self.opusFrame()
-        let phasesBeforeReservedSeed = Set(phases.prefix(4))
+        // `driveCutLifecycle`'s barrier suspends the pass at `.afterSealedOwnerAdopted`
+        // (index 5) and only feeds `reservedCallbacks` after that suspension — so every
+        // phase up to and including index 4 (`.beforeSealedOwnerReleased`) fires before
+        // the reserved seed is written, not just the first 4. Getting this cutoff wrong
+        // assigns an out-of-order sequence number the writer can never reconcile,
+        // permanently stalling reserved-side materialization for that phase.
+        let phasesBeforeReservedSeed = Set(phases.prefix(5))
         for (index, phase) in phases.enumerated() {
             CutoverTransferURLProtocol.reset()
             let callbackPrecedesReservedSeed = phasesBeforeReservedSeed.contains(phase)
@@ -512,10 +534,10 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
             rootURL: self.rootURL.appendingPathComponent("final-defect-transfer", isDirectory: true)
         )
         try await defectHarness.engine.initialize()
-        let blockedItemID = UUID()
+        let preexistingOmiItemID = UUID()
         _ = try await defectHarness.engine.enqueue(
             manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
-                itemID: blockedItemID,
+                itemID: preexistingOmiItemID,
                 sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 0, startedAt: Date())
             ),
             payloads: ["audio": Data("blocked-omi".utf8)]
@@ -551,7 +573,14 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         try await transferTestWaitFor("unrelated delivery with final defect held") {
             Self.requestIDs().contains(controlItemID)
         }
-        XCTAssertFalse(Self.requestIDs().contains(blockedItemID))
+        // The cut-final defect fails closed for the reserved route (proven above by
+        // the reserved capture's bytes staying unchanged) and for future adoption
+        // (proven below by the payload-free attention record), but it does not touch
+        // an item TransferEngine already owns — that guarantee (AC6) applies
+        // regardless of which source key the pre-existing item carries.
+        try await transferTestWaitFor("pre-existing omi item dispatches despite final defect") {
+            Self.requestIDs().contains(preexistingOmiItemID)
+        }
         let snapshots = await defectHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         let attention = try XCTUnwrap(snapshots.first {
             $0.manifest.attention?.reason == "launch_capture_cut_final_invalid"
@@ -1055,7 +1084,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
 
     @MainActor func testRestartAtEachCutLifecyclePhaseReconstructsStableOwnersBeforeDispatch() async throws {
         let phases: [OmiLaunchCaptureCommitCoordinator.ReconciliationPhase] = [
-            .afterSealedOwnerGatedEnqueued,
+            .afterSealedOwnerAdopted,
             .afterSealedOwnershipVerified,
             .afterSealedCursorAcknowledged,
             .afterSealedEnvelopeCleaned,
@@ -1087,8 +1116,12 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
             let frame = try Self.opusFrame()
             manager.handleAudioData(.payload(Self.marker(packet: 0, epoch: 2_000)), peripheralID: peripheralID)
             manager.handleAudioData(.payload(Self.packet(1, index: 0, body: frame)), peripheralID: peripheralID)
-            let first = self.makeHarness(rootURL: transferRoot)
-            try await first.engine.initialize()
+            // Prove the dispatch mechanism itself works via a throwaway engine on a
+            // separate root, not `first.engine` — the sealed owner's own delivery
+            // proof (needed below) must not be conflated with this unrelated sanity
+            // check.
+            let controlHarness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("restart-control-\(String(describing: phase))", isDirectory: true))
+            try await controlHarness.engine.initialize()
             let controlID = UUID()
             var control = ObserverAudioTransferEnqueuer.makeOmiManifest(
                 itemID: controlID,
@@ -1096,9 +1129,16 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
             )
             control.source = "unrelated"
             control.priority = TransferPriorityInputs(sourceKey: "unrelated")
-            _ = try await first.engine.enqueue(manifest: control, payloads: ["audio": Data("control".utf8)])
-            await first.engine.enableDispatch()
+            _ = try await controlHarness.engine.enqueue(manifest: control, payloads: ["audio": Data("control".utf8)])
+            await controlHarness.engine.enableDispatch()
             try await transferTestWaitFor("restart control \(String(describing: phase))") { Self.requestIDs().contains(controlID) }
+
+            let first = self.makeHarness(rootURL: transferRoot)
+            try await first.engine.initialize()
+            // `first.engine`'s dispatch must be on: cut-final's evidence check
+            // requires the sealed owner already gone from TransferEngine (delivered),
+            // so later phases cannot even be reached without it.
+            await first.engine.enableDispatch()
 
             let barrier = CutoverBarrier()
             let coordinator = OmiLaunchCaptureCommitCoordinator(
@@ -1128,6 +1168,41 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
             )
             let pass = Task { @MainActor in await coordinator.reconcile() }
             try await transferTestWaitFor("parked cut lifecycle \(String(describing: phase))") { await barrier.waiting() }
+
+            // `first.engine` is a live, un-killed actor: pausing the coordinator's
+            // reconcile via the barrier does not pause it, and its own dispatch
+            // scheduling can independently and asynchronously deliver the
+            // just-adopted sealed owner (this harness's mocked network completes
+            // essentially synchronously). A real crash is atomic — it could never
+            // let an in-flight delivery race ahead of or straddle the crash instant.
+            // So the delivery must be treated as a real, already-settled fact BEFORE
+            // simulating the crash: settle it first, or `io.restoreLastSynchronizedState()`
+            // rolls back the capture-side cursor for content that, in this test's own
+            // reality, was already irreversibly sent — and the restarted coordinator
+            // then re-materializes and re-sends the exact same content, a genuine
+            // duplicate rather than a legitimate crash-recovery redelivery.
+            // Ask `first.engine` directly rather than the capture-side materialized
+            // files: by the time `.afterSealedOwnerAdopted` fires, `adoptOwner` has
+            // already moved the audio out of the capture root (that's required for
+            // adopt to succeed), so `Self.materializedIDs(rootURL: captureRoot, ...)`
+            // is already empty at exactly the phase this wait exists to protect.
+            try await transferTestWaitFor("first-engine dispatch settles before restart \(String(describing: phase))") {
+                let owned = await first.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+                return !owned.contains { $0.manifest.diskState == .queued }
+            }
+
+            // `TransferSpool` moves a successfully-adopted materialized audio file into
+            // its own storage via real `FileManager`, entirely outside `io`'s tracked
+            // API surface. `io` still remembers that path as synced, so an unqualified
+            // `restoreLastSynchronizedState()` would resurrect a file that was already
+            // legitimately and permanently consumed — something no real crash could do
+            // on a single real filesystem. Tell `io` the truth before simulating the
+            // crash: any capture-side artifact for the sealed partition that no longer
+            // exists was consumed, not lost, and must not come back.
+            let sealedArtifacts = OmiLaunchCaptureMaterializedArtifactPaths(rootURL: captureRoot, generationID: sealedGenerationID, ordinal: 0)
+            for consumedURL in [sealedArtifacts.audioURL, sealedArtifacts.envelopeURL, OmiPendingHandoffStore.settlementURL(for: sealedArtifacts.envelopeURL)] where !FileManager.default.fileExists(atPath: consumedURL.path) {
+                io.forgetSynchronizedState(at: consumedURL)
+            }
 
             try io.restoreLastSynchronizedState()
             let requestsBeforeRestart = Self.requestIDs()
@@ -1555,7 +1630,6 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
                 acknowledgedPrefixNextSequence: 0,
                 acknowledgedPrefixEndOffset: 0
             ).encoded()
-            let settlementFault = CutoverSettlementFault(isEnabled: fault == .multiOwnerSettlement)
 
             switch fault {
             case .unreadableCursor:
@@ -1587,7 +1661,16 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
                 io.failNext(.listDirectory)
 
             case .multiOwnerSettlement:
-                break
+                // The settlement-outcome injection seam this case used to hook is
+                // deleted along with the gate machinery. The decide-then-commit
+                // equivalent is a real IO fault on one owner's settlement-marker
+                // removal, matching every other case in this test.
+                let middleOwner = OmiLaunchCaptureMaterializedArtifactPaths(
+                    rootURL: world.captureRoot,
+                    generationID: world.sealedGenerationID,
+                    ordinal: 1
+                )
+                io.failRemove(at: OmiPendingHandoffStore.settlementURL(for: middleOwner.envelopeURL), fromCall: 1)
             }
 
             let coordinator = OmiLaunchCaptureCommitCoordinator(
@@ -1595,10 +1678,7 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
                 engine: world.engine,
                 sourceManager: world.manager,
                 io: io,
-                clock: world.clock,
-                onSettlementAction: { _, action in
-                    action == .release && settlementFault.shouldFail() ? .unknownToken : nil
-                }
+                clock: world.clock
             )
             await coordinator.reconcile()
             if fault == .multiOwnerSettlement {
@@ -1644,16 +1724,18 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
                 )
             }
             if fault == .multiOwnerSettlement {
-                XCTAssertGreaterThan(settlementFault.failureCount, 0, "the settlement failure must be exercised")
+                let cleanupAttention = try XCTUnwrap(snapshots.first {
+                    $0.manifest.attention?.reason == "launch_capture_settlement_cleanup_failed"
+                }, "the settlement failure must be exercised")
+                XCTAssertEqual(cleanupAttention.manifest.payloadParts, [])
+                XCTAssertEqual(cleanupAttention.manifest.diskState, .attention)
             }
 
             switch fault {
             case .unreadableCursor:
                 try validCursor.write(to: sealedReader.cursorURL)
-            case .orphanRepair, .materialization, .conservativeRescan:
+            case .orphanRepair, .materialization, .conservativeRescan, .multiOwnerSettlement:
                 io.clearFaults()
-            case .multiOwnerSettlement:
-                settlementFault.clear()
             }
 
             let recovered: OmiLaunchCaptureCommitCoordinator
@@ -1822,7 +1904,11 @@ private extension OmiLaunchCaptureCutoverTests {
             engine: harness.engine,
             sourceManager: manager,
             onReconciliationPhase: { phase in
-                if phase == .afterSealedEnvelopeCleaned, !didSuspendBeforeSealedRelease {
+                // Settlement-handoff prepare/cleanup now runs before adopt (decide-
+                // then-commit), so `.afterSealedEnvelopeCleaned` fires before the
+                // owner is committed to TransferEngine. `.afterSealedOwnerAdopted` is
+                // the phase that now matches "sealed owner held before release".
+                if phase == .afterSealedOwnerAdopted, !didSuspendBeforeSealedRelease {
                     didSuspendBeforeSealedRelease = true
                     await preFinalBarrier.suspend()
                 }
@@ -1853,6 +1939,15 @@ private extension OmiLaunchCaptureCutoverTests {
         } else {
             finalBeforeSealedSpoolDrain = nil
         }
+        // Capture the sealed owner's committed-but-not-yet-dispatched snapshot before
+        // dispatch opens: under decide-then-commit, adopt has no further gate holding
+        // it back, so enabling dispatch first would let it deliver and vanish from
+        // `itemSnapshots` before this check ever ran.
+        let preFinalOmiItemIDs = Set(
+            (await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi))
+                .filter { $0.state != .attention }
+                .map(\.itemID)
+        )
         let controlItemID = UUID()
         var controlManifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
             itemID: controlItemID,
@@ -1863,11 +1958,6 @@ private extension OmiLaunchCaptureCutoverTests {
         _ = try await harness.engine.enqueue(manifest: controlManifest, payloads: ["audio": Data("control".utf8)])
         await harness.engine.enableDispatch()
         try await transferTestWaitFor("unrelated control delivery") { Self.requestIDs().contains(controlItemID) }
-        let preFinalOmiItemIDs = Set(
-            (await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi))
-                .filter { $0.state != .attention }
-                .map(\.itemID)
-        )
         XCTAssertFalse(preFinalOmiItemIDs.isEmpty)
         let reservedRoot = OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: captureRoot)
         let preFinalReservedArtifactIDs = try Self.materializedIDs(rootURL: reservedRoot, generationID: intent.reservedGenerationID)
@@ -1896,6 +1986,12 @@ private extension OmiLaunchCaptureCutoverTests {
                     .appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
                     .appendingPathComponent(intent.reservedGenerationID.uuidString, isDirectory: true)
                 try await transferTestWaitFor("reserved artifact materialization") {
+                    // A phase-observer callback can inject raw capture data mid-pass
+                    // (see callbacksByPhase above); the single explicit reconcile() call
+                    // above may race an already-scheduled successor task rather than
+                    // process that new data itself. Re-driving reconcile() on every poll
+                    // guarantees forward progress regardless of that scheduling order.
+                    await coordinator.reconcile()
                     guard let files = try? FileManager.default.contentsOfDirectory(at: reservedDirectory, includingPropertiesForKeys: nil) else {
                         return false
                     }
@@ -2214,24 +2310,6 @@ private actor CutoverPassCounter {
 
     func increment() { self.value += 1 }
     func count() -> Int { self.value }
-}
-
-@MainActor
-private final class CutoverSettlementFault {
-    private var isEnabled: Bool
-    private(set) var failureCount = 0
-
-    init(isEnabled: Bool = false) {
-        self.isEnabled = isEnabled
-    }
-
-    func shouldFail() -> Bool {
-        guard self.isEnabled else { return false }
-        self.failureCount += 1
-        return true
-    }
-
-    func clear() { self.isEnabled = false }
 }
 
 private final class CutoverTransferURLProtocol: URLProtocol, @unchecked Sendable {

@@ -15,13 +15,16 @@ enum OmiTransferSpoolMigrator {
         appGroupRootURL.appendingPathComponent(self.quarantineRelativePath, isDirectory: true)
     }
 
+    static func adoptedURL(directoryURL: URL, chunkID: String) -> URL {
+        directoryURL.appendingPathComponent("\(chunkID).adopted", isDirectory: false)
+    }
+
     static func migrate(
         appGroupRootURL: URL,
         legacyCachesRootURL: URL?,
         transferEnqueuer: ObserverAudioTransferEnqueuer,
         diagnosticLog: DiagnosticLog?,
         acknowledgeTokens: @escaping ([OmiSegmentMetadataToken]) -> Void,
-        registerDispatchHold: @escaping (UUID) async -> Void,
         defaults: UserDefaults = .standard,
         fileManager: FileManager = .default
     ) async {
@@ -41,7 +44,6 @@ enum OmiTransferSpoolMigrator {
                 quarantineRootURL: quarantineRoot,
                 diagnosticLog: diagnosticLog,
                 acknowledgeTokens: acknowledgeTokens,
-                registerDispatchHold: registerDispatchHold,
                 fileManager: fileManager
             )
         }
@@ -84,7 +86,6 @@ private extension OmiTransferSpoolMigrator {
         quarantineRootURL: URL,
         diagnosticLog: DiagnosticLog?,
         acknowledgeTokens: @escaping ([OmiSegmentMetadataToken]) -> Void,
-        registerDispatchHold: @escaping (UUID) async -> Void,
         fileManager: FileManager
     ) async -> Int {
         let sessions: [URL]
@@ -112,7 +113,6 @@ private extension OmiTransferSpoolMigrator {
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
                     acknowledgeTokens: acknowledgeTokens,
-                    registerDispatchHold: registerDispatchHold,
                     fileManager: fileManager
                 )
             }
@@ -145,7 +145,6 @@ private extension OmiTransferSpoolMigrator {
         quarantineRootURL: URL,
         diagnosticLog: DiagnosticLog?,
         acknowledgeTokens: @escaping ([OmiSegmentMetadataToken]) -> Void,
-        registerDispatchHold: @escaping (UUID) async -> Void,
         fileManager: FileManager
     ) async -> Int {
         let entries: [URL]
@@ -266,20 +265,33 @@ private extension OmiTransferSpoolMigrator {
 
             switch verdict {
             case .ownedInQueued, .ownedInAttention:
-                if !self.cleanup(
-                    audioURL: hasAudio ? audioURL : nil,
+                unresolved += self.finishOwnedProducerCleanup(
+                    hasAudio: hasAudio,
+                    audioURL: audioURL,
                     chunkID: chunkID,
                     envelopeURL: envelopeURL,
                     envelope: envelope,
                     acknowledgeTokens: acknowledgeTokens,
+                    quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
                     fileManager: fileManager
-                ) {
-                    // Keep duplicate legacy evidence from racing dispatch into a second send next launch.
-                    await registerDispatchHold(envelope.itemID)
-                    unresolved += 1
-                }
+                )
             case .notFound where hasAudio:
+                let adoptedURL = self.adoptedURL(directoryURL: directoryURL, chunkID: chunkID)
+                if fileManager.fileExists(atPath: adoptedURL.path) {
+                    unresolved += self.finishOwnedProducerCleanup(
+                        hasAudio: true,
+                        audioURL: audioURL,
+                        chunkID: chunkID,
+                        envelopeURL: envelopeURL,
+                        envelope: envelope,
+                        acknowledgeTokens: acknowledgeTokens,
+                        quarantineRootURL: quarantineRootURL,
+                        diagnosticLog: diagnosticLog,
+                        fileManager: fileManager
+                    )
+                    continue
+                }
                 do {
                     let tempURL = try self.copyToTemp(audioURL, fileManager: fileManager)
                     _ = try await transferEnqueuer.enqueueOmiChunkMovingFile(
@@ -311,19 +323,17 @@ private extension OmiTransferSpoolMigrator {
 
                 switch postEnqueue {
                 case .ownedInQueued, .ownedInAttention:
-                    if !self.cleanup(
+                    unresolved += self.finishOwnedProducerCleanup(
+                        hasAudio: true,
                         audioURL: audioURL,
                         chunkID: chunkID,
                         envelopeURL: envelopeURL,
                         envelope: envelope,
                         acknowledgeTokens: acknowledgeTokens,
+                        quarantineRootURL: quarantineRootURL,
                         diagnosticLog: diagnosticLog,
                         fileManager: fileManager
-                    ) {
-                        // Keep duplicate legacy evidence from racing dispatch into a second send next launch.
-                        await registerDispatchHold(envelope.itemID)
-                        unresolved += 1
-                    }
+                    )
                 case .conflict(let reason):
                     unresolved += 1
                     self.emit(diagnosticLog, detail: "source=\(envelopeURL.path) reason=\(OmiOwnershipDiagnosticReason.forUnownedVerdict(.conflict(reason)))")
@@ -385,7 +395,7 @@ private extension OmiTransferSpoolMigrator {
                 try fileManager.removeItem(at: audioURL)
             }
             let directoryURL = envelopeURL.deletingLastPathComponent()
-            for pathExtension in ["json", "upload", "failure"] {
+            for pathExtension in ["json", "upload", "failure", "adopted"] {
                 let url = directoryURL.appendingPathComponent("\(chunkID).\(pathExtension)", isDirectory: false)
                 if fileManager.fileExists(atPath: url.path) {
                     try fileManager.removeItem(at: url)
@@ -401,13 +411,108 @@ private extension OmiTransferSpoolMigrator {
         return true
     }
 
+    static func writeAdoptedFlag(itemID: UUID, directoryURL: URL, chunkID: String, fileManager: FileManager) -> Bool {
+        let url = self.adoptedURL(directoryURL: directoryURL, chunkID: chunkID)
+        if fileManager.fileExists(atPath: url.path) { return true }
+        do {
+            try Data(itemID.uuidString.utf8).write(to: url, options: .atomic)
+            return true
+        } catch {
+            omiTransferMigrationLog.error("omi adopted marker write failed source=\(url.path, privacy: .public)")
+            return false
+        }
+    }
+
+    @discardableResult
+    static func finishOwnedProducerCleanup(
+        hasAudio: Bool,
+        audioURL: URL,
+        chunkID: String,
+        envelopeURL: URL,
+        envelope: OmiPendingHandoffEnvelope,
+        acknowledgeTokens: ([OmiSegmentMetadataToken]) -> Void,
+        quarantineRootURL: URL,
+        diagnosticLog: DiagnosticLog?,
+        fileManager: FileManager
+    ) -> Int {
+        if hasAudio {
+            _ = self.writeAdoptedFlag(
+                itemID: envelope.itemID,
+                directoryURL: envelopeURL.deletingLastPathComponent(),
+                chunkID: chunkID,
+                fileManager: fileManager
+            )
+        }
+        if self.cleanup(
+            audioURL: hasAudio ? audioURL : nil,
+            chunkID: chunkID,
+            envelopeURL: envelopeURL,
+            envelope: envelope,
+            acknowledgeTokens: acknowledgeTokens,
+            diagnosticLog: diagnosticLog,
+            fileManager: fileManager
+        ) {
+            return 0
+        }
+        if hasAudio, fileManager.fileExists(atPath: audioURL.path) {
+            _ = OmiInProgressRecovery.quarantine(
+                audioURL,
+                quarantineRootURL: quarantineRootURL,
+                diagnosticLog: diagnosticLog,
+                reason: "cleanup leftover audio",
+                fileManager: fileManager
+            )
+        }
+        if fileManager.fileExists(atPath: envelopeURL.path) {
+            _ = OmiInProgressRecovery.quarantine(
+                envelopeURL,
+                quarantineRootURL: quarantineRootURL,
+                diagnosticLog: diagnosticLog,
+                reason: "cleanup leftover envelope",
+                fileManager: fileManager
+            )
+        }
+        let directoryURL = envelopeURL.deletingLastPathComponent()
+        for pathExtension in ["json", "upload", "failure"] {
+            let url = directoryURL.appendingPathComponent("\(chunkID).\(pathExtension)", isDirectory: false)
+            if fileManager.fileExists(atPath: url.path) {
+                _ = OmiInProgressRecovery.quarantine(
+                    url,
+                    quarantineRootURL: quarantineRootURL,
+                    diagnosticLog: diagnosticLog,
+                    reason: "cleanup leftover",
+                    fileManager: fileManager
+                )
+            }
+        }
+        // The `.adopted` marker only guards a later pass's `notFound where hasAudio`
+        // branch from misreading leftover original audio as never-sent. Once audio is
+        // confirmed gone from this location (cleaned up above, or just quarantined),
+        // that hazard no longer exists, so the marker is redundant litter — quarantine
+        // it too. If audio is still here (its own quarantine also failed), leave the
+        // marker in place: that double-fault is exactly the case it exists to guard.
+        if !fileManager.fileExists(atPath: audioURL.path) {
+            let adoptedURL = self.adoptedURL(directoryURL: directoryURL, chunkID: chunkID)
+            if fileManager.fileExists(atPath: adoptedURL.path) {
+                _ = OmiInProgressRecovery.quarantine(
+                    adoptedURL,
+                    quarantineRootURL: quarantineRootURL,
+                    diagnosticLog: diagnosticLog,
+                    reason: "cleanup leftover",
+                    fileManager: fileManager
+                )
+            }
+        }
+        return 1
+    }
+
     static func hasRemainingArtifacts(in rootURL: URL, fileManager: FileManager) throws -> Bool {
         guard let enumerator = fileManager.enumerator(at: rootURL, includingPropertiesForKeys: nil) else {
             throw CocoaError(.fileReadUnknown)
         }
         for case let url as URL in enumerator {
             switch url.pathExtension {
-            case "m4a", OmiPendingHandoffEnvelope.pathExtension, "json", "upload", "failure":
+            case "m4a", OmiPendingHandoffEnvelope.pathExtension, "json", "upload", "failure", "adopted":
                 return true
             default:
                 continue

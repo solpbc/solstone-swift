@@ -123,6 +123,20 @@ nonisolated final class FaultInjectingOmiLaunchCaptureIO: OmiLaunchCaptureIO, @u
         }
     }
 
+    /// Tells the mock a URL was consumed by code outside `OmiLaunchCaptureIO` (e.g.
+    /// `TransferSpool` moving a materialized file into its own, unmocked storage via
+    /// real `FileManager` calls). Without this, `restoreLastSynchronizedState()` can
+    /// "resurrect" a file this mock still remembers as synced, even though the real
+    /// file was already legitimately and permanently moved elsewhere on the one real
+    /// filesystem a device would actually have — a test-mock artifact, not something
+    /// a real crash could ever do.
+    func forgetSynchronizedState(at url: URL) {
+        self.lock.withLock {
+            self.synchronizedState.removeValue(forKey: url)
+            self.trackedURLs.insert(url)
+        }
+    }
+
     func restoreLastSynchronizedState() throws {
         let state = self.lock.withLock { self.synchronizedState }
         let urls = self.lock.withLock { self.trackedURLs }

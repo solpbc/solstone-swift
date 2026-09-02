@@ -21,7 +21,8 @@ enum OmiInProgressRecovery {
         rootURL: URL,
         transferEnqueuer: ObserverAudioTransferEnqueuer,
         acknowledgeTokens: ([OmiSegmentMetadataToken]) -> Void,
-        registerDispatchHold: @escaping (UUID) async -> Void,
+        registerProducerCleanupFailure: @escaping (UUID) async -> Void = { _ in },
+        retryOwnedAttention: @escaping (UUID) async -> Void = { _ in },
         quarantineRootURL: URL,
         diagnosticLog: DiagnosticLog?,
         fileManager: FileManager = .default,
@@ -117,10 +118,11 @@ enum OmiInProgressRecovery {
                         acknowledgeTokens(envelope.frozenTokens)
                     }
                     if !OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager) {
-                        // Keep duplicate recovery evidence from racing dispatch into a second send next launch.
-                        await registerDispatchHold(envelope.itemID)
+                        await registerProducerCleanupFailure(envelope.itemID)
                         result.unresolvedCount += 1
                         self.emitEnvelopeRemovalFailure(at: envelopeURL, diagnosticLog: diagnosticLog)
+                    } else {
+                        await retryOwnedAttention(envelope.itemID)
                     }
                     result.recoveredCount += 1
                     continue
@@ -198,9 +200,9 @@ enum OmiInProgressRecovery {
                         acknowledgeTokens(envelope.frozenTokens)
                     }
                     if OmiPendingHandoffStore.remove(at: envelopeURL, fileManager: fileManager) {
+                        await retryOwnedAttention(envelope.itemID)
                     } else {
-                        // Keep duplicate recovery evidence from racing dispatch into a second send next launch.
-                        await registerDispatchHold(envelope.itemID)
+                        await registerProducerCleanupFailure(envelope.itemID)
                         result.unresolvedCount += 1
                         self.emitEnvelopeRemovalFailure(at: envelopeURL, diagnosticLog: diagnosticLog)
                     }

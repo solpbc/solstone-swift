@@ -208,12 +208,62 @@ final class TransferItemEvidenceTests: XCTestCase {
         XCTAssertEqual(try spool.verifyOwnership(expectedManifest: expected, expectedPayloadSourceURLs: [:]), .ownedInQueued)
     }
 
+    @MainActor func testZeroPayloadAttentionSurvivesRestartAndQueuedCopyIsRejected() async throws {
+        TransferURLProtocol.reset()
+        defer { TransferURLProtocol.reset() }
+        TransferURLProtocol.handler = { request, _ in
+            (transferTestResponse(for: request, statusCode: 204), Data())
+        }
+        let spool = TransferSpool(rootURL: self.rootURL)
+        var attentionManifest = self.manifest()
+        attentionManifest.payloadParts = []
+        let attentionStaged = try spool.stage(manifest: attentionManifest, payloadFileURLs: [:])
+        let attentionCommitted = try spool.commitStagedItem(itemID: attentionStaged.item.manifest.itemID)
+        _ = try spool.moveQueuedItemToAttention(attentionCommitted, reason: "boundary", detail: "reason=boundary", now: Date())
+
+        var queuedManifest = self.manifest()
+        queuedManifest.payloadParts = []
+        let queuedStaged = try spool.stage(manifest: queuedManifest, payloadFileURLs: [:])
+        _ = try spool.commitStagedItem(itemID: queuedStaged.item.manifest.itemID)
+
+        let snapshot = try spool.initialize()
+        XCTAssertEqual(snapshot.attention.map(\.manifest.itemID), [attentionManifest.itemID])
+        XCTAssertFalse(snapshot.queued.contains { $0.manifest.itemID == queuedManifest.itemID })
+
+        let unrelatedID = UUID()
+        let live = makeTransferCutoverHarness(
+            rootURL: self.rootURL,
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: TransferItemEvidenceAvailableResolver()
+        )
+        try await live.engine.initialize()
+        _ = try await live.engine.enqueue(
+            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
+                itemID: unrelatedID,
+                sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 92, startedAt: Date())
+            ),
+            payloads: ["audio": Data("unrelated".utf8)]
+        )
+        await live.engine.enableDispatch()
+        try await transferTestWaitFor("queued control dispatch") { TransferURLProtocol.requests.count == 1 }
+        XCTAssertEqual(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:)), [unrelatedID])
+        let restartedSnapshot = await live.engine.itemSnapshots()
+        XCTAssertTrue(restartedSnapshot.contains { $0.itemID == attentionManifest.itemID && $0.manifest.diskState == .attention })
+        XCTAssertFalse(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:)).contains(attentionManifest.itemID))
+    }
+
     @MainActor private func manifest() -> TransferManifest {
         let sessionID = UUID()
         return ObserverAudioTransferEnqueuer.makeOmiManifest(
             itemID: UUID(),
             sidecar: makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
         )
+    }
+}
+
+nonisolated private struct TransferItemEvidenceAvailableResolver: TransferEndpointResolver {
+    func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
+        .available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))
     }
 }
 

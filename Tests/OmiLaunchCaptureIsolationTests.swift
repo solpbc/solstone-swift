@@ -54,7 +54,6 @@ final class OmiLaunchCaptureIsolationTests: XCTestCase {
             transferEnqueuer: harness.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { _ in },
-            registerDispatchHold: { _ in },
             defaults: defaults
         )
         let recovery = await OmiInProgressRecovery.recoverInProgressFiles(
@@ -62,7 +61,6 @@ final class OmiLaunchCaptureIsolationTests: XCTestCase {
             rootURL: appGroupRoot.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
             transferEnqueuer: harness.enqueuer,
             acknowledgeTokens: { _ in },
-            registerDispatchHold: { _ in },
             quarantineRootURL: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
             diagnosticLog: nil
         )

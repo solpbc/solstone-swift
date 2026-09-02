@@ -133,7 +133,7 @@ struct SolstoneSwiftApp: App {
         migrate: (URL, URL?) async throws -> Void,
         reconcile: (URL) async throws -> Void,
         reconcileLaunchCapture: (URL) async throws -> Void = { _ in },
-        conservativelyGateOmi: () async -> Void = {},
+        uncommitLaunchCaptureLeftovers: () async -> Void = {},
         enableDispatch: () async -> Void,
         openOmiReadiness: () async -> Void,
         reportFailure: (String, (any Error)?) -> Void
@@ -153,7 +153,7 @@ struct SolstoneSwiftApp: App {
         do {
             rootURL = try appGroupRoot()
         } catch {
-            await conservativelyGateOmi()
+            await uncommitLaunchCaptureLeftovers()
             reportFailure("app-group unavailable", error)
             await finishBootstrap()
             return
@@ -161,7 +161,7 @@ struct SolstoneSwiftApp: App {
         do {
             try await migrate(rootURL, cachesRootURL)
         } catch {
-            await conservativelyGateOmi()
+            await uncommitLaunchCaptureLeftovers()
             reportFailure("migration failed", error)
             await finishBootstrap()
             return
@@ -169,7 +169,7 @@ struct SolstoneSwiftApp: App {
         do {
             try await reconcile(rootURL)
         } catch {
-            await conservativelyGateOmi()
+            await uncommitLaunchCaptureLeftovers()
             reportFailure("reconciliation failed", error)
             await finishBootstrap()
             return
@@ -177,7 +177,7 @@ struct SolstoneSwiftApp: App {
         do {
             try await reconcileLaunchCapture(rootURL)
         } catch {
-            await conservativelyGateOmi()
+            await uncommitLaunchCaptureLeftovers()
             reportFailure("launch capture reconciliation failed", error)
             await finishBootstrap()
             return
@@ -928,9 +928,6 @@ struct SolstoneSwiftApp: App {
                     diagnosticLog: self.diagnosticLog,
                     acknowledgeTokens: { [weak omiSource = self.omiSourceManager] tokens in
                         omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
-                    },
-                    registerDispatchHold: { itemID in
-                        await self.transferEngine.hold(itemID: itemID)
                     }
                 )
                 await WatchTransferSpoolMigrator.migrate(
@@ -968,8 +965,14 @@ struct SolstoneSwiftApp: App {
                     )
                 )
             },
-            conservativelyGateOmi: {
-                await self.launchCaptureCommitCoordinator.conservativelyGateOmi()
+            uncommitLaunchCaptureLeftovers: {
+                guard let appGroup = try? AppGroupContainer.rootURL() else { return }
+                await self.launchCaptureCommitCoordinator.uncommitLeftovers(
+                    rootURL: appGroup.appendingPathComponent(
+                        OmiLaunchCaptureFormat.rootDirectoryName,
+                        isDirectory: true
+                    )
+                )
             },
             enableDispatch: {
                 await self.transferEngine.enableDispatch()
@@ -1013,8 +1016,15 @@ struct SolstoneSwiftApp: App {
                 acknowledgeTokens: { [weak omiSource = self.omiSourceManager] tokens in
                     omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
                 },
-                registerDispatchHold: { itemID in
-                    await self.transferEngine.hold(itemID: itemID)
+                registerProducerCleanupFailure: { itemID in
+                    await self.transferEngine.moveToAttention(
+                        itemID: itemID,
+                        reason: "omi_producer_cleanup_failed",
+                        detail: "envelope removal failed"
+                    )
+                },
+                retryOwnedAttention: { itemID in
+                    try? await self.transferEngine.retryAttention(itemID: itemID)
                 },
                 quarantineRootURL: quarantineRoot,
                 diagnosticLog: self.diagnosticLog

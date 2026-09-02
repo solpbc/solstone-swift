@@ -205,11 +205,17 @@ struct DiagnosticsView: View {
     }
 
     private func refreshDiagnosticsExport() async {
+        let launchCaptureRoot = (try? AppGroupContainer.rootURL())?.appendingPathComponent(
+            OmiLaunchCaptureFormat.rootDirectoryName,
+            isDirectory: true
+        )
         let syncState = await syncStateSummaryLines(
             mobileSegment: self.mobileSegmentTransferHolder,
             omi: self.omiUploaderHolder,
             watch: self.watchUploaderHolder,
-            share: self.shareTransferHolder
+            share: self.shareTransferHolder,
+            transferEngine: self.omiUploaderHolder.transferEngine,
+            launchCaptureRootURL: launchCaptureRoot
         )
         self.diagnosticsExportURL = self.log.exportFileURL(
             tunnel: self.tunnelManager,

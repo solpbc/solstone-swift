@@ -65,7 +65,9 @@ func syncStateSummaryLines(
     omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder,
-    now: Date = Date()
+    now: Date = Date(),
+    transferEngine: TransferEngine? = nil,
+    launchCaptureRootURL: URL? = nil
 ) async -> [String] {
     let rows: [(name: String, pending: Int, inFlight: Int, attention: Int, delivered: Int, lastUploadAt: Date?, recentErrorCount: Int, recentErrorDetail: String?, detail: SourceSyncStateDetail)] = await [
         (
@@ -118,7 +120,45 @@ func syncStateSummaryLines(
     if lines.count == 1 {
         lines.append("(nothing waiting on any source)")
     }
+    if let transferEngine, let launchCaptureRootURL {
+        let staged = await omiLaunchCaptureStagedCount(
+            engine: transferEngine,
+            launchCaptureRootURL: launchCaptureRootURL
+        )
+        if staged > 0 {
+            lines.append("omi pendant staged: staged=\(staged)")
+        }
+    }
     return lines
+}
+
+func omiLaunchCaptureStagedCount(engine: TransferEngine, launchCaptureRootURL: URL) async -> Int {
+    let owned = Set((await engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)).map(\.itemID))
+    let reserved = OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: launchCaptureRootURL)
+    var count = 0
+    for root in [launchCaptureRootURL, reserved] {
+        let materialized = root.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: materialized.path),
+              let generations = try? FileManager.default.contentsOfDirectory(
+                at: materialized,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+              )
+        else { continue }
+        for generation in generations {
+            guard let files = try? FileManager.default.contentsOfDirectory(
+                at: generation,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            ) else { continue }
+            for file in files where file.pathExtension == OmiPendingHandoffEnvelope.pathExtension {
+                guard let envelope = try? OmiPendingHandoffStore.read(from: file), envelope.isSupported else { continue }
+                if owned.contains(envelope.itemID) { continue }
+                count += 1
+            }
+        }
+    }
+    return count
 }
 
 nonisolated func sourceSyncStuckLine(

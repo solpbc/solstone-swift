@@ -63,7 +63,7 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             reconcile: { _ in
                 XCTFail("reconciliation should not run after initialization failure")
             },
-            conservativelyGateOmi: {
+            uncommitLaunchCaptureLeftovers: {
                 events.append("gate")
             },
             enableDispatch: {
@@ -102,7 +102,7 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
             reconcile: { _ in
                 XCTFail("reconciliation should not run without an app-group root")
             },
-            conservativelyGateOmi: {
+            uncommitLaunchCaptureLeftovers: {
                 events.append("gate")
             },
             enableDispatch: {
@@ -148,7 +148,7 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
                         throw BootstrapTransferTestError.expected
                     }
                 },
-                conservativelyGateOmi: {
+                uncommitLaunchCaptureLeftovers: {
                     events.append("gate")
                 },
                 enableDispatch: {
@@ -189,7 +189,7 @@ nonisolated final class SolstoneSwiftAppBootstrapTransferTests: XCTestCase {
                 reconcile: { _ in
                     if failurePoint == .reconciliation { throw BootstrapTransferTestError.expected }
                 },
-                conservativelyGateOmi: { events.append("gate") },
+                uncommitLaunchCaptureLeftovers: { events.append("gate") },
                 enableDispatch: { events.append("queued-item-sent") },
                 openOmiReadiness: { events.append("omi-readiness") },
                 reportFailure: { _, _ in events.append("failure") }

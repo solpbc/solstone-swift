@@ -11,7 +11,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     // Observing them keeps ordering testable without changing the Transfer APIs.
     enum ReconciliationPhase: Equatable, Hashable, Sendable {
         case afterCutIntentCommittedBeforeRouteSwap
-        case afterSealedOwnerGatedEnqueued
+        case afterSealedOwnerAdopted
         case afterSealedOwnershipVerified
         case afterSealedCursorAcknowledged
         case afterSealedEnvelopeCleaned
@@ -20,11 +20,6 @@ final class OmiLaunchCaptureCommitCoordinator {
         case afterFinalMarkerCommittedBeforeReservedMaterialization
         case beforeReservedOwnerReleased
         case afterReservedOwnerReleased
-    }
-
-    enum SettlementAction: Equatable, Sendable {
-        case release
-        case gateConversion
     }
 
     private struct LinkedHandoff {
@@ -56,11 +51,6 @@ final class OmiLaunchCaptureCommitCoordinator {
         case delayed
     }
 
-    private struct PendingOwner {
-        let partition: OmiLaunchCaptureMaterializedPartition
-        let token: TransferGateToken
-    }
-
     private struct SettlementHandoff {
         let generationID: UUID
         let envelopeURL: URL
@@ -70,7 +60,6 @@ final class OmiLaunchCaptureCommitCoordinator {
 
     private struct SettlementOwner {
         let itemID: UUID
-        let token: TransferGateToken
         let handoffs: [SettlementHandoff]
         let isAcknowledged: Bool
     }
@@ -89,37 +78,12 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
-    private enum CoordinatorGateOwner {
-        case attached(TransferGateToken)
-        case registered(PendingOwner)
-
-        var token: TransferGateToken {
-            switch self {
-            case .attached(let token): token
-            case .registered(let owner): owner.token
-            }
-        }
-    }
-
-    private enum CoordinatorHoldReason {
-        case explicitResume
-        case conservative
-        case settlementRetry
-    }
-
-    private enum OwnerReleaseOutcome {
-        case released
-        case disabled(TransferGateToken)
-        case failed
-    }
-
     private var rootURL: URL?
     private let engine: TransferEngine
     private let sourceManager: OmiSourceManager
     private let io: any OmiLaunchCaptureIO
     private let clock: any ObserverClock
     private let onReconciliationPhase: (@MainActor @Sendable (ReconciliationPhase) async -> Void)?
-    private let onSettlementAction: (@MainActor @Sendable (UUID, SettlementAction) -> TransferGateSettlementOutcome?)?
     private let log = Logger(subsystem: "app.solstone.swift", category: "omi-launch-capture")
     private var reconciliationRequested = false
     private var successorTask: Task<Void, Never>?
@@ -130,12 +94,6 @@ final class OmiLaunchCaptureCommitCoordinator {
     private var pendingCutFinalDefect: OmiLaunchCaptureCutReservationDefect?
     private var cutoverArmFailureCount = 0
     private var cutoverArmRetryExhausted = false
-    // Last writer wins: the call that creates a lifetime hold owns its resume policy.
-    // Explicit holds resume only from the explicit-enable path; conservative and retry
-    // holds require a successful attached-handoff scan.
-    private var coordinatorHoldReasonsByItemID: [UUID: CoordinatorHoldReason] = [:]
-    private var isResumingAfterExplicitEnable = false
-    private var pendingGateOwnersByItemID: [UUID: CoordinatorGateOwner] = [:]
     private var enumeratedHandoffs: [LinkedHandoff] = []
     private var materializerSession: (rootURL: URL, generationID: UUID, materializer: OmiLaunchCaptureMaterializer)?
     private static let reconciliationNoProgressDelay: Duration = .seconds(1)
@@ -147,8 +105,7 @@ final class OmiLaunchCaptureCommitCoordinator {
         sourceManager: OmiSourceManager,
         io: any OmiLaunchCaptureIO = FoundationOmiLaunchCaptureIO(),
         clock: any ObserverClock = SystemObserverClock(),
-        onReconciliationPhase: (@MainActor @Sendable (ReconciliationPhase) async -> Void)? = nil,
-        onSettlementAction: (@MainActor @Sendable (UUID, SettlementAction) -> TransferGateSettlementOutcome?)? = nil
+        onReconciliationPhase: (@MainActor @Sendable (ReconciliationPhase) async -> Void)? = nil
     ) {
         self.rootURL = rootURL
         self.engine = engine
@@ -156,8 +113,15 @@ final class OmiLaunchCaptureCommitCoordinator {
         self.io = io
         self.clock = clock
         self.onReconciliationPhase = onReconciliationPhase
-        self.onSettlementAction = onSettlementAction
         self.refreshCutReservationState()
+    }
+
+    func uncommitLeftovers(rootURL: URL? = nil) async {
+        if let rootURL {
+            self.rootURL = rootURL
+            self.refreshCutReservationState()
+        }
+        await self.uncommitLaunchCaptureLeftovers()
     }
 
     func reconcile(rootURL: URL? = nil) async {
@@ -166,16 +130,9 @@ final class OmiLaunchCaptureCommitCoordinator {
             self.refreshCutReservationState()
         }
         guard !self.isReconciling else { return }
-        guard let rootURL = self.rootURL else {
-            await self.holdPendingGateOwners()
-            await self.conservativelyGateOmi()
-            return
-        }
-        guard !self.cutReservationProbeFailed else {
-            await self.holdPendingGateOwners()
-            await self.conservativelyGateOmi()
-            return
-        }
+        await self.uncommitLaunchCaptureLeftovers()
+        guard let rootURL = self.rootURL else { return }
+        guard !self.cutReservationProbeFailed else { return }
         self.isReconciling = true
         defer {
             self.isReconciling = false
@@ -184,20 +141,10 @@ final class OmiLaunchCaptureCommitCoordinator {
                 self.armReconciliationSuccessor(delayed: pendingSuccessor == .delayed)
             }
         }
-        guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
-            await self.holdPendingGateOwners()
-            await self.conservativelyGateOmi()
-            return
-        }
+        guard self.sourceManager.isLaunchCaptureRecoveryEnabled else { return }
 
-        guard await self.beginCutIfNeeded() else {
-            await self.holdPendingGateOwners()
-            await self.conservativelyGateOmi()
-            return
-        }
+        guard await self.beginCutIfNeeded() else { return }
         guard self.cutLifecycle != .defect else {
-            await self.holdPendingGateOwners()
-            await self.conservativelyGateOmi()
             if let defect = self.pendingCutFinalDefect {
                 await self.commitCutFinalDefect(defect)
             }
@@ -215,24 +162,14 @@ final class OmiLaunchCaptureCommitCoordinator {
         let enumeration = self.enumerateLinkedIDs(rootURLs: reconciliationRoots)
         switch enumeration {
         case .unknown:
-            await self.holdPendingGateOwners()
-            await self.conservativelyGateOmi()
             return
         case .scannedNothingLinked:
-            await self.releaseCleanUnlinkedCoordinatorHolds(attachedItemIDs: [])
             break
         case .scannedWithLinkedIDs(let handoffs):
             self.enumeratedHandoffs = handoffs
-            await self.restoreCoordinatorHolds(for: handoffs)
-            await self.registerExistingOwners(handoffs)
-            await self.releaseCleanUnlinkedCoordinatorHolds(attachedItemIDs: Set(handoffs.map(\.itemID)))
         }
 
-        guard var generationIDs = self.generationIDs(rootURL: rootURL) else {
-            await self.holdPendingGateOwners()
-            await self.conservativelyGateOmi()
-            return
-        }
+        guard var generationIDs = self.generationIDs(rootURL: rootURL) else { return }
         let activeGenerationID = self.sourceManager.activeLaunchCaptureGenerationID
         let sealedGenerationID = self.cutLifecycle.intent?.sealedGenerationID ?? activeGenerationID
         if let sealedGenerationID {
@@ -246,11 +183,7 @@ final class OmiLaunchCaptureCommitCoordinator {
         var sawBoundary = false
         var failed = false
         let ordering = self.generationsInCaptureOrder(generationIDs, rootURL: rootURL)
-        guard !ordering.hasUnreadableHeader else {
-            await self.holdPendingGateOwners()
-            await self.conservativelyGateOmi()
-            return
-        }
+        guard !ordering.hasUnreadableHeader else { return }
         for generationID in ordering.generationIDs {
             switch await self.reconcile(generationID: generationID, rootURL: rootURL) {
             case .settled(let result, let reader):
@@ -283,11 +216,7 @@ final class OmiLaunchCaptureCommitCoordinator {
 
         if case .reservedSettlement(let intent, _) = self.cutLifecycle {
             let reservedRoot = OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: rootURL)
-            guard let reservedIDs = self.generationIDs(rootURL: reservedRoot) else {
-                await self.holdPendingGateOwners()
-                await self.conservativelyGateOmi()
-                return
-            }
+            guard let reservedIDs = self.generationIDs(rootURL: reservedRoot) else { return }
             for generationID in self.generationsInCaptureOrder(reservedIDs, rootURL: reservedRoot).generationIDs {
                 switch await self.reconcile(generationID: generationID, rootURL: reservedRoot) {
                 case .settled(let result, let reader):
@@ -303,11 +232,10 @@ final class OmiLaunchCaptureCommitCoordinator {
             _ = intent
         }
 
-        let unsettledLinkedGenerationIDs = await self.settleAcknowledgedAttachedHandoffs()
-        await self.holdPendingGateOwners()
+        let unsettledLinkedGenerationIDs = await self.settleAttachedHandoffs()
 
         // Retirement is post-settlement maintenance. A handoff owner may need its cursor
-        // as durable acknowledgment evidence until its gate has been released or held.
+        // as durable acknowledgment evidence until adopt has finished.
         for reader in settledReaders where !unsettledLinkedGenerationIDs.contains(reader.generationID) {
             // An intent/final record names the sealed capture as recovery evidence;
             // it must outlive settlement until the retention follow-up can retire it.
@@ -333,45 +261,7 @@ final class OmiLaunchCaptureCommitCoordinator {
               !self.isReconciling,
               self.cutLifecycle != .defect
         else { return }
-        self.isResumingAfterExplicitEnable = true
         await self.reconcile()
-        self.isResumingAfterExplicitEnable = false
-    }
-
-    func conservativelyGateOmi() async {
-        for item in await self.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi) {
-            // A successful restoration proves a different subsystem already owns this
-            // lifetime hold. Put it back without recording a coordinator reason.
-            switch await self.engine.restoreGateFromHold(itemID: item.itemID) {
-            case .gated(let existingHold):
-                switch await self.engine.convertGateToHold(existingHold) {
-                case .settled, .alreadyConverted:
-                    break
-                case .alreadyReleased, .unknownToken, .mismatchedToken:
-                    // The restoration issued this process-local token. Retain it for
-                    // retry rather than leaving an active gate without an owner.
-                    self.pendingGateOwnersByItemID[item.itemID] = .attached(existingHold)
-                }
-                continue
-            case .alreadyGated:
-                continue
-            case .notHeld, .engineNotInitialized:
-                break
-            }
-            switch await self.engine.gateExisting(itemID: item.itemID) {
-            case .gated(let token):
-                if !(await self.convertGateToHold(token, itemID: item.itemID, reason: .conservative)) {
-                    self.pendingGateOwnersByItemID[item.itemID] = .attached(token)
-                }
-            case .alreadyGated:
-                continue
-            case .dispatchAlreadyEnabled:
-                await self.engine.hold(itemID: item.itemID)
-                self.coordinatorHoldReasonsByItemID[item.itemID] = .conservative
-            case .engineNotInitialized:
-                await self.engine.hold(itemID: item.itemID)
-            }
-        }
     }
 
     private func reconcile(generationID: UUID, rootURL: URL) async -> GenerationOutcome {
@@ -380,13 +270,11 @@ final class OmiLaunchCaptureCommitCoordinator {
         // A recovery read failure verifies no prefix. Do not let a second read race
         // past that failure and create an owner from an unverified capture.
         if scan.boundaryReason == .readFailed, scan.boundarySequence == nil {
-            await self.conservativelyGateOmi()
             return .failed
         }
         if case .unavailable(let reason) = reader.lease() {
-            await self.conservativelyGateOmi()
             if reason == .cursorUnreadable, let defect = reader.cursorDefect() {
-                // Re-read deliberately to confirm the defect persists; a transient failure gates without a permanent signal.
+                // Re-read deliberately to confirm the defect persists; a transient failure skips adopt without a permanent signal.
                 // The reader stays stateless, and a later reconcile retries normally.
                 await self.commitUnreadableCursor(defect: defect, generationID: generationID)
             }
@@ -395,7 +283,6 @@ final class OmiLaunchCaptureCommitCoordinator {
 
         guard let decoder = try? OmiOpusAudioDecoder() else {
             self.log.error("launch capture decoder unavailable")
-            await self.conservativelyGateOmi()
             return .failed
         }
         let materializer: OmiLaunchCaptureMaterializer
@@ -416,48 +303,34 @@ final class OmiLaunchCaptureCommitCoordinator {
         let result = materializer.materializeNextBatch()
 
         guard await self.commitOrphanRepairFailures(result.orphanRepairFailures, generationID: generationID) else {
-            await self.conservativelyGateOmi()
             return .failed
         }
         guard result.orphanRepairFailures.isEmpty else { return .failed }
 
         if let failure = result.failure {
             guard await self.commitMaterializationFailure(failure, generationID: generationID) else {
-                await self.conservativelyGateOmi()
                 return .failed
             }
-            guard let pending = await self.registerPendingOwners(for: result.partitions) else {
-                return self.sourceManager.isLaunchCaptureRecoveryEnabled ? .failed : .held
-            }
             let outcome = await self.finishMaterializationFailure(
-                pending: pending,
+                partitions: result.partitions,
                 reader: reader,
                 coveredThroughSequence: result.coveredThroughSequence,
                 generationID: generationID,
                 rootURL: rootURL
             )
             if case .held = outcome { return outcome }
-            // A failed materialization may have durably persisted an earlier
-            // partition from this lease. Its acknowledged and materialized
-            // prefixes moved together only after the owner was gated, so the
-            // retry resumes from that settled boundary.
             self.dropMaterializerSession(reason: "materialization retry")
             return .retryDelayed(result, reader)
         }
 
-        guard let pending = await self.registerPendingOwners(for: result.partitions) else {
-            return self.sourceManager.isLaunchCaptureRecoveryEnabled ? .failed : .held
-        }
-
-        guard !pending.isEmpty else {
+        guard !result.partitions.isEmpty else {
             if let frontier = result.materializedFrontier,
-               !self.commitSettled(
+               case .refused = self.commitSettled(
                     reader: reader,
                     throughSequence: frontier.throughSequence,
                     nextPartitionOrdinal: frontier.nextPartitionOrdinal,
                     nextSampleOffset: frontier.nextSampleOffset
                ) {
-                await self.conservativelyGateOmi()
                 return .failed
             }
             if scan.boundaryReason != nil {
@@ -466,7 +339,6 @@ final class OmiLaunchCaptureCommitCoordinator {
             guard case .empty = reader.lease() else {
                 if result.materializedFrontier == nil, result.coveredThroughSequence == nil {
                     guard await self.commitNoProgress(generationID: generationID, reader: reader) else {
-                        await self.conservativelyGateOmi()
                         return .failed
                     }
                     return .retryDelayed(result, reader)
@@ -475,38 +347,22 @@ final class OmiLaunchCaptureCommitCoordinator {
             }
             return .settled(result, reader)
         }
-        guard let coveredThroughSequence = result.coveredThroughSequence,
-              pending.last?.partition.endsAtSourceFrameBoundary == true
-        else {
-            await self.hold(pending)
-            return .failed
-        }
-        if self.isSealed(generationID) { await self.observe(.afterSealedOwnershipVerified) }
-        guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
-            await self.hold(pending, retainForExplicitResume: true)
+
+        let settled = await self.adoptSettledPartitions(
+            result.partitions,
+            reader: reader,
+            coveredThroughSequence: result.coveredThroughSequence,
+            generationID: generationID,
+            rootURL: rootURL
+        )
+        switch settled {
+        case .held:
             return .held
-        }
-        guard let partition = pending.last?.partition,
-              self.commitSettled(
-                reader: reader,
-                throughSequence: coveredThroughSequence,
-                nextPartitionOrdinal: partition.nextPartitionOrdinal,
-                nextSampleOffset: partition.nextSampleOffset
-              )
-        else {
-            await self.hold(pending)
-            await self.commitSettlementAttention(
-                pending,
-                generationID: generationID,
-                rootURL: rootURL,
-                action: "acknowledgment"
-            )
+        case .failed:
             return .failed
+        case .adopted:
+            break
         }
-        if self.isSealed(generationID) { await self.observe(.afterSealedCursorAcknowledged) }
-        guard (await self.settleOwners(
-            self.settlementOwners(for: pending, generationID: generationID, rootURL: rootURL)
-        )).isEmpty else { return .failed }
 
         if scan.boundaryReason != nil {
             return await self.commitBoundary(scan: scan, generationID: generationID) ? .boundary : .failed
@@ -515,23 +371,121 @@ final class OmiLaunchCaptureCommitCoordinator {
         return .settled(result, reader)
     }
 
-    private func registerPendingOwners(for partitions: [OmiLaunchCaptureMaterializedPartition]) async -> [PendingOwner]? {
-        var pending: [PendingOwner] = []
+    private enum AdoptSettledOutcome {
+        case adopted
+        case held
+        case failed
+    }
+
+    private func adoptSettledPartitions(
+        _ partitions: [OmiLaunchCaptureMaterializedPartition],
+        reader: OmiLaunchCaptureLeaseReader,
+        coveredThroughSequence: UInt64?,
+        generationID: UUID,
+        rootURL: URL
+    ) async -> AdoptSettledOutcome {
+        guard !partitions.isEmpty else { return .failed }
+        guard let coveredThroughSequence,
+              partitions.last?.endsAtSourceFrameBoundary == true
+        else { return .failed }
+        if self.isSealed(generationID) { await self.observe(.afterSealedOwnershipVerified) }
+        guard self.sourceManager.isLaunchCaptureRecoveryEnabled else { return .held }
+        guard let partition = partitions.last else { return .failed }
+        switch self.commitSettled(
+            reader: reader,
+            throughSequence: coveredThroughSequence,
+            nextPartitionOrdinal: partition.nextPartitionOrdinal,
+            nextSampleOffset: partition.nextSampleOffset
+        ) {
+        case .refused:
+            await self.commitSettlementAttention(
+                partitions,
+                generationID: generationID,
+                rootURL: rootURL,
+                action: "acknowledgment"
+            )
+            return .failed
+        case .alreadySettled:
+            // This range's commit was already decided in an earlier pass. Adopting
+            // these freshly re-materialized files would risk sending content a
+            // second time if the original commit already reached and left
+            // TransferEngine; discarding them would risk losing the only copy if the
+            // original adopt never actually completed. Neither is safe to assume —
+            // fail closed and flag for attention without touching the files.
+            await self.commitSettlementAttention(
+                partitions,
+                generationID: generationID,
+                rootURL: rootURL,
+                action: "redundant_materialization"
+            )
+            return .failed
+        case .advanced:
+            break
+        }
+        if self.isSealed(generationID) { await self.observe(.afterSealedCursorAcknowledged) }
+        var adoptedAny = false
         for partition in partitions {
-            guard let token = await self.registerOwner(for: partition) else {
-                self.log.error("launch capture owner settlement registration failed")
-                await self.holdPendingGateOwners()
-                return nil
-            }
-            let owner = PendingOwner(partition: partition, token: token)
-            pending.append(owner)
-            self.pendingGateOwnersByItemID[partition.itemID] = .registered(owner)
             guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
-                await self.hold(pending, retainForExplicitResume: true)
-                return nil
+                if adoptedAny { await self.uncommitLaunchCaptureLeftovers() }
+                return .held
+            }
+            let handoffs = self.settlementHandoffs(for: [partition], generationID: generationID, rootURL: rootURL)
+            guard let prepared = self.prepareSettlementHandoffs(handoffs) else {
+                await self.commitSettlementAttention(
+                    [partition],
+                    generationID: generationID,
+                    rootURL: rootURL,
+                    action: "cleanup"
+                )
+                continue
+            }
+            if prepared.contains(where: { self.isSealed($0.generationID) }) {
+                await self.observe(.afterSealedEnvelopeCleaned)
+                await self.observe(.beforeSealedOwnerReleased)
+            } else if !prepared.isEmpty {
+                await self.observe(.beforeReservedOwnerReleased)
+            }
+            // Policy may have flipped during the settlement-handoff I/O above and its
+            // observation points; a settlement marker left behind here is a fully
+            // recoverable staged state, picked up again by settleAttachedHandoffs on a
+            // later reconcile. Re-check right at the commit boundary so decide-then-commit
+            // holds all the way to the actual TransferEngine call, not just at loop entry.
+            guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
+                if adoptedAny { await self.uncommitLaunchCaptureLeftovers() }
+                return .held
+            }
+            guard await self.adoptOwner(for: partition) else { return adoptedAny ? .adopted : .failed }
+            if self.isSealed(generationID) { await self.observe(.afterSealedOwnerAdopted) }
+            adoptedAny = true
+            if !self.removeSettlementHandoffs(prepared) {
+                await self.commitSettlementAttention(
+                    [partition],
+                    generationID: generationID,
+                    rootURL: rootURL,
+                    action: "cleanup"
+                )
+                self.requestReconciliation(delayed: true)
+            } else if prepared.contains(where: { self.isSealed($0.generationID) }) {
+                await self.observe(.afterSealedOwnerReleased)
+                self.requestReconciliation(delayed: true)
+            } else if !prepared.isEmpty {
+                await self.observe(.afterReservedOwnerReleased)
             }
         }
-        return pending
+        return adoptedAny ? .adopted : .failed
+    }
+
+    private enum CommitSettledOutcome {
+        case advanced
+        /// The cursor was already at or past this range — an earlier pass (this
+        /// process or a prior one) already committed it. The materializer can
+        /// statelessly reproduce the same partition from raw capture data after a
+        /// restart even though its original commit may already be delivered, and
+        /// TransferEngine cannot distinguish "already delivered" from "never
+        /// adopted" once an item is gone — so callers must not treat this the same
+        /// as a fresh `.advanced` decision.
+        case alreadySettled
+        case refused
     }
 
     private func commitSettled(
@@ -539,347 +493,282 @@ final class OmiLaunchCaptureCommitCoordinator {
         throughSequence: UInt64,
         nextPartitionOrdinal: UInt64,
         nextSampleOffset: UInt64
-    ) -> Bool {
+    ) -> CommitSettledOutcome {
         switch reader.commitSettled(
             throughSequence: throughSequence,
             nextPartitionOrdinal: nextPartitionOrdinal,
             nextSampleOffset: nextSampleOffset
         ) {
-        case .advanced, .noOp:
-            return true
+        case .advanced:
+            return .advanced
+        case .noOp:
+            return .alreadySettled
         case .refused:
-            return false
+            return .refused
         }
     }
 
     private func finishMaterializationFailure(
-        pending: [PendingOwner],
+        partitions: [OmiLaunchCaptureMaterializedPartition],
         reader: OmiLaunchCaptureLeaseReader,
         coveredThroughSequence: UInt64?,
         generationID: UUID,
         rootURL: URL
     ) async -> GenerationOutcome {
-        guard !pending.isEmpty else { return .failed }
-        guard let coveredThroughSequence,
-              pending.last?.partition.endsAtSourceFrameBoundary == true
-        else {
-            await self.hold(pending)
+        switch await self.adoptSettledPartitions(
+            partitions,
+            reader: reader,
+            coveredThroughSequence: coveredThroughSequence,
+            generationID: generationID,
+            rootURL: rootURL
+        ) {
+        case .held:
+            return .held
+        case .adopted, .failed:
             return .failed
         }
-        if self.isSealed(generationID) { await self.observe(.afterSealedOwnershipVerified) }
-        guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
-            await self.hold(pending, retainForExplicitResume: true)
-            return .failed
+    }
+
+    private func adoptOwner(for partition: OmiLaunchCaptureMaterializedPartition) async -> Bool {
+        await self.adoptOwner(itemID: partition.itemID, audioURL: partition.audioURL, envelopeURL: partition.envelopeURL)
+    }
+
+    private func adoptOwner(itemID: UUID, audioURL: URL, envelopeURL: URL) async -> Bool {
+        let readableEnvelopeURL: URL
+        if (try? self.io.fileExists(at: envelopeURL)) == true {
+            readableEnvelopeURL = envelopeURL
+        } else if !OmiPendingHandoffStore.isSettlementURL(envelopeURL) {
+            let marker = OmiPendingHandoffStore.settlementURL(for: envelopeURL)
+            guard (try? self.io.fileExists(at: marker)) == true else {
+                self.log.error("launch capture adopt failed: unreadable envelope")
+                return false
+            }
+            readableEnvelopeURL = marker
+        } else {
+            self.log.error("launch capture adopt failed: unreadable envelope")
+            return false
         }
-        guard let partition = pending.last?.partition,
-              self.commitSettled(
-                reader: reader,
-                throughSequence: coveredThroughSequence,
-                nextPartitionOrdinal: partition.nextPartitionOrdinal,
-                nextSampleOffset: partition.nextSampleOffset
-              )
-        else {
-            await self.hold(pending)
-            await self.commitSettlementAttention(
-                pending,
-                generationID: generationID,
-                rootURL: rootURL,
-                action: "acknowledgment"
+        guard let envelope = try? OmiPendingHandoffStore.read(from: readableEnvelopeURL), envelope.isSupported else {
+            self.log.error("launch capture adopt failed: unreadable envelope")
+            return false
+        }
+        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
+            itemID: itemID,
+            sidecar: envelope.sidecar,
+            metadata: envelope.metadata
+        )
+        let outcome: TransferEnqueueIfAbsentOutcome
+        do {
+            outcome = try await self.engine.enqueueIfAbsent(
+                manifest: manifest,
+                equivalentObserverSegmentID: nil,
+                payloadFileURLs: ["audio": audioURL]
             )
-            return .failed
+        } catch {
+            self.log.error("launch capture adopt failed")
+            return false
         }
-        if self.isSealed(generationID) { await self.observe(.afterSealedCursorAcknowledged) }
-        guard (await self.settleOwners(
-            self.settlementOwners(for: pending, generationID: generationID, rootURL: rootURL)
-        )).isEmpty else { return .failed }
-        return .failed
-    }
-
-    private func restoreCoordinatorHolds(for handoffs: [LinkedHandoff]) async {
-        let attachedIDs = Set(handoffs.map(\.itemID))
-        for itemID in attachedIDs.sorted(by: { $0.uuidString < $1.uuidString }) {
-            guard let reason = self.coordinatorHoldReasonsByItemID[itemID], reason != .explicitResume else { continue }
-            switch await self.engine.restoreGateFromHold(itemID: itemID) {
-            case .gated(let token):
-                self.pendingGateOwnersByItemID[itemID] = .attached(token)
-            case .notHeld, .alreadyGated, .engineNotInitialized:
-                await self.engine.hold(itemID: itemID)
-                self.coordinatorHoldReasonsByItemID[itemID] = reason
+        switch outcome {
+        case .enqueued:
+            if (try? self.io.fileExists(at: audioURL)) == true {
+                self.log.error("launch capture adopt left producer audio")
+                return false
             }
+            return true
+        case .alreadyPresent:
+            if (try? self.io.fileExists(at: audioURL)) == true {
+                try? self.io.removeItem(at: audioURL)
+            }
+            return true
         }
     }
 
-    /// A successful capture scan proves coordinator-owned holds with no durable
-    /// handoff are already beyond capture settlement. This also closes the
-    /// restart window after the final settlement marker is removed but before
-    /// Transfer dispatches the item. Holds owned by another subsystem never
-    /// appear in `coordinatorHoldReasonsByItemID` and remain untouched.
-    private func releaseCleanUnlinkedCoordinatorHolds(attachedItemIDs: Set<UUID>) async {
-        let itemIDs = self.coordinatorHoldReasonsByItemID.keys
-            .filter { !attachedItemIDs.contains($0) }
-            .sorted { $0.uuidString < $1.uuidString }
-        for itemID in itemIDs {
-            switch await self.engine.restoreGateFromHold(itemID: itemID) {
-            case .gated(let token):
-                switch await self.release(token, itemID: itemID) {
-                case .released:
-                    self.pendingGateOwnersByItemID.removeValue(forKey: itemID)
-                case .disabled(let retainedToken):
-                    if await self.convertGateToHold(retainedToken, itemID: itemID, reason: .explicitResume) {
-                        self.pendingGateOwnersByItemID.removeValue(forKey: itemID)
-                    } else {
-                        self.pendingGateOwnersByItemID[itemID] = .attached(retainedToken)
-                    }
-                case .failed:
-                    self.pendingGateOwnersByItemID.removeValue(forKey: itemID)
-                }
-            case .notHeld:
-                self.coordinatorHoldReasonsByItemID.removeValue(forKey: itemID)
-            case .alreadyGated, .engineNotInitialized:
-                break
-            }
-        }
-    }
-
-    private func registerExistingOwners(_ handoffs: [LinkedHandoff]) async {
-        for itemID in Set(handoffs.map(\.itemID)).sorted(by: { $0.uuidString < $1.uuidString }) {
-            let itemHandoffs = handoffs.filter { $0.itemID == itemID }
-            if let readyHandoff = itemHandoffs.first(where: { OmiPendingHandoffStore.isSettlementURL($0.envelopeURL) }) {
-                guard let envelope = try? OmiPendingHandoffStore.read(from: readyHandoff.envelopeURL), envelope.isSupported else {
-                    await self.engine.hold(itemID: itemID)
-                    self.coordinatorHoldReasonsByItemID[itemID] = .conservative
-                    continue
-                }
-                let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
-                    itemID: itemID,
-                    sidecar: envelope.sidecar,
-                    metadata: envelope.metadata
-                )
-                let ownership = try? await self.engine.verifyOwnership(
-                    expectedManifest: manifest,
-                    expectedPayloadSourceURLs: [:]
-                )
-                switch ownership {
-                case .notFound:
-                    // The durable marker proves capture settlement completed.
-                    // If Transfer no longer owns the item, delivery/retirement
-                    // already crossed the terminal side of the handoff.
-                    for handoff in itemHandoffs {
-                        try? self.io.removeItem(at: handoff.envelopeURL)
-                    }
-                    self.coordinatorHoldReasonsByItemID.removeValue(forKey: itemID)
-                    continue
-                case .ownedInQueued, .ownedInAttention:
-                    break
-                case .stagingOnly, .salvageOnly, .conflict, .none:
-                    await self.engine.hold(itemID: itemID)
-                    self.coordinatorHoldReasonsByItemID[itemID] = .conservative
-                    continue
-                }
-            }
-            if self.isResumingAfterExplicitEnable,
-               self.coordinatorHoldReasonsByItemID[itemID] == .explicitResume {
-                switch await self.engine.restoreGateFromHold(itemID: itemID) {
-                case .gated(let token):
-                    self.pendingGateOwnersByItemID[itemID] = .attached(token)
-                case .notHeld, .alreadyGated, .engineNotInitialized:
-                    await self.engine.hold(itemID: itemID)
-                    self.coordinatorHoldReasonsByItemID[itemID] = .explicitResume
-                }
-                continue
-            }
-            // Hold restoration above already issued the only live token this
-            // coordinator may settle. Do not re-register and re-hold it.
-            if self.pendingGateOwnersByItemID[itemID] != nil { continue }
-            switch await self.engine.gateExisting(itemID: itemID) {
-            case .gated(let token):
-                self.pendingGateOwnersByItemID[itemID] = .attached(token)
-            case .alreadyGated:
-                continue
-            case .dispatchAlreadyEnabled:
-                await self.engine.hold(itemID: itemID)
-                switch await self.engine.restoreGateFromHold(itemID: itemID) {
-                case .gated(let token):
-                    self.pendingGateOwnersByItemID[itemID] = .attached(token)
-                case .notHeld, .alreadyGated, .engineNotInitialized:
-                    self.coordinatorHoldReasonsByItemID[itemID] = .settlementRetry
-                }
-            case .engineNotInitialized:
-                self.log.error("launch capture gate unavailable")
-                await self.engine.hold(itemID: itemID)
-            }
-        }
-    }
-
-    private func registerOwner(for partition: OmiLaunchCaptureMaterializedPartition) async -> TransferGateToken? {
-        guard let envelope = try? OmiPendingHandoffStore.read(from: partition.envelopeURL), envelope.isSupported else {
-            await self.conservativelyGateOmi()
-            return nil
-        }
-        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: partition.itemID, sidecar: envelope.sidecar, metadata: envelope.metadata)
-        let expectedURLs = partition.isExistingOwner ? [:] : ["audio": partition.audioURL]
-        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: expectedURLs)
-        switch ownership {
-        case .ownedInQueued, .ownedInAttention:
-            if let owner = self.pendingGateOwnersByItemID[partition.itemID] {
-                switch owner {
-                case .attached(let token):
-                    return token
-                case .registered(let pending):
-                    return pending.token
-                }
-            }
-            await self.engine.hold(itemID: partition.itemID)
-            return nil
-        case .notFound:
-            guard !partition.isExistingOwner else {
-                await self.engine.hold(itemID: partition.itemID)
-                return nil
-            }
-            let token: TransferGateToken
-            do {
-                token = try await self.engine.enqueueGated(manifest: manifest, payloadFileURLs: ["audio": partition.audioURL])
-            } catch {
-                self.log.error("launch capture gated enqueue failed")
-                await self.conservativelyGateOmi()
-                return nil
-            }
-            guard (try? self.io.fileExists(at: partition.audioURL)) == false else {
-                if !(await self.convertGateToHold(token, itemID: partition.itemID, reason: .settlementRetry)) {
-                    self.pendingGateOwnersByItemID[partition.itemID] = .attached(token)
-                }
-                return nil
-            }
-            if let generationID = self.materializerSession?.generationID, self.isSealed(generationID) {
-                await self.observe(.afterSealedOwnerGatedEnqueued)
-            }
-            return token
-        case .stagingOnly, .salvageOnly, .conflict, .none:
-            await self.engine.hold(itemID: partition.itemID)
-            return nil
-        }
-    }
-
-    private func settlementOwners(
-        for pending: [PendingOwner],
+    private func settlementHandoffs(
+        for partitions: [OmiLaunchCaptureMaterializedPartition],
         generationID: UUID,
         rootURL: URL
-    ) -> [SettlementOwner] {
+    ) -> [SettlementHandoff] {
         let captureStartedAtUnixMicros = OmiLaunchCaptureLeaseReader(
             rootURL: rootURL,
             generationID: generationID,
             io: self.io
         ).captureStartTime() ?? Int64.max
-        return pending.map { owner in
-            SettlementOwner(
-                itemID: owner.partition.itemID,
-                token: owner.token,
-                handoffs: [
-                    SettlementHandoff(
-                        generationID: generationID,
-                        envelopeURL: owner.partition.envelopeURL,
-                        partitionOrdinal: owner.partition.nextPartitionOrdinal == 0
-                            ? 0
-                            : owner.partition.nextPartitionOrdinal - 1,
-                        captureStartedAtUnixMicros: captureStartedAtUnixMicros
-                    ),
-                ],
-                isAcknowledged: true
+        return partitions.map { partition in
+            SettlementHandoff(
+                generationID: generationID,
+                envelopeURL: partition.envelopeURL,
+                partitionOrdinal: partition.nextPartitionOrdinal == 0
+                    ? 0
+                    : partition.nextPartitionOrdinal - 1,
+                captureStartedAtUnixMicros: captureStartedAtUnixMicros
             )
         }
     }
 
-    /// Settles every owner in capture order. A failed owner is held or retained
-    /// for retry, but never short-circuits settlement of later owners.
-    private func settleOwners(_ owners: [SettlementOwner]) async -> Set<UUID> {
-        var unsettledGenerationIDs: Set<UUID> = []
-        for owner in owners.sorted(by: self.settlementOwnerPrecedes) {
-            let generationIDs = Set(owner.handoffs.map(\.generationID))
-            guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
-                unsettledGenerationIDs.formUnion(generationIDs)
-                await self.retainForExplicitResume(owner)
+    @discardableResult
+    private func settleAttachedHandoffs() async -> Set<UUID> {
+        guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
+            return Set(self.enumeratedHandoffs.map(\.generationID))
+        }
+        var unsettled: Set<UUID> = []
+        let itemIDs = Set(self.enumeratedHandoffs.map(\.itemID)).sorted { $0.uuidString < $1.uuidString }
+        for itemID in itemIDs {
+            let handoffs = self.enumeratedHandoffs.filter { $0.itemID == itemID }
+            guard let first = handoffs.first else { continue }
+            let settlement = handoffs.first(where: { OmiPendingHandoffStore.isSettlementURL($0.envelopeURL) })
+            let live = handoffs.first(where: { !OmiPendingHandoffStore.isSettlementURL($0.envelopeURL) })
+            let liveExists = live.map { (try? self.io.fileExists(at: $0.envelopeURL)) == true } ?? false
+            let settlementURL = settlement?.envelopeURL ?? live.map { OmiPendingHandoffStore.settlementURL(for: $0.envelopeURL) }
+            let settlementExists = settlementURL.map { (try? self.io.fileExists(at: $0)) == true } ?? false
+            if !liveExists, !settlementExists {
                 continue
             }
-            guard owner.isAcknowledged else {
-                unsettledGenerationIDs.formUnion(generationIDs)
-                if !(await self.convertGateToHold(owner.token, itemID: owner.itemID, reason: .settlementRetry)) {
-                    self.pendingGateOwnersByItemID[owner.itemID] = .attached(owner.token)
-                    await self.commitSettlementAttention(owner, action: "gate_conversion")
-                } else {
-                    self.pendingGateOwnersByItemID.removeValue(forKey: owner.itemID)
-                }
-                continue
-            }
-
-            guard let preparedHandoffs = self.prepareSettlementHandoffs(owner.handoffs) else {
-                unsettledGenerationIDs.formUnion(generationIDs)
-                if !(await self.convertGateToHold(owner.token, itemID: owner.itemID, reason: .settlementRetry)) {
-                    self.pendingGateOwnersByItemID[owner.itemID] = .attached(owner.token)
-                    await self.commitSettlementAttention(owner, action: "gate_conversion")
-                } else {
-                    self.pendingGateOwnersByItemID.removeValue(forKey: owner.itemID)
-                }
-                await self.commitSettlementAttention(owner, action: "cleanup")
-                continue
-            }
-
-            let preparedOwner = SettlementOwner(
-                itemID: owner.itemID,
-                token: owner.token,
-                handoffs: preparedHandoffs,
-                isAcknowledged: owner.isAcknowledged
-            )
-
-            if preparedOwner.handoffs.contains(where: { self.isSealed($0.generationID) }) {
-                await self.observe(.afterSealedEnvelopeCleaned)
-            }
-            if preparedOwner.handoffs.contains(where: { self.isSealed($0.generationID) }) {
-                await self.observe(.beforeSealedOwnerReleased)
-            } else if !preparedOwner.handoffs.isEmpty {
-                await self.observe(.beforeReservedOwnerReleased)
-            }
-            guard self.sourceManager.isLaunchCaptureRecoveryEnabled else {
-                unsettledGenerationIDs.formUnion(generationIDs)
-                await self.retainForExplicitResume(preparedOwner)
-                continue
-            }
-
-            switch await self.release(preparedOwner.token, itemID: preparedOwner.itemID) {
-            case .released:
-                if !self.removeSettlementHandoffs(preparedOwner.handoffs) {
-                    unsettledGenerationIDs.formUnion(generationIDs)
-                    await self.commitSettlementAttention(preparedOwner, action: "cleanup")
-                    self.requestReconciliation(delayed: true)
-                }
-                if preparedOwner.handoffs.contains(where: { self.isSealed($0.generationID) }) {
-                    await self.observe(.afterSealedOwnerReleased)
-                    self.requestReconciliation(delayed: true)
-                } else if !preparedOwner.handoffs.isEmpty {
-                    await self.observe(.afterReservedOwnerReleased)
-                }
-                self.pendingGateOwnersByItemID.removeValue(forKey: preparedOwner.itemID)
-            case .disabled(let retainedToken):
-                unsettledGenerationIDs.formUnion(generationIDs)
-                await self.retainForExplicitResume(
-                    SettlementOwner(
-                        itemID: preparedOwner.itemID,
-                        token: retainedToken,
-                        handoffs: preparedOwner.handoffs,
-                        isAcknowledged: preparedOwner.isAcknowledged
-                    )
+            let envelopeURL = settlementExists ? (settlementURL ?? first.envelopeURL) : first.envelopeURL
+            let audioURL = self.audioURL(forEnvelope: envelopeURL)
+            let settlementHandoffs = handoffs.map {
+                SettlementHandoff(
+                    generationID: $0.generationID,
+                    envelopeURL: $0.envelopeURL,
+                    partitionOrdinal: $0.partitionOrdinal,
+                    captureStartedAtUnixMicros: $0.captureStartedAtUnixMicros
                 )
-            case .failed:
-                unsettledGenerationIDs.formUnion(generationIDs)
-                self.pendingGateOwnersByItemID[preparedOwner.itemID] = .attached(preparedOwner.token)
-                await self.commitSettlementAttention(preparedOwner, action: "release")
+            }
+            let attachedOwner = SettlementOwner(itemID: itemID, handoffs: settlementHandoffs, isAcknowledged: true)
+            if settlementExists, let settlementURL {
+                let audioExists = (try? self.io.fileExists(at: audioURL)) == true
+                if audioExists {
+                    guard await self.adoptOwner(itemID: itemID, audioURL: audioURL, envelopeURL: envelopeURL) else {
+                        unsettled.formUnion(handoffs.map(\.generationID))
+                        await self.commitSettlementAttention(attachedOwner, action: "cleanup")
+                        continue
+                    }
+                }
+                if !self.removeSettlementHandoffs([
+                    SettlementHandoff(
+                        generationID: first.generationID,
+                        envelopeURL: settlementURL,
+                        partitionOrdinal: first.partitionOrdinal,
+                        captureStartedAtUnixMicros: first.captureStartedAtUnixMicros
+                    )
+                ]) {
+                    unsettled.formUnion(handoffs.map(\.generationID))
+                    await self.commitSettlementAttention(attachedOwner, action: "cleanup")
+                }
+                continue
+            }
+            let reader = OmiLaunchCaptureLeaseReader(rootURL: first.rootURL, generationID: first.generationID, io: self.io)
+            guard reader.hasDurableAcknowledgment(), case .empty = reader.lease() else { continue }
+            guard await self.adoptOwner(itemID: itemID, audioURL: audioURL, envelopeURL: envelopeURL) else {
+                unsettled.formUnion(handoffs.map(\.generationID))
+                await self.commitSettlementAttention(attachedOwner, action: "cleanup")
+                continue
+            }
+            let prepared = self.prepareSettlementHandoffs(settlementHandoffs)
+            if let prepared {
+                if !self.removeSettlementHandoffs(prepared) {
+                    unsettled.formUnion(handoffs.map(\.generationID))
+                    await self.commitSettlementAttention(attachedOwner, action: "cleanup")
+                }
+            } else {
+                unsettled.formUnion(handoffs.map(\.generationID))
+                await self.commitSettlementAttention(attachedOwner, action: "cleanup")
             }
         }
-        return unsettledGenerationIDs
+        return unsettled
+    }
+
+    private func audioURL(forEnvelope envelopeURL: URL) -> URL {
+        var url = envelopeURL.deletingPathExtension()
+        if url.pathExtension == "settlement" {
+            url = url.deletingPathExtension()
+        }
+        return url.appendingPathExtension("m4a")
+    }
+
+    private func uncommitLaunchCaptureLeftovers() async {
+        guard let rootURL else { return }
+        let fileManager = FileManager.default
+        var roots = [rootURL]
+        let reserved = OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: rootURL)
+        if fileManager.fileExists(atPath: reserved.path) {
+            roots.append(reserved)
+        }
+        for scanRoot in roots {
+            let materialized = scanRoot.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
+            guard fileManager.fileExists(atPath: materialized.path),
+                  let generations = try? fileManager.contentsOfDirectory(
+                    at: materialized,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                  )
+            else { continue }
+            for generation in generations {
+                guard let files = try? fileManager.contentsOfDirectory(
+                    at: generation,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                ) else { continue }
+                for file in files where file.pathExtension == OmiPendingHandoffEnvelope.pathExtension {
+                    await self.uncommitIfMatched(envelopeURL: file, fileManager: fileManager)
+                }
+            }
+        }
+    }
+
+    private func uncommitIfMatched(envelopeURL: URL, fileManager: FileManager) async {
+        guard let envelope = try? OmiPendingHandoffStore.read(from: envelopeURL), envelope.isSupported else { return }
+        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
+            itemID: envelope.itemID,
+            sidecar: envelope.sidecar,
+            metadata: envelope.metadata
+        )
+        let ownership = try? await self.engine.verifyOwnership(
+            expectedManifest: manifest,
+            expectedPayloadSourceURLs: [:]
+        )
+        switch ownership {
+        case .ownedInQueued, .ownedInAttention:
+            break
+        default:
+            return
+        }
+        let liveURL: URL
+        if OmiPendingHandoffStore.isSettlementURL(envelopeURL) {
+            liveURL = envelopeURL.deletingPathExtension().deletingPathExtension().appendingPathExtension(OmiPendingHandoffEnvelope.pathExtension)
+        } else {
+            liveURL = envelopeURL
+        }
+        let audioURL = liveURL.deletingPathExtension().appendingPathExtension("m4a")
+        if !fileManager.fileExists(atPath: audioURL.path),
+           let payload = await self.engine.payloadFileURL(itemID: envelope.itemID, partID: "audio") {
+            do {
+                let data = try Data(contentsOf: payload)
+                try OmiPendingHandoffStore.write(data, to: audioURL)
+            } catch {
+                self.log.error("launch capture leftover audio restore failed")
+                return
+            }
+        }
+        if OmiPendingHandoffStore.isSettlementURL(envelopeURL) {
+            do {
+                let data = try OmiPendingHandoffStore.encode(envelope)
+                if !fileManager.fileExists(atPath: liveURL.path) {
+                    try OmiPendingHandoffStore.write(data, to: liveURL)
+                }
+                if envelopeURL != liveURL, fileManager.fileExists(atPath: envelopeURL.path) {
+                    try fileManager.removeItem(at: envelopeURL)
+                }
+            } catch {
+                self.log.error("launch capture leftover envelope restore failed")
+                return
+            }
+        }
+        await self.engine.relinquish(itemID: envelope.itemID)
     }
 
     /// Installs a durable settlement marker before removing each live handoff.
     /// At every crash point, at least one file still carries the owner identity
-    /// needed to rebuild its gate before Transfer dispatch opens.
+    /// needed to finish adopt without treating delivery as a fresh partition.
     private func prepareSettlementHandoffs(_ handoffs: [SettlementHandoff]) -> [SettlementHandoff]? {
         var preparedByURL: [URL: SettlementHandoff] = [:]
         var transitioned: [(originalURL: URL, markerURL: URL, data: Data)] = []
@@ -979,204 +868,18 @@ final class OmiLaunchCaptureCommitCoordinator {
         return lhs.envelopeURL.path < rhs.envelopeURL.path
     }
 
-    private func retainForExplicitResume(_ owner: SettlementOwner) async {
-        if await self.convertGateToHold(owner.token, itemID: owner.itemID, reason: .explicitResume) {
-            self.pendingGateOwnersByItemID.removeValue(forKey: owner.itemID)
-        } else {
-            self.pendingGateOwnersByItemID[owner.itemID] = .attached(owner.token)
-        }
-    }
-
-    private func release(_ token: TransferGateToken, itemID: UUID) async -> OwnerReleaseOutcome {
-        let outcome: TransferGateSettlementOutcome?
-        if let injected = self.onSettlementAction?(itemID, .release) {
-            outcome = injected
-        } else {
-            let sourceManager = self.sourceManager
-            outcome = await self.engine.releaseGate(
-                token,
-                if: { sourceManager.isLaunchCaptureRecoveryEnabledForSettlement() }
-            )
-        }
-        guard let outcome else { return .disabled(token) }
-        switch outcome {
-        case .settled, .alreadyReleased:
-            guard self.coordinatorHoldReasonsByItemID[itemID] != nil else { return .released }
-            switch await self.engine.restoreGateFromHold(itemID: itemID) {
-            case .gated(let restored):
-                let restoredOutcome: TransferGateSettlementOutcome?
-                if let injected = self.onSettlementAction?(itemID, .release) {
-                    restoredOutcome = injected
-                } else {
-                    let sourceManager = self.sourceManager
-                    restoredOutcome = await self.engine.releaseGate(
-                        restored,
-                        if: { sourceManager.isLaunchCaptureRecoveryEnabledForSettlement() }
-                    )
-                }
-                guard let restoredOutcome else { return .disabled(restored) }
-                switch restoredOutcome {
-                case .settled, .alreadyReleased:
-                    self.coordinatorHoldReasonsByItemID.removeValue(forKey: itemID)
-                    return .released
-                case .alreadyConverted, .unknownToken, .mismatchedToken:
-                    await self.engine.hold(itemID: itemID)
-                    self.coordinatorHoldReasonsByItemID[itemID] = .settlementRetry
-                    return .failed
-                }
-            case .notHeld:
-                self.coordinatorHoldReasonsByItemID.removeValue(forKey: itemID)
-                return .released
-            case .alreadyGated, .engineNotInitialized:
-                await self.engine.hold(itemID: itemID)
-                self.coordinatorHoldReasonsByItemID[itemID] = .settlementRetry
-                return .failed
-            }
-        case .alreadyConverted, .unknownToken, .mismatchedToken:
-            await self.engine.hold(itemID: itemID)
-            self.coordinatorHoldReasonsByItemID[itemID] = .settlementRetry
-            return .failed
-        }
-    }
-
-    private func hold(_ pending: [PendingOwner], retainForExplicitResume: Bool = false) async {
-        let reason: CoordinatorHoldReason = retainForExplicitResume ? .explicitResume : .settlementRetry
-        for owner in pending.sorted(by: { $0.partition.itemID.uuidString < $1.partition.itemID.uuidString }) {
-            if await self.convertGateToHold(owner.token, itemID: owner.partition.itemID, reason: reason) {
-                self.pendingGateOwnersByItemID.removeValue(forKey: owner.partition.itemID)
-            } else {
-                self.pendingGateOwnersByItemID[owner.partition.itemID] = .registered(owner)
-            }
-        }
-    }
-
-    private func convertGateToHold(_ token: TransferGateToken, itemID: UUID, reason: CoordinatorHoldReason) async -> Bool {
-        let outcome: TransferGateSettlementOutcome
-        if let injected = self.onSettlementAction?(itemID, .gateConversion) {
-            outcome = injected
-        } else {
-            outcome = await self.engine.convertGateToHold(token)
-        }
-        switch outcome {
-        case .settled, .alreadyConverted:
-            self.coordinatorHoldReasonsByItemID[itemID] = reason
-            return true
-        case .alreadyReleased, .unknownToken, .mismatchedToken:
-            await self.engine.hold(itemID: itemID)
-            self.coordinatorHoldReasonsByItemID[itemID] = reason
-            return false
-        }
-    }
-
-    private func settleAcknowledgedAttachedHandoffs() async -> Set<UUID> {
-        guard self.rootURL != nil else { return Set(self.enumeratedHandoffs.map(\.generationID)) }
-        let attachedOwners = self.pendingGateOwnersByItemID.compactMap { itemID, owner -> (UUID, TransferGateToken)? in
-            switch owner {
-            case .attached(let token): (itemID, token)
-            case .registered: nil
-            }
-        }.sorted { $0.0.uuidString < $1.0.uuidString }
-        var owners: [SettlementOwner] = []
-        for (itemID, token) in attachedOwners {
-            let handoffs = self.enumeratedHandoffs
-                .filter { $0.itemID == itemID }
-                .sorted { lhs, rhs in
-                    if lhs.captureStartedAtUnixMicros != rhs.captureStartedAtUnixMicros {
-                        return lhs.captureStartedAtUnixMicros < rhs.captureStartedAtUnixMicros
-                    }
-                    if lhs.partitionOrdinal != rhs.partitionOrdinal {
-                        return lhs.partitionOrdinal < rhs.partitionOrdinal
-                    }
-                    return lhs.envelopeURL.path < rhs.envelopeURL.path
-                }
-            guard !handoffs.isEmpty else { continue }
-            var acknowledged = true
-            for handoff in handoffs {
-                let reader = OmiLaunchCaptureLeaseReader(rootURL: handoff.rootURL, generationID: handoff.generationID, io: self.io)
-                guard let envelope = try? OmiPendingHandoffStore.read(from: handoff.envelopeURL),
-                      envelope.isSupported
-                else {
-                    acknowledged = false
-                    continue
-                }
-                if !OmiPendingHandoffStore.isSettlementURL(handoff.envelopeURL) {
-                    guard reader.hasDurableAcknowledgment(), case .empty = reader.lease() else {
-                        acknowledged = false
-                        continue
-                    }
-                }
-                let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: handoff.itemID, sidecar: envelope.sidecar, metadata: envelope.metadata)
-                guard let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:]),
-                      ownership == .ownedInQueued || ownership == .ownedInAttention
-                else {
-                    acknowledged = false
-                    continue
-                }
-            }
-            owners.append(
-                SettlementOwner(
-                    itemID: itemID,
-                    token: token,
-                    handoffs: handoffs.map {
-                        SettlementHandoff(
-                            generationID: $0.generationID,
-                            envelopeURL: $0.envelopeURL,
-                            partitionOrdinal: $0.partitionOrdinal,
-                            captureStartedAtUnixMicros: $0.captureStartedAtUnixMicros
-                        )
-                    },
-                    isAcknowledged: acknowledged
-                )
-            )
-        }
-        return await self.settleOwners(owners)
-    }
-
-    private func holdPendingGateOwners() async {
-        let owners = self.pendingGateOwnersByItemID.sorted { $0.key.uuidString < $1.key.uuidString }
-        for (itemID, owner) in owners {
-            if await self.convertGateToHold(owner.token, itemID: itemID, reason: .settlementRetry) {
-                self.pendingGateOwnersByItemID.removeValue(forKey: itemID)
-            } else if let settlementOwner = self.settlementOwner(itemID: itemID, owner: owner) {
-                await self.commitSettlementAttention(settlementOwner, action: "gate_conversion")
-            }
-        }
-    }
-
-    private func settlementOwner(itemID: UUID, owner: CoordinatorGateOwner) -> SettlementOwner? {
-        switch owner {
-        case .registered(let pending):
-            guard let session = self.materializerSession else { return nil }
-            return self.settlementOwners(
-                for: [pending],
-                generationID: session.generationID,
-                rootURL: session.rootURL
-            )[0]
-        case .attached(let token):
-            let handoffs = self.enumeratedHandoffs
-                .filter { $0.itemID == itemID }
-                .map {
-                    SettlementHandoff(
-                        generationID: $0.generationID,
-                        envelopeURL: $0.envelopeURL,
-                        partitionOrdinal: $0.partitionOrdinal,
-                        captureStartedAtUnixMicros: $0.captureStartedAtUnixMicros
-                    )
-                }
-            guard !handoffs.isEmpty else { return nil }
-            return SettlementOwner(itemID: itemID, token: token, handoffs: handoffs, isAcknowledged: false)
-        }
-    }
-
     private func commitSettlementAttention(
-        _ owners: [PendingOwner],
+        _ partitions: [OmiLaunchCaptureMaterializedPartition],
         generationID: UUID,
         rootURL: URL,
         action: String
     ) async {
-        for owner in self.settlementOwners(for: owners, generationID: generationID, rootURL: rootURL) {
-            await self.commitSettlementAttention(owner, action: action)
-        }
+        let owner = SettlementOwner(
+            itemID: partitions[0].itemID,
+            handoffs: self.settlementHandoffs(for: partitions, generationID: generationID, rootURL: rootURL),
+            isAcknowledged: true
+        )
+        await self.commitSettlementAttention(owner, action: action)
     }
 
     private func commitSettlementAttention(_ owner: SettlementOwner, action: String) async {
@@ -1503,7 +1206,6 @@ final class OmiLaunchCaptureCommitCoordinator {
 
     private func commitBoundary(scan: OmiLaunchCaptureScanResult, generationID: UUID) async -> Bool {
         guard let boundarySequence = scan.boundarySequence else {
-            await self.conservativelyGateOmi()
             return false
         }
         let itemID = Self.boundaryItemID(generationID: generationID, sequence: boundarySequence, offset: scan.boundaryOffset ?? scan.verifiedPrefixEndOffset)
@@ -1537,11 +1239,9 @@ final class OmiLaunchCaptureCommitCoordinator {
                 return true
             } catch {
                 self.log.error("launch capture boundary attention failed")
-                await self.conservativelyGateOmi()
                 return false
             }
         case .stagingOnly, .salvageOnly, .conflict, .none:
-            await self.conservativelyGateOmi()
             return false
         }
     }

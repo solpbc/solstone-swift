@@ -55,31 +55,6 @@ nonisolated enum TransferPriorityBand: Int, CaseIterable, Sendable {
     case low = 3
 }
 
-nonisolated struct TransferGateToken: Equatable, Sendable {
-    let itemID: UUID
-    fileprivate let nonce: UUID
-}
-
-nonisolated enum TransferGateError: Error, Equatable, Sendable {
-    case itemAlreadyGated
-    case engineNotInitialized
-}
-
-nonisolated enum TransferGateRegistrationOutcome: Equatable, Sendable {
-    case gated(TransferGateToken)
-    case alreadyGated
-    case dispatchAlreadyEnabled
-    case engineNotInitialized
-}
-
-nonisolated enum TransferGateSettlementOutcome: Equatable, Sendable {
-    case settled
-    case alreadyReleased
-    case alreadyConverted
-    case unknownToken
-    case mismatchedToken
-}
-
 nonisolated enum TransferEnqueueIfAbsentOutcome: Equatable, Sendable {
     case enqueued
     case alreadyPresent
@@ -87,24 +62,6 @@ nonisolated enum TransferEnqueueIfAbsentOutcome: Equatable, Sendable {
 
 nonisolated enum TransferEnqueueIfAbsentError: Error, Equatable, Sendable {
     case unverifiedOwnership(TransferOwnershipVerdict)
-}
-
-nonisolated enum TransferHeldGateRestorationOutcome: Equatable, Sendable {
-    case gated(TransferGateToken)
-    case notHeld
-    case alreadyGated
-    case engineNotInitialized
-}
-
-nonisolated private enum TransferGateRecordState: Equatable, Sendable {
-    case active
-    case released
-    case converted
-}
-
-nonisolated private struct TransferGateRecord: Sendable {
-    var nonce: UUID
-    var state: TransferGateRecordState
 }
 
 nonisolated enum DefaultTransferBodyBuilder {
@@ -271,12 +228,6 @@ actor TransferEngine {
     private var inFlightSourceKeys: [UUID: String] = [:]
     private var droppedItemIDs: Set<UUID> = []
     private var conflictedItemIDs: Set<UUID> = []
-    private var heldItemIDs: Set<UUID> = []
-    /// Process-local gate records retain settled tokens for idempotent outcomes.
-    /// They are bounded by distinct gated item IDs in this process and reset with
-    /// `heldItemIDs` during initialization; callers re-establish gates from
-    /// durable evidence before dispatch opens after process death.
-    private var gateRecordsByItemID: [UUID: TransferGateRecord] = [:]
     private var attemptCountByItemID: [UUID: Int] = [:]
     private var firstAttemptAtByItemID: [UUID: Date] = [:]
     private var attentionRetryArmed = false
@@ -334,8 +285,6 @@ actor TransferEngine {
         self.inFlightSourceKeys = [:]
         self.droppedItemIDs = []
         self.conflictedItemIDs = snapshot.conflictedItemIDs
-        self.heldItemIDs = []
-        self.gateRecordsByItemID = [:]
         self.attemptCountByItemID = [:]
         self.firstAttemptAtByItemID = [:]
         self.aggregateByteWindow = TransferByteWindow()
@@ -493,33 +442,6 @@ actor TransferEngine {
         return .notFound
     }
 
-    /// Commits a file-owned item with a process-local gate already active. It is
-    /// valid after `initialize()` rebuilds in-memory state from the spool and
-    /// before `enableDispatch()`; initialization clears process-local gates.
-    /// Gates are lost on process death, so callers re-establish them from
-    /// durable evidence before dispatch opens. This method is synchronous from
-    /// gate install through commit and work scheduling, so selection never sees
-    /// the committed item without its gate. An active gate throws
-    /// `TransferGateError.itemAlreadyGated` and is never replaced.
-    @discardableResult
-    func enqueueGated(manifest: TransferManifest, payloadFileURLs: [String: URL]) throws -> TransferGateToken {
-        guard self.initializedForLaunch else {
-            throw TransferGateError.engineNotInitialized
-        }
-        guard !self.isGateActive(manifest.itemID) else {
-            throw TransferGateError.itemAlreadyGated
-        }
-        let token = TransferGateToken(itemID: manifest.itemID, nonce: UUID())
-        self.gateRecordsByItemID[manifest.itemID] = TransferGateRecord(nonce: token.nonce, state: .active)
-        do {
-            _ = try self.commitStagedResult(self.spool.stage(manifest: manifest, payloadFileURLs: payloadFileURLs))
-            return token
-        } catch {
-            self.gateRecordsByItemID.removeValue(forKey: manifest.itemID)
-            throw error
-        }
-    }
-
     func verifyOwnership(
         expectedManifest: TransferManifest,
         expectedPayloadSourceURLs: [String: URL]
@@ -532,117 +454,6 @@ actor TransferEngine {
             self.conflictedItemIDs.insert(expectedManifest.itemID)
         }
         return verdict
-    }
-
-    func hold(itemID: UUID) {
-        guard self.heldItemIDs.insert(itemID).inserted,
-              let item = self.queuedItems[itemID] ?? self.attentionItems[itemID]
-        else {
-            return
-        }
-        let previousState: TransferRuntimeState = self.attentionItems[itemID] == nil ? .queued : .attention
-        self.emit(
-            item: item,
-            previousState: previousState,
-            nextState: .held,
-            outcome: .held,
-            attempt: self.attemptCountByItemID[itemID, default: 0],
-            detail: "reason=duplicate cleanup"
-        )
-        self.scheduleStatusUpdate(summary: "held")
-    }
-
-    /// Registers a process-local gate after `initialize()` rebuilds in-memory
-    /// state from the spool and before `enableDispatch()`; initialization clears
-    /// process-local gates. Gates are lost on process death, so callers
-    /// re-establish them from durable evidence before dispatch opens. Unknown
-    /// IDs are tolerated like `hold(itemID:)`.
-    @discardableResult
-    func gateExisting(itemID: UUID) -> TransferGateRegistrationOutcome {
-        guard self.initializedForLaunch else { return .engineNotInitialized }
-        guard self.dispatchSuspendedForLaunch else { return .dispatchAlreadyEnabled }
-        guard !self.isGateActive(itemID) else { return .alreadyGated }
-        let token = TransferGateToken(itemID: itemID, nonce: UUID())
-        self.gateRecordsByItemID[itemID] = TransferGateRecord(nonce: token.nonce, state: .active)
-        return .gated(token)
-    }
-
-    /// Atomically replaces a coordinator-owned lifetime hold with a live gate.
-    /// This is intentionally available after dispatch opens: releasing the hold
-    /// before registering a gate would expose the item to eager dispatch.
-    @discardableResult
-    func restoreGateFromHold(itemID: UUID) -> TransferHeldGateRestorationOutcome {
-        guard self.initializedForLaunch else { return .engineNotInitialized }
-        guard self.heldItemIDs.contains(itemID) else { return .notHeld }
-        guard !self.isGateActive(itemID) else { return .alreadyGated }
-        self.heldItemIDs.remove(itemID)
-        let token = TransferGateToken(itemID: itemID, nonce: UUID())
-        self.gateRecordsByItemID[itemID] = TransferGateRecord(nonce: token.nonce, state: .active)
-        return .gated(token)
-    }
-
-    /// Releases a process-local gate and schedules eligible work. Gates are
-    /// lost on process death; callers re-establish them from durable evidence
-    /// before dispatch opens, then settle only the newly-issued token.
-    @discardableResult
-    func releaseGate(_ token: TransferGateToken) -> TransferGateSettlementOutcome {
-        guard let record = self.gateRecordsByItemID[token.itemID] else { return .unknownToken }
-        guard record.nonce == token.nonce else { return .mismatchedToken }
-        switch record.state {
-        case .active:
-            self.gateRecordsByItemID[token.itemID] = TransferGateRecord(nonce: token.nonce, state: .released)
-            self.scheduleWork()
-            return .settled
-        case .released:
-            return .alreadyReleased
-        case .converted:
-            return .alreadyConverted
-        }
-    }
-
-    /// Evaluates the caller's live release permission inside the Transfer actor,
-    /// immediately before mutating the gate. `nil` leaves the gate active.
-    @discardableResult
-    func releaseGate(
-        _ token: TransferGateToken,
-        if permitted: @Sendable () -> Bool
-    ) -> TransferGateSettlementOutcome? {
-        guard permitted() else { return nil }
-        return self.releaseGate(token)
-    }
-
-    /// Converts a process-local gate into the existing lifetime hold. Gates are
-    /// lost on process death; callers re-establish them from durable evidence
-    /// before dispatch opens, then settle only the newly-issued token.
-    @discardableResult
-    func convertGateToHold(_ token: TransferGateToken) -> TransferGateSettlementOutcome {
-        guard let record = self.gateRecordsByItemID[token.itemID] else { return .unknownToken }
-        guard record.nonce == token.nonce else { return .mismatchedToken }
-        switch record.state {
-        case .active:
-            let inserted = self.heldItemIDs.insert(token.itemID).inserted
-            self.gateRecordsByItemID[token.itemID] = TransferGateRecord(nonce: token.nonce, state: .converted)
-            guard inserted,
-                  let item = self.queuedItems[token.itemID] ?? self.attentionItems[token.itemID]
-            else {
-                return .settled
-            }
-            let previousState: TransferRuntimeState = self.attentionItems[token.itemID] == nil ? .queued : .attention
-            self.emit(
-                item: item,
-                previousState: previousState,
-                nextState: .held,
-                outcome: .held,
-                attempt: self.attemptCountByItemID[token.itemID, default: 0],
-                detail: "reason=owner gate converted"
-            )
-            self.scheduleStatusUpdate(summary: "held")
-            return .settled
-        case .released:
-            return .alreadyReleased
-        case .converted:
-            return .alreadyConverted
-        }
     }
 
     @discardableResult
@@ -772,8 +583,6 @@ actor TransferEngine {
     func retryAttention(source: String? = nil) throws {
         let items = self.attentionItems.values
             .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
-            .filter { !self.heldItemIDs.contains($0.manifest.itemID) }
-            .filter { !self.isGateActive($0.manifest.itemID) }
             .filter { source == nil || $0.manifest.sourceKey == source }
             .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
         try self.moveAttentionItemsToQueued(items)
@@ -784,8 +593,6 @@ actor TransferEngine {
     /// a no-op that still kicks the engine.
     func retryAttention(itemID: UUID) throws {
         guard !self.conflictedItemIDs.contains(itemID) else { return }
-        guard !self.heldItemIDs.contains(itemID) else { return }
-        guard !self.isGateActive(itemID) else { return }
         guard let item = self.attentionItems[itemID] else {
             self.scheduleStatusUpdate(summary: self.lastEventSummary)
             self.scheduleWork()
@@ -798,8 +605,6 @@ actor TransferEngine {
         let now = self.clock.wallNow()
         for item in items {
             guard !self.conflictedItemIDs.contains(item.manifest.itemID) else { continue }
-            guard !self.heldItemIDs.contains(item.manifest.itemID) else { continue }
-            guard !self.isGateActive(item.manifest.itemID) else { continue }
             let moved = try self.spool.moveAttentionItemToQueued(item, now: now)
             self.attentionItems.removeValue(forKey: item.manifest.itemID)
             self.queuedItems[moved.manifest.itemID] = moved
@@ -829,8 +634,6 @@ actor TransferEngine {
 
     func drop(itemID: UUID) {
         guard !self.conflictedItemIDs.contains(itemID) else { return }
-        guard !self.heldItemIDs.contains(itemID) else { return }
-        guard !self.isGateActive(itemID) else { return }
         self.droppedItemIDs.insert(itemID)
         if let item = self.queuedItems.removeValue(forKey: itemID) {
             self.counters.queuedCount -= 1
@@ -872,6 +675,69 @@ actor TransferEngine {
         }
         self.scheduleStatusUpdate(summary: "dropped")
         self.scheduleWork()
+    }
+
+    /// Returns a committed item to the producer without counting it as dropped.
+    /// Missing item IDs are a no-op.
+    func relinquish(itemID: UUID) {
+        if let item = self.queuedItems.removeValue(forKey: itemID) {
+            self.counters.queuedCount -= 1
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+            self.updateSourceState(item.manifest.sourceKey) { state in
+                state.counters.queuedCount -= 1
+            }
+            try? self.spool.removeCommittedItem(item)
+            self.firstAttemptAtByItemID.removeValue(forKey: itemID)
+            transferLog.notice("transfer item relinquished \(itemID.uuidString, privacy: .public)")
+            self.scheduleStatusUpdate(summary: self.lastEventSummary)
+            return
+        }
+        if let item = self.attentionItems.removeValue(forKey: itemID) {
+            self.counters.attentionCount -= 1
+            self.updateSourceState(item.manifest.sourceKey) { state in
+                state.counters.attentionCount -= 1
+            }
+            try? self.spool.removeCommittedItem(item)
+            self.firstAttemptAtByItemID.removeValue(forKey: itemID)
+            transferLog.notice("transfer item relinquished \(itemID.uuidString, privacy: .public)")
+            self.scheduleStatusUpdate(summary: self.lastEventSummary)
+        }
+    }
+
+    /// Moves a queued item to attention. Missing IDs and items already in
+    /// attention are no-ops.
+    func moveToAttention(itemID: UUID, reason: String, detail: String) {
+        guard let item = self.queuedItems[itemID] else { return }
+        guard !self.conflictedItemIDs.contains(itemID) else { return }
+        do {
+            let moved = try self.spool.moveQueuedItemToAttention(
+                item,
+                reason: reason,
+                detail: detail,
+                now: self.clock.wallNow()
+            )
+            self.queuedItems.removeValue(forKey: itemID)
+            self.attentionItems[moved.manifest.itemID] = moved
+            self.counters.queuedCount -= 1
+            self.counters.attentionCount += 1
+            self.clearInFlight(itemID: itemID, sourceKey: moved.manifest.sourceKey)
+            self.updateSourceState(moved.manifest.sourceKey) { state in
+                state.counters.queuedCount -= 1
+                state.counters.attentionCount += 1
+            }
+            self.emit(
+                item: moved,
+                previousState: .queued,
+                nextState: .attention,
+                outcome: .needsAttention,
+                attempt: self.attemptCountByItemID[itemID, default: 0],
+                detail: detail
+            )
+            self.firstAttemptAtByItemID.removeValue(forKey: itemID)
+            self.scheduleStatusUpdate(summary: "needs attention")
+        } catch {
+            transferLog.error("transfer move to attention failed \(itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)")
+        }
     }
 
     func snapshot() -> TransferStatusSnapshot {
@@ -997,8 +863,6 @@ actor TransferEngine {
                 .filter { !self.inFlight.contains($0.manifest.itemID) }
                 .filter { !self.droppedItemIDs.contains($0.manifest.itemID) }
                 .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
-                .filter { !self.heldItemIDs.contains($0.manifest.itemID) }
-                .filter { !self.isGateActive($0.manifest.itemID) }
                 .filter {
                     TransferClockMath.retryEligible(
                         nextAttemptAt: $0.manifest.nextAttemptAt,
@@ -1283,10 +1147,6 @@ actor TransferEngine {
 }
 
 private extension TransferEngine {
-    func isGateActive(_ itemID: UUID) -> Bool {
-        self.gateRecordsByItemID[itemID]?.state == .active
-    }
-
     func updateSourceState(_ sourceKey: String, _ update: (inout TransferSourceRuntimeState) -> Void) {
         var state = self.sourceStates[sourceKey, default: TransferSourceRuntimeState()]
         update(&state)

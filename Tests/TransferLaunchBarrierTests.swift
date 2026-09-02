@@ -11,25 +11,6 @@ nonisolated private struct AvailableTransferEndpointResolver: TransferEndpointRe
     }
 }
 
-private actor TransferLaunchBarrierHoldGate {
-    private var continuation: CheckedContinuation<Void, Never>?
-    private var isWaitingForResume = false
-
-    func suspend() async {
-        self.isWaitingForResume = true
-        await withCheckedContinuation { continuation in
-            self.continuation = continuation
-        }
-    }
-
-    func waiting() -> Bool { self.isWaitingForResume }
-
-    func resume() {
-        self.continuation?.resume()
-        self.continuation = nil
-    }
-}
-
 final class TransferLaunchBarrierTests: XCTestCase {
     private var rootURL: URL!
 
@@ -170,7 +151,6 @@ final class TransferLaunchBarrierTests: XCTestCase {
             transferEnqueuer: first.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { acknowledgements.append($0) },
-            registerDispatchHold: { _ in },
             defaults: defaults
         )
 
@@ -204,7 +184,6 @@ final class TransferLaunchBarrierTests: XCTestCase {
             transferEnqueuer: second.enqueuer,
             diagnosticLog: nil,
             acknowledgeTokens: { acknowledgements.append($0) },
-            registerDispatchHold: { _ in },
             defaults: defaults
         )
         XCTAssertEqual(TransferURLProtocol.requests.count, 0)
@@ -285,7 +264,6 @@ final class TransferLaunchBarrierTests: XCTestCase {
                     transferEnqueuer: harness.enqueuer,
                     diagnosticLog: nil,
                     acknowledgeTokens: { _ in },
-                    registerDispatchHold: { itemID in await harness.engine.hold(itemID: itemID) },
                     defaults: defaults,
                     fileManager: TargetedRemovalFailingFileManager(failingURL: audioURL)
                 )
@@ -296,14 +274,18 @@ final class TransferLaunchBarrierTests: XCTestCase {
             reportFailure: { _, _ in XCTFail("bootstrap should not fail") }
         )
 
-        try await transferTestWaitFor("unrelated eager dispatch") {
-            TransferURLProtocol.requests.count == 1
+        try await transferTestWaitFor("queued residue and unrelated dispatch once") {
+            Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:))) == Set([heldID, unrelatedID])
         }
-        XCTAssertEqual(transferTestBoundaryItemID(from: TransferURLProtocol.requests[0]), unrelatedID)
-        let heldSnapshot = await harness.engine.itemSnapshot(itemID: heldID)
-        XCTAssertNotNil(heldSnapshot)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: envelopeURL.path))
+        XCTAssertEqual(TransferURLProtocol.requests.filter { transferTestBoundaryItemID(from: $0) == heldID }.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
+        let quarantineEntries = (try? FileManager.default.contentsOfDirectory(
+            at: OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRoot),
+            includingPropertiesForKeys: nil
+        )) ?? []
+        XCTAssertFalse(quarantineEntries.isEmpty)
+        let snapshot = await harness.engine.itemSnapshot(itemID: heldID)
+        XCTAssertNotEqual(snapshot?.manifest.attention?.reason, "omi_producer_cleanup_failed")
     }
 
     @MainActor func testBootstrapAwaitsDispatchHoldRegistrationBeforeEnablingDispatch() async throws {
@@ -340,45 +322,37 @@ final class TransferLaunchBarrierTests: XCTestCase {
             sessionConfiguration: makeTransferTestURLSessionConfiguration(),
             endpointResolver: AvailableTransferEndpointResolver()
         )
-        let gate = TransferLaunchBarrierHoldGate()
+        var migrateFinished = false
         var didEnableDispatch = false
-        let bootstrap = Task { @MainActor in
-            await SolstoneSwiftApp.bootstrapTransfer(
-                initialize: { try await harness.engine.initialize() },
-                appGroupRoot: { appGroupRoot },
-                cachesRootURL: nil,
-                migrate: { root, cacheRoot in
-                    await OmiTransferSpoolMigrator.migrate(
-                        appGroupRootURL: root,
-                        legacyCachesRootURL: cacheRoot,
-                        transferEnqueuer: harness.enqueuer,
-                        diagnosticLog: nil,
-                        acknowledgeTokens: { _ in },
-                        registerDispatchHold: { id in
-                            await gate.suspend()
-                            await harness.engine.hold(itemID: id)
-                        },
-                        defaults: defaults,
-                        fileManager: TargetedRemovalFailingFileManager(failingURL: audioURL)
-                    )
-                },
-                reconcile: { _ in },
-                enableDispatch: {
-                    didEnableDispatch = true
-                    await harness.engine.enableDispatch()
-                },
-                openOmiReadiness: {},
-                reportFailure: { _, _ in XCTFail("bootstrap should not fail") }
-            )
-        }
-
-        try await transferTestWaitFor("hold registration suspension") { await gate.waiting() }
-        XCTAssertFalse(didEnableDispatch)
-        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
-        await gate.resume()
-        await bootstrap.value
+        await SolstoneSwiftApp.bootstrapTransfer(
+            initialize: { try await harness.engine.initialize() },
+            appGroupRoot: { appGroupRoot },
+            cachesRootURL: nil,
+            migrate: { root, cacheRoot in
+                XCTAssertFalse(didEnableDispatch)
+                await OmiTransferSpoolMigrator.migrate(
+                    appGroupRootURL: root,
+                    legacyCachesRootURL: cacheRoot,
+                    transferEnqueuer: harness.enqueuer,
+                    diagnosticLog: nil,
+                    acknowledgeTokens: { _ in },
+                    defaults: defaults,
+                    fileManager: TargetedRemovalFailingFileManager(failingURL: audioURL)
+                )
+                migrateFinished = true
+            },
+            reconcile: { _ in },
+            enableDispatch: {
+                XCTAssertTrue(migrateFinished)
+                didEnableDispatch = true
+                await harness.engine.enableDispatch()
+            },
+            openOmiReadiness: {},
+            reportFailure: { _, _ in XCTFail("bootstrap should not fail") }
+        )
+        XCTAssertTrue(migrateFinished)
         XCTAssertTrue(didEnableDispatch)
-        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
     }
 
     @MainActor func testBootstrapRestartConvergesWhenCleanupFaultIsRemovedOrRetained() async throws {
@@ -417,6 +391,9 @@ final class TransferLaunchBarrierTests: XCTestCase {
                 sessionConfiguration: makeTransferTestURLSessionConfiguration(),
                 endpointResolver: AvailableTransferEndpointResolver()
             )
+            let firstFileManager: FileManager = retainsFault
+                ? TargetedRemovalFailingFileManager(failingURL: audioURL, failQuarantineMoves: true)
+                : TargetedRemovalFailingFileManager(failingURL: audioURL)
             await SolstoneSwiftApp.bootstrapTransfer(
                 initialize: { try await first.engine.initialize() },
                 appGroupRoot: { appGroupRoot },
@@ -426,15 +403,23 @@ final class TransferLaunchBarrierTests: XCTestCase {
                         appGroupRootURL: root, legacyCachesRootURL: cacheRoot,
                         transferEnqueuer: first.enqueuer, diagnosticLog: nil,
                         acknowledgeTokens: { _ in },
-                        registerDispatchHold: { await first.engine.hold(itemID: $0) },
                         defaults: defaults,
-                        fileManager: TargetedRemovalFailingFileManager(failingURL: audioURL)
+                        fileManager: firstFileManager
                     )
                 },
                 reconcile: { _ in }, enableDispatch: { await first.engine.enableDispatch() },
                 openOmiReadiness: {}, reportFailure: { _, _ in XCTFail("bootstrap should not fail") }
             )
-            XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+            try await transferTestWaitFor("first bootstrap one send \(retainsFault)") {
+                TransferURLProtocol.requests.filter { transferTestBoundaryItemID(from: $0) == itemID }.count == 1
+            }
+            let adoptedURL = OmiTransferSpoolMigrator.adoptedURL(directoryURL: directory, chunkID: "\(sessionID.uuidString.lowercased())-0")
+            if retainsFault {
+                XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+                XCTAssertTrue(FileManager.default.fileExists(atPath: adoptedURL.path))
+            } else {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
+            }
 
             let second = makeTransferCutoverHarness(
                 rootURL: transferRoot,
@@ -450,22 +435,20 @@ final class TransferLaunchBarrierTests: XCTestCase {
                         appGroupRootURL: root, legacyCachesRootURL: cacheRoot,
                         transferEnqueuer: second.enqueuer, diagnosticLog: nil,
                         acknowledgeTokens: { _ in },
-                        registerDispatchHold: { await second.engine.hold(itemID: $0) },
                         defaults: defaults,
-                        fileManager: retainsFault ? TargetedRemovalFailingFileManager(failingURL: audioURL) : .default
+                        fileManager: retainsFault
+                            ? TargetedRemovalFailingFileManager(failingURL: audioURL, failQuarantineMoves: true)
+                            : .default
                     )
                 },
                 reconcile: { _ in }, enableDispatch: { await second.engine.enableDispatch() },
                 openOmiReadiness: {}, reportFailure: { _, _ in XCTFail("bootstrap should not fail") }
             )
-            if retainsFault {
-                try await Task.sleep(for: .milliseconds(50))
-                XCTAssertEqual(TransferURLProtocol.requests.count, 0)
-            } else {
-                try await transferTestWaitFor("single restart dispatch") {
-                    TransferURLProtocol.requests.count == 1
-                }
-            }
+            try await Task.sleep(for: .milliseconds(50))
+            XCTAssertEqual(
+                TransferURLProtocol.requests.filter { transferTestBoundaryItemID(from: $0) == itemID }.count,
+                1
+            )
             XCTAssertFalse(transferTestPathExists(containing: itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.stagingDirectoryName, isDirectory: true)))
             XCTAssertFalse(transferTestPathExists(containing: itemID.uuidString, under: transferRoot.appendingPathComponent(TransferSpool.salvageDirectoryName, isDirectory: true)))
             let omiItems = await second.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
