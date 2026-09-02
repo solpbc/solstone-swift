@@ -663,6 +663,32 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testCandidateListProducesTwoPinnedCandidatesWhenCacheAndBootstrapDisagreeOnHost() async {
+        let transport = MockCFTunnelTransport()
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [
+            Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local"),
+        ]))
+        let pairing = Self.fixturePairing(localEndpoints: [
+            Self.localEndpoint(host: "10.0.0.99", port: 7657, scope: "local"),
+        ])
+        let manager = makeManager(transport: transport, endpointCache: cache, pairing: pairing)
+
+        await manager.connect()
+
+        let pinned = transport.capturedCandidates.filter { endpoint in
+            if case .lan(_, _, _, let unpinnedInterface) = endpoint {
+                return !unpinnedInterface
+            }
+            return false
+        }
+        XCTAssertEqual(pinned, [
+            .lan(host: "10.0.0.10", port: 7657, scope: "local"),
+            .lan(host: "10.0.0.99", port: 7657, scope: "local"),
+        ])
+    }
+
+    @MainActor
     func testCandidateListFallsBackToRelayWhenNoLocalEndpointsExist() async {
         let transport = MockCFTunnelTransport()
         let pairing = Self.fixturePairing(localEndpoints: [])
