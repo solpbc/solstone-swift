@@ -19,8 +19,7 @@ nonisolated final class JournalMarkStoreTests: XCTestCase {
         super.setUp()
         self.suiteName = "journal-mark-store-tests-\(UUID().uuidString)"
         self.defaults = UserDefaults(suiteName: self.suiteName)
-        let defaults = self.defaults!
-        self.store = JournalMarkStore(defaults: { defaults })
+        self.store = JournalMarkStore(suiteName: self.suiteName)
     }
 
     override func tearDown() {
@@ -51,8 +50,7 @@ nonisolated final class JournalMarkStoreTests: XCTestCase {
     func testAFreshStoreOverTheSameDefaultsSeesTheMarkWithNoConnection() {
         self.store.save(.uiTestSample)
 
-        let defaults = self.defaults!
-        let coldStart = JournalMarkStore(defaults: { defaults })
+        let coldStart = JournalMarkStore(suiteName: self.suiteName)
         XCTAssertEqual(coldStart.load(), JournalMark.uiTestSample)
     }
 

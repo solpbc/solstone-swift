@@ -22,12 +22,20 @@ nonisolated struct JournalMarkStore: Sendable {
     private static let key = "solstone.journalMark.v1"
     private static let log = Logger(subsystem: "app.solstone.swift", category: "journal-mark")
 
-    /// A provider rather than a stored `UserDefaults`, which is not `Sendable`. Matches the
-    /// injection shape `AppConfig` already uses for its keychain access.
-    private let defaults: @Sendable () -> UserDefaults
+    /// A suite *name* rather than a `UserDefaults`, which is not `Sendable` and so can be
+    /// neither stored on a `Sendable` struct nor captured in a `@Sendable` closure. `nil`
+    /// means the standard defaults; tests pass a unique suite so they cannot see each other.
+    private let suiteName: String?
 
-    init(defaults: @escaping @Sendable () -> UserDefaults = { .standard }) {
-        self.defaults = defaults
+    init(suiteName: String? = nil) {
+        self.suiteName = suiteName
+    }
+
+    private var defaults: UserDefaults {
+        guard let suiteName, let suite = UserDefaults(suiteName: suiteName) else {
+            return .standard
+        }
+        return suite
     }
 
     /// The stored mark, or `nil` when this device has never completed a link.
@@ -36,7 +44,7 @@ nonisolated struct JournalMarkStore: Sendable {
     /// (a schema change, a partial write) resolves to "no mark yet" rather than rendering
     /// something broken, and is cleared so it cannot fail again on every launch.
     func load() -> JournalMark? {
-        guard let data = self.defaults().data(forKey: Self.key) else { return nil }
+        guard let data = self.defaults.data(forKey: Self.key) else { return nil }
         guard let decoded = try? JSONDecoder().decode(JournalMark.self, from: data),
               let valid = JournalMark.validate(decoded)
         else {
@@ -54,11 +62,11 @@ nonisolated struct JournalMarkStore: Sendable {
             Self.log.error("journal mark encode failed; leaving the stored value alone")
             return
         }
-        self.defaults().set(data, forKey: Self.key)
+        self.defaults.set(data, forKey: Self.key)
     }
 
     /// ⛔ Only ever called from unpairing. See the type's invariant.
     func clear() {
-        self.defaults().removeObject(forKey: Self.key)
+        self.defaults.removeObject(forKey: Self.key)
     }
 }
