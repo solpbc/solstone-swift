@@ -12,6 +12,8 @@ struct ObserverStatusMediumWidget: Widget {
             ObserverStatusMediumView(entry: entry)
         }
         .supportedFamilies([.systemMedium])
+        .configurationDisplayName("your sources")
+        .description("every source, and how much is waiting to sync.")
     }
 }
 
@@ -35,9 +37,9 @@ private struct ObserverStatusMediumView: View {
             Image(systemName: "questionmark.circle")
                 .font(.title2)
             VStack(alignment: .leading, spacing: 6) {
-                Text("tbd")
+                Text("audio")
                     .font(.headline)
-                Text("tbd")
+                Text("waiting to sync")
                     .font(.caption)
             }
             Spacer()

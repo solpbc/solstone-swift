@@ -78,7 +78,7 @@ private extension OmiSourceDetailView {
             SourceFaultActionControl(
                 action: fault.map(sourceFaultAction) ?? .none,
                 title: SourceVocabulary.openSettings,
-                hint: "opens iOS Settings for bluetooth access.",
+                hint: "opens ios settings for bluetooth access.",
                 perform: {
                     UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
                 }

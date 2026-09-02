@@ -33,10 +33,10 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.balancedDefaultBadge, "recommended")
         XCTAssertEqual(LocationVocabulary.fullLabel, "the complete picture")
         XCTAssertEqual(LocationVocabulary.fullBody, "the full, detailed picture of where your day happened. uses more battery.")
-        XCTAssertEqual(LocationVocabulary.batteryHonesty, "fuller settings run in the background and use more battery. iOS shows its location arrow whenever location is on.")
-        XCTAssertEqual(LocationVocabulary.alwaysBackgroundPrimer, "to keep this when the solstone app isn't open, iOS will ask to allow location \"Always.\" you can change it any time in iOS Settings.")
+        XCTAssertEqual(LocationVocabulary.batteryHonesty, "fuller settings run in the background and use more battery. ios shows its location arrow whenever location is on.")
+        XCTAssertEqual(LocationVocabulary.alwaysBackgroundPrimer, "to keep this when the solstone app isn't open, ios will ask to allow location \"Always.\" you can change it any time in ios settings.")
         XCTAssertEqual(LocationVocabulary.turnOnLocation, "turn on location")
-        XCTAssertEqual(LocationVocabulary.alwaysPrimerHeader, "before iOS asks")
+        XCTAssertEqual(LocationVocabulary.alwaysPrimerHeader, "before ios asks")
         XCTAssertEqual(LocationVocabulary.alwaysPrimerContinue, "continue")
         XCTAssertEqual(LocationVocabulary.stateBlockTitle, "state")
         XCTAssertEqual(LocationVocabulary.tierBlockTitle, "detail level")
@@ -46,8 +46,8 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.deliveryNeedsAttentionTemplate, "{N} location {update} {needs} attention.")
         XCTAssertEqual(LocationVocabulary.deliverySendingTemplate, "{N} location {update} on the way to your journal.")
         XCTAssertEqual(LocationVocabulary.deliveryQuietLine, "nothing waiting right now.")
-        XCTAssertEqual(LocationVocabulary.downgradeBodyTemplate, "you chose {tier}, but iOS hasn't authorized that. your journal will show the gaps.")
-        XCTAssertEqual(LocationVocabulary.openSettingsAction, "open iOS Settings")
+        XCTAssertEqual(LocationVocabulary.downgradeBodyTemplate, "you chose {tier}, but ios hasn't authorized that. your journal will show the gaps.")
+        XCTAssertEqual(LocationVocabulary.openSettingsAction, "open ios settings")
         XCTAssertEqual(LocationVocabulary.matchToAllowedAction, "match it to what's allowed")
         XCTAssertEqual(LocationVocabulary.restrictedBody, "location is turned off for the solstone app by a restriction on this device. the solstone app can't take in location until that's lifted.")
         XCTAssertEqual(LocationVocabulary.honestGap, "gap here — location wasn't available.")
@@ -59,7 +59,7 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
     func testDowngradeBodySubstitutesTierLabel() {
         XCTAssertEqual(
             LocationVocabulary.downgradeBody(tierLabel: LocationTier.balanced.label),
-            "you chose places + comings and goings, but iOS hasn't authorized that. your journal will show the gaps."
+            "you chose places + comings and goings, but ios hasn't authorized that. your journal will show the gaps."
         )
     }
 

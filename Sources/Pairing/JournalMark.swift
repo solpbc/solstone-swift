@@ -4,7 +4,7 @@
 import Foundation
 import SwiftUI
 
-nonisolated struct JournalMark: Decodable, Equatable, Sendable {
+nonisolated struct JournalMark: Codable, Equatable, Sendable {
     let icon1: Icon
     let icon2: Icon
     let words: [String]
@@ -15,14 +15,14 @@ nonisolated struct JournalMark: Decodable, Equatable, Sendable {
         case words
     }
 
-    nonisolated struct Icon: Decodable, Equatable, Sendable {
+    nonisolated struct Icon: Codable, Equatable, Sendable {
         let name: String
         let color: MarkColor
         let rot: Int
         let svg: String
     }
 
-    nonisolated struct MarkColor: Decodable, Equatable, Sendable {
+    nonisolated struct MarkColor: Codable, Equatable, Sendable {
         let hex: String
         let name: String?
 

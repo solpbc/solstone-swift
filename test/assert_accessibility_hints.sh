@@ -9,8 +9,8 @@ cd "$ROOT"
 
 required_hints=(
   'Sources/Onboarding/WelcomeScreen.swift:finishes setup and opens your day'
-  'Sources/Location/LocationSourceDetailView.swift:Opens iOS Settings for location access.'
-  'Sources/Location/LocationSourceDetailView.swift:Changes the detail level to what iOS allows.'
+  'Sources/Location/LocationSourceDetailView.swift:Opens ios settings for location access.'
+  'Sources/Location/LocationSourceDetailView.swift:Changes the detail level to what ios allows.'
   'Sources/Location/LocationSourceDetailView.swift:Resumes location updates to your journal.'
   'Sources/Location/LocationSourceDetailView.swift:Pauses location updates to your journal.'
   'Sources/Location/LocationSourceDetailView.swift:Tries sending location updates again.'
@@ -20,7 +20,7 @@ required_hints=(
   'Sources/Location/LocationSourceDetailView.swift:Uses places plus comings and goings from now on. This is the recommended default.'
   'Sources/Location/LocationSourceDetailView.swift:Uses the complete picture from now on.'
   'Sources/Location/LocationSourceDetailView.swift:Starts adding location updates to your journal.'
-  'Sources/Location/LocationSourceDetailView.swift:Continues to the iOS location permission step.'
+  'Sources/Location/LocationSourceDetailView.swift:Continues to the ios location permission step.'
   'Sources/Location/LocationSourceDetailView.swift:Chooses places only for location.'
   'Sources/Location/LocationSourceDetailView.swift:Chooses places plus comings and goings for location. This is the recommended default.'
   'Sources/Location/LocationSourceDetailView.swift:Chooses the complete picture for location.'

@@ -97,8 +97,8 @@ private extension LocationSourceDetailView {
                     ? LocationVocabulary.matchToAllowedAction
                     : LocationVocabulary.openSettingsAction,
                 hint: action == .openSettings
-                    ? "Opens iOS Settings for location access."
-                    : "Changes the detail level to what iOS allows.",
+                    ? "Opens ios settings for location access."
+                    : "Changes the detail level to what ios allows.",
                 perform: {
                     if action == .matchToAllowed {
                         self.handleRecovery(.matchToAllowed(suggestedTier: self.locationManager.tier))
@@ -415,7 +415,7 @@ private struct LocationEnrollmentContent: View {
                     await coordinator.acknowledgePrimer()
                 }
             }
-            .accessibilityHint("Continues to the iOS location permission step.")
+            .accessibilityHint("Continues to the ios location permission step.")
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(self.presentation.alwaysBackgroundPrimer)

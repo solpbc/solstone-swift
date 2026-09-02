@@ -8,7 +8,21 @@ ImporterSourceDetailView.swift|Cancel
 LocationSourceDetailView.swift|Cancel
 PairScreen.swift|solstone://
 PairFlowCoordinator.swift|Try again.
-*|iOS
+# ⛔ `*|iOS` was here, path-unscoped, until 2026-09-01. It exempted the platform name in
+# EVERY string in the repo, so the founder-ratified lowercase ruling
+# (cmo/brand/voice-terminology.md, 2026-07-07: "device / OS platform names in running copy --
+# house-lowercase") could be violated in owner-facing copy with the gate green. 17 strings had
+# drifted. Scoped to the two support-facing technical surfaces where the canonical case is
+# correct: a diagnostics log header and a diagnostics export row label.
+DiagnosticLog.swift|iOS
+# VoiceOver hints follow Apple's sentence-case convention, not sol pbc's house lowercase.
+# ⚠ These were passing only because the blanket `*|iOS` entry above matched the `iOS` token
+# elsewhere on the same line — so the exemption they actually relied on was for a DIFFERENT
+# word. Scoping `iOS` exposed them, which is the allowlist finally saying what it means.
+LocationSourceDetailView.swift|Opens ios settings for location access.
+LocationSourceDetailView.swift|Changes the detail level to what ios allows.
+LocationSourceDetailView.swift|Continues to the ios location permission step.
+WatchPipelineReducer.swift|iOS version
 *|iPadOS
 *|Apple
 *|OpenAI

@@ -30,13 +30,13 @@ enum ObserverCaptureControlStatus: Equatable, Sendable {
     var text: String {
         switch self {
         case .unknownState:
-            "tbd: unknown state"
+            "open the solstone app"
         case .journalRequired:
-            "tbd: journal needed"
+            "connect a journal"
         case .permissionUndetermined:
-            "tbd: permission needed"
+            "allow microphone access"
         case .permissionDenied:
-            "tbd: permission denied"
+            "allow microphone in ios settings"
         }
     }
 }
@@ -109,10 +109,10 @@ enum ObserverCaptureControlMirrorWriter {
 private let observerCaptureIntentLog = Logger(subsystem: "app.solstone.swift", category: "app-intents")
 
 struct ObserverCaptureIntent: AppIntent, SetValueIntent, AudioRecordingIntent, LiveActivityIntent {
-    static var title: LocalizedStringResource { "tbd" }
+    static var title: LocalizedStringResource { "audio" }
     static var supportedModes: IntentModes { [.background, .foreground(.dynamic)] }
 
-    @Parameter(title: "tbd", default: false)
+    @Parameter(title: "on", default: false)
     var value: Bool
 
     @Dependency private var observerManager: any ObserverSessionControlling

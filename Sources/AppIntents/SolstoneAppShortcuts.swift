@@ -9,9 +9,13 @@ struct SolstoneAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
             intent: ObserverCaptureIntent(value: true),
-            phrases: ["tbd \(.applicationName)"],
-            shortTitle: "tbd",
-            systemImageName: "questionmark.circle"
+            phrases: [
+                "turn on audio in \(.applicationName)",
+                "start audio in \(.applicationName)",
+                "\(.applicationName) audio on"
+            ],
+            shortTitle: "turn on audio",
+            systemImageName: "waveform"
         )
     }
 }

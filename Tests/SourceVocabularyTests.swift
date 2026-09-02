@@ -37,7 +37,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceVocabulary.standingSyncFootnote(sustaining: false),
-            "the solstone app syncs to your journal while it's open, and keeps going in the background for as long as iOS allows. with location on, that lasts longer."
+            "the solstone app syncs to your journal while it's open, and keeps going in the background for as long as ios allows. with location on, that lasts longer."
         )
     }
 
@@ -75,7 +75,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "taking a tile off home does not turn the source off. it just keeps home to what you actually look at."
         )
         XCTAssertEqual(SourceVocabulary.whatItAddsTitle, "what it adds")
-        XCTAssertEqual(SourceVocabulary.openSettings, "open iOS Settings")
+        XCTAssertEqual(SourceVocabulary.openSettings, "open ios settings")
         XCTAssertEqual(
             SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
             "share is on. anything you send from another app is on this device until you connect a journal."

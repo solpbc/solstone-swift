@@ -12,6 +12,8 @@ struct ObserverStatusAccessoryCircularWidget: Widget {
             ObserverStatusAccessoryCircularView(entry: entry)
         }
         .supportedFamilies([.accessoryCircular])
+        .configurationDisplayName("status")
+        .description("how much is waiting to sync.")
     }
 }
 

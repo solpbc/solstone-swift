@@ -21,11 +21,13 @@ struct ObserverCaptureControlWidget: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: observerCaptureControlKind, provider: ObserverCaptureControlValueProvider()) { value in
             ControlWidgetToggle(isOn: value.isOn, action: ObserverCaptureIntent()) {
-                Label("tbd", systemImage: "questionmark.circle")
+                Label("audio", systemImage: "waveform")
                     .controlWidgetStatus(Text(value.status?.text ?? ""))
             }
             .privacySensitive()
             .disabled(value.isUnavailable)
         }
+        .displayName("audio")
+        .description("turn audio on and off.")
     }
 }

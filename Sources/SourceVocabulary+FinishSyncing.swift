@@ -13,7 +13,7 @@ extension SourceVocabulary {
     }
 
     nonisolated static let finishSyncingButton = "enable background for this sync"
-    nonisolated static let finishSyncingInProgress = "finishing up in the background. you can switch away. the solstone app keeps syncing for as long as iOS allows."
+    nonisolated static let finishSyncingInProgress = "finishing up in the background. you can switch away. the solstone app keeps syncing for as long as ios allows."
     nonisolated static let finishSyncingCompleted = "done. everything is in your journal."
 
     nonisolated static func finishSyncingInterrupted(count: Int) -> String {
@@ -24,9 +24,9 @@ extension SourceVocabulary {
 
     nonisolated static let finishSyncingInterruptedFallback = "stopped before everything synced. what's left is on this device and keeps trying whenever the solstone app is open."
     nonisolated static let finishSyncingUnavailableUnavailable = "background syncing isn't available right now."
-    nonisolated static let finishSyncingUnavailableNotPermitted = "iOS isn't allowing finish syncing right now."
-    nonisolated static let finishSyncingUnavailableTooManyPending = "iOS already has too many background tasks waiting."
-    nonisolated static let finishSyncingUnavailableImmediateIneligible = "iOS can't start finish syncing right now."
+    nonisolated static let finishSyncingUnavailableNotPermitted = "ios isn't allowing finish syncing right now."
+    nonisolated static let finishSyncingUnavailableTooManyPending = "ios already has too many background tasks waiting."
+    nonisolated static let finishSyncingUnavailableImmediateIneligible = "ios can't start finish syncing right now."
     nonisolated static let finishSyncingUnavailableFallback = "finish syncing couldn't start."
     nonisolated static let finishSyncingSystemTitle = "finishing sync"
     nonisolated static let finishSyncingSystemDoneTitle = "sync finished"
@@ -39,6 +39,6 @@ extension SourceVocabulary {
     nonisolated static func standingSyncFootnote(sustaining: Bool) -> String {
         sustaining
             ? "syncs while the solstone app is open, and keeps going in the background while location is on."
-            : "the solstone app syncs to your journal while it's open, and keeps going in the background for as long as iOS allows. with location on, that lasts longer."
+            : "the solstone app syncs to your journal while it's open, and keeps going in the background for as long as ios allows. with location on, that lasts longer."
     }
 }

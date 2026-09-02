@@ -27,6 +27,29 @@ nonisolated struct ObserverLiveActivityCutoffPolicy: Sendable {
     )
 }
 
+/// Who ended the activity, which is what decides whether its card lingers.
+///
+/// 🔴 **These are two different events and one dismissal policy cannot serve both.** Treating
+/// them as one shipped a real defect: an owner toggled audio off and a card stayed on their
+/// Lock Screen advertising a session that was over.
+///
+/// - ``owner``: the owner turned capture off. They performed the action, so removing the card
+///   hides nothing — leaving it is noise that contradicts what they just did.
+/// - ``system``: the app ended it on its own schedule ahead of the platform's eight-hour
+///   ceiling, or it failed. The owner did **not** ask, so the terminal state has to stay
+///   readable. This is the case the trust canon is protecting, and it keeps `.default`.
+nonisolated enum ObserverActivityEndReason: Equatable, Sendable {
+    case owner
+    case system
+
+    var dismissalPolicy: ActivityUIDismissalPolicy {
+        switch self {
+        case .owner: .immediate
+        case .system: .default
+        }
+    }
+}
+
 nonisolated protocol ObserverLiveActivityPort: Sendable {
     func request(
         attributes: ObserverActivityAttributes,
@@ -37,9 +60,10 @@ nonisolated protocol ObserverLiveActivityPort: Sendable {
     ) async -> ActivityContent<ObserverActivityAttributes.ContentState>?
     func end(
         sessionID: String,
-        content: ActivityContent<ObserverActivityAttributes.ContentState>
+        content: ActivityContent<ObserverActivityAttributes.ContentState>,
+        reason: ObserverActivityEndReason
     ) async
-    func endAll(staleDate: Date) async
+    func endAll(staleDate: Date, reason: ObserverActivityEndReason) async
 }
 
 nonisolated protocol ObserverLiveActivityWarningScheduling: Sendable {
@@ -76,18 +100,19 @@ actor SystemObserverLiveActivityPort: ObserverLiveActivityPort {
 
     func end(
         sessionID: String,
-        content: ActivityContent<ObserverActivityAttributes.ContentState>
+        content: ActivityContent<ObserverActivityAttributes.ContentState>,
+        reason: ObserverActivityEndReason
     ) async {
         guard let activity = Activity<ObserverActivityAttributes>.activities.first(where: {
             $0.attributes.sessionID == sessionID
         }) else { return }
-        await activity.end(content, dismissalPolicy: .default)
+        await activity.end(content, dismissalPolicy: reason.dismissalPolicy)
     }
 
-    func endAll(staleDate: Date) async {
+    func endAll(staleDate: Date, reason: ObserverActivityEndReason) async {
         for activity in Activity<ObserverActivityAttributes>.activities {
             let content = ActivityContent(state: activity.content.state, staleDate: staleDate)
-            await activity.end(content, dismissalPolicy: .default)
+            await activity.end(content, dismissalPolicy: reason.dismissalPolicy)
         }
     }
 }
@@ -110,8 +135,8 @@ actor SystemObserverLiveActivityWarningScheduler: ObserverLiveActivityWarningSch
 
     func scheduleWarning(for sessionID: UUID) async {
         let content = UNMutableNotificationContent()
-        content.title = "tbd: activity ending soon"
-        content.body = "tbd: tap to keep this session visible"
+        content.title = "your live session ends soon"
+        content.body = "tap to keep it going. otherwise it wraps up on its own."
         content.categoryIdentifier = ObserverLiveActivityWarningNotification.categoryIdentifier
         let request = UNNotificationRequest(
             identifier: ObserverLiveActivityWarningNotification.identifier(for: sessionID),
@@ -198,19 +223,24 @@ actor ObserverLiveActivity: ObserverLiveActivitying {
         guard let contentState else { return }
 
         let staleDate = await self.now()
+        // The owner turned capture off, so the card goes with it.
         await self.port.end(
             sessionID: sessionID.uuidString,
-            content: self.content(for: contentState, staleDate: staleDate)
+            content: self.content(for: contentState, staleDate: staleDate),
+            reason: .owner
         )
     }
 
+    /// Also the supersession path: `start(mode:sessionID:startedAt:)` calls this before
+    /// requesting a new activity, and a card for a session the owner has already replaced
+    /// should not outlive it.
     func endAll() async {
         let tracked = self.trackedActivities
         self.trackedActivities.removeAll()
         for activity in tracked.values {
             activity.cutoffTask.cancel()
         }
-        await self.port.endAll(staleDate: await self.now())
+        await self.port.endAll(staleDate: await self.now(), reason: .owner)
     }
 }
 
@@ -266,9 +296,13 @@ private extension ObserverLiveActivity {
 
         self.trackedActivities.removeValue(forKey: sessionID)
         let staleDate = await self.now()
+        // ⛔ `.system`, never `.owner`. The owner did not ask for this — we are ending ahead of
+        // the platform's eight-hour ceiling — so the terminal state stays readable rather than
+        // vanishing. The warning notification fired fifteen minutes ago; this is its follow-up.
         await self.port.end(
             sessionID: sessionID.uuidString,
-            content: self.content(for: contentState, staleDate: staleDate)
+            content: self.content(for: contentState, staleDate: staleDate),
+            reason: .system
         )
     }
 

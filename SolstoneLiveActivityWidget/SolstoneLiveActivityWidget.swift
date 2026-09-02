@@ -31,7 +31,7 @@ struct SolstoneLiveActivityWidget: Widget {
                     Text(Self.presentationLabel(for: context))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Self.timeOrStaleLabel(for: context)
+                    Self.timerLabel(for: context)
                         .font(.subheadline.monospacedDigit())
                         .foregroundStyle(.secondary)
                     if !context.isStale {
@@ -75,7 +75,7 @@ struct SolstoneLiveActivityWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 2) {
-                        Self.timeOrStaleLabel(for: context)
+                        Self.timerLabel(for: context)
                             .font(.subheadline.monospacedDigit())
                         if !context.isStale {
                             Text(Self.backlogLabel(for: Self.backlogCount()))
@@ -88,38 +88,37 @@ struct SolstoneLiveActivityWidget: Widget {
                 Image(systemName: Self.modeGlyph(for: context.state.mode, isStale: context.isStale))
                     .foregroundStyle(Color.solOrange)
             } compactTrailing: {
-                Self.timeOrStaleLabel(for: context)
+                Self.timerLabel(for: context)
                     .font(.caption2.monospacedDigit())
             } minimal: {
-                Image(systemName: context.isStale ? Self.minimalStaleMarkPlaceholder : Self.minimalLiveMarkPlaceholder)
+                Image(systemName: context.isStale ? Self.endedGlyph : Self.liveGlyph)
                     .foregroundStyle(Color.solOrange)
             }
         }
     }
 
-    // tbd: meeting glyph
-    private static let meetingGlyphPlaceholder = "questionmark.circle"
-    // tbd: voice memo glyph
-    private static let voiceMemoGlyphPlaceholder = "waveform"
-    // tbd: minimal live mark
-    private static let minimalLiveMarkPlaceholder = "questionmark.circle.fill"
-    // tbd: minimal stale mark
-    private static let minimalStaleMarkPlaceholder = "exclamationmark.triangle.fill"
-    private static let stopButtonTitle = "tbd"
-    private static let backlogPrefix = "tbd: waiting to sync"
-    private static let unavailableLabel = "tbd: unavailable"
-    private static let staleLabel = "tbd: activity ended"
+    /// 🔒 **One glyph for capture, whatever the mode.**
+    ///
+    /// This used to branch on `ObserverMode`, returning a distinct symbol for a meeting and a
+    /// voice memo. That defeated the decision `ObserverLiveActivitySubtitleTests` protects:
+    /// the subtitle deliberately collapses to one neutral word so the Lock Screen never
+    /// advertises *what kind* of session is being captured. The test guarded the label and
+    /// nothing guarded the glyph, so the icon leaked exactly what the words withhold.
+    ///
+    /// `waveform` is the app's own glyph for this source (`SourceKind.glyph`).
+    private static let liveGlyph = "waveform"
+    /// ⛔ Not an error symbol. This renders when capture has ended, which is a normal outcome
+    /// and usually one the owner asked for. It was `exclamationmark.triangle.fill`.
+    private static let endedGlyph = "waveform.slash"
+    private static let stopButtonTitle = "stop audio"
+    private static let backlogSuffix = "waiting to sync"
+    private static let unavailableLabel = "can't check what's waiting"
+    /// "activity" is Apple's noun for the container, not ours for the thing. The owner turned
+    /// audio on; this tells them it is off.
+    private static let staleLabel = "audio ended"
 
     private static func modeGlyph(for rawMode: String, isStale: Bool) -> String {
-        guard !isStale else { return Self.minimalStaleMarkPlaceholder }
-        return switch ObserverMode(rawValue: rawMode) {
-        case .meeting:
-            Self.meetingGlyphPlaceholder
-        case .voiceMemo:
-            Self.voiceMemoGlyphPlaceholder
-        case nil:
-            Self.minimalLiveMarkPlaceholder
-        }
+        isStale ? Self.endedGlyph : Self.liveGlyph
     }
 
     private static func presentationLabel(
@@ -128,13 +127,18 @@ struct SolstoneLiveActivityWidget: Widget {
         context.isStale ? Self.staleLabel : observerModeLabel(for: context.state.mode)
     }
 
+    /// The running timer, and **nothing at all** once the session is over.
+    ///
+    /// ⚠ This used to render `staleLabel` in the ended state — but so does
+    /// `presentationLabel(for:)`, and the Lock Screen layout stacks them, so the owner saw
+    /// "audio ended" printed twice. Neither function knew the other was doing it, and the
+    /// duplication was invisible in the live state where the two render different things.
+    /// The ended message belongs to `presentationLabel` alone.
     @ViewBuilder
-    private static func timeOrStaleLabel(
+    private static func timerLabel(
         for context: ActivityViewContext<ObserverActivityAttributes>
     ) -> some View {
-        if context.isStale {
-            Text(Self.staleLabel)
-        } else {
+        if !context.isStale {
             Text(timerInterval: context.state.startedAt...Date.distantFuture, countsDown: false)
         }
     }
@@ -145,6 +149,7 @@ struct SolstoneLiveActivityWidget: Widget {
 
     private static func backlogLabel(for backlogCount: Int?) -> String {
         guard let backlogCount else { return Self.unavailableLabel }
-        return "\(Self.backlogPrefix) \(backlogCount)"
+        // Count first, matching how the deck already says it (`DayHomeView`).
+        return "\(backlogCount) \(Self.backlogSuffix)"
     }
 }

@@ -43,6 +43,54 @@ final class ObserverLiveActivityCutoffTests: XCTestCase {
         XCTAssertEqual(endCalls.first?.staleDate, clock.now())
     }
 
+    /// An owner who turns capture off gets the card removed; the eight-hour cutoff leaves it
+    /// readable.
+    ///
+    /// ⚠ This is the assertion whose absence shipped the defect. Both paths called
+    /// `activity.end(_:dismissalPolicy:)` with `.default`, so turning audio off left a card on
+    /// the Lock Screen for up to four hours advertising a session that was over. The policy is
+    /// invisible to every other test because they all drive the fake port, and the real policy
+    /// lived inside the system port where nothing asserted it.
+    func testDismissalFollowsWhoEndedTheActivity() async {
+        XCTAssertEqual(ObserverActivityEndReason.owner.dismissalPolicy, .immediate)
+        XCTAssertEqual(ObserverActivityEndReason.system.dismissalPolicy, .default)
+
+        // owner stop
+        let ownerClock = MockObserverClock(now: Self.startDate)
+        let ownerPort = FakeObserverLiveActivityPort()
+        let ownerActivity = self.makeActivity(
+            clock: ownerClock,
+            port: ownerPort,
+            scheduler: FakeObserverLiveActivityWarningScheduler(isAuthorized: true)
+        )
+        let ownerSession = UUID()
+        await ownerActivity.start(mode: .meeting, sessionID: ownerSession, startedAt: Self.startDate)
+        await self.waitForSleeper(in: ownerClock)
+        await ownerActivity.end(sessionID: ownerSession)
+        let ownerEnds = await ownerPort.endCalls()
+        XCTAssertEqual(ownerEnds.count, 1)
+        XCTAssertEqual(ownerEnds.first?.reason, .owner)
+
+        // the app's own pre-ceiling cutoff
+        let cutoffClock = MockObserverClock(now: Self.startDate)
+        let cutoffPort = FakeObserverLiveActivityPort()
+        let cutoffActivity = self.makeActivity(
+            clock: cutoffClock,
+            port: cutoffPort,
+            scheduler: FakeObserverLiveActivityWarningScheduler(isAuthorized: true)
+        )
+        let cutoffSession = UUID()
+        await cutoffActivity.start(mode: .meeting, sessionID: cutoffSession, startedAt: Self.startDate)
+        await self.waitForSleeper(in: cutoffClock)
+        cutoffClock.advance(by: 7)
+        await self.waitForSleeper(in: cutoffClock)
+        cutoffClock.advance(by: 3)
+        await self.drainTasks()
+        let cutoffEnds = await cutoffPort.endCalls()
+        XCTAssertEqual(cutoffEnds.count, 1)
+        XCTAssertEqual(cutoffEnds.first?.reason, .system)
+    }
+
     func testNormalEndCancelsPendingWarningAndCutoff() async {
         let clock = MockObserverClock(now: Self.startDate)
         let port = FakeObserverLiveActivityPort()
@@ -172,6 +220,7 @@ private actor FakeObserverLiveActivityPort: ObserverLiveActivityPort {
         let sessionID: String
         let contentState: ObserverActivityAttributes.ContentState
         let staleDate: Date?
+        let reason: ObserverActivityEndReason
     }
 
     private var activities: [String: ActivityContent<ObserverActivityAttributes.ContentState>] = [:]
@@ -198,22 +247,25 @@ private actor FakeObserverLiveActivityPort: ObserverLiveActivityPort {
 
     func end(
         sessionID: String,
-        content: ActivityContent<ObserverActivityAttributes.ContentState>
+        content: ActivityContent<ObserverActivityAttributes.ContentState>,
+        reason: ObserverActivityEndReason
     ) async {
         self.activities.removeValue(forKey: sessionID)
         self.recordedEndCalls.append(EndCall(
             sessionID: sessionID,
             contentState: content.state,
-            staleDate: content.staleDate
+            staleDate: content.staleDate,
+            reason: reason
         ))
     }
 
-    func endAll(staleDate: Date) async {
+    func endAll(staleDate: Date, reason: ObserverActivityEndReason) async {
         for (sessionID, content) in self.activities {
             self.recordedEndCalls.append(EndCall(
                 sessionID: sessionID,
                 contentState: content.state,
-                staleDate: staleDate
+                staleDate: staleDate,
+                reason: reason
             ))
         }
         self.activities.removeAll()

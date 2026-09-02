@@ -8,8 +8,10 @@ struct OpenJournalControlWidget: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: openJournalControlKind) {
             ControlWidgetButton(action: OpenJournalIntent()) {
-                Label("tbd", systemImage: "questionmark.circle")
+                Label("your journal", systemImage: "book.closed")
             }
         }
+        .displayName("your journal")
+        .description("go straight to your journal.")
     }
 }

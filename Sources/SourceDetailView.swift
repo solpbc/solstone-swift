@@ -56,7 +56,7 @@ private extension SourceDetailView {
                 SourceFaultActionControl(
                     action: observerSourceFault(self.observerManager.state).map(sourceFaultAction) ?? .none,
                     title: SourceVocabulary.openSettings,
-                    hint: "opens iOS Settings for microphone access.",
+                    hint: "opens ios settings for microphone access.",
                     perform: {
                         UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
                     }

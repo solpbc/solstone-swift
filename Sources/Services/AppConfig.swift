@@ -28,19 +28,22 @@ final class AppConfig {
     @ObservationIgnored private let deletePairing: @Sendable () throws -> Void
     @ObservationIgnored private let endpointCache: EndpointCache
     @ObservationIgnored private let appGroupMirror: AppGroupMirror
+    @ObservationIgnored private let journalMarkStore: JournalMarkStore
 
     init(
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
         endpointCache: EndpointCache = EndpointCache(),
-        appGroupMirror: AppGroupMirror = AppGroupMirror()
+        appGroupMirror: AppGroupMirror = AppGroupMirror(),
+        journalMarkStore: JournalMarkStore = JournalMarkStore()
     ) {
         self.loadPairing = loadPairing
         self.savePairing = savePairing
         self.deletePairing = deletePairing
         self.endpointCache = endpointCache
         self.appGroupMirror = appGroupMirror
+        self.journalMarkStore = journalMarkStore
         self.host = ""
         self.port = 22
         self.journalRoot = ""
@@ -96,6 +99,9 @@ final class AppConfig {
         self.pairedAt = nil
         self.loopbackPort = nil
         self.appGroupMirror.clearPairing()
+        // The mark is a property of the pairing, so unpairing is the one and only event that
+        // clears it. ⛔ Nothing else may — see `JournalMarkStore`.
+        self.journalMarkStore.clear()
         appConfigLog.info("pairing cleared")
     }
 

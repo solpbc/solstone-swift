@@ -16,6 +16,8 @@ struct ObserverStatusSmallWidget: Widget {
             ObserverStatusSmallView(entry: entry)
         }
         .supportedFamilies([.systemSmall])
+        .configurationDisplayName("one source")
+        .description("pick a source and see its state.")
     }
 }
 
@@ -38,9 +40,9 @@ private struct ObserverStatusSmallView: View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: "questionmark.circle")
                 .font(.title2)
-            Text("tbd")
+            Text("audio")
                 .font(.headline)
-            Text("tbd")
+            Text("waiting to sync")
                 .font(.caption)
         }
         .redacted(reason: .placeholder)
@@ -84,7 +86,9 @@ private struct ObserverStatusSmallView: View {
     private var sourceName: String? {
         switch self.entry.sourceKind {
         case .observer:
-            "observer"
+            // ⛔ Not "observer". That is the internal name for this source; the owner-facing
+            // one has been `audio` since 2026-07-03, and this widget renders on a home screen.
+            SourceVocabulary.onThisPhoneSourceName(for: .audio)
         case .location:
             "location"
         case .omi:

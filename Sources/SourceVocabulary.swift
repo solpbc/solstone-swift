@@ -194,7 +194,7 @@ nonisolated enum SourceVocabulary {
     static let hidingThisNeverTurnsItOff =
         "taking a tile off home does not turn the source off. it just keeps home to what you actually look at."
     static let whatItAddsTitle = "what it adds"
-    static let openSettings = "open iOS Settings"
+    static let openSettings = "open ios settings"
     static let statusTitle = "status"
     static let settingsTitle = "settings"
     // What VoiceOver calls the dimmed shell beside the open shelf: it is the way back.

@@ -25,7 +25,10 @@ struct RootShellView: View {
     @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
     @State private var showingJournalLives = false
     @State private var presentedPane: PresentedShellPane?
-    @State private var journalMark: JournalMark?
+    /// Seeded from the store so the owner's own mark is on screen in the **first frame**,
+    /// before any tunnel exists. See `JournalMarkStore` for why this is an absolute.
+    @State private var journalMark: JournalMark? = RootShellView.storedJournalMark()
+    @ObservationIgnored private let journalMarkStore = JournalMarkStore()
     @State private var statusPath = NavigationPath()
     @State private var statusDetent: PresentationDetent = .medium
     @State private var showingSources = false
@@ -38,19 +41,6 @@ struct RootShellView: View {
 
     private var prefersCrossFade: Bool { self.crossFadePreference.prefersCrossFadeTransitions }
 
-    /// The shell with the shelf beside it.
-    ///
-    /// The shelf **pushes** the shell aside rather than floating over a hole in it:
-    /// the shell translates right by exactly the panel's width and carries a dimming
-    /// scrim with it, so the owner watches their own content move out of the way and
-    /// can see where tapping returns them.
-    ///
-    /// ⚠ **The previous build layered the panel over the shell in a `ZStack` and the
-    /// shell did not composite behind it** — measured on a screenshot, the exposed
-    /// strip was a flat, perfectly uniform `(194,194,194)`, which is 24% black over
-    /// *white*, not over the cream deck. So the drawer opened onto a dead grey slab.
-    /// ✅ Pushing makes that failure structurally impossible: there is no hole to fill,
-    /// because the shell is still on screen, merely displaced and dimmed.
     /// Whether the shelf takes the whole window instead of being a drawer.
     ///
     /// A landscape phone has no room for a panel *and* a legible strip of shell, so the
@@ -478,6 +468,25 @@ struct RootShellView: View {
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    /// The stored mark, suppressed under UI test so seeded fixtures stay authoritative.
+    ///
+    /// ⚠ Without the guard a mark persisted by an earlier run would leak into
+    /// `--ui-test-no-journal`, which asserts the *generic* mark renders.
+    static func storedJournalMark() -> JournalMark? {
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--ui-test") { return nil }
+#endif
+        return JournalMarkStore().load()
+    }
+
+    /// Renders the stored mark immediately, then refreshes it from the journal when a tunnel
+    /// is up.
+    ///
+    /// ⛔ **A failed or absent connection never blanks the mark.** It used to: this ran on
+    /// `activeConnection?.port` changing, and the no-port branch assigned `nil`, so every
+    /// launch and every dropped tunnel dropped the shell back to the generic mark until sync
+    /// came up. The mark belongs to the *pairing*, not the connection — once this device is
+    /// paired it is an absolute, and the only thing that clears it is unpairing.
     private func fetchJournalMark() async {
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--ui-test-journal-mark"),
@@ -486,11 +495,13 @@ struct RootShellView: View {
             return
         }
 #endif
-        guard let port = self.tunnelManager.activeConnection?.port else {
-            self.journalMark = nil
-            return
+        if self.journalMark == nil {
+            self.journalMark = Self.storedJournalMark()
         }
-        self.journalMark = await JournalIdentityFetcher().fetch(localPort: port)
+        guard let port = self.tunnelManager.activeConnection?.port else { return }
+        guard let fetched = await JournalIdentityFetcher().fetch(localPort: port) else { return }
+        self.journalMark = fetched
+        self.journalMarkStore.save(fetched)
     }
 
     private func applyDebugSeeds() {
