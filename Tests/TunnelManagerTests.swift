@@ -1478,6 +1478,186 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testDirectKeepaliveMissDiagnosticIncludesScopeDirect() async throws {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, diagnosticLog: diagnosticLog)
+
+        await manager.connect()
+        transport.simulateDisconnect(error: SessionError.directKeepaliveMissed)
+        let didLog = await Self.waitUntil {
+            diagnosticLog.events.contains { event in
+                event.message == "forcing reconnect" && (event.detail?.contains("scope=direct") ?? false)
+            }
+        }
+        XCTAssertTrue(didLog)
+        let detail = try XCTUnwrap(
+            diagnosticLog.events.last { $0.message == "forcing reconnect" }?.detail
+        )
+        XCTAssertTrue(detail.contains("scope=direct"))
+        XCTAssertFalse(detail.contains("scope=relay"))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testRelayKeepaliveMissDiagnosticIncludesScopeRelay() async throws {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plViaSpl
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, diagnosticLog: diagnosticLog)
+
+        await manager.connect()
+        transport.simulateDisconnect(error: SessionError.relayKeepaliveMissed)
+        let didLog = await Self.waitUntil {
+            diagnosticLog.events.contains { event in
+                event.message == "forcing reconnect" && (event.detail?.contains("scope=relay") ?? false)
+            }
+        }
+        XCTAssertTrue(didLog)
+        let detail = try XCTUnwrap(
+            diagnosticLog.events.last { $0.message == "forcing reconnect" }?.detail
+        )
+        XCTAssertTrue(detail.contains("scope=relay"))
+        XCTAssertFalse(detail.contains("scope=direct"))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testInboundClosedDiagnosticIncludesFault() async {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, diagnosticLog: diagnosticLog)
+
+        await manager.connect()
+        transport.simulateDisconnect(error: SessionError.inboundClosed(fault: "someFault"))
+        let didLog = await Self.waitUntil {
+            diagnosticLog.events.contains { event in
+                event.message == "forcing reconnect" && (event.detail?.contains("fault=someFault") ?? false)
+            }
+        }
+        XCTAssertTrue(didLog)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testScheduleReconnectDiagnosticUsesCoarseErrorLabelAndDelayMs() async throws {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            jitterRandom: { _ in 1.0 },
+            diagnosticLog: diagnosticLog
+        )
+
+        await manager.connect()
+        transport.simulateDisconnect(error: SessionError.directKeepaliveMissed)
+        let didLog = await Self.waitUntil {
+            diagnosticLog.events.contains { $0.message == "scheduling reconnect" }
+        }
+        XCTAssertTrue(didLog)
+        let detail = try XCTUnwrap(
+            diagnosticLog.events.last { $0.message == "scheduling reconnect" }?.detail
+        )
+        let delay = try XCTUnwrap(manager.lastScheduledReconnectDelay)
+        let delayMs = Self.milliseconds(for: delay)
+        XCTAssertEqual(detail, "delayMs=\(delayMs) error=muxTeardown")
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testNotEntitledGiveUpDiagnosticIncludesExactLimit() async {
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [
+            .failure(SessionError.notEntitled),
+            .failure(SessionError.notEntitled),
+            .failure(SessionError.notEntitled),
+        ]
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            jitterRandom: { _ in 1.0 },
+            diagnosticLog: diagnosticLog
+        )
+
+        await manager.connect()
+        manager.cancelReconnect()
+        await manager.connect()
+        manager.cancelReconnect()
+        await manager.connect()
+
+        let didLog = await Self.waitUntil {
+            diagnosticLog.events.contains { $0.message == "relay not entitled repeated" }
+        }
+        XCTAssertTrue(didLog)
+        XCTAssertEqual(
+            diagnosticLog.events.last { $0.message == "relay not entitled repeated" }?.detail,
+            "consecutiveNotEntitled=3 limit=3"
+        )
+        XCTAssertNil(manager.reconnectCountdown)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testDisconnectClearsInboundClosedFaultsAndRecentReconnects() async {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, diagnosticLog: diagnosticLog)
+
+        await manager.connect()
+        transport.simulateDisconnect(error: SessionError.inboundClosed(fault: "someFault"))
+        let didAggregate = await Self.waitUntil {
+            manager.inboundClosedFaultCounts["someFault"] == 1
+        }
+        XCTAssertTrue(didAggregate)
+        await manager.retryNow()
+        XCTAssertEqual(manager.reconnectCountLastFiveMinutes(), 1)
+
+        await manager.disconnect()
+        XCTAssertTrue(manager.inboundClosedFaultCounts.isEmpty)
+        XCTAssertEqual(manager.reconnectCountLastFiveMinutes(), 0)
+        XCTAssertTrue(diagnosticLog.snapshot(tunnel: manager).contains("tunnel reconnects (last 5m): 0"))
+    }
+
+    @MainActor
+    func testSnapshotLastFiveMinuteReconnectCountMatchesScriptedReconnects() async {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(transport: transport, diagnosticLog: diagnosticLog)
+
+        await manager.connect()
+        transport.simulateDisconnect(error: SessionError.directKeepaliveMissed)
+        let didSchedule = await Self.waitUntil {
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }
+        XCTAssertTrue(didSchedule)
+        await manager.retryNow()
+        transport.simulateDisconnect(error: SessionError.directKeepaliveMissed)
+        let didScheduleAgain = await Self.waitUntil {
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }
+        XCTAssertTrue(didScheduleAgain)
+        await manager.retryNow()
+
+        XCTAssertEqual(manager.reconnectCountLastFiveMinutes(), 2)
+        XCTAssertTrue(diagnosticLog.snapshot(tunnel: manager).contains("tunnel reconnects (last 5m): 2"))
+
+        await manager.disconnect()
+        XCTAssertEqual(manager.reconnectCountLastFiveMinutes(), 0)
+        XCTAssertTrue(diagnosticLog.snapshot(tunnel: manager).contains("tunnel reconnects (last 5m): 0"))
+    }
+
+    @MainActor
     func testConnectingWatchdogDisconnectsWhileStillConnecting() async {
         let transport = MockCFTunnelTransport()
         transport.suspendConnectUntilDisconnect = true
@@ -2911,7 +3091,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let reconnectEvents = diagnosticLog.events.filter {
             $0.category == .tunnel && $0.message == "forcing reconnect"
         }
-        XCTAssertEqual(reconnectEvents.last?.detail, "keepalive missed port=54321 epoch=1")
+        XCTAssertEqual(reconnectEvents.last?.detail, "keepalive missed port=54321 epoch=1 scope=direct")
         await manager.disconnect()
     }
 
@@ -3028,6 +3208,13 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     private static func settle() async {
         await Task.yield()
         try? await Task.sleep(for: .milliseconds(20))
+    }
+
+    private static func milliseconds(for duration: Duration) -> Int {
+        let components = duration.components
+        let fromSeconds = components.seconds * 1_000
+        let fromAttoseconds = components.attoseconds / 1_000_000_000_000_000
+        return Int(fromSeconds + fromAttoseconds)
     }
 
     @MainActor

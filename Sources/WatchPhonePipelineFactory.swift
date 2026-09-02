@@ -21,6 +21,7 @@ func makeWatchPhonePipeline(
     transferEnqueuer: ObserverAudioTransferEnqueuer,
     watchConnectivitySession: any WatchConnectivitySession,
     watchSourceFacts: WatchSourceFacts,
+    diagnosticLog: DiagnosticLog? = nil,
     ledgerFileURL: URL? = nil,
     ledgerClock: @escaping @MainActor @Sendable () -> Date = Date.init,
     drainStagingRootURL: URL? = nil,
@@ -85,7 +86,8 @@ func makeWatchPhonePipeline(
         session: watchConnectivitySession,
         receiver: receiver,
         facts: watchSourceFacts,
-        phoneSessionHistoryStore: phoneSessionHistoryStore
+        phoneSessionHistoryStore: phoneSessionHistoryStore,
+        diagnosticLog: diagnosticLog
     )
     link.activate()
 

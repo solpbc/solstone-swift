@@ -63,14 +63,18 @@ nonisolated enum ObserverAudioTransferDiagnostics {
     }
 
     private static func detail(for event: TransferDiagnosticEvent) -> String {
-        [
+        var parts = [
             "source=\(event.source)",
             "item=\(event.itemID.uuidString)",
             "from=\(event.previousState.rawValue)",
             "to=\(event.nextState.rawValue)",
             "attempt=\(event.attempt)",
-            "detail=\(event.shortDetail)",
-        ].joined(separator: " ")
+        ]
+        if let elapsed = event.elapsedSinceFirstAttempt {
+            parts.append("elapsedSinceFirstAttemptMs=\(Int((elapsed * 1_000).rounded(.towardZero)))")
+        }
+        parts.append("detail=\(event.shortDetail)")
+        return parts.joined(separator: " ")
     }
 }
 

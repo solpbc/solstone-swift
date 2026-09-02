@@ -10,7 +10,8 @@ func makeOmiSourceManager(
     generationID: UUID = UUID(),
     defaults: UserDefaults = .standard,
     clock: any ObserverClock = SystemObserverClock(),
-    bluetoothPort: any OmiBluetoothPort = LiveOmiBluetoothPort()
+    bluetoothPort: any OmiBluetoothPort = LiveOmiBluetoothPort(),
+    diagnosticLog: DiagnosticLog? = nil
 ) -> OmiSourceManager {
     let reservation: OmiLaunchCaptureCutReservation?
     let ingress: OmiLaunchCaptureIngress?
@@ -62,6 +63,7 @@ func makeOmiSourceManager(
         bluetoothPort: bluetoothPort,
         launchCaptureIngress: ingress,
         initialCutReservation: reservation,
-        hasCutReservationDefect: hasReservationDefect
+        hasCutReservationDefect: hasReservationDefect,
+        diagnosticLog: diagnosticLog
     )
 }

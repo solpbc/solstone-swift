@@ -533,6 +533,56 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertLessThanOrEqual(clock.sleepDurations[0], 300)
     }
 
+    func testElapsedSinceFirstAttemptMatchesScriptedClockDelta() async throws {
+        let itemID = Self.uuid(91)
+        TransferURLProtocol.handler = { request, _ in
+            if Self.boundaryItemID(from: request) == itemID {
+                return (Self.response(for: request, statusCode: 503), Data())
+            }
+            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
+        let engine = self.makeEngine(
+            clock: clock,
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [400], maxDelay: 300, jitterSalt: 1)),
+            diagnosticsSink: { event in events.withLock { $0.append(event) } }
+        )
+        try await engine.start()
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: itemID), payloads: self.audioPayloads())
+
+        try await self.waitFor("first retry") {
+            events.withLock { values in
+                values.contains { $0.itemID == itemID && $0.outcome == .retrying && $0.attempt == 1 }
+            }
+        }
+        try await self.waitFor("sleep after first retry") { clock.sleepDurations.count >= 1 }
+        clock.advanceWall(by: 300)
+        clock.resumeSleeps()
+
+        try await self.waitFor("second retry") {
+            events.withLock { values in
+                values.contains { $0.itemID == itemID && $0.outcome == .retrying && $0.attempt == 2 }
+            }
+        }
+        try await self.waitFor("sleep after second retry") { clock.sleepDurations.count >= 2 }
+        clock.advanceWall(by: 300)
+        clock.resumeSleeps()
+
+        try await self.waitFor("third dispatch") {
+            events.withLock { values in
+                values.contains {
+                    $0.itemID == itemID && $0.attempt == 3 && $0.nextState == .dispatching
+                }
+            }
+        }
+        let third = events.withLock { values in
+            values.last { $0.itemID == itemID && $0.attempt == 3 && $0.nextState == .dispatching }
+        }
+        XCTAssertEqual(third?.attempt, 3)
+        XCTAssertEqual(third?.elapsedSinceFirstAttempt, 600)
+    }
+
     func testAtomicEnqueueCrashBeforeCommitLeavesOnlyDiscardableStaging() throws {
         let spool = TransferSpool(rootURL: self.tempDirectory)
         let staged = try spool.stage(manifest: self.makeManifest(), payloads: self.audioPayloads())

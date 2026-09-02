@@ -336,7 +336,8 @@ struct SolstoneSwiftApp: App {
             transferStatusMirror: transferStatusMirror,
             transferEnqueuer: transferEnqueuer,
             watchConnectivitySession: watchConnectivitySession,
-            watchSourceFacts: watchSourceFacts
+            watchSourceFacts: watchSourceFacts,
+            diagnosticLog: log
         )
         let watchUploaderHolder = watchPipeline.watchUploaderHolder
         let watchSegmentDrain = watchPipeline.watchSegmentDrain
@@ -414,7 +415,7 @@ struct SolstoneSwiftApp: App {
         AppDependencyManager.shared.add(dependency: observerManager as any ObserverSessionControlling)
         ObserverManagerDependencyRegistrationWitness.recordRegistration(of: observerManager)
         let omiSegmentWriter = OmiSegmentWriter(transferEnqueuer: transferEnqueuer, clock: observerClock)
-        let omiSource = makeOmiSourceManager(clock: observerClock)
+        let omiSource = makeOmiSourceManager(clock: observerClock, diagnosticLog: log)
         let launchCaptureCommitCoordinator = OmiLaunchCaptureCommitCoordinator(
             rootURL: nil,
             engine: transferEngine,

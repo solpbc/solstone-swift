@@ -278,6 +278,7 @@ actor TransferEngine {
     /// durable evidence before dispatch opens after process death.
     private var gateRecordsByItemID: [UUID: TransferGateRecord] = [:]
     private var attemptCountByItemID: [UUID: Int] = [:]
+    private var firstAttemptAtByItemID: [UUID: Date] = [:]
     private var sourceCursorByBand: [TransferPriorityBand: Int] = [:]
     private var retrySleepTask: Task<Void, Never>?
     private var paused = false
@@ -335,6 +336,7 @@ actor TransferEngine {
         self.heldItemIDs = []
         self.gateRecordsByItemID = [:]
         self.attemptCountByItemID = [:]
+        self.firstAttemptAtByItemID = [:]
         self.aggregateByteWindow = TransferByteWindow()
         self.counters = TransferCounters(
             queuedCount: snapshot.queued.count,
@@ -796,6 +798,7 @@ actor TransferEngine {
                 state.counters.queuedCount += 1
             }
             self.attemptCountByItemID.removeValue(forKey: moved.manifest.itemID)
+            self.firstAttemptAtByItemID.removeValue(forKey: moved.manifest.itemID)
             self.emit(
                 item: moved,
                 previousState: .attention,
@@ -834,6 +837,7 @@ actor TransferEngine {
                 attempt: self.attemptCountByItemID[itemID, default: 0],
                 detail: "dropped"
             )
+            self.firstAttemptAtByItemID.removeValue(forKey: itemID)
             transferLog.notice("transfer item dropped \(itemID.uuidString, privacy: .public)")
         } else if let item = self.attentionItems.removeValue(forKey: itemID) {
             self.counters.attentionCount -= 1
@@ -851,6 +855,7 @@ actor TransferEngine {
                 attempt: self.attemptCountByItemID[itemID, default: 0],
                 detail: "dropped"
             )
+            self.firstAttemptAtByItemID.removeValue(forKey: itemID)
             transferLog.notice("transfer item dropped \(itemID.uuidString, privacy: .public)")
         }
         self.scheduleStatusUpdate(summary: "dropped")
@@ -1020,6 +1025,9 @@ actor TransferEngine {
         }
         let attempt = self.attemptCountByItemID[itemID, default: 0] + 1
         self.attemptCountByItemID[itemID] = attempt
+        if attempt == 1 {
+            self.firstAttemptAtByItemID[itemID] = self.clock.wallNow()
+        }
         self.emit(
             item: item,
             previousState: .queued,
@@ -1124,6 +1132,7 @@ actor TransferEngine {
                 attempt: self.attemptCountByItemID[itemID, default: 0],
                 detail: "delivered"
             )
+            self.firstAttemptAtByItemID.removeValue(forKey: itemID)
             transferLog.notice("transfer item delivered \(itemID.uuidString, privacy: .public)")
             self.launchDeliveredHook(
                 for: item.manifest,
@@ -1214,6 +1223,7 @@ actor TransferEngine {
                 attempt: self.attemptCountByItemID[moved.manifest.itemID, default: 0],
                 detail: detail
             )
+            self.firstAttemptAtByItemID.removeValue(forKey: moved.manifest.itemID)
         }
     }
 
@@ -1542,6 +1552,13 @@ private extension TransferEngine {
         detail: String
     ) {
         self.lastEventSummary = detail
+        let now = self.clock.wallNow()
+        let elapsed: TimeInterval?
+        if let startedAt = self.firstAttemptAtByItemID[item.manifest.itemID] {
+            elapsed = now.timeIntervalSince(startedAt)
+        } else {
+            elapsed = nil
+        }
         self.diagnosticsSink(TransferDiagnosticEvent(
             source: item.manifest.sourceKey,
             itemID: item.manifest.itemID,
@@ -1550,7 +1567,8 @@ private extension TransferEngine {
             outcome: outcome,
             attempt: attempt,
             shortDetail: detail,
-            at: self.clock.wallNow()
+            at: now,
+            elapsedSinceFirstAttempt: elapsed
         ))
     }
 

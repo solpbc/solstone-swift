@@ -240,6 +240,7 @@ final class TunnelManager {
     var reconnectCount: Int = 0
     var reconnectReasonCounts: [ReconnectReasonBucket: Int] = [:]
     var inboundClosedFaultCounts: [String: Int] = [:]
+    @ObservationIgnored private var reconnectOccurredAt: [Date] = []
     @ObservationIgnored private var connectionStages: [ConnectionStage] = []
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private var ownerConnectSuccessBannerArmed = false
@@ -560,6 +561,7 @@ final class TunnelManager {
             self.reconnectCount += 1
             let bucket = self.pendingReconnectReason ?? .other
             self.reconnectReasonCounts[bucket, default: 0] += 1
+            self.noteReconnectOccurred()
 #if DEBUG && targetEnvironment(simulator)
             self.integrationGateLastReconnectReasonBucket = bucket
 #endif
@@ -734,11 +736,22 @@ final class TunnelManager {
                     }
                     if let sessionError = error as? SessionError,
                        sessionError == .directKeepaliveMissed || sessionError == .relayKeepaliveMissed {
-                        await self.forceReconnect(reason: .keepaliveMissed, epoch: epoch)
+                        await self.forceReconnect(
+                            reason: .keepaliveMissed,
+                            epoch: epoch,
+                            detailSuffix: sessionError == .directKeepaliveMissed ? "scope=direct" : "scope=relay"
+                        )
                     } else {
+                        let detailSuffix: String?
+                        if case .inboundClosed(let fault) = error as? SessionError {
+                            detailSuffix = "fault=\(fault ?? "<unspecified>")"
+                        } else {
+                            detailSuffix = nil
+                        }
                         await self.forceReconnect(
                             reason: .transportClosed(error.map { self.mapTransportError($0) } ?? .muxTeardown),
-                            epoch: epoch
+                            epoch: epoch,
+                            detailSuffix: detailSuffix
                         )
                     }
                 }
@@ -802,6 +815,8 @@ final class TunnelManager {
         self.consecutiveNotEntitled = 0
         self.reconnectCount = 0
         self.reconnectReasonCounts = [:]
+        self.inboundClosedFaultCounts = [:]
+        self.reconnectOccurredAt = []
         self.pendingReconnectReason = nil
         self.journalFingerprint = nil
         self.latestListenerObservation = nil
@@ -1024,7 +1039,7 @@ final class TunnelManager {
         self.livenessProbeTask = nil
     }
 
-    private func forceReconnect(reason: ReconnectReason, epoch: UInt64? = nil) async {
+    private func forceReconnect(reason: ReconnectReason, epoch: UInt64? = nil, detailSuffix: String? = nil) async {
         if let epoch {
             guard self.isCurrentAttempt(epoch) else { return }
         }
@@ -1036,11 +1051,15 @@ final class TunnelManager {
 #endif
         let tunnelError = reason.tunnelError
         log.error("[solstone-swift] forcing reconnect: \(reason.logLabel, privacy: .public)")
+        var detail = "\(reason.logLabel) \(self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch))"
+        if let detailSuffix {
+            detail += " \(detailSuffix)"
+        }
         self.diagnosticLog?.append(
             category: .tunnel,
             severity: .warning,
             message: "forcing reconnect",
-            detail: "\(reason.logLabel) \(self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch))"
+            detail: detail
         )
         self.cancelConnectWatchdog()
         self.cancelReconnect()
@@ -1219,6 +1238,28 @@ final class TunnelManager {
         return lines
     }
 
+    func reconnectCountLastFiveMinutes(now: Date = Date()) -> Int {
+        self.pruneReconnects(now: now)
+        return self.reconnectOccurredAt.count
+    }
+
+    private func noteReconnectOccurred(now: Date = Date()) {
+        self.pruneReconnects(now: now)
+        self.reconnectOccurredAt.append(now)
+    }
+
+    private func pruneReconnects(now: Date) {
+        let cutoff = now.addingTimeInterval(-300)
+        self.reconnectOccurredAt.removeAll { $0 < cutoff }
+    }
+
+    private static func milliseconds(for duration: Duration) -> Int {
+        let components = duration.components
+        let fromSeconds = components.seconds * 1_000
+        let fromAttoseconds = components.attoseconds / 1_000_000_000_000_000
+        return Int(fromSeconds + fromAttoseconds)
+    }
+
     private func scheduleReconnect(for error: TunnelError, epoch: UInt64? = nil) {
         guard error.isRetryable, self.isNetworkSatisfied != false else { return }
         let scheduledEpoch = epoch ?? self.activeAttemptEpoch
@@ -1230,6 +1271,11 @@ final class TunnelManager {
         let wholeSeconds = max(Int(components.seconds), 0)
         let fractional = step.delay - .seconds(components.seconds)
         log.info("[solstone-swift] scheduling reconnect in \(String(describing: step.delay), privacy: .public) for \(String(describing: error), privacy: .public)")
+        self.diagnosticLog?.append(
+            category: .tunnel,
+            message: "scheduling reconnect",
+            detail: "delayMs=\(Self.milliseconds(for: step.delay)) error=\(error.diagnosticLabel)"
+        )
         self.reconnectCountdown = displaySeconds
         self.retryTask = Task { [weak self] in
             if fractional > .zero {
@@ -1467,6 +1513,12 @@ final class TunnelManager {
         self.consecutiveNotEntitled += 1
         guard self.consecutiveNotEntitled < notEntitledAutoReconnectLimit else {
             log.info("[solstone-swift] relay not entitled repeated; stopping automatic reconnect")
+            self.diagnosticLog?.append(
+                category: .tunnel,
+                severity: .warning,
+                message: "relay not entitled repeated",
+                detail: "consecutiveNotEntitled=\(self.consecutiveNotEntitled) limit=\(notEntitledAutoReconnectLimit)"
+            )
             return false
         }
         return true

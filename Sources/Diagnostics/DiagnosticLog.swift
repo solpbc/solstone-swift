@@ -80,6 +80,7 @@ final class DiagnosticLog {
             .map { "\($0.exportLabel) \(tunnel.reconnectReasonCounts[$0] ?? 0)" }
             .joined(separator: ", ")
         lines.append("tunnel reconnects: \(tunnel.reconnectCount) (\(reconnectBreakdown))")
+        lines.append("tunnel reconnects (last 5m): \(tunnel.reconnectCountLastFiveMinutes())")
         let inboundFaultBreakdown = tunnel.inboundClosedFaultCounts.isEmpty
             ? "(none)"
             : tunnel.inboundClosedFaultCounts

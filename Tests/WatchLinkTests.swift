@@ -257,6 +257,70 @@ nonisolated final class WatchLinkTests: XCTestCase {
     }
 
     @MainActor
+    func testNoteStuckLogsEachKindIndependentlyAndOnlyOnTransitionToTrue() {
+        let log = DiagnosticLog()
+        let watchLink = WatchLink(
+            session: self.session,
+            receiver: nil,
+            facts: Self.facts(),
+            phoneSessionHistoryStore: Self.historyStore(),
+            diagnosticLog: log
+        )
+        let now = Date(timeIntervalSince1970: 2_000)
+        let bothStuck = Self.pipelineInput(
+            now: now,
+            watchStatus: Self.status(seq: 1, queuedCount: 1, asOf: now),
+            oldestNonTerminalReceivedAt: now.addingTimeInterval(-600),
+            pendingCount: 1,
+            lastReceivedAt: now.addingTimeInterval(-600),
+            isJournalReachable: true
+        )
+
+        XCTAssertTrue(WatchPipelineReducer.isRelayStuck(bothStuck))
+        XCTAssertTrue(WatchPipelineReducer.isHandoffStuck(bothStuck))
+        XCTAssertFalse(WatchPipelineReducer.isOrphanStuck(bothStuck))
+        XCTAssertEqual(WatchPipelineReducer.stuckState(bothStuck), .handoff)
+
+        watchLink.noteStuck(bothStuck)
+        XCTAssertEqual(log.events.count, 2)
+        XCTAssertEqual(
+            Set(log.events.map(\.detail)),
+            ["kind=handoff", "kind=relay"]
+        )
+        XCTAssertTrue(log.events.allSatisfy { event in
+            event.category == .upload
+                && event.severity == .warning
+                && event.message == "needs attention"
+        })
+
+        watchLink.noteStuck(bothStuck)
+        XCTAssertEqual(log.events.count, 2)
+
+        let recovered = Self.pipelineInput(now: now)
+        XCTAssertFalse(WatchPipelineReducer.isRelayStuck(recovered))
+        XCTAssertFalse(WatchPipelineReducer.isHandoffStuck(recovered))
+        XCTAssertFalse(WatchPipelineReducer.isOrphanStuck(recovered))
+
+        watchLink.noteStuck(recovered)
+        XCTAssertEqual(log.events.count, 2)
+
+        let relayOnly = Self.pipelineInput(
+            now: now,
+            watchStatus: Self.status(seq: 1, queuedCount: 1, asOf: now),
+            lastReceivedAt: now.addingTimeInterval(-600)
+        )
+        XCTAssertTrue(WatchPipelineReducer.isRelayStuck(relayOnly))
+        XCTAssertFalse(WatchPipelineReducer.isHandoffStuck(relayOnly))
+        XCTAssertFalse(WatchPipelineReducer.isOrphanStuck(relayOnly))
+
+        watchLink.noteStuck(relayOnly)
+        XCTAssertEqual(log.events.count, 3)
+        XCTAssertEqual(log.events.last?.detail, "kind=relay")
+        XCTAssertEqual(log.events.last?.message, "needs attention")
+        XCTAssertFalse(log.events.contains { $0.message == "waiting" })
+    }
+
+    @MainActor
     private func yieldToMainActor() async {
         try? await Task.sleep(for: .milliseconds(20))
     }
@@ -276,42 +340,52 @@ nonisolated final class WatchLinkTests: XCTestCase {
         }
     }
 
-    private static func status(seq: Int) -> WatchStatusContext {
+    private static func status(
+        seq: Int,
+        queuedCount: Int = 0,
+        asOf: Date = Date(timeIntervalSince1970: 1_015)
+    ) -> WatchStatusContext {
         WatchStatusContext(
             phase: .observing,
             sessionID: "session-\(seq)",
             startedAt: Date(timeIntervalSince1970: 1_000),
-            asOf: Date(timeIntervalSince1970: 1_015),
+            asOf: asOf,
             seq: seq,
-            queuedCount: 0,
+            queuedCount: queuedCount,
             transferringCount: 0
         )
     }
 
     private static func pipelineInput(
+        now: Date = Date(timeIntervalSince1970: 1_020),
+        watchStatus: WatchStatusContext? = nil,
+        oldestNonTerminalReceivedAt: Date? = nil,
+        pendingCount: Int = 0,
+        lastReceivedAt: Date? = nil,
+        isJournalReachable: Bool = true,
         phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput> = .unavailable(reason: "not provided")
     ) -> WatchPipelineInput {
         WatchPipelineInput(
-            now: Date(timeIntervalSince1970: 1_020),
-            watchStatus: nil,
+            now: now,
+            watchStatus: watchStatus,
             lifetimeReceived: 0,
             lifetimeHanded: 0,
             nonTerminalCount: 0,
             lastHandedAt: nil,
-            oldestNonTerminalReceivedAt: nil,
+            oldestNonTerminalReceivedAt: oldestNonTerminalReceivedAt,
             lastLedgerError: nil,
-            pendingCount: 0,
+            pendingCount: pendingCount,
             failedCount: 0,
             inFlightCount: 0,
             lastUploadAt: nil,
             lastUploadError: nil,
-            lastReceivedAt: nil,
+            lastReceivedAt: lastReceivedAt,
             lastStagingError: nil,
             isPaired: true,
             isWatchAppInstalled: true,
             activationState: .activated,
             isReachable: true,
-            isJournalReachable: true,
+            isJournalReachable: isJournalReachable,
             phoneSessionHistory: phoneSessionHistory
         )
     }

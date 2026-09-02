@@ -277,6 +277,40 @@ nonisolated enum WatchPipelineReducer {
         self.stuck(input)
     }
 
+    nonisolated static func isRelayStuck(_ input: WatchPipelineInput) -> Bool {
+        guard let watchStatus = input.watchStatus,
+              let claimAge = self.age(of: watchStatus.asOf, now: input.now),
+              claimAge <= self.watchClaimFreshnessWindow,
+              max(0, watchStatus.queuedCount) > 0,
+              input.isPaired,
+              input.isWatchAppInstalled,
+              input.activationState == .activated,
+              let receivedAge = self.age(of: input.lastReceivedAt, now: input.now)
+        else {
+            return false
+        }
+        return receivedAge >= self.relayStuckThreshold
+    }
+
+    nonisolated static func isHandoffStuck(_ input: WatchPipelineInput) -> Bool {
+        guard let age = self.age(of: input.oldestNonTerminalReceivedAt, now: input.now),
+              age >= self.handoffStuckThreshold,
+              input.isJournalReachable
+        else {
+            return false
+        }
+        return self.uploadQueueCount(input) > 0
+    }
+
+    nonisolated static func isOrphanStuck(_ input: WatchPipelineInput) -> Bool {
+        guard let age = self.age(of: input.oldestNonTerminalReceivedAt, now: input.now),
+              age >= self.orphanStuckThreshold
+        else {
+            return false
+        }
+        return self.uploadQueueCount(input) == 0
+    }
+
     nonisolated static func classifyRelayIdentities(_ input: WatchPipelineInput) -> WatchRelayClassificationReport {
         guard let payload = input.watchDiagnostics.payload else {
             return WatchRelayClassificationReport(
@@ -1329,40 +1363,6 @@ private extension WatchPipelineReducer {
             return .relay
         }
         return .none
-    }
-
-    nonisolated static func isRelayStuck(_ input: WatchPipelineInput) -> Bool {
-        guard let watchStatus = input.watchStatus,
-              let claimAge = self.age(of: watchStatus.asOf, now: input.now),
-              claimAge <= self.watchClaimFreshnessWindow,
-              max(0, watchStatus.queuedCount) > 0,
-              input.isPaired,
-              input.isWatchAppInstalled,
-              input.activationState == .activated,
-              let receivedAge = self.age(of: input.lastReceivedAt, now: input.now)
-        else {
-            return false
-        }
-        return receivedAge >= self.relayStuckThreshold
-    }
-
-    nonisolated static func isHandoffStuck(_ input: WatchPipelineInput) -> Bool {
-        guard let age = self.age(of: input.oldestNonTerminalReceivedAt, now: input.now),
-              age >= self.handoffStuckThreshold,
-              input.isJournalReachable
-        else {
-            return false
-        }
-        return self.uploadQueueCount(input) > 0
-    }
-
-    nonisolated static func isOrphanStuck(_ input: WatchPipelineInput) -> Bool {
-        guard let age = self.age(of: input.oldestNonTerminalReceivedAt, now: input.now),
-              age >= self.orphanStuckThreshold
-        else {
-            return false
-        }
-        return self.uploadQueueCount(input) == 0
     }
 
     nonisolated static func uploadQueueCount(_ input: WatchPipelineInput) -> Int {

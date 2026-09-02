@@ -277,7 +277,9 @@ targets:
       - path: Sources/WatchCapture
         excludes:
           - WatchSegmentDrain.swift
-      - Sources/WatchConnectivity
+      - path: Sources/WatchConnectivity
+        excludes:
+          - WatchLink.swift
       - Sources/Observer/ObserverClock.swift
       - Sources/Observer/ObserverError.swift
       - Sources/Services/AppGroupContainer.swift
@@ -353,7 +355,9 @@ targets:
       - path: Sources/WatchCapture
         excludes:
           - WatchSegmentDrain.swift
-      - Sources/WatchConnectivity
+      - path: Sources/WatchConnectivity
+        excludes:
+          - WatchLink.swift
       - Sources/Observer/ObserverClock.swift
       - Sources/Services/AppGroupContainer.swift
       - Sources/SourceModels.swift

@@ -49,4 +49,19 @@ enum TunnelError: Error, Sendable, Equatable {
             return true
         }
     }
+
+    var diagnosticLabel: String {
+        switch self {
+        case .revoked:
+            return "revoked"
+        case .tlsHandshakeFailed:
+            return "tlsHandshakeFailed"
+        case .muxTeardown:
+            return "muxTeardown"
+        case .unreachable:
+            return "unreachable"
+        case .unknown:
+            return "unknown"
+        }
+    }
 }

@@ -131,6 +131,120 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
         XCTAssertTrue(snapshot.contains("transport closed 2"))
         XCTAssertTrue(snapshot.contains("other 1"))
         XCTAssertTrue(snapshot.contains("tunnel inbound-closed faults: (none)"))
+        XCTAssertTrue(snapshot.contains("tunnel reconnects (last 5m): 0"))
+    }
+
+    @MainActor
+    func testSnapshotNewDiagnosticFieldsStayCoarse() {
+        self.log.append(
+            category: .tunnel,
+            severity: .warning,
+            message: "forcing reconnect",
+            detail: "keepalive missed port=none epoch=1 scope=direct"
+        )
+        self.log.append(
+            category: .tunnel,
+            severity: .warning,
+            message: "forcing reconnect",
+            detail: "transport closed port=none epoch=1 fault=someFault"
+        )
+        self.log.append(
+            category: .tunnel,
+            message: "scheduling reconnect",
+            detail: "delayMs=1000 error=muxTeardown"
+        )
+        self.log.append(
+            category: .tunnel,
+            severity: .warning,
+            message: "relay not entitled repeated",
+            detail: "consecutiveNotEntitled=3 limit=3"
+        )
+        self.log.append(
+            category: .upload,
+            message: "waiting",
+            detail: "source=alpha item=00000000-0000-0000-0000-000000000091 from=dispatching to=queued attempt=3 elapsedSinceFirstAttemptMs=2000 detail=retrying"
+        )
+        self.log.append(
+            category: .upload,
+            severity: .warning,
+            message: "needs attention",
+            detail: "kind=relay"
+        )
+        self.log.append(
+            category: .upload,
+            severity: .warning,
+            message: "needs attention",
+            detail: "kind=handoff"
+        )
+        self.log.append(
+            category: .upload,
+            severity: .warning,
+            message: "needs attention",
+            detail: "kind=orphan"
+        )
+        self.log.append(
+            category: .upload,
+            severity: .warning,
+            message: "needs attention",
+            detail: "source=omi reason=pendantNotFound"
+        )
+        self.log.append(
+            category: .upload,
+            severity: .info,
+            message: "waiting",
+            detail: "source=omi reason=systemReconnecting"
+        )
+
+        let snapshot = self.log.snapshot(tunnel: TunnelManager())
+
+        XCTAssertTrue(snapshot.contains("scope=direct"))
+        XCTAssertTrue(snapshot.contains("fault=someFault"))
+        XCTAssertTrue(snapshot.contains("delayMs=1000"))
+        XCTAssertTrue(snapshot.contains("error=muxTeardown"))
+        XCTAssertTrue(snapshot.contains("consecutiveNotEntitled=3 limit=3"))
+        XCTAssertTrue(snapshot.contains("elapsedSinceFirstAttemptMs=2000"))
+        XCTAssertTrue(snapshot.contains("kind=relay"))
+        XCTAssertTrue(snapshot.contains("kind=handoff"))
+        XCTAssertTrue(snapshot.contains("kind=orphan"))
+        XCTAssertTrue(snapshot.contains("source=omi reason=pendantNotFound"))
+        XCTAssertTrue(snapshot.contains("source=omi reason=systemReconnecting"))
+        XCTAssertTrue(snapshot.contains("tunnel reconnects (last 5m): 0"))
+        XCTAssertFalse(snapshot.contains("10.0.0.10"))
+        XCTAssertFalse(snapshot.contains(":7657"))
+        XCTAssertFalse(snapshot.contains("192.168."))
+        XCTAssertFalse(snapshot.contains("BEGIN CERTIFICATE"))
+        XCTAssertFalse(snapshot.contains("The operation couldn’t complete"))
+        XCTAssertFalse(snapshot.contains("tls handshake failed with host"))
+        XCTAssertFalse(snapshot.contains("AA:BB:CC:DD:EE:FF"))
+        XCTAssertFalse(snapshot.contains("peripheral="))
+    }
+
+    @MainActor
+    func testUploadSinkDetailIncludesElapsedSinceFirstAttemptMs() async throws {
+        let sink = ObserverAudioTransferDiagnostics.makeSink(diagnosticLog: self.log)
+        sink(TransferDiagnosticEvent(
+            source: "alpha",
+            itemID: UUID(uuidString: "00000000-0000-0000-0000-000000000091")!,
+            previousState: .dispatching,
+            nextState: .queued,
+            outcome: .retrying,
+            attempt: 3,
+            shortDetail: "retrying",
+            at: Date(),
+            elapsedSinceFirstAttempt: 1.5
+        ))
+
+        let didLog = await Self.waitUntil {
+            self.log.events.contains { event in
+                event.detail?.contains("elapsedSinceFirstAttemptMs=1500") ?? false
+            }
+        }
+        XCTAssertTrue(didLog)
+        let detail = try XCTUnwrap(self.log.events.last?.detail)
+        XCTAssertTrue(detail.contains("attempt=3"))
+        XCTAssertTrue(detail.contains("elapsedSinceFirstAttemptMs=1500"))
+        XCTAssertFalse(detail.contains("10.0.0.10"))
+        XCTAssertFalse(detail.contains(":7657"))
     }
 
     @MainActor
@@ -164,5 +278,21 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
         XCTAssertFalse(report.contains("hunter2"))
         XCTAssertTrue(report.contains("‹redacted›"))
         XCTAssertTrue(report.contains("upload failed"))
+    }
+
+    @MainActor
+    private static func waitUntil(
+        _ condition: () -> Bool,
+        timeout: Duration = .seconds(1),
+        interval: Duration = .milliseconds(20)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(for: interval)
+        }
+        return condition()
     }
 }

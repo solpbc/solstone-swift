@@ -91,6 +91,7 @@ struct WatchPipelineInputReader: DynamicProperty {
             iphoneACKQueueSnapshot: self.watchLink.iPhoneACKQueueSnapshot,
             phoneSessionHistory: Self.phoneSessionHistoryInput(from: self.phoneSessionHistoryStore.readSnapshot(asOf: now))
         )
+        self.watchLink.noteStuck(input)
         let recordingStatus = watchRecordingStatus(
             context: input.watchStatus,
             now: input.now,

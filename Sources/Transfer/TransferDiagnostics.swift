@@ -14,6 +14,7 @@ nonisolated struct TransferDiagnosticEvent: Codable, Equatable, Sendable {
     var attempt: Int
     var shortDetail: String
     var at: Date
+    var elapsedSinceFirstAttempt: TimeInterval? = nil
 }
 
 nonisolated enum TransferRuntimeState: String, Codable, Equatable, Sendable {

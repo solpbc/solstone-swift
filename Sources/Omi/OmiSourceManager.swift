@@ -98,6 +98,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     @ObservationIgnored private var lastSeenMarkerEpoch: UInt32?
     @ObservationIgnored private(set) var deferredReadinessPeripheralID: UUID?
     @ObservationIgnored private var launchCaptureIngress: OmiLaunchCaptureIngress?
+    @ObservationIgnored private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private var captureRequiresExplicitResume: Bool
     @ObservationIgnored private var audioRoute: AudioRoute = .launchCapture
     @ObservationIgnored private var launchCaptureRotationState: LaunchCaptureRotationState = .none
@@ -123,7 +124,8 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         bluetoothPort: any OmiBluetoothPort = LiveOmiBluetoothPort(),
         launchCaptureIngress: OmiLaunchCaptureIngress? = nil,
         initialCutReservation: OmiLaunchCaptureCutReservation? = nil,
-        hasCutReservationDefect: Bool = false
+        hasCutReservationDefect: Bool = false,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         let persistedEnabled = defaults.bool(forKey: Self.enabledKey)
         self.defaults = defaults
@@ -133,6 +135,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         self.clock = clock
         self.bluetoothPort = bluetoothPort
         self.launchCaptureIngress = launchCaptureIngress
+        self.diagnosticLog = diagnosticLog
         self.captureRequiresExplicitResume = launchCaptureIngress.map {
             $0.didAttemptInitialArm && !$0.isArmed
         } ?? false
@@ -149,6 +152,40 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         }
         super.init()
         self.bluetoothPort.start(delegate: self)
+    }
+
+    private func appendUploadDiagnostic(
+        message: String,
+        severity: DiagnosticSeverity = .warning,
+        detail: String
+    ) {
+        self.diagnosticLog?.append(category: .upload, severity: severity, message: message, detail: detail)
+    }
+
+    private func appendNeedsAttentionDiagnostic(_ attention: OmiAttention) {
+        self.appendUploadDiagnostic(
+            message: "needs attention",
+            detail: "source=omi reason=\(Self.diagnosticReason(for: attention))"
+        )
+    }
+
+    private static func diagnosticReason(for attention: OmiAttention) -> String {
+        switch attention {
+        case .bluetoothOff:
+            "bluetoothOff"
+        case .unauthorized:
+            "unauthorized"
+        case .unsupported:
+            "unsupported"
+        case .pendantNotFound:
+            "pendantNotFound"
+        case .connectFailed:
+            "connectFailed"
+        case .codecNotOpus:
+            "codecNotOpus"
+        case .audioUnavailable:
+            "audioUnavailable"
+        }
     }
 
     func enable() {
@@ -176,6 +213,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
             self.wantsEnableOnPowerOn = true
             let attention = OmiSourceLogic.attention(for: self.managerState) ?? .bluetoothOff
             self.connectionState = .needsAttention(attention)
+            self.appendNeedsAttentionDiagnostic(attention)
             self.log.error("omi unavailable: \(attention.displayString, privacy: .public)")
             return
         }
@@ -196,6 +234,7 @@ final class OmiSourceManager: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
         guard let descriptor = connected ?? persisted else {
             self.connectionState = .needsAttention(.pendantNotFound)
+            self.appendNeedsAttentionDiagnostic(.pendantNotFound)
             self.log.error("omi pendant not found")
             return
         }
@@ -732,6 +771,7 @@ extension OmiSourceManager {
             return
         }
         self.connectionState = .needsAttention(attention)
+        self.appendNeedsAttentionDiagnostic(attention)
         self.log.error("omi unavailable: \(attention.displayString, privacy: .public)")
     }
 
@@ -778,6 +818,11 @@ private extension OmiSourceManager {
         guard self.isLaunchReady else { return }
         self.bluetoothPort.connect(peripheralID: peripheral.id, enablesAutoReconnect: true)
         self.log.info("omi \(isReconnect ? "reconnecting" : "connecting", privacy: .public)")
+        self.appendUploadDiagnostic(
+            message: "waiting",
+            severity: .info,
+            detail: "source=omi reason=\(isReconnect ? "reconnecting" : "connecting")"
+        )
 
         guard !isReconnect else {
             return
@@ -794,6 +839,7 @@ private extension OmiSourceManager {
                 return
             }
             self.connectionState = .needsAttention(.connectFailed("connection timed out"))
+            self.appendNeedsAttentionDiagnostic(.connectFailed("connection timed out"))
             self.log.error("omi connection timed out")
         }
     }
@@ -891,11 +937,13 @@ extension OmiSourceManager {
                 self.bluetoothPort.discoverCharacteristics(peripheralID: peripheral.id, serviceID: audioService.id)
             } else {
                 self.connectionState = .needsAttention(.audioUnavailable)
+                self.appendNeedsAttentionDiagnostic(.audioUnavailable)
                 self.log.error("omi audio unavailable during readiness")
             }
         case .needsAttention(let attention):
             _ = self.adoptConnectedPeripheralIfNeeded(peripheral)
             self.connectionState = .needsAttention(attention)
+            self.appendNeedsAttentionDiagnostic(attention)
             self.log.error("omi readiness needs attention: \(attention.displayString, privacy: .public)")
         case .subscribeAudio:
             let didAdopt = self.adoptConnectedPeripheralIfNeeded(peripheral)
@@ -912,6 +960,7 @@ extension OmiSourceManager {
                 self.bluetoothPort.discoverCharacteristics(peripheralID: peripheral.id, serviceID: audioService.id)
             } else {
                 self.connectionState = .needsAttention(.audioUnavailable)
+                self.appendNeedsAttentionDiagnostic(.audioUnavailable)
                 self.log.error("omi audio unavailable during readiness")
             }
         case .alreadyLive:
@@ -999,6 +1048,7 @@ extension OmiSourceManager {
         self.pendingConnectionID = nil
         let reason = error?.localizedDescription ?? "unknown error"
         self.connectionState = .needsAttention(.connectFailed(reason))
+        self.appendNeedsAttentionDiagnostic(.connectFailed(reason))
         self.clearConnectionArtifacts()
         self.log.error("omi connection failed: \(reason, privacy: .public)")
     }
@@ -1063,12 +1113,22 @@ extension OmiSourceManager {
         case .systemReconnecting:
             self.clearTransientConnectionState()
             self.log.info("omi reconnecting through bluetooth")
+            self.appendUploadDiagnostic(
+                message: "waiting",
+                severity: .info,
+                detail: "source=omi reason=systemReconnecting"
+            )
         case .rearmConnect:
             self.clearTransientConnectionState()
             if self.isLaunchReady {
                 self.beginConnect(peripheral, isReconnect: true)
             }
             self.log.info("omi reconnect armed")
+            self.appendUploadDiagnostic(
+                message: "waiting",
+                severity: .info,
+                detail: "source=omi reason=reconnectArmed"
+            )
         }
     }
 
@@ -1084,6 +1144,7 @@ extension OmiSourceManager {
         }
         if let error {
             self.connectionState = .needsAttention(.connectFailed(error.localizedDescription))
+            self.appendNeedsAttentionDiagnostic(.connectFailed(error.localizedDescription))
             self.log.error("omi profile discovery failed: \(error.localizedDescription, privacy: .public)")
             return
         }
@@ -1211,6 +1272,7 @@ extension OmiSourceManager {
 
         if let error {
             self.connectionState = .needsAttention(.audioUnavailable)
+            self.appendNeedsAttentionDiagnostic(.audioUnavailable)
             self.log.error("omi audio notify failed: \(error.localizedDescription, privacy: .public)")
             return
         }
@@ -1314,6 +1376,7 @@ private extension OmiSourceManager {
                 self.subscribeAudio()
             } else {
                 self.connectionState = .needsAttention(.codecNotOpus)
+                self.appendNeedsAttentionDiagnostic(.codecNotOpus)
                 self.log.error("omi codec unsupported: \(info.label, privacy: .public)")
             }
             return true
@@ -1339,6 +1402,7 @@ private extension OmiSourceManager {
         guard !self.isOmiWorkDisabled else { return }
         guard let characteristic = self.characteristic(for: OmiUUIDs.audioDataCharacteristicID) else {
             self.connectionState = .needsAttention(.audioUnavailable)
+            self.appendNeedsAttentionDiagnostic(.audioUnavailable)
             self.log.error("omi audio unavailable")
             return
         }
@@ -1348,6 +1412,7 @@ private extension OmiSourceManager {
     func setAudioNotify(enabled: Bool, characteristic: OmiCharacteristicDescriptor) {
         guard characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate) else {
             self.connectionState = .needsAttention(.audioUnavailable)
+            self.appendNeedsAttentionDiagnostic(.audioUnavailable)
             self.log.error("omi audio notify unavailable")
             return
         }
@@ -1357,6 +1422,7 @@ private extension OmiSourceManager {
               self.bluetoothPort.setNotify(peripheralID: connectedPeripheralID, characteristicID: characteristic.id, enabled: enabled)
         else {
             self.connectionState = .needsAttention(.audioUnavailable)
+            self.appendNeedsAttentionDiagnostic(.audioUnavailable)
             self.log.error("omi audio flow control: flow_control_request_failed")
             return
         }
@@ -1824,6 +1890,7 @@ private extension OmiSourceManager {
             }
             if !self.containsCharacteristic(OmiUUIDs.audioDataCharacteristicID, in: characteristics) {
                 self.connectionState = .needsAttention(.audioUnavailable)
+                self.appendNeedsAttentionDiagnostic(.audioUnavailable)
                 self.log.error("omi audio characteristic unavailable")
             }
         }
