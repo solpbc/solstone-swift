@@ -26,6 +26,5 @@ Sources/Location/LocationVocabulary.swift|where your day happens — kept in you
 Sources/Location/LocationVocabulary.swift|the places you stop — home, work, an event.
 Sources/Location/LocationVocabulary.swift|changes apply from now on — nothing already in your journal is altered.
 Sources/Location/LocationVocabulary.swift|gap here — location wasn't available.
-Sources/Diagnostics/DiagnosticsFilters.swift|you're offline — these will try again automatically when you reconnect.
 Sources/Diagnostics/DiagnosticsView.swift|—
 Sources/Diagnostics/DiagnosticLog.swift| — \(detail)
