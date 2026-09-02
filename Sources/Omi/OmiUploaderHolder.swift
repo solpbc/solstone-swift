@@ -53,6 +53,14 @@ final class OmiUploaderHolder {
         self.status.lastDeliveredAt
     }
 
+    var deliveredCount: Int {
+        self.status.deliveredCount
+    }
+
+    func syncStateDetail() async -> SourceSyncStateDetail {
+        await SourceSyncStateDetail.build(from: self.transferEngine, sourceKey: self.sourceKey)
+    }
+
     private var status: TransferSourceStatusSnapshot {
         self.mirror.sources[self.sourceKey] ?? TransferSourceStatusSnapshot(
             queuedCount: 0,

@@ -124,10 +124,10 @@ struct DiagnosticsView: View {
             }
         }
         .onAppear {
-            self.refreshDiagnosticsExport()
+            Task { await self.refreshDiagnosticsExport() }
         }
         .onChange(of: self.log.events.count) {
-            self.refreshDiagnosticsExport()
+            Task { await self.refreshDiagnosticsExport() }
         }
         .task {
             await self.refreshLifecycle()
@@ -268,9 +268,16 @@ struct DiagnosticsView: View {
         }
     }
 
-    private func refreshDiagnosticsExport() {
+    private func refreshDiagnosticsExport() async {
+        let syncState = await syncStateSummaryLines(
+            mobileSegment: self.mobileSegmentTransferHolder,
+            omi: self.omiUploaderHolder,
+            watch: self.watchUploaderHolder,
+            share: self.shareTransferHolder
+        )
         self.diagnosticsExportURL = self.log.exportFileURL(
-            tunnel: self.tunnelManager
+            tunnel: self.tunnelManager,
+            syncState: syncState
         )
     }
 

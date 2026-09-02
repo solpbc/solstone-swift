@@ -74,6 +74,19 @@ final class MobileSegmentTransferHolder {
         self.status.lastDeliveredAt
     }
 
+    var deliveredCount: Int {
+        self.status.deliveredCount
+    }
+
+    /// The oldest not-yet-delivered item's creation time, and the most recently
+    /// stuck (attention) item's reason, for the sync-state diagnostic export.
+    /// Both need an actor hop (`TransferEngine.itemSnapshots` is not mirrored
+    /// into the synchronous `TransferStatusMirror` snapshot the other counts
+    /// above read from).
+    func syncStateDetail() async -> SourceSyncStateDetail {
+        await SourceSyncStateDetail.build(from: self.transferEngine, sourceKey: self.sourceKey)
+    }
+
     func summary(for source: MobileSegmentSource) -> MobileSegmentSourceSummary {
         self.scheduleFacetSummaryRefreshIfNeeded()
         let storeSummary = self.uploader.summary(for: source)

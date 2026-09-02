@@ -57,6 +57,14 @@ final class ShareTransferHolder {
         self.status.lastErrorDetail ?? self.store.lastError
     }
 
+    var deliveredCount: Int {
+        self.status.deliveredCount
+    }
+
+    func syncStateDetail() async -> SourceSyncStateDetail {
+        await SourceSyncStateDetail.build(from: self.transferEngine, sourceKey: self.sourceKey)
+    }
+
     func dropShare(itemID: UUID) async {
         if await self.transferEngine.itemSnapshot(itemID: itemID) != nil {
             await self.transferEngine.drop(itemID: itemID)

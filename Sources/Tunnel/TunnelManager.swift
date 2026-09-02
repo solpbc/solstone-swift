@@ -1127,7 +1127,12 @@ final class TunnelManager {
         if let url = self.probeURLBuilder(localPort) {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
-            request.timeoutInterval = 3
+            // 6s, not 3s: this lightweight status probe shares the mux connection with
+            // real transfer traffic, so it can legitimately queue behind an in-flight
+            // upload. ProbeWatchdog's multi-strike floor is the primary defense against a
+            // false-positive "dead" read; this budget just keeps a single busy tick from
+            // needlessly retrying sooner than the watchdog would even act on it.
+            request.timeoutInterval = 6
             do {
                 let (data, response) = try await self.probeSession.data(for: request)
                 if let http = response as? HTTPURLResponse {

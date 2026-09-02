@@ -68,7 +68,7 @@ final class DiagnosticLog {
         return self.events.filter { categories.contains($0.category) }
     }
 
-    func snapshot(tunnel: TunnelManager) -> String {
+    func snapshot(tunnel: TunnelManager, syncState: [String] = []) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss zzz"
 
@@ -101,6 +101,10 @@ final class DiagnosticLog {
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         let iosVersion = UIDevice.current.systemVersion
         lines.append("app: \(version) (\(build)) / iOS \(iosVersion)")
+
+        if !syncState.isEmpty {
+            lines.append(contentsOf: syncState)
+        }
 
         lines.append("---")
 
@@ -144,11 +148,11 @@ final class DiagnosticLog {
         return output
     }
 
-    func exportFileURL(tunnel: TunnelManager) -> URL? {
+    func exportFileURL(tunnel: TunnelManager, syncState: [String] = []) -> URL? {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(Self.exportFileName, isDirectory: false)
         do {
-            let report = self.snapshot(tunnel: tunnel)
+            let report = self.snapshot(tunnel: tunnel, syncState: syncState)
             try Data(report.utf8).write(to: url, options: [.atomic])
             return url
         } catch {
