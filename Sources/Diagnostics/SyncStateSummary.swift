@@ -32,7 +32,7 @@ nonisolated struct SourceSyncStateDetail: Sendable {
 
 /// One source's counts, for the "sync state by source" block in the exportable
 /// diagnostic log. `pending`+`inFlight`+`attention` together are what the home
-/// screen's "N waiting to sync" badge sums across every source; `delivered` is
+/// screen's `N waiting to sync` badge sums across every source; `delivered` is
 /// this session's running total, not a lifetime count.
 nonisolated struct SourceSyncStateLine: Sendable {
     let name: String
