@@ -360,11 +360,15 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(detail.mostRecentAttention?.reason, "http_client_error")
         XCTAssertEqual(detail.mostRecentAttention?.shortDetail, "reason_code=envelope_invalid")
         XCTAssertEqual(detail.oldestPendingItemCreatedAt, createdAt)
+        XCTAssertEqual(detail.mostRecentAttentionRetryCount, 0)
+        XCTAssertNil(detail.mostRecentAttentionLastRetriedAt)
 
         let otherSourceDetail = await SourceSyncStateDetail.build(from: engine, sourceKey: ObserverAudioTransferSource.omi)
         XCTAssertEqual(otherSourceDetail.attentionItemCount, 0)
         XCTAssertNil(otherSourceDetail.mostRecentAttention)
         XCTAssertNil(otherSourceDetail.oldestPendingItemCreatedAt)
+        XCTAssertEqual(otherSourceDetail.mostRecentAttentionRetryCount, 0)
+        XCTAssertNil(otherSourceDetail.mostRecentAttentionLastRetriedAt)
     }
 
     func testHeldObserverEndpointMakesZeroNetworkCalls() async throws {
@@ -2226,6 +2230,341 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertTrue(project.contains("solstone-swiftTests:\n    type: bundle.unit-test\n    platform: iOS\n    sources:\n      - Tests"))
         XCTAssertFalse(project.contains("Sources/Transfer/"))
     }
+
+    func testOldManifestJSONMissingRetryFieldsDecodesAsZeroAndNil() throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoder.encode(self.makeManifest(itemID: Self.uuid(700)))) as? [String: Any]
+        )
+        object.removeValue(forKey: "retryCount")
+        object.removeValue(forKey: "lastRetriedAt")
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(
+            TransferManifest.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+        XCTAssertEqual(decoded.retryCount, 0)
+        XCTAssertNil(decoded.lastRetriedAt)
+    }
+
+    func testRetryCountIncrementsOnManualRetryAndSurvivesRelaunch() async throws {
+        let root = self.tempDirectory.appendingPathComponent("retry-history-relaunch", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(701)
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        _ = try self.seedAttentionItem(spool: spool, itemID: itemID)
+        let engineA = self.makeEngine(
+            spool: TransferSpool(rootURL: root),
+            clock: clock,
+            resolver: TransferEndpointResolverStub(.unavailable("held"))
+        )
+        try await engineA.start()
+
+        try await engineA.retryAttention(itemID: itemID)
+        let retriedValue = await engineA.itemSnapshot(itemID: itemID)
+        let retried = try XCTUnwrap(retriedValue)
+        XCTAssertEqual(retried.manifest.retryCount, 1)
+        XCTAssertEqual(retried.manifest.lastRetriedAt, Self.baseDate)
+        XCTAssertEqual(retried.state, .queued)
+
+        let engineB = self.makeEngine(
+            spool: TransferSpool(rootURL: root),
+            resolver: TransferEndpointResolverStub(.unavailable("held"))
+        )
+        try await engineB.start()
+        let restoredValue = await engineB.itemSnapshot(itemID: itemID)
+        let restored = try XCTUnwrap(restoredValue)
+        XCTAssertEqual(restored.manifest.retryCount, 1)
+        XCTAssertEqual(restored.manifest.lastRetriedAt, Self.baseDate)
+    }
+
+    func testMoveQueuedItemToAttentionPreservesRetryHistory() throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("retry-preserve", isDirectory: true))
+        let lastRetriedAt = Self.baseDate.addingTimeInterval(-30)
+        let moved = try self.seedAttentionItem(
+            spool: spool,
+            itemID: Self.uuid(702),
+            now: Self.baseDate,
+            retryCount: 4,
+            lastRetriedAt: lastRetriedAt
+        )
+        XCTAssertEqual(moved.manifest.retryCount, 4)
+        XCTAssertEqual(moved.manifest.lastRetriedAt, lastRetriedAt)
+        XCTAssertEqual(moved.manifest.attention?.movedAt, Self.baseDate)
+    }
+
+    func testAutoRetryIncrementsRetryCountAndDoesNotRetryUntilRearmed() async throws {
+        let root = self.tempDirectory.appendingPathComponent("auto-retry-cycle", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(703)
+        _ = try self.seedAttentionItem(spool: spool, itemID: itemID)
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"failed","reason_code":"envelope_invalid"}"#.utf8))
+        }
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), clock: clock, resolver: resolver)
+        try await engine.start()
+        let initialSnapshot = await engine.snapshot()
+        XCTAssertEqual(initialSnapshot.counters.attentionCount, 1)
+
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("auto-retry failed back to attention") {
+            guard let snapshot = await engine.itemSnapshot(itemID: itemID) else { return false }
+            return snapshot.state == .attention && snapshot.manifest.retryCount == 1
+        }
+        let afterFirstValue = await engine.itemSnapshot(itemID: itemID)
+        let afterFirst = try XCTUnwrap(afterFirstValue)
+        XCTAssertEqual(afterFirst.manifest.retryCount, 1)
+        XCTAssertEqual(afterFirst.manifest.lastRetriedAt, Self.baseDate)
+
+        clock.advanceWall(by: 15)
+        await engine.endpointAvailabilityChanged()
+        try await Task.sleep(for: .milliseconds(80))
+        let withoutRearmValue = await engine.itemSnapshot(itemID: itemID)
+        let withoutRearm = try XCTUnwrap(withoutRearmValue)
+        XCTAssertEqual(withoutRearm.state, .attention)
+        XCTAssertEqual(withoutRearm.manifest.retryCount, 1)
+
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("second connection auto-retry") {
+            guard let snapshot = await engine.itemSnapshot(itemID: itemID) else { return false }
+            return snapshot.state == .attention && snapshot.manifest.retryCount == 2
+        }
+        let afterSecondValue = await engine.itemSnapshot(itemID: itemID)
+        let afterSecond = try XCTUnwrap(afterSecondValue)
+        XCTAssertEqual(afterSecond.manifest.lastRetriedAt, Self.baseDate.addingTimeInterval(15))
+    }
+
+    func testAutoRetryFiresWhenArmedOnAvailableEndpoint() async throws {
+        let root = self.tempDirectory.appendingPathComponent("auto-retry-fire", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(704)
+        _ = try self.seedAttentionItem(spool: spool, itemID: itemID)
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
+        try await engine.start()
+
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("armed auto-retry delivered") {
+            (await engine.snapshot()).counters.deliveredCount == 1
+        }
+        let deliveredSnapshot = await engine.snapshot()
+        XCTAssertEqual(deliveredSnapshot.counters.attentionCount, 0)
+        XCTAssertEqual(Self.boundaryItemID(from: try XCTUnwrap(TransferURLProtocol.requests.last)), itemID)
+    }
+
+    func testRejectedItemWaitsForQueueIdleBeforeAutoRetry() async throws {
+        let root = self.tempDirectory.appendingPathComponent("auto-retry-idle-gate", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let attentionID = Self.uuid(705)
+        let queuedID = Self.uuid(706)
+        _ = try self.seedAttentionItem(spool: spool, itemID: attentionID)
+        TransferURLProtocol.handler = { request, _ in
+            guard Self.boundaryItemID(from: request) == queuedID else {
+                return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+            }
+            return TransferURLProtocol.hold(request)
+        }
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), maxConcurrent: 1)
+        try await engine.start()
+        _ = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: queuedID, source: "alpha"),
+            payloads: self.audioPayloads()
+        )
+        try await self.waitFor("queued item in flight") {
+            (await engine.snapshot()).counters.inFlightCount == 1
+        }
+        let inFlightSnapshot = await engine.snapshot()
+        XCTAssertEqual(inFlightSnapshot.counters.attentionCount, 1)
+
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+        try await Task.sleep(for: .milliseconds(80))
+        let stillAttention = await engine.snapshot()
+        XCTAssertEqual(stillAttention.counters.attentionCount, 1)
+        XCTAssertFalse(TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:)).contains(attentionID))
+
+        TransferURLProtocol.completeHeld(1)
+        try await self.waitFor("attention retried after idle") {
+            let requests = TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:))
+            let snapshot = await engine.snapshot()
+            return requests.contains(attentionID) && snapshot.counters.attentionCount == 0
+        }
+    }
+
+    func testIdleThenArmRetriesOnSameDrain() async throws {
+        let root = self.tempDirectory.appendingPathComponent("auto-retry-idle-then-arm", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(707)
+        _ = try self.seedAttentionItem(spool: spool, itemID: itemID)
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root))
+        try await engine.start()
+        try await self.waitFor("idle with attention") {
+            let snapshot = await engine.snapshot()
+            return snapshot.counters.attentionCount == 1 && snapshot.counters.inFlightCount == 0
+        }
+
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("idle-then-arm delivered") {
+            (await engine.snapshot()).counters.deliveredCount == 1
+        }
+    }
+
+    func testConsecutiveConnectedWithoutIdleConsumesArmOnce() async throws {
+        let root = self.tempDirectory.appendingPathComponent("auto-retry-once-per-connection", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let attentionID = Self.uuid(708)
+        let queuedID = Self.uuid(709)
+        _ = try self.seedAttentionItem(spool: spool, itemID: attentionID)
+        TransferURLProtocol.handler = { request, _ in
+            if Self.boundaryItemID(from: request) == queuedID {
+                return TransferURLProtocol.hold(request)
+            }
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"status":"failed","reason_code":"envelope_invalid"}"#.utf8)
+            )
+        }
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), maxConcurrent: 1)
+        try await engine.start()
+        _ = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: queuedID, source: "alpha"),
+            payloads: self.audioPayloads()
+        )
+        try await self.waitFor("queued held before double arm") {
+            (await engine.snapshot()).counters.inFlightCount == 1
+        }
+
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+        try await Task.sleep(for: .milliseconds(80))
+        let doubleArmedSnapshot = await engine.snapshot()
+        XCTAssertEqual(doubleArmedSnapshot.counters.attentionCount, 1)
+
+        TransferURLProtocol.completeHeld(1, statusCode: 200, data: Data(#"{"status":"ok"}"#.utf8))
+        try await self.waitFor("single auto-retry after idle") {
+            guard let snapshot = await engine.itemSnapshot(itemID: attentionID) else { return false }
+            return snapshot.state == .attention && snapshot.manifest.retryCount == 1
+        }
+        XCTAssertEqual(
+            TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:)).filter { $0 == attentionID }.count,
+            1
+        )
+    }
+
+    func testEndpointAvailabilityChangedWithoutArmDoesNotRequeueAttention() async throws {
+        let root = self.tempDirectory.appendingPathComponent("no-arm-no-retry", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        _ = try self.seedAttentionItem(spool: spool, itemID: Self.uuid(710))
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
+        try await engine.start()
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.endpointAvailabilityChanged()
+        try await Task.sleep(for: .milliseconds(80))
+        let unarmedSnapshot = await engine.snapshot()
+        XCTAssertEqual(unarmedSnapshot.counters.attentionCount, 1)
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+    }
+
+    func testEmptyAttentionArmIsNoOp() async throws {
+        let engine = self.makeEngine(resolver: TransferEndpointResolverStub(.unavailable("held")))
+        try await engine.start()
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.attentionCount, 0)
+        XCTAssertEqual(snapshot.counters.queuedCount, 0)
+    }
+
+    func testSyncStateDetailUsesRepresentativeMovedAtRetryCountNotBucketMax() async throws {
+        let root = self.tempDirectory.appendingPathComponent("sync-state-representative", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let olderID = Self.uuid(711)
+        let newerID = Self.uuid(712)
+        _ = try self.seedAttentionItem(
+            spool: spool,
+            itemID: olderID,
+            source: ObserverAudioTransferSource.watch,
+            now: Self.baseDate,
+            retryCount: 9,
+            lastRetriedAt: Self.baseDate.addingTimeInterval(-120)
+        )
+        _ = try self.seedAttentionItem(
+            spool: spool,
+            itemID: newerID,
+            source: ObserverAudioTransferSource.watch,
+            now: Self.baseDate.addingTimeInterval(60),
+            retryCount: 1,
+            lastRetriedAt: Self.baseDate.addingTimeInterval(-10)
+        )
+        let engine = self.makeEngine(
+            spool: TransferSpool(rootURL: root),
+            resolver: TransferEndpointResolverStub(.unavailable("held"))
+        )
+        try await engine.start()
+
+        let detail = await SourceSyncStateDetail.build(from: engine, sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(detail.attentionItemCount, 2)
+        XCTAssertEqual(detail.mostRecentAttention?.movedAt, Self.baseDate.addingTimeInterval(60))
+        XCTAssertEqual(detail.mostRecentAttentionRetryCount, 1)
+        XCTAssertEqual(detail.mostRecentAttentionLastRetriedAt, Self.baseDate.addingTimeInterval(-10))
+        XCTAssertNotEqual(detail.mostRecentAttentionRetryCount, 9)
+    }
+
+    func testStuckLineOmitsRetryClauseWhenCountIsZeroAndIncludesWhenPositive() {
+        let info = TransferAttentionInfo(
+            reason: "http_client_error",
+            shortDetail: "reason_code=envelope_invalid",
+            movedAt: Self.baseDate.addingTimeInterval(-42)
+        )
+        let omitted = sourceSyncStuckLine(
+            name: "watch",
+            info: info,
+            retryCount: 0,
+            lastRetriedAt: nil,
+            attentionItemCount: 1,
+            now: Self.baseDate
+        )
+        XCTAssertEqual(
+            omitted,
+            "  watch stuck: http_client_error, reason_code=envelope_invalid (42s ago, 1 item(s))"
+        )
+        XCTAssertFalse(omitted.contains("retried"))
+
+        let included = sourceSyncStuckLine(
+            name: "watch",
+            info: info,
+            retryCount: 2,
+            lastRetriedAt: Self.baseDate.addingTimeInterval(-10),
+            attentionItemCount: 2,
+            now: Self.baseDate
+        )
+        XCTAssertEqual(
+            included,
+            "  watch stuck: http_client_error, reason_code=envelope_invalid (42s ago, 2 item(s)), retried 2x, last retry 10s ago"
+        )
+    }
 }
 
 private extension TransferTests {
@@ -2319,6 +2658,29 @@ private extension TransferTests {
 
     func audioPayloads() -> [String: Data] {
         ["audio": Data("audio".utf8)]
+    }
+
+    func seedAttentionItem(
+        spool: TransferSpool,
+        itemID: UUID,
+        source: String = "alpha",
+        createdAt: Date = TransferTests.baseDate,
+        now: Date = TransferTests.baseDate,
+        retryCount: Int = 0,
+        lastRetriedAt: Date? = nil
+    ) throws -> TransferStoredItem {
+        var manifest = self.makeManifest(itemID: itemID, source: source, createdAt: createdAt)
+        manifest.retryCount = retryCount
+        manifest.lastRetriedAt = lastRetriedAt
+        let queued = try spool.commitStagedItem(
+            itemID: spool.stage(manifest: manifest, payloads: self.audioPayloads()).item.manifest.itemID
+        )
+        return try spool.moveQueuedItemToAttention(
+            queued,
+            reason: "needs_attention",
+            detail: "held",
+            now: now
+        )
     }
 
     func stagePredecessor(

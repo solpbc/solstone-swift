@@ -1084,7 +1084,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.pairingAlreadyConnected,
             SourceVocabulary.pairingReconnected,
             SourceVocabulary.pairingReconnecting,
-            SourceVocabulary.retry,
             SourceVocabulary.drop,
             SourceVocabulary.cancel,
             SourceVocabulary.undo,

@@ -9,15 +9,15 @@ nonisolated final class LocationDetailPresentationTests: XCTestCase {
     func testDeliverySummaryBranches() {
         XCTAssertEqual(
             LocationDetailPresentation.deliverySummary(pending: 2, failed: 1),
-            LocationDeliverySummary(line: LocationVocabulary.deliveryNeedsAttention(count: 1), showsRetry: true)
+            LocationDeliverySummary(line: LocationVocabulary.deliveryNeedsAttention(count: 1))
         )
         XCTAssertEqual(
             LocationDetailPresentation.deliverySummary(pending: 2, failed: 0),
-            LocationDeliverySummary(line: LocationVocabulary.deliverySending(count: 2), showsRetry: false)
+            LocationDeliverySummary(line: LocationVocabulary.deliverySending(count: 2))
         )
         XCTAssertEqual(
             LocationDetailPresentation.deliverySummary(pending: 0, failed: 0),
-            LocationDeliverySummary(line: LocationVocabulary.deliveryQuietLine, showsRetry: false)
+            LocationDeliverySummary(line: LocationVocabulary.deliveryQuietLine)
         )
     }
 

@@ -6,7 +6,6 @@ import UIKit
 
 struct SourceDetailView: View {
     @Environment(ObserverManager.self) private var observerManager
-    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
@@ -233,24 +232,9 @@ private extension SourceDetailView {
             failed: summary.failedCount
         )
 
-        return VStack(alignment: .leading, spacing: 10) {
-            Text(presentation.line)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            if presentation.showsRetry {
-                Button(SourceVocabulary.retry) {
-                    Task {
-                        await self.mobileSegmentUploader.resolveFinalizeFailurePile()
-                        try? await self.mobileSegmentTransferHolder.transferEngine.retryAttention(
-                            source: ObserverAudioTransferSource.mobileSegment
-                        )
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .frame(minWidth: 44, minHeight: 44)
-            }
-        }
+        return Text(presentation.line)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
     }
 
     var isLoadingState: Bool {

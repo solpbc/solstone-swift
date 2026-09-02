@@ -279,6 +279,7 @@ actor TransferEngine {
     private var gateRecordsByItemID: [UUID: TransferGateRecord] = [:]
     private var attemptCountByItemID: [UUID: Int] = [:]
     private var firstAttemptAtByItemID: [UUID: Date] = [:]
+    private var attentionRetryArmed = false
     private var sourceCursorByBand: [TransferPriorityBand: Int] = [:]
     private var retrySleepTask: Task<Void, Never>?
     private var paused = false
@@ -736,6 +737,16 @@ actor TransferEngine {
         self.scheduleWork()
     }
 
+    func noteNewConnectionEstablished() {
+        self.attentionRetryArmed = true
+        transferLog.notice("transfer attention retry armed")
+    }
+
+    private func consumeAttentionRetryArm() -> Bool {
+        defer { self.attentionRetryArmed = false }
+        return self.attentionRetryArmed
+    }
+
     /// Requests a coalesced drain pass. Repeated calls while a pass is already
     /// scheduled or running collapse into the current pass plus at most one
     /// trailing pass.
@@ -784,11 +795,12 @@ actor TransferEngine {
     }
 
     private func moveAttentionItemsToQueued(_ items: [TransferStoredItem]) throws {
+        let now = self.clock.wallNow()
         for item in items {
             guard !self.conflictedItemIDs.contains(item.manifest.itemID) else { continue }
             guard !self.heldItemIDs.contains(item.manifest.itemID) else { continue }
             guard !self.isGateActive(item.manifest.itemID) else { continue }
-            let moved = try self.spool.moveAttentionItemToQueued(item)
+            let moved = try self.spool.moveAttentionItemToQueued(item, now: now)
             self.attentionItems.removeValue(forKey: item.manifest.itemID)
             self.queuedItems[moved.manifest.itemID] = moved
             self.counters.attentionCount -= 1
@@ -963,6 +975,13 @@ actor TransferEngine {
                 dispatchedThisPass = true
             }
             if stoppedForNoEligibleItem, self.inFlight.isEmpty {
+                if self.consumeAttentionRetryArm() {
+                    do {
+                        try self.retryAttention(source: nil)
+                    } catch {
+                        transferLog.error("attention auto-retry failed \(String(describing: error), privacy: .public)")
+                    }
+                }
                 await self.refreshEndpointHoldForBackoff(now: self.clock.wallNow())
             }
             self.scheduleRetryTimer()

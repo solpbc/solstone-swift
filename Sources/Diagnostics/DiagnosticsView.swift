@@ -20,7 +20,6 @@ struct DiagnosticsView: View {
     @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
-    @Environment(ForegroundDrainGate.self) private var foregroundDrainGate
 
     @State private var enabledCategories: Set<DiagnosticCategory> = Set(DiagnosticCategory.allCases)
     @State private var expandedEventID: UUID?
@@ -28,7 +27,6 @@ struct DiagnosticsView: View {
     @State private var copyTask: Task<Void, Never>?
     @State private var diagnosticsExportURL: URL?
     @State private var problemsOnly = false
-    @State private var isRetrying = false
     @State private var lastSynced: Date?
     @State private var lastReconcileKey: FailedReconcileKey?
     @State private var lifecycleMigration = OnThisPhoneMigration(
@@ -45,13 +43,6 @@ struct DiagnosticsView: View {
         )
     }
 
-    private var failedSegmentPresentation: FailedSegmentPresentation? {
-        FailedSegmentSection.presentation(
-            failedTotal: self.lifecycleMigration.notReached,
-            isConnected: self.tunnelManager.state.isConnected
-        )
-    }
-
     private var filteredEvents: [DiagnosticEvent] {
         Array(self.log.events.filter { event in
             DiagnosticsEventFilter.matches(
@@ -65,9 +56,6 @@ struct DiagnosticsView: View {
     var body: some View {
         List {
             self.lifecycleSection(migration: self.lifecycleMigration)
-            if let failedSegmentPresentation {
-                self.failedSegmentSection(failedSegmentPresentation)
-            }
             self.eventRows
         }
         .navigationTitle("diagnostics")
@@ -192,58 +180,6 @@ struct DiagnosticsView: View {
     private var lastSyncedValue: String {
         guard let lastSynced = self.lastSynced else { return "—" }
         return SourceVocabulary.probeRelativeLabel(secondsAgo: Date().timeIntervalSince(lastSynced))
-    }
-
-    private func failedSegmentSection(_ presentation: FailedSegmentPresentation) -> some View {
-        Section {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(presentation.headline)
-                    .font(.headline)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(presentation.subtext)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if presentation.showsButton {
-                    Button {
-                        Task { @MainActor in
-                            await self.retryFailedSegments()
-                        }
-                    } label: {
-                        Text(self.isRetrying ? "trying…" : SourceVocabulary.tryNow)
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(self.isRetrying)
-                    .accessibilityLabel("retry \(self.lifecycleMigration.notReached) failed segments now")
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 4)
-        }
-    }
-
-    @MainActor
-    private func retryFailedSegments() async {
-        guard !self.isRetrying else { return }
-        let notReached = self.lifecycleMigration.notReached
-        self.isRetrying = true
-        defer {
-            self.isRetrying = false
-        }
-
-        self.log.append(
-            category: .upload,
-            severity: .info,
-            message: "manual retry of failed segments requested",
-            detail: "count=\(notReached)"
-        )
-        if UserSettings.haptics {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        }
-        await self.foregroundDrainGate.requestDrain()
     }
 
     private func copySnapshot() {

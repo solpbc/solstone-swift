@@ -8,31 +8,3 @@ enum DiagnosticsEventFilter {
         return true
     }
 }
-
-struct FailedSegmentPresentation: Equatable {
-    var headline: String
-    var subtext: String
-    var showsButton: Bool
-}
-
-enum FailedSegmentSection {
-    static func presentation(failedTotal: Int, isConnected: Bool) -> FailedSegmentPresentation? {
-        guard failedTotal > 0 else { return nil }
-        let headline = failedTotal > 1
-            ? "\(failedTotal) segments haven't reached your journal"
-            : "1 segment hasn't reached your journal"
-        if isConnected {
-            return FailedSegmentPresentation(
-                headline: headline,
-                subtext: "they'll try again automatically the next time you reconnect.",
-                showsButton: true
-            )
-        } else {
-            return FailedSegmentPresentation(
-                headline: headline,
-                subtext: "you're offline — these will try again automatically when you reconnect.",
-                showsButton: false
-            )
-        }
-    }
-}

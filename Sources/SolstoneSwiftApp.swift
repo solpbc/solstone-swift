@@ -712,6 +712,7 @@ struct SolstoneSwiftApp: App {
                     // onChange does not fire for its initial value.
                     guard case .connected(let port, _) = self.tunnelManager.state else { return }
                     await self.transferEndpointResolver.update(activeLocalPort: port)
+                    await self.transferEngine.noteNewConnectionEstablished()
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
         }
@@ -831,6 +832,7 @@ struct SolstoneSwiftApp: App {
             case .connected(let port, _):
                 Task {
                     await self.transferEndpointResolver.update(activeLocalPort: port)
+                    await self.transferEngine.noteNewConnectionEstablished()
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
                 Task { await self.foregroundDrainGate.requestDrain() }

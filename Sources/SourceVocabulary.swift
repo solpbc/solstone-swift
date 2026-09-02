@@ -560,7 +560,6 @@ nonisolated enum SourceVocabulary {
         return "~" + formatter.string(fromByteCount: Int64(bytesPerSecond)) + "/s"
     }
 
-    static let retry = "retry"
     static let drop = "drop"
     static let cancel = "cancel"
     static let undo = "undo"

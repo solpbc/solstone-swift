@@ -193,25 +193,9 @@ private extension LocationSourceDetailView {
             failed: bundleSummary.failedCount
         )
 
-        return VStack(alignment: .leading, spacing: 10) {
-            Text(summary.line)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            if summary.showsRetry {
-                Button(SourceVocabulary.retry) {
-                    Task {
-                        await self.mobileSegmentUploader.resolveFinalizeFailurePile()
-                        try? await self.mobileSegmentTransferHolder.transferEngine.retryAttention(
-                            source: ObserverAudioTransferSource.mobileSegment
-                        )
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .frame(minWidth: 44, minHeight: 44)
-                .accessibilityHint("Tries sending location updates again.")
-            }
-        }
+        return Text(summary.line)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
     }
 
     var deleteBlock: some View {

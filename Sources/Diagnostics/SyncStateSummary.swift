@@ -11,6 +11,8 @@ nonisolated struct SourceSyncStateDetail: Sendable {
     let oldestPendingItemCreatedAt: Date?
     let mostRecentAttention: TransferAttentionInfo?
     let attentionItemCount: Int
+    let mostRecentAttentionRetryCount: Int
+    let mostRecentAttentionLastRetriedAt: Date?
 
     static func build(from transferEngine: TransferEngine, sourceKey: String) async -> SourceSyncStateDetail {
         let snapshots = await transferEngine.itemSnapshots(sourceKey: sourceKey)
@@ -18,14 +20,18 @@ nonisolated struct SourceSyncStateDetail: Sendable {
             .filter { $0.state != .delivered && $0.state != .dropped }
             .map(\.createdAt)
             .min()
-        let attentionInfos = snapshots
-            .filter { $0.state == .attention }
-            .compactMap { $0.manifest.attention }
-        let mostRecent = attentionInfos.max { $0.movedAt < $1.movedAt }
+        let attentionSnapshots = snapshots.filter { snapshot in
+            snapshot.state == .attention && snapshot.manifest.attention != nil
+        }
+        let representative = attentionSnapshots.max { lhs, rhs in
+            (lhs.manifest.attention?.movedAt ?? .distantPast) < (rhs.manifest.attention?.movedAt ?? .distantPast)
+        }
         return SourceSyncStateDetail(
             oldestPendingItemCreatedAt: oldest,
-            mostRecentAttention: mostRecent,
-            attentionItemCount: attentionInfos.count
+            mostRecentAttention: representative?.manifest.attention,
+            attentionItemCount: attentionSnapshots.count,
+            mostRecentAttentionRetryCount: representative?.manifest.retryCount ?? 0,
+            mostRecentAttentionLastRetriedAt: representative?.manifest.lastRetriedAt
         )
     }
 }
@@ -44,6 +50,13 @@ nonisolated struct SourceSyncStateLine: Sendable {
     let recentErrorCount: Int
     let recentErrorDetail: String?
     let detail: SourceSyncStateDetail
+}
+
+nonisolated func age(from: Date, to: Date) -> String {
+    let seconds = max(0, Int(to.timeIntervalSince(from)))
+    if seconds < 60 { return "\(seconds)s" }
+    if seconds < 3600 { return "\(seconds / 60)m" }
+    return "\(seconds / 3600)h\((seconds % 3600) / 60)m"
 }
 
 @MainActor
@@ -77,13 +90,6 @@ func syncStateSummaryLines(
         ),
     ]
 
-    func age(from: Date, to: Date) -> String {
-        let seconds = max(0, Int(to.timeIntervalSince(from)))
-        if seconds < 60 { return "\(seconds)s" }
-        if seconds < 3600 { return "\(seconds / 60)m" }
-        return "\(seconds / 3600)h\((seconds % 3600) / 60)m"
-    }
-
     var lines: [String] = ["--- sync state by source ---"]
     for row in rows where row.pending + row.inFlight + row.attention + row.delivered > 0 {
         var line = "\(row.name): pending=\(row.pending) inFlight=\(row.inFlight)"
@@ -96,8 +102,14 @@ func syncStateSummaryLines(
 
         if let info = row.detail.mostRecentAttention {
             lines.append(
-                "  \(row.name) stuck: \(info.reason), \(info.shortDetail)"
-                    + " (\(age(from: info.movedAt, to: now)) ago, \(row.detail.attentionItemCount) item(s))"
+                sourceSyncStuckLine(
+                    name: row.name,
+                    info: info,
+                    retryCount: row.detail.mostRecentAttentionRetryCount,
+                    lastRetriedAt: row.detail.mostRecentAttentionLastRetriedAt,
+                    attentionItemCount: row.detail.attentionItemCount,
+                    now: now
+                )
             )
         } else if let recentError = row.recentErrorDetail, row.recentErrorCount > 0 {
             lines.append("  \(row.name) recent retry error: \(recentError) (\(row.recentErrorCount) recent)")
@@ -107,4 +119,20 @@ func syncStateSummaryLines(
         lines.append("(nothing waiting on any source)")
     }
     return lines
+}
+
+nonisolated func sourceSyncStuckLine(
+    name: String,
+    info: TransferAttentionInfo,
+    retryCount: Int,
+    lastRetriedAt: Date?,
+    attentionItemCount: Int,
+    now: Date
+) -> String {
+    var line = "  \(name) stuck: \(info.reason), \(info.shortDetail)"
+        + " (\(age(from: info.movedAt, to: now)) ago, \(attentionItemCount) item(s))"
+    if retryCount > 0, let lastRetriedAt {
+        line += ", retried \(retryCount)x, last retry \(age(from: lastRetriedAt, to: now)) ago"
+    }
+    return line
 }

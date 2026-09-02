@@ -6,7 +6,6 @@ import SwiftUI
 struct ScreencastSourceDetailView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ScreencastManager.self) private var screencastManager
-    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
@@ -74,24 +73,9 @@ private extension ScreencastSourceDetailView {
             failed: summary.failedCount
         )
 
-        return VStack(alignment: .leading, spacing: 10) {
-            Text(presentation.line)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            if presentation.showsRetry {
-                Button(SourceVocabulary.retry) {
-                    Task {
-                        await self.mobileSegmentUploader.resolveFinalizeFailurePile()
-                        try? await self.mobileSegmentTransferHolder.transferEngine.retryAttention(
-                            source: ObserverAudioTransferSource.mobileSegment
-                        )
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .frame(minWidth: 44, minHeight: 44)
-            }
-        }
+        return Text(presentation.line)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
     }
 
     var statusText: String {

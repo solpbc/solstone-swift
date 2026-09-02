@@ -5,7 +5,6 @@ import Foundation
 
 nonisolated struct LocationDeliverySummary: Equatable, Sendable {
     let line: String
-    let showsRetry: Bool
 }
 
 nonisolated enum LocationDetailPresentation {
@@ -15,21 +14,18 @@ nonisolated enum LocationDetailPresentation {
     ) -> LocationDeliverySummary {
         if failed > 0 {
             return LocationDeliverySummary(
-                line: LocationVocabulary.deliveryNeedsAttention(count: failed),
-                showsRetry: true
+                line: LocationVocabulary.deliveryNeedsAttention(count: failed)
             )
         }
 
         if pending > 0 {
             return LocationDeliverySummary(
-                line: LocationVocabulary.deliverySending(count: pending),
-                showsRetry: false
+                line: LocationVocabulary.deliverySending(count: pending)
             )
         }
 
         return LocationDeliverySummary(
-            line: LocationVocabulary.deliveryQuietLine,
-            showsRetry: false
+            line: LocationVocabulary.deliveryQuietLine
         )
     }
 

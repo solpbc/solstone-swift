@@ -22,6 +22,27 @@ nonisolated struct TransferManifest: Codable, Equatable, Sendable {
     var saveThenStart: TransferSaveThenStartState?
     var attention: TransferAttentionInfo?
     var appVersion: String?
+    var retryCount: Int
+    var lastRetriedAt: Date?
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case itemID
+        case source
+        case createdAt
+        case priority
+        case payloadParts
+        case endpoint
+        case observerIngest
+        case meta
+        case diskState
+        case nextAttemptAt
+        case saveThenStart
+        case attention
+        case appVersion
+        case retryCount
+        case lastRetriedAt
+    }
 
     init(
         schemaVersion: String = TransferManifestSchema.current,
@@ -37,7 +58,9 @@ nonisolated struct TransferManifest: Codable, Equatable, Sendable {
         nextAttemptAt: Date? = nil,
         saveThenStart: TransferSaveThenStartState? = nil,
         attention: TransferAttentionInfo? = nil,
-        appVersion: String? = nil
+        appVersion: String? = nil,
+        retryCount: Int = 0,
+        lastRetriedAt: Date? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.itemID = itemID
@@ -53,6 +76,28 @@ nonisolated struct TransferManifest: Codable, Equatable, Sendable {
         self.saveThenStart = saveThenStart
         self.attention = attention
         self.appVersion = appVersion
+        self.retryCount = retryCount
+        self.lastRetriedAt = lastRetriedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.schemaVersion = try container.decode(String.self, forKey: .schemaVersion)
+        self.itemID = try container.decode(UUID.self, forKey: .itemID)
+        self.source = try container.decode(String.self, forKey: .source)
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.priority = try container.decode(TransferPriorityInputs.self, forKey: .priority)
+        self.payloadParts = try container.decode([TransferPayloadPartDescriptor].self, forKey: .payloadParts)
+        self.endpoint = try container.decode(TransferEndpointDescriptor.self, forKey: .endpoint)
+        self.observerIngest = try container.decodeIfPresent(TransferObserverIngestMetadata.self, forKey: .observerIngest)
+        self.meta = try container.decode(JSONValue.self, forKey: .meta)
+        self.diskState = try container.decode(TransferDiskState.self, forKey: .diskState)
+        self.nextAttemptAt = try container.decodeIfPresent(Date.self, forKey: .nextAttemptAt)
+        self.saveThenStart = try container.decodeIfPresent(TransferSaveThenStartState.self, forKey: .saveThenStart)
+        self.attention = try container.decodeIfPresent(TransferAttentionInfo.self, forKey: .attention)
+        self.appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
+        self.retryCount = try container.decodeIfPresent(Int.self, forKey: .retryCount) ?? 0
+        self.lastRetriedAt = try container.decodeIfPresent(Date.self, forKey: .lastRetriedAt)
     }
 
     /// Grouping key for per-source Transfer status. Producers set

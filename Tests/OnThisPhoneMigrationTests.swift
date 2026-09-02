@@ -147,7 +147,6 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
 
         XCTAssertEqual(migration.onThisPhone, 4)
         XCTAssertEqual(migration.backlog, 4)
-        XCTAssertEqual(migration.notReached, 2)
     }
 
     @MainActor

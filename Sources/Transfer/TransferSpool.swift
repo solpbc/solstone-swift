@@ -492,7 +492,7 @@ nonisolated struct TransferSpool: Sendable {
         return TransferStoredItem(manifest: manifest, directoryURL: destinationURL)
     }
 
-    func moveAttentionItemToQueued(_ item: TransferStoredItem) throws -> TransferStoredItem {
+    func moveAttentionItemToQueued(_ item: TransferStoredItem, now: Date) throws -> TransferStoredItem {
         try self.ensureRootDirectories()
         let normalized: TransferManifest
         do {
@@ -506,6 +506,8 @@ nonisolated struct TransferSpool: Sendable {
         var manifest = normalized.replacingDiskState(.queued)
         manifest.attention = nil
         manifest.nextAttemptAt = nil
+        manifest.retryCount += 1
+        manifest.lastRetriedAt = now
         try self.writeManifestAtomically(manifest, in: item.directoryURL)
         let destinationURL = self.queuedDirectoryURL.appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
         if self.fileSystem.fileExists(atPath: destinationURL.path) {

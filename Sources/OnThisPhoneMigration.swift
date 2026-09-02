@@ -6,18 +6,15 @@ import Foundation
 nonisolated struct OnThisPhoneMigration: Equatable, Sendable {
     let onThisPhone: Int // savedOnThisPhone + sending — the honest backlog
     let needsAttention: Int // stays 0 in prod; feeds L4
-    let notReached: Int // savedOnThisPhone only (excludes .sending) — try-now target
     let failedRepresented: Int // items with retryAvailable == true — reconciliation input
 
     init(
         onThisPhone: Int,
         needsAttention: Int,
-        notReached: Int = 0,
         failedRepresented: Int = 0
     ) {
         self.onThisPhone = onThisPhone
         self.needsAttention = needsAttention
-        self.notReached = notReached
         self.failedRepresented = failedRepresented
     }
 
@@ -31,7 +28,6 @@ nonisolated func onThisPhoneMigration(
 ) -> OnThisPhoneMigration {
     var onThisPhone = 0
     var needsAttention = 0
-    var notReached = 0
     var failedRepresented = 0
 
     for item in snapshot.items {
@@ -46,7 +42,6 @@ nonisolated func onThisPhoneMigration(
             needsAttention += 1
         case .savedOnThisPhone:
             onThisPhone += 1
-            notReached += 1
         case .sending:
             onThisPhone += 1
         }
@@ -55,7 +50,6 @@ nonisolated func onThisPhoneMigration(
     return OnThisPhoneMigration(
         onThisPhone: onThisPhone,
         needsAttention: needsAttention,
-        notReached: notReached,
         failedRepresented: failedRepresented
     )
 }
