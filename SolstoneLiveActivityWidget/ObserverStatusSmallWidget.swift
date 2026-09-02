@@ -88,7 +88,9 @@ private struct ObserverStatusSmallView: View {
         case .observer:
             // ⛔ Not "observer". That is the internal name for this source; the owner-facing
             // one has been `audio` since 2026-07-03, and this widget renders on a home screen.
-            SourceVocabulary.onThisPhoneSourceName(for: .audio)
+            // ⚠ Not `onThisPhoneSourceName(for:)` — its parameter type is not in this target's
+            // sources, so the member does not resolve here even though its file is.
+            SourceVocabulary.onThisPhoneObserverAudioSourceLabel
         case .location:
             "location"
         case .omi:
