@@ -2507,7 +2507,13 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testLivenessProbeEscalatesActiveTransfersOnFirstFailureWithoutInboundDelta() async throws {
+    func testLivenessProbeAnnotatesActiveTransferStallOnEscalation() async throws {
+        // Regression: a stalled active transfer with no inbound delta used to force an
+        // immediate reconnect on the very first failed probe, regardless of the configured
+        // threshold — a single busy tick was treated as proof of death. It now takes the
+        // same silentFailureLimit strikes as any other silent failure; this test asserts
+        // that corrected cadence while still verifying the diagnostic annotation fires once
+        // escalation actually happens.
         TunnelProbeURLProtocol.reset()
         TunnelProbeURLProtocol.handler = { _ in
             throw URLError(.timedOut)
@@ -2524,7 +2530,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             transport: transport,
             probeSession: session,
             probeInterval: .milliseconds(20),
-            probeFailureThreshold: 99,
+            probeFailureThreshold: 2,
             degradedInterval: .milliseconds(20),
             jitterRandom: { _ in 1.0 },
             activeLocalTransferCountProvider: { 1 },
@@ -2540,7 +2546,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         }, timeout: .seconds(2))
 
         XCTAssertTrue(didForceReconnect)
-        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 1)
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 2)
         let escalation = try XCTUnwrap(diagnosticLog.events.last {
             $0.category == .tunnel && $0.message == "probe not reachable during active uploads"
         })
