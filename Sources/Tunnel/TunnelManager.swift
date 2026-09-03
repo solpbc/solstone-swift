@@ -518,7 +518,7 @@ final class TunnelManager {
                     let evictEpoch = epoch
                     Task { @MainActor [weak self] in
                         // why: eviction is fire-and-forget and epoch-guarded, matching the post-connect
-                        // cache refresh precedent — this trades perfect synchronity for a bounded
+                        // cache refresh precedent — this trades perfect synchrony for a bounded
                         // one-time-replay window (a concurrent candidateList() build may race this task
                         // and see the stale entry once more) instead of today's unbounded 24h accumulation.
                         guard let self, self.isCurrentAttempt(evictEpoch) else { return }
