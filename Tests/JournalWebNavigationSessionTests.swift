@@ -1025,7 +1025,7 @@ final class JournalWebNavigationSessionTests: XCTestCase {
 
         session.webContentProcessDidTerminate()
 
-        XCTAssertEqual(recorder.states.last, .error(JournalWebPresentation.loadFailureMessage))
+        XCTAssertEqual(recorder.states.last, .error(message: JournalWebPresentation.loadFailureMessage))
         XCTAssertEqual(log.events.last?.category, .journal)
         XCTAssertEqual(log.events.last?.severity, .error)
         XCTAssertEqual(log.events.last?.message, "web_content_process_terminated")
