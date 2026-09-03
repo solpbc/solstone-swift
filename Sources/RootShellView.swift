@@ -121,7 +121,8 @@ struct RootShellView: View {
         self.shellLayers
         .sheet(isPresented: self.isJournalPresented) {
             InAppJournalView(mark: self.journalMark, presentation: .phoneModal)
-                .presentationDetents([.large])
+                // 0.75 keeps the first deck tile row in the band above the pane on iPhone 17 Pro.
+                .presentationDetents([.fraction(0.75)])
                 .presentationDragIndicator(.visible)
                 .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }

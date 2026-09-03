@@ -215,11 +215,14 @@ struct InAppJournalView: View {
                         }
                         Text(self.headingString)
                     }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(self.headingString)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("shell.pane.journal.heading")
                         .accessibilityFocused(self.$headingFocused)
                 }
             }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("shell.pane.journal")
         .onAppear { self.headingFocused = true }
         .onChange(of: self.tunnelManager.activeConnection?.port) { _, newPort in

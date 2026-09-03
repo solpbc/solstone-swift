@@ -128,15 +128,14 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertTrue(text.contains("webView.allowsBackForwardNavigationGestures = false"))
     }
 
-    func testJournalPaneUsesNearFullHeightSheet() throws {
+    func testJournalPaneRestsAboveDeck() throws {
         let text = try Self.sourceText("Sources/RootShellView.swift")
         let sheet = try Self.slice(
             in: text,
             from: ".sheet(isPresented: self.isJournalPresented)",
             to: ".sheet(isPresented: self.$showingSources)"
         )
-        XCTAssertTrue(sheet.contains(".presentationDetents([.large])"))
-        XCTAssertFalse(sheet.contains(".fraction(0.75)"))
+        XCTAssertTrue(sheet.contains(".presentationDetents([.fraction(0.75)])"))
     }
 
     func testDayHomeStatusPillIsButtonNotNavigationLink() throws {
