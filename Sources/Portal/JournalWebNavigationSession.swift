@@ -27,6 +27,7 @@ final class JournalWebNavigationSession {
     private let sleep: @Sendable (Duration) async -> Void
     private let load: @MainActor (URLRequest) -> AnyObject?
     private let setState: @MainActor (JournalWebPresentation.LoadState) -> Void
+    private let diagnosticLog: DiagnosticLog?
 
     private var boundTask: Task<Void, Never>?
     private var generation = 0
@@ -46,12 +47,14 @@ final class JournalWebNavigationSession {
         timeout: Duration = .seconds(20),
         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
         load: @escaping @MainActor (URLRequest) -> AnyObject?,
-        setState: @escaping @MainActor (JournalWebPresentation.LoadState) -> Void
+        setState: @escaping @MainActor (JournalWebPresentation.LoadState) -> Void,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.timeout = timeout
         self.sleep = sleep
         self.load = load
         self.setState = setState
+        self.diagnosticLog = diagnosticLog
     }
 
     func requestLoad(url: URL, reloadToken: Int) {
@@ -66,9 +69,9 @@ final class JournalWebNavigationSession {
         self.liveAuthority = JournalWebNavigationPolicy.authority(for: url)
 
         if let previousRequest, previousRequest.url != url {
-            journalWebLog.info("event=reload_rotation generation=\(self.generation, privacy: .public)")
+            self.emit("reload_rotation", detail: "generation=\(self.generation)")
         } else if let previousRequest, previousRequest.reloadToken != reloadToken {
-            journalWebLog.info("event=retry generation=\(self.generation, privacy: .public)")
+            self.emit("retry", detail: "generation=\(self.generation)")
         }
 
         self.issueProgrammaticLoad(URLRequest(url: url))
@@ -91,13 +94,22 @@ final class JournalWebNavigationSession {
 
         switch decision {
         case .allow:
-            journalWebLog.info("event=policy_allow schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
+            self.emit(
+                "policy_allow",
+                detail: "schemeClass=\(schemeClass) hostPortMatch=\(hostPortMatch) generation=\(self.generation)"
+            )
         case .rewrite(let rewrittenURL):
             if self.attemptPhase == .terminalError {
-                journalWebLog.info("event=policy_rewrite_suppressed_terminal_error schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
+                self.emit(
+                    "policy_rewrite_suppressed_terminal_error",
+                    detail: "schemeClass=\(schemeClass) hostPortMatch=\(hostPortMatch) generation=\(self.generation)"
+                )
                 return decision
             }
-            journalWebLog.info("event=policy_rewrite schemeClass=\(schemeClass, privacy: .public) hostPortMatch=\(hostPortMatch, privacy: .public) generation=\(self.generation, privacy: .public)")
+            self.emit(
+                "policy_rewrite",
+                detail: "schemeClass=\(schemeClass) hostPortMatch=\(hostPortMatch) generation=\(self.generation)"
+            )
             self.retire(self.currentNavigation)
             self.retire(self.expectedNavigation)
             self.issueProgrammaticLoad(JournalWebNavigationPolicy.replacementRequest(from: request, rewrittenURL: rewrittenURL))
@@ -109,18 +121,18 @@ final class JournalWebNavigationSession {
     func didStart(navigation: AnyObject?) {
         guard !self.isTornDown else { return }
         if self.attemptPhase == .terminalError {
-            journalWebLog.info("event=start_ignored_terminal_error generation=\(self.generation, privacy: .public)")
+            self.emit("start_ignored_terminal_error", detail: "generation=\(self.generation)")
             return
         }
         if let navigation, self.isRetired(navigation) {
-            journalWebLog.info("event=start_ignored_retired_navigation generation=\(self.generation, privacy: .public)")
+            self.emit("start_ignored_retired_navigation", detail: "generation=\(self.generation)")
             return
         }
         // WKWebView.load can return nil; without a token, the first start remains
         // accepted and the requestLoad-bound timeout stays the backstop.
         if let expectedNavigation = self.expectedNavigation {
             guard let navigation, navigation === expectedNavigation else {
-                journalWebLog.info("event=start_ignored_unexpected_navigation generation=\(self.generation, privacy: .public)")
+                self.emit("start_ignored_unexpected_navigation", detail: "generation=\(self.generation)")
                 return
             }
             self.expectedNavigation = nil
@@ -129,16 +141,30 @@ final class JournalWebNavigationSession {
         self.generation += 1
         self.currentNavigation = navigation
         self.unkeyedCallbacksSealed = false
-        journalWebLog.info("event=start generation=\(self.generation, privacy: .public) previousGeneration=\(previousGeneration, privacy: .public)")
+        self.emit(
+            "start",
+            detail: "generation=\(self.generation) previousGeneration=\(previousGeneration)"
+        )
         self.attemptPhase = .loading
         self.setState(JournalWebPresentation.loadState(for: .started))
         self.armBound(generation: self.generation)
     }
 
+    func didReceiveServerRedirect(navigation: AnyObject?) {
+        guard !self.isTornDown else { return }
+        self.emit(
+            "redirect",
+            detail: "navigationGeneration=\(self.generation(for: navigation)) currentGeneration=\(self.generation)"
+        )
+    }
+
     func didCommit(navigation: AnyObject?) {
         guard !self.isTornDown else { return }
         let navigationGeneration = self.generation(for: navigation)
-        journalWebLog.info("event=commit navigationGeneration=\(navigationGeneration, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
+        self.emit(
+            "commit",
+            detail: "navigationGeneration=\(navigationGeneration) currentGeneration=\(self.generation)"
+        )
         guard self.acceptsTerminalSuccess(navigation: navigation) else { return }
         self.cancelBound()
         self.attemptPhase = .loaded
@@ -148,7 +174,10 @@ final class JournalWebNavigationSession {
     func didFinish(navigation: AnyObject?) {
         guard !self.isTornDown else { return }
         let navigationGeneration = self.generation(for: navigation)
-        journalWebLog.info("event=finish navigationGeneration=\(navigationGeneration, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
+        self.emit(
+            "finish",
+            detail: "navigationGeneration=\(navigationGeneration) currentGeneration=\(self.generation)"
+        )
         guard self.acceptsTerminalSuccess(navigation: navigation) else { return }
         self.cancelBound()
         self.attemptPhase = .loaded
@@ -161,11 +190,18 @@ final class JournalWebNavigationSession {
         let navigationGeneration = self.generation(for: navigation)
 
         if Self.isCancellationShaped(nsError) {
-            journalWebLog.info("event=superseded domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public) navigationGeneration=\(navigationGeneration, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
+            self.emit(
+                "superseded",
+                detail: "domain=\(nsError.domain) code=\(nsError.code) navigationGeneration=\(navigationGeneration) currentGeneration=\(self.generation)"
+            )
             return
         }
 
-        journalWebLog.error("event=failure domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public) navigationGeneration=\(navigationGeneration, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
+        self.emit(
+            "failure",
+            severity: .error,
+            detail: "domain=\(nsError.domain) code=\(nsError.code) navigationGeneration=\(navigationGeneration) currentGeneration=\(self.generation)"
+        )
         guard self.acceptsExplicitFailure(navigation: navigation) else { return }
         self.cancelBound()
         if let navigation {
@@ -177,7 +213,26 @@ final class JournalWebNavigationSession {
         self.setState(JournalWebPresentation.loadState(for: .failed(urlErrorCode: nsError.code)))
     }
 
+    func webContentProcessDidTerminate() {
+        guard !self.isTornDown else { return }
+        self.emit(
+            "web_content_process_terminated",
+            severity: .error,
+            detail: "generation=\(self.generation)"
+        )
+        self.cancelBound()
+        self.retire(self.currentNavigation)
+        self.retire(self.expectedNavigation)
+        self.currentNavigation = nil
+        self.expectedNavigation = nil
+        self.unkeyedCallbacksSealed = true
+        self.attemptPhase = .terminalError
+        self.setState(JournalWebPresentation.loadState(for: .failed(urlErrorCode: NSURLErrorUnknown)))
+    }
+
     func teardown() {
+        guard !self.isTornDown else { return }
+        self.emit("teardown", detail: "generation=\(self.generation)")
         self.isTornDown = true
         self.cancelBound()
         self.currentNavigation = nil
@@ -202,7 +257,11 @@ final class JournalWebNavigationSession {
             if let currentNavigation = self.currentNavigation {
                 self.retire(currentNavigation)
             }
-            journalWebLog.error("event=timeout generation=\(generation, privacy: .public) currentGeneration=\(self.generation, privacy: .public)")
+            self.emit(
+                "timeout",
+                severity: .error,
+                detail: "generation=\(generation) currentGeneration=\(self.generation)"
+            )
             self.boundTask = nil
             self.setState(JournalWebPresentation.loadState(for: .failed(urlErrorCode: NSURLErrorTimedOut)))
         }
@@ -214,6 +273,12 @@ final class JournalWebNavigationSession {
     }
 
     private func issueProgrammaticLoad(_ request: URLRequest) {
+        let schemeClass = JournalWebNavigationPolicy.schemeClass(for: request.url).rawValue
+        let port = request.url?.port.map { String($0) } ?? "none"
+        self.emit(
+            "load_requested",
+            detail: "schemeClass=\(schemeClass) port=\(port) generation=\(self.generation)"
+        )
         self.attemptPhase = .loading
         self.unkeyedCallbacksSealed = true
         self.setState(JournalWebPresentation.loadState(for: .started))
@@ -279,5 +344,27 @@ final class JournalWebNavigationSession {
             return true
         }
         return error.domain == Self.interruptedDomain && error.code == Self.interruptedCode
+    }
+
+    private func emit(
+        _ event: String,
+        severity: DiagnosticSeverity = .info,
+        detail: String? = nil
+    ) {
+        let detailText = detail ?? ""
+        switch severity {
+        case .info:
+            journalWebLog.info("event=\(event, privacy: .public) \(detailText, privacy: .public)")
+        case .warning:
+            journalWebLog.warning("event=\(event, privacy: .public) \(detailText, privacy: .public)")
+        case .error:
+            journalWebLog.error("event=\(event, privacy: .public) \(detailText, privacy: .public)")
+        }
+        self.diagnosticLog?.append(
+            category: .journal,
+            severity: severity,
+            message: event,
+            detail: detail
+        )
     }
 }

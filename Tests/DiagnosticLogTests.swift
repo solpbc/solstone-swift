@@ -10,9 +10,12 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
     @MainActor
     func testAppendAddsEvent() {
         self.log.append(category: .tunnel, message: "connected")
-        XCTAssertEqual(self.log.events.count, 1)
+        self.log.append(category: .journal, message: "load_requested")
+        XCTAssertEqual(self.log.events.count, 2)
         XCTAssertEqual(self.log.events[0].message, "connected")
         XCTAssertEqual(self.log.events[0].category, .tunnel)
+        XCTAssertEqual(self.log.events[1].message, "load_requested")
+        XCTAssertEqual(self.log.events[1].category, .journal)
     }
 
     @MainActor

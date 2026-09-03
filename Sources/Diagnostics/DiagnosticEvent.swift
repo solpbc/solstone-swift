@@ -7,6 +7,7 @@ enum DiagnosticCategory: String, CaseIterable, Sendable {
     case tunnel
     case network
     case upload
+    case journal
     case diagnostics
 }
 

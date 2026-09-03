@@ -986,22 +986,51 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         XCTAssertEqual(gate.pendingCount, 0)
     }
 
-    func testControllerDoesNotLoadAfterTeardown() async throws {
-        var states: [JournalWebPresentation.LoadState] = []
-        let controller = JournalWebPageController { state in
-            states.append(state)
-        }
-        let url = try self.url("http://127.0.0.1:8080/")
+    func testLifecyclePersistsPrivacySafeJournalDiagnostics() throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let log = DiagnosticLog()
+        let session = recorder.makeSession(gate: gate, diagnosticLog: log)
+        let navigation = NavigationToken()
 
-        controller.requestLoad(url: url, reloadToken: 0)
-        XCTAssertEqual(states, [.loading])
-        controller.teardown()
-        states.removeAll()
+        recorder.enqueueLoadNavigation(navigation)
+        session.requestLoad(
+            url: try self.url("http://127.0.0.1:8080/private/path?token=secret#fragment"),
+            reloadToken: 0
+        )
+        session.didStart(navigation: navigation)
+        session.didReceiveServerRedirect(navigation: navigation)
+        session.didCommit(navigation: navigation)
+        session.didFinish(navigation: navigation)
 
-        controller.requestLoad(url: url, reloadToken: 1)
-        await Task.yield()
+        XCTAssertEqual(
+            log.events.filter { $0.category == .journal }.map(\.message),
+            ["load_requested", "start", "redirect", "commit", "finish"]
+        )
+        let exported = log.snapshot(tunnel: TunnelManager())
+        XCTAssertTrue(exported.contains("[journal] load_requested"))
+        XCTAssertTrue(exported.contains("port=8080"))
+        XCTAssertFalse(exported.contains("private/path"))
+        XCTAssertFalse(exported.contains("secret"))
+        XCTAssertFalse(exported.contains("fragment"))
+        session.teardown()
+        gate.fireAll()
+    }
 
-        XCTAssertEqual(states, [])
+    func testWebContentProcessTerminationBecomesActionableFailure() {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let log = DiagnosticLog()
+        let session = recorder.makeSession(gate: gate, diagnosticLog: log)
+
+        session.webContentProcessDidTerminate()
+
+        XCTAssertEqual(recorder.states.last, .error(JournalWebPresentation.loadFailureMessage))
+        XCTAssertEqual(log.events.last?.category, .journal)
+        XCTAssertEqual(log.events.last?.severity, .error)
+        XCTAssertEqual(log.events.last?.message, "web_content_process_terminated")
+        session.teardown()
+        gate.fireAll()
     }
 
     func testExpectedNavigationIsRetainedUntilTeardown() throws {
@@ -1095,7 +1124,10 @@ private final class SessionRecorder {
         self.loadNavigations.append(navigation)
     }
 
-    func makeSession(gate: CoalescerSleepGate) -> JournalWebNavigationSession {
+    func makeSession(
+        gate: CoalescerSleepGate,
+        diagnosticLog: DiagnosticLog? = nil
+    ) -> JournalWebNavigationSession {
         JournalWebNavigationSession(
             sleep: { duration in
                 await gate.sleep(duration)
@@ -1109,7 +1141,8 @@ private final class SessionRecorder {
             },
             setState: { state in
                 self.states.append(state)
-            }
+            },
+            diagnosticLog: diagnosticLog
         )
     }
 }

@@ -101,34 +101,42 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertFalse(apply.contains("self.showingYourSolstone"))
     }
 
-    func testJournalPaneUsesWebPageAndPolicy() throws {
+    func testJournalPaneUsesDelegateBackedWKWebViewAndPolicy() throws {
         let view = try Self.sourceText("Sources/Portal/InAppJournalView.swift")
-        XCTAssertTrue(view.contains("WebView("))
-        XCTAssertFalse(view.contains("UIViewRepresentable"))
-        XCTAssertFalse(view.contains("WKNavigationDelegate"))
+        XCTAssertTrue(view.contains("struct JournalWebView: UIViewRepresentable"))
+        XCTAssertTrue(view.contains("WKNavigationDelegate"))
+        XCTAssertTrue(view.contains("webView?.load(request)"))
+        XCTAssertTrue(view.contains("didStartProvisionalNavigation"))
+        XCTAssertTrue(view.contains("didReceiveServerRedirectForProvisionalNavigation"))
+        XCTAssertTrue(view.contains("didFailProvisionalNavigation"))
+        XCTAssertTrue(view.contains("didFail navigation"))
+        XCTAssertTrue(view.contains("webViewWebContentProcessDidTerminate"))
+        XCTAssertTrue(view.contains("session.decidePolicy(for: request, isMainFrame: isMainFrame)"))
+        XCTAssertTrue(view.contains("case .rewrite:"))
+        XCTAssertTrue(view.contains("decisionHandler(.cancel)"))
         XCTAssertFalse(view.contains("WKScriptMessageHandler"))
         XCTAssertFalse(view.contains("URLSchemeHandler"))
-
-        let controller = try Self.sourceText("Sources/Portal/JournalWebPageController.swift")
-        XCTAssertTrue(controller.contains("WebPage"))
-        XCTAssertTrue(controller.contains("journalWebActionPolicy"))
-        XCTAssertTrue(controller.contains("session.decidePolicy(for: request, isMainFrame: isMainFrame)"))
-        XCTAssertTrue(controller.contains("case .rewrite:"))
-        XCTAssertTrue(controller.contains("return .cancel"))
-        XCTAssertFalse(controller.contains("URLSchemeHandler"))
-        XCTAssertFalse(controller.contains("WKScriptMessageHandler"))
-
-        let pane = view + controller
-        XCTAssertTrue(pane.contains("JournalWebNavigationDecider") || controller.contains("JournalWebNavigationDecider"))
         XCTAssertFalse(view.contains("navigationTitle(\"journal\")"))
         XCTAssertTrue(view.contains("journalPaneTitle("))
-        XCTAssertTrue(controller.contains("page.navigations"))
-        XCTAssertFalse(controller.contains("for try await event in page.load"))
+        XCTAssertTrue(view.contains("JournalMarkCompactChips(mark: mark)"))
+        XCTAssertTrue(view.contains("JournalMarkCompactGenericChips()"))
+        XCTAssertFalse(view.contains("WebPage("))
     }
 
     func testJournalPaneDisablesBackForwardGestures() throws {
         let text = try Self.sourceText("Sources/Portal/InAppJournalView.swift")
-        XCTAssertTrue(text.contains(".webViewBackForwardNavigationGestures(.disabled)"))
+        XCTAssertTrue(text.contains("webView.allowsBackForwardNavigationGestures = false"))
+    }
+
+    func testJournalPaneUsesNearFullHeightSheet() throws {
+        let text = try Self.sourceText("Sources/RootShellView.swift")
+        let sheet = try Self.slice(
+            in: text,
+            from: ".sheet(isPresented: self.isJournalPresented)",
+            to: ".sheet(isPresented: self.$showingSources)"
+        )
+        XCTAssertTrue(sheet.contains(".presentationDetents([.large])"))
+        XCTAssertFalse(sheet.contains(".fraction(0.75)"))
     }
 
     func testDayHomeStatusPillIsButtonNotNavigationLink() throws {

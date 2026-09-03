@@ -40,7 +40,7 @@ final class DiagnosticLog {
     }
 
     private func isProtected(_ c: DiagnosticCategory) -> Bool {
-        c == .tunnel || c == .network
+        c == .tunnel || c == .network || c == .journal
     }
 
     func append(
