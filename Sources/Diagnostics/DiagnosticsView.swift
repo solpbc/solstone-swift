@@ -273,6 +273,7 @@ private struct EventRow: View {
         case .tunnel: "antenna.radiowaves.left.and.right"
         case .network: "wifi"
         case .upload: "arrow.up.circle"
+        case .journal: "book.pages"
         case .diagnostics: "doc.text.magnifyingglass"
         }
     }
@@ -282,6 +283,7 @@ private struct EventRow: View {
         case .tunnel: .orange
         case .network: .gray
         case .upload: .green
+        case .journal: .blue
         case .diagnostics: .teal
         }
     }
