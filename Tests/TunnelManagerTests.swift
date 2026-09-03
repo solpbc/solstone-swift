@@ -689,6 +689,304 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testFailureOnPostSortOrdinalEvictsULACandidateAtItsSortedPosition() async throws {
+        let cacheEndpoint = Self.localEndpoint(host: "fd00::1", port: 7657, scope: "local")
+        let bootstrapEndpoint = Self.localEndpoint(host: "10.0.0.50", port: 7657, scope: "local")
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [cacheEndpoint]))
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            pairing: Self.fixturePairing(localEndpoints: [bootstrapEndpoint])
+        )
+
+        await manager.connect()
+
+        let sortedCandidates = CandidateOrdering.sorted(transport.capturedCandidates, preferredEndpoint: nil)
+        let bootstrapCandidate = TransportEndpoint.lan(
+            host: bootstrapEndpoint.host,
+            port: bootstrapEndpoint.port,
+            scope: bootstrapEndpoint.scope
+        )
+        let cacheCandidate = TransportEndpoint.lan(
+            host: cacheEndpoint.host,
+            port: cacheEndpoint.port,
+            scope: cacheEndpoint.scope
+        )
+        let bootstrapOrdinal = try XCTUnwrap(sortedCandidates.firstIndex(of: bootstrapCandidate))
+        let cacheOrdinal = try XCTUnwrap(sortedCandidates.firstIndex(of: cacheCandidate))
+        XCTAssertEqual(transport.capturedCandidates.first, cacheCandidate)
+        XCTAssertEqual(bootstrapOrdinal, 0)
+        XCTAssertEqual(cacheOrdinal, 1)
+
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .directPinned,
+                ordinal: bootstrapOrdinal,
+                phase: .failed(.tls, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        await Self.settle()
+        let afterBootstrapFailure = await cache.endpoints()
+        XCTAssertTrue(afterBootstrapFailure.contains(cacheCandidate))
+
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .directPinned,
+                ordinal: cacheOrdinal,
+                phase: .failed(.tls, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        await Self.settle()
+        let afterCacheFailure = await cache.endpoints()
+        XCTAssertFalse(afterCacheFailure.contains(cacheCandidate))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testFailureEvictsOnlyMatchingSameRankCacheCandidate() async throws {
+        let cacheEndpoint = Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local")
+        let bootstrapEndpoint = Self.localEndpoint(host: "10.0.0.99", port: 7657, scope: "local")
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [cacheEndpoint]))
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            pairing: Self.fixturePairing(localEndpoints: [bootstrapEndpoint])
+        )
+
+        await manager.connect()
+
+        let cacheCandidate = TransportEndpoint.lan(
+            host: cacheEndpoint.host,
+            port: cacheEndpoint.port,
+            scope: cacheEndpoint.scope
+        )
+        let sortedCandidates = CandidateOrdering.sorted(transport.capturedCandidates, preferredEndpoint: nil)
+        let cacheOrdinal = try XCTUnwrap(sortedCandidates.firstIndex(of: cacheCandidate))
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .directPinned,
+                ordinal: cacheOrdinal,
+                phase: .failed(.tls, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        await Self.settle()
+
+        let endpoints = await cache.endpoints()
+        XCTAssertFalse(endpoints.contains(cacheCandidate))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testEvictedCandidateExcludedFromNextConnectCycleCandidateList() async throws {
+        let cacheEndpoint = Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local")
+        let bootstrapEndpoint = Self.localEndpoint(host: "10.0.0.99", port: 7657, scope: "local")
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [cacheEndpoint]))
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            pairing: Self.fixturePairing(localEndpoints: [bootstrapEndpoint])
+        )
+
+        await manager.connect()
+
+        let cacheCandidate = TransportEndpoint.lan(
+            host: cacheEndpoint.host,
+            port: cacheEndpoint.port,
+            scope: cacheEndpoint.scope
+        )
+        let sortedCandidates = CandidateOrdering.sorted(transport.capturedCandidates, preferredEndpoint: nil)
+        let cacheOrdinal = try XCTUnwrap(sortedCandidates.firstIndex(of: cacheCandidate))
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .directPinned,
+                ordinal: cacheOrdinal,
+                phase: .failed(.tls, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        await Self.settle()
+
+        await manager.reconnectAfterPairingChange()
+
+        XCTAssertEqual(transport.capturedCandidateBatches.count, 2)
+        guard transport.capturedCandidateBatches.count == 2 else {
+            return
+        }
+        let secondBatch = transport.capturedCandidateBatches[1]
+        XCTAssertFalse(secondBatch.contains { endpoint in
+            if case .lan(let host, _, _, _) = endpoint {
+                return host == cacheEndpoint.host
+            }
+            return false
+        })
+        XCTAssertTrue(secondBatch.contains { endpoint in
+            if case .lan(let host, _, _, _) = endpoint {
+                return host == bootstrapEndpoint.host
+            }
+            return false
+        })
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testNonTLSNonUnreachableFailureClassesDoNotEvictCachedCandidate() async throws {
+        let cacheEndpoint = Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local")
+        let bootstrapEndpoint = Self.localEndpoint(host: "10.0.0.99", port: 7657, scope: "local")
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [cacheEndpoint]))
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            pairing: Self.fixturePairing(localEndpoints: [bootstrapEndpoint])
+        )
+
+        await manager.connect()
+
+        let cacheCandidate = TransportEndpoint.lan(
+            host: cacheEndpoint.host,
+            port: cacheEndpoint.port,
+            scope: cacheEndpoint.scope
+        )
+        let sortedCandidates = CandidateOrdering.sorted(transport.capturedCandidates, preferredEndpoint: nil)
+        let cacheOrdinal = try XCTUnwrap(sortedCandidates.firstIndex(of: cacheCandidate))
+        let failureClasses: [TunnelAttemptFailureClass] = [
+            .authRefreshRequired,
+            .notEntitled,
+            .revoked,
+            .transport,
+            .other,
+        ]
+        for failureClass in failureClasses {
+            transport.emitStage(
+                .attemptEvent(TunnelAttemptEvent(
+                    route: .directPinned,
+                    ordinal: cacheOrdinal,
+                    phase: .failed(failureClass, elapsedMilliseconds: 1)
+                )),
+                attempt: 1
+            )
+        }
+        await Self.settle()
+
+        let endpoints = await cache.endpoints()
+        XCTAssertTrue(endpoints.contains(cacheCandidate))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testRelayCandidateFailureNeverMutatesCache() async throws {
+        let cacheEndpoint = Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local")
+        let bootstrapEndpoint = Self.localEndpoint(host: "10.0.0.99", port: 7657, scope: "local")
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [cacheEndpoint]))
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            pairing: Self.fixturePairing(localEndpoints: [bootstrapEndpoint])
+        )
+
+        await manager.connect()
+
+        let sortedCandidates = CandidateOrdering.sorted(transport.capturedCandidates, preferredEndpoint: nil)
+        let relayOrdinal = try XCTUnwrap(sortedCandidates.firstIndex { endpoint in
+            if case .relay = endpoint {
+                return true
+            }
+            return false
+        })
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .relay,
+                ordinal: relayOrdinal,
+                phase: .failed(.tls, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .relay,
+                ordinal: relayOrdinal,
+                phase: .failed(.unreachable, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        await Self.settle()
+
+        let cacheCandidate = TransportEndpoint.lan(
+            host: cacheEndpoint.host,
+            port: cacheEndpoint.port,
+            scope: cacheEndpoint.scope
+        )
+        let endpoints = await cache.endpoints()
+        XCTAssertTrue(endpoints.contains(cacheCandidate))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testTwoIndependentDirectFailuresBothEvictTheirCachedCandidates() async throws {
+        let rfc1918CacheEndpoint = Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local")
+        let ulaCacheEndpoint = Self.localEndpoint(host: "fd00::1", port: 7657, scope: "local")
+        let bootstrapEndpoint = Self.localEndpoint(host: "10.0.0.99", port: 7657, scope: "local")
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [rfc1918CacheEndpoint, ulaCacheEndpoint]))
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            pairing: Self.fixturePairing(localEndpoints: [bootstrapEndpoint])
+        )
+
+        await manager.connect()
+
+        let rfc1918Candidate = TransportEndpoint.lan(
+            host: rfc1918CacheEndpoint.host,
+            port: rfc1918CacheEndpoint.port,
+            scope: rfc1918CacheEndpoint.scope
+        )
+        let ulaCandidate = TransportEndpoint.lan(
+            host: ulaCacheEndpoint.host,
+            port: ulaCacheEndpoint.port,
+            scope: ulaCacheEndpoint.scope
+        )
+        let sortedCandidates = CandidateOrdering.sorted(transport.capturedCandidates, preferredEndpoint: nil)
+        let rfc1918Ordinal = try XCTUnwrap(sortedCandidates.firstIndex(of: rfc1918Candidate))
+        let ulaOrdinal = try XCTUnwrap(sortedCandidates.firstIndex(of: ulaCandidate))
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .directPinned,
+                ordinal: rfc1918Ordinal,
+                phase: .failed(.tls, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .directPinned,
+                ordinal: ulaOrdinal,
+                phase: .failed(.unreachable, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        await Self.settle()
+
+        let endpoints = await cache.endpoints()
+        XCTAssertFalse(endpoints.contains(rfc1918Candidate))
+        XCTAssertFalse(endpoints.contains(ulaCandidate))
+        await manager.disconnect()
+    }
+
+    @MainActor
     func testCandidateListFallsBackToRelayWhenNoLocalEndpointsExist() async {
         let transport = MockCFTunnelTransport()
         let pairing = Self.fixturePairing(localEndpoints: [])

@@ -252,6 +252,7 @@ final class TunnelManager {
     @ObservationIgnored private var scenePhase: TunnelScenePhase = .inactive
     @ObservationIgnored private var telemetryCompleteness: AttemptTelemetryCompleteness = .unavailable
     @ObservationIgnored private var candidateTelemetry: [Int: CandidateAttemptTelemetry] = [:]
+    @ObservationIgnored private var candidateEndpointByOrdinal: [Int: TransportEndpoint] = [:]
     @ObservationIgnored private var candidateTelemetryTotal = 0
     @ObservationIgnored private var currentTelemetryEpoch: UInt64?
     @ObservationIgnored private var journalFingerprint: String?
@@ -509,6 +510,25 @@ final class TunnelManager {
         if self.candidateTelemetry[event.ordinal] != nil {
             self.diagnosticLog?.append(category: .tunnel, message: self.candidateLine(for: event.ordinal))
         }
+        if case .failed(let failureClass, _) = event.phase,
+           failureClass == .tls || failureClass == .unreachable {
+            switch event.route {
+            case .directPinned, .directUnpinned:
+                if case .lan(let host, let port, let scope, _) = self.candidateEndpointByOrdinal[event.ordinal] {
+                    let evictEpoch = epoch
+                    Task { @MainActor [weak self] in
+                        // why: eviction is fire-and-forget and epoch-guarded, matching the post-connect
+                        // cache refresh precedent — this trades perfect synchronity for a bounded
+                        // one-time-replay window (a concurrent candidateList() build may race this task
+                        // and see the stale entry once more) instead of today's unbounded 24h accumulation.
+                        guard let self, self.isCurrentAttempt(evictEpoch) else { return }
+                        await self.endpointCache.evict(host: host, port: port, scope: scope)
+                    }
+                }
+            case .relay:
+                break
+            }
+        }
         if case .selected = event.phase {
             self.completeStage(.raceCandidates)
         }
@@ -724,6 +744,9 @@ final class TunnelManager {
         self.updateJournalFingerprint(from: pairingForIdentity)
         let candidates = try await self.candidateList(pairingOverride: pairingOverride)
         self.completeStage(.prepareCandidates, detail: Self.candidateCountDetail(candidates.count))
+        self.candidateEndpointByOrdinal = Dictionary(
+            uniqueKeysWithValues: CandidateOrdering.sorted(candidates, preferredEndpoint: nil).enumerated().map { ($0.offset, $0.element) }
+        )
 
         return try await self.transport.connect(
             candidates: candidates,

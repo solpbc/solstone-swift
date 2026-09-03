@@ -84,6 +84,37 @@ nonisolated final class EndpointCacheTests: XCTestCase {
         XCTAssertEqual(endpoints.count, 2)
     }
 
+    func testEvictRemovesMatchingEntryAndPersists() async {
+        let fileURL = Self.tempFileURL()
+        let target = LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")
+        let survivor = LocalEndpoint(host: "10.0.0.3", port: 9443, scope: "wifi")
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.pairing(endpoints: [target, survivor]))
+
+        await cache.evict(host: target.host, port: target.port, scope: target.scope)
+
+        let endpoints = await cache.endpoints()
+        XCTAssertFalse(endpoints.contains(.lan(host: target.host, port: target.port, scope: target.scope)))
+        XCTAssertTrue(endpoints.contains(.lan(host: survivor.host, port: survivor.port, scope: survivor.scope)))
+
+        let reloadedCache = EndpointCache(fileURL: fileURL)
+        let reloadedEndpoints = await reloadedCache.endpoints()
+        XCTAssertFalse(reloadedEndpoints.contains(.lan(host: target.host, port: target.port, scope: target.scope)))
+        XCTAssertTrue(reloadedEndpoints.contains(.lan(host: survivor.host, port: survivor.port, scope: survivor.scope)))
+    }
+
+    func testEvictNonMatchingIdentityIsNoOp() async {
+        let fileURL = Self.tempFileURL()
+        let endpoint = LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.pairing(endpoints: [endpoint]))
+
+        await cache.evict(host: "10.0.0.99", port: 9443, scope: "wifi")
+
+        let endpoints = await cache.endpoints()
+        XCTAssertEqual(endpoints, [.lan(host: endpoint.host, port: endpoint.port, scope: endpoint.scope)])
+    }
+
     func testWipeDeletesFile() async {
         let fileURL = Self.tempFileURL()
         let cache = EndpointCache(fileURL: fileURL)

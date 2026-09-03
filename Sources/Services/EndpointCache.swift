@@ -3,6 +3,9 @@
 
 import Foundation
 import SPLTunnel
+import os
+
+nonisolated private let log = Logger(subsystem: "app.solstone.swift", category: "endpoint-cache")
 
 public actor EndpointCache {
     private struct Entry: Codable, Sendable, Equatable {
@@ -100,6 +103,26 @@ public actor EndpointCache {
     private func pruneExpired() {
         let cutoff = Date().addingTimeInterval(-ttl)
         entries.removeAll { $0.lastSeen < cutoff }
+    }
+
+    /// Evicts the cached entry for this identity immediately, independent of the 24h TTL in
+    /// pruneExpired(). Called from TunnelManager when a direct candidate's TLS handshake or
+    /// connection attempt fails, since a failed address is stronger evidence of staleness than
+    /// age alone. Persists immediately, matching merge()'s prune-then-persist pattern. Callers
+    /// that trigger this from an attempt-failure signal do so via a fire-and-forget spawned Task
+    /// (see TunnelManager.handleAttemptEvent), so removal is not synchronous with the failure
+    /// event itself — it is guaranteed to have landed before that Task's continuation runs, but
+    /// a concurrent candidateList() read racing the same failure may still observe the stale
+    /// entry once.
+    public func evict(host: String, port: Int, scope: String) async {
+        try? loadIfNeeded()
+        let targetKey = key(for: LocalEndpoint(host: host, port: port, scope: scope))
+        let hadMatch = entries.contains { key(for: $0.localEndpoint) == targetKey }
+        guard hadMatch else { return }
+        entries.removeAll { key(for: $0.localEndpoint) == targetKey }
+        pruneExpired()
+        try? persist()
+        log.info("evicted cached LAN endpoint after direct connection failure")
     }
 
     private func loadIfNeeded() throws {
