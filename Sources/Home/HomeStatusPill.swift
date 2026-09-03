@@ -30,9 +30,13 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
         switch status {
         case .connectedIdle, .connectedWaiting, .connectedTransferring:
             return hasBacklog ? .syncing : .caughtUp
-        case .connecting, .waitingForHome, .reconnecting:
+        // .unreachable only fires mid-retry-loop (the sub-second gap as a countdown
+        // expires and a fresh attempt begins) or for the non-retryable .revoked
+        // error, which already surfaces its own RePairBanner — never a state where
+        // nothing is happening, so it reads as "connecting", not "offline".
+        case .connecting, .waitingForHome, .reconnecting, .unreachable:
             return .connecting
-        case .offline, .unreachable:
+        case .offline:
             return .offline
         }
     }

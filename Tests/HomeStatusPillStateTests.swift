@@ -40,15 +40,11 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
     }
 
     func testCollapsedLabelsDoNotLeakRawConnectingOrUnreachableStatusLines() {
-        for status in [ConnectionSyncStatus.waitingForHome, .reconnecting] {
+        for status in [ConnectionSyncStatus.waitingForHome, .reconnecting, .unreachable] {
             let state = HomeStatusPillState.resolve(isPaired: true, status: status, hasBacklog: false)
             XCTAssertEqual(state.label, SourceVocabulary.statusConnectingLabel)
             XCTAssertNotEqual(state.label, status.statusLine)
         }
-
-        let state = HomeStatusPillState.resolve(isPaired: true, status: .unreachable, hasBacklog: false)
-        XCTAssertEqual(state.label, SourceVocabulary.statusOfflineLabel)
-        XCTAssertNotEqual(state.label, ConnectionSyncStatus.unreachable.statusLine)
     }
 
     func testConnectingDotStaysCalmAndSecondary() throws {
@@ -95,9 +91,9 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
         switch status {
         case .connectedIdle, .connectedWaiting, .connectedTransferring:
             return hasBacklog ? .syncing : .caughtUp
-        case .connecting, .waitingForHome, .reconnecting:
+        case .connecting, .waitingForHome, .reconnecting, .unreachable:
             return .connecting
-        case .offline, .unreachable:
+        case .offline:
             return .offline
         }
     }
