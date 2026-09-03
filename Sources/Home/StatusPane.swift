@@ -34,6 +34,10 @@ struct StatusPane: View {
         self.appConfig.host
     }
 
+    private var showsConnectionDetails: Bool {
+        self.appConfig.isPaired && self.tunnelManager.state.isConnected
+    }
+
     private var probeDisplay: String? {
         guard let checkedAt = self.probeCheckedAt else { return nil }
         let secondsAgo = Date().timeIntervalSince(checkedAt)
@@ -132,6 +136,15 @@ struct StatusPane: View {
         )
     }
 
+    private var statusRegionID: String {
+        switch self.pillState {
+        case .caughtUp, .syncing:
+            "shell.pane.status.connected"
+        case .connecting, .offline, .notPaired:
+            "shell.pane.status.degraded"
+        }
+    }
+
     /// Offline says only where the material is — `on this device` — and never that it
     /// is safe: the app adds no protection of its own, so a safety claim would be
     /// asserting something we do not supply.
@@ -139,6 +152,7 @@ struct StatusPane: View {
         switch self.pillState {
         case .syncing: SourceVocabulary.syncingToYourJournal
         case .caughtUp: SourceVocabulary.connectedLabel
+        case .connecting: SourceVocabulary.statusConnectingLabel
         case .offline: SourceVocabulary.heldOnThisDevice
         case .notPaired: SourceVocabulary.dayLocalityNoJournal
         }
@@ -158,6 +172,7 @@ struct StatusPane: View {
         switch self.pillState {
         case .notPaired: SourceVocabulary.dayLocalityNoJournal
         case .offline: SourceVocabulary.heldOnThisDevice
+        case .connecting: SourceVocabulary.statusConnectingLabel
         case .caughtUp, .syncing: SourceVocabulary.syncedHeadline
         }
     }
@@ -214,13 +229,12 @@ struct StatusPane: View {
             self.leadSection
             self.whatIsWaitingSection
             Section {
-                let region = statusPaneRegion(self.connectionSyncModel.status)
-                Text(region.value)
+                Text(self.pillState.label)
                     .font(.body.weight(.semibold))
-                    .accessibilityIdentifier(region.id)
-                    .accessibilityValue(region.value)
+                    .accessibilityIdentifier(self.statusRegionID)
+                    .accessibilityValue(self.pillState.label)
 
-                if self.appConfig.isPaired {
+                if self.showsConnectionDetails {
                     LabeledContent(
                         "method",
                         value: self.shellStatusContext.via == .lan ? "local network" : "remote journal"

@@ -17,6 +17,18 @@ func uploadTotals(
 }
 
 @MainActor
+func captureUploadTotals(
+    mobileSegment: MobileSegmentTransferHolder,
+    omi: OmiUploaderHolder,
+    watch: WatchUploaderHolder
+) -> (failed: Int, pending: Int) {
+    (
+        failed: mobileSegment.failedCount + omi.failedCount + watch.failedCount,
+        pending: mobileSegment.pendingCount + omi.pendingCount + watch.pendingCount
+    )
+}
+
+@MainActor
 func confirmedTransferCount(
     mobileSegment: MobileSegmentTransferHolder,
     omi: OmiUploaderHolder,
@@ -118,5 +130,18 @@ func lastSyncedAt(
         omi.lastUploadAt,
         watch.lastUploadAt,
         share.lastUploadAt,
+    ])
+}
+
+@MainActor
+func lastCaptureSyncedAt(
+    mobileSegment: MobileSegmentTransferHolder,
+    omi: OmiUploaderHolder,
+    watch: WatchUploaderHolder
+) -> Date? {
+    lastSyncedAt([
+        mobileSegment.lastUploadAt,
+        omi.lastUploadAt,
+        watch.lastUploadAt,
     ])
 }

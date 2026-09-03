@@ -14,23 +14,3 @@ nonisolated enum WatchAwareBacklog: Equatable, Sendable {
         }
     }
 }
-
-nonisolated func watchAwareBacklog(
-    phoneLocalCount: Int,
-    session: WatchSessionReadiness,
-    waiting: WatchSideWaiting
-) -> WatchAwareBacklog {
-    let phoneLocalCount = max(0, phoneLocalCount)
-    guard case .activated(.installedActive) = session else {
-        return .known(phoneLocalCount)
-    }
-
-    switch waiting {
-    case .reported(let count, .fresh):
-        return .known(phoneLocalCount + max(0, count))
-    case .reported(_, .stale(let asOf, _)):
-        return .partiallyUnknown(known: phoneLocalCount, asOf: asOf)
-    case .unknown:
-        return .partiallyUnknown(known: phoneLocalCount, asOf: nil)
-    }
-}

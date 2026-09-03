@@ -246,11 +246,10 @@ struct DiagnosticsView: View {
             } else {
                 self.lastReconcileKey = nil
             }
-            self.lastSynced = lastSyncedAt(
+            self.lastSynced = lastCaptureSyncedAt(
                 mobileSegment: self.mobileSegmentTransferHolder,
                 omi: self.omiUploaderHolder,
-                watch: self.watchUploaderHolder,
-                share: self.shareTransferHolder
+                watch: self.watchUploaderHolder
             )
             try? await Task.sleep(for: .seconds(1))
         }

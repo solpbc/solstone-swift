@@ -25,6 +25,27 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         super.tearDown()
     }
 
+    func testLastCaptureSyncedAtExcludesRecentShareDelivery() {
+        let zeroSurfaces = self.makeZeroUploadSurfaces()
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("capture-only-transfer", isDirectory: true)
+        )
+        let shareDelivery = Date(timeIntervalSince1970: 1_780_480_800)
+        zeroSurfaces.shareHolder.store.lastDeliveredAt = shareDelivery
+
+        XCTAssertNil(lastCaptureSyncedAt(
+            mobileSegment: zeroSurfaces.mobileSegmentHolder,
+            omi: harness.omi,
+            watch: harness.watch
+        ))
+        XCTAssertEqual(lastSyncedAt(
+            mobileSegment: zeroSurfaces.mobileSegmentHolder,
+            omi: harness.omi,
+            watch: harness.watch,
+            share: zeroSurfaces.shareHolder
+        ), shareDelivery)
+    }
+
     func testAC8RealEngineStateFeedsAllOmiAndWatchConsumerSurfaces() async throws {
         let clock = FakeTransferClock(wall: Date(timeIntervalSince1970: 1_780_480_800))
         let responses = OSAllocatedUnfairLock<[UUID: RoutedTransferResponse]>(initialState: [:])

@@ -454,25 +454,13 @@ private extension DayHomeView {
         )
     }
 
-    var statusLine: String {
-        if !self.appConfig.isPaired {
-            return SourceVocabulary.dayLocalityNoJournal
-        }
-        return self.connectionSyncModel.status.statusLine
-    }
-
     var backlogCount: WatchAwareBacklog {
-        let totals = uploadTotals(
+        let totals = captureUploadTotals(
             mobileSegment: self.mobileSegmentTransferHolder,
             omi: self.omiUploaderHolder,
-            watch: self.watchUploaderHolder,
-            share: self.shareTransferHolder
+            watch: self.watchUploaderHolder
         )
-        return watchAwareBacklog(
-            phoneLocalCount: totals.pending + totals.failed,
-            session: self.watchPipelineAssembly.session,
-            waiting: self.watchPipelineAssembly.waiting.watch
-        )
+        return .known(totals.pending + totals.failed)
     }
 
     var statusPillState: HomeStatusPillState {
@@ -496,16 +484,16 @@ private extension DayHomeView {
     var statusPillAccessibilityValue: String {
         switch self.backlogCount {
         case .known(let count) where count > 0:
-            return "\(self.statusLine), \(count) \(SourceVocabulary.waitingToSync)"
+            return "\(self.statusPillState.label), \(count) \(SourceVocabulary.waitingToSync)"
         case .partiallyUnknown(let known, let asOf):
             let status = asOf.map {
                 SourceVocabulary.watchStatusAsOf(
                     WatchPipelineReducer.relativeText(secondsAgo: max(0, self.now.timeIntervalSince($0)))
                 )
             } ?? SourceVocabulary.watchStatusUnknownReason
-            return "\(self.statusLine), \(known) \(SourceVocabulary.waitingToSync), \(status)"
+            return "\(self.statusPillState.label), \(known) \(SourceVocabulary.waitingToSync), \(status)"
         case .known:
-            return self.statusLine
+            return self.statusPillState.label
         }
     }
 

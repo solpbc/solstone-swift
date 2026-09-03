@@ -97,10 +97,3 @@ nonisolated func isJournalReachable(_ status: ConnectionSyncStatus) -> Bool {
         return false
     }
 }
-
-nonisolated func statusPaneRegion(_ status: ConnectionSyncStatus) -> (id: String, value: String) {
-    if isJournalReachable(status) {
-        return ("shell.pane.status.connected", status.statusLine)
-    }
-    return ("shell.pane.status.degraded", status.statusLine)
-}

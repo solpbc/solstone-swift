@@ -323,10 +323,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
         XCTAssertTrue(connected.waitForExistence(timeout: 10))
         XCTAssertFalse(app.descendants(matching: .any)["shell.pane.status.degraded"].exists)
         let value = (connected.value as? String) ?? connected.label
-        XCTAssertTrue(
-            value.contains("connected"),
-            value
-        )
+        XCTAssertEqual(value, "syncing")
         XCTAssertNotEqual(value, "0")
     }
 }

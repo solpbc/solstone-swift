@@ -171,10 +171,12 @@ nonisolated enum SourceVocabulary {
     static let screencastFinalizeFailedText = "screen video could not be saved"
     static let screencastPointerFailedText = "screen could not connect to this journal"
 
-    // The status pill resolves to one of four states and names it in one word or
+    // The status pill resolves to one of five states and names it in one word or
     // phrase. `connected · syncing` was two of those states at once.
     static let connectedLabel = "connected"
     static let syncingLabel = "syncing"
+    static let statusConnectingLabel = "connecting…"
+    static let statusOfflineLabel = "offline"
 
     static let addMoreTitle = "add more"
     static let addMoreSubline = "sources and devices"

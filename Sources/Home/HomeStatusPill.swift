@@ -3,19 +3,21 @@
 
 import SwiftUI
 
-/// The status pill's four states, per the shell contract.
+/// The status pill's five states, per the shell contract.
 ///
 /// The shipped pill rendered `connectionSyncStatus.statusLine` verbatim, which for a
-/// transferring connection reads `connected · syncing` — two of the four states at
-/// once, and the word `connected` doing no work next to `syncing`. Here the pill
+/// transferring connection reads `connected · syncing` — two statuses at once, and
+/// the word `connected` doing no work next to `syncing`. Here the pill
 /// resolves to exactly one state and leads with the count while there is one.
 nonisolated enum HomeStatusPillState: Equatable, Sendable {
     /// A journal, reachable, nothing waiting.
     case caughtUp
-    /// Material is moving or queued to move. Carries the count.
+    /// Material is moving or queued to move.
     case syncing
-    /// No route to the journal right now. Carries what is held on the device.
-    case offline(line: String)
+    /// Connecting or reconnecting to the journal.
+    case connecting
+    /// No route to the journal right now.
+    case offline
     /// No journal yet.
     case notPaired
 
@@ -28,8 +30,10 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
         switch status {
         case .connectedIdle, .connectedWaiting, .connectedTransferring:
             return hasBacklog ? .syncing : .caughtUp
-        case .offline, .connecting, .waitingForHome, .reconnecting, .unreachable:
-            return .offline(line: status.statusLine)
+        case .connecting, .waitingForHome, .reconnecting:
+            return .connecting
+        case .offline, .unreachable:
+            return .offline
         }
     }
 
@@ -37,7 +41,8 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
         switch self {
         case .caughtUp: SourceVocabulary.connectedLabel
         case .syncing: SourceVocabulary.syncingLabel
-        case .offline(let line): line
+        case .connecting: SourceVocabulary.statusConnectingLabel
+        case .offline: SourceVocabulary.statusOfflineLabel
         case .notPaired: SourceVocabulary.dayLocalityNoJournal
         }
     }
@@ -78,7 +83,7 @@ struct HomeStatusDot: View {
         switch self.state {
         case .caughtUp: .solSavedGreen
         case .syncing: .solOrange
-        case .offline, .notPaired: .secondary
+        case .connecting, .offline, .notPaired: .secondary
         }
     }
 }
