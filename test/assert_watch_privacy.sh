@@ -30,11 +30,28 @@ import json
 import os
 import sys
 
+# NSPrivacyAccessedAPITypes is intentionally non-empty (CLO-reviewed, req_2vsv66ig,
+# 2026-09-04): FileTimestamp/UserDefaults reads in WatchCaptureProtocols.swift,
+# WatchCaptureStorageActor.swift, and WatchSourceFacts.swift. A change to this list
+# needs the same review, not a silent edit to make the assertion pass.
 checks = [
     ("NSPrivacyTracking", json.loads(os.environ["TRACKING_JSON"]), False),
     ("NSPrivacyTrackingDomains", json.loads(os.environ["TRACKING_DOMAINS_JSON"]), []),
     ("NSPrivacyCollectedDataTypes", json.loads(os.environ["COLLECTED_DATA_JSON"]), []),
-    ("NSPrivacyAccessedAPITypes", json.loads(os.environ["ACCESSED_API_JSON"]), []),
+    (
+        "NSPrivacyAccessedAPITypes",
+        json.loads(os.environ["ACCESSED_API_JSON"]),
+        [
+            {
+                "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryFileTimestamp",
+                "NSPrivacyAccessedAPITypeReasons": ["C617.1"],
+            },
+            {
+                "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+                "NSPrivacyAccessedAPITypeReasons": ["CA92.1"],
+            },
+        ],
+    ),
 ]
 
 for key, actual, expected in checks:
