@@ -203,7 +203,16 @@ private struct NetworkStatusPayload: Decodable, Sendable {
 
 @Observable
 final class TunnelManager {
-    var state: TunnelState = .disconnected
+    var state: TunnelState = .disconnected {
+        didSet {
+            if case .connected(let port, _) = state {
+                journalVersion?.connected(localPort: port)
+            } else {
+                journalVersion?.disconnected()
+            }
+        }
+    }
+    @ObservationIgnored private let journalVersion: JournalVersionMetadata?
     @ObservationIgnored private let transport: any Transporting
     @ObservationIgnored private let endpointCache: EndpointCache
     @ObservationIgnored private let pathMonitor: PathMonitor
@@ -289,7 +298,8 @@ final class TunnelManager {
         ),
         random: @escaping @Sendable (ClosedRange<Double>) -> Double = { Double.random(in: $0) },
         activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        journalVersion: JournalVersionMetadata? = nil
     ) {
         self.transport = transport ?? CFTunnelTransport()
         self.endpointCache = endpointCache
@@ -308,6 +318,7 @@ final class TunnelManager {
         // why: spl-swift prescribes the reconnect table; the app only schedules the chosen step.
         self.reconnectBackoff = ReconnectBackoff(schedule: .default, random: random)
         self.diagnosticLog = diagnosticLog
+        self.journalVersion = journalVersion
     }
 
     var activeConnection: (port: Int, epoch: UInt64)? {

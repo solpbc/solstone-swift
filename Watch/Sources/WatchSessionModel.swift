@@ -10,7 +10,10 @@ private let watchAppLog = Logger(subsystem: "app.solstone.swift", category: "wat
 @MainActor
 @Observable
 final class WatchSessionModel {
-    var isReachable = false
+    let journalVersion = WatchJournalVersionState()
+    var isReachable = false {
+        didSet { if !isReachable { journalVersion.disconnected() } }
+    }
 
     @ObservationIgnored var onReachableRepublish: (@MainActor () -> Void)?
     @ObservationIgnored private let session: any WatchConnectivitySession
@@ -20,6 +23,19 @@ final class WatchSessionModel {
         self.session = session
         self.relaySender = relaySender
         self.isReachable = session.isReachable
+        self.session.onReceiveApplicationContext = { [weak self] context in
+            if let data = context[WatchJournalVersionPayload.contextKey] as? Data {
+                self?.journalVersion.receive(data, live: false)
+            }
+        }
+        let previousUserInfo = self.session.onReceiveUserInfo
+        self.session.onReceiveUserInfo = { [weak self] info in
+            if let data = info[WatchJournalVersionPayload.contextKey] as? Data {
+                self?.journalVersion.receive(data, live: self?.isReachable == true)
+            } else {
+                previousUserInfo?(info)
+            }
+        }
         self.session.onActivationChanged = { [weak self] didActivate in
             Task { @MainActor [weak self] in
                 self?.handleActivationChanged(didActivate)
@@ -45,11 +61,21 @@ final class WatchSessionModel {
 }
 
 private extension WatchSessionModel {
+    func requestJournalVersion() {
+        guard isReachable else { return }
+        let nonce = journalVersion.beginReachableSession()
+        session.sendMessage([WatchJournalVersionPayload.requestKey: nonce])
+    }
+
     func handleActivationChanged(_ didActivate: Bool) {
         self.isReachable = self.session.isReachable
         let detail = didActivate ? "completed" : "failed"
         watchAppLog.info("watch app: activation \(detail, privacy: .public)")
         if didActivate {
+            if let data = session.receivedApplicationContext[WatchJournalVersionPayload.contextKey] as? Data {
+                journalVersion.receive(data, live: false)
+            }
+            requestJournalVersion()
             Task { @MainActor in
                 await self.relaySender?.requestDrain(trigger: .connectivityActivation)
             }
@@ -62,6 +88,7 @@ private extension WatchSessionModel {
         let detail = isReachable ? "reachable" : "not reachable"
         watchAppLog.info("watch app: reachability \(detail, privacy: .public)")
         if isReachable {
+            requestJournalVersion()
             Task { @MainActor in
                 await self.relaySender?.requestDrain(trigger: .connectivityReachability)
             }

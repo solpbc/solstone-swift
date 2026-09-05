@@ -264,7 +264,8 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
             watchConnectivityLog.error("watch connectivity application context unavailable")
             return
         }
-        try session.updateApplicationContext(applicationContext)
+        let merged = session.applicationContext.merging(applicationContext) { _, new in new }
+        try session.updateApplicationContext(merged)
     }
 
     nonisolated func session(

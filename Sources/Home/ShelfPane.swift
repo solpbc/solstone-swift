@@ -520,7 +520,7 @@ struct AboutPane: View {
     }
 
     private var server: String {
-        self.appConfig.serverVersion.isEmpty ? "unknown" : self.appConfig.serverVersion
+        self.appConfig.journalVersion.displayValue
     }
 
     private var owner: String {

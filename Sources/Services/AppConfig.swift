@@ -16,7 +16,8 @@ final class AppConfig {
     var journalRoot: String
     var ownerIdentity: String
     var deviceID: String
-    var serverVersion: String
+    let journalVersion: JournalVersionMetadata
+    var serverVersion: String { journalVersion.version ?? "" }
     var isPaired: Bool
     var homeLabel: String
     var caFingerprintHex: String
@@ -36,7 +37,8 @@ final class AppConfig {
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
         endpointCache: EndpointCache = EndpointCache(),
         appGroupMirror: AppGroupMirror = AppGroupMirror(),
-        journalMarkStore: JournalMarkStore = JournalMarkStore()
+        journalMarkStore: JournalMarkStore = JournalMarkStore(),
+        journalVersion: JournalVersionMetadata = JournalVersionMetadata()
     ) {
         self.loadPairing = loadPairing
         self.savePairing = savePairing
@@ -44,12 +46,12 @@ final class AppConfig {
         self.endpointCache = endpointCache
         self.appGroupMirror = appGroupMirror
         self.journalMarkStore = journalMarkStore
+        self.journalVersion = journalVersion
         self.host = ""
         self.port = 22
         self.journalRoot = ""
         self.ownerIdentity = ""
         self.deviceID = ""
-        self.serverVersion = ""
         self.isPaired = false
         self.homeLabel = ""
         self.caFingerprintHex = ""
@@ -60,6 +62,7 @@ final class AppConfig {
             if let pairing = try loadPairing() {
                 self.applyDerivedState(from: pairing)
             } else {
+                self.journalVersion.clear()
                 self.appGroupMirror.clearPairing()
             }
         } catch {
@@ -70,6 +73,7 @@ final class AppConfig {
 
     func applyPairing(_ pairing: StoredPairing) throws {
         try self.savePairing(pairing)
+        self.journalVersion.clear()
         self.applyDerivedState(from: pairing)
         Task {
             await self.endpointCache.bootstrap(from: pairing)
@@ -78,6 +82,7 @@ final class AppConfig {
     }
 
     func clearPairing() {
+        self.journalVersion.clear()
         do {
             try self.deletePairing()
         } catch {
@@ -92,7 +97,6 @@ final class AppConfig {
         self.journalRoot = ""
         self.ownerIdentity = ""
         self.deviceID = ""
-        self.serverVersion = ""
         self.isPaired = false
         self.homeLabel = ""
         self.caFingerprintHex = ""
@@ -147,18 +151,17 @@ final class AppConfig {
         self.port = endpointPort
         self.loopbackPort = endpointPort
         self.deviceID = deviceID
-        self.serverVersion = "ui-test"
     }
 #endif
 
     private func applyDerivedState(from pairing: StoredPairing) {
+        self.journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
         let firstEndpoint = pairing.localEndpoints.first
         self.host = firstEndpoint?.host ?? URL(string: pairing.relayEndpoint)?.host ?? ""
         self.port = firstEndpoint?.port ?? URL(string: pairing.relayEndpoint)?.port ?? 443
         self.journalRoot = firstEndpoint.map { "http://127.0.0.1:\($0.port)" } ?? ""
         self.ownerIdentity = pairing.homeLabel
         self.deviceID = pairing.instanceID
-        self.serverVersion = ""
         self.isPaired = true
         self.homeLabel = pairing.homeLabel
         self.caFingerprintHex = Self.normalizedFingerprint(pairing.fingerprint)

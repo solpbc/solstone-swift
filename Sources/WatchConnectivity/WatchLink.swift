@@ -28,6 +28,24 @@ final class WatchLink {
     @ObservationIgnored private var lastRelayStuck = false
     @ObservationIgnored private var lastHandoffStuck = false
     @ObservationIgnored private var lastOrphanStuck = false
+    @ObservationIgnored var journalVersionProvider: (@MainActor () -> (String?, String?, Bool))?
+    @ObservationIgnored private var journalVersionNonce: String?
+
+    func publishJournalVersion() {
+        guard session.activationState == .activated,
+              let (identity, version, current) = journalVersionProvider?() else { return }
+        let defaults = UserDefaults.standard
+        let revision = defaults.integer(forKey: "sentJournalVersionRevision") + 1
+        defaults.set(revision, forKey: "sentJournalVersionRevision")
+        let payload = WatchJournalVersionPayload(revision: revision, identity: identity,
+                                                version: version, current: current,
+                                                nonce: journalVersionNonce)
+        guard let data = try? JSONEncoder().encode(payload) else { return }
+        let context: [String: Any] = [WatchJournalVersionPayload.contextKey: data]
+        do { try session.updateApplicationContext(context) }
+        catch { watchLog.debug("journal version context unavailable") }
+        if session.isReachable { session.sendMessage(context) }
+    }
 
     var lastReceivedAt: Date? {
         self.receiver?.lastReceivedAt
@@ -69,6 +87,15 @@ final class WatchLink {
         self.session.onWatchStateChanged = { [weak self] in
             Task { @MainActor [weak self] in
                 self?.refreshWatchState()
+            }
+        }
+        let previousUserInfo = self.session.onReceiveUserInfo
+        self.session.onReceiveUserInfo = { [weak self] info in
+            if let nonce = info[WatchJournalVersionPayload.requestKey] as? String {
+                self?.journalVersionNonce = nonce
+                self?.publishJournalVersion()
+            } else {
+                previousUserInfo?(info)
             }
         }
         self.session.onReceiveApplicationContext = { [weak self] applicationContext in
@@ -160,10 +187,13 @@ private extension WatchLink {
         watchLog.info("watch: activation \(detail, privacy: .public)")
         self.activationFailed = !didActivate
         self.refreshWatchState()
+        if didActivate { self.publishJournalVersion() }
     }
 
     func handleReachabilityChanged(_ isReachable: Bool) {
         self.isReachable = isReachable
+        if !isReachable { self.journalVersionNonce = nil }
+        self.publishJournalVersion()
         let detail = isReachable ? "reachable" : "not reachable"
         watchLog.info("watch: reachability \(detail, privacy: .public)")
     }

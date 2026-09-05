@@ -38,6 +38,11 @@ struct WatchHomeView: View {
                         .foregroundStyle(self.secondaryTextColor)
                     }
 
+                    Text("journal version \(self.model.journalVersion.displayValue)")
+                        .font(.caption2)
+                        .foregroundStyle(self.secondaryTextColor)
+                        .fixedSize(horizontal: false, vertical: true)
+
                     if let trustLine = face.trustLine {
                         Text(trustLine)
                             .font(.caption2)

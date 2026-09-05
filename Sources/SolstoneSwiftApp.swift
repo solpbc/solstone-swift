@@ -345,6 +345,12 @@ struct SolstoneSwiftApp: App {
         let watchSegmentLedger = watchPipeline.watchSegmentLedger
         let phoneSessionHistoryStore = watchPipeline.phoneSessionHistoryStore
         let watchLink = watchPipeline.watchLink
+        watchLink.journalVersionProvider = { [metadata = appConfig.journalVersion] in
+            (metadata.identity, metadata.version, metadata.isCurrent)
+        }
+        appConfig.journalVersion.onChange = { [weak watchLink] in
+            watchLink?.publishJournalVersion()
+        }
         let shareImportStore = ShareImportStore(
             ledgerDropSink: { droppedCount in
                 log.append(
@@ -370,7 +376,8 @@ struct SolstoneSwiftApp: App {
                     share: shareTransferHolder
                 )
             },
-            diagnosticLog: log
+            diagnosticLog: log,
+            journalVersion: appConfig.journalVersion
         )
         let connectionSyncModel = ConnectionSyncModel(clock: observerClock) {
             let totals = uploadTotals(
