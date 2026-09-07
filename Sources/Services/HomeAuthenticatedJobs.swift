@@ -21,9 +21,11 @@ final class HomeAuthenticatedJobs {
     private var accessGeneration: UInt64 = 0
     private var activePort: Int?
 
-    private var pendingSnapshot: DeviceDescriptionSnapshot?
-    private var pendingAccessTrigger = false
-    private var pendingDurableClear: (pairingGen: UInt64, mutationGen: UInt64)?
+    private var inFlightSnapshot: DeviceDescriptionSnapshot?
+    private var pendingFollowUpSnapshot: DeviceDescriptionSnapshot?
+
+    private var isAccessInFlight = false
+    private var pendingAccessFollowUp = false
 
     private var metadataTask: Task<Void, Never>?
     private var accessTask: Task<Void, Never>?
@@ -47,22 +49,27 @@ final class HomeAuthenticatedJobs {
         self.journalVersion.noteConnected(localPort: localPort)
 
         let snapshot = self.snapshotProvider()
-        self.pendingSnapshot = snapshot
 
-        // Start or coalesce Metadata Publication Job
+        // Metadata publication lane: single in-flight + at most one pending follow-up
         if self.metadataTask == nil {
             self.metadataGeneration &+= 1
             let gen = self.metadataGeneration
-            self.startMetadataJob(localPort: localPort, generation: gen)
+            self.inFlightSnapshot = snapshot
+            self.pendingFollowUpSnapshot = nil
+            self.startMetadataLane(localPort: localPort, generation: gen)
+        } else {
+            self.pendingFollowUpSnapshot = snapshot
         }
 
-        // Start or coalesce Relay Access Job
+        // Relay access lane: single in-flight + at most one pending follow-up
         if self.accessTask == nil {
             self.accessGeneration &+= 1
             let gen = self.accessGeneration
-            self.startAccessJob(localPort: localPort, generation: gen)
+            self.isAccessInFlight = true
+            self.pendingAccessFollowUp = false
+            self.startAccessLane(localPort: localPort, generation: gen)
         } else {
-            self.pendingAccessTrigger = true
+            self.pendingAccessFollowUp = true
         }
     }
 
@@ -70,241 +77,293 @@ final class HomeAuthenticatedJobs {
         self.metadataGeneration &+= 1
         self.accessGeneration &+= 1
         self.activePort = nil
-        self.pendingSnapshot = nil
-        self.pendingAccessTrigger = false
+        self.inFlightSnapshot = nil
+        self.pendingFollowUpSnapshot = nil
+        self.isAccessInFlight = false
+        self.pendingAccessFollowUp = false
         self.metadataTask?.cancel()
         self.metadataTask = nil
         self.accessTask?.cancel()
         self.accessTask = nil
     }
 
-    private func startMetadataJob(localPort: Int, generation: UInt64) {
+    private func raceWorkAgainstDeadline(
+        until deadlineClock: ContinuousClock.Instant,
+        work: @escaping @MainActor () async -> Void
+    ) async -> Bool {
+        let workTask = Task { @MainActor in
+            await work()
+        }
+        let finishedBeforeDeadline = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
+            let lock = NSLock()
+            var resumed = false
+            func resumeOnce(_ value: Bool) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !resumed else { return }
+                resumed = true
+                cont.resume(returning: value)
+            }
+            Task {
+                await workTask.value
+                resumeOnce(true)
+            }
+            Task {
+                try? await Task.sleep(until: deadlineClock, clock: ContinuousClock())
+                resumeOnce(false)
+            }
+        }
+        if !finishedBeforeDeadline {
+            workTask.cancel()
+            // do not await workTask
+        }
+        return finishedBeforeDeadline
+    }
+
+    private func startMetadataLane(localPort: Int, generation: UInt64) {
         self.metadataTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let deadline = self.deadline
 
-            let workTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-                while !Task.isCancelled,
-                      self.metadataGeneration == generation && self.activePort == localPort,
-                      let snapshot = self.pendingSnapshot {
-                    self.pendingSnapshot = nil
-                    await self.executeMetadataPublication(snapshot: snapshot, localPort: localPort, generation: generation)
+            for pass in 0..<2 {
+                guard !Task.isCancelled, self.metadataGeneration == generation, self.activePort == localPort else { break }
+                let currentSnapshot: DeviceDescriptionSnapshot
+                if pass == 0 {
+                    guard let snap = self.inFlightSnapshot else { break }
+                    currentSnapshot = snap
+                } else {
+                    guard let followUp = self.pendingFollowUpSnapshot else { break }
+                    self.inFlightSnapshot = followUp
+                    self.pendingFollowUpSnapshot = nil
+                    currentSnapshot = followUp
+                }
+
+                let deadlineClock = ContinuousClock.now + self.deadline
+
+                let finishedBeforeDeadline = await self.raceWorkAgainstDeadline(until: deadlineClock) { [weak self] in
+                    guard let self else { return }
+                    await self.executeMetadataPublication(
+                        snapshot: currentSnapshot,
+                        localPort: localPort,
+                        generation: generation,
+                        deadlineClock: deadlineClock
+                    )
+                }
+
+                if !finishedBeforeDeadline {
+                    break
                 }
             }
 
-            let completedNaturally = await withTaskCancellationHandler {
-                await withTaskGroup(of: Bool.self) { group in
-                    group.addTask {
-                        _ = await workTask.result
-                        return true
-                    }
-                    group.addTask {
-                        try? await Task.sleep(for: deadline)
-                        return false
-                    }
-                    let first = await group.next() ?? false
-                    group.cancelAll()
-                    return first
-                }
-            } onCancel: {
-                workTask.cancel()
-            }
-
-            guard self.metadataGeneration == generation, self.activePort == localPort else {
-                return
-            }
-
+            guard self.metadataGeneration == generation, self.activePort == localPort else { return }
             self.metadataTask = nil
-            if !completedNaturally {
-                workTask.cancel()
-                self.metadataGeneration &+= 1
-            }
-            if self.pendingSnapshot != nil, let currentPort = self.activePort {
-                if completedNaturally {
-                    self.metadataGeneration &+= 1
-                }
-                let currentGen = self.metadataGeneration
-                self.startMetadataJob(localPort: currentPort, generation: currentGen)
-            }
+            self.inFlightSnapshot = nil
         }
     }
 
     private func executeMetadataPublication(
         snapshot: DeviceDescriptionSnapshot,
         localPort: Int,
-        generation: UInt64
+        generation: UInt64,
+        deadlineClock: ContinuousClock.Instant
     ) async {
-        let client = self.client
-        let deadline = self.deadline
+        let snap = self.store.snapshot()
+        guard let pairingIdentity = snap.pairingIdentity else { return }
+        let preFetchPairingGen = snap.pairingGeneration
 
-        let fetchResult = await client.fetchClientsSelf(localPort: localPort, timeout: deadline)
-        guard self.metadataGeneration == generation, self.activePort == localPort else {
-            return
-        }
+        var remaining = deadlineClock - ContinuousClock.now
+        guard remaining > .zero else { return }
+
+        let client = self.client
+        let fetchResult = await client.fetchClientsSelf(localPort: localPort, timeout: remaining)
+        guard !Task.isCancelled, self.metadataGeneration == generation, self.activePort == localPort else { return }
+        let postFetchSnap = self.store.snapshot()
+        guard postFetchSnap.pairingIdentity == pairingIdentity, postFetchSnap.pairingGeneration == preFetchPairingGen else { return }
 
         switch fetchResult {
         case .success(let resource):
-            if let journal = resource.journal {
-                self.journalVersion.applyValidated(name: journal.name, version: journal.version)
-            }
+            self.journalVersion.applyValidated(
+                name: resource.journal.name,
+                version: resource.journal.version,
+                pairingIdentity: pairingIdentity,
+                isClientsSelfUpdate: true
+            )
 
             let localReported = snapshot.asReported()
             if resource.reported == localReported {
-                // Unchanged snapshot; skip PUT
                 return
             }
+
+            remaining = deadlineClock - ContinuousClock.now
+            guard remaining > .zero else { return }
 
             let payload = ClientsSelfPutPayload(expectedRevision: resource.revision, reported: localReported)
-            let putResult = await client.putClientsSelf(localPort: localPort, payload: payload, timeout: deadline)
-            guard self.metadataGeneration == generation, self.activePort == localPort else {
-                return
-            }
+            let putResult = await client.putClientsSelf(localPort: localPort, payload: payload, timeout: remaining)
+            guard !Task.isCancelled, self.metadataGeneration == generation, self.activePort == localPort else { return }
+            let postPutSnap = self.store.snapshot()
+            guard postPutSnap.pairingIdentity == pairingIdentity, postPutSnap.pairingGeneration == preFetchPairingGen else { return }
 
-            if case .conflict = putResult {
-                // Stale revision: reread GET and retry PUT at most once with newest local snapshot
-                let refetchResult = await client.fetchClientsSelf(localPort: localPort, timeout: deadline)
-                guard self.metadataGeneration == generation, self.activePort == localPort else {
-                    return
-                }
+            switch putResult {
+            case .success(let putResource):
+                self.journalVersion.applyValidated(
+                    name: putResource.journal.name,
+                    version: putResource.journal.version,
+                    pairingIdentity: pairingIdentity,
+                    isClientsSelfUpdate: true
+                )
+
+            case .conflict:
+                remaining = deadlineClock - ContinuousClock.now
+                guard remaining > .zero else { return }
+
+                let refetchResult = await client.fetchClientsSelf(localPort: localPort, timeout: remaining)
+                guard !Task.isCancelled, self.metadataGeneration == generation, self.activePort == localPort else { return }
+                let postRefetchSnap = self.store.snapshot()
+                guard postRefetchSnap.pairingIdentity == pairingIdentity, postRefetchSnap.pairingGeneration == preFetchPairingGen else { return }
+
                 if case .success(let newResource) = refetchResult {
-                    if let journal = newResource.journal {
-                        self.journalVersion.applyValidated(name: journal.name, version: journal.version)
-                    }
-                    let latestSnapshot = self.pendingSnapshot ?? snapshot
-                    self.pendingSnapshot = nil
+                    self.journalVersion.applyValidated(
+                        name: newResource.journal.name,
+                        version: newResource.journal.version,
+                        pairingIdentity: pairingIdentity,
+                        isClientsSelfUpdate: true
+                    )
+
+                    let latestSnapshot = self.pendingFollowUpSnapshot ?? snapshot
+                    self.pendingFollowUpSnapshot = nil
                     let retryPayload = ClientsSelfPutPayload(expectedRevision: newResource.revision, reported: latestSnapshot.asReported())
-                    _ = await client.putClientsSelf(localPort: localPort, payload: retryPayload, timeout: deadline)
+
+                    remaining = deadlineClock - ContinuousClock.now
+                    guard remaining > .zero else { return }
+
+                    let retryPutResult = await client.putClientsSelf(localPort: localPort, payload: retryPayload, timeout: remaining)
+                    guard !Task.isCancelled, self.metadataGeneration == generation, self.activePort == localPort else { return }
+                    guard self.store.snapshot().pairingIdentity == pairingIdentity else { return }
+
+                    if case .success(let finalResource) = retryPutResult {
+                        self.journalVersion.applyValidated(
+                            name: finalResource.journal.name,
+                            version: finalResource.journal.version,
+                            pairingIdentity: pairingIdentity,
+                            isClientsSelfUpdate: true
+                        )
+                    }
                 }
+
+            case .notFound, .failed:
+                break
             }
 
-        case .notFound, .unsupported:
-            // Fallback for older home versions
-            let statusVersion = await client.fetchStatus(localPort: localPort, timeout: deadline)
-            guard self.metadataGeneration == generation, self.activePort == localPort else {
-                return
-            }
+        case .notFound:
+            remaining = deadlineClock - ContinuousClock.now
+            guard remaining > .zero else { return }
+
+            let statusVersion = await client.fetchStatus(localPort: localPort, timeout: remaining)
+            guard !Task.isCancelled, self.metadataGeneration == generation, self.activePort == localPort else { return }
+            guard self.store.snapshot().pairingIdentity == pairingIdentity else { return }
+
             if let statusVersion {
-                self.journalVersion.applyValidated(name: nil, version: statusVersion)
+                self.journalVersion.applyValidated(
+                    name: nil,
+                    version: statusVersion,
+                    pairingIdentity: pairingIdentity,
+                    isClientsSelfUpdate: false
+                )
             }
 
-        case .conflict, .malformedOrFailed:
-            // Optional failure: keep last known metadata
+        case .unsupported, .conflict, .malformedOrFailed:
             break
         }
     }
 
-    private func startAccessJob(localPort: Int, generation: UInt64) {
+    private func startAccessLane(localPort: Int, generation: UInt64) {
         self.accessTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let deadline = self.deadline
 
-            let workTask = Task { @MainActor [weak self] in
-                guard let self else { return }
-                await self.executeRelayAccess(localPort: localPort, generation: generation)
-            }
-
-            let completedNaturally = await withTaskCancellationHandler {
-                await withTaskGroup(of: Bool.self) { group in
-                    group.addTask {
-                        _ = await workTask.result
-                        return true
-                    }
-                    group.addTask {
-                        try? await Task.sleep(for: deadline)
-                        return false
-                    }
-                    let first = await group.next() ?? false
-                    group.cancelAll()
-                    return first
+            for pass in 0..<2 {
+                guard !Task.isCancelled, self.accessGeneration == generation, self.activePort == localPort else { break }
+                if pass == 0 {
+                    guard self.isAccessInFlight else { break }
+                } else {
+                    guard self.pendingAccessFollowUp else { break }
+                    self.pendingAccessFollowUp = false
                 }
-            } onCancel: {
-                workTask.cancel()
+
+                let deadlineClock = ContinuousClock.now + self.deadline
+
+                let finishedBeforeDeadline = await self.raceWorkAgainstDeadline(until: deadlineClock) { [weak self] in
+                    guard let self else { return }
+                    await self.executeRelayAccess(
+                        localPort: localPort,
+                        generation: generation,
+                        deadlineClock: deadlineClock
+                    )
+                }
+
+                if !finishedBeforeDeadline {
+                    break
+                }
             }
 
-            guard self.accessGeneration == generation, self.activePort == localPort else {
-                return
-            }
-
+            guard self.accessGeneration == generation, self.activePort == localPort else { return }
             self.accessTask = nil
-            if !completedNaturally {
-                workTask.cancel()
-                self.accessGeneration &+= 1
-            }
-            if self.pendingAccessTrigger {
-                self.pendingAccessTrigger = false
-                if let currentPort = self.activePort {
-                    if completedNaturally {
-                        self.accessGeneration &+= 1
-                    }
-                    let currentGen = self.accessGeneration
-                    self.startAccessJob(localPort: currentPort, generation: currentGen)
-                }
-            }
+            self.isAccessInFlight = false
         }
     }
 
-    private func executeRelayAccess(localPort: Int, generation: UInt64) async {
-        // Retry any pending durable clear if generation and mutationGen still match
-        if let pending = self.pendingDurableClear,
-           pending.pairingGen == self.store.pairingGeneration,
-           pending.mutationGen == self.store.accessMutationGeneration {
-            do {
-                if try self.store.disableRelayAccess(pairingGen: pending.pairingGen, mutationGen: pending.mutationGen) {
-                    self.pendingDurableClear = nil
-                }
-            } catch {
-                // Keep pending clear
-            }
+    private func executeRelayAccess(
+        localPort: Int,
+        generation: UInt64,
+        deadlineClock: ContinuousClock.Instant
+    ) async {
+        let initialSnap = self.store.snapshot()
+        if case .uncommittedClear(let pGen, let mGen) = initialSnap.failedDurableClear {
+            _ = try? await self.store.retryDurableClear(pairingGen: pGen, mutationGen: mGen)
         }
+        guard !Task.isCancelled, self.accessGeneration == generation, self.activePort == localPort else { return }
+
+        let snap = self.store.snapshot()
+        guard let pairing = snap.pairing else { return }
+        let preFetchPairingGen = snap.pairingGeneration
+        let preFetchMutationGen = snap.accessMutationGeneration
+
+        let remaining = deadlineClock - ContinuousClock.now
+        guard remaining > .zero else { return }
 
         let client = self.client
-        let deadline = self.deadline
-        let fetchResult = await client.fetchRelayAccess(localPort: localPort, timeout: deadline)
+        let fetchResult = await client.fetchRelayAccess(
+            localPort: localPort,
+            expectedInstanceID: pairing.instanceID,
+            now: Date(),
+            timeout: remaining
+        )
 
-        guard self.accessGeneration == generation, self.activePort == localPort else {
-            return
-        }
+        guard !Task.isCancelled, self.accessGeneration == generation, self.activePort == localPort else { return }
 
-        let store = self.store
-        guard let pairing = try? store.load() else {
-            return
-        }
+        let currentSnap = self.store.snapshot()
+        guard currentSnap.pairingGeneration == preFetchPairingGen,
+              currentSnap.accessMutationGeneration == preFetchMutationGen,
+              currentSnap.pairing?.instanceID == pairing.instanceID
+        else { return }
 
         switch fetchResult {
-        case .ready(let payload):
-            guard RelayAccessClaims.validateReadyPayload(payload, pairedInstanceID: pairing.instanceID) else {
-                return
-            }
-            let pairingGen = store.pairingGeneration
-            let mutationGen = store.accessMutationGeneration
-            if (try? store.commitReadyAccess(
-                relayOrigin: payload.relayOrigin,
-                deviceToken: payload.deviceToken,
-                expiresAt: payload.expiresAt,
-                pairingGen: pairingGen,
-                mutationGen: mutationGen
-            )) == true {
-                self.pendingDurableClear = nil
-            }
+        case .ready(let ready):
+            _ = try? await self.store.commitReadyAccess(
+                relayOrigin: ready.relayOrigin.absoluteString,
+                deviceToken: ready.deviceToken,
+                expiresAt: ready.expiresAt,
+                pairingGen: preFetchPairingGen,
+                mutationGen: preFetchMutationGen
+            )
 
         case .notConfigured:
-            let pairingGen = store.pairingGeneration
-            let mutationGen = store.accessMutationGeneration
-            do {
-                if try store.disableRelayAccess(
-                    pairingGen: pairingGen,
-                    mutationGen: mutationGen
-                ) {
-                    self.pendingDurableClear = nil
-                }
-            } catch {
-                self.pendingDurableClear = (pairingGen: pairingGen, mutationGen: mutationGen)
-            }
+            _ = try? await self.store.disableRelayAccess(
+                pairingGen: preFetchPairingGen,
+                mutationGen: preFetchMutationGen
+            )
 
         case .unavailable, .notFound, .malformedOrFailed:
-            // Optional failure: retain existing access
             break
         }
     }
 }
+

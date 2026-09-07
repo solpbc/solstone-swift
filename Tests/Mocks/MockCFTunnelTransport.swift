@@ -34,6 +34,7 @@ final class MockCFTunnelTransport: Transporting {
     var suspendAfterAwaitingBroker = false
     var returnedPort: Int?
     var onDisconnectInvoked: (() -> Void)?
+    var onConnectInvoked: (@Sendable () async -> Void)?
     var inboundActivitySnapshotValue: UInt64 = 0
     var inboundActivitySnapshots: [UInt64] = []
     private var suspendedConnects: [Int: CheckedContinuation<Int, Error>] = [:]
@@ -45,6 +46,7 @@ final class MockCFTunnelTransport: Transporting {
         onDisconnect: @Sendable @escaping (Error?) -> Void,
         onStageChange: @Sendable @escaping (TransportStage) -> Void
     ) async throws -> Int {
+        await onConnectInvoked?()
         connectCallCount += 1
         let attempt = connectCallCount
         operations.append(.connect(attempt))

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import SPLTunnel
 
 nonisolated final class JournalVersionRedirectDelegate: NSObject, URLSessionTaskDelegate {
     func urlSession(
@@ -30,6 +31,30 @@ nonisolated struct ClientsSelfReported: Codable, Equatable, Sendable {
         case appVersion = "app_version"
     }
 
+    init(name: String? = nil, platform: String? = nil, deviceType: String? = nil, appID: String? = nil, appVersion: String? = nil) {
+        self.name = name
+        self.platform = platform
+        self.deviceType = deviceType
+        self.appID = appID
+        self.appVersion = appVersion
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.name),
+              container.contains(.platform),
+              container.contains(.deviceType),
+              container.contains(.appID),
+              container.contains(.appVersion) else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Missing required key in reported object"))
+        }
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.platform = try container.decodeIfPresent(String.self, forKey: .platform)
+        self.deviceType = try container.decodeIfPresent(String.self, forKey: .deviceType)
+        self.appID = try container.decodeIfPresent(String.self, forKey: .appID)
+        self.appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
+    }
+
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(self.name, forKey: .name)
@@ -42,7 +67,26 @@ nonisolated struct ClientsSelfReported: Codable, Equatable, Sendable {
 
 nonisolated struct ClientsSelfJournal: Codable, Equatable, Sendable {
     let name: String?
-    let version: String?
+    let version: String
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case version
+    }
+
+    init(name: String?, version: String) {
+        self.name = name
+        self.version = version
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.name), container.contains(.version) else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Missing required key in journal object"))
+        }
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.version = try container.decode(String.self, forKey: .version)
+    }
 }
 
 nonisolated struct ClientsSelfResource: Codable, Equatable, Sendable {
@@ -50,9 +94,9 @@ nonisolated struct ClientsSelfResource: Codable, Equatable, Sendable {
     let revision: Int
     let reported: ClientsSelfReported?
     let ownerLabel: String?
-    let displayLabel: String?
+    let displayLabel: String
     let updatedAt: String?
-    let journal: ClientsSelfJournal?
+    let journal: ClientsSelfJournal
 
     enum CodingKeys: String, CodingKey {
         case protocolVersion = "protocol_version"
@@ -62,6 +106,50 @@ nonisolated struct ClientsSelfResource: Codable, Equatable, Sendable {
         case displayLabel = "display_label"
         case updatedAt = "updated_at"
         case journal
+    }
+
+    init(
+        protocolVersion: Int = 1,
+        revision: Int,
+        reported: ClientsSelfReported?,
+        ownerLabel: String?,
+        displayLabel: String,
+        updatedAt: String?,
+        journal: ClientsSelfJournal
+    ) {
+        self.protocolVersion = protocolVersion
+        self.revision = revision
+        self.reported = reported
+        self.ownerLabel = ownerLabel
+        self.displayLabel = displayLabel
+        self.updatedAt = updatedAt
+        self.journal = journal
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        guard container.contains(.protocolVersion),
+              container.contains(.revision),
+              container.contains(.reported),
+              container.contains(.ownerLabel),
+              container.contains(.displayLabel),
+              container.contains(.updatedAt),
+              container.contains(.journal) else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Missing required key in ClientsSelfResource"))
+        }
+        self.protocolVersion = try container.decode(Int.self, forKey: .protocolVersion)
+        guard self.protocolVersion == 1 else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "protocol_version must be 1"))
+        }
+        self.revision = try container.decode(Int.self, forKey: .revision)
+        guard self.revision >= 0 else {
+            throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "revision must be >= 0"))
+        }
+        self.reported = try container.decodeIfPresent(ClientsSelfReported.self, forKey: .reported)
+        self.ownerLabel = try container.decodeIfPresent(String.self, forKey: .ownerLabel)
+        self.displayLabel = try container.decode(String.self, forKey: .displayLabel)
+        self.updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
+        self.journal = try container.decode(ClientsSelfJournal.self, forKey: .journal)
     }
 }
 
@@ -86,32 +174,14 @@ nonisolated enum ClientsSelfFetchResult: Sendable, Equatable {
 }
 
 nonisolated enum ClientsSelfPutResult: Sendable, Equatable {
-    case success
+    case success(ClientsSelfResource)
     case conflict
     case notFound
     case failed
 }
 
-nonisolated struct RelayAccessReadyPayload: Decodable, Sendable, Equatable {
-    let protocolVersion: Int
-    let status: String
-    let relayOrigin: String
-    let instanceID: String
-    let deviceToken: String
-    let expiresAt: String
-
-    enum CodingKeys: String, CodingKey {
-        case protocolVersion = "protocol_version"
-        case status
-        case relayOrigin = "relay_origin"
-        case instanceID = "instance_id"
-        case deviceToken = "device_token"
-        case expiresAt = "expires_at"
-    }
-}
-
 nonisolated enum RelayAccessFetchResult: Sendable, Equatable {
-    case ready(RelayAccessReadyPayload)
+    case ready(ReadyRelayAccess)
     case notConfigured
     case unavailable(Int)
     case notFound
@@ -145,6 +215,29 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         self.sessionFactory = sessionFactory ?? Self.defaultSessionFactory
     }
 
+    private static func fetchCappedData(for request: URLRequest, in session: URLSession) async throws -> (Data, HTTPURLResponse) {
+        let (asyncBytes, response) = try await session.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            asyncBytes.task.cancel()
+            throw URLError(.badServerResponse)
+        }
+        var data = Data()
+        data.reserveCapacity(min(4096, maxBodyBytes))
+        do {
+            for try await byte in asyncBytes {
+                data.append(byte)
+                if data.count > maxBodyBytes {
+                    asyncBytes.task.cancel()
+                    throw URLError(.dataLengthExceedsMaximum)
+                }
+            }
+        } catch {
+            asyncBytes.task.cancel()
+            throw error
+        }
+        return (data, httpResponse)
+    }
+
     func fetchStatus(localPort: Int, timeout: Duration = .seconds(5)) async -> String? {
         guard (1...65535).contains(localPort),
               let url = URL(string: "http://127.0.0.1:\(localPort)/api/system/status") else { return nil }
@@ -153,10 +246,8 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.timeInterval(for: timeout))
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         do {
-            let (data, response) = try await session.data(for: request)
-            guard data.count <= Self.maxBodyBytes,
-                  let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200,
+            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
+            guard httpResponse.statusCode == 200,
                   let status = try? JSONDecoder().decode(StatusEnvelope.self, from: data) else {
                 return nil
             }
@@ -176,15 +267,9 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.timeInterval(for: timeout))
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         do {
-            let (data, response) = try await session.data(for: request)
-            guard data.count <= Self.maxBodyBytes,
-                  let httpResponse = response as? HTTPURLResponse else {
-                return .malformedOrFailed
-            }
+            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
             if httpResponse.statusCode == 200 {
-                guard let resource = try? JSONDecoder().decode(ClientsSelfResource.self, from: data),
-                      resource.protocolVersion == 1,
-                      resource.revision >= 0 else {
+                guard let resource = try? JSONDecoder().decode(ClientsSelfResource.self, from: data) else {
                     return .malformedOrFailed
                 }
                 return .success(resource)
@@ -219,13 +304,12 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         }
         request.httpBody = encoded
         do {
-            let (data, response) = try await session.data(for: request)
-            guard data.count <= Self.maxBodyBytes,
-                  let httpResponse = response as? HTTPURLResponse else {
-                return .failed
-            }
+            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
             if httpResponse.statusCode == 200 || httpResponse.statusCode == 204 {
-                return .success
+                guard let resource = try? JSONDecoder().decode(ClientsSelfResource.self, from: data) else {
+                    return .failed
+                }
+                return .success(resource)
             } else if httpResponse.statusCode == 409 {
                 return .conflict
             } else if httpResponse.statusCode == 404 {
@@ -238,7 +322,12 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         }
     }
 
-    func fetchRelayAccess(localPort: Int, timeout: Duration = .seconds(5)) async -> RelayAccessFetchResult {
+    func fetchRelayAccess(
+        localPort: Int,
+        expectedInstanceID: String,
+        now: Date = Date(),
+        timeout: Duration = .seconds(5)
+    ) async -> RelayAccessFetchResult {
         guard (1...65535).contains(localPort),
               let url = URL(string: "http://127.0.0.1:\(localPort)/app/network/api/relay/access") else {
             return .malformedOrFailed
@@ -248,32 +337,17 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.timeInterval(for: timeout))
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         do {
-            let (data, response) = try await session.data(for: request)
-            guard data.count <= Self.maxBodyBytes,
-                  let httpResponse = response as? HTTPURLResponse else {
-                return .malformedOrFailed
-            }
+            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
             if httpResponse.statusCode == 200 {
-                guard let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                    return .malformedOrFailed
-                }
-                guard let protocolVersion = jsonObject["protocol_version"] as? Int, protocolVersion == 2,
-                      let status = jsonObject["status"] as? String else {
-                    return .malformedOrFailed
-                }
-                if status == "ready" {
-                    guard let ready = try? JSONDecoder().decode(RelayAccessReadyPayload.self, from: data) else {
-                        return .malformedOrFailed
+                do {
+                    let status = try RelayAccessValidation.decode(data, expectedInstanceID: expectedInstanceID, now: now)
+                    switch status {
+                    case .ready(let ready):
+                        return .ready(ready)
+                    case .notConfigured:
+                        return .notConfigured
                     }
-                    return .ready(ready)
-                } else if status == "not_configured" {
-                    // Exact match: only protocol_version and status keys allowed
-                    let keys = Set(jsonObject.keys)
-                    guard keys == Set(["protocol_version", "status"]) else {
-                        return .malformedOrFailed
-                    }
-                    return .notConfigured
-                } else {
+                } catch {
                     return .malformedOrFailed
                 }
             } else if httpResponse.statusCode == 503 {
@@ -297,3 +371,4 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         let revision: Int?
     }
 }
+

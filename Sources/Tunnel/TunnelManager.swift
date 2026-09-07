@@ -621,7 +621,9 @@ final class TunnelManager {
 
         let task = Task { [weak self] in
             guard let self else { return }
-            let attemptPairingGen = self.store.pairingGeneration
+            let snap = self.store.snapshot()
+            let attemptPairingGen = snap.pairingGeneration
+            let attemptMutationGen = snap.accessMutationGeneration
             defer {
                 if self.isCurrentAttempt(epoch) {
                     self.connectTask = nil
@@ -635,10 +637,22 @@ final class TunnelManager {
                     return
                 }
 
+                let postSnap = self.store.snapshot()
+                guard postSnap.pairingGeneration == attemptPairingGen else {
+                    await self.transport.disconnect()
+                    return
+                }
+                let endpoint = self.endpoint(for: self.transport.connectionMode)
+                if endpoint == .remote {
+                    guard !postSnap.isLiveRelayDisabled, postSnap.accessMutationGeneration == attemptMutationGen else {
+                        await self.transport.disconnect()
+                        return
+                    }
+                }
+
                 self.cancelConnectWatchdog()
                 await Task.yield()
                 guard self.isCurrentAttempt(epoch) else { return }
-                let endpoint = self.endpoint(for: self.transport.connectionMode)
                 self.connectionEpoch += 1
                 let connectionEpoch = self.connectionEpoch
                 self.state = .connected(localPort: localPort, via: endpoint)
@@ -697,11 +711,11 @@ final class TunnelManager {
                 if tunnelError == .revoked {
 #if DEBUG && targetEnvironment(simulator)
                     if self.integrationGateRelayOnlyCandidatePolicy == nil {
-                        _ = try? self.store.revokeIfCurrentGeneration(pairingGen: attemptPairingGen)
+                        _ = try? await self.store.revokeIfCurrentGeneration(pairingGen: attemptPairingGen, mutationGen: attemptMutationGen)
                         await self.endpointCache.wipe()
                     }
 #else
-                    _ = try? self.store.revokeIfCurrentGeneration(pairingGen: attemptPairingGen)
+                    _ = try? await self.store.revokeIfCurrentGeneration(pairingGen: attemptPairingGen, mutationGen: attemptMutationGen)
                     await self.endpointCache.wipe()
 #endif
                 }
@@ -828,23 +842,26 @@ final class TunnelManager {
     }
 
     private func refreshAfterAuthChallenge() async -> ReactiveTokenRefreshDecision {
-        let pairing: StoredPairing
-        do {
-            guard let loaded = try self.loadPairing() else {
-                return .revoked
-            }
-            pairing = loaded
-        } catch {
-            log.error("[solstone-swift] auth refresh load pairing failed: \(String(describing: error), privacy: .public)")
-            return .unreachable
+        let snap = self.store.snapshot()
+        guard let pairing = snap.pairing else {
+            return .revoked
         }
 
-        let capturedPairingGen = self.store.pairingGeneration
-        let capturedMutationGen = self.store.accessMutationGeneration
+        let capturedPairingGen = snap.pairingGeneration
+        let capturedMutationGen = snap.accessMutationGeneration
         switch await self.deviceTokenRefresher.refreshNow(pairing: pairing) {
         case .refreshed(let updated):
-            let persisted = (try? self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen)) ?? false
-            return persisted ? .retry(updated) : .retry(pairing)
+            let persisted = (try? await self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen)) ?? false
+            if persisted {
+                return .retry(updated)
+            } else {
+                let postSnap = self.store.snapshot()
+                if let currentPairing = postSnap.pairing {
+                    return .retry(currentPairing)
+                } else {
+                    return .unreachable
+                }
+            }
         case .notNeeded:
             // nothing-to-refresh (the reloaded pairing has no relay enrollment) must
             // never destroy the pairing — unreachable, not revoked.
@@ -852,6 +869,14 @@ final class TunnelManager {
         case .transientFailure:
             return .unreachable
         case .definitiveAuthFailure:
+            let postSnap = self.store.snapshot()
+            if postSnap.pairingGeneration != capturedPairingGen || postSnap.accessMutationGeneration != capturedMutationGen {
+                if let currentPairing = postSnap.pairing {
+                    return .retry(currentPairing)
+                } else {
+                    return .unreachable
+                }
+            }
             return .revoked
         }
     }
@@ -1385,45 +1410,63 @@ final class TunnelManager {
     }
 
     private func candidateList(pairingOverride: StoredPairing? = nil) async throws -> [TransportEndpoint] {
+        let initialSnap = self.store.snapshot()
         let pairing: StoredPairing
         if let pairingOverride {
             pairing = pairingOverride
         } else {
-            guard let loaded = try self.loadPairing() else {
+            guard let loaded = initialSnap.pairing else {
                 throw TunnelError.revoked
             }
             pairing = loaded
         }
 
-        let refreshedPairing: StoredPairing
-        if pairingOverride != nil {
-            refreshedPairing = pairing
-        } else {
-            let capturedPairingGen = self.store.pairingGeneration
-            let capturedMutationGen = self.store.accessMutationGeneration
+        if pairingOverride == nil {
+            let capturedPairingGen = initialSnap.pairingGeneration
+            let capturedMutationGen = initialSnap.accessMutationGeneration
             switch await self.deviceTokenRefresher.refreshIfNeeded(pairing: pairing, now: Date()) {
             case .refreshed(let updated):
-                let persisted = (try? self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen)) ?? false
-                refreshedPairing = persisted ? updated : pairing
-            case .notNeeded(let current), .transientFailure(let current):
-                refreshedPairing = current
+                let persisted = (try? await self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen)) ?? false
+                if !persisted {
+                    let postSnap = self.store.snapshot()
+                    guard postSnap.pairing != nil else {
+                        throw TunnelError.revoked
+                    }
+                }
+            case .notNeeded, .transientFailure:
+                break
             case .definitiveAuthFailure:
-                refreshedPairing = pairing
+                let postSnap = self.store.snapshot()
+                guard postSnap.pairing != nil else {
+                    throw TunnelError.revoked
+                }
             }
+        }
+
+        let cachedCandidates = await self.endpointCache.endpoints()
+        let post = self.store.snapshot()
+        let postPairing: StoredPairing
+        if let pairingOverride {
+            postPairing = pairingOverride
+        } else {
+            guard let latest = post.pairing else {
+                throw TunnelError.revoked
+            }
+            postPairing = latest
         }
 
         let bootstrapPairing: StoredPairing
 #if DEBUG && targetEnvironment(simulator)
         if let integrationGateRelayOnlyCandidatePolicy {
-            bootstrapPairing = integrationGateRelayOnlyCandidatePolicy.bootstrapPairing(from: refreshedPairing)
+            bootstrapPairing = integrationGateRelayOnlyCandidatePolicy.bootstrapPairing(from: postPairing)
         } else {
-            bootstrapPairing = refreshedPairing
+            bootstrapPairing = postPairing
         }
 #else
-        bootstrapPairing = refreshedPairing
+        bootstrapPairing = postPairing
 #endif
         let bootstrapCandidates = TransportEndpoint.candidates(for: bootstrapPairing)
-        let cachedCandidates = await self.endpointCache.endpoints()
+
 #if DEBUG && targetEnvironment(simulator)
         let effectiveCachedCandidates: [TransportEndpoint]
         if let integrationGateRelayOnlyCandidatePolicy {
@@ -1445,7 +1488,7 @@ final class TunnelManager {
             directCandidates.append(endpoint)
         }
         let relayCandidates: [TransportEndpoint]
-        if self.store.isLiveRelayDisabled {
+        if post.isLiveRelayDisabled {
             relayCandidates = []
         } else {
             relayCandidates = bootstrapCandidates.filter { endpoint in
@@ -1460,7 +1503,7 @@ final class TunnelManager {
 #if DEBUG && targetEnvironment(simulator)
         if integrationGateRelayOnlyCandidatePolicy != nil {
             self.integrationGateCandidateBuildSummary = IntegrationGateCandidateBuildSummary(
-                originalLocalEndpointCount: refreshedPairing.localEndpoints.count,
+                originalLocalEndpointCount: postPairing.localEndpoints.count,
                 cachedDirectCandidateCount: cachedCandidates.filter { self.directCandidateKey(for: $0) != nil }.count,
                 bootstrapDirectCandidateCount: bootstrapCandidates.filter { self.directCandidateKey(for: $0) != nil }.count,
                 returnedDirectCandidateCount: candidates.filter { self.directCandidateKey(for: $0) != nil }.count,
@@ -1472,18 +1515,6 @@ final class TunnelManager {
             throw TunnelError.unreachable
         }
         return candidates
-    }
-
-    private func persistRefreshedPairing(_ pairing: StoredPairing) {
-        do {
-            _ = try self.store.persistRefreshedPairing(
-                pairing,
-                pairingGen: self.store.pairingGeneration,
-                mutationGen: self.store.accessMutationGeneration
-            )
-        } catch {
-            log.error("[solstone-swift] refreshed token save failed: \(String(describing: error), privacy: .public)")
-        }
     }
 
     private func directCandidateKey(for endpoint: TransportEndpoint) -> String? {

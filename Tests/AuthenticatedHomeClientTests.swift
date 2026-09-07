@@ -3,6 +3,7 @@
 
 import Foundation
 import XCTest
+import SPLTunnel
 @testable import solstone_swift
 
 private final class HandlerBox: @unchecked Sendable {
@@ -96,6 +97,29 @@ final class AuthenticatedHomeClientTests: XCTestCase {
         return data
     }
 
+    private func makeValidDeviceToken(instanceID: String = "inst-1", now: Date = Date(), expOffset: TimeInterval = 3600) -> (token: String, expiresAt: String) {
+        let iat = Int(now.timeIntervalSince1970)
+        let exp = iat + Int(expOffset)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let expiresAt = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(exp)))
+        let claims: [String: Any] = [
+            "iss": "independent-issuer",
+            "sub": "instance:\(instanceID)",
+            "aud": "spl-relay",
+            "scope": "session.dial",
+            "ver": 2,
+            "instance_id": instanceID,
+            "iat": iat,
+            "exp": exp,
+            "jti": "secret-jti"
+        ]
+        let payload = try! JSONSerialization.data(withJSONObject: claims).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        let token = "e30.\(payload).sig"
+        return (token, expiresAt)
+    }
+
     func testProxyIsolationInDefaultSessionFactory() {
         let session = AuthenticatedHomeClient.defaultSessionFactory(.seconds(5))
         defer { session.invalidateAndCancel() }
@@ -129,6 +153,27 @@ final class AuthenticatedHomeClientTests: XCTestCase {
             var body: Data?
         }
         let box = BodyBox()
+        let responseResourceJSON = """
+        {
+            "protocol_version": 1,
+            "revision": 6,
+            "reported": {
+                "name": null,
+                "platform": "ios",
+                "device_type": null,
+                "app_id": "app.solstone.swift",
+                "app_version": null
+            },
+            "owner_label": null,
+            "display_label": "Alice's iPhone",
+            "updated_at": "2026-03-30T12:00:00Z",
+            "journal": {
+                "name": "Alice's Journal",
+                "version": "2.4.0"
+            }
+        }
+        """.data(using: .utf8)!
+
         MockURLProtocol.requestHandler = { request in
             box.body = Self.extractBody(from: request)
             let response = HTTPURLResponse(
@@ -137,7 +182,7 @@ final class AuthenticatedHomeClientTests: XCTestCase {
                 httpVersion: nil,
                 headerFields: ["Content-Type": "application/json"]
             )!
-            return (response, Data())
+            return (response, responseResourceJSON)
         }
 
         let client = makeTestClient()
@@ -152,7 +197,12 @@ final class AuthenticatedHomeClientTests: XCTestCase {
             )
         )
         let result = await client.putClientsSelf(localPort: 7071, payload: payload)
-        XCTAssertEqual(result, .success)
+        if case .success(let res) = result {
+            XCTAssertEqual(res.revision, 6)
+            XCTAssertEqual(res.displayLabel, "Alice's iPhone")
+        } else {
+            XCTFail("Expected success, got \(result)")
+        }
 
         let body = try XCTUnwrap(box.body)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
@@ -182,6 +232,9 @@ final class AuthenticatedHomeClientTests: XCTestCase {
                 "app_id": "app.solstone.swift",
                 "app_version": "1.0.0"
             },
+            "owner_label": "Alice",
+            "display_label": "Alice's Phone",
+            "updated_at": "2026-03-30T12:00:00Z",
             "journal": {
                 "name": "Alice's Journal",
                 "version": "2.4.0"
@@ -210,8 +263,8 @@ final class AuthenticatedHomeClientTests: XCTestCase {
             XCTAssertEqual(resource.protocolVersion, 1)
             XCTAssertEqual(resource.revision, 3)
             XCTAssertEqual(resource.reported?.name, "Old Phone")
-            XCTAssertEqual(resource.journal?.name, "Alice's Journal")
-            XCTAssertEqual(resource.journal?.version, "2.4.0")
+            XCTAssertEqual(resource.journal.name, "Alice's Journal")
+            XCTAssertEqual(resource.journal.version, "2.4.0")
         } else {
             XCTFail("Expected success, got \(result)")
         }
@@ -298,18 +351,19 @@ final class AuthenticatedHomeClientTests: XCTestCase {
             )!
             return (response, Data())
         }
-        let unavailableResult = await client.fetchRelayAccess(localPort: 7071)
+        let unavailableResult = await client.fetchRelayAccess(localPort: 7071, expectedInstanceID: "inst-1")
         XCTAssertEqual(unavailableResult, .unavailable(503))
 
         // Ready
+        let (token, expiresAt) = makeValidDeviceToken(instanceID: "inst-1")
         let readyJSON = """
         {
             "protocol_version": 2,
             "status": "ready",
             "instance_id": "inst-1",
             "relay_origin": "https://relay.example.com",
-            "device_token": "token.jwt.here",
-            "expires_at": "2026-01-01T00:00:00Z"
+            "device_token": "\(token)",
+            "expires_at": "\(expiresAt)"
         }
         """.data(using: .utf8)!
 
@@ -323,11 +377,11 @@ final class AuthenticatedHomeClientTests: XCTestCase {
             return (response, readyJSON)
         }
 
-        let readyResult = await client.fetchRelayAccess(localPort: 7071)
-        if case .ready(let payload) = readyResult {
-            XCTAssertEqual(payload.protocolVersion, 2)
-            XCTAssertEqual(payload.status, "ready")
-            XCTAssertEqual(payload.relayOrigin, "https://relay.example.com")
+        let readyResult = await client.fetchRelayAccess(localPort: 7071, expectedInstanceID: "inst-1")
+        if case .ready(let ready) = readyResult {
+            XCTAssertEqual(ready.instanceID, "inst-1")
+            XCTAssertEqual(ready.relayOrigin.absoluteString, "https://relay.example.com")
+            XCTAssertEqual(ready.deviceToken, token)
         } else {
             XCTFail("Expected ready, got \(readyResult)")
         }
@@ -350,7 +404,7 @@ final class AuthenticatedHomeClientTests: XCTestCase {
             return (response, notConfiguredJSON)
         }
 
-        let notConfiguredResult = await client.fetchRelayAccess(localPort: 7071)
+        let notConfiguredResult = await client.fetchRelayAccess(localPort: 7071, expectedInstanceID: "inst-1")
         XCTAssertEqual(notConfiguredResult, .notConfigured)
 
         // extra keys on not_configured -> malformed
@@ -372,7 +426,7 @@ final class AuthenticatedHomeClientTests: XCTestCase {
             return (response, extraKeysJSON)
         }
 
-        let extraKeysResult = await client.fetchRelayAccess(localPort: 7071)
+        let extraKeysResult = await client.fetchRelayAccess(localPort: 7071, expectedInstanceID: "inst-1")
         XCTAssertEqual(extraKeysResult, .malformedOrFailed)
     }
 
@@ -391,5 +445,141 @@ final class AuthenticatedHomeClientTests: XCTestCase {
         let client = makeTestClient()
         let result = await client.fetchClientsSelf(localPort: 7071)
         XCTAssertEqual(result, .malformedOrFailed)
+
+        let statusResult = await client.fetchStatus(localPort: 7071)
+        XCTAssertNil(statusResult)
+
+        let putResult = await client.putClientsSelf(
+            localPort: 7071,
+            payload: ClientsSelfPutPayload(
+                expectedRevision: 1,
+                reported: ClientsSelfReported(
+                    name: nil,
+                    platform: "ios",
+                    deviceType: nil,
+                    appID: "app.solstone.swift",
+                    appVersion: nil
+                )
+            )
+        )
+        XCTAssertEqual(putResult, ClientsSelfPutResult.failed)
+
+        let relayResult = await client.fetchRelayAccess(localPort: 7071, expectedInstanceID: "inst-1")
+        XCTAssertEqual(relayResult, .malformedOrFailed)
+    }
+
+    func testRelayAccessValidationBoundaryTable() async throws {
+        let client = makeTestClient()
+        let testNow = Date(timeIntervalSince1970: 1_700_000_000)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+
+        func makeCustomToken(
+            instanceID: String = "inst-1",
+            iat: Int,
+            exp: Int,
+            jti: String = "secret-jti",
+            customSegments: String? = nil
+        ) -> String {
+            if let customSegments { return customSegments }
+            let claims: [String: Any] = [
+                "iss": "independent-issuer",
+                "sub": "instance:\(instanceID)",
+                "aud": "spl-relay",
+                "scope": "session.dial",
+                "ver": 2,
+                "instance_id": instanceID,
+                "iat": iat,
+                "exp": exp,
+                "jti": jti
+            ]
+            let payload = try! JSONSerialization.data(withJSONObject: claims).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+            return "e30.\(payload).sig"
+        }
+
+        func testCase(
+            origin: String,
+            token: String,
+            expiresAt: String,
+            expectedSuccess: Bool
+        ) async {
+            let json = """
+            {
+                "protocol_version": 2,
+                "status": "ready",
+                "instance_id": "inst-1",
+                "relay_origin": "\(origin)",
+                "device_token": "\(token)",
+                "expires_at": "\(expiresAt)"
+            }
+            """.data(using: .utf8)!
+
+            MockURLProtocol.requestHandler = { request in
+                let response = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 200,
+                    httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (response, json)
+            }
+
+            let result = await client.fetchRelayAccess(localPort: 7071, expectedInstanceID: "inst-1", now: testNow)
+            if expectedSuccess {
+                guard case .ready = result else {
+                    XCTFail("Expected success for origin: \(origin), token: \(token), expiresAt: \(expiresAt), got: \(result)")
+                    return
+                }
+            } else {
+                XCTAssertEqual(result, .malformedOrFailed, "Expected malformedOrFailed for origin: \(origin), token: \(token), expiresAt: \(expiresAt)")
+            }
+        }
+
+        let validIat = Int(testNow.timeIntervalSince1970)
+        let validExp = validIat + 3600
+        let validExpiresAt = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(validExp)))
+        let validToken = makeCustomToken(iat: validIat, exp: validExp)
+
+        // 1. iat exactly now + 60 -> pass
+        let iat60Token = makeCustomToken(iat: validIat + 60, exp: validExp)
+        await testCase(origin: "https://relay.example.com", token: iat60Token, expiresAt: validExpiresAt, expectedSuccess: true)
+
+        // 2. iat now + 61 -> fail
+        let iat61Token = makeCustomToken(iat: validIat + 61, exp: validExp)
+        await testCase(origin: "https://relay.example.com", token: iat61Token, expiresAt: validExpiresAt, expectedSuccess: false)
+
+        // 3. invalid origins: wss, userinfo, path, query, fragment, http
+        await testCase(origin: "wss://relay.example.com", token: validToken, expiresAt: validExpiresAt, expectedSuccess: false)
+        await testCase(origin: "https://user:pass@relay.example.com", token: validToken, expiresAt: validExpiresAt, expectedSuccess: false)
+        await testCase(origin: "https://relay.example.com/some/path", token: validToken, expiresAt: validExpiresAt, expectedSuccess: false)
+        await testCase(origin: "https://relay.example.com?query=val", token: validToken, expiresAt: validExpiresAt, expectedSuccess: false)
+        await testCase(origin: "https://relay.example.com#fragment", token: validToken, expiresAt: validExpiresAt, expectedSuccess: false)
+        await testCase(origin: "http://relay.example.com", token: validToken, expiresAt: validExpiresAt, expectedSuccess: false)
+
+        // 4. JWT segments: empty or extra segments
+        let twoSegmentToken = "e30.payload"
+        await testCase(origin: "https://relay.example.com", token: twoSegmentToken, expiresAt: validExpiresAt, expectedSuccess: false)
+        let fourSegmentToken = "e30.payload.sig.extra"
+        await testCase(origin: "https://relay.example.com", token: fourSegmentToken, expiresAt: validExpiresAt, expectedSuccess: false)
+        let emptyMiddleSegment = "e30..sig"
+        await testCase(origin: "https://relay.example.com", token: emptyMiddleSegment, expiresAt: validExpiresAt, expectedSuccess: false)
+
+        // 5. empty jti -> fail
+        let emptyJtiToken = makeCustomToken(iat: validIat, exp: validExp, jti: "")
+        await testCase(origin: "https://relay.example.com", token: emptyJtiToken, expiresAt: validExpiresAt, expectedSuccess: false)
+
+        // 6. expired during fetch (exp <= now)
+        let expiredExp = validIat - 10
+        let expiredExpiresAt = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(expiredExp)))
+        let expiredToken = makeCustomToken(iat: validIat - 100, exp: expiredExp)
+        await testCase(origin: "https://relay.example.com", token: expiredToken, expiresAt: expiredExpiresAt, expectedSuccess: false)
+
+        // 7. fractional RFC3339 mismatch
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fractionalExpiresAt = fractionalFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(validExp) + 0.5))
+        await testCase(origin: "https://relay.example.com", token: validToken, expiresAt: fractionalExpiresAt, expectedSuccess: false)
     }
 }
+

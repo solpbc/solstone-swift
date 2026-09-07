@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import os
 import XCTest
 import SPLTunnel
 @testable import solstone_swift
@@ -185,7 +186,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
     @MainActor
     func testZeroTransferCountPublishesSnapshotAndUpdatesJournalMetadata() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -197,7 +199,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
         let getResourceJSON = """
         {
@@ -210,6 +212,9 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                 "app_id": "app.solstone.swift",
                 "app_version": "1.0.0"
             },
+            "owner_label": null,
+            "display_label": "Old Phone",
+            "updated_at": null,
             "journal": {
                 "name": "Home Server",
                 "version": "2.5.0"
@@ -227,8 +232,28 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                     return (response, getResourceJSON)
                 } else if request.httpMethod == "PUT" {
                     putContinuation.yield(())
+                    let putResponseJSON = """
+                    {
+                        "protocol_version": 1,
+                        "revision": 2,
+                        "reported": {
+                            "name": "New Phone",
+                            "platform": "ios",
+                            "device_type": "phone",
+                            "app_id": "app.solstone.swift",
+                            "app_version": "1.0.1"
+                        },
+                        "owner_label": null,
+                        "display_label": "New Phone",
+                        "updated_at": null,
+                        "journal": {
+                            "name": "Home Server",
+                            "version": "2.5.0"
+                        }
+                    }
+                    """.data(using: .utf8)!
                     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-                    return (response, Data())
+                    return (response, putResponseJSON)
                 }
             } else if path == "/app/network/api/relay/access" {
                 let notConfigured = """
@@ -275,7 +300,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
     @MainActor
     func testConflictRetriesPUTOnceWithNewestSnapshot() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -287,7 +313,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
         let getCounter = ValueBox<Int>(0)
         let putCounter = ValueBox<Int>(0)
@@ -305,7 +331,16 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                     {
                         "protocol_version": 1,
                         "revision": \(rev),
-                        "reported": { "name": "Old Phone" },
+                        "reported": {
+                            "name": "Old Phone",
+                            "platform": "ios",
+                            "device_type": "phone",
+                            "app_id": "app.solstone.swift",
+                            "app_version": "1.0.0"
+                        },
+                        "owner_label": null,
+                        "display_label": "Old Phone",
+                        "updated_at": null,
                         "journal": { "name": "Home", "version": "2.0.0" }
                     }
                     """.data(using: .utf8)!
@@ -325,7 +360,17 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                         {
                             "protocol_version": 1,
                             "revision": 3,
-                            "reported": { "name": "New Phone" }
+                            "reported": {
+                                "name": "New Phone",
+                                "platform": "ios",
+                                "device_type": "phone",
+                                "app_id": "app.solstone.swift",
+                                "app_version": "1.0.1"
+                            },
+                            "owner_label": null,
+                            "display_label": "New Phone",
+                            "updated_at": null,
+                            "journal": { "name": "Home", "version": "2.0.0" }
                         }
                         """.data(using: .utf8)!
                         let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
@@ -366,7 +411,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
     @MainActor
     func testConcurrentNameChangesCoalesceIntoAtMostOneWaitingTask() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -378,7 +424,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
         let putCounter = ValueBox<Int>(0)
         let (firstPutInFlight, firstPutContinuation) = AsyncStream<Void>.makeStream()
@@ -393,7 +439,17 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                     {
                         "protocol_version": 1,
                         "revision": 1,
-                        "reported": { "name": "Initial" }
+                        "reported": {
+                            "name": "Initial",
+                            "platform": "ios",
+                            "device_type": "phone",
+                            "app_id": "app.solstone.swift",
+                            "app_version": "1.0.0"
+                        },
+                        "owner_label": null,
+                        "display_label": "Initial",
+                        "updated_at": null,
+                        "journal": { "name": "Home", "version": "1.0.0" }
                     }
                     """.data(using: .utf8)!
                     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
@@ -409,7 +465,24 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                         allPutsContinuation.yield(())
                     }
                     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-                    return (response, Data())
+                    let putResp = """
+                    {
+                        "protocol_version": 1,
+                        "revision": \(count + 1),
+                        "reported": {
+                            "name": "Updated",
+                            "platform": "ios",
+                            "device_type": "phone",
+                            "app_id": "app.solstone.swift",
+                            "app_version": "1.0.0"
+                        },
+                        "owner_label": null,
+                        "display_label": "Updated",
+                        "updated_at": null,
+                        "journal": { "name": "Home", "version": "1.0.0" }
+                    }
+                    """.data(using: .utf8)!
+                    return (response, putResp)
                 }
             } else if path == "/app/network/api/relay/access" {
                 let response = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
@@ -464,7 +537,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
     @MainActor
     func testSlowHomeTimesOutFreedSlotAndNextConnectionSucceeds() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -477,7 +551,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
         let (metadataUpdated, metadataUpdatedContinuation) = AsyncStream<Void>.makeStream()
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
         journalVersion.onChange = {
             metadataUpdatedContinuation.yield(())
         }
@@ -496,7 +570,16 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                     {
                         "protocol_version": 1,
                         "revision": 1,
-                        "reported": { "name": "Current" },
+                        "reported": {
+                            "name": "Current",
+                            "platform": "ios",
+                            "device_type": "phone",
+                            "app_id": "app.solstone.swift",
+                            "app_version": "1.0.0"
+                        },
+                        "owner_label": null,
+                        "display_label": "Current",
+                        "updated_at": null,
                         "journal": { "name": "Recovered Home", "version": "3.0.0" }
                     }
                     """.data(using: .utf8)!
@@ -534,7 +617,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
     @MainActor
     func testOlderHome404FallsBackToStatusGET() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -546,7 +630,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
         let (statusDone, statusContinuation) = AsyncStream<Void>.makeStream()
 
@@ -589,8 +673,9 @@ final class HomeConnectionLifecycleTests: XCTestCase {
     }
 
     @MainActor
-    func testUnchangedReportedDescriptionGETOnlyNoPUT() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+    func testUnsupported501Or400DoesNotFallBackToStatusGET() async throws {
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -602,7 +687,59 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
+
+        let statusAttempted = ValueBox<Bool>(false)
+        let (clientsDone, clientsContinuation) = AsyncStream<Void>.makeStream()
+
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path == "/app/network/api/clients/self" {
+                clientsContinuation.yield(())
+                let response = HTTPURLResponse(url: request.url!, statusCode: 501, httpVersion: nil, headerFields: nil)!
+                return (response, Data())
+            } else if path == "/api/system/status" {
+                statusAttempted.value = true
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (response, Data())
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+        }
+
+        let client = makeTestClient()
+        let jobs = HomeAuthenticatedJobs(
+            store: store,
+            journalVersion: journalVersion,
+            client: client
+        )
+
+        jobs.connected(localPort: 7071)
+
+        var iter = clientsDone.makeAsyncIterator()
+        _ = await iter.next()
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertFalse(statusAttempted.value)
+        XCTAssertNil(journalVersion.version)
+        XCTAssertFalse(journalVersion.isCurrent)
+    }
+
+    @MainActor
+    func testUnchangedReportedDescriptionGETOnlyNoPUT() async throws {
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil }
+        )
+
+        let defaultsSuite = "LifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
         let putAttempted = ValueBox<Bool>(false)
         let (getDone, getContinuation) = AsyncStream<Void>.makeStream()
@@ -622,6 +759,9 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                             "app_id": "app.solstone.swift",
                             "app_version": "1.0.0"
                         },
+                        "owner_label": null,
+                        "display_label": "Same Phone",
+                        "updated_at": null,
                         "journal": { "name": "Home", "version": "2.0.0" }
                     }
                     """.data(using: .utf8)!
@@ -666,7 +806,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
     @MainActor
     func testOwnerLabelOverridePreservedOnServer() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -678,7 +819,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
         let capturedPutData = ValueBox<Data?>(nil)
         let (putDone, putContinuation) = AsyncStream<Void>.makeStream()
@@ -692,7 +833,16 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                         "protocol_version": 1,
                         "revision": 1,
                         "owner_label": "Mom's Phone",
-                        "reported": { "name": "Old Name" }
+                        "display_label": "Mom's Phone",
+                        "updated_at": null,
+                        "reported": {
+                            "name": "Old Name",
+                            "platform": "ios",
+                            "device_type": "phone",
+                            "app_id": "app.solstone.swift",
+                            "app_version": "1.0.0"
+                        },
+                        "journal": { "name": "Home", "version": "1.0.0" }
                     }
                     """.data(using: .utf8)!
                     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
@@ -700,8 +850,25 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                 } else if request.httpMethod == "PUT" {
                     capturedPutData.value = Self.extractBody(from: request)
                     putContinuation.yield(())
+                    let putResp = """
+                    {
+                        "protocol_version": 1,
+                        "revision": 2,
+                        "owner_label": "Mom's Phone",
+                        "display_label": "Mom's Phone",
+                        "updated_at": null,
+                        "reported": {
+                            "name": "New Local Name",
+                            "platform": "ios",
+                            "device_type": "phone",
+                            "app_id": "app.solstone.swift",
+                            "app_version": "1.0.0"
+                        },
+                        "journal": { "name": "Home", "version": "1.0.0" }
+                    }
+                    """.data(using: .utf8)!
                     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-                    return (response, Data())
+                    return (response, putResp)
                 }
             }
             let response = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
@@ -737,7 +904,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
     @MainActor
     func testProgressionLANReadyThenRemoteNotConfiguredSettles() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -749,7 +917,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
         let instance = "inst-1"
         let claims: [String: Any] = [
@@ -759,7 +927,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
             "scope": "session.dial",
             "ver": 2,
             "instance_id": instance,
-            "iat": 1_800_000_000,
+            "iat": 1_700_000_000,
             "exp": 1_893_456_000,
             "jti": "jwt-1"
         ]
@@ -829,7 +997,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
     @MainActor
     func testDisconnectCancelsAndFencesLateIO() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -841,7 +1010,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
         let (canProceed, proceedContinuation) = AsyncStream<Void>.makeStream()
 
@@ -857,7 +1026,16 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                 {
                     "protocol_version": 1,
                     "revision": 1,
-                    "reported": { "name": "Old Phone" },
+                    "reported": {
+                        "name": "Old Phone",
+                        "platform": "ios",
+                        "device_type": "phone",
+                        "app_id": "app.solstone.swift",
+                        "app_version": "1.0.0"
+                    },
+                    "owner_label": null,
+                    "display_label": "Old Phone",
+                    "updated_at": null,
                     "journal": { "name": "Late Journal", "version": "9.9.9" }
                 }
                 """.data(using: .utf8)!
@@ -888,7 +1066,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
     @MainActor
     func testTunnelManagerForceConnectedTriggersHomeJobsPut() async throws {
-        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
@@ -900,7 +1079,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: defaultsSuite) }
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
-        journalVersion.setIdentity("inst-1-id")
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
         let (putSent, putContinuation) = AsyncStream<Void>.makeStream()
 
@@ -913,8 +1092,15 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                         "protocol_version": 1,
                         "revision": 1,
                         "reported": {
-                            "name": "Old Phone"
+                            "name": "Old Phone",
+                            "platform": "ios",
+                            "device_type": "phone",
+                            "app_id": "app.solstone.swift",
+                            "app_version": "1.0.0"
                         },
+                        "owner_label": null,
+                        "display_label": "Old Phone",
+                        "updated_at": null,
                         "journal": {
                             "name": "Home Server",
                             "version": "2.5.0"
@@ -925,8 +1111,28 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                     return (response, json)
                 } else if request.httpMethod == "PUT" {
                     putContinuation.yield(())
+                    let putResp = """
+                    {
+                        "protocol_version": 1,
+                        "revision": 2,
+                        "reported": {
+                            "name": "New Local Name",
+                            "platform": "ios",
+                            "device_type": "phone",
+                            "app_id": "app.solstone.swift",
+                            "app_version": "1.0.0"
+                        },
+                        "owner_label": null,
+                        "display_label": "New Local Name",
+                        "updated_at": null,
+                        "journal": {
+                            "name": "Home Server",
+                            "version": "2.5.0"
+                        }
+                    }
+                    """.data(using: .utf8)!
                     let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
-                    return (response, Data())
+                    return (response, putResp)
                 }
             } else if path == "/app/network/api/relay/access" {
                 let response = HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!
@@ -970,5 +1176,296 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         XCTAssertEqual(journalVersion.version, "2.5.0")
         XCTAssertEqual(journalVersion.name, "Home Server")
         XCTAssertTrue(journalVersion.isCurrent)
+    }
+
+    @MainActor
+    func testTimeoutWithCancellationInsensitiveMockDoesNotPublishAndNextConnectedRunsSlot() async throws {
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil }
+        )
+
+        let defaultsSuite = "LifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
+
+        let (firstCallStarted, firstCallStartedContinuation) = AsyncStream<Void>.makeStream()
+        let (secondCallDone, secondCallDoneContinuation) = AsyncStream<Void>.makeStream()
+
+        let clientsSelfCount = OSAllocatedUnfairLock(initialState: 0)
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path == "/app/network/api/relay/access" {
+                let json = """
+                {
+                    "protocol_version": 1,
+                    "state": "not_configured"
+                }
+                """.data(using: .utf8)!
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+                return (response, json)
+            }
+
+            let count = clientsSelfCount.withLock { count -> Int in
+                let current = count
+                count += 1
+                return current
+            }
+            if count == 0 {
+                firstCallStartedContinuation.yield(())
+                Thread.sleep(forTimeInterval: 0.4)
+                let json = """
+                {
+                    "protocol_version": 1,
+                    "revision": 1,
+                    "reported": {
+                        "name": "Phone",
+                        "platform": "ios",
+                        "device_type": "phone",
+                        "app_id": "app.solstone.swift",
+                        "app_version": "1.0.0"
+                    },
+                    "owner_label": null,
+                    "display_label": "Phone",
+                    "updated_at": null,
+                    "journal": { "name": "Late Server", "version": "9.9.9" }
+                }
+                """.data(using: .utf8)!
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+                return (response, json)
+            } else {
+                let json = """
+                {
+                    "protocol_version": 1,
+                    "revision": 1,
+                    "reported": {
+                        "name": "Phone",
+                        "platform": "ios",
+                        "device_type": "phone",
+                        "app_id": "app.solstone.swift",
+                        "app_version": "1.0.0"
+                    },
+                    "owner_label": null,
+                    "display_label": "Phone",
+                    "updated_at": null,
+                    "journal": { "name": "Real Server", "version": "1.0.0" }
+                }
+                """.data(using: .utf8)!
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+                secondCallDoneContinuation.yield(())
+                return (response, json)
+            }
+        }
+
+        let client = makeTestClient()
+        let snapshot = DeviceDescriptionSnapshot(
+            name: "Phone",
+            platform: "ios",
+            deviceType: "phone",
+            appID: "app.solstone.swift",
+            appVersion: "1.0.0"
+        )
+        let jobs = HomeAuthenticatedJobs(
+            store: store,
+            journalVersion: journalVersion,
+            client: client,
+            deadline: .milliseconds(200),
+            snapshotProvider: { snapshot }
+        )
+
+        var firstIter = firstCallStarted.makeAsyncIterator()
+        var secondIter = secondCallDone.makeAsyncIterator()
+
+        jobs.connected(localPort: 7071)
+        _ = await firstIter.next()
+
+        try await Task.sleep(nanoseconds: 250_000_000)
+
+        jobs.disconnected()
+        jobs.connected(localPort: 7071)
+        _ = await secondIter.next()
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(journalVersion.version, "1.0.0")
+        XCTAssertEqual(journalVersion.name, "Real Server")
+    }
+
+    @MainActor
+    func testGETInFlightVsDisableUnpairSameHomeApplyPairingDoesNotCommit() async throws {
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil }
+        )
+
+        let defaultsSuite = "LifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
+
+        let (inFlightReady, inFlightReadyContinuation) = AsyncStream<Void>.makeStream()
+
+        MockURLProtocol.requestHandler = { request in
+            inFlightReadyContinuation.yield(())
+            Thread.sleep(forTimeInterval: 0.2)
+            let json = """
+            {
+                "protocol_version": 1,
+                "revision": 1,
+                "reported": {
+                    "name": "Phone",
+                    "platform": "ios",
+                    "device_type": "phone",
+                    "app_id": "app.solstone.swift",
+                    "app_version": "1.0.0"
+                },
+                "owner_label": null,
+                "display_label": "Phone",
+                "updated_at": null,
+                "journal": { "name": "Stale Server", "version": "9.0.0" }
+            }
+            """.data(using: .utf8)!
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            return (response, json)
+        }
+
+        let client = makeTestClient()
+        let snapshot = DeviceDescriptionSnapshot(
+            name: "Phone",
+            platform: "ios",
+            deviceType: "phone",
+            appID: "app.solstone.swift",
+            appVersion: "1.0.0"
+        )
+        let jobs = HomeAuthenticatedJobs(
+            store: store,
+            journalVersion: journalVersion,
+            client: client,
+            snapshotProvider: { snapshot }
+        )
+
+        var iter = inFlightReady.makeAsyncIterator()
+        jobs.connected(localPort: 7071)
+        _ = await iter.next()
+
+        _ = try? await store.disableRelayAccess(pairingGen: 0, mutationGen: 0)
+        _ = try? store.clearPairing()
+        _ = try? await store.applyPairing(pairing)
+
+        try await Task.sleep(nanoseconds: 250_000_000)
+
+        XCTAssertNil(journalVersion.version)
+    }
+
+    @MainActor
+    func testBothLanesViaTunnelManagerConnectStateDidSetWithZeroTransferCount() async throws {
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil }
+        )
+
+        let defaultsSuite = "LifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+
+        let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
+
+        let (metaSent, metaContinuation) = AsyncStream<Void>.makeStream()
+        let (accessSent, accessContinuation) = AsyncStream<Void>.makeStream()
+
+        MockURLProtocol.requestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path == "/app/network/api/clients/self" {
+                metaContinuation.yield(())
+                let json = """
+                {
+                    "protocol_version": 1,
+                    "revision": 1,
+                    "reported": {
+                        "name": "Local Phone",
+                        "platform": "ios",
+                        "device_type": "phone",
+                        "app_id": "app.solstone.swift",
+                        "app_version": "1.0.0"
+                    },
+                    "owner_label": null,
+                    "display_label": "Local Phone",
+                    "updated_at": null,
+                    "journal": {
+                        "name": "Live Server",
+                        "version": "3.0.0"
+                    }
+                }
+                """.data(using: .utf8)!
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+                return (response, json)
+            } else if path == "/app/network/api/relay/access" {
+                accessContinuation.yield(())
+                let notConfigured = """
+                {
+                    "protocol_version": 2,
+                    "status": "not_configured"
+                }
+                """.data(using: .utf8)!
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+                return (response, notConfigured)
+            }
+            let response = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+            return (response, Data())
+        }
+
+        let client = makeTestClient()
+        let snapshot = DeviceDescriptionSnapshot(
+            name: "Local Phone",
+            platform: "ios",
+            deviceType: "phone",
+            appID: "app.solstone.swift",
+            appVersion: "1.0.0"
+        )
+        let jobs = HomeAuthenticatedJobs(
+            store: store,
+            journalVersion: journalVersion,
+            client: client,
+            snapshotProvider: { snapshot }
+        )
+
+        let transport = MockCFTunnelTransport()
+        let endpointCache = EndpointCache(fileURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+        let tunnelManager = TunnelManager(
+            transport: transport,
+            endpointCache: endpointCache,
+            store: store,
+            activeLocalTransferCountProvider: { 0 },
+            journalVersion: journalVersion,
+            homeJobs: jobs
+        )
+
+        tunnelManager.forceConnected(port: 7071, via: .lan)
+
+        var metaIter = metaSent.makeAsyncIterator()
+        var accessIter = accessSent.makeAsyncIterator()
+
+        _ = await metaIter.next()
+        _ = await accessIter.next()
+
+        try await Task.sleep(nanoseconds: 50_000_000)
+
+        XCTAssertEqual(tunnelManager.state, TunnelState.connected(localPort: 7071, via: .lan))
+        XCTAssertEqual(journalVersion.version, "3.0.0")
+        XCTAssertEqual(journalVersion.name, "Live Server")
+        XCTAssertTrue(store.isLiveRelayDisabled)
     }
 }

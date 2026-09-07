@@ -65,7 +65,7 @@ final class PairingCredentialStoreTests: XCTestCase {
         )
     }
 
-    func testRealKeychainStoreLifecycle() throws {
+    func testRealKeychainStoreLifecycle() async throws {
         let (store, _) = makeRealKeychainStore()
 
         XCTAssertEqual(store.pairingGeneration, 0)
@@ -78,37 +78,37 @@ final class PairingCredentialStoreTests: XCTestCase {
         XCTAssertEqual(store.accessMutationGeneration, 1)
         XCTAssertEqual(try store.load()?.instanceID, "real-inst-1")
 
-        // Same identity pairing does not bump generation
+        // Same identity pairing always bumps generations on applyPairing
         try store.applyPairing(pairing1)
-        XCTAssertEqual(store.pairingGeneration, 1)
-        XCTAssertEqual(store.accessMutationGeneration, 1)
+        XCTAssertEqual(store.pairingGeneration, 2)
+        XCTAssertEqual(store.accessMutationGeneration, 2)
 
-        let committed = try store.commitReadyAccess(
+        let committed = try await store.commitReadyAccess(
             relayOrigin: "https://relay.example.com",
             deviceToken: "real-token",
             expiresAt: "2026-01-01T00:00:00Z",
-            pairingGen: 1,
-            mutationGen: 1
+            pairingGen: 2,
+            mutationGen: 2
         )
         XCTAssertTrue(committed)
-        XCTAssertEqual(store.accessMutationGeneration, 2)
+        XCTAssertEqual(store.accessMutationGeneration, 3)
         if case .enrolled(let token, _) = try store.load()?.relayEnrollment {
             XCTAssertEqual(token, "real-token")
         } else {
             XCTFail("Expected enrolled")
         }
 
-        let disabled = try store.disableRelayAccess(pairingGen: 1, mutationGen: 2)
+        let disabled = try await store.disableRelayAccess(pairingGen: 2, mutationGen: 3)
         XCTAssertTrue(disabled)
-        XCTAssertEqual(store.accessMutationGeneration, 3)
+        XCTAssertEqual(store.accessMutationGeneration, 4)
         XCTAssertEqual(try store.load()?.relayEnrollment, .unavailable)
 
-        let revoked = try store.revokeIfCurrentGeneration(pairingGen: 1)
+        let revoked = try await store.revokeIfCurrentGeneration(pairingGen: 2, mutationGen: 4)
         XCTAssertTrue(revoked)
         XCTAssertNil(try store.load())
     }
 
-    func testSaveFailureLeavesLiveRelayDisabledTrueAndFailsCAS() throws {
+    func testSaveFailureLeavesLiveRelayDisabledTrueAndBumpsMutationAndSetsFailedClear() async throws {
         let holder = StoredHolder(makeSamplePairing(
             instanceID: "inst-1",
             relayEnrollment: .enrolled(deviceToken: "tok-1", expiresAt: nil)
@@ -128,22 +128,39 @@ final class PairingCredentialStoreTests: XCTestCase {
         let mutGen = store.accessMutationGeneration
 
         holder.shouldThrowOnSave = true
-        XCTAssertThrowsError(try store.disableRelayAccess(pairingGen: pairGen, mutationGen: mutGen))
+        do {
+            _ = try await store.disableRelayAccess(pairingGen: pairGen, mutationGen: mutGen)
+            XCTFail("Expected throw")
+        } catch {
+            // expected
+        }
 
         // Overlay is set to true immediately even though disk save failed
         XCTAssertTrue(store.isLiveRelayDisabled)
-        // Mutation generation not bumped
-        XCTAssertEqual(store.accessMutationGeneration, mutGen)
+        // Mutation generation IS bumped
+        let newMutGen = mutGen + 1
+        XCTAssertEqual(store.accessMutationGeneration, newMutGen)
+        XCTAssertEqual(store.failedDurableClear, .uncommittedClear(pairingGen: pairGen, mutationGen: newMutGen))
 
-        // Retry succeeds when save stops throwing
+        // Ready captured against old mutation fails CAS
+        let oldReadyCommitted = try await store.commitReadyAccess(
+            relayOrigin: "https://relay.example.com",
+            deviceToken: "tok-old",
+            expiresAt: nil,
+            pairingGen: pairGen,
+            mutationGen: mutGen
+        )
+        XCTAssertFalse(oldReadyCommitted)
+
+        // Retry of durable clear with newMutGen succeeds when save stops throwing
         holder.shouldThrowOnSave = false
-        let retrySucceeded = try store.disableRelayAccess(pairingGen: pairGen, mutationGen: mutGen)
+        let retrySucceeded = try await store.retryDurableClear(pairingGen: pairGen, mutationGen: newMutGen)
         XCTAssertTrue(retrySucceeded)
-        XCTAssertEqual(store.accessMutationGeneration, mutGen + 1)
+        XCTAssertNil(store.failedDurableClear)
         XCTAssertEqual(holder.stored?.relayEnrollment, .unavailable)
     }
 
-    func testRetryOfDurableClearIgnoredIfInterveningReadyCommit() throws {
+    func testInterveningReadySupersedesFailedClearRetry() async throws {
         let holder = StoredHolder(makeSamplePairing(
             instanceID: "inst-1",
             relayEnrollment: .enrolled(deviceToken: "tok-1", expiresAt: nil)
@@ -160,16 +177,22 @@ final class PairingCredentialStoreTests: XCTestCase {
         )
 
         let pairGen = store.pairingGeneration
-        let failedClearMutGen = store.accessMutationGeneration
+        let mutGen = store.accessMutationGeneration
 
-        // 1. Clear fails
         holder.shouldThrowOnSave = true
-        XCTAssertThrowsError(try store.disableRelayAccess(pairingGen: pairGen, mutationGen: failedClearMutGen))
+        do {
+            _ = try await store.disableRelayAccess(pairingGen: pairGen, mutationGen: mutGen)
+            XCTFail("Expected throw")
+        } catch {
+            // expected
+        }
         XCTAssertTrue(store.isLiveRelayDisabled)
+        let failedClearMutGen = mutGen + 1
+        XCTAssertEqual(store.accessMutationGeneration, failedClearMutGen)
 
-        // 2. Intervening ready commit arrives and succeeds
+        // Ready captured against the new disabled revision arrives and succeeds
         holder.shouldThrowOnSave = false
-        let readyCommitted = try store.commitReadyAccess(
+        let readyCommitted = try await store.commitReadyAccess(
             relayOrigin: "https://new-relay.example.com",
             deviceToken: "new-token",
             expiresAt: nil,
@@ -178,10 +201,11 @@ final class PairingCredentialStoreTests: XCTestCase {
         )
         XCTAssertTrue(readyCommitted)
         XCTAssertFalse(store.isLiveRelayDisabled)
+        XCTAssertNil(store.failedDurableClear)
         XCTAssertEqual(store.accessMutationGeneration, failedClearMutGen + 1)
 
-        // 3. Stale retry with failedClearMutGen is ignored
-        let staleRetrySucceeded = try store.disableRelayAccess(pairingGen: pairGen, mutationGen: failedClearMutGen)
+        // Stale retry against failedClearMutGen now fails CAS
+        let staleRetrySucceeded = try await store.retryDurableClear(pairingGen: pairGen, mutationGen: failedClearMutGen)
         XCTAssertFalse(staleRetrySucceeded)
         if case .enrolled(let token, _) = holder.stored?.relayEnrollment {
             XCTAssertEqual(token, "new-token")
@@ -190,7 +214,26 @@ final class PairingCredentialStoreTests: XCTestCase {
         }
     }
 
-    func testStaleRevokeLeavesDiskAlone() throws {
+    func testSameHomeApplyPairingBumpsGenerations() throws {
+        let holder = StoredHolder()
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil }
+        )
+
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        try store.applyPairing(pairing)
+        XCTAssertEqual(store.pairingGeneration, 1)
+        XCTAssertEqual(store.accessMutationGeneration, 1)
+
+        // Apply same pairing again
+        try store.applyPairing(pairing)
+        XCTAssertEqual(store.pairingGeneration, 2)
+        XCTAssertEqual(store.accessMutationGeneration, 2)
+    }
+
+    func testRevokeIfCurrentGenerationCannotDeleteNewerReady() async throws {
         let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
         let store = PairingCredentialStore(
             loadPairing: { holder.stored },
@@ -198,9 +241,58 @@ final class PairingCredentialStoreTests: XCTestCase {
             deletePairing: { holder.stored = nil }
         )
 
-        let initialGen = store.pairingGeneration
-        let staleRevoked = try store.revokeIfCurrentGeneration(pairingGen: initialGen + 99)
+        let initialPairGen = store.pairingGeneration
+        let initialMutGen = store.accessMutationGeneration
+
+        // Ready commits and bumps mutationGen
+        let committed = try await store.commitReadyAccess(
+            relayOrigin: "https://relay.example.com",
+            deviceToken: "tok-2",
+            expiresAt: nil,
+            pairingGen: initialPairGen,
+            mutationGen: initialMutGen
+        )
+        XCTAssertTrue(committed)
+        XCTAssertEqual(store.accessMutationGeneration, initialMutGen + 1)
+
+        // Stale revoke attempt using initialMutGen fails CAS
+        let staleRevoked = try await store.revokeIfCurrentGeneration(
+            pairingGen: initialPairGen,
+            mutationGen: initialMutGen
+        )
         XCTAssertFalse(staleRevoked)
         XCTAssertNotNil(holder.stored)
     }
+
+    func testReadySaveFailurePreservesUsableState() async throws {
+        let sample = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(sample)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: {
+                if holder.shouldThrowOnSave {
+                    throw TestSaveError()
+                }
+                holder.stored = $0
+            },
+            deletePairing: { holder.stored = nil }
+        )
+
+        let pairGen = store.pairingGeneration
+        let mutGen = store.accessMutationGeneration
+
+        holder.shouldThrowOnSave = true
+        let committed = try await store.commitReadyAccess(
+            relayOrigin: "https://relay.example.com",
+            deviceToken: "tok-fail",
+            expiresAt: nil,
+            pairingGen: pairGen,
+            mutationGen: mutGen
+        )
+        XCTAssertFalse(committed)
+        XCTAssertEqual(store.accessMutationGeneration, mutGen)
+        XCTAssertFalse(store.isLiveRelayDisabled)
+        XCTAssertEqual(holder.stored?.instanceID, "inst-1")
+    }
 }
+

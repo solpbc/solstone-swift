@@ -114,25 +114,28 @@ final class JournalVersionMetadata {
         return request
     }
 
-    func applyValidated(name: String?, version: String?) {
-        guard let identity, self.activePort != nil else { return }
+    func applyValidated(
+        name: String?,
+        version: String?,
+        pairingIdentity: String,
+        isClientsSelfUpdate: Bool = true
+    ) {
+        guard let identity = self.identity,
+              identity == pairingIdentity,
+              self.activePort != nil else { return }
+
         let cleanVersion = version.flatMap(sanitizedJournalVersion)
+        guard let cleanVersion else { return }
+
         let cleanName = name.flatMap(sanitizedJournalName)
-        guard cleanVersion != nil || cleanName != nil else { return }
+        let effectiveName: String? = isClientsSelfUpdate ? cleanName : (cleanName ?? self.name)
 
-        let effectiveVersion = cleanVersion ?? self.version ?? "unknown"
-        let effectiveName = cleanName ?? self.name
-
-        if let data = try? JSONEncoder().encode(Record(identity: identity, version: effectiveVersion, name: effectiveName)) {
+        if let data = try? JSONEncoder().encode(Record(identity: identity, version: cleanVersion, name: effectiveName)) {
             self.defaults.set(data, forKey: Self.storageKey)
         }
-        if let cleanVersion {
-            self.version = cleanVersion
-            self.isCurrent = true
-        }
-        if let cleanName {
-            self.name = cleanName
-        }
+        self.version = cleanVersion
+        self.name = effectiveName
+        self.isCurrent = true
         self.onChange?()
     }
 }

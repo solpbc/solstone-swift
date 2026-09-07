@@ -170,7 +170,7 @@ final class JournalVersionMetadataTests: XCTestCase {
         _ = owner.connected(localPort: 7071)
         owner.disconnected()
 
-        owner.applyValidated(name: "Late Journal", version: "2.5.0")
+        owner.applyValidated(name: "Late Journal", version: "2.5.0", pairingIdentity: "identity-1")
         XCTAssertFalse(owner.isCurrent)
     }
 
@@ -184,16 +184,32 @@ final class JournalVersionMetadataTests: XCTestCase {
         owner.setIdentity("identity-1")
         _ = owner.connected(localPort: 7071)
 
-        owner.applyValidated(name: "My Journal", version: "1.5.0")
+        // 1. Initial validation with name
+        owner.applyValidated(name: "My Journal", version: "1.5.0", pairingIdentity: "identity-1", isClientsSelfUpdate: true)
         XCTAssertEqual(owner.name, "My Journal")
         XCTAssertEqual(owner.version, "1.5.0")
         XCTAssertTrue(owner.isCurrent)
 
+        // 2. Mismatched pairingIdentity does not write (fenced)
+        owner.applyValidated(name: "Other Journal", version: "1.6.0", pairingIdentity: "identity-other", isClientsSelfUpdate: true)
+        XCTAssertEqual(owner.name, "My Journal")
+        XCTAssertEqual(owner.version, "1.5.0")
+
+        // 3. Fallback path (isClientsSelfUpdate: false) preserves name when name is nil
+        owner.applyValidated(name: nil, version: "1.7.0", pairingIdentity: "identity-1", isClientsSelfUpdate: false)
+        XCTAssertEqual(owner.name, "My Journal")
+        XCTAssertEqual(owner.version, "1.7.0")
+
+        // 4. ClientsSelf path (isClientsSelfUpdate: true) clears name when name is nil
+        owner.applyValidated(name: nil, version: "1.8.0", pairingIdentity: "identity-1", isClientsSelfUpdate: true)
+        XCTAssertNil(owner.name)
+        XCTAssertEqual(owner.version, "1.8.0")
+
         // Restore in fresh instance
         let restored = JournalVersionMetadata(defaults: defaults) { _ in nil }
         restored.setIdentity("identity-1")
-        XCTAssertEqual(restored.name, "My Journal")
-        XCTAssertEqual(restored.version, "1.5.0")
+        XCTAssertNil(restored.name)
+        XCTAssertEqual(restored.version, "1.8.0")
         XCTAssertFalse(restored.isCurrent)
     }
 

@@ -36,6 +36,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         loadPairing: (@Sendable () throws -> StoredPairing?)? = nil,
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { _ in },
         didDeletePairing: OSAllocatedUnfairLock<Bool>? = nil,
+        store: PairingCredentialStore? = nil,
         deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(clientInfo: SPLRuntime.clientInfo),
         connectDeadline: Duration = .seconds(15),
         clock: any TunnelClock = LiveTunnelClock(),
@@ -66,6 +67,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             loadPairing: loadPairing ?? { pairing },
             savePairing: savePairing,
             deletePairing: { didDeletePairing?.withLock { $0 = true } },
+            store: store,
             deviceTokenRefresher: deviceTokenRefresher,
             connectDeadline: connectDeadline,
             clock: clock,
@@ -357,7 +359,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testPairingChangeRetiresWaitingAttemptBeforeRacingNewPairing() async {
+    func testPairingChangeRetiresWaitingAttemptBeforeRacingNewPairing() async throws {
         let oldPairing = Self.fixturePairing(
             instanceID: "old-instance",
             localEndpoints: [LocalEndpoint(host: "10.0.0.1", port: 8676, scope: "")]
@@ -366,16 +368,21 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             instanceID: "new-instance",
             localEndpoints: [LocalEndpoint(host: "10.0.0.2", port: 9676, scope: "")]
         )
-        let pairingStore = OSAllocatedUnfairLock(initialState: oldPairing)
+        let pairingStore = OSAllocatedUnfairLock<StoredPairing?>(initialState: oldPairing)
+        let store = PairingCredentialStore(
+            loadPairing: { pairingStore.withLock { $0 } },
+            savePairing: { updated in pairingStore.withLock { $0 = updated } },
+            deletePairing: { pairingStore.withLock { $0 = nil } }
+        )
         let transport = MockCFTunnelTransport()
         transport.emitAwaitingBrokerBeforeResult = true
         transport.suspendAfterAwaitingBroker = true
         let manager = makeManager(
             transport: transport,
-            loadPairing: { pairingStore.withLock { $0 } }
+            store: store
         )
         let firstConnectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
-        pairingStore.withLock { $0 = newPairing }
+        try store.applyPairing(newPairing)
         transport.onDisconnectInvoked = {
             transport.emitAwaitingBrokerBeforeResult = false
             transport.suspendAfterAwaitingBroker = false
@@ -383,9 +390,9 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         }
 
         await manager.reconnectAfterPairingChange()
-        await firstConnectTask.value
+        _ = await firstConnectTask.value
 
-        XCTAssertEqual(manager.state, .connected(localPort: 5656, via: .remote))
+        XCTAssertEqual(manager.state, TunnelState.connected(localPort: 5656, via: .remote))
         XCTAssertEqual(transport.operations, [
             .connect(1),
             .disconnect(1),
@@ -1035,9 +1042,27 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
     @MainActor
     func testPreDialRefreshUsesFreshRelayTokenAndSavesPairing() async {
-        let oldToken = "bad-token"
-        let newToken = Self.validFutureDeviceToken + "x"
-        let original = Self.fixturePairing(localEndpoints: [], deviceToken: oldToken)
+        let now = Date()
+        let iat = Int(now.timeIntervalSince1970) - 900
+        let exp = Int(now.timeIntervalSince1970) + 100
+        let oldToken = Self.makeDeviceToken(iat: iat, exp: exp)
+        let newToken = Self.makeDeviceToken(jti: "secret-jti-2")
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let expiresAt = formatter.string(from: Date(timeIntervalSince1970: Double(exp)))
+        let base = Self.fixturePairing(localEndpoints: [])
+        let original = StoredPairing(
+            instanceID: base.instanceID,
+            homeLabel: base.homeLabel,
+            relayEndpoint: base.relayEndpoint,
+            fingerprint: base.fingerprint,
+            clientCertPEM: base.clientCertPEM,
+            clientKeyPEM: base.clientKeyPEM,
+            caChainPEM: base.caChainPEM,
+            relayEnrollment: .enrolled(deviceToken: oldToken, expiresAt: expiresAt),
+            localEndpoints: base.localEndpoints,
+            pairedAt: base.pairedAt
+        )
         let saved = OSAllocatedUnfairLock<StoredPairing?>(initialState: nil)
         let transport = MockCFTunnelTransport()
         let refresher = DeviceTokenRefresher(
@@ -1059,7 +1084,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
     @MainActor
     func testReactiveTokenExpiredRefreshesAndRedialsOnce() async {
-        let newToken = Self.validFutureDeviceToken + "x"
+        let newToken = Self.makeDeviceToken(jti: "secret-jti-2")
         let pairingBox = OSAllocatedUnfairLock(initialState: Self.fixturePairing(localEndpoints: [], deviceToken: Self.validFutureDeviceToken))
         let transport = MockCFTunnelTransport()
         transport.queuedResults = [
@@ -1115,23 +1140,18 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testReactiveTokenExpiredNotNeededStaysRetryable() async {
+    func testReactiveTokenExpiredNotNeededStaysRetryable() async throws {
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
-        let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let enrolledPairing = Self.fixturePairing(localEndpoints: [])
-        let nonEnrolledPairing = StoredPairing(
-            instanceID: enrolledPairing.instanceID,
-            homeLabel: enrolledPairing.homeLabel,
-            relayEndpoint: enrolledPairing.relayEndpoint,
-            fingerprint: enrolledPairing.fingerprint,
-            clientCertPEM: enrolledPairing.clientCertPEM,
-            clientKeyPEM: enrolledPairing.clientKeyPEM,
-            caChainPEM: enrolledPairing.caChainPEM,
-            relayEnrollment: .unavailable,
-            localEndpoints: enrolledPairing.localEndpoints,
-            pairedAt: enrolledPairing.pairedAt
+        let store = PairingCredentialStore(
+            loadPairing: { enrolledPairing },
+            savePairing: { _ in },
+            deletePairing: { didDeletePairing.withLock { $0 = true } }
         )
         let transport = MockCFTunnelTransport()
+        transport.onConnectInvoked = {
+            _ = try? await store.disableRelayAccess(pairingGen: 0, mutationGen: 0)
+        }
         transport.queuedResults = [
             .failure(SessionError.authRefreshRequired),
         ]
@@ -1141,28 +1161,21 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         )
         let manager = makeManager(
             transport: transport,
-            loadPairing: {
-                let count = loadCount.withLock { value in
-                    let current = value
-                    value += 1
-                    return current
-                }
-                return count == 0 ? enrolledPairing : nonEnrolledPairing
-            },
             didDeletePairing: didDeletePairing,
+            store: store,
             deviceTokenRefresher: refresher
         )
 
         await manager.connect()
 
-        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertEqual(manager.state, TunnelState.error(.unreachable))
         XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 0)
         XCTAssertFalse(didDeletePairing.withLock { $0 })
     }
 
     @MainActor
     func testAuthRefreshRequiredRefreshesThenRetriesStaysRetryable() async {
-        let newToken = Self.validFutureDeviceToken + "x"
+        let newToken = Self.makeDeviceToken(jti: "secret-jti-2")
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let fileURL = Self.tempFileURL()
         let cache = EndpointCache(fileURL: fileURL)
@@ -1314,27 +1327,22 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testAuthRefreshRequiredNotNeededStaysRetryable() async {
+    func testAuthRefreshRequiredNotNeededStaysRetryable() async throws {
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
-        let loadCount = OSAllocatedUnfairLock(initialState: 0)
         let enrolledPairing = Self.fixturePairing()
-        let nonEnrolledPairing = StoredPairing(
-            instanceID: enrolledPairing.instanceID,
-            homeLabel: enrolledPairing.homeLabel,
-            relayEndpoint: enrolledPairing.relayEndpoint,
-            fingerprint: enrolledPairing.fingerprint,
-            clientCertPEM: enrolledPairing.clientCertPEM,
-            clientKeyPEM: enrolledPairing.clientKeyPEM,
-            caChainPEM: enrolledPairing.caChainPEM,
-            relayEnrollment: .unavailable,
-            localEndpoints: enrolledPairing.localEndpoints,
-            pairedAt: enrolledPairing.pairedAt
+        let store = PairingCredentialStore(
+            loadPairing: { enrolledPairing },
+            savePairing: { _ in },
+            deletePairing: { didDeletePairing.withLock { $0 = true } }
         )
         let fileURL = Self.tempFileURL()
         let cache = EndpointCache(fileURL: fileURL)
         await cache.bootstrap(from: enrolledPairing)
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
         let transport = MockCFTunnelTransport()
+        transport.onConnectInvoked = {
+            _ = try? await store.disableRelayAccess(pairingGen: 0, mutationGen: 0)
+        }
         transport.queuedResults = [
             .failure(SessionError.authRefreshRequired),
         ]
@@ -1345,21 +1353,14 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let manager = makeManager(
             transport: transport,
             endpointCache: cache,
-            loadPairing: {
-                let count = loadCount.withLock { value in
-                    let current = value
-                    value += 1
-                    return current
-                }
-                return count == 0 ? enrolledPairing : nonEnrolledPairing
-            },
             didDeletePairing: didDeletePairing,
+            store: store,
             deviceTokenRefresher: refresher
         )
 
         await manager.connect()
 
-        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertEqual(manager.state, TunnelState.error(.unreachable))
         XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 0)
         XCTAssertFalse(didDeletePairing.withLock { $0 })
         XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
@@ -1731,7 +1732,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
     @MainActor
     func testRealTransportUnionAuthFailureIsNonDestructiveAtManagerLevel() async {
-        let newToken = Self.validFutureDeviceToken + "x"
+        let newToken = Self.makeDeviceToken(jti: "secret-jti-2")
         let didDeletePairing = OSAllocatedUnfairLock(initialState: false)
         let pairing = Self.fixturePairing()
         let aggregate = RaceCoordinator<ConnectedVia>.aggregateFailure(
@@ -3614,12 +3615,36 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         log.events.filter { $0.category == .tunnel && $0.message == "path changed" }
     }
 
+    private static func makeDeviceToken(
+        instanceID: String = "instance-123",
+        iat: Int = 1_767_225_600,
+        exp: Int = 2_082_758_400,
+        jti: String = "secret-jti"
+    ) -> String {
+        let claims: [String: Any] = [
+            "iss": "independent-issuer",
+            "sub": "instance:\(instanceID)",
+            "aud": "spl-relay",
+            "scope": "session.dial",
+            "ver": 2,
+            "instance_id": instanceID,
+            "iat": iat,
+            "exp": exp,
+            "jti": jti
+        ]
+        let payload = try! JSONSerialization.data(withJSONObject: claims).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+        return "e30.\(payload).sig"
+    }
+
+    private static let validFutureDeviceToken = makeDeviceToken()
+
     private static func fixturePairing(
         instanceID: String = "instance-123",
         localEndpoints: [LocalEndpoint] = [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
         deviceToken: String? = nil
     ) -> StoredPairing {
-        let deviceToken = deviceToken ?? Self.validFutureDeviceToken
+        let deviceToken = deviceToken ?? Self.makeDeviceToken(instanceID: instanceID)
         return StoredPairing(
             instanceID: instanceID,
             homeLabel: "sol",
@@ -3638,10 +3663,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         LocalEndpoint(host: host, port: port, scope: scope)
     }
 
-    private static let validFutureDeviceToken = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJpYXQiOjE3NjcyMjU2MDAsImV4cCI6MjA4Mjc1ODQwMH0.sig"
-
     private static func tokenRefreshSuccessData(deviceToken: String = validFutureDeviceToken) -> Data {
-        Data(#"{"device_token":"\#(deviceToken)","expires_at":"2036-01-01T00:00:00Z"}"#.utf8)
+        Data(#"{"protocol_version":2,"device_token":"\#(deviceToken)","expires_at":"2036-01-01T00:00:00Z"}"#.utf8)
     }
 
     private static func lanCandidates(from candidates: [TransportEndpoint]) -> [TransportEndpoint] {
@@ -3669,6 +3692,162 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             }
             return nil
         }
+    }
+
+    @MainActor
+    func testCASPersistFalseCannotRedialOldTokenOriginOrCert() async throws {
+        let oldToken = Self.makeDeviceToken(instanceID: "inst-1", jti: "old-jti")
+        let newPairingToken = Self.makeDeviceToken(instanceID: "inst-1", jti: "fresh-jti")
+        let base = Self.fixturePairing(instanceID: "inst-1", localEndpoints: [])
+        let original = StoredPairing(
+            instanceID: base.instanceID,
+            homeLabel: base.homeLabel,
+            relayEndpoint: base.relayEndpoint,
+            fingerprint: base.fingerprint,
+            clientCertPEM: base.clientCertPEM,
+            clientKeyPEM: base.clientKeyPEM,
+            caChainPEM: base.caChainPEM,
+            relayEnrollment: .enrolled(deviceToken: oldToken, expiresAt: "2036-01-01T00:00:00Z"),
+            localEndpoints: base.localEndpoints,
+            pairedAt: base.pairedAt
+        )
+        let updatedStorePairing = StoredPairing(
+            instanceID: base.instanceID,
+            homeLabel: base.homeLabel,
+            relayEndpoint: "https://new-relay.example.com",
+            fingerprint: base.fingerprint,
+            clientCertPEM: "new-cert",
+            clientKeyPEM: base.clientKeyPEM,
+            caChainPEM: base.caChainPEM,
+            relayEnrollment: .enrolled(deviceToken: newPairingToken, expiresAt: "2036-01-01T00:00:00Z"),
+            localEndpoints: base.localEndpoints,
+            pairedAt: base.pairedAt
+        )
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: original)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        let transport = MockCFTunnelTransport()
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: "refreshed-during-dial")),
+            clientInfo: SPLRuntime.clientInfo
+        )
+        transport.onConnectInvoked = {
+            _ = try? await store.applyPairing(updatedStorePairing)
+        }
+        transport.connectionMode = .plViaSpl
+        transport.queuedResults = [
+            .failure(SessionError.authRefreshRequired),
+            .success(54321)
+        ]
+        let manager = makeManager(
+            transport: transport,
+            store: store,
+            deviceTokenRefresher: refresher
+        )
+        await manager.connect()
+
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertNotEqual(manager.state, TunnelState.connected(localPort: 54321, via: .remote))
+    }
+
+    @MainActor
+    func testConnectAwaitAcrossDisableCannotPublishStaleRelayConnected() async throws {
+        let pairing = Self.fixturePairing(localEndpoints: [])
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: pairing)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        let transport = MockCFTunnelTransport()
+        transport.onConnectInvoked = {
+            _ = try? await store.disableRelayAccess(pairingGen: 0, mutationGen: 0)
+        }
+        transport.connectionMode = .plViaSpl
+        transport.queuedResults = [
+            .success(54321)
+        ]
+        let manager = makeManager(
+            transport: transport,
+            store: store
+        )
+        await manager.connect()
+
+        XCTAssertNotEqual(manager.state, TunnelState.connected(localPort: 54321, via: .remote))
+    }
+
+    @MainActor
+    func testReadyNextDialUsesAcceptedOriginAndToken() async throws {
+        let base = Self.fixturePairing(localEndpoints: [])
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: base)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            store: store
+        )
+        let readyToken = Self.makeDeviceToken(instanceID: base.instanceID, jti: "ready-jti")
+        _ = try await store.commitReadyAccess(
+            relayOrigin: "https://new-relay.example.com",
+            deviceToken: readyToken,
+            expiresAt: "2036-01-01T00:00:00Z",
+            pairingGen: 0,
+            mutationGen: 0
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(Self.relayTokens(from: transport.capturedCandidates), [readyToken])
+    }
+
+    @MainActor
+    func testDisabledLiveRelayLANPresentRelayOnlyEmpty() async throws {
+        let base = Self.fixturePairing(localEndpoints: [LocalEndpoint(host: "192.168.1.50", port: 8676, scope: "local")])
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: base)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        _ = try await store.disableRelayAccess(pairingGen: 0, mutationGen: 0)
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            store: store
+        )
+        manager.installIntegrationGateRelayOnlyCandidatePolicy()
+
+        await manager.connect()
+
+        XCTAssertEqual(transport.connectCallCount, 0)
+        XCTAssertEqual(manager.integrationGateCandidateBuildSummary?.returnedRelayCandidateCount, 0)
+        XCTAssertEqual(manager.integrationGateCandidateBuildSummary?.returnedDirectCandidateCount, 0)
+    }
+
+    @MainActor
+    func testStaleCandidateTeardownDoesNotDisconnectNewerSession() async throws {
+        let base = Self.fixturePairing(localEndpoints: [
+            LocalEndpoint(host: "10.0.0.1", port: 8676, scope: "local"),
+            LocalEndpoint(host: "10.0.0.2", port: 8676, scope: "local")
+        ])
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            pairing: base
+        )
+        transport.connectionMode = .plDirect
+        transport.queuedResults = [.success(54321)]
+
+        await manager.connect()
+        XCTAssertEqual(manager.state, TunnelState.connected(localPort: 54321, via: .lan))
+        XCTAssertEqual(transport.disconnectCallCount, 0)
     }
 }
 
