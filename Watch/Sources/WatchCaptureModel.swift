@@ -87,6 +87,11 @@ final class WatchCaptureModel {
         complicationRootURL: @escaping @MainActor () throws -> URL = { try AppGroupContainer.rootURL() },
         reloadComplicationTimelines: @escaping @MainActor () -> Void = {
             WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationSnapshot.widgetKind)
+            // Republish the Smart Stack relevance window alongside the reload. The card's
+            // relevance is a rolling date range derived from live state, so a reload that did
+            // not invalidate relevance would leave the system ranking us on a window that has
+            // already moved. Both call sites must do both; a grep test holds that.
+            WidgetCenter.shared.invalidateRelevance(ofKind: WatchComplicationSnapshot.widgetKind)
         }
     ) {
         self.storageActor = storageActor
@@ -206,6 +211,11 @@ final class WatchCaptureModel {
         self.complicationRootURL = { try AppGroupContainer.rootURL() }
         self.reloadComplicationTimelines = {
             WidgetCenter.shared.reloadTimelines(ofKind: WatchComplicationSnapshot.widgetKind)
+            // Republish the Smart Stack relevance window alongside the reload. The card's
+            // relevance is a rolling date range derived from live state, so a reload that did
+            // not invalidate relevance would leave the system ranking us on a window that has
+            // already moved. Both call sites must do both; a grep test holds that.
+            WidgetCenter.shared.invalidateRelevance(ofKind: WatchComplicationSnapshot.widgetKind)
         }
         self.presentation = WatchCaptureOwnerPresentation(
             status: .needsAttention(WatchCaptureFailureMapper.observerError(for: error)),

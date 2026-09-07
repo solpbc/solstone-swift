@@ -10,8 +10,22 @@ struct SolstoneWatchComplicationEntry: TimelineEntry {
     let snapshot: WatchComplicationSnapshot?
 }
 
-nonisolated enum SolstoneWatchStatusSmartStack {
-    static let widgetKind = "SolstoneWatchStatusSmartStack"
+/// The fallback refresh floor for the one status widget.
+///
+/// 🔒 **This is a safety net, not the refresh path.** State changes reach the widget through
+/// `WidgetCenter.reloadTimelines(ofKind:)` in `WatchCaptureModel`, in seconds. This floor exists
+/// only so a *dropped* reload — budget exhausted, the post-launch throttle, or the app suspended
+/// or killed before it fires — self-heals instead of freezing.
+///
+/// ⛔ The timeline used to be `policy: .never`, which has no clock fallback at all: WidgetKit
+/// never asks again until the app asks it to. The owner-visible failure that allowed is the worst
+/// one this product can ship — the card stuck reading `on` after a crash, with no mechanism to
+/// ever correct itself.
+///
+/// ⚠ 30 minutes is chosen against the documented reload budget (roughly 40–70 per widget per
+/// rolling 24h), which this floor alone consumes 48 of. Shortening it spends budget the
+/// app-driven path needs and buys nothing in the common case.
+nonisolated enum SolstoneWatchComplicationRefresh {
     static let reloadInterval: TimeInterval = 30 * 60
 
     static func nextReloadDate(after now: Date) -> Date {

@@ -42,6 +42,10 @@ BRAND_DIR  ?=
 
 ARCHIVE_DISTRIBUTION ?= build/solstone-swift-distribution.xcarchive
 TESTFLIGHT_NOTIFY    ?= false
+# The "what to test" note testers see in TestFlight. Empty by default: the release
+# script omits the flag entirely rather than posting a blank note over the previous
+# build's. Owner-facing copy, so it goes through the voice-check gate before a release.
+TESTFLIGHT_SUMMARY   ?=
 
 # --- CI test runner (host-side-flake resistance; see test/run_ci_tests.sh) ---
 # `make ci` runs the test phase through a timeout-guarded, retry-once wrapper that
@@ -799,6 +803,7 @@ testflight-release: testflight-upload
 		--key-id "$(ASC_KEY_ID)" \
 		--issuer-id "$(ASC_ISSUER)" \
 		--key-path "$(ASC_KEY_PATH)" \
+		$(if $(TESTFLIGHT_SUMMARY),--summary "$(TESTFLIGHT_SUMMARY)") \
 		$$notify_arg
 
 deploy: build

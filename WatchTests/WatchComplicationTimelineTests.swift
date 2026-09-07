@@ -5,13 +5,26 @@ import Foundation
 import XCTest
 
 nonisolated final class WatchComplicationTimelineTests: XCTestCase {
-    func testSmartStackReloadIntervalIsThirtyMinutes() {
+    func testComplicationRefreshFloorIsThirtyMinutes() {
         let now = Date(timeIntervalSince1970: 1_713_624_000)
 
-        XCTAssertEqual(SolstoneWatchStatusSmartStack.reloadInterval, 30 * 60)
+        XCTAssertEqual(SolstoneWatchComplicationRefresh.reloadInterval, 30 * 60)
         XCTAssertEqual(
-            SolstoneWatchStatusSmartStack.nextReloadDate(after: now),
+            SolstoneWatchComplicationRefresh.nextReloadDate(after: now),
             now.addingTimeInterval(30 * 60)
+        )
+    }
+
+    /// 🔒 The refresh floor must outlast the audio-verification horizon.
+    ///
+    /// `watchComplicationTimelinePoints` can emit a second entry at
+    /// `lastVerifiedAudioAt + 2 × segmentDuration` that degrades the card to unknown. The
+    /// fallback policy fires after the last entry, so a floor shorter than that horizon would
+    /// re-request the timeline before the degradation point and waste budget.
+    func testRefreshFloorOutlastsTheAudioVerificationHorizon() {
+        XCTAssertGreaterThan(
+            SolstoneWatchComplicationRefresh.reloadInterval,
+            WatchCaptureTiming.segmentDurationSeconds * 2
         )
     }
 

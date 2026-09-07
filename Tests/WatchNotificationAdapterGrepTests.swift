@@ -108,13 +108,21 @@ nonisolated final class WatchNotificationAdapterGrepTests: XCTestCase {
     func testComplicationProviderUsesTimelineDerivation() throws {
         let body = try self.section(
             from: "func getTimeline(",
-            to: "struct SolstoneWatchStatusSmartStackWidget: Widget",
+            to: "private enum WatchComplicationSnapshotSource",
             in: "SolstoneWatchComplication/SolstoneWatchComplication.swift"
         )
 
         XCTAssertTrue(body.contains("watchComplicationTimelinePoints(snapshot: WatchComplicationSnapshotSource.load(), now: now)"))
-        XCTAssertTrue(body.contains("Timeline(entries: entries, policy: .never)"))
         XCTAssertFalse(body.contains("SolstoneWatchComplicationEntry(date: Date(), snapshot: WatchComplicationSnapshotSource.load())"))
+
+        // 🔒 The timeline must carry a bounded fallback, never a bare `.never`.
+        //
+        // `.never` has no clock fallback: WidgetKit does not request another timeline until the
+        // app asks it to. A dropped reload — budget exhausted, the post-launch throttle, or the
+        // app killed before it fires — then leaves the card frozen indefinitely, including stuck
+        // reading `on` after a crash. That is the worst owner-visible failure this surface has.
+        XCTAssertTrue(body.contains("policy: .after(SolstoneWatchComplicationRefresh.nextReloadDate(after: now))"))
+        XCTAssertFalse(body.contains("policy: .never"))
     }
 
     private func contents(_ path: String) throws -> String {

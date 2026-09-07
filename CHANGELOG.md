@@ -6,8 +6,16 @@ All notable changes to the solstone app for iphone, including its embedded apple
 
 ## [Unreleased]
 
+### Added
+- the solstone card rises toward the top of your watch's smart stack while audio is on, so you can see it without going to look for it.
+- the solstone live activity on your iphone now has a layout made for your apple watch. before, the watch built its own from the icon and timer, with nothing to say what it was.
+
 ### Changed
-- sharing a large file onto this phone now keeps one copy on the phone, and sol tells you when the phone cannot hold it. a file your journal turns away stays on the phone instead of disappearing.
+- sharing a large file onto this phone now keeps one copy on the phone, and solstone tells you when the phone cannot hold it. a file your journal turns away stays on the phone instead of disappearing.
+
+### Fixed
+- the solstone card on your watch updates the moment things change. it could sit up to half an hour behind, and it could get stuck saying audio was on after solstone had stopped.
+- your watch's widget list shows one solstone card instead of two identical ones you couldn't tell apart.
 
 ## [0.1.2] - 2026-08-02
 
