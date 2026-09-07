@@ -206,12 +206,19 @@ final class TunnelManager {
     var state: TunnelState = .disconnected {
         didSet {
             if case .connected(let port, _) = state {
-                journalVersion?.connected(localPort: port)
+                if let homeJobs {
+                    homeJobs.connected(localPort: port)
+                } else {
+                    journalVersion?.connected(localPort: port)
+                }
             } else {
+                homeJobs?.disconnected()
                 journalVersion?.disconnected()
             }
         }
     }
+    @ObservationIgnored let store: PairingCredentialStore
+    @ObservationIgnored private let homeJobs: HomeAuthenticatedJobs?
     @ObservationIgnored private let journalVersion: JournalVersionMetadata?
     @ObservationIgnored private let transport: any Transporting
     @ObservationIgnored private let endpointCache: EndpointCache
@@ -282,6 +289,7 @@ final class TunnelManager {
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
+        store: PairingCredentialStore? = nil,
         deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(clientInfo: SPLRuntime.clientInfo),
         connectDeadline: Duration = .seconds(15),
         clock: any TunnelClock = LiveTunnelClock(),
@@ -299,14 +307,23 @@ final class TunnelManager {
         random: @escaping @Sendable (ClosedRange<Double>) -> Double = { Double.random(in: $0) },
         activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
         diagnosticLog: DiagnosticLog? = nil,
-        journalVersion: JournalVersionMetadata? = nil
+        journalVersion: JournalVersionMetadata? = nil,
+        homeJobs: HomeAuthenticatedJobs? = nil
     ) {
-        self.transport = transport ?? CFTunnelTransport()
+        let effectiveStore = store ?? PairingCredentialStore(
+            loadPairing: loadPairing,
+            savePairing: savePairing,
+            deletePairing: deletePairing
+        )
+        self.store = effectiveStore
+        self.homeJobs = homeJobs
+        self.journalVersion = journalVersion
+        self.transport = transport ?? CFTunnelTransport(loadPairing: { try effectiveStore.load() })
         self.endpointCache = endpointCache
         self.pathMonitor = pathMonitor
-        self.loadPairing = loadPairing
+        self.loadPairing = { try effectiveStore.load() }
         self.savePairing = savePairing
-        self.deletePairing = deletePairing
+        self.deletePairing = { try effectiveStore.clearPairing() }
         self.deviceTokenRefresher = deviceTokenRefresher
         self.probeSession = probeSession
         self.probeURLBuilder = probeURLBuilder
@@ -318,7 +335,6 @@ final class TunnelManager {
         // why: spl-swift prescribes the reconnect table; the app only schedules the chosen step.
         self.reconnectBackoff = ReconnectBackoff(schedule: .default, random: random)
         self.diagnosticLog = diagnosticLog
-        self.journalVersion = journalVersion
     }
 
     var activeConnection: (port: Int, epoch: UInt64)? {
@@ -605,6 +621,7 @@ final class TunnelManager {
 
         let task = Task { [weak self] in
             guard let self else { return }
+            let attemptPairingGen = self.store.pairingGeneration
             defer {
                 if self.isCurrentAttempt(epoch) {
                     self.connectTask = nil
@@ -680,11 +697,11 @@ final class TunnelManager {
                 if tunnelError == .revoked {
 #if DEBUG && targetEnvironment(simulator)
                     if self.integrationGateRelayOnlyCandidatePolicy == nil {
-                        try? self.deletePairing()
+                        _ = try? self.store.revokeIfCurrentGeneration(pairingGen: attemptPairingGen)
                         await self.endpointCache.wipe()
                     }
 #else
-                    try? self.deletePairing()
+                    _ = try? self.store.revokeIfCurrentGeneration(pairingGen: attemptPairingGen)
                     await self.endpointCache.wipe()
 #endif
                 }
@@ -822,10 +839,12 @@ final class TunnelManager {
             return .unreachable
         }
 
+        let capturedPairingGen = self.store.pairingGeneration
+        let capturedMutationGen = self.store.accessMutationGeneration
         switch await self.deviceTokenRefresher.refreshNow(pairing: pairing) {
         case .refreshed(let updated):
-            self.persistRefreshedPairing(updated)
-            return .retry(updated)
+            let persisted = (try? self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen)) ?? false
+            return persisted ? .retry(updated) : .retry(pairing)
         case .notNeeded:
             // nothing-to-refresh (the reloaded pairing has no relay enrollment) must
             // never destroy the pairing — unreachable, not revoked.
@@ -1380,10 +1399,12 @@ final class TunnelManager {
         if pairingOverride != nil {
             refreshedPairing = pairing
         } else {
+            let capturedPairingGen = self.store.pairingGeneration
+            let capturedMutationGen = self.store.accessMutationGeneration
             switch await self.deviceTokenRefresher.refreshIfNeeded(pairing: pairing, now: Date()) {
             case .refreshed(let updated):
-                self.persistRefreshedPairing(updated)
-                refreshedPairing = updated
+                let persisted = (try? self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen)) ?? false
+                refreshedPairing = persisted ? updated : pairing
             case .notNeeded(let current), .transientFailure(let current):
                 refreshedPairing = current
             case .definitiveAuthFailure:
@@ -1423,11 +1444,16 @@ final class TunnelManager {
             }
             directCandidates.append(endpoint)
         }
-        let relayCandidates = bootstrapCandidates.filter { endpoint in
-            if case .relay = endpoint {
-                return true
+        let relayCandidates: [TransportEndpoint]
+        if self.store.isLiveRelayDisabled {
+            relayCandidates = []
+        } else {
+            relayCandidates = bootstrapCandidates.filter { endpoint in
+                if case .relay = endpoint {
+                    return true
+                }
+                return false
             }
-            return false
         }
 
         let candidates = directCandidates + relayCandidates
@@ -1450,7 +1476,11 @@ final class TunnelManager {
 
     private func persistRefreshedPairing(_ pairing: StoredPairing) {
         do {
-            try self.savePairing(pairing)
+            _ = try self.store.persistRefreshedPairing(
+                pairing,
+                pairingGen: self.store.pairingGeneration,
+                mutationGen: self.store.accessMutationGeneration
+            )
         } catch {
             log.error("[solstone-swift] refreshed token save failed: \(String(describing: error), privacy: .public)")
         }

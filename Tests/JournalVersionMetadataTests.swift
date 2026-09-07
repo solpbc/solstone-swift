@@ -3,6 +3,7 @@
 
 import Foundation
 import XCTest
+import SPLTunnel
 @testable import solstone_swift
 
 final class JournalVersionMetadataTests: XCTestCase {
@@ -68,6 +69,146 @@ final class JournalVersionMetadataTests: XCTestCase {
         await owner.connected(localPort: 2)?.value
         XCTAssertEqual(owner.version, "2.0.2")
         XCTAssertTrue(owner.isCurrent)
+    }
+
+    @MainActor
+    func testSamePortConnectedResamples() async throws {
+        let name = "JournalVersionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        final class AtomicCounter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var _val = 0
+            func next() -> Int {
+                lock.lock()
+                defer { lock.unlock() }
+                _val += 1
+                return _val
+            }
+            var val: Int {
+                lock.lock()
+                defer { lock.unlock() }
+                return _val
+            }
+        }
+        let counter = AtomicCounter()
+        let owner = JournalVersionMetadata(defaults: defaults) { _ in
+            let c = counter.next()
+            return "2.0.\(c)"
+        }
+        owner.setIdentity("journal-a")
+
+        await owner.connected(localPort: 7071)?.value
+        XCTAssertEqual(counter.val, 1)
+        XCTAssertEqual(owner.version, "2.0.1")
+
+        await owner.connected(localPort: 7071)?.value
+        XCTAssertEqual(counter.val, 2)
+        XCTAssertEqual(owner.version, "2.0.2")
+    }
+
+    func testIdentityV2FingerprintDifference() {
+        let pairingA = StoredPairing(
+            instanceID: "inst-1",
+            homeLabel: "Home",
+            relayEndpoint: "https://relay.example.com",
+            fingerprint: "ca-fingerprint-1",
+            clientCertPEM: CertlessTrustFixtures.leafPEM,
+            clientKeyPEM: "KEY_A",
+            caChainPEM: CertlessTrustFixtures.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [],
+            pairedAt: Date()
+        )
+        let pairingB = StoredPairing(
+            instanceID: "inst-1",
+            homeLabel: "Home",
+            relayEndpoint: "https://relay.example.com",
+            fingerprint: "ca-fingerprint-1",
+            clientCertPEM: CertlessTrustFixtures.leafPEM,
+            clientKeyPEM: "KEY_A",
+            caChainPEM: CertlessTrustFixtures.wrongCAPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [],
+            pairedAt: Date()
+        )
+        let pairingC = StoredPairing(
+            instanceID: "inst-1",
+            homeLabel: "Home",
+            relayEndpoint: "https://relay.example.com",
+            fingerprint: "ca-fingerprint-1",
+            clientCertPEM: CertlessTrustFixtures.caPEM, // different cert as client cert
+            clientKeyPEM: "KEY_A",
+            caChainPEM: CertlessTrustFixtures.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [],
+            pairedAt: Date()
+        )
+
+        let idA = journalVersionMetadataIdentity(for: pairingA)
+        let idB = journalVersionMetadataIdentity(for: pairingB)
+        let idC = journalVersionMetadataIdentity(for: pairingC)
+
+        XCTAssertNotNil(idA)
+        XCTAssertNotNil(idB)
+        XCTAssertNotNil(idC)
+        XCTAssertNotEqual(idA, idB)
+        XCTAssertNotEqual(idA, idC)
+        XCTAssertNotEqual(idB, idC)
+    }
+
+    @MainActor
+    func testLateApplyValidatedAfterDisconnectedDoesNotMarkCurrent() throws {
+        let suiteName = "JournalVersionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let owner = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        owner.setIdentity("identity-1")
+
+        _ = owner.connected(localPort: 7071)
+        owner.disconnected()
+
+        owner.applyValidated(name: "Late Journal", version: "2.5.0")
+        XCTAssertFalse(owner.isCurrent)
+    }
+
+    @MainActor
+    func testApplyValidatedNameAndVersionPersistence() throws {
+        let suiteName = "JournalVersionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let owner = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        owner.setIdentity("identity-1")
+        _ = owner.connected(localPort: 7071)
+
+        owner.applyValidated(name: "My Journal", version: "1.5.0")
+        XCTAssertEqual(owner.name, "My Journal")
+        XCTAssertEqual(owner.version, "1.5.0")
+        XCTAssertTrue(owner.isCurrent)
+
+        // Restore in fresh instance
+        let restored = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        restored.setIdentity("identity-1")
+        XCTAssertEqual(restored.name, "My Journal")
+        XCTAssertEqual(restored.version, "1.5.0")
+        XCTAssertFalse(restored.isCurrent)
+    }
+
+    func testSanitizedJournalName() {
+        XCTAssertEqual(sanitizedJournalName("  Home Journal  "), "Home Journal")
+        XCTAssertNil(sanitizedJournalName("   "))
+        XCTAssertNil(sanitizedJournalName(nil))
+        XCTAssertNil(sanitizedJournalName("Bad\nName"))
+        XCTAssertNil(sanitizedJournalName("Bad\u{0000}Name"))
+
+        let exact80 = String(repeating: "a", count: 80)
+        XCTAssertEqual(sanitizedJournalName(exact80), exact80)
+
+        let over80 = String(repeating: "a", count: 81)
+        XCTAssertNil(sanitizedJournalName(over80))
     }
 }
 

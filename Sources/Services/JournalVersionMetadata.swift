@@ -10,12 +10,20 @@ import SPLTunnel
 @MainActor
 @Observable
 final class JournalVersionMetadata {
-    nonisolated private struct Record: Codable {
+    nonisolated struct Record: Codable {
         let identity: String
         let version: String
+        let name: String?
+
+        init(identity: String, version: String, name: String? = nil) {
+            self.identity = identity
+            self.version = version
+            self.name = name
+        }
     }
 
     private(set) var version: String?
+    private(set) var name: String?
     private(set) var isCurrent = false
     var displayValue: String {
         guard let version else { return "unknown" }
@@ -31,8 +39,10 @@ final class JournalVersionMetadata {
     @ObservationIgnored private var task: Task<Void, Never>?
     private static let storageKey = "journalVersionMetadata"
 
-    init(defaults: UserDefaults = .standard,
-         fetch: @escaping @Sendable (Int) async -> String? = JournalVersionStatusClient.fetch) {
+    init(
+        defaults: UserDefaults = .standard,
+        fetch: @escaping @Sendable (Int) async -> String? = { await AuthenticatedHomeClient().fetchStatus(localPort: $0) }
+    ) {
         self.defaults = defaults
         self.fetch = fetch
     }
@@ -46,10 +56,12 @@ final class JournalVersionMetadata {
         disconnected()
         identity = value
         version = nil
+        name = nil
         if let value, let data = defaults.data(forKey: Self.storageKey),
            let record = try? JSONDecoder().decode(Record.self, from: data),
            record.identity == value, let saved = sanitizedJournalVersion(record.version) {
             version = saved
+            name = sanitizedJournalName(record.name)
         } else {
             defaults.removeObject(forKey: Self.storageKey)
         }
@@ -60,6 +72,7 @@ final class JournalVersionMetadata {
         disconnected()
         identity = nil
         version = nil
+        name = nil
         defaults.removeObject(forKey: Self.storageKey)
     }
 
@@ -72,9 +85,13 @@ final class JournalVersionMetadata {
         task = nil
     }
 
+    func noteConnected(localPort: Int) {
+        self.activePort = localPort
+    }
+
     @discardableResult
     func connected(localPort: Int) -> Task<Void, Never>? {
-        guard let identity, activePort != localPort else { return task }
+        guard let identity else { return task }
         disconnected()
         activePort = localPort
         let expectedGeneration = generation
@@ -85,7 +102,8 @@ final class JournalVersionMetadata {
                   self.identity == identity, self.activePort == localPort,
                   let result, let version = sanitizedJournalVersion(result) else { return }
             // Validation and persistence share this actor turn with pairing/lifecycle changes.
-            if let data = try? JSONEncoder().encode(Record(identity: identity, version: version)) {
+            let currentName = self.name
+            if let data = try? JSONEncoder().encode(Record(identity: identity, version: version, name: currentName)) {
                 self.defaults.set(data, forKey: Self.storageKey)
             }
             self.version = version
@@ -95,53 +113,66 @@ final class JournalVersionMetadata {
         task = request
         return request
     }
-}
 
-nonisolated private final class JournalVersionRedirectDelegate: NSObject, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    willPerformHTTPRedirection response: HTTPURLResponse,
-                    newRequest request: URLRequest,
-                    completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
-        completionHandler(nil)
+    func applyValidated(name: String?, version: String?) {
+        guard let identity, self.activePort != nil else { return }
+        let cleanVersion = version.flatMap(sanitizedJournalVersion)
+        let cleanName = name.flatMap(sanitizedJournalName)
+        guard cleanVersion != nil || cleanName != nil else { return }
+
+        let effectiveVersion = cleanVersion ?? self.version ?? "unknown"
+        let effectiveName = cleanName ?? self.name
+
+        if let data = try? JSONEncoder().encode(Record(identity: identity, version: effectiveVersion, name: effectiveName)) {
+            self.defaults.set(data, forKey: Self.storageKey)
+        }
+        if let cleanVersion {
+            self.version = cleanVersion
+            self.isCurrent = true
+        }
+        if let cleanName {
+            self.name = cleanName
+        }
+        self.onChange?()
     }
 }
 
-nonisolated enum JournalVersionStatusClient {
-    static func fetch(localPort: Int) async -> String? {
-        guard (1...65535).contains(localPort),
-              let url = URL(string: "http://127.0.0.1:\(localPort)/api/system/status") else { return nil }
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 5
-        configuration.timeoutIntervalForResource = 5
-        configuration.connectionProxyDictionary = [:]
-        let session = URLSession(configuration: configuration,
-                                 delegate: JournalVersionRedirectDelegate(), delegateQueue: nil)
-        defer { session.invalidateAndCancel() }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        do {
-            let (data, response) = try await session.data(for: request)
-            guard let response = response as? HTTPURLResponse, response.statusCode == 200,
-                  let status = try? JSONDecoder().decode(Status.self, from: data) else { return nil }
-            return sanitizedJournalVersion(status.version.current)
-        } catch { return nil }
+nonisolated func sanitizedJournalName(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return nil }
+
+    for scalar in trimmed.unicodeScalars {
+        if CharacterSet.controlCharacters.contains(scalar) {
+            return nil
+        }
     }
 
-    private struct Status: Decodable {
-        struct Version: Decodable { let current: String }
-        let version: Version
+    guard trimmed.utf8.count <= 80 else {
+        return nil
     }
+
+    return trimmed
 }
 
 nonisolated internal func journalVersionMetadataIdentity(for pairing: StoredPairing) -> String? {
-    guard let normalizedCAFingerprint = normalizedCAFingerprint(for: pairing.caChainPEM) else {
+    guard let normalizedCAFingerprint = normalizedCAFingerprint(for: pairing.caChainPEM),
+          let clientCertFingerprint = clientCertFingerprint(for: pairing.clientCertPEM) else {
         return nil
     }
     return opaqueSHA256([
-        "journal-version-metadata-v1",
+        "journal-version-metadata-v2",
         pairing.instanceID,
-        normalizedCAFingerprint
+        normalizedCAFingerprint,
+        clientCertFingerprint
     ])
+}
+
+nonisolated private func clientCertFingerprint(for pem: String) -> String? {
+    guard let certificate = try? CertChain.certificates(fromPEM: pem).first else {
+        return nil
+    }
+    return CertChain.sha256Fingerprint(of: certificate)
 }
 
 nonisolated private func normalizedCAFingerprint(for pem: String) -> String? {

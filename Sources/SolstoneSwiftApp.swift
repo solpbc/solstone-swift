@@ -226,7 +226,7 @@ struct SolstoneSwiftApp: App {
         let log = DiagnosticLog()
         let appGroupMirror = AppGroupMirror()
         let watchBacklogSnapshotWriter = WatchBacklogSnapshotWriter()
-        let appConfig = AppConfig(appGroupMirror: appGroupMirror)
+        let appConfig = AppConfig(store: SPLRuntime.pairingStore, appGroupMirror: appGroupMirror)
         let observerClock = SystemObserverClock()
         let onboardingFlow = OnboardingFlow()
         let transport = CFTunnelTransport(appConfig: appConfig)
@@ -366,8 +366,13 @@ struct SolstoneSwiftApp: App {
             mirror: transferStatusMirror,
             store: shareImportStore
         )
+        let homeJobs = HomeAuthenticatedJobs(
+            store: appConfig.store,
+            journalVersion: appConfig.journalVersion
+        )
         let tunnel = TunnelManager(
             transport: transport,
+            store: appConfig.store,
             activeLocalTransferCountProvider: {
                 confirmedTransferCount(
                     mobileSegment: mobileSegmentTransferHolder,
@@ -377,7 +382,8 @@ struct SolstoneSwiftApp: App {
                 )
             },
             diagnosticLog: log,
-            journalVersion: appConfig.journalVersion
+            journalVersion: appConfig.journalVersion,
+            homeJobs: homeJobs
         )
         let connectionSyncModel = ConnectionSyncModel(clock: observerClock) {
             let totals = uploadTotals(

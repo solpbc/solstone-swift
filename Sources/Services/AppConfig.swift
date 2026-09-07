@@ -16,17 +16,14 @@ final class AppConfig {
     var journalRoot: String
     var ownerIdentity: String
     var deviceID: String
-    let journalVersion: JournalVersionMetadata
-    var serverVersion: String { journalVersion.version ?? "" }
     var isPaired: Bool
     var homeLabel: String
     var caFingerprintHex: String
     var pairedAt: Date?
     var loopbackPort: Int?
+    let journalVersion: JournalVersionMetadata
 
-    @ObservationIgnored private let loadPairing: @Sendable () throws -> StoredPairing?
-    @ObservationIgnored private let savePairing: @Sendable (StoredPairing) throws -> Void
-    @ObservationIgnored private let deletePairing: @Sendable () throws -> Void
+    @ObservationIgnored let store: PairingCredentialStore
     @ObservationIgnored private let endpointCache: EndpointCache
     @ObservationIgnored private let appGroupMirror: AppGroupMirror
     @ObservationIgnored private let journalMarkStore: JournalMarkStore
@@ -35,14 +32,18 @@ final class AppConfig {
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
+        store: PairingCredentialStore? = nil,
         endpointCache: EndpointCache = EndpointCache(),
         appGroupMirror: AppGroupMirror = AppGroupMirror(),
         journalMarkStore: JournalMarkStore = JournalMarkStore(),
         journalVersion: JournalVersionMetadata = JournalVersionMetadata()
     ) {
-        self.loadPairing = loadPairing
-        self.savePairing = savePairing
-        self.deletePairing = deletePairing
+        let effectiveStore = store ?? PairingCredentialStore(
+            loadPairing: loadPairing,
+            savePairing: savePairing,
+            deletePairing: deletePairing
+        )
+        self.store = effectiveStore
         self.endpointCache = endpointCache
         self.appGroupMirror = appGroupMirror
         self.journalMarkStore = journalMarkStore
@@ -59,7 +60,7 @@ final class AppConfig {
         self.loopbackPort = nil
 
         do {
-            if let pairing = try loadPairing() {
+            if let pairing = try self.store.load() {
                 self.applyDerivedState(from: pairing)
             } else {
                 self.journalVersion.clear()
@@ -72,8 +73,12 @@ final class AppConfig {
     }
 
     func applyPairing(_ pairing: StoredPairing) throws {
-        try self.savePairing(pairing)
-        self.journalVersion.clear()
+        let newIdentity = journalVersionMetadataIdentity(for: pairing)
+        let unchangedIdentity = newIdentity != nil && newIdentity == self.journalVersion.identity
+        try self.store.applyPairing(pairing)
+        if !unchangedIdentity {
+            self.journalVersion.clear()
+        }
         self.applyDerivedState(from: pairing)
         Task {
             await self.endpointCache.bootstrap(from: pairing)
@@ -84,7 +89,7 @@ final class AppConfig {
     func clearPairing() {
         self.journalVersion.clear()
         do {
-            try self.deletePairing()
+            try self.store.clearPairing()
         } catch {
             appConfigLog.error("clear pairing keychain failed: \(String(describing: error), privacy: .public)")
         }
@@ -118,35 +123,39 @@ final class AppConfig {
         host: String = "journal.local",
         port: Int = 22,
         journalRoot: String = "http://127.0.0.1:7071",
-        deviceID: String = "ui-test-device",
-        sessionKey: String? = nil
+        ownerIdentity: String = "Jeremiah",
+        deviceID: String = "test-device-id",
+        sessionKey: String? = nil,
+        isPaired: Bool = true,
+        homeLabel: String = "Jeremiah's Journal",
+        caFingerprintHex: String = "feedfacecafebeef0123456789abcdef0123456789abcdef0123456789abcdef",
+        pairedAt: Date = Date(),
+        endpointPort: Int = 7071,
+        relayEndpoint: String = "https://relay.example.com",
+        clientCertPEM: String = "CERT",
+        clientKeyPEM: String = "KEY",
+        caChainPEM: String = "CA",
+        deviceToken: String = "token"
     ) {
-        let endpointPort = Self.endpointPort(from: journalRoot)
-            ?? Int(ProcessInfo.processInfo.environment["MOCK_PAIRING_PORT"] ?? "")
-            ?? port
-        let endpointHost = URL(string: journalRoot)?.host ?? host
         let pairing = StoredPairing(
-            instanceID: "ui-test-instance",
-            homeLabel: "ui-test-solstone",
-            relayEndpoint: "wss://127.0.0.1:\(endpointPort)",
-            fingerprint: Self.syntheticFingerprint,
-            clientCertPEM: Self.syntheticCertificatePEM,
-            clientKeyPEM: Self.syntheticPrivateKeyPEM,
-            caChainPEM: Self.syntheticCertificatePEM,
-            relayEnrollment: .enrolled(deviceToken: sessionKey ?? "ui-test-device-token", expiresAt: nil),
-            localEndpoints: [
-                LocalEndpoint(host: endpointHost, port: endpointPort, scope: "")
-            ],
-            pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
+            instanceID: deviceID,
+            homeLabel: homeLabel,
+            relayEndpoint: relayEndpoint,
+            fingerprint: caFingerprintHex,
+            clientCertPEM: clientCertPEM,
+            clientKeyPEM: clientKeyPEM,
+            caChainPEM: caChainPEM,
+            relayEnrollment: .enrolled(deviceToken: deviceToken, expiresAt: nil),
+            localEndpoints: [LocalEndpoint(host: host, port: endpointPort, scope: "local")],
+            pairedAt: pairedAt
         )
-
-        do {
-            try self.applyPairing(pairing)
-        } catch {
-            appConfigLog.error("ui-test pairing seed save failed: \(String(describing: error), privacy: .public)")
-            self.applyDerivedState(from: pairing)
-        }
+        try? self.applyPairing(pairing)
+        self.isPaired = isPaired
         self.journalRoot = journalRoot
+        self.ownerIdentity = ownerIdentity
+        self.homeLabel = homeLabel
+        self.caFingerprintHex = caFingerprintHex
+        self.pairedAt = pairedAt
         self.host = host
         self.port = endpointPort
         self.loopbackPort = endpointPort
@@ -178,31 +187,12 @@ final class AppConfig {
         return lower
     }
 
-    private static func endpointPort(from journalRoot: String) -> Int? {
-        guard let url = URL(string: journalRoot) else { return nil }
-        return url.port
+    func loadStoredPairing() -> StoredPairing? {
+        do {
+            return try self.store.load()
+        } catch {
+            appConfigLog.error("load stored pairing failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
-
-    private static let syntheticFingerprint = String(repeating: "a", count: 64)
-    private static let syntheticCertificatePEM = """
-    -----BEGIN CERTIFICATE-----
-    MIIBsjCCAVigAwIBAgIJAO0AAAAAAAAAMAoGCCqGSM49BAMCMBcxFTATBgNVBAMM
-    DHVpLXRlc3QtY2VydDAeFw0yNjAxMDEwMDAwMDBaFw0yNzAxMDEwMDAwMDBaMBcx
-    FTATBgNVBAMMDHVpLXRlc3QtY2VydDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA
-    BAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaajUzBRMB0G
-    A1UdDgQWBBSaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaAfBgNVHSMEGDAWgBSa
-    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaAPBgNVHRMBAf8EBTADAQH/MAoGCCqG
-    SM49BAMCA0gAMEUCIQDaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaIgIgDaaa
-    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=
-    -----END CERTIFICATE-----
-    """
-    private static let syntheticPrivateKeyPEM = """
-    -----BEGIN PRIVATE KEY-----
-    MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgaaaaaaaaaaaaaaaaaaaa
-    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaahRANCAASaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    aaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    -----END PRIVATE KEY-----
-    """
 }

@@ -54,16 +54,19 @@ final class PairFlowCoordinator {
         }
     }
 
+    private let store: PairingCredentialStore
     private let pairOperation: PairOperation
     private let endpointCache: EndpointCache
     private let networkReader: any OwnNetworkReading
 
     init(
+        store: PairingCredentialStore = SPLRuntime.pairingStore,
         pairClient: PairClient = PairClient(clientInfo: SPLRuntime.clientInfo),
         endpointCache: EndpointCache = EndpointCache(),
         networkReader: any OwnNetworkReading = GetifaddrsNetworkReader(),
         pairOperation: PairOperation? = nil
     ) {
+        self.store = store
         if let pairOperation {
             self.pairOperation = pairOperation
         } else {
@@ -81,7 +84,7 @@ final class PairFlowCoordinator {
     }
 
     func handlePairURL(_ pairURL: PairURL) async throws {
-        let priorPairing = try? SPLRuntime.keychainStore.load()
+        let priorPairing = try? self.store.load()
         let priorInstance = priorPairing?.instanceID
 
         state = priorInstance == nil ? .pairing : .reconnecting
@@ -100,7 +103,7 @@ final class PairFlowCoordinator {
                 pairFlowLog.info("pairing completed against existing journal")
                 return
             }
-            try SPLRuntime.keychainStore.save(pairing)
+            try self.store.applyPairing(pairing)
             await endpointCache.bootstrap(from: pairing)
             state = priorInstance == nil ? .connected : .reconnected
             pairFlowLog.info("pairing saved for \(pairing.homeLabel, privacy: .public)")
@@ -128,7 +131,7 @@ final class PairFlowCoordinator {
 
     func unpair() async {
         do {
-            try SPLRuntime.keychainStore.delete()
+            try self.store.clearPairing()
         } catch {
             pairFlowLog.error("unpair keychain delete failed: \(String(describing: error), privacy: .public)")
         }
