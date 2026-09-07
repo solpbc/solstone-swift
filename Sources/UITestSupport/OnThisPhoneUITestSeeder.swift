@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 #if DEBUG
+import AVFoundation
 import Foundation
 import os
 
@@ -49,10 +50,18 @@ enum OnThisPhoneUITestSeeder {
                 return
             }
             if seedAudioMagic {
+                let duration = Self.audioMagicDuration(arguments: arguments)
+                var audioData: Data?
+                #if targetEnvironment(simulator)
+                if arguments.contains("--app-store-screenshots") {
+                    audioData = try Self.syntheticAudio(durationS: duration)
+                }
+                #endif
                 try Self.seedAudioMagic(
                     roots: roots,
-                    durationS: Self.audioMagicDuration(arguments: arguments),
-                    fileManager: fileManager
+                    durationS: duration,
+                    fileManager: fileManager,
+                    audioData: audioData
                 )
             } else if seedLargeBacklog {
                 let requested = Self.largeBacklogCount(arguments: arguments)
@@ -275,7 +284,7 @@ extension OnThisPhoneUITestSeeder {
         }
     }
 
-    static func seedAudioMagic(roots: Roots, durationS: TimeInterval, fileManager: FileManager) throws {
+    static func seedAudioMagic(roots: Roots, durationS: TimeInterval, fileManager: FileManager, audioData: Data? = nil) throws {
         try Self.writeMobileSegment(
             root: roots.mobileSegment,
             segmentID: UUID(uuidString: "a4c3e712-809a-578f-83ed-c903935d5b14")!,
@@ -284,11 +293,34 @@ extension OnThisPhoneUITestSeeder {
             startedAt: Date(timeIntervalSince1970: 1_780_480_900),
             durationS: durationS,
             fixCount: nil,
-            fileManager: fileManager
+            fileManager: fileManager,
+            audioData: audioData
         )
         UserDefaults.standard.set(true, forKey: AudioStorageKey.enrolled)
         UserDefaults.standard.set(false, forKey: AudioStorageKey.magicMomentFirstSeen)
     }
+
+    #if targetEnvironment(simulator)
+    private static func syntheticAudio(durationS: TimeInterval) throws -> Data {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".m4a")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000)!
+        buffer.frameLength = 16_000
+        for index in 0..<16_000 {
+            buffer.floatChannelData![0][index] = Float(sin(Double(index) * 2 * .pi * 440 / 16_000) * 0.05)
+        }
+        // Closing the writer finalizes the container before the seeder reads it.
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 16_000,
+                AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 32_000,
+            ])
+            for _ in 0..<Int(min(max(durationS, 1), 300)) { try file.write(from: buffer) }
+        }
+        return try Data(contentsOf: url)
+    }
+    #endif
 
     static func resetAudioL5State() {
         UserDefaults.standard.removeObject(forKey: AudioStorageKey.enrolled)
@@ -396,7 +428,8 @@ extension OnThisPhoneUITestSeeder {
         startedAt: Date,
         durationS: TimeInterval,
         fixCount: Int?,
-        fileManager: FileManager
+        fileManager: FileManager,
+        audioData: Data? = nil
     ) throws {
         let store = MobileSegmentStore(rootURL: root, fileManager: fileManager)
         let endedAt = startedAt.addingTimeInterval(durationS)
@@ -416,7 +449,7 @@ extension OnThisPhoneUITestSeeder {
         switch source {
         case .audio:
             let url = store.audioURL(in: directory)
-            try Data("audio".utf8).write(to: url, options: .atomic)
+            try (audioData ?? Data("audio".utf8)).write(to: url, options: .atomic)
             let resolution = MobileSegmentSourceResolution(
                 state: .finalizedArtifact,
                 artifactFilename: url.lastPathComponent,

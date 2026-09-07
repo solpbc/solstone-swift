@@ -90,27 +90,10 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             XCTAssertTrue(block.contains(required), required)
         }
 
-        let appVersion = Self.parseCurrentProjectVersion(in: try Self.baseSettingsBlock())
-        let broadcastVersion = Self.parseCurrentProjectVersion(in: block)
-
-        XCTAssertNotNil(appVersion, "app CURRENT_PROJECT_VERSION present")
-        XCTAssertNotNil(broadcastVersion, "broadcast CURRENT_PROJECT_VERSION present")
-        XCTAssertEqual(
-            appVersion,
-            broadcastVersion,
-            "app and broadcast must share the same build number"
-        )
-
-        let appMarketing = Self.parseMarketingVersion(in: try Self.baseSettingsBlock())
-        let broadcastMarketing = Self.parseMarketingVersion(in: block)
-
-        XCTAssertNotNil(appMarketing, "app MARKETING_VERSION present")
-        XCTAssertNotNil(broadcastMarketing, "broadcast MARKETING_VERSION present")
-        XCTAssertEqual(
-            appMarketing,
-            broadcastMarketing,
-            "app and broadcast must share the same marketing version"
-        )
+        XCTAssertNotNil(Self.parseCurrentProjectVersion(in: try Self.baseSettingsBlock()))
+        XCTAssertNotNil(Self.parseMarketingVersion(in: try Self.baseSettingsBlock()))
+        XCTAssertFalse(block.contains("        CURRENT_PROJECT_VERSION:"), "inherit the project build number")
+        XCTAssertFalse(block.contains("        MARKETING_VERSION:"), "inherit the project marketing version")
     }
 }
 

@@ -36,11 +36,25 @@ nonisolated final class LocationNoMapKitGrepTests: XCTestCase {
             let text = try String(contentsOf: file, encoding: .utf8)
             for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let lineText = String(line)
-                for token in bannedTokens where lineText.contains(token) {
+                for token in bannedTokens where Self.containsToken(token, in: lineText) {
                     XCTFail("native map/live-dot token \(token) at \(file.path):\(index + 1): \(lineText)")
                 }
             }
         }
+    }
+
+    func testMapTokenRequiresAnIdentifierBoundary() {
+        XCTAssertTrue(Self.containsToken("Map(", in: "let view = Map(position: position)"))
+        XCTAssertTrue(Self.containsToken("Map(", in: "SwiftUI.Map(position: position)"))
+        XCTAssertFalse(Self.containsToken("Map(", in: "version.flatMap(sanitizedJournalVersion)"))
+        XCTAssertFalse(Self.containsToken("Map(", in: "values.compactMap(transform)"))
+    }
+
+    private static func containsToken(_ token: String, in line: String) -> Bool {
+        line.range(
+            of: "(?<![A-Za-z0-9_])" + NSRegularExpression.escapedPattern(for: token),
+            options: .regularExpression
+        ) != nil
     }
 
     private static func worktreeRoot() -> URL {

@@ -654,6 +654,9 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             }
         }
         XCTAssertTrue(didLaunchAcceptPrimary)
+        // A completed publication can precede the remaining startup refreshes.
+        // Drain those before assigning the failure to the explicit request below.
+        await model.settled()
         XCTAssertFalse(model.diagnosticsEnvelopeOwedUntilAccepted)
 
         sink.reset()

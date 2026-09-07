@@ -19,8 +19,8 @@ settings:
   base:
     CODE_SIGN_STYLE: Automatic
     DEVELOPMENT_TEAM: 7QCG8V4M6H
-    MARKETING_VERSION: "0.1.2"
-    CURRENT_PROJECT_VERSION: 79
+    MARKETING_VERSION: "2.0.0"
+    CURRENT_PROJECT_VERSION: 80
     TARGETED_DEVICE_FAMILY: "1,2"
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
@@ -74,6 +74,8 @@ targets:
     info:
       path: Sources/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # The brand face is registered HERE, and only here. It was previously declared
         # as an INFOPLIST_KEY_UIAppFonts build setting, but INFOPLIST_KEY_* settings are
         # only merged into a *generated* Info.plist and this target ships an explicit
@@ -145,6 +147,8 @@ targets:
     info:
       path: SolstoneNotificationContent/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController
@@ -189,6 +193,8 @@ targets:
     info:
       path: SolstoneShareExtension/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
@@ -216,8 +222,6 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: screen
         CODE_SIGN_ENTITLEMENTS: SolstoneBroadcastExtension/SolstoneBroadcastExtension.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
-        MARKETING_VERSION: "0.1.2"
-        CURRENT_PROJECT_VERSION: 79
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"
     info:
@@ -264,6 +268,8 @@ targets:
     info:
       path: SolstoneLiveActivityWidget/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
   SolstoneWatch:
@@ -301,6 +307,8 @@ targets:
     info:
       path: Watch/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         WKApplication: YES
         WKCompanionAppBundleIdentifier: app.solstone.swift
         UIBackgroundModes:
@@ -341,6 +349,8 @@ targets:
     info:
       path: SolstoneWatchComplication/Info.plist
       properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
   SolstoneWatchTests:

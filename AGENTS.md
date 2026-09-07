@@ -55,7 +55,7 @@ make clean         # remove build artifacts
 
 `make test-fast` is an inner-loop target. Run `make test-build` immediately before it, or use `make test` for a full clean validation pass.
 
-**`make ci` is the canonical gate; run it before merging any branch to main.** It runs the brand/accessibility/tap-target/casing assertions (cheap, fail-fast), then the full iOS test lane followed by the watchOS test lane. A green `make ci` means both lanes passed; `make sim-json` is only the faster inner-loop build check, not a substitute for the gate.
+**`make ci` is the canonical gate; run it before merging any branch to main.** It runs the version/accessibility/tap-target/configuration assertions (cheap, fail-fast), then the full iOS test lane followed by the watchOS test lane. A green `make ci` means both lanes passed; `make sim-json` is only the faster inner-loop build check, not a substitute for the gate.
 
 **Local DerivedData** (`./DerivedData/`, gitignored) — NEVER delete, breaks SPM cache.
 
