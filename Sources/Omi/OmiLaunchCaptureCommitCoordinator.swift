@@ -10,6 +10,8 @@ final class OmiLaunchCaptureCommitCoordinator {
     // These are the asynchronous boundaries in owner settlement and cutover.
     // Observing them keeps ordering testable without changing the Transfer APIs.
     enum ReconciliationPhase: Equatable, Hashable, Sendable {
+        case beforeUncommit
+        case beforeFinalProvenanceRead
         case afterCutIntentCommittedBeforeRouteSwap
         case afterSealedOwnerAdopted
         case afterSealedOwnershipVerified
@@ -89,6 +91,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     private var successorTask: Task<Void, Never>?
     private var isReconciling = false
     private var pendingSuccessor: PendingSuccessor?
+    private var pendingRootURL: URL?
     private var cutLifecycle: CutLifecycle = .ordinary
     private var cutReservationProbeFailed = false
     private var pendingCutFinalDefect: OmiLaunchCaptureCutReservationDefect?
@@ -126,13 +129,12 @@ final class OmiLaunchCaptureCommitCoordinator {
 
     func reconcile(rootURL: URL? = nil) async {
         if let rootURL {
-            self.rootURL = rootURL
-            self.refreshCutReservationState()
+            self.pendingRootURL = rootURL
         }
-        guard !self.isReconciling else { return }
-        await self.uncommitLaunchCaptureLeftovers()
-        guard let rootURL = self.rootURL else { return }
-        guard !self.cutReservationProbeFailed else { return }
+        guard !self.isReconciling else {
+            self.requestReconciliation()
+            return
+        }
         self.isReconciling = true
         defer {
             self.isReconciling = false
@@ -141,6 +143,15 @@ final class OmiLaunchCaptureCommitCoordinator {
                 self.armReconciliationSuccessor(delayed: pendingSuccessor == .delayed)
             }
         }
+        if let pendingRootURL {
+            self.pendingRootURL = nil
+            self.rootURL = pendingRootURL
+            self.refreshCutReservationState()
+        }
+        await self.observe(.beforeUncommit)
+        await self.uncommitLaunchCaptureLeftovers()
+        guard let rootURL = self.rootURL else { return }
+        guard !self.cutReservationProbeFailed else { return }
         guard self.sourceManager.isLaunchCaptureRecoveryEnabled else { return }
 
         guard await self.beginCutIfNeeded() else { return }
@@ -258,7 +269,6 @@ final class OmiLaunchCaptureCommitCoordinator {
 
     func resumeAfterExplicitEnable() async {
         guard self.sourceManager.isLaunchCaptureRecoveryEnabled,
-              !self.isReconciling,
               self.cutLifecycle != .defect
         else { return }
         await self.reconcile()
@@ -1144,6 +1154,7 @@ final class OmiLaunchCaptureCommitCoordinator {
               scan.verifiedPrefixNextSequence == cursor.acknowledgedPrefixNextSequence,
               scan.verifiedPrefixEndOffset == cursor.acknowledgedPrefixEndOffset
         else { return false }
+        await self.observe(.beforeFinalProvenanceRead)
         guard let provenanceIDs = self.sealedProvenanceIDs(rootURL: rootURL, generationID: intent.sealedGenerationID) else { return false }
         let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
             .appendingPathComponent(intent.sealedGenerationID.uuidString, isDirectory: true)
@@ -1152,7 +1163,14 @@ final class OmiLaunchCaptureCommitCoordinator {
         // Snapshot absence is the approved spool bar, not delivery evidence.  An
         // out-of-band post-release drop also removes an item; this wave intentionally
         // does not distinguish that user/API discard from terminal delivery.
-        return provenanceIDs.isDisjoint(with: snapshotIDs)
+        let spoolIsClear = provenanceIDs.isDisjoint(with: snapshotIDs)
+        if !spoolIsClear, self.sourceManager.isLaunchCaptureRecoveryEnabled {
+            // Adoption can return before asynchronous delivery removes the sealed
+            // item. Keep reevaluating this durable gate until that work finishes;
+            // neither a recovered handoff nor a slow transfer owes another enable.
+            self.requestReconciliation(delayed: true)
+        }
+        return spoolIsClear
     }
 
     private func finalMatchesSealedCapture(_ final: OmiLaunchCaptureCutFinal, rootURL: URL) -> Bool {
@@ -1165,7 +1183,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     private func sealedProvenanceIDs(rootURL: URL, generationID: UUID) -> Set<UUID>? {
         let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
             .appendingPathComponent(generationID.uuidString, isDirectory: true)
-        guard let files = try? self.io.contentsOfDirectory(at: directory) else { return Set() }
+        guard let files = try? self.io.contentsOfDirectory(at: directory) else { return nil }
         var ids: Set<UUID> = []
         for file in files where file.pathExtension == OmiLaunchCaptureMaterializationProvenance.pathExtension {
             guard let provenance = try? OmiLaunchCaptureMaterializationProvenanceStore.read(from: file),
