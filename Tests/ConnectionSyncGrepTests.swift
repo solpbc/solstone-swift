@@ -60,7 +60,7 @@ nonisolated final class ConnectionSyncGrepTests: XCTestCase {
         let countBody = try Self.slice(in: text, from: "func confirmedTransferCount", to: "\n\n@MainActor\nfunc recentBytesTotal")
         let bytesBody = try Self.slice(in: text, from: "func recentBytesTotal", to: "\n\n@MainActor\nfunc uploadInFlight")
 
-        for required in ["mobileSegment.", "omi.", "watch.", "share."] {
+        for required in ["mobileSegment.", "watch.", "share."] {
             XCTAssertTrue(countBody.contains(required), required)
             XCTAssertTrue(bytesBody.contains(required), required)
         }

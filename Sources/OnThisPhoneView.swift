@@ -35,7 +35,6 @@ struct OnThisPhoneView: View {
 nonisolated enum LoadTrigger: String, Sendable {
     case appear
     case observerCounts
-    case omiCounts
     case watchCounts
     case importCounts
     case mobileSegmentCounts
@@ -45,7 +44,6 @@ nonisolated enum LoadTrigger: String, Sendable {
 
 nonisolated struct OnThisPhoneDeliveryMarkers: Equatable, Sendable {
     let mobileSegment: Date?
-    let omi: Date?
     let watch: Date?
     let share: Date?
 }
@@ -104,7 +102,6 @@ struct OnThisPhoneMomentsView: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
-    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(FinishSyncingCoordinator.self) private var finishSyncingCoordinator
@@ -217,12 +214,6 @@ struct OnThisPhoneMomentsView: View {
             .onChange(of: self.mobileSegmentTransferHolder.failedCount) { _, _ in
                 self.coalescer.schedule { await self.loadSnapshot(trigger: .observerCounts) }
             }
-            .onChange(of: self.omiUploaderHolder.pendingCount) { _, _ in
-                self.coalescer.schedule { await self.loadSnapshot(trigger: .omiCounts) }
-            }
-            .onChange(of: self.omiUploaderHolder.failedCount) { _, _ in
-                self.coalescer.schedule { await self.loadSnapshot(trigger: .omiCounts) }
-            }
             .onChange(of: self.watchUploaderHolder.pendingCount) { _, _ in
                 self.coalescer.schedule { await self.loadSnapshot(trigger: .watchCounts) }
             }
@@ -261,7 +252,6 @@ private extension OnThisPhoneMomentsView {
     var deliveryMarkers: OnThisPhoneDeliveryMarkers {
         OnThisPhoneDeliveryMarkers(
             mobileSegment: self.mobileSegmentTransferHolder.lastUploadAt,
-            omi: self.omiUploaderHolder.lastUploadAt,
             watch: self.watchUploaderHolder.lastUploadAt,
             share: self.shareTransferHolder.lastUploadAt
         )

@@ -6,13 +6,6 @@ import XCTest
 
 nonisolated final class SourceFaultTests: XCTestCase {
     func testActionTable() {
-        XCTAssertEqual(sourceFaultAction(.bluetoothOff), .none)
-        XCTAssertEqual(sourceFaultAction(.unauthorized), .openSettings)
-        XCTAssertEqual(sourceFaultAction(.unsupported), .none)
-        XCTAssertEqual(sourceFaultAction(.pendantOutOfRange), .none)
-        XCTAssertEqual(sourceFaultAction(.pendantConnectFailed), .none)
-        XCTAssertEqual(sourceFaultAction(.pendantCodecUnsupported), .none)
-        XCTAssertEqual(sourceFaultAction(.pendantAudioUnavailable), .none)
         XCTAssertEqual(sourceFaultAction(.watchUnsupported), .none)
         XCTAssertEqual(sourceFaultAction(.watchChecking), .none)
         XCTAssertEqual(sourceFaultAction(.watchActivationFailed), .none)
@@ -28,37 +21,6 @@ nonisolated final class SourceFaultTests: XCTestCase {
         XCTAssertEqual(sourceFaultAction(.microphoneDenied), .openSettings)
         XCTAssertEqual(sourceFaultAction(.screencastNeedsAttention), .none)
         XCTAssertEqual(sourceFaultAction(.screencastUnavailable), .none)
-    }
-
-    func testOutOfRangePendantNeverRetries() {
-        XCTAssertEqual(omiSourceFault(.pendantNotFound), .pendantOutOfRange)
-        XCTAssertEqual(sourceFaultAction(omiSourceFault(.pendantNotFound)), .none)
-        XCTAssertNotEqual(sourceFaultAction(omiSourceFault(.pendantNotFound)), .retry)
-    }
-
-    func testNoOmiAttentionYieldsRetry() {
-        let attentions: [OmiAttention] = [
-            .bluetoothOff,
-            .unauthorized,
-            .unsupported,
-            .pendantNotFound,
-            .connectFailed("timeout"),
-            .codecNotOpus,
-            .audioUnavailable,
-        ]
-        for attention in attentions {
-            XCTAssertNotEqual(sourceFaultAction(omiSourceFault(attention)), .retry, "\(attention)")
-        }
-    }
-
-    func testBluetoothOffIsNoneUnauthorizedIsOpenSettings() {
-        XCTAssertEqual(sourceFaultAction(omiSourceFault(.bluetoothOff)), .none)
-        XCTAssertEqual(sourceFaultAction(omiSourceFault(.unauthorized)), .openSettings)
-    }
-
-    func testDisabledPendantHasNoFault() {
-        XCTAssertNil(omiSourceFault(state: .needsAttention(.pendantNotFound), enabled: false))
-        XCTAssertEqual(omiSourceFault(state: .needsAttention(.unauthorized), enabled: true), .unauthorized)
     }
 
     func testWatchReachabilityLanesAreTheOnlyNonNoneActions() throws {
@@ -165,8 +127,6 @@ nonisolated final class SourceFaultTests: XCTestCase {
 
     func testUnderivableFaultsAreNone() {
         XCTAssertEqual(sourceFaultAction(.watchStuck), .none)
-        XCTAssertEqual(sourceFaultAction(.pendantConnectFailed), .none)
-        XCTAssertEqual(sourceFaultAction(.unsupported), .none)
     }
 }
 

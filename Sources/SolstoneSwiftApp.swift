@@ -20,7 +20,6 @@ struct SolstoneSwiftApp: App {
     @State private var diagnosticLog: DiagnosticLog
     @State private var problemReportsManager: ProblemReportsManager
     @State private var mobileSegmentTransferHolder: MobileSegmentTransferHolder
-    @State private var omiUploaderHolder: OmiUploaderHolder
     @State private var watchUploaderHolder: WatchUploaderHolder
     @State private var watchSourceFacts: WatchSourceFacts
     @State private var transferEndpointResolver: LoopbackTransferEndpointResolver
@@ -44,8 +43,6 @@ struct SolstoneSwiftApp: App {
     @State private var pendingJournalOpen = PendingJournalOpenState()
     @State private var pairingHandoff = PairingHandoffState()
     @State private var shellNav = ShellNavModel()
-    @State private var omiSourceManager: OmiSourceManager
-    @State private var launchCaptureCommitCoordinator: OmiLaunchCaptureCommitCoordinator
     @State private var finishSyncingCoordinator: FinishSyncingCoordinator
     @State private var foregroundDrainGate: ForegroundDrainGate
     @State private var launchMaintenanceCoordinator: LaunchMaintenanceCoordinator
@@ -131,58 +128,39 @@ struct SolstoneSwiftApp: App {
         appGroupRoot: () throws -> URL,
         cachesRootURL: URL?,
         migrate: (URL, URL?) async throws -> Void,
-        reconcile: (URL) async throws -> Void,
-        reconcileLaunchCapture: (URL) async throws -> Void = { _ in },
-        uncommitLaunchCaptureLeftovers: () async -> Void = {},
+        reconcile: () async throws -> Void,
         enableDispatch: () async -> Void,
-        openOmiReadiness: () async -> Void,
         reportFailure: (String, (any Error)?) -> Void
     ) async {
-        func finishBootstrap() async {
-            await enableDispatch()
-            await openOmiReadiness()
-        }
         do {
             try await initialize()
         } catch {
             reportFailure("start failed", error)
-            await openOmiReadiness()
             return
         }
         let rootURL: URL
         do {
             rootURL = try appGroupRoot()
         } catch {
-            await uncommitLaunchCaptureLeftovers()
             reportFailure("app-group unavailable", error)
-            await finishBootstrap()
+            await enableDispatch()
             return
         }
         do {
             try await migrate(rootURL, cachesRootURL)
         } catch {
-            await uncommitLaunchCaptureLeftovers()
             reportFailure("migration failed", error)
-            await finishBootstrap()
+            await enableDispatch()
             return
         }
         do {
-            try await reconcile(rootURL)
+            try await reconcile()
         } catch {
-            await uncommitLaunchCaptureLeftovers()
             reportFailure("reconciliation failed", error)
-            await finishBootstrap()
+            await enableDispatch()
             return
         }
-        do {
-            try await reconcileLaunchCapture(rootURL)
-        } catch {
-            await uncommitLaunchCaptureLeftovers()
-            reportFailure("launch capture reconciliation failed", error)
-            await finishBootstrap()
-            return
-        }
-        await finishBootstrap()
+        await enableDispatch()
     }
 
     private static var shouldUseUITestObserverRecorder: Bool {
@@ -325,10 +303,6 @@ struct SolstoneSwiftApp: App {
             uploader: mobileSegmentUploader,
             clock: observerClock
         )
-        let omiUploaderHolder = OmiUploaderHolder(
-            transferEngine: transferEngine,
-            mirror: transferStatusMirror
-        )
         let watchSourceFacts = WatchSourceFacts()
         let watchConnectivitySession = LiveWatchConnectivitySession()
         let watchPipeline = makeWatchPhonePipeline(
@@ -376,7 +350,6 @@ struct SolstoneSwiftApp: App {
             activeLocalTransferCountProvider: {
                 confirmedTransferCount(
                     mobileSegment: mobileSegmentTransferHolder,
-                    omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     share: shareTransferHolder
                 )
@@ -388,7 +361,6 @@ struct SolstoneSwiftApp: App {
         let connectionSyncModel = ConnectionSyncModel(clock: observerClock) {
             let totals = uploadTotals(
                 mobileSegment: mobileSegmentTransferHolder,
-                omi: omiUploaderHolder,
                 watch: watchUploaderHolder,
                 share: shareTransferHolder
             )
@@ -398,13 +370,11 @@ struct SolstoneSwiftApp: App {
                 isNetworkSatisfied: tunnel.isNetworkSatisfied,
                 confirmedTransferCount: confirmedTransferCount(
                     mobileSegment: mobileSegmentTransferHolder,
-                    omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     share: shareTransferHolder
                 ),
                 recentBytesPerSecond: recentBytesTotal(
                     mobileSegment: mobileSegmentTransferHolder,
-                    omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     share: shareTransferHolder
                 ),
@@ -427,46 +397,10 @@ struct SolstoneSwiftApp: App {
         AppDependencyManager.shared.add(dependency: observerManager)
         AppDependencyManager.shared.add(dependency: observerManager as any ObserverSessionControlling)
         ObserverManagerDependencyRegistrationWitness.recordRegistration(of: observerManager)
-        let omiSegmentWriter = OmiSegmentWriter(transferEnqueuer: transferEnqueuer, clock: observerClock)
-        let omiSource = makeOmiSourceManager(clock: observerClock, diagnosticLog: log)
-        let launchCaptureCommitCoordinator = OmiLaunchCaptureCommitCoordinator(
-            rootURL: nil,
-            engine: transferEngine,
-            sourceManager: omiSource
-        )
-        omiSource.onLaunchCaptureExplicitEnable = { [weak launchCaptureCommitCoordinator] in
-            await launchCaptureCommitCoordinator?.resumeAfterExplicitEnable()
-        }
-        let omiHeardTally = omiSource.heardTally
-        omiSegmentWriter.onChunkFinalized = { day, durationS, identity in
-            omiHeardTally.record(day: day, durationS: durationS, identity: identity)
-        }
-        omiSegmentWriter.onWriterFault = { [weak omiSource] in
-            omiSource?.noteWriterFault()
-        }
-        omiSegmentWriter.freezeSegmentMetadata = { [weak omiSource] in
-            omiSource?.freezeSegmentMetadata()
-        }
-        omiSegmentWriter.acknowledgeSegmentMetadata = { [weak omiSource] tokens in
-            omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
-        }
-        omiSegmentWriter.onHandoffDegradation = { detail in
-            log.append(
-                category: .upload,
-                severity: .warning,
-                message: "needs attention",
-                detail: detail
-            )
-        }
-        omiSource.omiSegmentWriter = omiSegmentWriter
-        omiSource.onDecodedSamples = { [weak omiSegmentWriter] samples in
-            omiSegmentWriter?.append(samples)
-        }
         let finishSyncing = FinishSyncingCoordinator(
             totals: {
                 uploadTotals(
                     mobileSegment: mobileSegmentTransferHolder,
-                    omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     share: shareTransferHolder
                 )
@@ -474,7 +408,6 @@ struct SolstoneSwiftApp: App {
             inFlight: {
                 uploadInFlight(
                     mobileSegment: mobileSegmentTransferHolder,
-                    omi: omiUploaderHolder,
                     watch: watchUploaderHolder,
                     share: shareTransferHolder
                 )
@@ -579,7 +512,6 @@ struct SolstoneSwiftApp: App {
         self._tunnelManager = State(initialValue: tunnel)
         self._connectionSyncModel = State(initialValue: connectionSyncModel)
         self._mobileSegmentTransferHolder = State(initialValue: mobileSegmentTransferHolder)
-        self._omiUploaderHolder = State(initialValue: omiUploaderHolder)
         self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
         self._watchSourceFacts = State(initialValue: watchSourceFacts)
         self._transferEndpointResolver = State(initialValue: transferEndpointResolver)
@@ -599,8 +531,6 @@ struct SolstoneSwiftApp: App {
         self._screencastManager = State(initialValue: screencastManager)
         self._observerManager = State(initialValue: observerManager)
         self._watchLink = State(initialValue: watchLink)
-        self._omiSourceManager = State(initialValue: omiSource)
-        self._launchCaptureCommitCoordinator = State(initialValue: launchCaptureCommitCoordinator)
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
@@ -643,9 +573,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.connectionSyncModel)
                 .environment(self.finishSyncingCoordinator)
                 .environment(self.foregroundDrainGate)
-                .environment(self.omiSourceManager)
                 .environment(self.mobileSegmentTransferHolder)
-                .environment(self.omiUploaderHolder)
                 .environment(self.watchUploaderHolder)
                 .environment(self.watchSourceFacts)
                 .environment(self.watchLink)
@@ -696,7 +624,6 @@ struct SolstoneSwiftApp: App {
 #endif
                 .task {
                     await self.bootstrapTransfer()
-                    _ = await self.omiSourceManager.resumeLaunchCaptureOnce()
                 }
                 .task {
                     await Task.yield()
@@ -778,9 +705,6 @@ struct SolstoneSwiftApp: App {
                     }
                 }
             case .background:
-                let omiFinalizeTask = Task { @MainActor in
-                    await self.omiSourceManager.finalizeOpenChunkForBackground()
-                }
                 Task {
                     await self.screencastManager.prepareForBackground()
                 }
@@ -796,7 +720,6 @@ struct SolstoneSwiftApp: App {
                     totals: {
                         uploadTotals(
                             mobileSegment: self.mobileSegmentTransferHolder,
-                            omi: self.omiUploaderHolder,
                             watch: self.watchUploaderHolder,
                             share: self.shareTransferHolder
                         )
@@ -804,7 +727,6 @@ struct SolstoneSwiftApp: App {
                     inFlight: {
                         uploadInFlight(
                             mobileSegment: self.mobileSegmentTransferHolder,
-                            omi: self.omiUploaderHolder,
                             watch: self.watchUploaderHolder,
                             share: self.shareTransferHolder
                         )
@@ -833,7 +755,6 @@ struct SolstoneSwiftApp: App {
                     asserter: UIBackgroundTaskAsserter()
                 )
                 self.backgroundDrainTask = Task {
-                    await omiFinalizeTask.value
                     await coordinator.run()
                 }
             default:
@@ -934,15 +855,6 @@ struct SolstoneSwiftApp: App {
             },
             cachesRootURL: cachesRoot,
             migrate: { appGroupRoot, cacheRoot in
-                await OmiTransferSpoolMigrator.migrate(
-                    appGroupRootURL: appGroupRoot,
-                    legacyCachesRootURL: cacheRoot?.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
-                    transferEnqueuer: self.transferEnqueuer,
-                    diagnosticLog: self.diagnosticLog,
-                    acknowledgeTokens: { [weak omiSource = self.omiSourceManager] tokens in
-                        omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
-                    }
-                )
                 await WatchTransferSpoolMigrator.migrate(
                     appGroupRootURL: appGroupRoot,
                     legacyRootURL: (cacheRoot ?? FileManager.default.temporaryDirectory)
@@ -963,35 +875,12 @@ struct SolstoneSwiftApp: App {
                     diagnosticLog: self.diagnosticLog
                 )
             },
-            reconcile: { appGroupRoot in
+            reconcile: {
                 await self.mobileSegmentUploader.resumeFromDisk()
                 self.shareImportStore.refreshFromDisk()
-                if UserDefaults.standard.bool(forKey: OmiTransferSpoolMigrator.flagKey) {
-                    await self.recoverOmiInProgress(appGroupRootURL: appGroupRoot)
-                }
-            },
-            reconcileLaunchCapture: { appGroupRoot in
-                await self.launchCaptureCommitCoordinator.reconcile(
-                    rootURL: appGroupRoot.appendingPathComponent(
-                        OmiLaunchCaptureFormat.rootDirectoryName,
-                        isDirectory: true
-                    )
-                )
-            },
-            uncommitLaunchCaptureLeftovers: {
-                guard let appGroup = try? AppGroupContainer.rootURL() else { return }
-                await self.launchCaptureCommitCoordinator.uncommitLeftovers(
-                    rootURL: appGroup.appendingPathComponent(
-                        OmiLaunchCaptureFormat.rootDirectoryName,
-                        isDirectory: true
-                    )
-                )
             },
             enableDispatch: {
                 await self.transferEngine.enableDispatch()
-            },
-            openOmiReadiness: {
-                await self.omiSourceManager.openLaunchReadiness()
             },
             reportFailure: { reason, error in
                 self.diagnosticLog.append(
@@ -1007,43 +896,6 @@ struct SolstoneSwiftApp: App {
             }
         )
     }
-
-    private func recoverOmiInProgress(appGroupRootURL: URL) async {
-        let rootURL = appGroupRootURL.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
-        guard FileManager.default.fileExists(atPath: rootURL.path),
-              let sessions = try? FileManager.default.contentsOfDirectory(
-                at: rootURL,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-              )
-        else {
-            return
-        }
-        let quarantineRoot = OmiTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: appGroupRootURL)
-        for sessionURL in sessions where (try? sessionURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
-            guard let sessionID = UUID(uuidString: sessionURL.lastPathComponent) else { continue }
-            _ = await OmiInProgressRecovery.recoverInProgressFiles(
-                sessionID: sessionID,
-                rootURL: rootURL,
-                transferEnqueuer: self.transferEnqueuer,
-                acknowledgeTokens: { [weak omiSource = self.omiSourceManager] tokens in
-                    omiSource?.acknowledgeSegmentMetadata(tokens: tokens)
-                },
-                registerProducerCleanupFailure: { itemID in
-                    await self.transferEngine.moveToAttention(
-                        itemID: itemID,
-                        reason: "omi_producer_cleanup_failed",
-                        detail: "envelope removal failed"
-                    )
-                },
-                retryOwnedAttention: { itemID in
-                    try? await self.transferEngine.retryAttention(itemID: itemID)
-                },
-                quarantineRootURL: quarantineRoot,
-                diagnosticLog: self.diagnosticLog
-            )
-        }
-    }
 }
 
 private extension SolstoneSwiftApp {
@@ -1055,8 +907,6 @@ private extension SolstoneSwiftApp {
             "solstone-swift-pair-session",
             "solstone-swift-observer-ingest-key-v2",
             "solstone-swift-observer-ingest-prefix",
-            "solstone-swift-omi-ingest-key-v2",
-            "solstone-swift-omi-ingest-prefix",
             "solstone-swift-watch-ingest-key-v2",
             "solstone-swift-watch-ingest-prefix",
         ] {
@@ -1104,5 +954,4 @@ private extension SolstoneSwiftApp {
 #endif
         return LiveMetricSubscriber(ingest: ingest)
     }
-
 }

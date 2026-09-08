@@ -124,8 +124,6 @@ struct ShellDestinationView: View {
             LocationSourceDetailView()
         case .source(.screencast):
             ScreencastSourceDetailView()
-        case .source(.omi):
-            OmiSourceDetailView()
         case .source(.watch):
             WatchSourceDetailView()
         case .status:

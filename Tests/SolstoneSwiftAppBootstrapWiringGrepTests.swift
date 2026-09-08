@@ -15,7 +15,7 @@ nonisolated final class SolstoneSwiftAppBootstrapWiringGrepTests: XCTestCase {
         let bootstrapBody = try Self.slice(
             in: text,
             from: "private func bootstrapTransfer() async",
-            to: "private func recoverOmiInProgress"
+            to: "private extension SolstoneSwiftApp"
         )
         let seamStart = try XCTUnwrap(bootstrapBody.range(of: "await Self.bootstrapTransfer("))
         let seamCall = bootstrapBody[seamStart.lowerBound...]

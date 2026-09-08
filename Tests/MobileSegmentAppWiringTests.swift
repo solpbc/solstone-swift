@@ -22,17 +22,14 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         super.tearDown()
     }
 
-    func testOmiWatchShareStorageStaysSeparateFromMobileSegmentEngine() async throws {
+    func testWatchShareStorageStaysSeparateFromMobileSegmentEngine() async throws {
         XCTAssertEqual(ObserverAudioTransferSource.mobileSegment, "mobile-segment")
-        XCTAssertEqual(ObserverAudioTransferSource.omi, "omi-audio")
         XCTAssertEqual(ObserverAudioTransferSource.watch, "watch-audio")
         XCTAssertEqual(ObserverAudioTransferSource.share, "share")
-        XCTAssertEqual(OmiSegmentWriter.cacheDirectoryName, "OmiObserver")
         XCTAssertEqual(WatchTransferSpoolMigrator.legacyCacheDirectoryName, "WatchObserver")
         XCTAssertEqual(ImporterServerURL.savePath, "/app/import/api/save")
         XCTAssertEqual(ImporterServerURL.startPath, "/app/import/api/start")
 
-        XCTAssertEqual(OnThisPhoneAudioSource(sourceType: "omi-audio"), .omi)
         XCTAssertEqual(OnThisPhoneAudioSource(sourceType: "watch-audio"), .watch)
 
         let watchRoot = self.tempDirectory.appendingPathComponent("WatchObserver", isDirectory: true)
@@ -49,12 +46,10 @@ final class MobileSegmentAppWiringTests: XCTestCase {
         let engine = MobileSegmentEngine(uploader: mobileSegmentUploader, clock: MockObserverClock())
         _ = engine
 
-        let omiRoot = self.tempDirectory.appendingPathComponent("OmiObserver", isDirectory: true)
         let importRoot = self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true)
         let shareImportStore = ShareImportStore(cacheRootURL: importRoot)
         XCTAssertEqual(mobileSegmentStore.rootURL, appGroupMobileSegmentRoot)
         XCTAssertNotEqual(mobileSegmentStore.rootURL, mobileTransportRoot)
-        XCTAssertNotEqual(mobileSegmentStore.rootURL, omiRoot)
         XCTAssertNotEqual(mobileSegmentStore.rootURL, watchRoot)
         XCTAssertNotEqual(mobileSegmentStore.rootURL, importRoot)
         XCTAssertEqual(mobileSegmentUploader.pendingCount, 0)

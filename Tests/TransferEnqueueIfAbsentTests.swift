@@ -23,7 +23,7 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         let harness = self.makeHarness()
         try await harness.engine.initialize()
         let itemID = UUID()
-        let manifest = self.omiManifest(itemID: itemID)
+        let manifest = self.watchManifest(itemID: itemID)
         let firstPayload = try self.payloadFileURLs(contents: "first")
         let firstURL = try XCTUnwrap(firstPayload["audio"])
         let first = try await harness.engine.enqueueIfAbsent(
@@ -40,7 +40,7 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         )
         XCTAssertEqual(second, .alreadyPresent)
         XCTAssertTrue(FileManager.default.fileExists(atPath: secondURL.path))
-        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
         XCTAssertEqual(snapshots.map(\.itemID), [itemID])
         XCTAssertEqual(snapshots.first?.manifest.diskState, .queued)
     }
@@ -49,7 +49,7 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         let harness = self.makeHarness()
         try await harness.engine.initialize()
         let itemID = UUID()
-        let manifest = self.omiManifest(itemID: itemID)
+        let manifest = self.watchManifest(itemID: itemID)
         _ = try await harness.engine.enqueueAttention(
             manifest: manifest,
             payloadFileURLs: try self.payloadFileURLs(contents: "attention"),
@@ -64,7 +64,7 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         )
         XCTAssertEqual(retry, .alreadyPresent)
         XCTAssertTrue(FileManager.default.fileExists(atPath: retryURL.path))
-        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
         XCTAssertEqual(snapshots.map(\.itemID), [itemID])
         XCTAssertEqual(snapshots.first?.manifest.diskState, .attention)
     }
@@ -76,7 +76,7 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         let payload = try self.payloadFileURLs(contents: "fresh")
         let producerURL = try XCTUnwrap(payload["audio"])
         let outcome = try await harness.engine.enqueueIfAbsent(
-            manifest: self.omiManifest(itemID: itemID),
+            manifest: self.watchManifest(itemID: itemID),
             payloadFileURLs: payload
         )
         XCTAssertEqual(outcome, .enqueued)
@@ -93,12 +93,12 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         try await harness.engine.initialize()
         let itemID = UUID()
         _ = try await harness.engine.enqueue(
-            manifest: self.omiManifest(itemID: itemID, chunkIndex: 0),
+            manifest: self.watchManifest(itemID: itemID, chunkIndex: 0),
             payloadFileURLs: try self.payloadFileURLs(contents: "owned")
         )
         do {
             _ = try await harness.engine.enqueueIfAbsent(
-                manifest: self.omiManifest(itemID: itemID, chunkIndex: 1),
+                manifest: self.watchManifest(itemID: itemID, chunkIndex: 1),
                 payloadFileURLs: try self.payloadFileURLs(contents: "conflict")
             )
             XCTFail("expected unverified ownership")
@@ -107,7 +107,7 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
                 return XCTFail("expected conflict, got \(error)")
             }
         }
-        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
         XCTAssertEqual(snapshots.map(\.itemID), [itemID])
         XCTAssertEqual(snapshots.first?.manifest.observerIngest?.chunkIndex, 0)
     }
@@ -118,12 +118,12 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         let itemID = UUID()
         let spool = TransferSpool(rootURL: self.rootURL)
         _ = try spool.stage(
-            manifest: self.omiManifest(itemID: itemID),
+            manifest: self.watchManifest(itemID: itemID),
             payloads: ["audio": Data("staged".utf8)]
         )
         do {
             _ = try await harness.engine.enqueueIfAbsent(
-                manifest: self.omiManifest(itemID: itemID),
+                manifest: self.watchManifest(itemID: itemID),
                 payloadFileURLs: try self.payloadFileURLs(contents: "retry")
             )
             XCTFail("expected unverified ownership")
@@ -139,14 +139,14 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         try await harness.engine.initialize()
         let segmentID = UUID()
         let existingID = UUID()
-        var existing = self.omiManifest(itemID: existingID)
+        var existing = self.watchManifest(itemID: existingID)
         existing.observerIngest?.segmentID = segmentID
         _ = try await harness.engine.enqueue(
             manifest: existing,
             payloadFileURLs: try self.payloadFileURLs(contents: "existing")
         )
         let adoptedID = UUID()
-        var adopted = self.omiManifest(itemID: adoptedID)
+        var adopted = self.watchManifest(itemID: adoptedID)
         adopted.observerIngest?.segmentID = segmentID
         let outcome = try await harness.engine.enqueueIfAbsent(
             manifest: adopted,
@@ -154,7 +154,7 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
             payloadFileURLs: try self.payloadFileURLs(contents: "adopted")
         )
         XCTAssertEqual(outcome, .enqueued)
-        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
         XCTAssertEqual(Set(snapshots.map(\.itemID)), Set([existingID, adoptedID]))
     }
 
@@ -164,14 +164,14 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         let segmentID = UUID()
         let existingID = UUID()
         let sidecar = makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 0, startedAt: Date())
-        var existing = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: existingID, sidecar: sidecar)
+        var existing = makeTransferTestWatchManifest(itemID: existingID, sidecar: sidecar)
         existing.observerIngest?.segmentID = segmentID
         _ = try await harness.engine.enqueue(
             manifest: existing,
             payloadFileURLs: try self.payloadFileURLs(contents: "existing")
         )
         let adoptedID = UUID()
-        var adopted = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: adoptedID, sidecar: sidecar)
+        var adopted = makeTransferTestWatchManifest(itemID: adoptedID, sidecar: sidecar)
         adopted.observerIngest?.segmentID = segmentID
         let retryPayload = try self.payloadFileURLs(contents: "existing")
         let retryURL = try XCTUnwrap(retryPayload["audio"])
@@ -182,77 +182,21 @@ final class TransferEnqueueIfAbsentTests: XCTestCase {
         )
         XCTAssertEqual(outcome, .alreadyPresent)
         XCTAssertTrue(FileManager.default.fileExists(atPath: retryURL.path))
-        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
         XCTAssertEqual(snapshots.map(\.itemID), [existingID])
-    }
-
-    @MainActor func testRelinquishRemovesQueuedItemWithoutDropping() async throws {
-        let harness = self.makeHarness()
-        try await harness.engine.initialize()
-        let itemID = UUID()
-        _ = try await harness.engine.enqueue(
-            manifest: self.omiManifest(itemID: itemID),
-            payloadFileURLs: try self.payloadFileURLs(contents: "relinquish")
-        )
-        await harness.engine.relinquish(itemID: itemID)
-        let missing = await harness.engine.itemSnapshot(itemID: itemID)
-        XCTAssertNil(missing)
-        let dropped = await harness.engine.snapshot()
-        XCTAssertEqual(dropped.counters.droppedCount, 0)
-        await harness.engine.relinquish(itemID: itemID)
-    }
-
-    @MainActor func testMoveToAttentionIsANoOpForMissingAndAlreadyAttentionItems() async throws {
-        let harness = self.makeHarness()
-        try await harness.engine.initialize()
-        let queuedID = UUID()
-        let attentionID = UUID()
-        _ = try await harness.engine.enqueue(
-            manifest: self.omiManifest(itemID: queuedID),
-            payloadFileURLs: try self.payloadFileURLs(contents: "queued")
-        )
-        _ = try await harness.engine.enqueueAttention(
-            manifest: self.omiManifest(itemID: attentionID),
-            payloadFileURLs: try self.payloadFileURLs(contents: "attention"),
-            reason: "existing",
-            detail: "existing"
-        )
-        await harness.engine.moveToAttention(
-            itemID: queuedID,
-            reason: "omi_producer_cleanup_failed",
-            detail: "envelope removal failed"
-        )
-        await harness.engine.moveToAttention(
-            itemID: attentionID,
-            reason: "omi_producer_cleanup_failed",
-            detail: "envelope removal failed"
-        )
-        await harness.engine.moveToAttention(
-            itemID: UUID(),
-            reason: "omi_producer_cleanup_failed",
-            detail: "envelope removal failed"
-        )
-        let queuedSnapshot = await harness.engine.itemSnapshot(itemID: queuedID)
-        let queued = try XCTUnwrap(queuedSnapshot)
-        XCTAssertEqual(queued.manifest.diskState, .attention)
-        XCTAssertEqual(queued.manifest.attention?.reason, "omi_producer_cleanup_failed")
-        let attentionSnapshot = await harness.engine.itemSnapshot(itemID: attentionID)
-        let attention = try XCTUnwrap(attentionSnapshot)
-        XCTAssertEqual(attention.manifest.attention?.reason, "existing")
     }
 
     @MainActor private func makeHarness() -> (
         engine: TransferEngine,
         mirror: TransferStatusMirror,
         enqueuer: ObserverAudioTransferEnqueuer,
-        omi: OmiUploaderHolder,
         watch: WatchUploaderHolder
     ) {
         makeTransferCutoverHarness(rootURL: self.rootURL)
     }
 
-    private func omiManifest(itemID: UUID, chunkIndex: Int = 0) -> TransferManifest {
-        ObserverAudioTransferEnqueuer.makeOmiManifest(
+    private func watchManifest(itemID: UUID, chunkIndex: Int = 0) -> TransferManifest {
+        makeTransferTestWatchManifest(
             itemID: itemID,
             sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: chunkIndex, startedAt: Date())
         )

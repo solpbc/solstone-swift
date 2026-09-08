@@ -209,12 +209,6 @@ private extension ShellPaneShotTests {
             markerID: "source.homeTile.screencast",
             name: "22-screencast-\(suffix)"
         )
-        self.captureSourceDetail(
-            in: app,
-            tileID: "dayHome.tile.omi",
-            markerID: "source.homeTile.omi",
-            name: "23-omi-\(suffix)"
-        )
 
         let watchTile = app.buttons["dayHome.tile.watch"]
         var capturedWatch = false

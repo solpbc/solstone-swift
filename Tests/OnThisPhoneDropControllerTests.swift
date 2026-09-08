@@ -180,15 +180,6 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         ))
         XCTAssertNotNil(makeDropCommit(
             for: Self.item(
-                id: OnThisPhoneItemID.transferIDString(itemID: transferID, source: .omi),
-                sourceKind: .audio
-            ),
-            share: shareHolder,
-            transferEngine: transferHarness.engine,
-            mobileSegmentUploader: mobileSegmentUploader
-        ))
-        XCTAssertNotNil(makeDropCommit(
-            for: Self.item(
                 id: OnThisPhoneItemID.transferIDString(itemID: transferID, source: .watch),
                 sourceKind: .audio
             ),
@@ -232,15 +223,6 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
 
         XCTAssertNotNil(makeRetryCommit(
             for: Self.item(id: shareID.uuidString, sourceKind: .share),
-            share: shareHolder,
-            transferEngine: transferHarness.engine,
-            mobileSegmentUploader: mobileSegmentUploader
-        ))
-        XCTAssertNotNil(makeRetryCommit(
-            for: Self.item(
-                id: OnThisPhoneItemID.transferIDString(itemID: transferID, source: .omi),
-                sourceKind: .audio
-            ),
             share: shareHolder,
             transferEngine: transferHarness.engine,
             mobileSegmentUploader: mobileSegmentUploader
@@ -474,7 +456,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
         try await retryEngine.start()
         let shareHolder = Self.shareHolder(root: root, transferEngine: retryEngine, mirror: TransferStatusMirror())
 
-        let omiCommit = try XCTUnwrap(makeRetryCommit(
+        let watchCommit = try XCTUnwrap(makeRetryCommit(
             for: Self.item(
                 id: OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: transferItemID, facet: .audio),
                 sourceKind: .audio
@@ -483,7 +465,7 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             transferEngine: retryEngine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
-        await omiCommit()
+        await watchCommit()
 
         let retriedSnapshot = await retryEngine.itemSnapshot(itemID: transferItemID)
         XCTAssertEqual(retriedSnapshot?.state, .queued)

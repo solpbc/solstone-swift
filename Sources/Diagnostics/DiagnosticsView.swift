@@ -17,7 +17,6 @@ struct DiagnosticsView: View {
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
-    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
 
@@ -37,7 +36,6 @@ struct DiagnosticsView: View {
     private var failedTotal: Int {
         uploadFailedTotal(
             mobileSegment: self.mobileSegmentTransferHolder,
-            omi: self.omiUploaderHolder,
             watch: self.watchUploaderHolder,
             share: self.shareTransferHolder
         )
@@ -205,17 +203,10 @@ struct DiagnosticsView: View {
     }
 
     private func refreshDiagnosticsExport() async {
-        let launchCaptureRoot = (try? AppGroupContainer.rootURL())?.appendingPathComponent(
-            OmiLaunchCaptureFormat.rootDirectoryName,
-            isDirectory: true
-        )
         let syncState = await syncStateSummaryLines(
             mobileSegment: self.mobileSegmentTransferHolder,
-            omi: self.omiUploaderHolder,
             watch: self.watchUploaderHolder,
-            share: self.shareTransferHolder,
-            transferEngine: self.omiUploaderHolder.transferEngine,
-            launchCaptureRootURL: launchCaptureRoot
+            share: self.shareTransferHolder
         )
         self.diagnosticsExportURL = self.log.exportFileURL(
             tunnel: self.tunnelManager,
@@ -228,7 +219,7 @@ struct DiagnosticsView: View {
             let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
                 share: self.shareTransferHolder,
                 mobileSegmentUploader: self.mobileSegmentUploader,
-                transferEngine: self.omiUploaderHolder.transferEngine
+                transferEngine: self.mobileSegmentTransferHolder.transferEngine
             )
             let migration = onThisPhoneMigration(snapshot: snapshot)
             self.lifecycleMigration = migration
@@ -248,7 +239,6 @@ struct DiagnosticsView: View {
             }
             self.lastSynced = lastCaptureSyncedAt(
                 mobileSegment: self.mobileSegmentTransferHolder,
-                omi: self.omiUploaderHolder,
                 watch: self.watchUploaderHolder
             )
             try? await Task.sleep(for: .seconds(1))

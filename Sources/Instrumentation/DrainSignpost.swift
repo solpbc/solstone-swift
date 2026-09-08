@@ -6,7 +6,6 @@ import os
 
 nonisolated enum DrainSource: String, Sendable {
     case observer
-    case omi
     case watch
     case location
     case share
@@ -18,8 +17,6 @@ nonisolated enum DrainSource: String, Sendable {
         switch sourceType {
         case "observer-audio":
             .observer
-        case "omi-audio":
-            .omi
         case "watch-audio":
             .watch
         default:

@@ -544,8 +544,6 @@ struct RootShellView: View {
                 self.nav.selectFromDeck(.source(.location))
             case "source:screencast":
                 self.nav.selectFromDeck(.source(.screencast))
-            case "source:omi":
-                self.nav.selectFromDeck(.source(.omi))
             case "source:watch":
                 self.nav.selectFromDeck(.source(.watch))
             default:

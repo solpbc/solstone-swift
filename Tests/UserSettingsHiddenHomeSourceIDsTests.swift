@@ -11,8 +11,8 @@ nonisolated final class UserSettingsHiddenHomeSourceIDsTests: XCTestCase {
     }
 
     func testRoundTripAndMalformedFailsOpen() {
-        let encoded = UserSettings.encodeHiddenHomeSourceIDs(["omi", "audio"])
-        XCTAssertEqual(UserSettings.decodeHiddenHomeSourceIDs(encoded), ["audio", "omi"])
+        let encoded = UserSettings.encodeHiddenHomeSourceIDs(["retired-source", "audio"])
+        XCTAssertEqual(UserSettings.decodeHiddenHomeSourceIDs(encoded), ["audio", "retired-source"])
         XCTAssertEqual(UserSettings.decodeHiddenHomeSourceIDs(Data("not-json".utf8)), [])
     }
 

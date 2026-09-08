@@ -24,13 +24,10 @@ nonisolated enum OnThisPhoneSourceKind: Hashable, Sendable {
 }
 
 nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
-    case omi
     case watch
 
     init?(sourceType: String) {
         switch sourceType {
-        case "omi-audio":
-            self = .omi
         case "watch-audio":
             self = .watch
         default:
@@ -40,8 +37,6 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
 
     init?(idPrefix: String) {
         switch idPrefix {
-        case "omi":
-            self = .omi
         case "watch":
             self = .watch
         default:
@@ -51,8 +46,6 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
 
     var idPrefix: String {
         switch self {
-        case .omi:
-            "omi"
         case .watch:
             "watch"
         }
@@ -60,8 +53,6 @@ nonisolated enum OnThisPhoneAudioSource: Equatable, Sendable {
 
     var sourceLabel: String {
         switch self {
-        case .omi:
-            SourceVocabulary.onThisPhoneOmiAudioSourceLabel
         case .watch:
             SourceVocabulary.onThisPhoneWatchAudioSourceLabel
         }
@@ -310,14 +301,8 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         }
     }
 
-    var isOmiAudio: Bool {
-        self.audioSource == .omi
-    }
-
     var audioSourceBadgeLabel: String? {
         switch self.audioSource {
-        case .some(.omi):
-            "omi"
         case .some(.watch):
             SourceVocabulary.onThisPhoneWatchAudioSourceLabel
         case .none:

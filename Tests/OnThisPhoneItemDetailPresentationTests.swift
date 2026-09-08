@@ -493,7 +493,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 itemTime: itemTime,
                 failureReason: "journal rejected the upload (HTTP 503)",
                 failureAttemptCount: 5,
-                sourceLabel: SourceVocabulary.onThisPhoneOmiAudioSourceLabel,
+                sourceLabel: SourceVocabulary.onThisPhoneWatchAudioSourceLabel,
                 retryAvailable: true
             ),
             locale: Self.locale,
@@ -509,7 +509,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 )
             ),
             OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneWhenLabel, value: Self.fullDateTime(itemTime)),
-            OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneSourceLabel, value: SourceVocabulary.onThisPhoneOmiAudioSourceLabel),
+            OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneSourceLabel, value: SourceVocabulary.onThisPhoneWatchAudioSourceLabel),
             OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneFailureReasonLabel, value: "journal rejected the upload (HTTP 503)"),
             OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneFailureStatusLabel, value: "upload failed after 5 attempts"),
         ])

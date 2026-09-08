@@ -220,7 +220,6 @@ nonisolated extension SourceKind {
         case .observer: "waveform"
         case .location: "mappin.and.ellipse"
         case .screencast: "display"
-        case .omi: "dot.radiowaves.left.and.right"
         case .watch: "applewatch"
         }
     }

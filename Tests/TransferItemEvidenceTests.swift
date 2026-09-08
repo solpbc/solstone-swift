@@ -20,8 +20,8 @@ final class TransferItemEvidenceTests: XCTestCase {
         super.tearDown()
     }
 
-    @MainActor func testMakeOmiManifestStampsV3DevicesIngestPath() {
-        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
+    @MainActor func testWatchManifestStampsV3DevicesIngestPath() {
+        let manifest = makeTransferTestWatchManifest(
             sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 0, startedAt: Date())
         )
         XCTAssertEqual(manifest.endpoint.path, "/app/devices/ingest")
@@ -98,13 +98,13 @@ final class TransferItemEvidenceTests: XCTestCase {
             ("modeRawValue", { $0.observerIngest?.modeRawValue = "other" }),
             ("ingestProtocolVersion", { $0.observerIngest?.ingestProtocolVersion = 2 }),
             ("payload", { $0.payloadParts[0].contentType = "application/octet-stream" }),
-            ("omi metadata", { $0.meta = .object(["omi": .object(["connectionState": .string("other")])]) }),
+            ("custom metadata", { $0.meta = .object(["fixture": .object(["value": .string("other")])]) }),
         ]
         for (name, mutate) in mutations {
             let root = self.rootURL.appendingPathComponent(name, isDirectory: true)
             let spool = TransferSpool(rootURL: root)
             var expected = self.manifest()
-            expected.meta = .object(["omi": .object(["connectionState": .string("original")])])
+            expected.meta = .object(["fixture": .object(["value": .string("original")])])
             let committed = try spool.commitStagedItem(itemID: spool.stage(
                 manifest: expected,
                 payloads: ["audio": Data("audio".utf8)]
@@ -155,7 +155,7 @@ final class TransferItemEvidenceTests: XCTestCase {
         for shape in Shape.allCases {
             let spool = TransferSpool(rootURL: self.rootURL.appendingPathComponent("salvage-\(shape)", isDirectory: true))
             var expected = self.manifest()
-            expected.meta = .object(["omi": .object(["connectionState": .string("original")])])
+            expected.meta = .object(["fixture": .object(["value": .string("original")])])
             let salvage = spool.salvageDirectoryURL.appendingPathComponent("test", isDirectory: true).appendingPathComponent(UUID().uuidString, isDirectory: true).appendingPathComponent(expected.itemID.uuidString, isDirectory: true)
             try FileManager.default.createDirectory(at: salvage, withIntermediateDirectories: true)
             switch shape {
@@ -166,7 +166,7 @@ final class TransferItemEvidenceTests: XCTestCase {
                 if shape == .wrongID { candidate.itemID = UUID() }
                 if shape == .wrongSource { candidate.source = "other" }
                 if shape == .canonical { candidate.endpoint.path = "/other" }
-                if shape == .metadata { candidate.meta = .object(["omi": .object(["connectionState": .string("other")])]) }
+                if shape == .metadata { candidate.meta = .object(["fixture": .object(["value": .string("other")])]) }
                 try spool.writeManifestAtomically(candidate, in: salvage)
                 if shape != .missingPayload {
                     let payload = shape == .differentPayload ? Data("other".utf8) : Data("audio".utf8)
@@ -195,14 +195,14 @@ final class TransferItemEvidenceTests: XCTestCase {
         let spool = TransferSpool(rootURL: self.rootURL)
         var expected = self.manifest()
         expected.meta = .object([
-            "omi": .object(["sequence": .int(1), "connectionState": .string("ready")]),
+            "fixture": .object(["sequence": .int(1), "value": .string("ready")]),
             "z": .string("last"),
         ])
         let committed = try spool.commitStagedItem(itemID: spool.stage(manifest: expected, payloads: ["audio": Data("audio".utf8)]).item.manifest.itemID)
         var persisted = committed.manifest
         persisted.meta = .object([
             "z": .string("last"),
-            "omi": .object(["connectionState": .string("ready"), "sequence": .double(1.0)]),
+            "fixture": .object(["value": .string("ready"), "sequence": .double(1.0)]),
         ])
         try spool.writeManifestAtomically(persisted, in: committed.directoryURL)
         XCTAssertEqual(try spool.verifyOwnership(expectedManifest: expected, expectedPayloadSourceURLs: [:]), .ownedInQueued)
@@ -238,7 +238,7 @@ final class TransferItemEvidenceTests: XCTestCase {
         )
         try await live.engine.initialize()
         _ = try await live.engine.enqueue(
-            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
+            manifest: makeTransferTestWatchManifest(
                 itemID: unrelatedID,
                 sidecar: makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 92, startedAt: Date())
             ),
@@ -254,7 +254,7 @@ final class TransferItemEvidenceTests: XCTestCase {
 
     @MainActor private func manifest() -> TransferManifest {
         let sessionID = UUID()
-        return ObserverAudioTransferEnqueuer.makeOmiManifest(
+        return makeTransferTestWatchManifest(
             itemID: UUID(),
             sidecar: makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
         )

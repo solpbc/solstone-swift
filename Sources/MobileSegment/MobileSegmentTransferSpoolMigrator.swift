@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import AVFoundation
 import Foundation
 import os
 
@@ -191,7 +192,7 @@ private extension MobileSegmentTransferSpoolMigrator {
         var unresolved = 0
         for case let audioURL as URL in enumerator where audioURL.pathExtension == "m4a" {
             guard !Task.isCancelled else { return unresolved + 1 }
-            guard let byteCount = OmiInProgressRecovery.byteCountIfAvailable(at: audioURL, fileManager: fileManager) else {
+            guard let byteCount = try? fileManager.attributesOfItem(atPath: audioURL.path)[.size] as? NSNumber else {
                 let quarantined = self.quarantine(
                     audioURL,
                     quarantineRootURL: quarantineRootURL,
@@ -204,7 +205,7 @@ private extension MobileSegmentTransferSpoolMigrator {
                 }
                 continue
             }
-            if byteCount == 0 {
+            if byteCount.intValue == 0 {
                 do {
                     try fileManager.removeItem(at: audioURL)
                 } catch {
@@ -241,12 +242,13 @@ private extension MobileSegmentTransferSpoolMigrator {
             .deletingLastPathComponent()
             .lastPathComponent
         guard let sessionID = UUID(uuidString: sessionIDString) else { return false }
-        return OmiInProgressRecovery.rebuildSidecar(
-            audioURL: audioURL,
-            chunkID: chunkID,
-            sessionID: sessionID,
-            fileManager: fileManager
-        ) != nil
+        let prefix = "\(sessionID.uuidString.lowercased())-"
+        guard chunkID.hasPrefix(prefix), Int(chunkID.dropFirst(prefix.count)) != nil,
+              let audio = try? AVAudioFile(forReading: audioURL),
+              audio.fileFormat.sampleRate > 0, audio.length > 0,
+              let attributes = try? fileManager.attributesOfItem(atPath: audioURL.path)
+        else { return false }
+        return attributes[.creationDate] is Date || attributes[.modificationDate] is Date
     }
 
     static func emit(_ diagnosticLog: DiagnosticLog?, detail: String) {

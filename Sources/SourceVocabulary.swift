@@ -509,7 +509,6 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneFailureReasonLabel = "why"
     static let onThisPhoneFailureStatusLabel = "status"
     static let onThisPhoneObserverAudioSourceLabel = "audio"
-    static let onThisPhoneOmiAudioSourceLabel = "omi pendant audio"
     static let onThisPhoneWatchAudioSourceLabel = "watch audio"
     static let onThisPhoneFailureRowHint = "needs a retry"
     static let audioPlaybackObserverActiveHint = "pause to play this"

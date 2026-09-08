@@ -35,7 +35,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             uploader: mobileSegmentUploader,
             clock: mobileSegmentClock
         )
-        let omiUploaderHolder = transferHarness.omi
         let watchUploaderHolder = transferHarness.watch
         let watchSession = MockWatchConnectivitySession()
         let watchRelayRoot = FileManager.default.temporaryDirectory
@@ -74,17 +73,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             mobileSegmentEngine: mobileSegmentEngine,
             clock: MockObserverClock(),
             defaults: nil
-        )
-        let omiDefaultsName = "DynamicTypeSmokeTests-Omi-\(UUID().uuidString)"
-        let omiDefaults = try XCTUnwrap(UserDefaults(suiteName: omiDefaultsName))
-        defer { omiDefaults.removePersistentDomain(forName: omiDefaultsName) }
-        let omiDiagnosticsURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("DynamicTypeSmokeTests-OmiDiagnostics-\(UUID().uuidString).json")
-        defer { try? FileManager.default.removeItem(at: omiDiagnosticsURL) }
-        let omiSourceManager = OmiSourceManager(
-            defaults: omiDefaults,
-            diagnostics: OmiDiagnostics(clock: MockObserverClock(), fileURL: omiDiagnosticsURL),
-            clock: MockObserverClock()
         )
         let activeLocationProvider = MockLocationProvider()
         activeLocationProvider.capability = .always(accuracy: .full)
@@ -175,7 +163,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(ScreencastManager())
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
-                .environment(omiSourceManager)
                 .environment(watchSourceFacts)
                 .environment(watchLink)
                 .environment(watchRelayReceiver)
@@ -198,8 +185,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(ScreencastManager())
             .environment(mobileSegmentUploader)
             .environment(mobileSegmentTransferHolder)
-            .environment(omiSourceManager)
-            .environment(omiUploaderHolder)
             .environment(watchSourceFacts)
             .environment(watchLink)
             .environment(watchRelayReceiver)
@@ -218,11 +203,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
                 .environment(tunnelManager)
-        }
-        let omiSourceDetailView = NavigationStack {
-            OmiSourceDetailView()
-                .environment(appConfig)
-                .environment(omiSourceManager)
         }
         let watchSourceDetailView = NavigationStack {
             WatchSourceDetailView()
@@ -258,7 +238,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(shareTransferHolder)
                 .environment(observerManager)
                 .environment(mobileSegmentTransferHolder)
-                .environment(omiUploaderHolder)
                 .environment(watchUploaderHolder)
                 .environment(tunnelManager)
                 .environment(finishSyncingCoordinator)
@@ -273,7 +252,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(shareTransferHolder)
                 .environment(observerManager)
                 .environment(mobileSegmentTransferHolder)
-                .environment(omiUploaderHolder)
                 .environment(watchUploaderHolder)
                 .environment(tunnelManager)
                 .environment(connectionSyncModel)
@@ -292,7 +270,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(shareTransferHolder)
                 .environment(observerManager)
                 .environment(mobileSegmentTransferHolder)
-                .environment(omiUploaderHolder)
                 .environment(watchUploaderHolder)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
@@ -312,7 +289,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(diagnosticLog)
                 .environment(problemReportsManager)
                 .environment(mobileSegmentTransferHolder)
-                .environment(omiUploaderHolder)
                 .environment(watchUploaderHolder)
                 .environment(shareTransferHolder)
                 .environment(locationManager)
@@ -322,7 +298,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         try self.assertHosted(sourcesView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(dayHomeView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(locationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
-        try self.assertHosted(omiSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(watchSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(activeLocationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(needsAttentionLocationSourceDetailView.environment(\.dynamicTypeSize, .accessibility3))

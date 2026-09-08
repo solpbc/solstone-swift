@@ -78,7 +78,6 @@ final class DayHomeBacklogTests: XCTestCase {
 
         let captureTotals = captureUploadTotals(
             mobileSegment: mobileHolder,
-            omi: harness.omi,
             watch: harness.watch
         )
         XCTAssertEqual(captureTotals.pending, 1)
@@ -86,7 +85,6 @@ final class DayHomeBacklogTests: XCTestCase {
 
         let allTotals = uploadTotals(
             mobileSegment: mobileHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: shareHolder
         )
@@ -111,7 +109,6 @@ final class DayHomeBacklogTests: XCTestCase {
 
         XCTAssertTrue(body.contains("captureUploadTotals("))
         XCTAssertTrue(body.contains("mobileSegment: self.mobileSegmentTransferHolder"))
-        XCTAssertTrue(body.contains("omi: self.omiUploaderHolder"))
         XCTAssertTrue(body.contains("watch: self.watchUploaderHolder"))
         XCTAssertTrue(body.contains("return .known(totals.pending + totals.failed)"))
         XCTAssertFalse(body.contains("shareTransferHolder"))

@@ -27,7 +27,6 @@ func makeTransferCutoverHarness(
     engine: TransferEngine,
     mirror: TransferStatusMirror,
     enqueuer: ObserverAudioTransferEnqueuer,
-    omi: OmiUploaderHolder,
     watch: WatchUploaderHolder
 ) {
     let mirror = TransferStatusMirror()
@@ -49,7 +48,6 @@ func makeTransferCutoverHarness(
         engine,
         mirror,
         enqueuer,
-        OmiUploaderHolder(transferEngine: engine, mirror: mirror),
         WatchUploaderHolder(transferEngine: engine, mirror: mirror)
     )
 }
@@ -147,51 +145,6 @@ final class QuarantineMoveFailingFileManager: FileManager {
     }
 }
 
-final class TargetedRemovalFailingFileManager: FileManager {
-    private let failingURL: URL?
-    private let copyFailureSourceURL: URL?
-    private let expectedEnvelopeURL: URL?
-    private let failQuarantineMoves: Bool
-    private(set) var observedEnvelopeBeforeCopyFailure = false
-
-    init(
-        failingURL: URL? = nil,
-        copyFailureSourceURL: URL? = nil,
-        expectedEnvelopeURL: URL? = nil,
-        failQuarantineMoves: Bool = false
-    ) {
-        self.failingURL = failingURL?.standardizedFileURL
-        self.copyFailureSourceURL = copyFailureSourceURL?.standardizedFileURL
-        self.expectedEnvelopeURL = expectedEnvelopeURL?.standardizedFileURL
-        self.failQuarantineMoves = failQuarantineMoves
-        super.init()
-    }
-
-    override func removeItem(at url: URL) throws {
-        if url.standardizedFileURL == self.failingURL {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try super.removeItem(at: url)
-    }
-
-    override func copyItem(at srcURL: URL, to dstURL: URL) throws {
-        if srcURL.standardizedFileURL == self.copyFailureSourceURL {
-            if let expectedEnvelopeURL {
-                self.observedEnvelopeBeforeCopyFailure = self.fileExists(atPath: expectedEnvelopeURL.path)
-            }
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try super.copyItem(at: srcURL, to: dstURL)
-    }
-
-    override func moveItem(at srcURL: URL, to dstURL: URL) throws {
-        if self.failQuarantineMoves, dstURL.path.contains("TransferQuarantine") {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try super.moveItem(at: srcURL, to: dstURL)
-    }
-}
-
 func transferTestWaitFor(
     _ label: String,
     timeout: Duration = .seconds(3),
@@ -270,4 +223,8 @@ extension XCTestCase {
         let object = try JSONSerialization.jsonObject(with: Data(value.utf8))
         return try XCTUnwrap(object as? [String: Any])
     }
+}
+
+nonisolated func makeTransferTestWatchManifest(itemID: UUID = UUID(), sidecar: ChunkSidecar) -> TransferManifest {
+    ObserverAudioTransferEnqueuer.makeWatchManifest(itemID: itemID, sidecar: sidecar, hasLocation: false)
 }

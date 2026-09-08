@@ -35,18 +35,16 @@ final class TransferConsumerSurfaceTests: XCTestCase {
 
         XCTAssertNil(lastCaptureSyncedAt(
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
-            omi: harness.omi,
             watch: harness.watch
         ))
         XCTAssertEqual(lastSyncedAt(
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: zeroSurfaces.shareHolder
         ), shareDelivery)
     }
 
-    func testAC8RealEngineStateFeedsAllOmiAndWatchConsumerSurfaces() async throws {
+    func testAC8RealEngineStateFeedsWatchConsumerSurfaces() async throws {
         let clock = FakeTransferClock(wall: Date(timeIntervalSince1970: 1_780_480_800))
         let responses = OSAllocatedUnfairLock<[UUID: RoutedTransferResponse]>(initialState: [:])
         TransferURLProtocol.handler = { request, _ in
@@ -71,11 +69,11 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         try await harness.engine.start()
         let zeroSurfaces = self.makeZeroUploadSurfaces()
         let deliveredID = Self.uuid(1)
-        let omiQueuedIDs = [Self.uuid(10), Self.uuid(11), Self.uuid(12)]
+        let watchQueuedIDs = [Self.uuid(10), Self.uuid(11), Self.uuid(12)]
         let watchAttentionIDs = [Self.uuid(20), Self.uuid(21)]
         responses.withLock { $0[deliveredID] = .status(200, Data(#"{"status":"ok"}"#.utf8)) }
         _ = try await harness.engine.enqueue(
-            manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
+            manifest: makeTransferTestWatchManifest(
                 itemID: deliveredID,
                 sidecar: makeTransferTestSidecar(
                     sessionID: UUID(),
@@ -112,35 +110,35 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         }
 
         await harness.engine.pause()
-        let omiSessionID = UUID()
-        for (offset, itemID) in omiQueuedIDs.enumerated() {
+        let watchSessionID = UUID()
+        for (offset, itemID) in watchQueuedIDs.enumerated() {
             _ = try await harness.engine.enqueue(
-                manifest: ObserverAudioTransferEnqueuer.makeOmiManifest(
+                manifest: makeTransferTestWatchManifest(
                     itemID: itemID,
                     sidecar: makeTransferTestSidecar(
-                        sessionID: omiSessionID,
+                        sessionID: watchSessionID,
                         chunkIndex: offset + 10,
                         startedAt: clock.wallNow().addingTimeInterval(TimeInterval(offset + 10))
                     )
                 ),
-                payloads: ["audio": Data("omi-\(offset)".utf8)]
+                payloads: ["audio": Data("watch-\(offset)".utf8)]
             )
         }
         await harness.engine.resume()
-        try await transferTestWaitFor("one omi item in flight") {
-            await harness.engine.snapshot().sources[ObserverAudioTransferSource.omi]?.inFlightCount == 1
+        try await transferTestWaitFor("one watch item in flight") {
+            await harness.engine.snapshot().sources[ObserverAudioTransferSource.watch]?.inFlightCount == 1
         }
         try await transferTestWaitFor("mirror has seeded transfer state", timeout: .seconds(3)) {
             await MainActor.run {
-                harness.omi.pendingCount == 3 &&
-                    harness.omi.inFlightCount == 1 &&
+                harness.watch.pendingCount == 3 &&
+                    harness.watch.inFlightCount == 1 &&
                     harness.watch.failedCount == 2 &&
                     harness.watch.lastError == "watch-B"
             }
         }
 
-        XCTAssertEqual(harness.omi.pendingCount, 3)
-        XCTAssertEqual(harness.omi.confirmedActiveTransferCount, 1)
+        XCTAssertEqual(harness.watch.pendingCount, 3)
+        XCTAssertEqual(harness.watch.confirmedActiveTransferCount, 1)
         XCTAssertEqual(harness.watch.failedCount, 2)
         XCTAssertEqual(harness.watch.recentErrorCount, 2)
         XCTAssertEqual(harness.watch.lastError, "watch-B")
@@ -150,8 +148,8 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             mobileSegmentUploader: zeroSurfaces.mobileSegmentUploader,
             transferEngine: harness.engine
         )
-        XCTAssertTrue(omiQueuedIDs.allSatisfy { itemID in
-            aggregate.items.contains { $0.id == OnThisPhoneItemID.transferIDString(itemID: itemID, source: .omi) }
+        XCTAssertTrue(watchQueuedIDs.allSatisfy { itemID in
+            aggregate.items.contains { $0.id == OnThisPhoneItemID.transferIDString(itemID: itemID, source: .watch) }
         })
         XCTAssertTrue(watchAttentionIDs.allSatisfy { itemID in
             aggregate.items.contains { $0.id == OnThisPhoneItemID.transferIDString(itemID: itemID, source: .watch) }
@@ -161,7 +159,6 @@ final class TransferConsumerSurfaceTests: XCTestCase {
 
         var totals = uploadTotals(
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: zeroSurfaces.shareHolder
         )
@@ -169,13 +166,11 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         XCTAssertEqual(totals.failed, 2)
         XCTAssertEqual(uploadInFlight(
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: zeroSurfaces.shareHolder
         ), 1)
         XCTAssertEqual(lastSyncedAt(
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: zeroSurfaces.shareHolder
         ), clock.wallNow())
@@ -183,7 +178,6 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         let syncModel = ConnectionSyncModel(clock: MockObserverClock()) {
             let totals = uploadTotals(
                 mobileSegment: zeroSurfaces.mobileSegmentHolder,
-                omi: harness.omi,
                 watch: harness.watch,
                 share: zeroSurfaces.shareHolder
             )
@@ -193,13 +187,11 @@ final class TransferConsumerSurfaceTests: XCTestCase {
                 isNetworkSatisfied: true,
                 confirmedTransferCount: confirmedTransferCount(
                     mobileSegment: zeroSurfaces.mobileSegmentHolder,
-                    omi: harness.omi,
                     watch: harness.watch,
                     share: zeroSurfaces.shareHolder
                 ),
                 recentBytesPerSecond: recentBytesTotal(
                     mobileSegment: zeroSurfaces.mobileSegmentHolder,
-                    omi: harness.omi,
                     watch: harness.watch,
                     share: zeroSurfaces.shareHolder
                 ),
@@ -209,9 +201,9 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         }
         XCTAssertEqual(syncModel.status, .connectedTransferring)
 
-        await harness.engine.drop(itemID: omiQueuedIDs[1])
+        await harness.engine.drop(itemID: watchQueuedIDs[1])
         try await transferTestWaitFor("dropped item leaves surfaces") {
-            await MainActor.run { harness.omi.pendingCount == 2 }
+            await MainActor.run { harness.watch.pendingCount == 2 }
         }
         aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
             share: zeroSurfaces.shareHolder,
@@ -219,11 +211,10 @@ final class TransferConsumerSurfaceTests: XCTestCase {
             transferEngine: harness.engine
         )
         XCTAssertFalse(aggregate.items.contains {
-            $0.id == OnThisPhoneItemID.transferIDString(itemID: omiQueuedIDs[1], source: .omi)
+            $0.id == OnThisPhoneItemID.transferIDString(itemID: watchQueuedIDs[1], source: .watch)
         })
         totals = uploadTotals(
             mobileSegment: zeroSurfaces.mobileSegmentHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: zeroSurfaces.shareHolder
         )
@@ -231,7 +222,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         try await harness.engine.retryAttention(itemID: watchAttentionIDs[0])
         try await transferTestWaitFor("single watch item retried") {
             await MainActor.run {
-                harness.watch.pendingCount == 1 && harness.watch.failedCount == 1
+                harness.watch.pendingCount == 3 && harness.watch.failedCount == 1
             }
         }
         aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
@@ -330,7 +321,6 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         XCTAssertEqual(mobileHolder.lastUploadAt, clock.wallNow())
         let totals = uploadTotals(
             mobileSegment: mobileHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: shareHolder
         )
@@ -338,31 +328,26 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         XCTAssertEqual(totals.failed, 1)
         XCTAssertEqual(uploadFailedTotal(
             mobileSegment: mobileHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: shareHolder
         ), 1)
         XCTAssertEqual(uploadInFlight(
             mobileSegment: mobileHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: shareHolder
         ), 1)
         XCTAssertEqual(lastSyncedAt(
             mobileSegment: mobileHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: shareHolder
         ), clock.wallNow())
         XCTAssertEqual(confirmedTransferCount(
             mobileSegment: mobileHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: shareHolder
         ), 1)
         XCTAssertGreaterThan(recentBytesTotal(
             mobileSegment: mobileHolder,
-            omi: harness.omi,
             watch: harness.watch,
             share: shareHolder
         ), 0)
@@ -370,7 +355,6 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         let syncModel = ConnectionSyncModel(clock: MockObserverClock()) {
             let totals = uploadTotals(
                 mobileSegment: mobileHolder,
-                omi: harness.omi,
                 watch: harness.watch,
                 share: shareHolder
             )
@@ -380,13 +364,11 @@ final class TransferConsumerSurfaceTests: XCTestCase {
                 isNetworkSatisfied: true,
                 confirmedTransferCount: confirmedTransferCount(
                     mobileSegment: mobileHolder,
-                    omi: harness.omi,
                     watch: harness.watch,
                     share: shareHolder
                 ),
                 recentBytesPerSecond: recentBytesTotal(
                     mobileSegment: mobileHolder,
-                    omi: harness.omi,
                     watch: harness.watch,
                     share: shareHolder
                 ),

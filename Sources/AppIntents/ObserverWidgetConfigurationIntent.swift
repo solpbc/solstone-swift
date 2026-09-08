@@ -6,7 +6,6 @@ import AppIntents
 enum ObserverWidgetSource: String, AppEnum {
     case observer
     case location
-    case omi
     case screencast
     case watch
 
@@ -16,7 +15,6 @@ enum ObserverWidgetSource: String, AppEnum {
         [
             .observer: "observer",
             .location: "location",
-            .omi: "omi",
             .screencast: "screencast",
             .watch: "watch",
         ]
@@ -28,8 +26,6 @@ enum ObserverWidgetSource: String, AppEnum {
             self = .observer
         case .location:
             self = .location
-        case .omi:
-            self = .omi
         case .screencast:
             self = .screencast
         case .watch:
@@ -43,8 +39,6 @@ enum ObserverWidgetSource: String, AppEnum {
             .observer
         case .location:
             .location
-        case .omi:
-            .omi
         case .screencast:
             .screencast
         case .watch:

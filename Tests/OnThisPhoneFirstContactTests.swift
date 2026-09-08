@@ -56,7 +56,7 @@ nonisolated final class OnThisPhoneFirstContactTests: XCTestCase {
         )
         XCTAssertFalse(markedFirstSeenOnLaunch)
 
-        let firstItem = Self.item(id: "omi", sourceKind: .audio)
+        let firstItem = Self.item(id: "watch", sourceKind: .audio)
         let snapshot = OnThisPhoneAggregateSnapshot(
             sources: [],
             items: [firstItem]

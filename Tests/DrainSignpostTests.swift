@@ -8,10 +8,8 @@ import XCTest
 nonisolated final class DrainSignpostTests: XCTestCase {
     func testAudioSourceTypeMappingUsesPublicLabels() {
         XCTAssertEqual(DrainSource.audio("observer-audio"), .observer)
-        XCTAssertEqual(DrainSource.audio("omi-audio"), .omi)
         XCTAssertEqual(DrainSource.audio("watch-audio"), .watch)
         XCTAssertEqual(DrainSource.audio("observer-audio").rawValue, "observer")
-        XCTAssertEqual(DrainSource.audio("omi-audio").rawValue, "omi")
         XCTAssertEqual(DrainSource.audio("watch-audio").rawValue, "watch")
     }
 

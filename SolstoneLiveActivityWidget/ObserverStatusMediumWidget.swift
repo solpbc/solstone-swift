@@ -89,5 +89,5 @@ private struct ObserverStatusMediumView: View {
         }
     }
 
-    private static let sourceKinds: [SourceKind] = [.observer, .location, .omi, .screencast, .watch]
+    private static let sourceKinds: [SourceKind] = [.observer, .location, .screencast, .watch]
 }

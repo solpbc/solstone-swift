@@ -106,7 +106,6 @@ nonisolated enum DefaultTransferBodyBuilder {
                 sessionID: ingest.sessionID,
                 modeRawValue: ingest.modeRawValue,
                 segmentID: ingest.segmentID,
-                omiMetadata: OmiSegmentMetadata.namespaceValue(from: item.manifest.meta),
                 parts: parts
             )))
         case .saveThenStart:
@@ -215,7 +214,7 @@ actor TransferEngine {
     private let statusMirror: TransferStatusMirror?
     private let conditions: (any TransferConditionsProviding)?
     private let dispatchPolicy: TransferDispatchPolicy
-    /// Global dispatch cap across all sources. Share, mobile-segment, Omi, and
+    /// Global dispatch cap across all sources. Share, mobile-segment, and
     /// watch items draw from the same in-flight budget; this is not a
     /// per-source concurrency limit. When live dispatch conditions are present,
     /// the dispatch policy owns the effective cap and this value is ignored.
@@ -442,20 +441,6 @@ actor TransferEngine {
         return .notFound
     }
 
-    func verifyOwnership(
-        expectedManifest: TransferManifest,
-        expectedPayloadSourceURLs: [String: URL]
-    ) throws -> TransferOwnershipVerdict {
-        let verdict = try self.spool.verifyOwnership(
-            expectedManifest: expectedManifest,
-            expectedPayloadSourceURLs: expectedPayloadSourceURLs
-        )
-        if case .conflict(.ownerConflict) = verdict {
-            self.conflictedItemIDs.insert(expectedManifest.itemID)
-        }
-        return verdict
-    }
-
     @discardableResult
     func enqueueAttention(
         manifest: TransferManifest,
@@ -675,69 +660,6 @@ actor TransferEngine {
         }
         self.scheduleStatusUpdate(summary: "dropped")
         self.scheduleWork()
-    }
-
-    /// Returns a committed item to the producer without counting it as dropped.
-    /// Missing item IDs are a no-op.
-    func relinquish(itemID: UUID) {
-        if let item = self.queuedItems.removeValue(forKey: itemID) {
-            self.counters.queuedCount -= 1
-            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
-            self.updateSourceState(item.manifest.sourceKey) { state in
-                state.counters.queuedCount -= 1
-            }
-            try? self.spool.removeCommittedItem(item)
-            self.firstAttemptAtByItemID.removeValue(forKey: itemID)
-            transferLog.notice("transfer item relinquished \(itemID.uuidString, privacy: .public)")
-            self.scheduleStatusUpdate(summary: self.lastEventSummary)
-            return
-        }
-        if let item = self.attentionItems.removeValue(forKey: itemID) {
-            self.counters.attentionCount -= 1
-            self.updateSourceState(item.manifest.sourceKey) { state in
-                state.counters.attentionCount -= 1
-            }
-            try? self.spool.removeCommittedItem(item)
-            self.firstAttemptAtByItemID.removeValue(forKey: itemID)
-            transferLog.notice("transfer item relinquished \(itemID.uuidString, privacy: .public)")
-            self.scheduleStatusUpdate(summary: self.lastEventSummary)
-        }
-    }
-
-    /// Moves a queued item to attention. Missing IDs and items already in
-    /// attention are no-ops.
-    func moveToAttention(itemID: UUID, reason: String, detail: String) {
-        guard let item = self.queuedItems[itemID] else { return }
-        guard !self.conflictedItemIDs.contains(itemID) else { return }
-        do {
-            let moved = try self.spool.moveQueuedItemToAttention(
-                item,
-                reason: reason,
-                detail: detail,
-                now: self.clock.wallNow()
-            )
-            self.queuedItems.removeValue(forKey: itemID)
-            self.attentionItems[moved.manifest.itemID] = moved
-            self.counters.queuedCount -= 1
-            self.counters.attentionCount += 1
-            self.clearInFlight(itemID: itemID, sourceKey: moved.manifest.sourceKey)
-            self.updateSourceState(moved.manifest.sourceKey) { state in
-                state.counters.queuedCount -= 1
-                state.counters.attentionCount += 1
-            }
-            self.emit(
-                item: moved,
-                previousState: .queued,
-                nextState: .attention,
-                outcome: .needsAttention,
-                attempt: self.attemptCountByItemID[itemID, default: 0],
-                detail: detail
-            )
-            self.firstAttemptAtByItemID.removeValue(forKey: itemID)
-            self.scheduleStatusUpdate(summary: "needs attention")
-        } catch {
-            transferLog.error("transfer move to attention failed \(itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)")
-        }
     }
 
     func snapshot() -> TransferStatusSnapshot {

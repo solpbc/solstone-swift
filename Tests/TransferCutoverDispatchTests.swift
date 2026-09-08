@@ -25,77 +25,6 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
     }
 
     @MainActor
-    func testAC7EndpointFlapsDoNotFloodOrCancelQueuedOmiItems() async throws {
-        let resolver = TransferEndpointResolverStub(.unavailable("waiting"))
-        let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
-        let maxSeenInFlight = OSAllocatedUnfairLock<Int>(initialState: 0)
-        let maxConcurrent = 3
-        TransferURLProtocol.handler = { request, _ in
-            Thread.sleep(forTimeInterval: 0.003)
-            return (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
-        }
-        let harness = makeTransferCutoverHarness(
-            rootURL: self.tempDirectory.appendingPathComponent("transfer", isDirectory: true),
-            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
-            endpointResolver: resolver,
-            diagnosticsSink: { event in events.withLock { $0.append(event) } },
-            maxConcurrent: maxConcurrent
-        )
-        try await harness.engine.start()
-
-        let sessionID = UUID()
-        for index in 0..<200 {
-            let sidecar = makeTransferTestSidecar(
-                sessionID: sessionID,
-                chunkIndex: index,
-                startedAt: Date(timeIntervalSince1970: 1_780_480_800 + TimeInterval(index))
-            )
-            let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
-                itemID: Self.uuid(index),
-                sidecar: sidecar
-            )
-            _ = try await harness.engine.enqueue(manifest: manifest, payloads: ["audio": Data("audio-\(index)".utf8)])
-        }
-
-        let sampler = Task {
-            while !Task.isCancelled {
-                let count = await harness.engine.snapshot().counters.inFlightCount
-                maxSeenInFlight.withLock { value in value = max(value, count) }
-                try? await Task.sleep(for: .milliseconds(1))
-            }
-        }
-        await harness.engine.endpointAvailabilityChanged()
-        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
-        await harness.engine.endpointAvailabilityChanged()
-        try await Task.sleep(for: .milliseconds(20))
-        resolver.setResolution(.unavailable("waiting"))
-        await harness.engine.endpointAvailabilityChanged()
-        try await Task.sleep(for: .milliseconds(20))
-        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
-        await harness.engine.endpointAvailabilityChanged()
-
-        try await transferTestWaitFor("all omi items delivered", timeout: .seconds(8)) {
-            await harness.engine.snapshot().counters.deliveredCount == 200
-        }
-        sampler.cancel()
-        _ = await sampler.result
-
-        let snapshot = await harness.engine.snapshot()
-        XCTAssertEqual(snapshot.counters.queuedCount, 0)
-        XCTAssertEqual(snapshot.counters.inFlightCount, 0)
-        XCTAssertEqual(snapshot.sources[ObserverAudioTransferSource.omi]?.deliveredCount, 200)
-        let observedMaxInFlight = maxSeenInFlight.withLock { $0 }
-        XCTAssertGreaterThan(
-            observedMaxInFlight,
-            0,
-            "sampler never observed an in-flight dispatch; the cap assertion would be vacuous"
-        )
-        XCTAssertLessThanOrEqual(observedMaxInFlight, maxConcurrent)
-        XCTAssertEqual(TransferURLProtocol.requests.count, 200)
-        XCTAssertTrue(events.withLock { values in values.filter { $0.outcome == .retrying }.isEmpty })
-    }
-
-    @MainActor
     func testAC7EndpointFlapsDoNotFloodOrCancelQueuedMobileSegments() async throws {
         let resolver = TransferEndpointResolverStub(.unavailable("waiting"))
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
@@ -273,7 +202,6 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
 
     @MainActor
     func testLinkedDeviceIngestSetsProtocolAndNoAuthorization() async throws {
-        let omiID = Self.uuid(900)
         let watchID = Self.uuid(901)
         TransferURLProtocol.handler = { request, _ in
             (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
@@ -285,23 +213,18 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
         )
         try await harness.engine.start()
         let sessionID = UUID()
-        let omiManifest = ObserverAudioTransferEnqueuer.makeOmiManifest(
-            itemID: omiID,
-            sidecar: makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 1, startedAt: Date(timeIntervalSince1970: 1_780_480_800))
-        )
         let watchManifest = ObserverAudioTransferEnqueuer.makeWatchManifest(
             itemID: watchID,
             sidecar: makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 2, startedAt: Date(timeIntervalSince1970: 1_780_480_860)),
             hasLocation: false
         )
-        _ = try await harness.engine.enqueue(manifest: omiManifest, payloads: ["audio": Data("omi".utf8)])
         _ = try await harness.engine.enqueue(manifest: watchManifest, payloads: ["audio": Data("watch".utf8)])
 
         try await transferTestWaitFor("auth routed requests", timeout: .seconds(3)) {
-            await harness.engine.snapshot().counters.deliveredCount == 2
+            await harness.engine.snapshot().counters.deliveredCount == 1
         }
 
-        XCTAssertEqual(TransferURLProtocol.requests.count, 2)
+        XCTAssertEqual(TransferURLProtocol.requests.count, 1)
         for request in TransferURLProtocol.requests {
             XCTAssertEqual(
                 request.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName),

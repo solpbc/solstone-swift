@@ -12,7 +12,6 @@ nonisolated final class OnThisPhoneDeliveryRefreshGrepTests: XCTestCase {
 
         for marker in [
             "mobileSegment: self.mobileSegmentTransferHolder.lastUploadAt",
-            "omi: self.omiUploaderHolder.lastUploadAt",
             "watch: self.watchUploaderHolder.lastUploadAt",
             "share: self.shareTransferHolder.lastUploadAt",
         ] {

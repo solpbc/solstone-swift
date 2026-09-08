@@ -11,9 +11,9 @@ nonisolated final class ObserverWidgetConfigurationIntentTests: XCTestCase {
 
         XCTAssertEqual(
             sourceKinds,
-            [.observer, .location, .omi, .screencast, .watch]
+            [.observer, .location, .screencast, .watch]
         )
-        XCTAssertEqual(sourceKinds.count, 5)
+        XCTAssertEqual(sourceKinds.count, 4)
 
         for sourceKind in sourceKinds {
             XCTAssertEqual(ObserverWidgetSource(sourceKind: sourceKind).sourceKind, sourceKind)
@@ -22,8 +22,8 @@ nonisolated final class ObserverWidgetConfigurationIntentTests: XCTestCase {
 
     @MainActor
     func testConfigurationIntentRetainsTheSelectedSource() {
-        let intent = ObserverWidgetConfigurationIntent(source: .omi)
+        let intent = ObserverWidgetConfigurationIntent(source: .watch)
 
-        XCTAssertEqual(intent.source.sourceKind, .omi)
+        XCTAssertEqual(intent.source.sourceKind, .watch)
     }
 }

@@ -11,12 +11,11 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
             audio: Self.source(id: "audio", kind: .observer),
             location: Self.source(id: "location", kind: .location),
             screencast: Self.source(id: "screencast", kind: .screencast),
-            omi: Self.source(id: "omi", kind: .omi),
             watch: nil,
             hiddenIDs: []
         )
 
-        XCTAssertEqual(rows.map(\.route), [.audio, .location, .screencast, .omi])
+        XCTAssertEqual(rows.map(\.route), [.audio, .location, .screencast])
         XCTAssertFalse(rows.contains { $0.route == .watch })
         XCTAssertFalse(rows.contains { $0.source.id == "watch" })
     }
@@ -37,12 +36,11 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
             audio: Self.source(id: "audio", kind: .observer),
             location: Self.source(id: "location", kind: .location),
             screencast: Self.source(id: "screencast", kind: .screencast),
-            omi: Self.source(id: "omi", kind: .omi),
             watch: Self.source(id: "watch", kind: .watch),
             hiddenIDs: []
         )
 
-        XCTAssertEqual(rows.map(\.route), [.audio, .location, .screencast, .omi, .watch])
+        XCTAssertEqual(rows.map(\.route), [.audio, .location, .screencast, .watch])
     }
 
     func testAddMoreRowsPutHiddenFirstInCanonicalOrder() {
@@ -50,12 +48,11 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
             audio: Self.source(id: "audio", kind: .observer),
             location: Self.source(id: "location", kind: .location),
             screencast: Self.source(id: "screencast", kind: .screencast),
-            omi: Self.source(id: "omi", kind: .omi),
             watch: Self.source(id: "watch", kind: .watch),
-            hiddenIDs: ["omi", "audio"]
+            hiddenIDs: ["screencast", "audio"]
         )
 
-        XCTAssertEqual(rows.map(\.source.id), ["audio", "omi", "location", "screencast", "watch"])
+        XCTAssertEqual(rows.map(\.source.id), ["audio", "screencast", "location", "watch"])
     }
 
     func testAddMoreRowsOmitShareAndHaveNoSwitch() throws {
@@ -63,17 +60,6 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
         XCTAssertFalse(text.contains("Toggle"))
         XCTAssertFalse(text.contains("share-sheet"))
         XCTAssertFalse(text.contains("SourceHomeTileControl"))
-    }
-
-    func testSourcesViewDoesNotRestoreWatchRowAttentionThirdLine() throws {
-        let text = try String(contentsOf: Self.sourcesViewURL(), encoding: .utf8)
-        let watchSourceConstruction = try Self.section(
-            in: text,
-            from: "nonisolated func watchSourceModel(",
-            to: "// watchSourceModel-end"
-        )
-
-        XCTAssertFalse(watchSourceConstruction.contains("detailSubtext:"))
     }
 }
 
@@ -91,23 +77,10 @@ private extension SourcesViewRowBuilderTests {
         )
     }
 
-    static func sourcesViewURL() -> URL {
-        URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/Home/SourceModelBuilder.swift")
-    }
-
     static func addMoreViewURL() -> URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/Home/AddMoreView.swift")
-    }
-
-    static func section(in text: String, from start: String, to end: String) throws -> String {
-        let startRange = try XCTUnwrap(text.range(of: start))
-        let endRange = try XCTUnwrap(text.range(of: end, range: startRange.upperBound..<text.endIndex))
-        return String(text[startRange.lowerBound..<endRange.lowerBound])
     }
 }

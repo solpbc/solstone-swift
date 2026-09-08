@@ -14,7 +14,7 @@ Native iOS app for solstone — the private, AI-powered journal from sol pbc. Na
 
 ## Architecture
 
-Native SwiftUI observer + importer + control center. The phone observes mic audio, location, screen via a ReplayKit broadcast extension, an Omi BLE pendant, and a paired Apple Watch, bundles observations into 5-minute segments, and uploads to the owner's journal over the tunnel. Owner-directed imports arrive via the system share-sheet extension.
+Native SwiftUI observer + importer + control center. The phone observes mic audio, location, screen via a ReplayKit broadcast extension, a paired Apple Watch, bundles observations into 5-minute segments, and uploads to the owner's journal over the tunnel. Owner-directed imports arrive via the system share-sheet extension.
 
 Local-first observation works unpaired. Captured data is held durably on-phone and drains to the journal once a pairing + tunnel exist. `AppConfig`'s `isPaired` (`Sources/Services/AppConfig.swift`) gates journal features, never observation.
 
@@ -26,7 +26,6 @@ Capture pipelines:
 - `Sources/MobileSegment/` — `Sources/MobileSegment/MobileSegmentEngine.swift`, `Sources/MobileSegment/MobileSegmentStore.swift`, and `Sources/MobileSegment/MobileSegmentUploader.swift` are the 5-minute segment core.
 - `Sources/Location/` — `Sources/Location/LocationManager.swift`.
 - `Sources/Screencast/` — `Sources/Screencast/ScreencastManager.swift` is the ReplayKit control side; the broadcast extension writes into the active segment through the app group.
-- `Sources/Omi/` — `Sources/Omi/OmiSourceManager.swift` for the BLE pendant.
 - `Sources/WatchCapture/` + `Watch/Sources/` — Apple Watch companion, both halves.
 - `Sources/ShareImport/` + `SolstoneShareExtension/` (`SolstoneShareExtension/ShareViewController.swift`) — share-sheet staging, app adoption, and transfer handoff.
 
@@ -65,7 +64,6 @@ make clean         # remove build artifacts
 
 - `solpbc/spl-swift` (product `SPLTunnel`) — SPL tunnel package pinned at `exactVersion: 0.5.0`; provides pairing, relay, inner mTLS, mux, and loopback transport.
 - `apple/swift-crypto` (product `Crypto`) — used directly by `Sources/MobileSegment/MobileSegmentUploader.swift` and declared explicitly on the app and test targets.
-- `alta/swift-opus` (product `Opus`) — Opus decode for the BLE pendant audio; used in `Sources/Omi/OmiOpusAudioDecoder.swift`.
 
 ## Swift 6 concurrency
 

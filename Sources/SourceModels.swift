@@ -7,7 +7,6 @@ import Observation
 nonisolated enum SourceKind: Codable, Equatable, Hashable, Sendable {
     case observer
     case location
-    case omi
     case screencast
     case watch
 }
@@ -34,7 +33,6 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     let subtextOverride: String?
     let attention: SourceAttention?
     let pendingStatus: SourcePendingStatus
-    let detailSubtext: String?
     let showsSubtext: Bool
 
     init(
@@ -47,7 +45,6 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         subtextOverride: String? = nil,
         attention: SourceAttention?,
         pendingStatus: SourcePendingStatus,
-        detailSubtext: String? = nil,
         showsSubtext: Bool = true
     ) {
         self.id = id
@@ -59,7 +56,6 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         self.subtextOverride = subtextOverride
         self.attention = attention
         self.pendingStatus = pendingStatus
-        self.detailSubtext = detailSubtext
         self.showsSubtext = showsSubtext
     }
 
@@ -93,10 +89,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
                 isJournalPaired: self.isJournalPaired
             )
         }
-        guard let detailSubtext else {
-            return base
-        }
-        return "\(base) \(detailSubtext)."
+        return base
     }
 
     private static func sentence(_ text: String) -> String {

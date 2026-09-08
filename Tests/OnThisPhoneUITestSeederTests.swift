@@ -23,7 +23,7 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
     }
 
     @MainActor
-    func testLargeBacklogDefaultCountSplitsMobileAndOmiTransferItems() throws {
+    func testLargeBacklogDefaultCountSplitsMobileAndWatchTransferItems() throws {
         let roots = self.makeRoots(suffix: "default")
 
         let summary = try OnThisPhoneUITestSeeder.seedLargeBacklog(
@@ -32,11 +32,10 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
             fileManager: .default
         )
 
-        XCTAssertEqual(summary, .init(mobile: 400, omi: 400, total: 800))
+        XCTAssertEqual(summary, .init(mobile: 400, watch: 400, total: 800))
         XCTAssertEqual(try self.transferManifestCount(in: roots.transfer, source: ObserverAudioTransferSource.mobileSegment), 400)
-        XCTAssertEqual(try self.transferManifestCount(in: roots.transfer, source: ObserverAudioTransferSource.omi), 400)
+        XCTAssertEqual(try self.transferManifestCount(in: roots.transfer, source: ObserverAudioTransferSource.watch), 400)
         XCTAssertEqual(try self.audioFileCount(in: roots.observer), 0)
-        XCTAssertEqual(try self.audioFileCount(in: roots.omi), 0)
     }
 
     @MainActor
@@ -67,11 +66,11 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
     }
 
     @MainActor
-    func testResetIncludesOmiRootAndLeavesSiblingOutsideResetRoots() throws {
+    func testResetLeavesSiblingOutsideResetRoots() throws {
         let roots = self.makeRoots(suffix: "reset")
         let sibling = self.tempDirectory.appendingPathComponent("sibling", isDirectory: true)
 
-        for root in [roots.observer, roots.omi, roots.transfer, roots.location, roots.mobileSegment, roots.importQueue, sibling] {
+        for root in [roots.observer, roots.transfer, roots.location, roots.mobileSegment, roots.importQueue, sibling] {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             try Data("data".utf8).write(to: root.appendingPathComponent("item.dat"))
         }
@@ -79,7 +78,6 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
         try OnThisPhoneUITestSeeder.reset(roots: roots, fileManager: .default)
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.observer.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: roots.omi.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.transfer.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.location.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: roots.mobileSegment.path))
@@ -90,7 +88,6 @@ nonisolated final class OnThisPhoneUITestSeederTests: XCTestCase {
     private func makeRoots(suffix: String) -> OnThisPhoneUITestSeeder.Roots {
         OnThisPhoneUITestSeeder.Roots(
             observer: self.tempDirectory.appendingPathComponent("\(suffix)-observer", isDirectory: true),
-            omi: self.tempDirectory.appendingPathComponent("\(suffix)-omi", isDirectory: true),
             transfer: self.tempDirectory.appendingPathComponent("\(suffix)-transfer", isDirectory: true),
             location: self.tempDirectory.appendingPathComponent("\(suffix)-location", isDirectory: true),
             mobileSegment: self.tempDirectory.appendingPathComponent("\(suffix)-mobile-segment", isDirectory: true),

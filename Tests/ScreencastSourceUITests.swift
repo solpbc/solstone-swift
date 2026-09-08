@@ -15,22 +15,21 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
         XCTAssertEqual(source.subtext, SourceVocabulary.screencastOffSubtext)
     }
 
-    func testScreencastRowIsPlacedAfterLocationBeforeOmi() throws {
+    func testScreencastRowIsPlacedAfterLocationBeforeWatch() throws {
         let rows = SourcesViewRowBuilder.addMoreRows(
             audio: Self.source(id: "audio", kind: .observer),
             location: Self.source(id: "location", kind: .location),
             screencast: Self.source(id: "screen", kind: .screencast),
-            omi: Self.source(id: "omi", kind: .omi),
             watch: Self.source(id: "watch", kind: .watch),
             hiddenIDs: []
         )
         let routes = rows.map(\.route)
         let locationIndex = try XCTUnwrap(routes.firstIndex(of: .location))
         let screencastIndex = try XCTUnwrap(routes.firstIndex(of: .screencast))
-        let omiIndex = try XCTUnwrap(routes.firstIndex(of: .omi))
+        let watchIndex = try XCTUnwrap(routes.firstIndex(of: .watch))
 
         XCTAssertLessThan(locationIndex, screencastIndex)
-        XCTAssertLessThan(screencastIndex, omiIndex)
+        XCTAssertLessThan(screencastIndex, watchIndex)
     }
 
     func testScreencastPresentationMapsManagerStates() {

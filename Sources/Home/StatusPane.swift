@@ -14,7 +14,6 @@ struct StatusPane: View {
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(ProblemReportsManager.self) private var problemReportsManager
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
-    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(LocationManager.self) private var locationManager
@@ -198,12 +197,6 @@ struct StatusPane: View {
                     + self.mobileSegmentTransferHolder.failedCount
             ),
             WaitingRow(
-                route: .omi,
-                kind: .omi,
-                name: "omi pendant",
-                count: self.omiUploaderHolder.pendingCount + self.omiUploaderHolder.failedCount
-            ),
-            WaitingRow(
                 route: .watch,
                 kind: .watch,
                 name: "watch",
@@ -359,7 +352,6 @@ struct StatusPane: View {
         while !Task.isCancelled {
             self.transferRate = recentBytesTotal(
                 mobileSegment: self.mobileSegmentTransferHolder,
-                omi: self.omiUploaderHolder,
                 watch: self.watchUploaderHolder,
                 share: self.shareTransferHolder
             )

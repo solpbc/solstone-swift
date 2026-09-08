@@ -173,10 +173,8 @@ struct DayHomeView: View {
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
-    @Environment(OmiSourceManager.self) private var omiSourceManager
     @WatchPipelineInputReader private var watchPipelineInputs
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
-    @Environment(OmiUploaderHolder.self) private var omiUploaderHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -241,13 +239,11 @@ struct DayHomeView: View {
 private extension DayHomeView {
     var bundle: HomeSourceBundle {
         makeHomeSourceBundle(
-            now: self.now,
             isJournalPaired: self.appConfig.isPaired,
             observerManager: self.observerManager,
             observerSourcePauseState: self.observerSourcePauseState,
             locationManager: self.locationManager,
             screencastManager: self.screencastManager,
-            omiSourceManager: self.omiSourceManager,
             watchLane: self.watchPipelineAssembly.lane
         )
     }
@@ -298,7 +294,6 @@ private extension DayHomeView {
             self.bundle.audio,
             self.bundle.location,
             self.bundle.screencast,
-            self.bundle.omi,
         ] + (self.bundle.watch.map { [$0] } ?? [])
         return Dictionary(uniqueKeysWithValues: sources.map { ($0.kind, $0.state) })
     }
@@ -352,14 +347,6 @@ private extension DayHomeView {
                     isOn: self.screencastIsOn,
                     presentsScreencastPicker: true,
                     onScreencastWillOpen: { self.screencastManager.beginStarting() }
-                )
-            }
-            if self.isOnHome(self.bundle.omi.id) {
-                HomeSourceTile(
-                    source: self.bundle.omi,
-                    route: .omi,
-                    control: .toggle,
-                    isOn: self.omiIsOn
                 )
             }
             if let watch = self.bundle.watch, self.isOnHome(watch.id) {
@@ -441,23 +428,9 @@ private extension DayHomeView {
         )
     }
 
-    var omiIsOn: Binding<Bool> {
-        Binding(
-            get: { self.omiSourceManager.enabled },
-            set: { isOn in
-                if isOn {
-                    self.omiSourceManager.enable()
-                } else {
-                    self.omiSourceManager.disable()
-                }
-            }
-        )
-    }
-
     var backlogCount: WatchAwareBacklog {
         let totals = captureUploadTotals(
             mobileSegment: self.mobileSegmentTransferHolder,
-            omi: self.omiUploaderHolder,
             watch: self.watchUploaderHolder
         )
         return .known(totals.pending + totals.failed)

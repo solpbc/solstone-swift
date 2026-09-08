@@ -25,11 +25,8 @@ enum OnThisPhoneLaunchMagicMomentStoreProbe {
         if self.hasShareImportItems(appGroupRootURL: appGroupRootURL, fileManager: fileManager) {
             return true
         }
-        // Omi/watch enqueue directly to transfer at OmiSegmentWriter.swift:209 and WatchSegmentDrain.swift:113.
-        // Their legacy roots migrate into transfer after this guard runs, so probe those roots here too.
-        if self.hasLegacyOmiItems(appGroupRootURL: appGroupRootURL, cachesRootURL: cachesRootURL, fileManager: fileManager) {
-            return true
-        }
+        // Watch enqueues directly to transfer.
+        // Its legacy roots migrate into transfer after this guard runs, so probe those roots here too.
         if self.hasLegacyWatchItems(cachesRootURL: cachesRootURL, fileManager: fileManager) {
             return true
         }
@@ -82,14 +79,6 @@ enum OnThisPhoneLaunchMagicMomentStoreProbe {
                 fileManager: fileManager
             )
         }
-    }
-
-    private static func hasLegacyOmiItems(appGroupRootURL: URL, cachesRootURL: URL?, fileManager: FileManager) -> Bool {
-        let roots = [
-            appGroupRootURL.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
-            cachesRootURL?.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true),
-        ].compactMap { $0 }
-        return roots.contains { self.directoryContainsEntries($0, fileManager: fileManager) }
     }
 
     private static func hasLegacyWatchItems(cachesRootURL: URL?, fileManager: FileManager) -> Bool {

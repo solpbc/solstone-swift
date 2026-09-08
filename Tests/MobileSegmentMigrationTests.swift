@@ -30,13 +30,13 @@ final class MobileSegmentMigrationTests: XCTestCase {
         let harness = self.makeHarness()
         let observerRoot = self.tempDirectory.appendingPathComponent("Observer", isDirectory: true)
         let locationRoot = self.tempDirectory.appendingPathComponent("Location", isDirectory: true)
-        let untouchedOmi = self.tempDirectory.appendingPathComponent("OmiObserver", isDirectory: true).appendingPathComponent("sentinel", isDirectory: false)
+        let untouchedSibling = self.tempDirectory.appendingPathComponent("UnrelatedSource", isDirectory: true).appendingPathComponent("sentinel", isDirectory: false)
         let untouchedWatch = self.tempDirectory.appendingPathComponent("WatchObserver", isDirectory: true).appendingPathComponent("sentinel", isDirectory: false)
         let untouchedImport = self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true).appendingPathComponent("sentinel", isDirectory: false)
-        try FileManager.default.createDirectory(at: untouchedOmi.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: untouchedSibling.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: untouchedWatch.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: untouchedImport.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("omi".utf8).write(to: untouchedOmi)
+        try Data("sibling".utf8).write(to: untouchedSibling)
         try Data("watch".utf8).write(to: untouchedWatch)
         try Data("import".utf8).write(to: untouchedImport)
 
@@ -60,7 +60,7 @@ final class MobileSegmentMigrationTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: oldURL.path))
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: badLocation.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: untouchedOmi.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: untouchedSibling.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: untouchedWatch.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: untouchedImport.path))
 

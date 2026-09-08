@@ -113,25 +113,9 @@ nonisolated final class OnThisPhoneLaunchMagicMomentGuardTests: XCTestCase {
     }
 
     @MainActor
-    func testStoreProbeDetectsLegacyOmiAndWatchRoots() throws {
+    func testStoreProbeDetectsLegacyWatchRoot() throws {
         let store = self.makeStore()
         let cachesRoot = self.cachesRoot()
-        let legacyOmiRoot = self.tempDirectory
-            .appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            .appendingPathComponent("pending", isDirectory: true)
-        try FileManager.default.createDirectory(at: legacyOmiRoot, withIntermediateDirectories: true)
-        try Data("audio".utf8).write(to: legacyOmiRoot.appendingPathComponent("chunk.m4a", isDirectory: false))
-
-        XCTAssertTrue(OnThisPhoneLaunchMagicMomentStoreProbe.hasExistingOnThisPhoneItems(
-            mobileSegmentStore: store,
-            appGroupRootURL: self.tempDirectory,
-            cachesRootURL: cachesRoot
-        ))
-
-        try FileManager.default.removeItem(
-            at: self.tempDirectory.appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
-        )
         let legacyWatchRoot = cachesRoot
             .appendingPathComponent(WatchTransferSpoolMigrator.legacyCacheDirectoryName, isDirectory: true)
             .appendingPathComponent("pending", isDirectory: true)

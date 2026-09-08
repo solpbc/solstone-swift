@@ -122,11 +122,11 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
     }
 
     @MainActor
-    func testAggregatorIncludesOmiAudioWithDistinctNamespace() async throws {
+    func testAggregatorIncludesWatchAudioWithDistinctNamespace() async throws {
         let queues = self.makeQueues()
         let mobileSegmentID = UUID()
-        let omiSessionID = UUID()
-        let omiChunkID = "omi-chunk"
+        let watchSessionID = UUID()
+        let watchChunkID = "watch-chunk"
         let observerID = "mobile-segment:\(mobileSegmentID.uuidString):audio"
 
         try self.writeMobileSegment(
@@ -137,14 +137,14 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             startedAt: Date(timeIntervalSince1970: 1_780_480_800),
             durationS: 42
         )
-        let omiItemID = try await self.enqueueOmiChunk(
+        let watchItemID = try await self.enqueueWatchChunk(
             queues: queues,
-            sessionID: omiSessionID,
-            chunkID: omiChunkID,
+            sessionID: watchSessionID,
+            chunkID: watchChunkID,
             startedAt: Date(timeIntervalSince1970: 1_780_480_900),
             durationS: 12
         )
-        let omiID = OnThisPhoneItemID.transferIDString(itemID: omiItemID, source: .omi)
+        let watchID = OnThisPhoneItemID.transferIDString(itemID: watchItemID, source: .watch)
 
         let snapshot = await OnThisPhoneSnapshotAggregator.snapshot(
             share: queues.shareHolder,
@@ -152,19 +152,19 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             transferEngine: queues.transferEngine
         )
 
-        XCTAssertEqual(snapshot.items.map(\.id), [omiID, observerID])
+        XCTAssertEqual(snapshot.items.map(\.id), [watchID, observerID])
         XCTAssertEqual(try self.count(for: .audio, in: snapshot), 2)
         XCTAssertNil(snapshot.items.first { $0.id == observerID }?.sourceLabel)
-        XCTAssertEqual(snapshot.items.first { $0.id == omiID }?.sourceLabel, SourceVocabulary.onThisPhoneOmiAudioSourceLabel)
+        XCTAssertEqual(snapshot.items.first { $0.id == watchID }?.sourceLabel, SourceVocabulary.onThisPhoneWatchAudioSourceLabel)
     }
 
     #if DEBUG
     @MainActor
-    func testLargeBacklogSeedSurfacesMobileAndOmiRowsWithLabels() async throws {
+    func testLargeBacklogSeedSurfacesMobileAndWatchRowsWithLabels() async throws {
         let queues = self.makeQueues(suffix: "large")
         let requestedCount = 7
         let mobileCount = (requestedCount + 1) / 2
-        let omiCount = requestedCount / 2
+        let watchCount = requestedCount / 2
         let baseDate = Date(timeIntervalSince1970: 1_780_500_000)
         for index in 0..<mobileCount {
             _ = try await queues.transferEngine.enqueue(
@@ -177,11 +177,11 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
                 payloads: ["audio": Data("mobile-audio-\(index)".utf8)]
             )
         }
-        for index in 0..<omiCount {
-            _ = try await self.enqueueOmiChunk(
+        for index in 0..<watchCount {
+            _ = try await self.enqueueWatchChunk(
                 queues: queues,
                 sessionID: UUID(uuidString: String(format: "20000000-0000-0000-0000-%012d", index))!,
-                chunkID: String(format: "ui-test-large-backlog-omi-%04d", index),
+                chunkID: String(format: "ui-test-large-backlog-watch-%04d", index),
                 startedAt: baseDate.addingTimeInterval(Double(mobileCount + index)),
                 durationS: TimeInterval(30 + ((mobileCount + index) % 90))
             )
@@ -193,13 +193,13 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             transferEngine: queues.transferEngine
         )
         let mobileItems = snapshot.items.filter { $0.id.hasPrefix("transfer:mobile-segment:") && $0.sourceKind == .audio }
-        let omiItems = snapshot.items.filter { $0.id.hasPrefix("transfer:omi:") }
+        let watchItems = snapshot.items.filter { $0.id.hasPrefix("transfer:watch:") }
 
         XCTAssertEqual(snapshot.items.count, requestedCount)
         XCTAssertEqual(mobileItems.count, mobileCount)
-        XCTAssertEqual(omiItems.count, omiCount)
+        XCTAssertEqual(watchItems.count, watchCount)
         XCTAssertTrue(mobileItems.allSatisfy { $0.sourceLabel == nil })
-        XCTAssertTrue(omiItems.allSatisfy { $0.sourceLabel == SourceVocabulary.onThisPhoneOmiAudioSourceLabel })
+        XCTAssertTrue(watchItems.allSatisfy { $0.sourceLabel == SourceVocabulary.onThisPhoneWatchAudioSourceLabel })
     }
     #endif
 
@@ -475,37 +475,16 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
         XCTAssertEqual(share.dropDescriptor, share.filename)
     }
 
-    func testOmiAudioAccessorAndVoiceOverTextDistinguishSource() {
-        let sessionID = UUID()
-        let observer = Self.item(
-            id: "audio:\(sessionID.uuidString):chunk",
-            sourceKind: .audio,
-            itemTime: Date(timeIntervalSince1970: 1_780_480_800),
-            audioDurationS: 12
-        )
-        let omi = Self.item(
-            id: OnThisPhoneItemID.transferIDString(itemID: sessionID, source: .omi),
-            sourceKind: .audio,
-            itemTime: Date(timeIntervalSince1970: 1_780_480_800),
-            audioDurationS: 12
-        )
-
-        XCTAssertFalse(observer.isOmiAudio)
-        XCTAssertTrue(omi.isOmiAudio)
-        XCTAssertTrue(observer.voiceOverText.hasPrefix("audio."))
-        XCTAssertTrue(omi.voiceOverText.hasPrefix("omi pendant audio."))
-    }
-
     func testOnThisPhoneItemIDParsing() throws {
         let sessionID = UUID()
         let shareID = UUID()
         let segmentID = UUID()
 
         XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "audio:\(sessionID.uuidString):chunk:with:colons"))
-        XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "omi:\(sessionID.uuidString):chunk"))
+        XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "watch:\(sessionID.uuidString):chunk"))
         XCTAssertEqual(
-            OnThisPhoneItemID(sourceKind: .audio, id: "transfer:omi:\(sessionID.uuidString)"),
-            .transfer(itemID: sessionID, source: .omi)
+            OnThisPhoneItemID(sourceKind: .audio, id: "transfer:watch:\(sessionID.uuidString)"),
+            .transfer(itemID: sessionID, source: .watch)
         )
         XCTAssertEqual(
             OnThisPhoneItemID(
@@ -523,16 +502,16 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             .share(shareID)
         )
         XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "audio:not-a-uuid:chunk"))
-        XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "omi:not-a-uuid:chunk"))
+        XCTAssertNil(OnThisPhoneItemID(sourceKind: .audio, id: "watch:not-a-uuid:chunk"))
         XCTAssertNil(OnThisPhoneItemID(sourceKind: .location, id: "location:20260603-110000_300"))
         XCTAssertNil(OnThisPhoneItemID(sourceKind: .location, id: "20260603-110000_300"))
         XCTAssertNil(OnThisPhoneItemID(sourceKind: .share, id: "location:20260603-110000_300"))
     }
 
     @MainActor
-    func testOmiUploaderHolderCountProxiesObserveUploaderCounts() async {
+    func testWatchUploaderHolderCountProxiesObserveUploaderCounts() async {
         let queues = self.makeQueues()
-        let holder = queues.omiHolder
+        let holder = queues.watchHolder
         let pendingChanged = self.expectation(description: "pending count changed")
         let failedChanged = self.expectation(description: "failed count changed")
 
@@ -563,7 +542,7 @@ nonisolated final class OnThisPhoneAggregatorTests: XCTestCase {
             lastEventSummary: nil,
             lastUpdatedAt: Date(),
             sources: [
-                ObserverAudioTransferSource.omi: TransferSourceStatusSnapshot(
+                ObserverAudioTransferSource.watch: TransferSourceStatusSnapshot(
                     queuedCount: 1,
                     attentionCount: 2,
                     inFlightCount: 0,
@@ -586,21 +565,19 @@ private extension OnThisPhoneAggregatorTests {
     struct Queues {
         let importRoot: URL
         let mobileSegmentRoot: URL
-        let omiRoot: URL
         let watchRoot: URL
         let shareHolder: ShareTransferHolder
         let mobileSegmentUploader: MobileSegmentUploader
         let transferEngine: TransferEngine
         let transferEnqueuer: ObserverAudioTransferEnqueuer
         let transferMirror: TransferStatusMirror
-        let omiHolder: OmiUploaderHolder
+        let watchHolder: WatchUploaderHolder
     }
 
     @MainActor
     func makeQueues(suffix: String = "main") -> Queues {
         let importRoot = self.tempDirectory.appendingPathComponent("\(suffix)-import", isDirectory: true)
         let mobileSegmentRoot = self.tempDirectory.appendingPathComponent("\(suffix)-mobile-segment", isDirectory: true)
-        let omiRoot = self.tempDirectory.appendingPathComponent("\(suffix)-omi", isDirectory: true)
         let watchRoot = self.tempDirectory.appendingPathComponent("\(suffix)-watch", isDirectory: true)
         let transferHarness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("\(suffix)-transfer", isDirectory: true)
@@ -609,7 +586,6 @@ private extension OnThisPhoneAggregatorTests {
         return Queues(
             importRoot: importRoot,
             mobileSegmentRoot: mobileSegmentRoot,
-            omiRoot: omiRoot,
             watchRoot: watchRoot,
             shareHolder: ShareTransferHolder(
                 transferEngine: transferHarness.engine,
@@ -624,20 +600,20 @@ private extension OnThisPhoneAggregatorTests {
             transferEngine: transferHarness.engine,
             transferEnqueuer: transferHarness.enqueuer,
             transferMirror: transferHarness.mirror,
-            omiHolder: transferHarness.omi
+            watchHolder: transferHarness.watch
         )
     }
 
     @MainActor
-    func enqueueOmiChunk(
+    func enqueueWatchChunk(
         queues: Queues,
         sessionID: UUID,
         chunkID: String,
         startedAt: Date,
         durationS: TimeInterval
     ) async throws -> UUID {
-        let audioURL = queues.omiRoot.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
-        try FileManager.default.createDirectory(at: queues.omiRoot, withIntermediateDirectories: true)
+        let audioURL = queues.watchRoot.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
+        try FileManager.default.createDirectory(at: queues.watchRoot, withIntermediateDirectories: true)
         try Data("audio".utf8).write(to: audioURL)
         let sidecar = ChunkSidecar(
             segment: "120000_300",
@@ -649,8 +625,9 @@ private extension OnThisPhoneAggregatorTests {
             mode: .meeting,
             locationJSONL: nil
         )
-        return try await queues.transferEnqueuer.enqueueOmiChunkMovingFile(
-            chunkURL: audioURL,
+        return try await queues.transferEnqueuer.enqueueWatchChunkMovingFiles(
+            audioURL: audioURL,
+            locationURL: nil,
             sidecar: sidecar
         )
     }

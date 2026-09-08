@@ -32,9 +32,6 @@ packages:
   spl-swift:
     url: https://github.com/solpbc/spl-swift.git
     exactVersion: "0.5.0"
-  Opus:
-    url: https://github.com/alta/swift-opus.git
-    from: "0.0.2"
 
 targets:
   solstone-swift:
@@ -61,7 +58,6 @@ targets:
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in."
-        INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription: "you can connect the solstone app to wearable audio devices like the Omi pendant over Bluetooth. what you share stays on this device until you connect a journal for it to land in."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it, including in the background. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
         INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your journal's pairing code"
@@ -98,7 +94,6 @@ targets:
           - fetch
           - location
           - remote-notification
-          - bluetooth-central
         BGTaskSchedulerPermittedIdentifiers:
           - app.solstone.swift.finish-syncing.*
         solstoneSourceCommit: "$(SOLSTONE_SOURCE_COMMIT)"
@@ -121,8 +116,6 @@ targets:
         embed: true
       - target: SolstoneWatch
         embed: true
-      - package: Opus
-        product: Opus
   SolstoneNotificationContent:
     type: app-extension
     platform: iOS

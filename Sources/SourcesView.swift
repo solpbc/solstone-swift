@@ -29,14 +29,13 @@ struct SourcesView: View {
 }
 
 nonisolated enum SourceRoute: Hashable, Identifiable, Sendable {
-    case audio, location, screencast, omi, watch
+    case audio, location, screencast, watch
 
     var id: String {
         switch self {
         case .audio: "audio"
         case .location: "location"
         case .screencast: "screencast"
-        case .omi: "omi"
         case .watch: "watch"
         }
     }
@@ -54,7 +53,6 @@ nonisolated enum SourcesViewRowBuilder {
         audio: Source,
         location: Source,
         screencast: Source,
-        omi: Source,
         watch: Source?,
         hiddenIDs: Set<String>
     ) -> [SourcesViewRow] {
@@ -62,7 +60,6 @@ nonisolated enum SourcesViewRowBuilder {
             SourcesViewRow(route: .audio, source: audio),
             SourcesViewRow(route: .location, source: location),
             SourcesViewRow(route: .screencast, source: screencast),
-            SourcesViewRow(route: .omi, source: omi),
         ]
         if let watch {
             canonical.append(SourcesViewRow(route: .watch, source: watch))

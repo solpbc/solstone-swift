@@ -4,13 +4,6 @@
 import Foundation
 
 nonisolated enum SourceFault: Equatable, Sendable {
-    case bluetoothOff
-    case unauthorized
-    case unsupported
-    case pendantOutOfRange
-    case pendantConnectFailed
-    case pendantCodecUnsupported
-    case pendantAudioUnavailable
     case watchUnsupported
     case watchChecking
     case watchActivationFailed
@@ -30,9 +23,6 @@ nonisolated enum SourceFault: Equatable, Sendable {
 
 nonisolated enum SourceFaultAction: Equatable, Sendable {
     case none
-    /// Deliberately unproduced today: AC2's never-retry contract is "no fault maps here."
-    /// Delivery retry is a real action in facts, not this slot.
-    case retry
     case routeToInstallOrOpen
     case openSettings
     case matchToAllowed
@@ -40,17 +30,8 @@ nonisolated enum SourceFaultAction: Equatable, Sendable {
 
 nonisolated func sourceFaultAction(_ fault: SourceFault) -> SourceFaultAction {
     switch fault {
-    case .bluetoothOff:
-        // CANON DEVIATION: mobile-shell.md / copy-deck.md prescribe "open bluetooth
-        // settings" for bluetooth-off. There is no public URL that opens Bluetooth
-        // settings; UIApplication.openSettingsURLString opens the app's settings page
-        // and cannot toggle CBManagerState.poweredOff. §2.4: a control that cannot
-        // perform what it names does not exist. Jer accepted this as rule-beats-example.
-        .none
-    case .unauthorized, .locationDenied, .locationServicesDisabled, .locationNotDetermined, .microphoneDenied:
+    case .locationDenied, .locationServicesDisabled, .locationNotDetermined, .microphoneDenied:
         .openSettings
-    case .unsupported, .pendantOutOfRange, .pendantConnectFailed, .pendantCodecUnsupported, .pendantAudioUnavailable:
-        .none
     case .watchUnsupported, .watchChecking, .watchActivationFailed, .watchNoWatchPaired, .watchStuck:
         .none
     case .watchReadyToInstall, .watchInstalledNeverOpened:
@@ -62,35 +43,6 @@ nonisolated func sourceFaultAction(_ fault: SourceFault) -> SourceFaultAction {
     case .screencastNeedsAttention, .screencastUnavailable:
         .none
     }
-}
-
-nonisolated func omiSourceFault(_ attention: OmiAttention) -> SourceFault {
-    switch attention {
-    case .bluetoothOff:
-        .bluetoothOff
-    case .unauthorized:
-        .unauthorized
-    case .unsupported:
-        .unsupported
-    case .pendantNotFound:
-        .pendantOutOfRange
-    case .connectFailed:
-        .pendantConnectFailed
-    case .codecNotOpus:
-        .pendantCodecUnsupported
-    case .audioUnavailable:
-        .pendantAudioUnavailable
-    }
-}
-
-nonisolated func omiSourceFault(state: OmiSourceState, enabled: Bool) -> SourceFault? {
-    guard enabled else {
-        return nil
-    }
-    if case .needsAttention(let attention) = state {
-        return omiSourceFault(attention)
-    }
-    return nil
 }
 
 nonisolated func watchSourceFault(_ lane: PhoneWatchSourceLane) -> SourceFault? {

@@ -6,38 +6,34 @@ import Foundation
 @MainActor
 func uploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
-    omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder
 ) -> (failed: Int, pending: Int) {
     (
-        failed: mobileSegment.failedCount + omi.failedCount + watch.failedCount + share.failedCount,
-        pending: mobileSegment.pendingCount + omi.pendingCount + watch.pendingCount + share.pendingCount
+        failed: mobileSegment.failedCount + watch.failedCount + share.failedCount,
+        pending: mobileSegment.pendingCount + watch.pendingCount + share.pendingCount
     )
 }
 
 @MainActor
 func captureUploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
-    omi: OmiUploaderHolder,
     watch: WatchUploaderHolder
 ) -> (failed: Int, pending: Int) {
     (
-        failed: mobileSegment.failedCount + omi.failedCount + watch.failedCount,
-        pending: mobileSegment.pendingCount + omi.pendingCount + watch.pendingCount
+        failed: mobileSegment.failedCount + watch.failedCount,
+        pending: mobileSegment.pendingCount + watch.pendingCount
     )
 }
 
 @MainActor
 func confirmedTransferCount(
     mobileSegment: MobileSegmentTransferHolder,
-    omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder
 ) -> Int {
     confirmedTransferCount(
         mobileSegment: mobileSegment.confirmedActiveTransferCount,
-        omi: omi.confirmedActiveTransferCount,
         watch: watch.confirmedActiveTransferCount,
         share: share.confirmedActiveTransferCount
     )
@@ -45,23 +41,20 @@ func confirmedTransferCount(
 
 nonisolated func confirmedTransferCount(
     mobileSegment: Int,
-    omi: Int,
     watch: Int,
     share: Int
 ) -> Int {
-    mobileSegment + omi + watch + share
+    mobileSegment + watch + share
 }
 
 @MainActor
 func recentBytesTotal(
     mobileSegment: MobileSegmentTransferHolder,
-    omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder
 ) -> Double {
     recentBytesTotal(
         mobileSegment: mobileSegment.recentBytesPerSecond,
-        omi: omi.recentBytesPerSecond,
         watch: watch.recentBytesPerSecond,
         share: share.recentBytesPerSecond
     )
@@ -69,11 +62,10 @@ func recentBytesTotal(
 
 nonisolated func recentBytesTotal(
     mobileSegment: Double,
-    omi: Double,
     watch: Double,
     share: Double
 ) -> Double {
-    mobileSegment + omi + watch + share
+    mobileSegment + watch + share
 }
 
 nonisolated struct TransferBackoffStatus: Equatable, Sendable {
@@ -92,23 +84,20 @@ func uploadBackoff(mirror: TransferStatusMirror) -> TransferBackoffStatus {
 @MainActor
 func uploadInFlight(
     mobileSegment: MobileSegmentTransferHolder,
-    omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder
 ) -> Int {
-    mobileSegment.inFlightCount + omi.inFlightCount + watch.inFlightCount + share.inFlightCount
+    mobileSegment.inFlightCount + watch.inFlightCount + share.inFlightCount
 }
 
 @MainActor
 func uploadFailedTotal(
     mobileSegment: MobileSegmentTransferHolder,
-    omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder
 ) -> Int {
     uploadTotals(
         mobileSegment: mobileSegment,
-        omi: omi,
         watch: watch,
         share: share
     ).failed
@@ -121,13 +110,11 @@ nonisolated func lastSyncedAt(_ dates: [Date?]) -> Date? {
 @MainActor
 func lastSyncedAt(
     mobileSegment: MobileSegmentTransferHolder,
-    omi: OmiUploaderHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder
 ) -> Date? {
     lastSyncedAt([
         mobileSegment.lastUploadAt,
-        omi.lastUploadAt,
         watch.lastUploadAt,
         share.lastUploadAt,
     ])
@@ -136,12 +123,10 @@ func lastSyncedAt(
 @MainActor
 func lastCaptureSyncedAt(
     mobileSegment: MobileSegmentTransferHolder,
-    omi: OmiUploaderHolder,
     watch: WatchUploaderHolder
 ) -> Date? {
     lastSyncedAt([
         mobileSegment.lastUploadAt,
-        omi.lastUploadAt,
         watch.lastUploadAt,
     ])
 }

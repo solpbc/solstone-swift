@@ -28,7 +28,6 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
     var sessionID: UUID?
     var modeRawValue: String?
     var segmentID: UUID?
-    var omiMetadata: JSONValue?
     var parts: [ObserverIngestMultipartPart]
 
     init(
@@ -44,7 +43,6 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
         sessionID: UUID? = nil,
         modeRawValue: String? = nil,
         segmentID: UUID? = nil,
-        omiMetadata: JSONValue? = nil,
         parts: [ObserverIngestMultipartPart]
     ) {
         self.boundary = boundary
@@ -59,7 +57,6 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
         self.sessionID = sessionID
         self.modeRawValue = modeRawValue
         self.segmentID = segmentID
-        self.omiMetadata = omiMetadata
         self.parts = parts
     }
 }
@@ -92,9 +89,6 @@ nonisolated enum ObserverIngestMultipartBody {
         }
         if let segmentID = payload.segmentID {
             metaObject["segment_id"] = segmentID.uuidString
-        }
-        if let omiMetadata = payload.omiMetadata {
-            metaObject[OmiSegmentMetadata.key] = omiMetadata.foundationObject
         }
         let envelope: [String: Any] = [
             "day": payload.day,

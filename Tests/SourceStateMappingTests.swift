@@ -68,8 +68,7 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             isJournalPaired: true,
             activeSubtext: SourceVocabulary.observerActiveSubtext,
             attention: nil,
-            pendingStatus: .nonePending,
-            detailSubtext: "battery 87% as of 12m ago"
+            pendingStatus: .nonePending
         )
         let needsAttentionSource = Source(
             id: "needs-attention",
@@ -105,7 +104,6 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         )
 
         XCTAssertTrue(activeSource.voiceOverText.contains("on"))
-        XCTAssertTrue(activeSource.voiceOverText.contains("battery 87% as of 12m ago"))
         XCTAssertTrue(needsAttentionSource.voiceOverText.contains("needs attention"))
         XCTAssertEqual(watchIdleSource.subtext, SourceVocabulary.watchIdleNowSubtext)
         XCTAssertTrue(watchIdleSource.voiceOverText.contains(SourceVocabulary.watchIdleNowSubtext))

@@ -93,8 +93,6 @@ private struct ObserverStatusSmallView: View {
             SourceVocabulary.onThisPhoneObserverAudioSourceLabel
         case .location:
             "location"
-        case .omi:
-            "omi"
         case .screencast:
             SourceVocabulary.screencastDisplayName
         case .watch, nil:

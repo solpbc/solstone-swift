@@ -105,7 +105,7 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         _ = await client.listDays(localPort: 7071, source: "mobile-segment")
         _ = await client.fetchManifestDay(localPort: 7071, source: "mobile-segment", day: day)
         let sourceA = await client.fetchSegments(localPort: 7071, source: "mobile-segment", day: day)
-        let sourceB = await client.fetchSegments(localPort: 7071, source: "omi-audio", day: day)
+        let sourceB = await client.fetchSegments(localPort: 7071, source: "watch-audio", day: day)
 
         XCTAssertEqual(sourceA, .success(Self.validSegments))
         XCTAssertEqual(sourceB, .success(LinkedDeviceIngestSegmentsResponse(protocolVersion: 3, total: 0, items: [])))

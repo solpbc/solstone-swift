@@ -54,7 +54,6 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
 
         let totals = uploadTotals(
             mobileSegment: harness.mobileSegmentHolder,
-            omi: harness.omiHolder,
             watch: harness.watchHolder,
             share: harness.shareHolder
         )
@@ -79,7 +78,6 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         XCTAssertTrue(snapshots.isEmpty)
         let totals = uploadTotals(
             mobileSegment: harness.mobileSegmentHolder,
-            omi: harness.omiHolder,
             watch: harness.watchHolder,
             share: harness.shareHolder
         )
@@ -207,7 +205,6 @@ private extension MobileSegmentOwnerSurfaceTests {
         let store: MobileSegmentStore
         let shareHolder: ShareTransferHolder
         let transferEngine: TransferEngine
-        let omiHolder: OmiUploaderHolder
         let watchHolder: WatchUploaderHolder
         let clock: MockObserverClock
     }
@@ -239,7 +236,6 @@ private extension MobileSegmentOwnerSurfaceTests {
                 store: ShareImportStore(cacheRootURL: self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true))
             ),
             transferEngine: transferHarness.engine,
-            omiHolder: transferHarness.omi,
             watchHolder: transferHarness.watch,
             clock: clock
         )

@@ -80,9 +80,9 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
         let droppedID = UUID()
         let deliverID = UUID()
         let retryID = UUID()
-        _ = try self.commitOmiItem(itemID: droppedID, spool: spool, payload: Data("drop".utf8))
-        _ = try self.commitOmiItem(itemID: deliverID, spool: spool, payload: Data("deliver".utf8))
-        let retryQueued = try self.commitOmiItem(itemID: retryID, spool: spool, payload: Data("retry".utf8))
+        _ = try self.commitWatchItem(itemID: droppedID, spool: spool, payload: Data("drop".utf8))
+        _ = try self.commitWatchItem(itemID: deliverID, spool: spool, payload: Data("deliver".utf8))
+        let retryQueued = try self.commitWatchItem(itemID: retryID, spool: spool, payload: Data("retry".utf8))
         _ = try spool.moveQueuedItemToAttention(retryQueued, reason: "held", detail: "held", now: Date())
 
         let harness = makeTransferCutoverHarness(
@@ -93,7 +93,7 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
         try await harness.engine.initialize()
         await harness.engine.drop(itemID: conflict.itemID)
         try await harness.engine.retryAttention(itemID: conflict.itemID)
-        try await harness.engine.retryAttention(source: ObserverAudioTransferSource.omi)
+        try await harness.engine.retryAttention(source: ObserverAudioTransferSource.watch)
         await harness.engine.drop(itemID: droppedID)
 
         XCTAssertEqual(try self.recursiveSHA256Map(at: conflict.queuedURL), queuedBefore)
@@ -114,98 +114,6 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
         XCTAssertEqual(try self.recursiveSHA256Map(at: conflict.attentionURL), attentionBefore)
     }
 
-    func testOmiOwnershipConflictRemainsHeldAcrossRestartUntilExternalResolution() async throws {
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 204), Data())
-        }
-        let appGroupRoot = self.rootURL.appendingPathComponent("omi", isDirectory: true)
-        let transferRoot = appGroupRoot.appendingPathComponent(TransferSpool.rootDirectoryName, isDirectory: true)
-        let spool = TransferSpool(rootURL: transferRoot)
-        let itemID = UUID()
-        let sessionID = UUID()
-        let sidecar = makeTransferTestSidecar(sessionID: sessionID, chunkIndex: 0, startedAt: Date())
-        let source = try self.seedOmiSource(rootURL: appGroupRoot, sessionID: sessionID, sidecar: sidecar, itemID: itemID)
-        let queued = try self.commitOmiItem(
-            itemID: itemID,
-            spool: spool,
-            sidecar: sidecar,
-            payload: try Data(contentsOf: source.audioURL)
-        )
-        let attentionURL = spool.attentionDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
-        try FileManager.default.copyItem(at: queued.directoryURL, to: attentionURL)
-        let queuedBefore = try self.recursiveSHA256Map(at: queued.directoryURL)
-        let attentionBefore = try self.recursiveSHA256Map(at: attentionURL)
-        let defaultsName = "TransferOwnerConflictPreflightTests-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
-        defer { UserDefaults.standard.removePersistentDomain(forName: defaultsName) }
-        var acknowledgements: [[OmiSegmentMetadataToken]] = []
-
-        let first = makeTransferCutoverHarness(
-            rootURL: transferRoot,
-            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
-            endpointResolver: AvailableOwnerConflictEndpointResolver()
-        )
-        try await first.engine.initialize()
-        await OmiTransferSpoolMigrator.migrate(
-            appGroupRootURL: appGroupRoot,
-            legacyCachesRootURL: nil,
-            transferEnqueuer: first.enqueuer,
-            diagnosticLog: nil,
-            acknowledgeTokens: { acknowledgements.append($0) },
-            defaults: defaults
-        )
-        await first.engine.enableDispatch()
-        XCTAssertTrue(FileManager.default.fileExists(atPath: source.audioURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: source.envelopeURL.path))
-        XCTAssertTrue(acknowledgements.isEmpty)
-        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
-        XCTAssertEqual(try self.recursiveSHA256Map(at: queued.directoryURL), queuedBefore)
-        XCTAssertEqual(try self.recursiveSHA256Map(at: attentionURL), attentionBefore)
-
-        let second = makeTransferCutoverHarness(
-            rootURL: transferRoot,
-            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
-            endpointResolver: AvailableOwnerConflictEndpointResolver()
-        )
-        try await second.engine.initialize()
-        await OmiTransferSpoolMigrator.migrate(
-            appGroupRootURL: appGroupRoot,
-            legacyCachesRootURL: nil,
-            transferEnqueuer: second.enqueuer,
-            diagnosticLog: nil,
-            acknowledgeTokens: { acknowledgements.append($0) },
-            defaults: defaults
-        )
-        XCTAssertTrue(FileManager.default.fileExists(atPath: source.audioURL.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: source.envelopeURL.path))
-        XCTAssertTrue(acknowledgements.isEmpty)
-        XCTAssertEqual(try self.recursiveSHA256Map(at: queued.directoryURL), queuedBefore)
-        XCTAssertEqual(try self.recursiveSHA256Map(at: attentionURL), attentionBefore)
-
-        try FileManager.default.removeItem(at: attentionURL)
-        let third = makeTransferCutoverHarness(
-            rootURL: transferRoot,
-            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
-            endpointResolver: AvailableOwnerConflictEndpointResolver()
-        )
-        try await third.engine.initialize()
-        await OmiTransferSpoolMigrator.migrate(
-            appGroupRootURL: appGroupRoot,
-            legacyCachesRootURL: nil,
-            transferEnqueuer: third.enqueuer,
-            diagnosticLog: nil,
-            acknowledgeTokens: { acknowledgements.append($0) },
-            defaults: defaults
-        )
-        XCTAssertFalse(FileManager.default.fileExists(atPath: source.audioURL.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: source.envelopeURL.path))
-        XCTAssertEqual(acknowledgements, [[source.token]])
-        await third.engine.enableDispatch()
-        try await transferTestWaitFor("resolved Omi owner dispatch") {
-            TransferURLProtocol.requests.count == 1
-        }
-        XCTAssertEqual(transferTestBoundaryItemID(from: TransferURLProtocol.requests[0]), itemID)
-    }
 }
 
 private extension TransferOwnerConflictPreflightTests {
@@ -225,15 +133,9 @@ private extension TransferOwnerConflictPreflightTests {
         let attentionURL: URL
     }
 
-    struct SeededOmiSource {
-        let audioURL: URL
-        let envelopeURL: URL
-        let token: OmiSegmentMetadataToken
-    }
-
     func seedConflict(variant: ConflictVariant, spool: TransferSpool) throws -> SeededConflict {
         let itemID = UUID()
-        let queued = try self.commitOmiItem(itemID: itemID, spool: spool, payload: Data("queued-audio".utf8))
+        let queued = try self.commitWatchItem(itemID: itemID, spool: spool, payload: Data("queued-audio".utf8))
         let attentionURL = spool.attentionDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
         try FileManager.default.copyItem(at: queued.directoryURL, to: attentionURL)
         let manifestURL = attentionURL.appendingPathComponent(TransferSpool.manifestFilename, isDirectory: false)
@@ -265,40 +167,15 @@ private extension TransferOwnerConflictPreflightTests {
         return SeededConflict(itemID: itemID, queuedURL: queued.directoryURL, attentionURL: attentionURL)
     }
 
-    func commitOmiItem(
+    func commitWatchItem(
         itemID: UUID,
         spool: TransferSpool,
         sidecar: ChunkSidecar? = nil,
         payload: Data
     ) throws -> TransferStoredItem {
         let resolvedSidecar = sidecar ?? makeTransferTestSidecar(sessionID: UUID(), chunkIndex: 0, startedAt: Date())
-        let manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: resolvedSidecar)
+        let manifest = makeTransferTestWatchManifest(itemID: itemID, sidecar: resolvedSidecar)
         return try spool.commitStagedItem(itemID: spool.stage(manifest: manifest, payloads: ["audio": payload]).item.manifest.itemID)
-    }
-
-    func seedOmiSource(
-        rootURL: URL,
-        sessionID: UUID,
-        sidecar: ChunkSidecar,
-        itemID: UUID
-    ) throws -> SeededOmiSource {
-        let directory = rootURL
-            .appendingPathComponent(OmiSegmentWriter.cacheDirectoryName, isDirectory: true)
-            .appendingPathComponent(sessionID.uuidString, isDirectory: true)
-            .appendingPathComponent("pending", isDirectory: true)
-        let chunkID = "\(sessionID.uuidString.lowercased())-0"
-        let audioURL = directory.appendingPathComponent("\(chunkID).m4a", isDirectory: false)
-        try writeTransferTestAudio(at: audioURL)
-        try writeTransferTestSidecar(sidecar, to: directory.appendingPathComponent("\(chunkID).json", isDirectory: false))
-        let token = OmiSegmentMetadataToken(kind: .reconnect, processID: UUID(), sequence: 1, revision: 1)
-        let envelopeURL = OmiPendingHandoffStore.url(for: audioURL)
-        try OmiPendingHandoffStore.write(
-            try OmiPendingHandoffStore.encode(
-                OmiPendingHandoffEnvelope(itemID: itemID, sidecar: sidecar, metadata: nil, frozenTokens: [token])
-            ),
-            to: envelopeURL
-        )
-        return SeededOmiSource(audioURL: audioURL, envelopeURL: envelopeURL, token: token)
     }
 
     func recursiveSHA256Map(at rootURL: URL) throws -> [String: String] {

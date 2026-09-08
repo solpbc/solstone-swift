@@ -11,15 +11,9 @@ enum OnThisPhoneSnapshotAggregator {
         transferEngine: TransferEngine
     ) async -> OnThisPhoneAggregateSnapshot {
         let mobileSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
-        let omiSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
         let watchSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
         let mobileResults = await ObserverAudioTransferSnapshotMapper.mobileSegmentSourceResults(
             snapshots: mobileSnapshots,
-            engine: transferEngine
-        )
-        let omiResult = await ObserverAudioTransferSnapshotMapper.sourceResult(
-            snapshots: omiSnapshots,
-            source: .omi,
             engine: transferEngine
         )
         let watchResult = await ObserverAudioTransferSnapshotMapper.sourceResult(
@@ -34,7 +28,6 @@ enum OnThisPhoneSnapshotAggregator {
                 result: self.combinedResult(
                     mobileSegmentUploader.onThisPhoneSnapshot(for: .audio),
                     mobileResults[.audio] ?? .loaded(items: []),
-                    omiResult,
                     watchResult
                 )
             ),

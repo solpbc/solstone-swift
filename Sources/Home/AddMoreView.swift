@@ -10,7 +10,6 @@ struct AddMoreView: View {
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
-    @Environment(OmiSourceManager.self) private var omiSourceManager
     @WatchPipelineInputReader private var watchPipelineInputs
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage(UserSettings.hiddenHomeSourceIDsKey) private var hiddenHomeSourceIDsData = Data()
@@ -74,20 +73,17 @@ struct AddMoreView: View {
 
     private var rows: [SourcesViewRow] {
         let bundle = makeHomeSourceBundle(
-            now: self.now,
             isJournalPaired: self.appConfig.isPaired,
             observerManager: self.observerManager,
             observerSourcePauseState: self.observerSourcePauseState,
             locationManager: self.locationManager,
             screencastManager: self.screencastManager,
-            omiSourceManager: self.omiSourceManager,
             watchLane: self.watchPipelineInputs.assembly(now: self.now).lane
         )
         return SourcesViewRowBuilder.addMoreRows(
             audio: bundle.audio,
             location: bundle.location,
             screencast: bundle.screencast,
-            omi: bundle.omi,
             watch: bundle.watch,
             hiddenIDs: UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)
         )

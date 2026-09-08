@@ -234,8 +234,12 @@ nonisolated final class MobileSegmentTransferSpoolMigratorTests: XCTestCase {
             .appendingPathComponent(sessionID.uuidString, isDirectory: true)
             .appendingPathComponent("pending", isDirectory: true)
         let nonEmptyChunk = pending.appendingPathComponent("\(sessionID.uuidString.lowercased())-0.m4a")
+        let invalidChunk = pending.appendingPathComponent("invalid-identity.m4a")
+        let corruptChunk = pending.appendingPathComponent("\(sessionID.uuidString.lowercased())-2.m4a")
         let zeroChunk = pending.appendingPathComponent("\(sessionID.uuidString.lowercased())-1.m4a")
         try writeTransferTestAudio(at: nonEmptyChunk, seconds: 0.2)
+        try writeTransferTestAudio(at: invalidChunk, seconds: 0.2)
+        try Data("not audio".utf8).write(to: corruptChunk)
         try FileManager.default.createDirectory(at: pending, withIntermediateDirectories: true)
         try Data().write(to: zeroChunk, options: .atomic)
 
@@ -250,6 +254,15 @@ nonisolated final class MobileSegmentTransferSpoolMigratorTests: XCTestCase {
         let quarantineRoot = MobileSegmentTransferSpoolMigrator.quarantineRootURL(appGroupRootURL: harness.appGroupRoot)
         XCTAssertTrue(transferTestPathExists(containing: nonEmptyChunk.lastPathComponent, under: quarantineRoot))
         XCTAssertFalse(transferTestPathExists(containing: zeroChunk.lastPathComponent, under: quarantineRoot))
+        for chunk in [invalidChunk, corruptChunk] {
+            XCTAssertTrue(transferTestPathExists(containing: chunk.lastPathComponent, under: quarantineRoot))
+            XCTAssertTrue(harness.diagnosticLog.events.contains {
+                $0.detail?.contains(chunk.path) == true && $0.detail?.contains("reason=probe failed") == true
+            })
+        }
+        XCTAssertTrue(harness.diagnosticLog.events.contains {
+            $0.detail?.contains(nonEmptyChunk.path) == true && $0.detail?.contains("reason=stray chunk") == true
+        })
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.observerRoot.path))
         XCTAssertTrue(harness.defaults.bool(forKey: MobileSegmentTransferSpoolMigrator.flagKey))
     }
@@ -334,7 +347,6 @@ private extension MobileSegmentTransferSpoolMigratorTests {
             engine: TransferEngine,
             mirror: TransferStatusMirror,
             enqueuer: ObserverAudioTransferEnqueuer,
-            omi: OmiUploaderHolder,
             watch: WatchUploaderHolder
         )
         let store: MobileSegmentStore

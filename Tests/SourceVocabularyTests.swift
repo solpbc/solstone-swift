@@ -249,7 +249,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureReasonLabel, "why")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureStatusLabel, "status")
         XCTAssertEqual(SourceVocabulary.onThisPhoneObserverAudioSourceLabel, "audio")
-        XCTAssertEqual(SourceVocabulary.onThisPhoneOmiAudioSourceLabel, "omi pendant audio")
         XCTAssertEqual(SourceVocabulary.onThisPhoneWatchAudioSourceLabel, "watch audio")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureRowHint, "needs a retry")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 1), "upload failed after 1 attempt")
@@ -863,7 +862,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneFailureReasonLabel,
             SourceVocabulary.onThisPhoneFailureStatusLabel,
             SourceVocabulary.onThisPhoneObserverAudioSourceLabel,
-            SourceVocabulary.onThisPhoneOmiAudioSourceLabel,
             SourceVocabulary.onThisPhoneFailureRowHint,
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 1),
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5),
@@ -1041,7 +1039,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneFailureReasonLabel,
             SourceVocabulary.onThisPhoneFailureStatusLabel,
             SourceVocabulary.onThisPhoneObserverAudioSourceLabel,
-            SourceVocabulary.onThisPhoneOmiAudioSourceLabel,
             SourceVocabulary.onThisPhoneFailureRowHint,
             SourceVocabulary.onThisPhoneFailureAttemptStatus(count: 5),
             SourceVocabulary.onThisPhoneFailureRetryableMessage(count: 1),

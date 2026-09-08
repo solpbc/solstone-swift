@@ -19,7 +19,6 @@ nonisolated final class ShellDestinationRoutingTests: XCTestCase {
             ("case .source(.audio):", "SourceDetailView()"),
             ("case .source(.location):", "LocationSourceDetailView()"),
             ("case .source(.screencast):", "ScreencastSourceDetailView()"),
-            ("case .source(.omi):", "OmiSourceDetailView()"),
             ("case .source(.watch):", "WatchSourceDetailView()"),
             ("case .status:", "StatusPane(presentation: .detail)"),
             ("case .journal:", "InAppJournalView(mark: self.journalMark, presentation: .detail)"),

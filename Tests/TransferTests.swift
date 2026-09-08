@@ -363,7 +363,7 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(detail.mostRecentAttentionRetryCount, 0)
         XCTAssertNil(detail.mostRecentAttentionLastRetriedAt)
 
-        let otherSourceDetail = await SourceSyncStateDetail.build(from: engine, sourceKey: ObserverAudioTransferSource.omi)
+        let otherSourceDetail = await SourceSyncStateDetail.build(from: engine, sourceKey: ObserverAudioTransferSource.mobileSegment)
         XCTAssertEqual(otherSourceDetail.attentionItemCount, 0)
         XCTAssertNil(otherSourceDetail.mostRecentAttention)
         XCTAssertNil(otherSourceDetail.oldestPendingItemCreatedAt)
@@ -1149,7 +1149,7 @@ nonisolated final class TransferTests: XCTestCase {
 
     @MainActor
     func testObserverIngestV3EnvelopeContainsOnlyAuthorityFields() throws {
-        let boundary = "Boundary-omi"
+        let boundary = "Boundary-observer"
         let body = try ObserverIngestMultipartBody.build(payload: ObserverIngestMultipartPayload(
             boundary: boundary,
             day: "20260420",
@@ -1162,11 +1162,6 @@ nonisolated final class TransferTests: XCTestCase {
             chunkIndex: 7,
             sessionID: Self.uuid(8),
             modeRawValue: ObserverMode.meeting.rawValue,
-            omiMetadata: .object([
-                "connection_state": .string("connected"),
-                "segment": .string("cannot-shadow"),
-                "day": .string("cannot-shadow"),
-            ]),
             parts: [ObserverIngestMultipartPart(filename: "audio.m4a", contentType: "audio/mp4", data: Data("audio".utf8))]
         ))
 
@@ -1182,10 +1177,6 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertNil(meta["source"])
         XCTAssertEqual(meta["platform"] as? String, "ios")
         XCTAssertEqual(meta["chunk_index"] as? Int, 7)
-        let omi = try XCTUnwrap(meta["omi"] as? [String: Any])
-        XCTAssertEqual(omi["connection_state"] as? String, "connected")
-        XCTAssertEqual(omi["segment"] as? String, "cannot-shadow")
-        XCTAssertEqual(omi["day"] as? String, "cannot-shadow")
     }
 
     func testDescriptorDrivenObserverBodySupportsFileTextAndAbsentOptionalPart() throws {
@@ -1217,46 +1208,6 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertFalse(text.contains(#"name="segment""#))
         XCTAssertFalse(text.contains(#"name="day""#))
         XCTAssertFalse(text.contains(#"name="platform""#))
-    }
-
-    func testDefaultTransferBodyBuilderCarriesOnlyManifestOmiNamespace() throws {
-        let spool = TransferSpool(rootURL: self.tempDirectory)
-        let processID = Self.uuid(501)
-        let metadata = OmiSegmentMetadata(
-            connectionState: "reconnecting",
-            processID: processID,
-            reconnectCount: 3
-        )
-        var manifestWithOmi = self.makeManifest(itemID: Self.uuid(502))
-        manifestWithOmi.meta = OmiSegmentMetadata.attaching(metadata, to: manifestWithOmi.meta)
-        let itemWithOmi = try spool.stage(
-            manifest: manifestWithOmi,
-            payloads: self.audioPayloads()
-        ).item
-
-        let bodyWithOmi = try self.bodyData(DefaultTransferBodyBuilder.build(item: itemWithOmi, spool: spool))
-        let envelopeWithOmi = try self.multipartEnvelope(
-            bodyWithOmi,
-            boundary: TransferTransport.boundary(for: manifestWithOmi.itemID)
-        )
-        let metaWithOmi = try XCTUnwrap(envelopeWithOmi["meta"] as? [String: Any])
-        let omi = try XCTUnwrap(metaWithOmi[OmiSegmentMetadata.key] as? [String: Any])
-        XCTAssertEqual(omi["connection_state"] as? String, "reconnecting")
-        XCTAssertEqual(omi["process_id"] as? String, processID.uuidString)
-        XCTAssertEqual(omi["reconnect_count"] as? Int, 3)
-
-        let manifestWithoutOmi = self.makeManifest(itemID: Self.uuid(503))
-        let itemWithoutOmi = try spool.stage(
-            manifest: manifestWithoutOmi,
-            payloads: self.audioPayloads()
-        ).item
-        let bodyWithoutOmi = try self.bodyData(DefaultTransferBodyBuilder.build(item: itemWithoutOmi, spool: spool))
-        let envelopeWithoutOmi = try self.multipartEnvelope(
-            bodyWithoutOmi,
-            boundary: TransferTransport.boundary(for: manifestWithoutOmi.itemID)
-        )
-        let metaWithoutOmi = try XCTUnwrap(envelopeWithoutOmi["meta"] as? [String: Any])
-        XCTAssertNil(metaWithoutOmi[OmiSegmentMetadata.key])
     }
 
     func testCrashTimingHonestyForBodyAndPhaseRecovery() async throws {

@@ -9,7 +9,6 @@ nonisolated final class SourceDetailTemplateGrepTests: XCTestCase {
         let withMappedAction = [
             "Sources/Location/LocationSourceDetailView.swift",
             "Sources/SourceDetailView.swift",
-            "Sources/Omi/OmiSourceDetailView.swift",
         ]
         for relative in withMappedAction {
             let text = try Self.contents(relative)

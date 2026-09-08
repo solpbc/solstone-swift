@@ -227,11 +227,10 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         )
         transfer.mirror.apply(snapshot: self.transferSnapshot(
             mobile: self.sourceStatus(queued: 2, attention: 1),
-            omi: self.sourceStatus(queued: 3, attention: 4),
             watch: self.sourceStatus(queued: 5, attention: 6),
             share: self.sourceStatus(queued: 7, attention: 8)
         ))
-        let totals = uploadTotals(mobileSegment: mobile, omi: transfer.omi, watch: transfer.watch, share: share)
+        let totals = uploadTotals(mobileSegment: mobile, watch: transfer.watch, share: share)
         let mirror = self.makeMirror()
 
         self.assertSuccess(
@@ -243,16 +242,15 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 backlogCount: totals.pending + totals.failed
             )
         )
-        XCTAssertEqual(mirror.snapshot()?.backlogCount, 36)
+        XCTAssertEqual(mirror.snapshot()?.backlogCount, 29)
 
         transfer.mirror.apply(snapshot: self.transferSnapshot(
             mobile: self.sourceStatus(queued: 0, attention: 0),
-            omi: self.sourceStatus(queued: 0, attention: 0),
             watch: self.sourceStatus(queued: 0, attention: 0),
             share: self.sourceStatus(queued: 0, attention: 0)
         ))
 
-        XCTAssertEqual(mirror.snapshot()?.backlogCount, 36)
+        XCTAssertEqual(mirror.snapshot()?.backlogCount, 29)
     }
 
     @MainActor
@@ -409,7 +407,6 @@ private extension AppGroupMirrorTests {
 
     func transferSnapshot(
         mobile: TransferSourceStatusSnapshot,
-        omi: TransferSourceStatusSnapshot,
         watch: TransferSourceStatusSnapshot,
         share: TransferSourceStatusSnapshot
     ) -> TransferStatusSnapshot {
@@ -424,7 +421,6 @@ private extension AppGroupMirrorTests {
             lastUpdatedAt: Date(),
             sources: [
                 ObserverAudioTransferSource.mobileSegment: mobile,
-                ObserverAudioTransferSource.omi: omi,
                 ObserverAudioTransferSource.watch: watch,
                 ObserverAudioTransferSource.share: share,
             ],

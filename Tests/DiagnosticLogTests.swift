@@ -189,13 +189,13 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
             category: .upload,
             severity: .warning,
             message: "needs attention",
-            detail: "source=omi reason=pendantNotFound"
+            detail: "source=watch reason=unavailable"
         )
         self.log.append(
             category: .upload,
             severity: .info,
             message: "waiting",
-            detail: "source=omi reason=systemReconnecting"
+            detail: "source=watch reason=reconnecting"
         )
 
         let snapshot = self.log.snapshot(tunnel: TunnelManager())
@@ -209,8 +209,8 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
         XCTAssertTrue(snapshot.contains("kind=relay"))
         XCTAssertTrue(snapshot.contains("kind=handoff"))
         XCTAssertTrue(snapshot.contains("kind=orphan"))
-        XCTAssertTrue(snapshot.contains("source=omi reason=pendantNotFound"))
-        XCTAssertTrue(snapshot.contains("source=omi reason=systemReconnecting"))
+        XCTAssertTrue(snapshot.contains("source=watch reason=unavailable"))
+        XCTAssertTrue(snapshot.contains("source=watch reason=reconnecting"))
         XCTAssertTrue(snapshot.contains("tunnel reconnects (last 5m): 0"))
         XCTAssertFalse(snapshot.contains("10.0.0.10"))
         XCTAssertFalse(snapshot.contains(":7657"))

@@ -87,30 +87,6 @@ final class ObserverAudioTransferEnqueuer {
     }
 
     @discardableResult
-    func enqueueOmiChunkMovingFile(
-        itemID: UUID = UUID(),
-        chunkURL: URL,
-        sidecar: ChunkSidecar,
-        metadata: OmiSegmentMetadata? = nil
-    ) async throws -> UUID {
-        let manifest = Self.makeOmiManifest(itemID: itemID, sidecar: sidecar, metadata: metadata)
-        return try await self.engine.enqueue(manifest: manifest, payloadFileURLs: ["audio": chunkURL])
-    }
-
-    func verifyOmiOwnership(
-        itemID: UUID,
-        sidecar: ChunkSidecar,
-        metadata: OmiSegmentMetadata?,
-        expectedPayloadSourceURLs: [String: URL]
-    ) async throws -> TransferOwnershipVerdict {
-        let manifest = Self.makeOmiManifest(itemID: itemID, sidecar: sidecar, metadata: metadata)
-        return try await self.engine.verifyOwnership(
-            expectedManifest: manifest,
-            expectedPayloadSourceURLs: expectedPayloadSourceURLs
-        )
-    }
-
-    @discardableResult
     func enqueueWatchSegment(
         manifest watchManifest: WatchSegmentManifest,
         audioData: Data?,
@@ -146,33 +122,6 @@ final class ObserverAudioTransferEnqueuer {
             payloadFileURLs["location"] = locationURL
         }
         return try await self.engine.enqueue(manifest: manifest, payloadFileURLs: payloadFileURLs)
-    }
-
-    nonisolated static func makeOmiManifest(
-        itemID: UUID = UUID(),
-        sidecar: ChunkSidecar,
-        metadata: OmiSegmentMetadata? = nil
-    ) -> TransferManifest {
-        var manifest = self.makeManifest(
-            itemID: itemID,
-            source: ObserverAudioTransferSource.omi,
-            platform: "ios",
-            createdAt: sidecar.startedAt,
-            segment: sidecar.segment,
-            day: sidecar.day,
-            startedAt: sidecar.startedAt,
-            durationS: sidecar.durationS,
-            sources: ["audio"],
-            chunkIndex: sidecar.chunkIndex,
-            sessionID: sidecar.sessionID,
-            modeRawValue: sidecar.mode.rawValue,
-            segmentID: nil,
-            payloadParts: [Self.audioPart()]
-        )
-        if let metadata {
-            manifest.meta = OmiSegmentMetadata.attaching(metadata, to: manifest.meta)
-        }
-        return manifest
     }
 
     nonisolated static func makeWatchManifest(
