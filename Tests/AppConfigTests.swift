@@ -108,6 +108,28 @@ nonisolated final class AppConfigTests: XCTestCase {
     }
 
     @MainActor
+    func testSeedUITestPairingDerivesEndpointAndPreservesSessionToken() {
+        let config = self.makeConfig()
+        config.seedUITestPairing(
+            journalRoot: "http://127.0.0.2:8765",
+            deviceID: "isolated-ui-device",
+            sessionKey: "isolated-ui-token"
+        )
+
+        XCTAssertEqual(config.loopbackPort, 8765)
+        XCTAssertEqual(config.deviceID, "isolated-ui-device")
+        XCTAssertEqual(config.journalRoot, "http://127.0.0.2:8765")
+        XCTAssertEqual(
+            self.pairingState.load()?.localEndpoints,
+            [LocalEndpoint(host: "127.0.0.2", port: 8765, scope: "")]
+        )
+        XCTAssertEqual(
+            self.pairingState.load()?.relayEnrollment,
+            .enrolled(deviceToken: "isolated-ui-token", expiresAt: nil)
+        )
+    }
+
+    @MainActor
     func testInitWithNoPairingClearsStaleMirror() {
         let mirror = self.mirror()
         if case .failure(let error) = mirror.writePairing(journalName: "stale") {

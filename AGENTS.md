@@ -55,7 +55,7 @@ make clean         # remove build artifacts
 
 `make test-fast` is an inner-loop target. Run `make test-build` immediately before it, or use `make test` for a full clean validation pass.
 
-**`make ci` is the canonical gate; run it before merging any branch to main.** It runs the brand/accessibility/tap-target/casing assertions (cheap, fail-fast), then the full iOS test lane followed by the watchOS test lane. A green `make ci` means both lanes passed; `make sim-json` is only the faster inner-loop build check, not a substitute for the gate.
+**`make ci` is the canonical gate; run it before merging any branch to main.** It runs the accessibility, tap-target and platform assertions (cheap, fail-fast), then the full iOS test lane followed by the watchOS test lane. A green `make ci` means both lanes passed; `make sim-json` is only the faster inner-loop build check, not a substitute for the gate.
 
 **Local DerivedData** (`./DerivedData/`, gitignored) — NEVER delete, breaks SPM cache.
 
@@ -92,13 +92,3 @@ make clean         # remove build artifacts
 - **AXe** — `brew tap cameroncooke/axe && brew install axe` then `axe init --client claude`
 - **Swift Concurrency** — `AvdLee/Swift-Concurrency-Agent-Skill`
 - **SwiftUI Pro** — `twostraws/swiftui-agent-skill`
-
-## Brand
-
-- Follow lowercase-first UI copy in visible product text.
-- Exceptions are limited to HIG cancel/destructive labels, `accessibilityHint` / `accessibilityLabel`, third-party proper nouns, protocol and URL literals, and AM/PM or date abbreviations.
-- Canonical brand source is sol pbc's internal brand canon, kept outside this repo.
-- Sync shipped brand assets with `make brand-sync` (set `BRAND_DIR=/path/to/brand` to point at the canon).
-- `Tests/BrandColorTests.swift` is the tripwire for canonical `solOrange`, `solGold`, `orangeInk`, and `AccentColor`.
-- Keep `Sources/Design/Colors.swift` numeric triples locked; update brand assets through `make brand-sync`, not ad hoc edits.
-- Owner-visible copy must avoid surveillance verbs (capture / record / recording / watch / monitor / track / collect) and the labels keeper / assistant / server / service. Non-UI Apple framework names and internal implementation identifiers (e.g. `AVAudioSession.Category`, `requestRecordPermission`, `UNUserNotificationCenter`, `LiveObserverRecorder`, `recordAudioFinalized`) are fine — keep them out of user-visible strings.

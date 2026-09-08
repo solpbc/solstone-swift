@@ -3642,7 +3642,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     private static func fixturePairing(
         instanceID: String = "instance-123",
         localEndpoints: [LocalEndpoint] = [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
-        deviceToken: String? = nil
+        deviceToken: String? = nil,
+        relayEnrollment: RelayEnrollment? = nil
     ) -> StoredPairing {
         let deviceToken = deviceToken ?? Self.makeDeviceToken(instanceID: instanceID)
         return StoredPairing(
@@ -3653,7 +3654,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             clientCertPEM: "cert",
             clientKeyPEM: "key",
             caChainPEM: "ca",
-            relayEnrollment: .enrolled(deviceToken: deviceToken, expiresAt: nil),
+            relayEnrollment: relayEnrollment ?? .enrolled(deviceToken: deviceToken, expiresAt: nil),
             localEndpoints: localEndpoints,
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )
@@ -3781,7 +3782,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
     @MainActor
     func testReadyNextDialUsesAcceptedOriginAndToken() async throws {
-        let base = Self.fixturePairing(localEndpoints: [])
+        let base = Self.fixturePairing(relayEnrollment: .unavailable)
         let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: base)
         let store = PairingCredentialStore(
             loadPairing: { holder.withLock { $0 } },
@@ -3793,6 +3794,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             transport: transport,
             store: store
         )
+        transport.connectionMode = .plDirect
+        await manager.connect()
+        XCTAssertEqual(Self.relayCandidateCount(from: transport.capturedCandidates), 0)
+        XCTAssertEqual(transport.connectCallCount, 1)
         let readyToken = Self.makeDeviceToken(instanceID: base.instanceID, jti: "ready-jti")
         _ = try await store.commitReadyAccess(
             relayOrigin: "https://new-relay.example.com",
@@ -3802,33 +3807,58 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             mutationGen: 0
         )
 
+        XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .lan))
+        XCTAssertEqual(transport.connectCallCount, 1)
+        await manager.disconnect()
+        transport.connectionMode = .plViaSpl
         await manager.connect()
 
         XCTAssertEqual(Self.relayTokens(from: transport.capturedCandidates), [readyToken])
+        let origins = transport.capturedCandidates.compactMap { candidate -> String? in
+            if case .relay(let endpoint, _, _) = candidate { return endpoint.host }
+            return nil
+        }
+        XCTAssertEqual(origins, ["new-relay.example.com"])
+        XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .remote))
+        await manager.disconnect()
     }
 
     @MainActor
     func testDisabledLiveRelayLANPresentRelayOnlyEmpty() async throws {
-        let base = Self.fixturePairing(localEndpoints: [LocalEndpoint(host: "192.168.1.50", port: 8676, scope: "local")])
-        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: base)
-        let store = PairingCredentialStore(
-            loadPairing: { holder.withLock { $0 } },
-            savePairing: { updated in holder.withLock { $0 = updated } },
-            deletePairing: { holder.withLock { $0 = nil } }
-        )
-        _ = try await store.disableRelayAccess(pairingGen: 0, mutationGen: 0)
-        let transport = MockCFTunnelTransport()
-        let manager = makeManager(
-            transport: transport,
-            store: store
-        )
-        manager.installIntegrationGateRelayOnlyCandidatePolicy()
-
-        await manager.connect()
-
-        XCTAssertEqual(transport.connectCallCount, 0)
-        XCTAssertEqual(manager.integrationGateCandidateBuildSummary?.returnedRelayCandidateCount, 0)
-        XCTAssertEqual(manager.integrationGateCandidateBuildSummary?.returnedDirectCandidateCount, 0)
+        for saveFails in [false, true] {
+            let base = Self.fixturePairing(localEndpoints: [LocalEndpoint(host: "192.168.1.50", port: 8676, scope: "local")])
+            let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: base)
+            let store = PairingCredentialStore(
+                loadPairing: { holder.withLock { $0 } },
+                savePairing: { updated in
+                    if saveFails { throw URLError(.cannotWriteToFile) }
+                    holder.withLock { $0 = updated }
+                },
+                deletePairing: { holder.withLock { $0 = nil } }
+            )
+            let transport = MockCFTunnelTransport()
+            transport.connectionMode = .plDirect
+            let manager = makeManager(transport: transport, store: store)
+            await manager.connect()
+            do {
+                _ = try await store.disableRelayAccess(pairingGen: 0, mutationGen: 0)
+                XCTAssertFalse(saveFails)
+            } catch { XCTAssertTrue(saveFails) }
+            XCTAssertEqual(manager.state, .connected(localPort: 54321, via: .lan))
+            XCTAssertEqual(transport.connectCallCount, 1)
+            await manager.disconnect()
+            await manager.connect()
+            XCTAssertFalse(Self.lanCandidates(from: transport.capturedCandidates).isEmpty)
+            XCTAssertEqual(Self.relayCandidateCount(from: transport.capturedCandidates), 0)
+            await manager.disconnect()
+            let priorDials = transport.connectCallCount
+            manager.installIntegrationGateRelayOnlyCandidatePolicy()
+            await manager.connect()
+            XCTAssertEqual(transport.connectCallCount, priorDials)
+            XCTAssertEqual(manager.integrationGateCandidateBuildSummary?.returnedRelayCandidateCount, 0)
+            XCTAssertEqual(manager.integrationGateCandidateBuildSummary?.returnedDirectCandidateCount, 0)
+            await manager.disconnect()
+        }
     }
 
     @MainActor
@@ -3849,6 +3879,102 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, TunnelState.connected(localPort: 54321, via: .lan))
         XCTAssertEqual(transport.disconnectCallCount, 0)
     }
+    @MainActor
+    func testOldConnectCompletionAndCallbackCannotDisconnectNewerConnection() async throws {
+        for oldFails in [false, true] {
+            let transport = MockCFTunnelTransport()
+            transport.connectionMode = .plDirect
+            let entered = expectation(description: "old dial entered")
+            let gate = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+            transport.onConnectInvoked = {
+                await withCheckedContinuation { continuation in
+                    gate.withLock { $0 = continuation }
+                    entered.fulfill()
+                }
+            }
+            let manager = makeManager(transport: transport)
+            let old = Task { await manager.connect() }
+            await fulfillment(of: [entered], timeout: 2)
+            await manager.disconnect()
+            transport.onConnectInvoked = nil
+            transport.queuedResults = [.success(54322)]
+            await manager.connect()
+            XCTAssertEqual(manager.state, .connected(localPort: 54322, via: .lan))
+            let disconnects = transport.disconnectCallCount
+            transport.nextResult = oldFails ? .failure(.revoked) : .success(54321)
+            gate.withLock { value in value?.resume(); value = nil }
+            await old.value
+            transport.simulateDisconnect(attempt: 2, error: SessionError.revoked)
+            await Self.settle()
+            XCTAssertEqual(manager.state, .connected(localPort: 54322, via: .lan))
+            XCTAssertEqual(transport.disconnectCallCount, disconnects)
+            await manager.disconnect()
+        }
+    }
+
+    @MainActor
+    func testOldErrorAfterBlockedDisconnectCannotPublishOverNewConnection() async throws {
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        transport.nextResult = .failure(.unreachable)
+        let entered = expectation(description: "old error teardown entered")
+        let gate = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+        transport.onDisconnectAwaited = {
+            await withCheckedContinuation { continuation in
+                gate.withLock { $0 = continuation }
+                entered.fulfill()
+            }
+        }
+        let manager = makeManager(transport: transport)
+        let old = Task { await manager.connect() }
+        await fulfillment(of: [entered], timeout: 2)
+        transport.onDisconnectAwaited = nil
+        await manager.disconnect()
+        transport.nextResult = .success(54322)
+        await manager.connect()
+        gate.withLock { value in value?.resume(); value = nil }
+        await old.value
+        XCTAssertEqual(manager.state, .connected(localPort: 54322, via: .lan))
+        XCTAssertNil(manager.reconnectCountdown)
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testReadyDuringRevokedTeardownPreservesPairingAndReconnects() async throws {
+        let transport = MockCFTunnelTransport()
+        transport.nextResult = .failure(.revoked)
+        let entered = expectation(description: "revoked teardown entered")
+        let gate = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+        transport.onDisconnectAwaited = {
+            await withCheckedContinuation { continuation in
+                gate.withLock { $0 = continuation }
+                entered.fulfill()
+            }
+        }
+        let manager = makeManager(transport: transport)
+        let old = Task { await manager.connect() }
+        await fulfillment(of: [entered], timeout: 2)
+        let snapshot = manager.store.snapshot()
+        let pairing = try XCTUnwrap(snapshot.pairing)
+        let readyToken = Self.makeDeviceToken(instanceID: pairing.instanceID, jti: "new-ready")
+        let accepted = try await manager.store.commitReadyAccess(
+            relayOrigin: "https://new-relay.example.com",
+            deviceToken: readyToken,
+            expiresAt: "2036-01-01T00:00:00Z",
+            pairingGen: snapshot.pairingGeneration,
+            mutationGen: snapshot.accessMutationGeneration
+        )
+        XCTAssertTrue(accepted)
+        transport.onDisconnectAwaited = nil
+        gate.withLock { value in value?.resume(); value = nil }
+        await old.value
+        XCTAssertEqual(manager.store.snapshot().pairing?.relayEnrollment,
+                       .enrolled(deviceToken: readyToken, expiresAt: "2036-01-01T00:00:00Z"))
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertNotNil(manager.reconnectCountdown)
+        await manager.disconnect()
+    }
+
 }
 
 private final class TunnelTokenRefreshURLProtocol: URLProtocol, @unchecked Sendable {

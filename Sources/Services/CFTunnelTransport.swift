@@ -107,6 +107,8 @@ final class CFTunnelTransport: Transporting {
     @ObservationIgnored
     private var session: (any TunnelSessioning & MuxStreamOpening)?
     @ObservationIgnored
+    private var sessionEpoch: UInt64 = 0
+    @ObservationIgnored
     private var proxy: LoopbackProxy?
     @ObservationIgnored
     private var stateTask: Task<Void, Never>?
@@ -134,6 +136,8 @@ final class CFTunnelTransport: Transporting {
         onDisconnect: @Sendable @escaping (Error?) -> Void,
         onStageChange: @Sendable @escaping (TransportStage) -> Void
     ) async throws -> Int {
+        self.sessionEpoch &+= 1
+        let epoch = self.sessionEpoch
         onStageChange(.preparingCandidates)
         guard let pairing = try loadPairing() else {
             onStageChange(.failed("missing pairing"))
@@ -157,27 +161,37 @@ final class CFTunnelTransport: Transporting {
                 session: session,
                 candidates: candidates,
                 onStageChange: onStageChange,
-                connectWindow: connectWindow
+                connectWindow: connectWindow,
+                epoch: epoch
             )
             await connectWindow.close()
+            try self.checkCurrent(epoch)
             return port
         } catch {
             await connectWindow.close()
+            await session.disconnect()
             throw error
         }
+    }
+
+    private func checkCurrent(_ epoch: UInt64) throws {
+        try Task.checkCancellation()
+        guard self.sessionEpoch == epoch else { throw CancellationError() }
     }
 
     private func raceStartupAgainstConnectWindow(
         session: any TunnelSessioning & MuxStreamOpening,
         candidates: [TransportEndpoint],
         onStageChange: @Sendable @escaping (TransportStage) -> Void,
-        connectWindow: ConnectWindowTerminalSignal
+        connectWindow: ConnectWindowTerminalSignal,
+        epoch: UInt64
     ) async throws -> Int {
         let startupTask = Task { @MainActor in
             try await self.startSessionAndProxy(
                 session: session,
                 candidates: candidates,
-                onStageChange: onStageChange
+                onStageChange: onStageChange,
+                epoch: epoch
             )
         }
         let terminalTask = Task {
@@ -227,18 +241,31 @@ final class CFTunnelTransport: Transporting {
     private func startSessionAndProxy(
         session: any TunnelSessioning & MuxStreamOpening,
         candidates: [TransportEndpoint],
-        onStageChange: @Sendable @escaping (TransportStage) -> Void
+        onStageChange: @Sendable @escaping (TransportStage) -> Void,
+        epoch: UInt64
     ) async throws -> Int {
+        try self.checkCurrent(epoch)
         onStageChange(.racing)
         _ = try await session.connect(endpoints: candidates)
+        try self.checkCurrent(epoch)
         await self.drainAttemptUpdates()
-        self.connectionMode = await session.connectionMode
+        try self.checkCurrent(epoch)
+        let mode = await session.connectionMode
+        try self.checkCurrent(epoch)
+        self.connectionMode = mode
         onStageChange(.tlsHandshaking)
         onStageChange(.muxReady)
 
         let proxy = LoopbackProxy(opener: session)
+        let port: Int
+        do {
+            port = Int(try await proxy.start())
+            try self.checkCurrent(epoch)
+        } catch {
+            await proxy.stop()
+            throw error
+        }
         self.proxy = proxy
-        let port = Int(try await proxy.start())
         let nextGeneration = self.generationSnapshot.currentGeneration + 1
         self.generationSnapshot = TransportGenerationSnapshot(
             currentGeneration: nextGeneration,
@@ -250,18 +277,19 @@ final class CFTunnelTransport: Transporting {
     }
 
     public func disconnect() async {
+        self.sessionEpoch &+= 1
         let closingGeneration = self.generationSnapshot.activeGeneration
-        stateTask?.cancel()
-        stateTask = nil
-        connectionModeTask?.cancel()
-        connectionModeTask = nil
-        await proxy?.stop()
-        proxy = nil
-        await session?.disconnect()
-        await self.drainAttemptUpdates()
-        attemptUpdatesTask = nil
-        session = nil
-        connectionMode = nil
+        let closingProxy = self.proxy
+        let closingSession = self.session
+        let closingUpdates = self.attemptUpdatesTask
+        self.stateTask?.cancel()
+        self.stateTask = nil
+        self.connectionModeTask?.cancel()
+        self.connectionModeTask = nil
+        self.attemptUpdatesTask = nil
+        self.proxy = nil
+        self.session = nil
+        self.connectionMode = nil
         if let closingGeneration {
             self.generationSnapshot = TransportGenerationSnapshot(
                 currentGeneration: self.generationSnapshot.currentGeneration,
@@ -269,6 +297,9 @@ final class CFTunnelTransport: Transporting {
                 lastClosedGeneration: closingGeneration
             )
         }
+        await closingProxy?.stop()
+        await closingSession?.disconnect()
+        await self.drainAttemptUpdates(task: closingUpdates)
     }
 
     private func observe(
@@ -278,11 +309,14 @@ final class CFTunnelTransport: Transporting {
         connectWindow: ConnectWindowTerminalSignal? = nil
     ) {
         stateTask?.cancel()
+        let epoch = self.sessionEpoch
         stateTask = Task { @MainActor in
             for await state in session.stateUpdates {
+                guard !Task.isCancelled, self.sessionEpoch == epoch else { return }
                 if let connectWindow, await connectWindow.observe(state) {
                     continue
                 }
+                guard !Task.isCancelled, self.sessionEpoch == epoch else { return }
                 switch state {
                 case .disconnected:
                     onDisconnect(nil)
@@ -306,9 +340,11 @@ final class CFTunnelTransport: Transporting {
 
     func observeConnectionModeUpdates(_ updates: AsyncStream<ConnectionMode?>) {
         connectionModeTask?.cancel()
+        let epoch = self.sessionEpoch
         connectionModeTask = Task { @MainActor [weak self] in
             for await mode in updates {
-                self?.connectionMode = mode
+                guard let self, !Task.isCancelled, self.sessionEpoch == epoch else { return }
+                self.connectionMode = mode
             }
         }
     }
@@ -322,10 +358,13 @@ final class CFTunnelTransport: Transporting {
             return
         }
         attemptUpdatesTask?.cancel()
+        let epoch = self.sessionEpoch
         attemptUpdatesTask = Task { @MainActor in
             for await event in observing.attemptUpdates {
+                guard !Task.isCancelled, self.sessionEpoch == epoch else { return }
                 onStageChange(.attemptEvent(event))
             }
+            guard self.sessionEpoch == epoch else { return }
             if Task.isCancelled {
                 onStageChange(.attemptUpdatesUnavailable)
             } else {
@@ -335,7 +374,11 @@ final class CFTunnelTransport: Transporting {
     }
 
     private func drainAttemptUpdates() async {
-        guard let task = self.attemptUpdatesTask else { return }
+        await self.drainAttemptUpdates(task: self.attemptUpdatesTask)
+    }
+
+    private func drainAttemptUpdates(task: Task<Void, Never>?) async {
+        guard let task else { return }
         await withTaskGroup(of: Bool.self) { group in
             group.addTask {
                 await task.value

@@ -264,6 +264,7 @@ final class TunnelManager {
     @ObservationIgnored private(set) var connectionEpoch: UInt64 = 0
     @ObservationIgnored private var nextAttemptEpoch: UInt64 = 0
     @ObservationIgnored private var activeAttemptEpoch: UInt64?
+    @ObservationIgnored private var activeAttemptPermit = PairingMutationPermit()
     @ObservationIgnored private var brokerWaitEpisode: BrokerWaitEpisode?
     @ObservationIgnored private var scenePhase: TunnelScenePhase = .inactive
     @ObservationIgnored private var telemetryCompleteness: AttemptTelemetryCompleteness = .unavailable
@@ -347,6 +348,8 @@ final class TunnelManager {
     }
 
     private func beginAttempt() -> UInt64 {
+        self.activeAttemptPermit.cancel()
+        self.activeAttemptPermit = PairingMutationPermit()
         self.nextAttemptEpoch &+= 1
         self.activeAttemptEpoch = self.nextAttemptEpoch
         self.currentTelemetryEpoch = self.nextAttemptEpoch
@@ -361,6 +364,7 @@ final class TunnelManager {
     }
 
     private func retireAttempt() {
+        self.activeAttemptPermit.cancel()
         self.activeAttemptEpoch = nil
         self.currentTelemetryEpoch = nil
     }
@@ -622,37 +626,44 @@ final class TunnelManager {
         let task = Task { [weak self] in
             guard let self else { return }
             let snap = self.store.snapshot()
-            let attemptPairingGen = snap.pairingGeneration
-            let attemptMutationGen = snap.accessMutationGeneration
+            var attemptPairingGen = snap.pairingGeneration
+            var attemptMutationGen = snap.accessMutationGeneration
+            let permit = self.activeAttemptPermit
             defer {
                 if self.isCurrentAttempt(epoch) {
                     self.connectTask = nil
                 }
             }
             do {
-                let localPort = try await self.connectWithReactiveTokenRefresh(epoch: epoch)
-
-                if Task.isCancelled || !self.isCurrentAttempt(epoch) {
-                    await self.transport.disconnect()
-                    return
+                let localPort = try await self.connectWithReactiveTokenRefresh(epoch: epoch, permit: permit) { accepted in
+                    attemptPairingGen = accepted.pairingGeneration
+                    attemptMutationGen = accepted.accessMutationGeneration
                 }
+
+                if Task.isCancelled || !self.isCurrentAttempt(epoch) { return }
 
                 let postSnap = self.store.snapshot()
                 guard postSnap.pairingGeneration == attemptPairingGen else {
-                    await self.transport.disconnect()
+                    await self.rejectCurrentConnection(epoch: epoch)
                     return
                 }
                 let endpoint = self.endpoint(for: self.transport.connectionMode)
                 if endpoint == .remote {
                     guard !postSnap.isLiveRelayDisabled, postSnap.accessMutationGeneration == attemptMutationGen else {
-                        await self.transport.disconnect()
+                        await self.rejectCurrentConnection(epoch: epoch)
                         return
                     }
                 }
 
                 self.cancelConnectWatchdog()
                 await Task.yield()
-                guard self.isCurrentAttempt(epoch) else { return }
+                guard self.isCurrentAttempt(epoch), !Task.isCancelled else { return }
+                let finalSnap = self.store.snapshot()
+                guard finalSnap.pairingGeneration == attemptPairingGen,
+                      endpoint == .lan || (!finalSnap.isLiveRelayDisabled && finalSnap.accessMutationGeneration == attemptMutationGen) else {
+                    await self.rejectCurrentConnection(epoch: epoch)
+                    return
+                }
                 self.connectionEpoch += 1
                 let connectionEpoch = self.connectionEpoch
                 self.state = .connected(localPort: localPort, via: endpoint)
@@ -691,6 +702,9 @@ final class TunnelManager {
             } catch is CancellationError {
                 guard self.isCurrentAttempt(epoch) else { return }
                 self.cancelConnectWatchdog()
+                if !Task.isCancelled, permit.isValid, case .connecting = self.state {
+                    self.state = .error(.unreachable)
+                }
                 return
             } catch {
                 if Task.isCancelled || !self.isCurrentAttempt(epoch) { return }
@@ -699,7 +713,29 @@ final class TunnelManager {
                 log.error("[solstone-swift] connect() failed: \(String(describing: error), privacy: .public)")
                 await self.transport.disconnect()
                 await Task.yield()
-                let tunnelError = self.mapTransportError(error)
+                guard !Task.isCancelled, self.isCurrentAttempt(epoch) else { return }
+                var tunnelError = self.mapTransportError(error)
+                if tunnelError == .revoked {
+                    var shouldRevoke = true
+#if DEBUG && targetEnvironment(simulator)
+                    shouldRevoke = self.integrationGateRelayOnlyCandidatePolicy == nil
+#endif
+                    if shouldRevoke {
+                        _ = try? await self.store.revokeIfCurrentGeneration(
+                            pairingGen: attemptPairingGen,
+                            mutationGen: attemptMutationGen,
+                            mayPublish: { permit.isValid }
+                        )
+                        guard !Task.isCancelled, self.isCurrentAttempt(epoch) else { return }
+                        if self.store.snapshot().pairing == nil {
+                            await self.endpointCache.wipe()
+                            guard !Task.isCancelled, self.isCurrentAttempt(epoch) else { return }
+                        } else {
+                            // A newer credential revision, or a failed delete, still owns the pairing.
+                            tunnelError = .unreachable
+                        }
+                    }
+                }
                 self.failActiveStage()
                 self.state = .error(tunnelError)
                 self.diagnosticLog?.append(
@@ -708,17 +744,7 @@ final class TunnelManager {
                     message: "connection failed",
                     detail: tunnelError.userMessage
                 )
-                if tunnelError == .revoked {
-#if DEBUG && targetEnvironment(simulator)
-                    if self.integrationGateRelayOnlyCandidatePolicy == nil {
-                        _ = try? await self.store.revokeIfCurrentGeneration(pairingGen: attemptPairingGen, mutationGen: attemptMutationGen)
-                        await self.endpointCache.wipe()
-                    }
-#else
-                    _ = try? await self.store.revokeIfCurrentGeneration(pairingGen: attemptPairingGen, mutationGen: attemptMutationGen)
-                    await self.endpointCache.wipe()
-#endif
-                }
+                guard !Task.isCancelled, self.isCurrentAttempt(epoch) else { return }
                 if self.shouldScheduleReconnect(after: error) {
                     self.pendingReconnectReason = .connectFailed
 #if DEBUG && targetEnvironment(simulator)
@@ -737,7 +763,7 @@ final class TunnelManager {
             guard case .connecting = self.state else { return }
             self.connectTask?.cancel()
             await self.transport.disconnect()
-            guard case .connecting = self.state else { return }
+            guard self.isCurrentAttempt(epoch), case .connecting = self.state else { return }
             self.failActiveStage()
             self.state = .error(.unreachable)
             self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "connection timed out", detail: nil)
@@ -747,20 +773,38 @@ final class TunnelManager {
         await task.value
     }
 
-    private func connectWithReactiveTokenRefresh(epoch: UInt64) async throws -> Int {
+    private func rejectCurrentConnection(epoch: UInt64) async {
+        guard self.isCurrentAttempt(epoch) else { return }
+        self.cancelConnectWatchdog()
+        await self.transport.disconnect()
+        guard self.isCurrentAttempt(epoch) else { return }
+        self.failActiveStage()
+        self.state = .error(.unreachable)
+    }
+
+    private func connectWithReactiveTokenRefresh(
+        epoch: UInt64,
+        permit: PairingMutationPermit,
+        onPrepared: (PairingCredentialSnapshot) -> Void
+    ) async throws -> Int {
         var didAuthRefresh = false
         var retryPairing: StoredPairing?
         while true {
+            guard permit.isValid, !Task.isCancelled, self.isCurrentAttempt(epoch) else { throw CancellationError() }
             do {
-                return try await self.connectTransportOnce(pairingOverride: retryPairing, epoch: epoch)
+                return try await self.connectTransportOnce(pairingOverride: retryPairing, epoch: epoch, permit: permit, onPrepared: onPrepared)
             } catch let error as SessionError where error == .authRefreshRequired || error == .revoked {
                 guard !didAuthRefresh else {
                     // why: a repeat auth challenge after one refresh is retryable unless the refresher confirms revocation.
                     throw SessionError.unreachable
                 }
                 didAuthRefresh = true
+                guard permit.isValid, self.isCurrentAttempt(epoch) else { throw CancellationError() }
                 await self.transport.disconnect()
-                switch await self.refreshAfterAuthChallenge() {
+                guard permit.isValid, self.isCurrentAttempt(epoch) else { throw CancellationError() }
+                let refresh = await self.refreshAfterAuthChallenge(permit: permit)
+                guard permit.isValid, self.isCurrentAttempt(epoch) else { throw CancellationError() }
+                switch refresh {
                 case .retry(let updated):
                     retryPairing = updated
                     continue
@@ -773,7 +817,12 @@ final class TunnelManager {
         }
     }
 
-    private func connectTransportOnce(pairingOverride: StoredPairing? = nil, epoch: UInt64) async throws -> Int {
+    private func connectTransportOnce(
+        pairingOverride: StoredPairing? = nil,
+        epoch: UInt64,
+        permit: PairingMutationPermit,
+        onPrepared: (PairingCredentialSnapshot) -> Void
+    ) async throws -> Int {
         self.appendStage(.prepareCandidates)
         let pairingForIdentity: StoredPairing
         if let pairingOverride {
@@ -784,7 +833,9 @@ final class TunnelManager {
             throw TunnelError.revoked
         }
         self.updateJournalFingerprint(from: pairingForIdentity)
-        let candidates = try await self.candidateList(pairingOverride: pairingOverride)
+        let (candidates, prepared) = try await self.candidateList(pairingOverride: pairingOverride, permit: permit)
+        guard permit.isValid, !Task.isCancelled, self.isCurrentAttempt(epoch) else { throw CancellationError() }
+        onPrepared(prepared)
         self.completeStage(.prepareCandidates, detail: Self.candidateCountDetail(candidates.count))
         self.candidateEndpointByOrdinal = Dictionary(
             uniqueKeysWithValues: CandidateOrdering.sorted(candidates, preferredEndpoint: nil).enumerated().map { ($0.offset, $0.element) }
@@ -841,7 +892,7 @@ final class TunnelManager {
         }
     }
 
-    private func refreshAfterAuthChallenge() async -> ReactiveTokenRefreshDecision {
+    private func refreshAfterAuthChallenge(permit: PairingMutationPermit) async -> ReactiveTokenRefreshDecision {
         let snap = self.store.snapshot()
         guard let pairing = snap.pairing else {
             return .revoked
@@ -849,9 +900,11 @@ final class TunnelManager {
 
         let capturedPairingGen = snap.pairingGeneration
         let capturedMutationGen = snap.accessMutationGeneration
-        switch await self.deviceTokenRefresher.refreshNow(pairing: pairing) {
+        let refresh = await self.deviceTokenRefresher.refreshNow(pairing: pairing)
+        guard permit.isValid, self.store.snapshot().pairingGeneration == capturedPairingGen else { return .unreachable }
+        switch refresh {
         case .refreshed(let updated):
-            let persisted = (try? await self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen)) ?? false
+            let persisted = (try? await self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen, mayPublish: { permit.isValid })) ?? false
             if persisted {
                 return .retry(updated)
             } else {
@@ -1409,7 +1462,10 @@ final class TunnelManager {
         return .other
     }
 
-    private func candidateList(pairingOverride: StoredPairing? = nil) async throws -> [TransportEndpoint] {
+    private func candidateList(
+        pairingOverride: StoredPairing? = nil,
+        permit: PairingMutationPermit
+    ) async throws -> ([TransportEndpoint], PairingCredentialSnapshot) {
         let initialSnap = self.store.snapshot()
         let pairing: StoredPairing
         if let pairingOverride {
@@ -1424,9 +1480,11 @@ final class TunnelManager {
         if pairingOverride == nil {
             let capturedPairingGen = initialSnap.pairingGeneration
             let capturedMutationGen = initialSnap.accessMutationGeneration
-            switch await self.deviceTokenRefresher.refreshIfNeeded(pairing: pairing, now: Date()) {
+            let refresh = await self.deviceTokenRefresher.refreshIfNeeded(pairing: pairing, now: Date())
+            guard permit.isValid, self.store.snapshot().pairingGeneration == capturedPairingGen else { throw CancellationError() }
+            switch refresh {
             case .refreshed(let updated):
-                let persisted = (try? await self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen)) ?? false
+                let persisted = (try? await self.store.persistRefreshedPairing(updated, pairingGen: capturedPairingGen, mutationGen: capturedMutationGen, mayPublish: { permit.isValid })) ?? false
                 if !persisted {
                     let postSnap = self.store.snapshot()
                     guard postSnap.pairing != nil else {
@@ -1443,17 +1501,11 @@ final class TunnelManager {
             }
         }
 
+        guard permit.isValid else { throw CancellationError() }
         let cachedCandidates = await self.endpointCache.endpoints()
         let post = self.store.snapshot()
-        let postPairing: StoredPairing
-        if let pairingOverride {
-            postPairing = pairingOverride
-        } else {
-            guard let latest = post.pairing else {
-                throw TunnelError.revoked
-            }
-            postPairing = latest
-        }
+        guard permit.isValid, post.pairingGeneration == initialSnap.pairingGeneration else { throw CancellationError() }
+        guard let postPairing = post.pairing else { throw TunnelError.revoked }
 
         let bootstrapPairing: StoredPairing
 #if DEBUG && targetEnvironment(simulator)
@@ -1514,7 +1566,7 @@ final class TunnelManager {
         if candidates.isEmpty {
             throw TunnelError.unreachable
         }
-        return candidates
+        return (candidates, post)
     }
 
     private func directCandidateKey(for endpoint: TransportEndpoint) -> String? {

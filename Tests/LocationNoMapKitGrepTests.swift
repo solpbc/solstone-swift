@@ -36,11 +36,34 @@ nonisolated final class LocationNoMapKitGrepTests: XCTestCase {
             let text = try String(contentsOf: file, encoding: .utf8)
             for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
                 let lineText = String(line)
-                for token in bannedTokens where lineText.contains(token) {
+                for token in bannedTokens where Self.containsToken(token, in: lineText) {
                     XCTFail("native map/live-dot token \(token) at \(file.path):\(index + 1): \(lineText)")
                 }
             }
         }
+    }
+
+    func testNativeMapTokenMatcherUsesIdentifierBoundaries() {
+        for text in ["Map(", "Map (", "SwiftUI.Map(", "let map = Map("] {
+            XCTAssertTrue(Self.containsToken("Map(", in: text), text)
+        }
+        for text in ["version.flatMap(sanitizedJournalVersion)", "values.compactMap(transform)", "CustomMap("] {
+            XCTAssertFalse(Self.containsToken("Map(", in: text), text)
+        }
+        XCTAssertTrue(Self.containsToken("Marker(", in: "Marker("))
+        XCTAssertFalse(Self.containsToken("Marker(", in: "customMarker("))
+    }
+
+    private static func containsToken(_ token: String, in text: String) -> Bool {
+        let pattern: String
+        if token.hasSuffix("(") {
+            pattern = #"(?<![A-Za-z0-9_])"# +
+                NSRegularExpression.escapedPattern(for: String(token.dropLast())) + #"\s*\("#
+        } else {
+            pattern = #"(?<![A-Za-z0-9_])"# +
+                NSRegularExpression.escapedPattern(for: token) + #"(?![A-Za-z0-9_])"#
+        }
+        return text.range(of: pattern, options: .regularExpression) != nil
     }
 
     private static func worktreeRoot() -> URL {

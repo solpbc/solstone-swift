@@ -123,39 +123,35 @@ final class AppConfig {
         host: String = "journal.local",
         port: Int = 22,
         journalRoot: String = "http://127.0.0.1:7071",
-        ownerIdentity: String = "Jeremiah",
-        deviceID: String = "test-device-id",
-        sessionKey: String? = nil,
-        isPaired: Bool = true,
-        homeLabel: String = "Jeremiah's Journal",
-        caFingerprintHex: String = "feedfacecafebeef0123456789abcdef0123456789abcdef0123456789abcdef",
-        pairedAt: Date = Date(),
-        endpointPort: Int = 7071,
-        relayEndpoint: String = "https://relay.example.com",
-        clientCertPEM: String = "CERT",
-        clientKeyPEM: String = "KEY",
-        caChainPEM: String = "CA",
-        deviceToken: String = "token"
+        deviceID: String = "ui-test-device",
+        sessionKey: String? = nil
     ) {
+        let endpointPort = Self.endpointPort(from: journalRoot)
+            ?? Int(ProcessInfo.processInfo.environment["MOCK_PAIRING_PORT"] ?? "")
+            ?? port
+        let endpointHost = URL(string: journalRoot)?.host ?? host
         let pairing = StoredPairing(
-            instanceID: deviceID,
-            homeLabel: homeLabel,
-            relayEndpoint: relayEndpoint,
-            fingerprint: caFingerprintHex,
-            clientCertPEM: clientCertPEM,
-            clientKeyPEM: clientKeyPEM,
-            caChainPEM: caChainPEM,
-            relayEnrollment: .enrolled(deviceToken: deviceToken, expiresAt: nil),
-            localEndpoints: [LocalEndpoint(host: host, port: endpointPort, scope: "local")],
-            pairedAt: pairedAt
+            instanceID: "ui-test-instance",
+            homeLabel: "ui-test-solstone",
+            relayEndpoint: "wss://127.0.0.1:\(endpointPort)",
+            fingerprint: Self.syntheticFingerprint,
+            clientCertPEM: Self.syntheticCertificatePEM,
+            clientKeyPEM: Self.syntheticPrivateKeyPEM,
+            caChainPEM: Self.syntheticCertificatePEM,
+            relayEnrollment: .enrolled(deviceToken: sessionKey ?? "ui-test-device-token", expiresAt: nil),
+            localEndpoints: [
+                LocalEndpoint(host: endpointHost, port: endpointPort, scope: "")
+            ],
+            pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )
-        try? self.applyPairing(pairing)
-        self.isPaired = isPaired
+
+        do {
+            try self.applyPairing(pairing)
+        } catch {
+            appConfigLog.error("ui-test pairing seed save failed: \(String(describing: error), privacy: .public)")
+            self.applyDerivedState(from: pairing)
+        }
         self.journalRoot = journalRoot
-        self.ownerIdentity = ownerIdentity
-        self.homeLabel = homeLabel
-        self.caFingerprintHex = caFingerprintHex
-        self.pairedAt = pairedAt
         self.host = host
         self.port = endpointPort
         self.loopbackPort = endpointPort
@@ -195,4 +191,34 @@ final class AppConfig {
             return nil
         }
     }
+
+#if DEBUG
+    private static func endpointPort(from journalRoot: String) -> Int? {
+        guard let url = URL(string: journalRoot) else { return nil }
+        return url.port
+    }
+
+    private static let syntheticFingerprint = String(repeating: "a", count: 64)
+    private static let syntheticCertificatePEM = """
+    -----BEGIN CERTIFICATE-----
+    MIIBsjCCAVigAwIBAgIJAO0AAAAAAAAAMAoGCCqGSM49BAMCMBcxFTATBgNVBAMM
+    DHVpLXRlc3QtY2VydDAeFw0yNjAxMDEwMDAwMDBaFw0yNzAxMDEwMDAwMDBaMBcx
+    FTATBgNVBAMMDHVpLXRlc3QtY2VydDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA
+    BAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaajUzBRMB0G
+    A1UdDgQWBBSaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaAfBgNVHSMEGDAWgBSa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaAPBgNVHRMBAf8EBTADAQH/MAoGCCqG
+    SM49BAMCA0gAMEUCIQDaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaIgIgDaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=
+    -----END CERTIFICATE-----
+    """
+    private static let syntheticPrivateKeyPEM = """
+    -----BEGIN PRIVATE KEY-----
+    MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgaaaaaaaaaaaaaaaaaaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaahRANCAASaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    aaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    -----END PRIVATE KEY-----
+    """
+#endif
 }

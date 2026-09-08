@@ -91,7 +91,7 @@ nonisolated struct ClientsSelfJournal: Codable, Equatable, Sendable {
 
 nonisolated struct ClientsSelfResource: Codable, Equatable, Sendable {
     let protocolVersion: Int
-    let revision: Int
+    let revision: UInt64
     let reported: ClientsSelfReported?
     let ownerLabel: String?
     let displayLabel: String
@@ -110,7 +110,7 @@ nonisolated struct ClientsSelfResource: Codable, Equatable, Sendable {
 
     init(
         protocolVersion: Int = 1,
-        revision: Int,
+        revision: UInt64,
         reported: ClientsSelfReported?,
         ownerLabel: String?,
         displayLabel: String,
@@ -141,10 +141,7 @@ nonisolated struct ClientsSelfResource: Codable, Equatable, Sendable {
         guard self.protocolVersion == 1 else {
             throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "protocol_version must be 1"))
         }
-        self.revision = try container.decode(Int.self, forKey: .revision)
-        guard self.revision >= 0 else {
-            throw DecodingError.dataCorrupted(DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "revision must be >= 0"))
-        }
+        self.revision = try container.decode(UInt64.self, forKey: .revision)
         self.reported = try container.decodeIfPresent(ClientsSelfReported.self, forKey: .reported)
         self.ownerLabel = try container.decodeIfPresent(String.self, forKey: .ownerLabel)
         self.displayLabel = try container.decode(String.self, forKey: .displayLabel)
@@ -155,7 +152,7 @@ nonisolated struct ClientsSelfResource: Codable, Equatable, Sendable {
 
 nonisolated struct ClientsSelfPutPayload: Encodable, Sendable {
     let protocolVersion: Int = 1
-    let expectedRevision: Int
+    let expectedRevision: UInt64
     let reported: ClientsSelfReported
 
     enum CodingKeys: String, CodingKey {
@@ -169,7 +166,7 @@ nonisolated enum ClientsSelfFetchResult: Sendable, Equatable {
     case success(ClientsSelfResource)
     case notFound
     case unsupported
-    case conflict(Int?)
+    case conflict(UInt64?)
     case malformedOrFailed
 }
 
@@ -368,7 +365,7 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
     }
 
     private struct RevisionContainer: Decodable {
-        let revision: Int?
+        let revision: UInt64?
     }
 }
 

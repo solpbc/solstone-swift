@@ -581,5 +581,17 @@ final class AuthenticatedHomeClientTests: XCTestCase {
         let fractionalExpiresAt = fractionalFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(validExp) + 0.5))
         await testCase(origin: "https://relay.example.com", token: validToken, expiresAt: fractionalExpiresAt, expectedSuccess: false)
     }
+    func testClientsSelfRevisionPreservesFullUInt64WireRange() throws {
+        let data = Data("""
+        {"protocol_version":1,"revision":18446744073709551615,"reported":null,"owner_label":null,"display_label":"Phone","updated_at":null,"journal":{"name":null,"version":"1.0"}}
+        """.utf8)
+        let resource = try JSONDecoder().decode(ClientsSelfResource.self, from: data)
+        XCTAssertEqual(resource.revision, UInt64.max)
+        let encoded = try JSONEncoder().encode(ClientsSelfPutPayload(expectedRevision: resource.revision, reported: ClientsSelfReported()))
+        XCTAssertTrue(String(decoding: encoded, as: UTF8.self).contains("18446744073709551615"))
+        let negative = Data(String(decoding: data, as: UTF8.self).replacingOccurrences(of: "18446744073709551615", with: "-1").utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(ClientsSelfResource.self, from: negative))
+    }
+
 }
 

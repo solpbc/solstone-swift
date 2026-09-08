@@ -61,7 +61,7 @@ final class PairingCredentialStoreTests: XCTestCase {
             caChainPEM: CertlessTrustFixtures.caPEM,
             relayEnrollment: relayEnrollment,
             localEndpoints: [LocalEndpoint(host: "192.168.1.100", port: 7071, scope: "local")],
-            pairedAt: Date()
+            pairedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
     }
 
@@ -86,7 +86,7 @@ final class PairingCredentialStoreTests: XCTestCase {
         let committed = try await store.commitReadyAccess(
             relayOrigin: "https://relay.example.com",
             deviceToken: "real-token",
-            expiresAt: "2026-01-01T00:00:00Z",
+            expiresAt: "2036-01-01T00:00:00Z",
             pairingGen: 2,
             mutationGen: 2
         )
@@ -294,5 +294,150 @@ final class PairingCredentialStoreTests: XCTestCase {
         XCTAssertFalse(store.isLiveRelayDisabled)
         XCTAssertEqual(holder.stored?.instanceID, "inst-1")
     }
+    @MainActor
+    func testQueuedStaleSaveAndDeleteCannotChangeReplacementKeychain() async throws {
+        let (_, keychain) = makeRealKeychainStore()
+        let original = makeSamplePairing(instanceID: "original")
+        let replacement = makeSamplePairing(instanceID: "replacement")
+        try keychain.save(original)
+        let entered = expectation(description: "replacement save entered")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let store = PairingCredentialStore(
+            loadPairing: { try keychain.load() },
+            savePairing: { pairing in
+                if pairing.instanceID == "replacement" {
+                    entered.fulfill()
+                    guard release.wait(timeout: .now() + 5) == .success else { throw TestSaveError() }
+                }
+                try keychain.save(pairing)
+            },
+            deletePairing: { try keychain.delete() }
+        )
+        let apply = Task.detached { try store.applyPairing(replacement) }
+        await fulfillment(of: [entered], timeout: 2)
+        XCTAssertEqual(store.snapshot().pairing, original)
+        let ready = Task {
+            try await store.commitReadyAccess(relayOrigin: "https://relay.example.com", deviceToken: "stale",
+                expiresAt: nil, pairingGen: 0, mutationGen: 0)
+        }
+        let revoke = Task { try await store.revokeIfCurrentGeneration(pairingGen: 0, mutationGen: 0) }
+        try await Task.sleep(for: .milliseconds(50))
+        release.signal()
+        try await apply.value
+        let didSave = try await ready.value
+        let didDelete = try await revoke.value
+        XCTAssertFalse(didSave)
+        XCTAssertFalse(didDelete)
+        XCTAssertEqual(try keychain.load(), replacement)
+        XCTAssertEqual(store.snapshot().pairing, replacement)
+    }
+
+    @MainActor
+    func testCancelledQueuedReadyCannotWriteKeychainAfterOwnedSaveFinishes() async throws {
+        let (_, keychain) = makeRealKeychainStore()
+        try keychain.save(makeSamplePairing())
+        let entered = expectation(description: "first save entered")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let store = PairingCredentialStore(
+            loadPairing: { try keychain.load() },
+            savePairing: { pairing in
+                if case .enrolled("first", _) = pairing.relayEnrollment {
+                    entered.fulfill()
+                    guard release.wait(timeout: .now() + 5) == .success else { throw TestSaveError() }
+                }
+                try keychain.save(pairing)
+            },
+            deletePairing: { try keychain.delete() }
+        )
+        let first = Task {
+            try await store.commitReadyAccess(relayOrigin: "https://relay.example.com", deviceToken: "first",
+                expiresAt: nil, pairingGen: 0, mutationGen: 0)
+        }
+        await fulfillment(of: [entered], timeout: 2)
+        let cancelled = Task {
+            try await store.commitReadyAccess(relayOrigin: "https://relay.example.com", deviceToken: "cancelled",
+                expiresAt: nil, pairingGen: 0, mutationGen: 0)
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        cancelled.cancel()
+        release.signal()
+        let firstResult = try await first.value
+        let cancelledResult = try await cancelled.value
+        XCTAssertTrue(firstResult)
+        XCTAssertFalse(cancelledResult)
+        XCTAssertEqual(try keychain.load()?.relayEnrollment, .enrolled(deviceToken: "first", expiresAt: nil))
+        XCTAssertEqual(store.snapshot().pairing, try keychain.load())
+    }
+
+    @MainActor
+    func testReadyExpiryIsCheckedAfterWaitingForClearRetryOwner() async throws {
+        let (_, keychain) = makeRealKeychainStore()
+        try keychain.save(makeSamplePairing(relayEnrollment: .enrolled(deviceToken: "old", expiresAt: nil)))
+        let entered = expectation(description: "retry save entered")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let saveCount = StoreTestCounter()
+        let store = PairingCredentialStore(
+            loadPairing: { try keychain.load() },
+            savePairing: { pairing in
+                let count = saveCount.next()
+                if count == 1 { throw TestSaveError() }
+                if count == 2 {
+                    entered.fulfill()
+                    guard release.wait(timeout: .now() + 5) == .success else { throw TestSaveError() }
+                }
+                try keychain.save(pairing)
+            },
+            deletePairing: { try keychain.delete() }
+        )
+        do {
+            _ = try await store.disableRelayAccess(pairingGen: 0, mutationGen: 0)
+            XCTFail("clear should fail")
+        } catch {}
+        let retry = Task { try await store.retryDurableClear(pairingGen: 0, mutationGen: 1) }
+        await fulfillment(of: [entered], timeout: 2)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let expiry = formatter.string(from: Date().addingTimeInterval(0.15))
+        let ready = Task {
+            try await store.commitReadyAccess(relayOrigin: "https://relay.example.com", deviceToken: "expired",
+                expiresAt: expiry, pairingGen: 0, mutationGen: 1)
+        }
+        try await Task.sleep(for: .milliseconds(250))
+        release.signal()
+        let retried = try await retry.value
+        let committed = try await ready.value
+        XCTAssertTrue(retried)
+        XCTAssertFalse(committed)
+        XCTAssertEqual(saveCount.value, 2)
+        XCTAssertEqual(try keychain.load()?.relayEnrollment, .unavailable)
+        XCTAssertTrue(store.isLiveRelayDisabled)
+    }
+
+    func testAcceptedRefreshAdvancesRevisionAndRejectsOlderReadyAndRevoke() async throws {
+        let (store, keychain) = makeRealKeychainStore()
+        let pairing = makeSamplePairing()
+        try store.applyPairing(pairing)
+        let updated = makeSamplePairing(relayEnrollment: .enrolled(deviceToken: "refreshed", expiresAt: nil))
+        let refreshed = try await store.persistRefreshedPairing(updated, pairingGen: 1, mutationGen: 1)
+        XCTAssertTrue(refreshed)
+        XCTAssertEqual(store.accessMutationGeneration, 2)
+        let ready = try await store.commitReadyAccess(relayOrigin: "https://relay.example.com", deviceToken: "old",
+            expiresAt: nil, pairingGen: 1, mutationGen: 1)
+        let revoked = try await store.revokeIfCurrentGeneration(pairingGen: 1, mutationGen: 1)
+        XCTAssertFalse(ready)
+        XCTAssertFalse(revoked)
+        XCTAssertEqual(try keychain.load(), updated)
+    }
+
 }
 
+
+private final class StoreTestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func next() -> Int { lock.withLock { count += 1; return count } }
+    var value: Int { lock.withLock { count } }
+}

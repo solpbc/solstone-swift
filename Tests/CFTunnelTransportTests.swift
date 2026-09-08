@@ -332,6 +332,68 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
             diagnosticLog: diagnostics
         )
     }
+    @MainActor
+    func testLateOldStartupCannotReplaceNewSessionOrProxy() async throws {
+        let oldSession = FakeTunnelSession(suspendConnect: true)
+        let newSession = FakeTunnelSession()
+        let sessions = OSAllocatedUnfairLock(initialState: [oldSession, newSession])
+        let transport = CFTunnelTransport(loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in sessions.withLock { $0.removeFirst() } })
+        let old = Task {
+            try await transport.connect(candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+                onDisconnect: { _ in }, onStageChange: { _ in })
+        }
+        for _ in 0..<100 {
+            if await oldSession.connectCallCount == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let started = await oldSession.connectCallCount
+        XCTAssertEqual(started, 1)
+        await transport.disconnect()
+        let newPort = try await transport.connect(candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+            onDisconnect: { _ in }, onStageChange: { _ in })
+        let accepted = transport.generationSnapshot
+        await oldSession.releaseConnect()
+        do {
+            _ = try await old.value
+            XCTFail("old startup must be retired")
+        } catch {}
+        XCTAssertGreaterThan(newPort, 0)
+        XCTAssertEqual(transport.generationSnapshot, accepted)
+        XCTAssertEqual(transport.connectionMode, .plDirect)
+        let newDisconnects = await newSession.disconnectCallCount
+        XCTAssertEqual(newDisconnects, 0)
+        await transport.disconnect()
+    }
+
+    @MainActor
+    func testSlowOldTeardownKeepsNewSessionOwnedAndActive() async throws {
+        let oldSession = FakeTunnelSession(suspendDisconnect: true)
+        let newSession = FakeTunnelSession()
+        let sessions = OSAllocatedUnfairLock(initialState: [oldSession, newSession])
+        let transport = CFTunnelTransport(loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in sessions.withLock { $0.removeFirst() } })
+        _ = try await transport.connect(candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+            onDisconnect: { _ in }, onStageChange: { _ in })
+        let teardown = Task { await transport.disconnect() }
+        for _ in 0..<100 {
+            if await oldSession.disconnectCallCount == 1 { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let started = await oldSession.disconnectCallCount
+        XCTAssertEqual(started, 1)
+        _ = try await transport.connect(candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+            onDisconnect: { _ in }, onStageChange: { _ in })
+        let accepted = transport.generationSnapshot
+        await oldSession.releaseDisconnect()
+        await teardown.value
+        XCTAssertEqual(transport.generationSnapshot, accepted)
+        XCTAssertEqual(transport.connectionMode, .plDirect)
+        let newDisconnects = await newSession.disconnectCallCount
+        XCTAssertEqual(newDisconnects, 0)
+        await transport.disconnect()
+    }
+
 }
 
 private enum DisconnectEvent: Equatable, Sendable {
@@ -348,4 +410,5 @@ private enum DisconnectEvent: Equatable, Sendable {
             self = .clean
         }
     }
+
 }

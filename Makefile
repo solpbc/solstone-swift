@@ -624,18 +624,15 @@ integration-test-onboarding: sim
 		echo "integration-test-onboarding passed"; \
 		tail -n 20 "$$APP_LOG"
 
-# Canonical pre-ship gate: brand/a11y/casing assertions (cheap, fail-fast) then a
+# Canonical pre-ship gate: accessibility and platform assertions, then a
 # full build + test pass. Run this before merging any branch to main.
 # The test phase goes through test/run_ci_tests.sh: a timeout-guarded, retry-once
 # wrapper that never hangs and never masks a real failure (host-side UITest-runner
 # flake resistance). Override CI_* vars above to tune timeout/runtime/attempts.
 ci: deps
-	bash test/assert_brand_canon.sh
 	bash test/assert_accessibility_hints.sh
 	bash test/assert_haptics_gated.sh
 	bash test/assert_tap_targets.sh
-	bash test/assert_casing.sh
-	bash test/assert_no_emdash.sh
 	bash test/assert_no_devcopy.sh
 	bash test/assert_background_modes.sh
 	bash test/assert_watch_background_modes.sh

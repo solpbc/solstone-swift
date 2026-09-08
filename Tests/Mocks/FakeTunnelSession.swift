@@ -20,6 +20,10 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
     private var attemptsOnDisconnect: [TunnelAttemptEvent] = []
     private var inboundActivitySnapshotValue: UInt64 = 0
     private(set) var connectionMode: ConnectionMode?
+    private let suspendConnect: Bool
+    private let suspendDisconnect: Bool
+    private var connectContinuation: CheckedContinuation<Void, Never>?
+    private var disconnectContinuation: CheckedContinuation<Void, Never>?
     private(set) var connectCallCount = 0
     private(set) var disconnectCallCount = 0
 
@@ -29,7 +33,9 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
         failureDuringConnect: SessionError? = nil,
         thrownDuringConnect: (any Error & Sendable)? = nil,
         yieldAwaitingBrokerDuringConnect: Bool = false,
-        finishAttemptUpdatesAfterConnect: Bool = true
+        finishAttemptUpdatesAfterConnect: Bool = true,
+        suspendConnect: Bool = false,
+        suspendDisconnect: Bool = false
     ) {
         let state = AsyncStream<TunnelState>.makeStream()
         self.stateUpdates = state.stream
@@ -40,6 +46,8 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
         let attempts = AsyncStream<TunnelAttemptEvent>.makeStream()
         self.attemptUpdates = attempts.stream
         self.attemptUpdatesContinuation = attempts.continuation
+        self.suspendConnect = suspendConnect
+        self.suspendDisconnect = suspendDisconnect
         self.connectedVia = connectedVia
         self.connectedMode = connectedMode
         self.yieldAwaitingBrokerDuringConnect = yieldAwaitingBrokerDuringConnect
@@ -51,6 +59,7 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
     @discardableResult
     func connect(endpoints: [TransportEndpoint]) async throws -> ConnectedVia {
         connectCallCount += 1
+        if suspendConnect { await withCheckedContinuation { connectContinuation = $0 } }
         stateContinuation.yield(.connecting(candidates: endpoints.map(\.connectedVia)))
         if let failureDuringConnect {
             stateContinuation.yield(.failed(failureDuringConnect))
@@ -73,6 +82,7 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
 
     func disconnect() async {
         disconnectCallCount += 1
+        if suspendDisconnect { await withCheckedContinuation { disconnectContinuation = $0 } }
         connectionMode = nil
         connectionModeContinuation.yield(nil)
         stateContinuation.yield(.disconnected)
@@ -82,6 +92,16 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
             attemptUpdatesContinuation.yield(event)
         }
         attemptUpdatesContinuation.finish()
+    }
+
+    func releaseConnect() {
+        connectContinuation?.resume()
+        connectContinuation = nil
+    }
+
+    func releaseDisconnect() {
+        disconnectContinuation?.resume()
+        disconnectContinuation = nil
     }
 
     func openStream() async throws -> MuxStream {

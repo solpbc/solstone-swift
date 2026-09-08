@@ -1468,4 +1468,163 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         XCTAssertEqual(journalVersion.name, "Live Server")
         XCTAssertTrue(store.isLiveRelayDisabled)
     }
+    @MainActor
+    func testPortChangeRetiresBlockedOldMetadataAndRunsNewLane() async throws {
+        try await checkReplacementConnection(samePort: false)
+    }
+
+    @MainActor
+    func testSamePortNewPairingRetiresBlockedOldMetadataAndRunsNewLane() async throws {
+        try await checkReplacementConnection(samePort: true)
+    }
+
+    @MainActor
+    private func checkReplacementConnection(samePort: Bool) async throws {
+        let pairing = makeSamplePairing()
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: pairing)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { value in holder.withLock { $0 = value } },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        let suite = "LifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let metadata = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        metadata.setIdentity(journalVersionMetadataIdentity(for: pairing))
+        let oldStarted = expectation(description: "old metadata GET")
+        let newStarted = expectation(description: "new metadata GET")
+        let release = AsyncStream<Void>.makeStream()
+        defer { release.continuation.finish() }
+        let count = OSAllocatedUnfairLock(initialState: 0)
+        MockURLProtocol.asyncRequestHandler = { request in
+            guard request.url?.path == "/app/network/api/clients/self" else {
+                return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            let ordinal = count.withLock { $0 += 1; return $0 }
+            if ordinal == 1 {
+                oldStarted.fulfill()
+                for await _ in release.stream { break }
+            } else if ordinal == 2 {
+                newStarted.fulfill()
+            }
+            let name = ordinal == 1 ? "Old" : "New"
+            let data = """
+            {"protocol_version":1,"revision":0,"reported":{"name":null,"platform":null,"device_type":null,"app_id":null,"app_version":null},"owner_label":null,"display_label":"Phone","updated_at":null,"journal":{"name":"\(name)","version":"1.0"}}
+            """.data(using: .utf8)!
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        let jobs = HomeAuthenticatedJobs(store: store, journalVersion: metadata, client: makeTestClient(),
+            snapshotProvider: { DeviceDescriptionSnapshot(name: nil, platform: nil, deviceType: nil, appID: nil, appVersion: nil) })
+        defer { jobs.disconnected() }
+        jobs.connected(localPort: 7071)
+        await fulfillment(of: [oldStarted], timeout: 2)
+        if samePort { try store.applyPairing(pairing) }
+        let newPort = samePort ? 7071 : 8082
+        jobs.connected(localPort: newPort)
+        await fulfillment(of: [newStarted], timeout: 2)
+        try await Task.sleep(for: .milliseconds(50))
+        release.continuation.yield(())
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(metadata.name, "New")
+        jobs.connected(localPort: newPort)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertGreaterThanOrEqual(count.withLock { $0 }, 3)
+        XCTAssertEqual(metadata.name, "New")
+    }
+
+    @MainActor
+    func testDeadlineRetiresClearRetryQueuedBehindActualKeychainWriter() async throws {
+        let keychain = SPLKeychainStore(policy: KeychainPolicy(service: "app.solstone.swift.test.\(UUID().uuidString)",
+            account: "pairing", accessGroup: nil, useDataProtectionKeychain: false, accessibility: .afterFirstUnlock))
+        defer { try? keychain.delete() }
+        let pairing = makeSamplePairing(relayEnrollment: .enrolled(deviceToken: "old", expiresAt: nil))
+        try keychain.save(pairing)
+        let count = OSAllocatedUnfairLock(initialState: 0)
+        let entered = expectation(description: "owned clear retry entered Keychain save")
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let store = PairingCredentialStore(loadPairing: { try keychain.load() }, savePairing: { value in
+            let ordinal = count.withLock { $0 += 1; return $0 }
+            if ordinal == 1 { throw URLError(.cannotWriteToFile) }
+            if ordinal == 2 {
+                entered.fulfill()
+                guard release.wait(timeout: .now() + 5) == .success else { throw URLError(.timedOut) }
+            }
+            try keychain.save(value)
+        }, deletePairing: { try keychain.delete() })
+        do {
+            _ = try await store.disableRelayAccess(pairingGen: 0, mutationGen: 0)
+            XCTFail("first save should fail")
+        } catch {}
+        let retry = Task { try await store.retryDurableClear(pairingGen: 0, mutationGen: 1) }
+        await fulfillment(of: [entered], timeout: 2)
+        let suite = "LifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let metadata = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        metadata.setIdentity(journalVersionMetadataIdentity(for: pairing))
+        let accessRequests = OSAllocatedUnfairLock(initialState: 0)
+        MockURLProtocol.requestHandler = { request in
+            if request.url?.path.hasSuffix("relay/access") == true { accessRequests.withLock { $0 += 1 } }
+            return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+        }
+        let jobs = HomeAuthenticatedJobs(store: store, journalVersion: metadata, client: makeTestClient(), deadline: .milliseconds(100))
+        defer { jobs.disconnected() }
+        jobs.connected(localPort: 7071)
+        try await Task.sleep(for: .milliseconds(200))
+        release.signal()
+        let retried = try await retry.value
+        XCTAssertTrue(retried)
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(count.withLock { $0 }, 2)
+        XCTAssertEqual(accessRequests.withLock { $0 }, 0)
+        XCTAssertEqual(try keychain.load()?.relayEnrollment, .unavailable)
+    }
+
+    @MainActor
+    func testMetadataFollowUpSharesOriginalDeadline() async throws {
+        let pairing = makeSamplePairing()
+        let store = PairingCredentialStore(loadPairing: { pairing }, savePairing: { _ in }, deletePairing: {})
+        let suite = "LifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let metadata = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        metadata.setIdentity(journalVersionMetadataIdentity(for: pairing))
+        let first = expectation(description: "first metadata request")
+        let release = AsyncStream<Void>.makeStream()
+        defer { release.continuation.finish() }
+        let count = OSAllocatedUnfairLock(initialState: 0)
+        MockURLProtocol.asyncRequestHandler = { request in
+            guard request.url?.path.hasSuffix("clients/self") == true else {
+                return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            let ordinal = count.withLock { $0 += 1; return $0 }
+            if ordinal == 1 {
+                first.fulfill()
+                for await _ in release.stream { break }
+            } else if ordinal == 2 {
+                try? await Task.sleep(for: .milliseconds(900))
+            }
+            let data = Data("""
+            {"protocol_version":1,"revision":0,"reported":{"name":null,"platform":null,"device_type":null,"app_id":null,"app_version":null},"owner_label":null,"display_label":"Phone","updated_at":null,"journal":{"name":null,"version":"\(ordinal).0.0"}}
+            """.utf8)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        let jobs = HomeAuthenticatedJobs(store: store, journalVersion: metadata, client: makeTestClient(), deadline: .seconds(1),
+            snapshotProvider: { DeviceDescriptionSnapshot(name: nil, platform: nil, deviceType: nil, appID: nil, appVersion: nil) })
+        defer { jobs.disconnected() }
+        jobs.connected(localPort: 7071)
+        await fulfillment(of: [first], timeout: 2)
+        jobs.connected(localPort: 7071)
+        try await Task.sleep(for: .milliseconds(250))
+        release.continuation.yield(())
+        try await Task.sleep(for: .milliseconds(1200))
+        XCTAssertEqual(count.withLock { $0 }, 2)
+        XCTAssertEqual(metadata.version, "1.0.0")
+        jobs.connected(localPort: 7071)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(metadata.version, "3.0.0")
+    }
+
 }

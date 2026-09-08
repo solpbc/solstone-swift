@@ -36,6 +36,7 @@ private protocol FixtureOwnerSet {
 
 final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
     private var rootURL: URL!
+    private var engines: [TransferEngine] = []
 
     override func setUpWithError() throws {
         self.rootURL = FileManager.default.temporaryDirectory
@@ -43,7 +44,14 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
         TransferURLProtocol.reset()
     }
 
-    override func tearDownWithError() throws {
+    override func tearDown() async throws {
+        for engine in self.engines { await engine.pause() }
+        for engine in self.engines {
+            try await transferTestWaitFor("owned transfer teardown") {
+                await engine.snapshot().counters.inFlightCount == 0
+            }
+        }
+        self.engines.removeAll()
         TransferURLProtocol.reset()
         try? FileManager.default.removeItem(at: self.rootURL)
     }
@@ -1831,7 +1839,9 @@ final class OmiLaunchCaptureCommitCoordinatorTests: XCTestCase {
 
     @MainActor private func makeHarness(rootURL: URL) -> (engine: TransferEngine, mirror: TransferStatusMirror, enqueuer: ObserverAudioTransferEnqueuer, omi: OmiUploaderHolder, watch: WatchUploaderHolder) {
         TransferURLProtocol.handler = { request, _ in (transferTestResponse(for: request, statusCode: 204), Data()) }
-        return makeTransferCutoverHarness(rootURL: rootURL, sessionConfiguration: makeTransferTestURLSessionConfiguration(), endpointResolver: CommitCoordinatorAvailableEndpointResolver())
+        let harness = makeTransferCutoverHarness(rootURL: rootURL, sessionConfiguration: makeTransferTestURLSessionConfiguration(), endpointResolver: CommitCoordinatorAvailableEndpointResolver())
+        self.engines.append(harness.engine)
+        return harness
     }
 
     @MainActor private func makeManager(enabled: Bool = true) -> OmiSourceManager {

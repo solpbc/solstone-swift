@@ -77,22 +77,27 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
         )
     }
 
-    private func performKeychainWrite<T: Sendable>(_ operation: @escaping @Sendable () throws -> T) async throws -> T {
-        try await withCheckedThrowingContinuation { continuation in
-            self.keychainQueue.async {
-                do {
-                    let result = try operation()
-                    continuation.resume(returning: result)
-                } catch {
-                    continuation.resume(throwing: error)
+    private func performMutation(
+        mayPublish: @escaping @Sendable () -> Bool,
+        _ operation: @escaping @Sendable () throws -> Bool
+    ) async throws -> Bool {
+        let permit = PairingMutationPermit()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                self.keychainQueue.async {
+                    guard permit.isValid, mayPublish() else {
+                        continuation.resume(returning: false)
+                        return
+                    }
+                    do {
+                        continuation.resume(returning: try operation())
+                    } catch {
+                        continuation.resume(throwing: error)
+                    }
                 }
             }
-        }
-    }
-
-    private func performKeychainWriteSync<T>(_ operation: () throws -> T) throws -> T {
-        try self.keychainQueue.sync {
-            try operation()
+        } onCancel: {
+            permit.cancel()
         }
     }
 
@@ -134,18 +139,16 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     }
 
     func applyPairing(_ pairing: StoredPairing) throws {
-        try self.performKeychainWriteSync {
+        try self.keychainQueue.sync {
             try self.savePairingClosure(pairing)
-        }
-
-        self.lock.withLock {
-            let newIdentity = journalVersionMetadataIdentity(for: pairing)
-            self.state.pairing = pairing
-            self.state.pairingGeneration &+= 1
-            self.state.accessMutationGeneration &+= 1
-            self.state.liveRelayDisabled = false
-            self.state.pairingIdentity = newIdentity
-            self.state.failedDurableClear = nil
+            self.lock.withLock {
+                self.state.pairing = pairing
+                self.state.pairingGeneration &+= 1
+                self.state.accessMutationGeneration &+= 1
+                self.state.liveRelayDisabled = false
+                self.state.pairingIdentity = journalVersionMetadataIdentity(for: pairing)
+                self.state.failedDurableClear = nil
+            }
         }
     }
 
@@ -155,101 +158,60 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
         deviceToken: String,
         expiresAt: String?,
         pairingGen: UInt64,
-        mutationGen: UInt64
+        mutationGen: UInt64,
+        mayPublish: @escaping @Sendable () -> Bool = { true }
     ) async throws -> Bool {
-        let updated: StoredPairing? = self.lock.withLock {
-            guard self.state.pairingGeneration == pairingGen,
-                  self.state.accessMutationGeneration == mutationGen,
-                  let current = self.state.pairing else {
-                return nil
-            }
-            return StoredPairing(
-                instanceID: current.instanceID,
-                homeLabel: current.homeLabel,
-                relayEndpoint: relayOrigin,
-                fingerprint: current.fingerprint,
-                clientCertPEM: current.clientCertPEM,
-                clientKeyPEM: current.clientKeyPEM,
-                caChainPEM: current.caChainPEM,
-                relayEnrollment: .enrolled(deviceToken: deviceToken, expiresAt: expiresAt),
-                localEndpoints: current.localEndpoints,
-                pairedAt: current.pairedAt
-            )
-        }
-        guard let updated else { return false }
-
-        do {
-            try await self.performKeychainWrite {
+        try await self.performMutation(mayPublish: mayPublish) {
+            let snap = self.snapshot()
+            guard snap.pairingGeneration == pairingGen,
+                  snap.accessMutationGeneration == mutationGen,
+                  let current = snap.pairing,
+                  Self.isUnexpired(expiresAt) else { return false }
+            let updated = Self.replacingAccess(current, origin: relayOrigin,
+                enrollment: .enrolled(deviceToken: deviceToken, expiresAt: expiresAt))
+            do {
                 try self.savePairingClosure(updated)
-            }
-        } catch {
-            storeLog.error("commitReadyAccess keychain save failed: \(String(describing: error), privacy: .public)")
-            return false
-        }
-
-        return self.lock.withLock {
-            guard self.state.pairingGeneration == pairingGen,
-                  self.state.accessMutationGeneration == mutationGen else {
+            } catch {
+                storeLog.error("relay access persistence failed")
                 return false
             }
-            self.state.pairing = updated
-            self.state.accessMutationGeneration &+= 1
-            self.state.liveRelayDisabled = false
-            self.state.failedDurableClear = nil
-            return true
+            self.lock.withLock {
+                self.state.pairing = updated
+                self.state.accessMutationGeneration &+= 1
+                self.state.liveRelayDisabled = !Self.isUnexpired(expiresAt)
+                self.state.failedDurableClear = nil
+            }
+            return !self.isLiveRelayDisabled
         }
     }
 
     @discardableResult
-    func disableRelayAccess(pairingGen: UInt64, mutationGen: UInt64) async throws -> Bool {
-        struct PreCheck {
-            let updated: StoredPairing
-            let newMutationGen: UInt64
-        }
-        let preCheck: PreCheck? = self.lock.withLock {
-            guard self.state.pairingGeneration == pairingGen,
-                  self.state.accessMutationGeneration == mutationGen,
-                  let current = self.state.pairing else {
-                return nil
+    func disableRelayAccess(
+        pairingGen: UInt64,
+        mutationGen: UInt64,
+        mayPublish: @escaping @Sendable () -> Bool = { true }
+    ) async throws -> Bool {
+        try await self.performMutation(mayPublish: mayPublish) {
+            let snap = self.snapshot()
+            guard snap.pairingGeneration == pairingGen,
+                  snap.accessMutationGeneration == mutationGen,
+                  let current = snap.pairing else { return false }
+            let updated = Self.replacingAccess(current, enrollment: .unavailable)
+            let nextMutation = self.lock.withLock {
+                self.state.liveRelayDisabled = true
+                self.state.accessMutationGeneration &+= 1
+                return self.state.accessMutationGeneration
             }
-            self.state.liveRelayDisabled = true
-            self.state.accessMutationGeneration &+= 1
-            let newMutationGen = self.state.accessMutationGeneration
-            let updated = StoredPairing(
-                instanceID: current.instanceID,
-                homeLabel: current.homeLabel,
-                relayEndpoint: current.relayEndpoint,
-                fingerprint: current.fingerprint,
-                clientCertPEM: current.clientCertPEM,
-                clientKeyPEM: current.clientKeyPEM,
-                caChainPEM: current.caChainPEM,
-                relayEnrollment: .unavailable,
-                localEndpoints: current.localEndpoints,
-                pairedAt: current.pairedAt
-            )
-            return PreCheck(updated: updated, newMutationGen: newMutationGen)
-        }
-        guard let preCheck else { return false }
-
-        var saveError: (any Error)? = nil
-        do {
-            try await self.performKeychainWrite {
-                try self.savePairingClosure(preCheck.updated)
-            }
-        } catch {
-            saveError = error
-        }
-
-        return try self.lock.withLock {
-            if let saveError {
-                if self.state.pairingGeneration == pairingGen && self.state.accessMutationGeneration == preCheck.newMutationGen {
-                    self.state.failedDurableClear = .uncommittedClear(pairingGen: pairingGen, mutationGen: preCheck.newMutationGen)
+            do {
+                try self.savePairingClosure(updated)
+            } catch {
+                self.lock.withLock {
+                    self.state.failedDurableClear = .uncommittedClear(pairingGen: pairingGen, mutationGen: nextMutation)
                 }
-                throw saveError
+                throw error
             }
-
-            if self.state.pairingGeneration == pairingGen && self.state.accessMutationGeneration == preCheck.newMutationGen {
-                self.state.pairing = preCheck.updated
+            self.lock.withLock {
+                self.state.pairing = updated
                 self.state.failedDurableClear = nil
             }
             return true
@@ -257,48 +219,23 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     }
 
     @discardableResult
-    func retryDurableClear(pairingGen: UInt64, mutationGen: UInt64) async throws -> Bool {
-        let updated: StoredPairing? = self.lock.withLock {
-            guard self.state.pairingGeneration == pairingGen,
-                  self.state.accessMutationGeneration == mutationGen,
-                  self.state.failedDurableClear == .uncommittedClear(pairingGen: pairingGen, mutationGen: mutationGen),
-                  let current = self.state.pairing else {
-                return nil
+    func retryDurableClear(
+        pairingGen: UInt64,
+        mutationGen: UInt64,
+        mayPublish: @escaping @Sendable () -> Bool = { true }
+    ) async throws -> Bool {
+        try await self.performMutation(mayPublish: mayPublish) {
+            let snap = self.snapshot()
+            guard snap.pairingGeneration == pairingGen,
+                  snap.accessMutationGeneration == mutationGen,
+                  snap.failedDurableClear == .uncommittedClear(pairingGen: pairingGen, mutationGen: mutationGen),
+                  let current = snap.pairing else { return false }
+            let updated = Self.replacingAccess(current, enrollment: .unavailable)
+            try self.savePairingClosure(updated)
+            self.lock.withLock {
+                self.state.pairing = updated
+                self.state.failedDurableClear = nil
             }
-            return StoredPairing(
-                instanceID: current.instanceID,
-                homeLabel: current.homeLabel,
-                relayEndpoint: current.relayEndpoint,
-                fingerprint: current.fingerprint,
-                clientCertPEM: current.clientCertPEM,
-                clientKeyPEM: current.clientKeyPEM,
-                caChainPEM: current.caChainPEM,
-                relayEnrollment: .unavailable,
-                localEndpoints: current.localEndpoints,
-                pairedAt: current.pairedAt
-            )
-        }
-        guard let updated else { return false }
-
-        var saveError: (any Error)? = nil
-        do {
-            try await self.performKeychainWrite {
-                try self.savePairingClosure(updated)
-            }
-        } catch {
-            saveError = error
-        }
-
-        return try self.lock.withLock {
-            if let saveError {
-                throw saveError
-            }
-            guard self.state.pairingGeneration == pairingGen,
-                  self.state.accessMutationGeneration == mutationGen else {
-                return false
-            }
-            self.state.pairing = updated
-            self.state.failedDurableClear = nil
             return true
         }
     }
@@ -307,72 +244,63 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     func persistRefreshedPairing(
         _ updated: StoredPairing,
         pairingGen: UInt64,
-        mutationGen: UInt64
+        mutationGen: UInt64,
+        mayPublish: @escaping @Sendable () -> Bool = { true }
     ) async throws -> Bool {
-        let canPersist = self.lock.withLock {
-            self.state.pairingGeneration == pairingGen &&
-            self.state.accessMutationGeneration == mutationGen &&
-            !self.state.liveRelayDisabled &&
-            self.state.pairing?.instanceID == updated.instanceID
-        }
-        guard canPersist else { return false }
-
-        do {
-            try await self.performKeychainWrite {
+        try await self.performMutation(mayPublish: mayPublish) {
+            let snap = self.snapshot()
+            guard snap.pairingGeneration == pairingGen,
+                  snap.accessMutationGeneration == mutationGen,
+                  !snap.isLiveRelayDisabled,
+                  let current = snap.pairing,
+                  current.instanceID == updated.instanceID,
+                  current.clientCertPEM == updated.clientCertPEM,
+                  current.clientKeyPEM == updated.clientKeyPEM,
+                  current.caChainPEM == updated.caChainPEM,
+                  Self.isUnexpired(Self.expiry(of: updated.relayEnrollment)) else { return false }
+            do {
                 try self.savePairingClosure(updated)
-            }
-        } catch {
-            return false
-        }
-
-        return self.lock.withLock {
-            guard self.state.pairingGeneration == pairingGen,
-                  self.state.accessMutationGeneration == mutationGen,
-                  !self.state.liveRelayDisabled,
-                  let current = self.state.pairing,
-                  current.instanceID == updated.instanceID else {
+            } catch {
                 return false
             }
-            self.state.pairing = updated
-            return true
+            self.lock.withLock {
+                self.state.pairing = updated
+                self.state.accessMutationGeneration &+= 1
+                self.state.liveRelayDisabled = !Self.isUnexpired(Self.expiry(of: updated.relayEnrollment))
+                self.state.failedDurableClear = nil
+            }
+            return !self.isLiveRelayDisabled
         }
     }
 
     @discardableResult
-    func revokeIfCurrentGeneration(pairingGen: UInt64, mutationGen: UInt64) async throws -> Bool {
-        let canRevoke = self.lock.withLock {
-            self.state.pairingGeneration == pairingGen &&
-            self.state.accessMutationGeneration == mutationGen
-        }
-        guard canRevoke else { return false }
-
-        do {
-            try await self.performKeychainWrite {
+    func revokeIfCurrentGeneration(
+        pairingGen: UInt64,
+        mutationGen: UInt64,
+        mayPublish: @escaping @Sendable () -> Bool = { true }
+    ) async throws -> Bool {
+        try await self.performMutation(mayPublish: mayPublish) {
+            let snap = self.snapshot()
+            guard snap.pairingGeneration == pairingGen,
+                  snap.accessMutationGeneration == mutationGen else { return false }
+            do {
                 try self.deletePairingClosure()
-            }
-        } catch {
-            return false
-        }
-
-        return self.lock.withLock {
-            guard self.state.pairingGeneration == pairingGen,
-                  self.state.accessMutationGeneration == mutationGen else {
+            } catch {
                 return false
             }
-            self.state.pairing = nil
-            self.state.pairingGeneration &+= 1
-            self.state.accessMutationGeneration &+= 1
-            self.state.liveRelayDisabled = false
-            self.state.pairingIdentity = nil
-            self.state.failedDurableClear = nil
+            self.publishClearedPairing()
             return true
         }
     }
 
     func clearPairing() throws {
-        try self.performKeychainWriteSync {
+        try self.keychainQueue.sync {
             try self.deletePairingClosure()
+            self.publishClearedPairing()
         }
+    }
+
+    private func publishClearedPairing() {
         self.lock.withLock {
             self.state.pairing = nil
             self.state.pairingGeneration &+= 1
@@ -381,5 +309,55 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
             self.state.pairingIdentity = nil
             self.state.failedDurableClear = nil
         }
+    }
+
+    private static func replacingAccess(
+        _ pairing: StoredPairing,
+        origin: String? = nil,
+        enrollment: RelayEnrollment
+    ) -> StoredPairing {
+        StoredPairing(
+            instanceID: pairing.instanceID,
+            homeLabel: pairing.homeLabel,
+            relayEndpoint: origin ?? pairing.relayEndpoint,
+            fingerprint: pairing.fingerprint,
+            clientCertPEM: pairing.clientCertPEM,
+            clientKeyPEM: pairing.clientKeyPEM,
+            caChainPEM: pairing.caChainPEM,
+            relayEnrollment: enrollment,
+            localEndpoints: pairing.localEndpoints,
+            pairedAt: pairing.pairedAt
+        )
+    }
+
+    private static func expiry(of enrollment: RelayEnrollment) -> String? {
+        if case .enrolled(_, let expiresAt) = enrollment { return expiresAt }
+        return nil
+    }
+
+    private static func isUnexpired(_ expiresAt: String?) -> Bool {
+        guard let expiresAt else { return true }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = formatter.date(from: expiresAt) ?? ISO8601DateFormatter().date(from: expiresAt)
+        return date.map { $0 > Date() } ?? false
+    }
+}
+
+nonisolated final class PairingMutationPermit: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private let deadline: ContinuousClock.Instant?
+
+    init(deadline: ContinuousClock.Instant? = nil) {
+        self.deadline = deadline
+    }
+
+    var isValid: Bool {
+        self.lock.withLock { !self.cancelled && (self.deadline.map { ContinuousClock.now < $0 } ?? true) }
+    }
+
+    func cancel() {
+        self.lock.withLock { self.cancelled = true }
     }
 }
