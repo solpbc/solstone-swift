@@ -128,7 +128,7 @@ private struct AddMoreSuggestionsCard: View {
                     .frame(height: 24)
             }
             .padding(ShellMetrics.surfacePadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(ShellMetrics.cardShape)
             .background(Color.deckSurface, in: ShellMetrics.cardShape)
             .overlay {
