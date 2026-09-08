@@ -96,8 +96,14 @@ struct AddMoreView: View {
 /// Matches `SourceRowView`'s card, with `arrow.up.right` in place of `chevron.right`
 /// — this one leaves the app, so it gets the external-link glyph, not the in-app one.
 private struct AddMoreSuggestionsCard: View {
+    @Environment(\.openURL) private var openURL
+
     var body: some View {
-        Link(destination: URL(string: "https://support.solstone.app")!) {
+        // Not `Link`: its label always renders in link-blue, which reads as a
+        // system hyperlink dropped into a deck of cards rather than as one of them.
+        Button {
+            self.openURL(URL(string: "https://support.solstone.app")!)
+        } label: {
             HStack(alignment: .top, spacing: 14) {
                 Image(systemName: "lifepreserver")
                     .font(.system(size: 20, weight: .medium))
@@ -129,6 +135,7 @@ private struct AddMoreSuggestionsCard: View {
                 ShellMetrics.cardShape.stroke(Color.deckHairline, lineWidth: 0.5)
             }
         }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(SourceVocabulary.addMoreSuggestionsTitle). \(SourceVocabulary.addMoreSuggestionsBody)")
         .accessibilityIdentifier("addMore.suggestions")
