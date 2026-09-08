@@ -312,7 +312,8 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
                         await resumePasses.increment()
                         await resumeBarrier.suspend()
                     }
-                case .afterCutIntentCommittedBeforeRouteSwap, .afterSealedOwnerAdopted:
+                case .beforeUncommit, .beforeFinalProvenanceRead,
+                     .afterCutIntentCommittedBeforeRouteSwap, .afterSealedOwnerAdopted:
                     break
                 case .afterSealedCursorAcknowledged, .afterSealedEnvelopeCleaned,
                      .beforeSealedOwnerReleased, .afterSealedOwnerReleased,
@@ -1366,6 +1367,146 @@ final class OmiLaunchCaptureCutoverTests: XCTestCase {
         for itemID in sealedIDs.union(reservedIDs) {
             XCTAssertEqual(Self.requestIDs().filter { $0 == itemID }.count, 1)
         }
+    }
+
+    @MainActor func testExplicitResumeCoalescesBeforeFirstUncommit() async throws {
+        try FileManager.default.createDirectory(at: self.captureRoot, withIntermediateDirectories: true)
+        let manager = OmiSourceManager(defaults: self.defaults(enabled: true), diagnostics: self.diagnostics(),
+                                       clock: MockObserverClock(), bluetoothPort: MockOmiBluetoothPort())
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("coalesced-transfer"))
+        try await harness.engine.initialize()
+        let barrier = CutoverBarrier()
+        let passes = CutoverPassCounter()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager,
+            onReconciliationPhase: { phase in
+                if phase == .beforeUncommit {
+                    await passes.increment()
+                    if await passes.count() == 1 { await barrier.suspend() }
+                }
+            }
+        )
+        let first = Task { @MainActor in await coordinator.reconcile() }
+        try await transferTestWaitFor("first pass before uncommit") { await barrier.waiting() }
+        await coordinator.resumeAfterExplicitEnable()
+        await coordinator.reconcile()
+        let heldPassCount = await passes.count()
+        XCTAssertEqual(heldPassCount, 1, "overlapping requests cannot enter the awaited uncommit interval")
+        await barrier.resume()
+        await first.value
+        try await transferTestWaitFor("one coalesced successor") { await passes.count() == 2 }
+        for _ in 0..<100 { await Task.yield() }
+        let completedPassCount = await passes.count()
+        XCTAssertEqual(completedPassCount, 2)
+    }
+
+    @MainActor func testRecoveredSealedTransferRechecksUntilDeliveryAndStopsWhenDisabled() async throws {
+        let io = FaultInjectingOmiLaunchCaptureIO()
+        let captureClock = MockObserverClock(now: Date(timeIntervalSince1970: 100))
+        let coordinatorClock = MockObserverClock()
+        let generation = UUID()
+        let manager = OmiSourceManager(
+            defaults: self.defaults(enabled: true), diagnostics: self.diagnostics(), clock: captureClock,
+            bluetoothPort: MockOmiBluetoothPort(),
+            launchCaptureIngress: OmiLaunchCaptureIngress(captureRoot: { self.captureRoot },
+                                                         generationID: generation, clock: captureClock, io: io)
+        )
+        manager.enable()
+        let frame = try Self.opusFrame()
+        let peripheralID = UUID()
+        manager.handleAudioData(.payload(Self.marker(packet: 0, epoch: 2_000)), peripheralID: peripheralID)
+        manager.handleAudioData(.payload(Self.packet(1, index: 0, body: frame)), peripheralID: peripheralID)
+        let harness = self.makeHarness(rootURL: self.rootURL.appendingPathComponent("paced-transfer"))
+        try await harness.engine.initialize()
+        await harness.engine.pause()
+        await harness.engine.enableDispatch()
+        var disabledOnce = false
+        var failProvenanceRead = false
+        let provenanceReads = CutoverPassCounter()
+        let passes = CutoverPassCounter()
+        let coordinator = OmiLaunchCaptureCommitCoordinator(
+            rootURL: self.captureRoot, engine: harness.engine, sourceManager: manager,
+            io: io, clock: coordinatorClock,
+            onReconciliationPhase: { phase in
+                if phase == .beforeUncommit { await passes.increment() }
+                if phase == .beforeFinalProvenanceRead {
+                    await provenanceReads.increment()
+                    if failProvenanceRead {
+                        failProvenanceRead = false
+                        io.failNext(.listDirectory)
+                    }
+                }
+                if phase == .afterCutIntentCommittedBeforeRouteSwap,
+                   case .valid(let intent) = OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: io).read() {
+                    _ = manager.completeLaunchCaptureCutover(intent, ingress: OmiLaunchCaptureIngress(
+                        captureRoot: { OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: self.captureRoot) },
+                        generationID: intent.reservedGenerationID, clock: captureClock, io: io))
+                    manager.handleAudioData(.payload(Self.packet(2, index: 0, body: frame)), peripheralID: peripheralID)
+                }
+                if phase == .beforeSealedOwnerReleased, !disabledOnce {
+                    disabledOnce = true
+                    manager.disable()
+                }
+            }
+        )
+        manager.onLaunchCaptureExplicitEnable = { await coordinator.resumeAfterExplicitEnable() }
+        await coordinator.reconcile()
+        XCTAssertTrue(disabledOnce)
+        manager.enable()
+        try await transferTestWaitFor("recovered adoption schedules readiness check") {
+            await MainActor.run { coordinatorClock.pendingSleeperCount == 1 }
+        }
+        let sealedIDs = try Self.materializedIDs(rootURL: self.captureRoot, generationID: generation)
+        XCTAssertFalse(sealedIDs.isEmpty)
+        // A one-off failed directory read must not masquerade as no provenance,
+        // even when the immediately following directory read would succeed.
+        let beforeFaultRead = await provenanceReads.count()
+        failProvenanceRead = true
+        coordinatorClock.advance(by: 1)
+        try await transferTestWaitFor("failed provenance read reached") { await provenanceReads.count() > beforeFaultRead }
+        for _ in 0..<100 { await Task.yield() }
+        XCTAssertEqual(OmiLaunchCaptureCutFinalStore(rootURL: self.captureRoot, io: io).read(), .absent)
+        XCTAssertEqual(coordinatorClock.pendingSleeperCount, 0, "read failures cannot cause a retry spin")
+        await coordinator.resumeAfterExplicitEnable()
+        try await transferTestWaitFor("healthy read restores paced wait") {
+            await MainActor.run { coordinatorClock.pendingSleeperCount == 1 }
+        }
+        for _ in 0..<3 {
+            let queuedIDs = Set((await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)).map(\.itemID))
+            XCTAssertTrue(sealedIDs.isSubset(of: queuedIDs), "real sealed spool work remains outstanding")
+            XCTAssertEqual(OmiLaunchCaptureCutFinalStore(rootURL: self.captureRoot, io: io).read(), .absent)
+            coordinatorClock.advance(by: 1)
+            try await transferTestWaitFor("paced readiness check rearms while transfer is held") {
+                await MainActor.run { coordinatorClock.pendingSleeperCount == 1 }
+            }
+        }
+        manager.disable()
+        let beforeDisablePass = await passes.count()
+        coordinatorClock.advance(by: 1)
+        try await transferTestWaitFor("queued successor wakes after disable") { await passes.count() == beforeDisablePass + 1 }
+        for _ in 0..<100 { await Task.yield() }
+        XCTAssertEqual(coordinatorClock.pendingSleeperCount, 0, "disabled intake cannot spin")
+        XCTAssertTrue(Self.requestIDs().isEmpty)
+        XCTAssertEqual(OmiLaunchCaptureCutFinalStore(rootURL: self.captureRoot, io: io).read(), .absent)
+
+        manager.enable()
+        try await transferTestWaitFor("enabled readiness check") {
+            await MainActor.run { coordinatorClock.pendingSleeperCount == 1 }
+        }
+        await harness.engine.resume()
+        try await transferTestWaitFor("sealed spool drains") {
+            let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.omi)
+            return sealedIDs.isDisjoint(with: Set(snapshots.map(\.itemID)))
+        }
+        coordinatorClock.advance(by: 1)
+        try await transferTestWaitFor("reserved delivery without another enable") { Self.requestIDs().count == 2 }
+        guard case .valid(let intent) = OmiLaunchCaptureCutReservationStore(rootURL: self.captureRoot, io: io).read(),
+              case .valid = OmiLaunchCaptureCutFinalStore(rootURL: self.captureRoot, io: io).read()
+        else { return XCTFail("durable final evidence missing") }
+        let reservedRoot = OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: self.captureRoot)
+        let reservedIDs = try Self.materializedIDs(rootURL: reservedRoot, generationID: intent.reservedGenerationID)
+        XCTAssertFalse(reservedIDs.isEmpty)
+        for itemID in sealedIDs.union(reservedIDs) { XCTAssertEqual(Self.requestIDs().filter { $0 == itemID }.count, 1) }
     }
 
     @MainActor func testLateDisablePreservesOwnerLinkAcrossRestartUntilExplicitEnable() async throws {

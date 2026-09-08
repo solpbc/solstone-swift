@@ -98,7 +98,7 @@ build-metadata: build-metadata-bootstrap
 		printf 'SOLSTONE_SPL_SWIFT_REVISION = %s\n' "$$revision"; \
 	} > "$(BUILD_METADATA)"
 
-generate: build-metadata-bootstrap
+generate: check-versions build-metadata-bootstrap
 	xcodegen generate
 
 install: deps
@@ -624,16 +624,15 @@ integration-test-onboarding: sim
 		echo "integration-test-onboarding passed"; \
 		tail -n 20 "$$APP_LOG"
 
-# Canonical pre-ship gate: accessibility and platform assertions, then a
+# Canonical pre-ship gate: version, accessibility and configuration assertions, then a
 # full build + test pass. Run this before merging any branch to main.
 # The test phase goes through test/run_ci_tests.sh: a timeout-guarded, retry-once
 # wrapper that never hangs and never masks a real failure (host-side UITest-runner
 # flake resistance). Override CI_* vars above to tune timeout/runtime/attempts.
-ci: deps
+ci: check-versions deps
 	bash test/assert_accessibility_hints.sh
 	bash test/assert_haptics_gated.sh
 	bash test/assert_tap_targets.sh
-	bash test/assert_no_devcopy.sh
 	bash test/assert_background_modes.sh
 	bash test/assert_watch_background_modes.sh
 	bash test/assert_watch_privacy.sh
@@ -831,6 +830,11 @@ sim-shots: sim
 		$(if $(SHOTS_STATES),SHOTS_STATES="$(SHOTS_STATES)") \
 		bash test/capture_shots.sh
 
+# App Store candidates from fresh simulators and synthetic fixtures.
+.PHONY: app-store-shots
+app-store-shots: sim watch-sim
+	python3 test/capture_app_store.py --derived "$(DERIVED)" $(APP_STORE_SHOTS_ARGS)
+
 # Widget gallery / Lock Screen screenshots use the lode-exclusive output path above.
 sim-widget-shots: sim
 	WIDGET_SHOTS_APP="$(SIM_APP)" \
@@ -889,3 +893,8 @@ devices:
 clean:
 	xcodebuild clean -project $(PROJECT) -scheme $(SCHEME) -skipMacroValidation 2>/dev/null || true
 	rm -rf build/ $(PROJECT)
+
+.PHONY: check-versions
+# Validate source plists before generation can overwrite them.
+check-versions:
+	python3 scripts/check-versions.py

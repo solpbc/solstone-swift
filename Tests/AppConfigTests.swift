@@ -94,7 +94,12 @@ nonisolated final class AppConfigTests: XCTestCase {
     func testSeedUITestPairingProvidesStoredPairing() {
         let config = self.makeConfig()
 
-        config.seedUITestPairing(journalRoot: "http://127.0.0.1:8676")
+        config.seedUITestPairing(
+            journalRoot: "http://127.0.0.1:8676",
+            homeLabel: "ui-test-solstone",
+            endpointPort: 8676,
+            relayEndpoint: "wss://127.0.0.1:8676"
+        )
 
         XCTAssertTrue(config.isPaired)
         XCTAssertEqual(config.loopbackPort, 8676)

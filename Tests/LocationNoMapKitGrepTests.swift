@@ -43,6 +43,13 @@ nonisolated final class LocationNoMapKitGrepTests: XCTestCase {
         }
     }
 
+    func testMapTokenRequiresAnIdentifierBoundary() {
+        XCTAssertTrue(Self.containsToken("Map(", in: "let view = Map(position: position)"))
+        XCTAssertTrue(Self.containsToken("Map(", in: "SwiftUI.Map(position: position)"))
+        XCTAssertFalse(Self.containsToken("Map(", in: "version.flatMap(sanitizedJournalVersion)"))
+        XCTAssertFalse(Self.containsToken("Map(", in: "values.compactMap(transform)"))
+    }
+
     func testNativeMapTokenMatcherUsesIdentifierBoundaries() {
         for text in ["Map(", "Map (", "SwiftUI.Map(", "let map = Map("] {
             XCTAssertTrue(Self.containsToken("Map(", in: text), text)

@@ -17,6 +17,37 @@ struct SolstoneWatchApp: App {
         defer {
             WatchSignpost.end(bootstrap, fields: WatchSignpostFields(result: .completed))
         }
+#if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--app-store-screenshots") {
+            let session = LiveWatchConnectivitySession(messageSend: { _, _ in })
+            self.notificationScheduler = LiveWatchNotificationScheduler()
+            let model = WatchSessionModel(session: session, relaySender: nil)
+            let saved = ProcessInfo.processInfo.arguments.contains("--screenshot-saved")
+            model.isReachable = !saved
+            let nonce = model.journalVersion.beginReachableSession()
+            let version = WatchJournalVersionPayload(
+                revision: 1, identity: "sample-journal", version: "2.0.0", current: !saved, nonce: nonce
+            )
+            if let data = try? JSONEncoder().encode(version) {
+                model.journalVersion.receive(data, live: !saved)
+            }
+            self._sessionModel = State(initialValue: model)
+            self._captureModel = State(initialValue: WatchCaptureModel(screenshotPresentation:
+                WatchCaptureOwnerPresentation(
+                    status: saved ? .off : .active,
+                    queuedCount: saved ? 3 : 0,
+                    handedOffCount: saved ? 0 : 2,
+                    isSessionRunning: !saved,
+                    sessionStartedAt: saved ? nil : Date().addingTimeInterval(-135),
+                    lastVerifiedAudioAt: saved ? nil : Date()
+                )
+            ))
+            self._backgroundTaskCoordinator = State(initialValue:
+                WatchBackgroundTaskCoordinator(session: session, storageActor: nil)
+            )
+            return
+        }
+#endif
         let session = LiveWatchConnectivitySession()
         self.notificationScheduler = LiveWatchNotificationScheduler()
         UNUserNotificationCenter.current().delegate = self.notificationScheduler
@@ -72,6 +103,9 @@ struct SolstoneWatchApp: App {
         WindowGroup {
             WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
                 .task {
+#if DEBUG && targetEnvironment(simulator)
+                    if ProcessInfo.processInfo.arguments.contains("--app-store-screenshots") { return }
+#endif
                     self.sessionModel.activate()
                 }
         }

@@ -10,6 +10,8 @@ final class OmiLaunchCaptureCommitCoordinator {
     // These are the asynchronous boundaries in owner settlement and cutover.
     // Observing them keeps ordering testable without changing the Transfer APIs.
     enum ReconciliationPhase: Equatable, Hashable, Sendable {
+        case beforeUncommit
+        case beforeFinalProvenanceRead
         case afterCutIntentCommittedBeforeRouteSwap
         case afterSealedOwnerAdopted
         case afterSealedOwnershipVerified
@@ -46,11 +48,6 @@ final class OmiLaunchCaptureCommitCoordinator {
         case failed
     }
 
-    private enum PendingSuccessor {
-        case immediate
-        case delayed
-    }
-
     private struct SettlementHandoff {
         let generationID: UUID
         let envelopeURL: URL
@@ -85,10 +82,13 @@ final class OmiLaunchCaptureCommitCoordinator {
     private let clock: any ObserverClock
     private let onReconciliationPhase: (@MainActor @Sendable (ReconciliationPhase) async -> Void)?
     private let log = Logger(subsystem: "app.solstone.swift", category: "omi-launch-capture")
-    private var reconciliationRequested = false
-    private var successorTask: Task<Void, Never>?
-    private var isReconciling = false
-    private var pendingSuccessor: PendingSuccessor?
+    private lazy var scheduler = OmiReconciliationScheduler(
+        clock: self.clock,
+        pace: Self.reconciliationNoProgressDelay
+    ) { [weak self] in
+        await self?.runPass()
+    }
+    private var pendingRootURL: URL?
     private var cutLifecycle: CutLifecycle = .ordinary
     private var cutReservationProbeFailed = false
     private var pendingCutFinalDefect: OmiLaunchCaptureCutReservationDefect?
@@ -124,23 +124,44 @@ final class OmiLaunchCaptureCommitCoordinator {
         await self.uncommitLaunchCaptureLeftovers()
     }
 
+    /// Runs a reconciliation pass now, or owes one right after the pass already running.
     func reconcile(rootURL: URL? = nil) async {
         if let rootURL {
-            self.rootURL = rootURL
+            self.pendingRootURL = rootURL
+        }
+        await self.scheduler.run()
+    }
+
+    func resumeAfterExplicitEnable() async {
+        guard self.sourceManager.isLaunchCaptureRecoveryEnabled,
+              self.cutLifecycle != .defect
+        else { return }
+        await self.scheduler.run()
+    }
+
+    /// Says another pass is owed. Immediate runs right after the current pass (or now, when
+    /// idle); delayed waits one `reconciliationNoProgressDelay` first. Requests coalesce and
+    /// are never dropped: see `OmiReconciliationScheduler`.
+    private func requestReconciliation(delayed: Bool = false) {
+        self.scheduler.request(delayed ? .paced : .immediate)
+    }
+
+
+    /// One reconciliation pass. Its scheduling exits are unchanged from before the scheduler
+    /// extraction: it commits durable attention for defects it cannot repair, and asks the
+    /// scheduler for a follow-up (immediate, or paced by `requestReconciliation(delayed:)`) only
+    /// where the pre-refactor code already did. Read exits that leave work outstanding stay idle
+    /// pending an external trigger — hardening those is deliberately out of this change.
+    private func runPass() async {
+        if let pendingRootURL {
+            self.pendingRootURL = nil
+            self.rootURL = pendingRootURL
             self.refreshCutReservationState()
         }
-        guard !self.isReconciling else { return }
+        await self.observe(.beforeUncommit)
         await self.uncommitLaunchCaptureLeftovers()
         guard let rootURL = self.rootURL else { return }
         guard !self.cutReservationProbeFailed else { return }
-        self.isReconciling = true
-        defer {
-            self.isReconciling = false
-            if let pendingSuccessor {
-                self.pendingSuccessor = nil
-                self.armReconciliationSuccessor(delayed: pendingSuccessor == .delayed)
-            }
-        }
         guard self.sourceManager.isLaunchCaptureRecoveryEnabled else { return }
 
         guard await self.beginCutIfNeeded() else { return }
@@ -152,15 +173,11 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
 
         self.enumeratedHandoffs = []
-        let reconciliationRoots: [URL]
-        switch self.cutLifecycle {
-        case .reservedSettlement:
-            reconciliationRoots = [rootURL, OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: rootURL)]
-        case .ordinary, .sealedSettlement, .defect:
-            reconciliationRoots = [rootURL]
+        var reconciliationRoots = [rootURL]
+        if case .reservedSettlement = self.cutLifecycle {
+            reconciliationRoots.append(OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: rootURL))
         }
-        let enumeration = self.enumerateLinkedIDs(rootURLs: reconciliationRoots)
-        switch enumeration {
+        switch self.enumerateLinkedIDs(rootURLs: reconciliationRoots) {
         case .unknown:
             return
         case .scannedNothingLinked:
@@ -169,11 +186,20 @@ final class OmiLaunchCaptureCommitCoordinator {
             self.enumeratedHandoffs = handoffs
         }
 
-        guard var generationIDs = self.generationIDs(rootURL: rootURL) else { return }
         let activeGenerationID = self.sourceManager.activeLaunchCaptureGenerationID
         let sealedGenerationID = self.cutLifecycle.intent?.sealedGenerationID ?? activeGenerationID
+        var plan: [(rootURL: URL, generationIDs: [UUID])] = []
+        guard var primaryGenerationIDs = self.generationIDs(rootURL: rootURL) else { return }
         if let sealedGenerationID {
-            generationIDs.insert(sealedGenerationID)
+            primaryGenerationIDs.insert(sealedGenerationID)
+        }
+        let primaryOrdering = self.generationsInCaptureOrder(primaryGenerationIDs, rootURL: rootURL)
+        guard !primaryOrdering.hasUnreadableHeader else { return }
+        plan.append((rootURL, primaryOrdering.generationIDs))
+        if case .reservedSettlement = self.cutLifecycle {
+            let reservedRoot = OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: rootURL)
+            guard let reservedIDs = self.generationIDs(rootURL: reservedRoot) else { return }
+            plan.append((reservedRoot, self.generationsInCaptureOrder(reservedIDs, rootURL: reservedRoot).generationIDs))
         }
 
         var activeResult: (result: OmiLaunchCaptureMaterializationResult, reader: OmiLaunchCaptureLeaseReader)?
@@ -182,54 +208,36 @@ final class OmiLaunchCaptureCommitCoordinator {
         var shouldDelayRetry = false
         var sawBoundary = false
         var failed = false
-        let ordering = self.generationsInCaptureOrder(generationIDs, rootURL: rootURL)
-        guard !ordering.hasUnreadableHeader else { return }
-        for generationID in ordering.generationIDs {
-            switch await self.reconcile(generationID: generationID, rootURL: rootURL) {
-            case .settled(let result, let reader):
-                self.deliverReplayMarkers(result.markers, reader: reader)
-                settledReaders.append((rootURL, generationID, reader))
-                if generationID == sealedGenerationID {
-                    activeResult = (result, reader)
-                }
-                self.dropMaterializerSession(reason: "settled")
-            case .retryRequired(let result, let reader):
-                self.deliverReplayMarkers(result.markers, reader: reader)
-                shouldRetry = true
-            case .retryDelayed(let result, let reader):
-                self.deliverReplayMarkers(result.markers, reader: reader)
-                shouldRetry = true
-                shouldDelayRetry = true
-            case .held:
-                // A held owner leaves the durable frontier unchanged. Discard the
-                // in-memory tail so an explicit resume re-derives its deterministic
-                // artifact and owner from that frontier.
-                self.dropMaterializerSession(reason: "held")
-            case .boundary:
-                sawBoundary = true
-                self.dropMaterializerSession(reason: "boundary")
-            case .failed:
-                failed = true
-                self.dropMaterializerSession(reason: "terminal failure")
-            }
-        }
-
-        if case .reservedSettlement(let intent, _) = self.cutLifecycle {
-            let reservedRoot = OmiLaunchCaptureCutReservationFormat.reservedRootURL(rootURL: rootURL)
-            guard let reservedIDs = self.generationIDs(rootURL: reservedRoot) else { return }
-            for generationID in self.generationsInCaptureOrder(reservedIDs, rootURL: reservedRoot).generationIDs {
-                switch await self.reconcile(generationID: generationID, rootURL: reservedRoot) {
+        for (root, generationIDs) in plan {
+            for generationID in generationIDs {
+                switch await self.reconcile(generationID: generationID, rootURL: root) {
                 case .settled(let result, let reader):
-                    self.deliverReplayMarkers(result.markers, reader: reader)
-                    settledReaders.append((reservedRoot, generationID, reader))
-                    self.dropMaterializerSession(reason: "reserved settled")
-                case .retryRequired, .retryDelayed:
+                    if root == rootURL { self.deliverReplayMarkers(result.markers, reader: reader) }
+                    settledReaders.append((root, generationID, reader))
+                    if root == rootURL, generationID == sealedGenerationID {
+                        activeResult = (result, reader)
+                    }
+                    self.dropMaterializerSession(reason: "settled")
+                case .retryRequired(let result, let reader):
+                    if root == rootURL { self.deliverReplayMarkers(result.markers, reader: reader) }
                     shouldRetry = true
-                case .held, .boundary, .failed:
+                case .retryDelayed(let result, let reader):
+                    if root == rootURL { self.deliverReplayMarkers(result.markers, reader: reader) }
+                    shouldRetry = true
+                    shouldDelayRetry = true
+                case .held:
+                    // A held owner leaves the durable frontier unchanged. Discard the
+                    // in-memory tail so an explicit resume re-derives its deterministic
+                    // artifact and owner from that frontier.
+                    self.dropMaterializerSession(reason: "held")
+                case .boundary:
+                    sawBoundary = true
+                    self.dropMaterializerSession(reason: "boundary")
+                case .failed:
                     failed = true
+                    self.dropMaterializerSession(reason: "terminal failure")
                 }
             }
-            _ = intent
         }
 
         let unsettledLinkedGenerationIDs = await self.settleAttachedHandoffs()
@@ -247,21 +255,16 @@ final class OmiLaunchCaptureCommitCoordinator {
             }
         }
 
+        // idle: a boundary or terminal failure committed its own attention item, or a
+        // per-generation decision failed closed; both wait for a person or a new trigger.
         guard !failed, !sawBoundary else { return }
         guard !shouldRetry else {
             self.requestReconciliation(delayed: shouldDelayRetry)
             return
         }
+        // idle: the sealed generation was held (capture went off mid-pass).
         guard let activeResult else { return }
         await self.finishCutoverIfCurrent(result: activeResult.result, reader: activeResult.reader)
-    }
-
-    func resumeAfterExplicitEnable() async {
-        guard self.sourceManager.isLaunchCaptureRecoveryEnabled,
-              !self.isReconciling,
-              self.cutLifecycle != .defect
-        else { return }
-        await self.reconcile()
     }
 
     private func reconcile(generationID: UUID, rootURL: URL) async -> GenerationOutcome {
@@ -888,47 +891,6 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
-    private func commitSettlementAttention(_ handoff: SettlementHandoff, ownerItemID: UUID, action: String) async {
-        let itemID = Self.settlementFailureItemID(
-            generationID: handoff.generationID,
-            ordinal: handoff.partitionOrdinal,
-            ownerItemID: ownerItemID,
-            action: action
-        )
-        let startedAt = Date(timeIntervalSince1970: 0)
-        let sidecar = ChunkSidecar(
-            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
-            day: ObserverSegmentNaming.dayString(for: startedAt),
-            chunkIndex: Int(handoff.partitionOrdinal),
-            startedAt: startedAt,
-            durationS: 0,
-            sessionID: handoff.generationID,
-            mode: .meeting,
-            locationJSONL: nil
-        )
-        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
-        manifest.payloadParts = []
-        manifest.diskState = .attention
-        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
-        switch ownership {
-        case .ownedInQueued, .ownedInAttention:
-            return
-        case .notFound:
-            do {
-                _ = try await self.engine.enqueueAttention(
-                    manifest: manifest,
-                    payloadFileURLs: [:],
-                    reason: "launch_capture_settlement_\(action)_failed",
-                    detail: "generation=\(handoff.generationID.uuidString.lowercased()) partition=\(handoff.partitionOrdinal) item=\(ownerItemID.uuidString.lowercased()) action=\(action)"
-                )
-            } catch {
-                self.log.error("launch capture settlement attention failed")
-            }
-        case .stagingOnly, .salvageOnly, .conflict, .none:
-            self.log.error("launch capture settlement attention ownership failed")
-        }
-    }
-
     private func deliverReplayMarkers(_ markers: [OmiLaunchCaptureMarkerObservation], reader: OmiLaunchCaptureLeaseReader?) {
         guard !markers.isEmpty else { return }
         let filtered: [OmiLaunchCaptureMarkerObservation]
@@ -1029,46 +991,6 @@ final class OmiLaunchCaptureCommitCoordinator {
         }
     }
 
-    private func requestReconciliation(delayed: Bool = false) {
-        if self.isReconciling {
-            guard self.pendingSuccessor == nil else { return }
-            self.pendingSuccessor = delayed ? .delayed : .immediate
-            return
-        }
-        self.armReconciliationSuccessor(delayed: delayed)
-    }
-
-    private func armReconciliationSuccessor(delayed: Bool) {
-        guard !self.reconciliationRequested else { return }
-        self.reconciliationRequested = true
-        if delayed {
-            let clock = self.clock
-            self.successorTask = Task { @MainActor [weak self, clock] in
-                try? await clock.sleep(for: Self.reconciliationNoProgressDelay)
-                guard let self else { return }
-                await self.runReconciliationSuccessor()
-            }
-        } else {
-            // An immediate successor retains the coordinator only until it runs. This
-            // keeps a caller that has just requested reconciliation alive through the
-            // next drain batch without retaining a delayed task across teardown.
-            self.successorTask = Task { @MainActor in
-                await self.runReconciliationSuccessor()
-            }
-        }
-    }
-
-    private func runReconciliationSuccessor() async {
-        guard !Task.isCancelled else {
-            self.reconciliationRequested = false
-            self.successorTask = nil
-            return
-        }
-        self.reconciliationRequested = false
-        self.successorTask = nil
-        await self.reconcile()
-    }
-
     private func refreshCutReservationState() {
         guard let rootURL else { return }
         let reservationURL = OmiLaunchCaptureCutReservationFormat.fileURL(rootURL: rootURL)
@@ -1144,6 +1066,7 @@ final class OmiLaunchCaptureCommitCoordinator {
               scan.verifiedPrefixNextSequence == cursor.acknowledgedPrefixNextSequence,
               scan.verifiedPrefixEndOffset == cursor.acknowledgedPrefixEndOffset
         else { return false }
+        await self.observe(.beforeFinalProvenanceRead)
         guard let provenanceIDs = self.sealedProvenanceIDs(rootURL: rootURL, generationID: intent.sealedGenerationID) else { return false }
         let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
             .appendingPathComponent(intent.sealedGenerationID.uuidString, isDirectory: true)
@@ -1152,7 +1075,14 @@ final class OmiLaunchCaptureCommitCoordinator {
         // Snapshot absence is the approved spool bar, not delivery evidence.  An
         // out-of-band post-release drop also removes an item; this wave intentionally
         // does not distinguish that user/API discard from terminal delivery.
-        return provenanceIDs.isDisjoint(with: snapshotIDs)
+        let spoolIsClear = provenanceIDs.isDisjoint(with: snapshotIDs)
+        if !spoolIsClear, self.sourceManager.isLaunchCaptureRecoveryEnabled {
+            // Adoption can return before asynchronous delivery removes the sealed
+            // item. Keep reevaluating this durable gate until that work finishes;
+            // neither a recovered handoff nor a slow transfer owes another enable.
+            self.requestReconciliation(delayed: true)
+        }
+        return spoolIsClear
     }
 
     private func finalMatchesSealedCapture(_ final: OmiLaunchCaptureCutFinal, rootURL: URL) -> Bool {
@@ -1165,7 +1095,7 @@ final class OmiLaunchCaptureCommitCoordinator {
     private func sealedProvenanceIDs(rootURL: URL, generationID: UUID) -> Set<UUID>? {
         let directory = rootURL.appendingPathComponent(OmiLaunchCaptureFormat.materializedDirectoryName, isDirectory: true)
             .appendingPathComponent(generationID.uuidString, isDirectory: true)
-        guard let files = try? self.io.contentsOfDirectory(at: directory) else { return Set() }
+        guard let files = try? self.io.contentsOfDirectory(at: directory) else { return nil }
         var ids: Set<UUID> = []
         for file in files where file.pathExtension == OmiLaunchCaptureMaterializationProvenance.pathExtension {
             guard let provenance = try? OmiLaunchCaptureMaterializationProvenanceStore.read(from: file),
@@ -1184,10 +1114,6 @@ final class OmiLaunchCaptureCommitCoordinator {
         return ids
     }
 
-    deinit {
-        self.successorTask?.cancel()
-    }
-
     private func isSealed(_ generationID: UUID) -> Bool {
         if case .ordinary = self.cutLifecycle { return true }
         return self.cutLifecycle.intent?.sealedGenerationID == generationID
@@ -1204,318 +1130,160 @@ final class OmiLaunchCaptureCommitCoordinator {
         self.log.debug("launch capture materializer session dropped: \(reason, privacy: .public)")
     }
 
+    // MARK: - durable attention items
+
+    /// Records one payload-free attention item for a defect the coordinator cannot repair.
+    /// `itemID` is derived from the defect's identity, so a repeat across passes or restarts
+    /// dedupes against the item TransferEngine already owns. Returns false only when the
+    /// engine could not take the item.
+    private func commitAttention(itemID: UUID, sessionID: UUID, chunkIndex: Int, reason: String, detail: String) async -> Bool {
+        let startedAt = Date(timeIntervalSince1970: 0)
+        let sidecar = ChunkSidecar(
+            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
+            day: ObserverSegmentNaming.dayString(for: startedAt),
+            chunkIndex: chunkIndex,
+            startedAt: startedAt,
+            durationS: 0,
+            sessionID: sessionID,
+            mode: .meeting,
+            locationJSONL: nil
+        )
+        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
+        manifest.payloadParts = []
+        manifest.diskState = .attention
+        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
+        switch ownership {
+        case .ownedInQueued, .ownedInAttention:
+            return true
+        case .notFound:
+            do {
+                _ = try await self.engine.enqueueAttention(
+                    manifest: manifest,
+                    payloadFileURLs: [:],
+                    reason: reason,
+                    detail: detail
+                )
+                return true
+            } catch {
+                self.log.error("launch capture attention failed: \(reason, privacy: .public)")
+                return false
+            }
+        case .stagingOnly, .salvageOnly, .conflict, .none:
+            self.log.error("launch capture attention ownership failed: \(reason, privacy: .public)")
+            return false
+        }
+    }
+
+    private func commitSettlementAttention(_ handoff: SettlementHandoff, ownerItemID: UUID, action: String) async {
+        _ = await self.commitAttention(
+            itemID: Self.settlementFailureItemID(
+                generationID: handoff.generationID,
+                ordinal: handoff.partitionOrdinal,
+                ownerItemID: ownerItemID,
+                action: action
+            ),
+            sessionID: handoff.generationID,
+            chunkIndex: Int(handoff.partitionOrdinal),
+            reason: "launch_capture_settlement_\(action)_failed",
+            detail: "generation=\(handoff.generationID.uuidString.lowercased()) partition=\(handoff.partitionOrdinal) item=\(ownerItemID.uuidString.lowercased()) action=\(action)"
+        )
+    }
+
     private func commitBoundary(scan: OmiLaunchCaptureScanResult, generationID: UUID) async -> Bool {
         guard let boundarySequence = scan.boundarySequence else {
             return false
         }
-        let itemID = Self.boundaryItemID(generationID: generationID, sequence: boundarySequence, offset: scan.boundaryOffset ?? scan.verifiedPrefixEndOffset)
-        let startedAt = Date(timeIntervalSince1970: 0)
-        let sidecar = ChunkSidecar(
-            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
-            day: ObserverSegmentNaming.dayString(for: startedAt),
-            chunkIndex: Int.max,
-            startedAt: startedAt,
-            durationS: 0,
+        return await self.commitAttention(
+            itemID: Self.boundaryItemID(generationID: generationID, sequence: boundarySequence, offset: scan.boundaryOffset ?? scan.verifiedPrefixEndOffset),
             sessionID: generationID,
-            mode: .meeting,
-            locationJSONL: nil
+            chunkIndex: Int.max,
+            reason: "launch_capture_boundary",
+            detail: "generation=\(generationID.uuidString.lowercased()) boundary_sequence=\(boundarySequence) reason=\(scan.boundaryReason?.rawValue ?? "unknown")"
         )
-        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
-        manifest.payloadParts = []
-        manifest.diskState = .attention
-        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
-        switch ownership {
-        case .ownedInQueued, .ownedInAttention:
-            return true
-        case .notFound:
-            let reason = scan.boundaryReason?.rawValue ?? "unknown"
-            do {
-                _ = try await self.engine.enqueueAttention(
-                    manifest: manifest,
-                    payloadFileURLs: [:],
-                    reason: "launch_capture_boundary",
-                    detail: "generation=\(generationID.uuidString.lowercased()) boundary_sequence=\(boundarySequence) reason=\(reason)"
-                )
-                return true
-            } catch {
-                self.log.error("launch capture boundary attention failed")
-                return false
-            }
-        case .stagingOnly, .salvageOnly, .conflict, .none:
-            return false
-        }
     }
 
     private func commitUnreadableCursor(defect: OmiLaunchCaptureCursorDefect, generationID: UUID) async {
-        let itemID = Self.unreadableCursorItemID(generationID: generationID, defect: defect)
-        let startedAt = Date(timeIntervalSince1970: 0)
-        let sidecar = ChunkSidecar(
-            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
-            day: ObserverSegmentNaming.dayString(for: startedAt),
-            chunkIndex: Int.max,
-            startedAt: startedAt,
-            durationS: 0,
+        _ = await self.commitAttention(
+            itemID: Self.unreadableCursorItemID(generationID: generationID, defect: defect),
             sessionID: generationID,
-            mode: .meeting,
-            locationJSONL: nil
+            chunkIndex: Int.max,
+            reason: "launch_capture_cursor_unreadable",
+            detail: "generation=\(generationID.uuidString.lowercased()) cursor_defect=\(defect.reason.rawValue)"
         )
-        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
-        manifest.payloadParts = []
-        manifest.diskState = .attention
-        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
-        switch ownership {
-        case .ownedInQueued, .ownedInAttention:
-            return
-        case .notFound:
-            do {
-                _ = try await self.engine.enqueueAttention(
-                    manifest: manifest,
-                    payloadFileURLs: [:],
-                    reason: "launch_capture_cursor_unreadable",
-                    detail: "generation=\(generationID.uuidString.lowercased()) cursor_defect=\(defect.reason.rawValue)"
-                )
-            } catch {
-                self.log.error("launch capture cursor unreadable attention failed")
-            }
-        case .stagingOnly, .salvageOnly, .conflict, .none:
-            self.log.error("launch capture cursor unreadable ownership failed")
-        }
     }
 
     private func commitUnreadableCutReservation(_ defect: OmiLaunchCaptureCutReservationDefect) async {
         let itemID = Self.unreadableCutReservationItemID(defect: defect)
-        let startedAt = Date(timeIntervalSince1970: 0)
-        let sidecar = ChunkSidecar(
-            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
-            day: ObserverSegmentNaming.dayString(for: startedAt),
-            chunkIndex: Int.max,
-            startedAt: startedAt,
-            durationS: 0,
+        _ = await self.commitAttention(
+            itemID: itemID,
             sessionID: itemID,
-            mode: .meeting,
-            locationJSONL: nil
+            chunkIndex: Int.max,
+            reason: "launch_capture_cut_reservation_unreadable",
+            detail: "cut_reservation_defect=\(defect.reason.rawValue)"
         )
-        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
-        manifest.payloadParts = []
-        manifest.diskState = .attention
-        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
-        switch ownership {
-        case .ownedInQueued, .ownedInAttention:
-            return
-        case .notFound:
-            do {
-                _ = try await self.engine.enqueueAttention(
-                    manifest: manifest,
-                    payloadFileURLs: [:],
-                    reason: "launch_capture_cut_reservation_unreadable",
-                    detail: "cut_reservation_defect=\(defect.reason.rawValue)"
-                )
-            } catch {
-                self.log.error("launch capture cut reservation unreadable attention failed")
-            }
-        case .stagingOnly, .salvageOnly, .conflict, .none:
-            self.log.error("launch capture cut reservation unreadable ownership failed")
-        }
     }
 
     private func commitCutFinalDefect(_ defect: OmiLaunchCaptureCutReservationDefect) async {
         let itemID = Self.cutFinalDefectItemID(defect: defect)
-        let startedAt = Date(timeIntervalSince1970: 0)
-        let sidecar = ChunkSidecar(
-            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
-            day: ObserverSegmentNaming.dayString(for: startedAt),
-            chunkIndex: Int.max,
-            startedAt: startedAt,
-            durationS: 0,
+        _ = await self.commitAttention(
+            itemID: itemID,
             sessionID: itemID,
-            mode: .meeting,
-            locationJSONL: nil
+            chunkIndex: Int.max,
+            reason: "launch_capture_cut_final_invalid",
+            detail: "cut_final_defect=\(defect.reason.rawValue)"
         )
-        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
-        manifest.payloadParts = []
-        manifest.diskState = .attention
-        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
-        switch ownership {
-        case .ownedInQueued, .ownedInAttention:
-            return
-        case .notFound:
-            do {
-                _ = try await self.engine.enqueueAttention(
-                    manifest: manifest,
-                    payloadFileURLs: [:],
-                    reason: "launch_capture_cut_final_invalid",
-                    detail: "cut_final_defect=\(defect.reason.rawValue)"
-                )
-            } catch {
-                self.log.error("launch capture cut final attention failed")
-            }
-        case .stagingOnly, .salvageOnly, .conflict, .none:
-            self.log.error("launch capture cut final ownership failed")
-        }
     }
 
     private func commitCutoverArmFailure(_ intent: OmiLaunchCaptureCutReservation) async -> Bool {
-        let itemID = Self.cutoverArmFailureItemID(intent: intent)
-        let startedAt = Date(timeIntervalSince1970: 0)
-        let sidecar = ChunkSidecar(
-            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
-            day: ObserverSegmentNaming.dayString(for: startedAt),
-            chunkIndex: Int.max,
-            startedAt: startedAt,
-            durationS: 0,
+        await self.commitAttention(
+            itemID: Self.cutoverArmFailureItemID(intent: intent),
             sessionID: intent.reservedGenerationID,
-            mode: .meeting,
-            locationJSONL: nil
+            chunkIndex: Int.max,
+            reason: "launch_capture_cut_reservation_arm_failed",
+            detail: "sealed_generation=\(intent.sealedGenerationID.uuidString.lowercased()) reserved_generation=\(intent.reservedGenerationID.uuidString.lowercased()) attempts=\(Self.cutoverArmRetryLimit)"
         )
-        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
-        manifest.payloadParts = []
-        manifest.diskState = .attention
-        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
-        switch ownership {
-        case .ownedInQueued, .ownedInAttention:
-            return true
-        case .notFound:
-            do {
-                _ = try await self.engine.enqueueAttention(
-                    manifest: manifest,
-                    payloadFileURLs: [:],
-                    reason: "launch_capture_cut_reservation_arm_failed",
-                    detail: "sealed_generation=\(intent.sealedGenerationID.uuidString.lowercased()) reserved_generation=\(intent.reservedGenerationID.uuidString.lowercased()) attempts=\(Self.cutoverArmRetryLimit)"
-                )
-                return true
-            } catch {
-                self.log.error("launch capture cut reservation arm attention failed")
-                return false
-            }
-        case .stagingOnly, .salvageOnly, .conflict, .none:
-            self.log.error("launch capture cut reservation arm attention ownership failed")
-            return false
-        }
     }
 
     private func commitOrphanRepairFailures(_ failures: [OmiLaunchCaptureOrphanRepairFailure], generationID: UUID) async -> Bool {
         for failure in failures {
-            let startedAt = Date(timeIntervalSince1970: 0)
-            let attentionID = Self.orphanRepairFailureItemID(generationID: generationID, ordinal: failure.ordinal, itemID: failure.itemID)
-            let sidecar = ChunkSidecar(
-                segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
-                day: ObserverSegmentNaming.dayString(for: startedAt),
-                chunkIndex: failure.ordinal,
-                startedAt: startedAt,
-                durationS: 0,
+            let committed = await self.commitAttention(
+                itemID: Self.orphanRepairFailureItemID(generationID: generationID, ordinal: failure.ordinal, itemID: failure.itemID),
                 sessionID: generationID,
-                mode: .meeting,
-                locationJSONL: nil
+                chunkIndex: failure.ordinal,
+                reason: "launch_capture_orphan_repair_failed",
+                detail: "generation=\(generationID.uuidString.lowercased()) ordinal=\(failure.ordinal) item=\(failure.itemID.uuidString.lowercased())"
             )
-            var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: attentionID, sidecar: sidecar)
-            manifest.payloadParts = []
-            manifest.diskState = .attention
-            let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
-            switch ownership {
-            case .ownedInQueued, .ownedInAttention:
-                continue
-            case .notFound:
-                do {
-                    _ = try await self.engine.enqueueAttention(
-                        manifest: manifest,
-                        payloadFileURLs: [:],
-                        reason: "launch_capture_orphan_repair_failed",
-                        detail: "generation=\(generationID.uuidString.lowercased()) ordinal=\(failure.ordinal) item=\(failure.itemID.uuidString.lowercased())"
-                    )
-                } catch {
-                    self.log.error("launch capture orphan repair attention failed")
-                    return false
-                }
-            case .stagingOnly, .salvageOnly, .conflict, .none:
-                self.log.error("launch capture orphan repair ownership failed")
-                return false
-            }
+            guard committed else { return false }
         }
         return true
     }
 
     private func commitMaterializationFailure(_ failure: OmiLaunchCaptureMaterializationFailure, generationID: UUID) async -> Bool {
-        let startedAt = Date(timeIntervalSince1970: 0)
-        let itemID = Self.materializationFailureItemID(generationID: generationID, ordinal: failure.partitionOrdinal)
-        let sidecar = ChunkSidecar(
-            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
-            day: ObserverSegmentNaming.dayString(for: startedAt),
-            chunkIndex: failure.partitionOrdinal,
-            startedAt: startedAt,
-            durationS: 0,
+        await self.commitAttention(
+            itemID: Self.materializationFailureItemID(generationID: generationID, ordinal: failure.partitionOrdinal),
             sessionID: generationID,
-            mode: .meeting,
-            locationJSONL: nil
+            chunkIndex: failure.partitionOrdinal,
+            reason: "launch_capture_materialization_failed",
+            detail: "generation=\(generationID.uuidString.lowercased()) partition=\(failure.partitionOrdinal) cause=\(failure.reason)"
         )
-        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
-        manifest.payloadParts = []
-        manifest.diskState = .attention
-        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
-        switch ownership {
-        case .ownedInQueued, .ownedInAttention:
-            return true
-        case .notFound:
-            do {
-                _ = try await self.engine.enqueueAttention(
-                    manifest: manifest,
-                    payloadFileURLs: [:],
-                    reason: "launch_capture_materialization_failed",
-                    detail: "generation=\(generationID.uuidString.lowercased()) partition=\(failure.partitionOrdinal) cause=\(failure.reason)"
-                )
-                return true
-            } catch {
-                self.log.error("launch capture materialization attention failed")
-                return false
-            }
-        case .stagingOnly, .salvageOnly, .conflict, .none:
-            self.log.error("launch capture materialization ownership failed")
-            return false
-        }
     }
 
     private func commitNoProgress(generationID: UUID, reader: OmiLaunchCaptureLeaseReader) async -> Bool {
         guard let cursor = reader.cursor() else { return false }
-        let itemID = Self.noProgressItemID(
-            generationID: generationID,
-            sequence: cursor.materializedPrefixNextSequence,
-            offset: cursor.materializedPrefixEndOffset
-        )
-        let startedAt = Date(timeIntervalSince1970: 0)
-        let sidecar = ChunkSidecar(
-            segment: ObserverSegmentNaming.segmentString(for: startedAt, durationSeconds: 0),
-            day: ObserverSegmentNaming.dayString(for: startedAt),
-            chunkIndex: Int.max,
-            startedAt: startedAt,
-            durationS: 0,
+        return await self.commitAttention(
+            itemID: Self.noProgressItemID(
+                generationID: generationID,
+                sequence: cursor.materializedPrefixNextSequence,
+                offset: cursor.materializedPrefixEndOffset
+            ),
             sessionID: generationID,
-            mode: .meeting,
-            locationJSONL: nil
+            chunkIndex: Int.max,
+            reason: "launch_capture_no_progress",
+            detail: "generation=\(generationID.uuidString.lowercased()) sequence=\(cursor.materializedPrefixNextSequence)"
         )
-        var manifest = ObserverAudioTransferEnqueuer.makeOmiManifest(itemID: itemID, sidecar: sidecar)
-        manifest.payloadParts = []
-        manifest.diskState = .attention
-        let ownership = try? await self.engine.verifyOwnership(expectedManifest: manifest, expectedPayloadSourceURLs: [:])
-        switch ownership {
-        case .ownedInQueued, .ownedInAttention:
-            return true
-        case .notFound:
-            do {
-                _ = try await self.engine.enqueueAttention(
-                    manifest: manifest,
-                    payloadFileURLs: [:],
-                    reason: "launch_capture_no_progress",
-                    detail: "generation=\(generationID.uuidString.lowercased()) sequence=\(cursor.materializedPrefixNextSequence)"
-                )
-                return true
-            } catch {
-                self.log.error("launch capture no-progress attention failed")
-                return false
-            }
-        case .stagingOnly, .salvageOnly, .conflict, .none:
-            self.log.error("launch capture no-progress ownership failed")
-            return false
-        }
     }
+
+    // MARK: - durable state reads
 
     private func enumerateLinkedIDs(rootURLs: [URL]) -> EnumerationResult {
         var handoffs: [LinkedHandoff] = []
@@ -1591,37 +1359,42 @@ final class OmiLaunchCaptureCommitCoordinator {
         return (ordered, startTimes.values.contains(Int64.max))
     }
 
-    private static func boundaryItemID(generationID: UUID, sequence: UInt64, offset: Int) -> UUID {
-        var data = Data("omi-launch-capture-boundary-v1".utf8)
-        data.append(uuidBytes: generationID)
-        data.appendLittleEndian(sequence)
-        data.appendLittleEndian(UInt64(max(offset, 0)))
+    // MARK: - attention item identity
+
+    /// A stable, v5-shaped UUID from a domain tag plus the defect's identifying bytes. The
+    /// same inputs must always produce the same id: it is what dedupes attention across
+    /// passes and restarts.
+    private static func derivedItemID(_ domain: String, _ body: (inout Data) -> Void) -> UUID {
+        var data = Data(domain.utf8)
+        body(&data)
         var bytes = Array(SHA256.hash(data: data).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50
         bytes[8] = (bytes[8] & 0x3F) | 0x80
         return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+    }
+
+    private static func boundaryItemID(generationID: UUID, sequence: UInt64, offset: Int) -> UUID {
+        self.derivedItemID("omi-launch-capture-boundary-v1") {
+            $0.append(uuidBytes: generationID)
+            $0.appendLittleEndian(sequence)
+            $0.appendLittleEndian(UInt64(max(offset, 0)))
+        }
     }
 
     private static func unreadableCursorItemID(generationID: UUID, defect: OmiLaunchCaptureCursorDefect) -> UUID {
         // Identity is intentionally bounded to the first cursor format plus one byte; changes beyond that prefix dedupe.
-        var data = Data("omi-launch-capture-cursor-unreadable-v1".utf8)
-        data.append(uuidBytes: generationID)
-        data.append(Data(defect.reason.rawValue.utf8))
-        data.append(defect.contentDigest)
-        var bytes = Array(SHA256.hash(data: data).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        self.derivedItemID("omi-launch-capture-cursor-unreadable-v1") {
+            $0.append(uuidBytes: generationID)
+            $0.append(Data(defect.reason.rawValue.utf8))
+            $0.append(defect.contentDigest)
+        }
     }
 
     private static func unreadableCutReservationItemID(defect: OmiLaunchCaptureCutReservationDefect) -> UUID {
-        var data = Data("omi-launch-capture-cut-reservation-unreadable-v1".utf8)
-        data.append(Data(defect.reason.rawValue.utf8))
-        data.append(defect.contentDigest)
-        var bytes = Array(SHA256.hash(data: data).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        self.derivedItemID("omi-launch-capture-cut-reservation-unreadable-v1") {
+            $0.append(Data(defect.reason.rawValue.utf8))
+            $0.append(defect.contentDigest)
+        }
     }
 
     private static func finalMismatchDefect(_ final: OmiLaunchCaptureCutFinal) -> OmiLaunchCaptureCutReservationDefect {
@@ -1632,66 +1405,48 @@ final class OmiLaunchCaptureCommitCoordinator {
     }
 
     private static func cutFinalDefectItemID(defect: OmiLaunchCaptureCutReservationDefect) -> UUID {
-        var data = Data("omi-launch-capture-cut-final-invalid-v1".utf8)
-        data.append(Data(defect.reason.rawValue.utf8))
-        data.append(defect.contentDigest)
-        var bytes = Array(SHA256.hash(data: data).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        self.derivedItemID("omi-launch-capture-cut-final-invalid-v1") {
+            $0.append(Data(defect.reason.rawValue.utf8))
+            $0.append(defect.contentDigest)
+        }
     }
 
     private static func cutoverArmFailureItemID(intent: OmiLaunchCaptureCutReservation) -> UUID {
-        var data = Data("omi-launch-capture-cut-reservation-arm-failed-v1".utf8)
-        data.append(uuidBytes: intent.sealedGenerationID)
-        data.append(uuidBytes: intent.reservedGenerationID)
-        var bytes = Array(SHA256.hash(data: data).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        self.derivedItemID("omi-launch-capture-cut-reservation-arm-failed-v1") {
+            $0.append(uuidBytes: intent.sealedGenerationID)
+            $0.append(uuidBytes: intent.reservedGenerationID)
+        }
     }
 
     private static func orphanRepairFailureItemID(generationID: UUID, ordinal: Int, itemID: UUID) -> UUID {
-        var data = Data("omi-launch-capture-orphan-repair-failed-v1".utf8)
-        data.append(uuidBytes: generationID)
-        data.appendLittleEndian(UInt64(ordinal))
-        data.append(uuidBytes: itemID)
-        var bytes = Array(SHA256.hash(data: data).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        self.derivedItemID("omi-launch-capture-orphan-repair-failed-v1") {
+            $0.append(uuidBytes: generationID)
+            $0.appendLittleEndian(UInt64(ordinal))
+            $0.append(uuidBytes: itemID)
+        }
     }
 
     private static func materializationFailureItemID(generationID: UUID, ordinal: Int) -> UUID {
-        var data = Data("omi-launch-capture-materialization-failed-v1".utf8)
-        data.append(uuidBytes: generationID)
-        data.appendLittleEndian(UInt64(ordinal))
-        var bytes = Array(SHA256.hash(data: data).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        self.derivedItemID("omi-launch-capture-materialization-failed-v1") {
+            $0.append(uuidBytes: generationID)
+            $0.appendLittleEndian(UInt64(ordinal))
+        }
     }
 
     private static func noProgressItemID(generationID: UUID, sequence: UInt64, offset: Int) -> UUID {
-        var data = Data("omi-launch-capture-no-progress-v1".utf8)
-        data.append(uuidBytes: generationID)
-        data.appendLittleEndian(sequence)
-        data.appendLittleEndian(UInt64(max(offset, 0)))
-        var bytes = Array(SHA256.hash(data: data).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        self.derivedItemID("omi-launch-capture-no-progress-v1") {
+            $0.append(uuidBytes: generationID)
+            $0.appendLittleEndian(sequence)
+            $0.appendLittleEndian(UInt64(max(offset, 0)))
+        }
     }
 
     private static func settlementFailureItemID(generationID: UUID, ordinal: UInt64, ownerItemID: UUID, action: String) -> UUID {
-        var data = Data("omi-launch-capture-settlement-failed-v1".utf8)
-        data.append(uuidBytes: generationID)
-        data.appendLittleEndian(ordinal)
-        data.append(uuidBytes: ownerItemID)
-        data.append(Data(action.utf8))
-        var bytes = Array(SHA256.hash(data: data).prefix(16))
-        bytes[6] = (bytes[6] & 0x0F) | 0x50
-        bytes[8] = (bytes[8] & 0x3F) | 0x80
-        return UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]))
+        self.derivedItemID("omi-launch-capture-settlement-failed-v1") {
+            $0.append(uuidBytes: generationID)
+            $0.appendLittleEndian(ordinal)
+            $0.append(uuidBytes: ownerItemID)
+            $0.append(Data(action.utf8))
+        }
     }
 }

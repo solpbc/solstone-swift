@@ -86,7 +86,8 @@ struct SolstoneWatchComplicationProvider: TimelineProvider {
     /// ⚠ **There is no "my app is recording" relevance context, and that is the whole design
     /// constraint here.** `RelevantContext` offers date, location, sleep, fitness and headphones —
     /// nothing about an app's own session. So a live session is expressed as a **rolling date
-    /// window**: relevant from now to the audio-verification horizon, republished every time
+    /// window**: relevant from now until the audio-verification horizon measured from the last
+    /// verified audio, republished every time
     /// state changes via `invalidateRelevance(ofKind:)`. While capture continues the window keeps
     /// moving forward; when capture stops, the next invalidation publishes nothing and the boost
     /// ends on its own.
@@ -94,15 +95,15 @@ struct SolstoneWatchComplicationProvider: TimelineProvider {
     /// ⛔ Deliberately silent when capture is off. A listening indicator that promotes itself
     /// while not listening is worse than one that stays put.
     func relevance() async -> WidgetRelevance<Void> {
-        guard let snapshot = WatchComplicationSnapshotSource.load(), snapshot.showsElapsed else {
+        guard let window = watchComplicationRelevanceWindow(
+            snapshot: WatchComplicationSnapshotSource.load(),
+            now: Date()
+        ) else {
             return WidgetRelevance([])
         }
 
-        let now = Date()
-        let horizon = now.addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds * 2)
-
         return WidgetRelevance([
-            WidgetRelevanceAttribute(context: .date(range: now...horizon, kind: .default)),
+            WidgetRelevanceAttribute(context: .date(range: window, kind: .default)),
         ])
     }
 }

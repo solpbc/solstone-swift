@@ -196,6 +196,18 @@ final class WatchCaptureModel {
         self.enqueueComplicationSnapshotPublication()
     }
 
+#if DEBUG && targetEnvironment(simulator)
+    /// Supplies synthetic state to the real view without opening a microphone or a transport.
+    init(screenshotPresentation: WatchCaptureOwnerPresentation) {
+        self.diagnosticsCollector = nil
+        self.clock = SystemObserverClock()
+        self.signposter = WatchSignpost.live
+        self.complicationRootURL = { try AppGroupContainer.rootURL() }
+        self.reloadComplicationTimelines = {}
+        self.presentation = screenshotPresentation
+    }
+#endif
+
     init(initializationError error: any Error) {
         let clock = SystemObserverClock()
         self.storageActor = nil

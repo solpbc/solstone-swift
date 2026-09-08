@@ -124,16 +124,19 @@ final class AppConfig {
         port: Int = 22,
         journalRoot: String = "http://127.0.0.1:7071",
         deviceID: String = "ui-test-device",
-        sessionKey: String? = nil
+        sessionKey: String? = nil,
+        homeLabel: String = "ui-test-solstone",
+        endpointPort: Int? = nil,
+        relayEndpoint: String? = nil
     ) {
-        let endpointPort = Self.endpointPort(from: journalRoot)
+        let endpointPort = endpointPort ?? Self.endpointPort(from: journalRoot)
             ?? Int(ProcessInfo.processInfo.environment["MOCK_PAIRING_PORT"] ?? "")
             ?? port
         let endpointHost = URL(string: journalRoot)?.host ?? host
         let pairing = StoredPairing(
             instanceID: "ui-test-instance",
-            homeLabel: "ui-test-solstone",
-            relayEndpoint: "wss://127.0.0.1:\(endpointPort)",
+            homeLabel: homeLabel,
+            relayEndpoint: relayEndpoint ?? "wss://127.0.0.1:\(endpointPort)",
             fingerprint: Self.syntheticFingerprint,
             clientCertPEM: Self.syntheticCertificatePEM,
             clientKeyPEM: Self.syntheticPrivateKeyPEM,

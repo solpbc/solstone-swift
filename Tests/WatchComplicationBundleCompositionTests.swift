@@ -101,9 +101,12 @@ nonisolated final class WatchComplicationBundleCompositionTests: XCTestCase {
         let source = try Self.complicationSource()
 
         XCTAssertTrue(source.contains("func relevance() async -> WidgetRelevance<Void>"))
-        XCTAssertTrue(source.contains("WidgetRelevanceAttribute(context: .date(range: now...horizon, kind: .default))"))
+        // The window is computed by the pure helper (tested for staleness in
+        // WatchComplicationSnapshotTests), and published through it — never opened from `Date()`
+        // directly, which is the stale-snapshot regression the helper closes.
+        XCTAssertTrue(source.contains("watchComplicationRelevanceWindow("))
+        XCTAssertTrue(source.contains("WidgetRelevanceAttribute(context: .date(range: window, kind: .default))"))
         // The off path returns an empty relevance rather than a window.
-        XCTAssertTrue(source.contains("guard let snapshot = WatchComplicationSnapshotSource.load(), snapshot.showsElapsed else {"))
         XCTAssertTrue(source.contains("return WidgetRelevance([])"))
     }
 

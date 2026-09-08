@@ -247,6 +247,57 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
         ])
     }
 
+    private func liveSnapshot(verifiedAt: Date?) -> WatchComplicationSnapshot {
+        WatchComplicationSnapshot(
+            presentation: WatchCaptureOwnerPresentation(
+                status: .active,
+                queuedCount: 0,
+                isSessionRunning: true,
+                sessionStartedAt: verifiedAt ?? Date(timeIntervalSince1970: 1_713_624_000),
+                lastVerifiedAudioAt: verifiedAt
+            ),
+            isReachable: true
+        )
+    }
+
+    func testRelevanceWindowIsAnchoredToLastVerifiedAudioNotNow() {
+        let verifiedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        let now = verifiedAt.addingTimeInterval(60)
+        let window = watchComplicationRelevanceWindow(snapshot: self.liveSnapshot(verifiedAt: verifiedAt), now: now)
+        XCTAssertEqual(
+            window,
+            now...verifiedAt.addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds * 2)
+        )
+    }
+
+    func testRelevanceWindowIsNilPastTheVerifiedAudioHorizon() {
+        // The stale-snapshot case: an old active snapshot left by a crash still reads
+        // showsElapsed, but its last verified audio is long past the horizon.
+        let verifiedAt = Date(timeIntervalSince1970: 1_713_624_000)
+        let now = verifiedAt.addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds * 2 + 1)
+        XCTAssertNil(watchComplicationRelevanceWindow(snapshot: self.liveSnapshot(verifiedAt: verifiedAt), now: now))
+    }
+
+    func testRelevanceWindowIsNilWhenVerifiedAudioIsMissing() {
+        let now = Date(timeIntervalSince1970: 1_713_624_050)
+        XCTAssertNil(watchComplicationRelevanceWindow(snapshot: self.liveSnapshot(verifiedAt: nil), now: now))
+    }
+
+    func testRelevanceWindowIsNilWhenNotShowingElapsed() {
+        let snapshot = WatchComplicationSnapshot(
+            presentation: WatchCaptureOwnerPresentation(
+                status: .off,
+                queuedCount: 0,
+                isSessionRunning: false,
+                sessionStartedAt: nil,
+                lastVerifiedAudioAt: Date(timeIntervalSince1970: 1_713_624_000)
+            ),
+            isReachable: true
+        )
+        XCTAssertFalse(snapshot.showsElapsed)
+        XCTAssertNil(watchComplicationRelevanceWindow(snapshot: snapshot, now: Date(timeIntervalSince1970: 1_713_624_050)))
+    }
+
     func testTimelinePointsResolveMissingVerifiedAudioToUnknown() {
         let snapshot = WatchComplicationSnapshot(
             presentation: WatchCaptureOwnerPresentation(
