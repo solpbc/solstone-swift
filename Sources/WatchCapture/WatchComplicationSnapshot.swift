@@ -114,6 +114,26 @@ nonisolated struct WatchComplicationTimelinePoint: Equatable, Sendable {
     let snapshot: WatchComplicationSnapshot?
 }
 
+/// The Smart Stack relevance window for a live capture, or `nil` when the card should not
+/// promote itself.
+///
+/// Anchored to `lastVerifiedAudioAt`, not to `now`: an old active snapshot left behind by a
+/// capture crash still reads `showsElapsed == true`, and opening a window from `now` would let
+/// it keep earning relevance forever even though the timeline correctly renders it unknown.
+/// Past the same audio-verification horizon the timeline uses, there is nothing to promote.
+nonisolated func watchComplicationRelevanceWindow(
+    snapshot: WatchComplicationSnapshot?,
+    now: Date,
+    segmentDurationSeconds: TimeInterval = WatchCaptureTiming.segmentDurationSeconds
+) -> ClosedRange<Date>? {
+    guard let snapshot, snapshot.showsElapsed,
+          let lastVerifiedAudioAt = snapshot.lastVerifiedAudioAt
+    else { return nil }
+    let horizon = lastVerifiedAudioAt.addingTimeInterval(segmentDurationSeconds * 2)
+    guard now < horizon else { return nil }
+    return now...horizon
+}
+
 nonisolated func watchComplicationTimelinePoints(
     snapshot: WatchComplicationSnapshot?,
     now: Date,
