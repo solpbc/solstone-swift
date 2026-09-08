@@ -28,6 +28,19 @@ nonisolated final class HomeImportTileTests: XCTestCase {
         XCTAssertTrue(importView.contains("shareAlwaysOnExplainer"))
     }
 
+    func testAddMoreEndsWithSuggestionsCardLinkingToSupport() throws {
+        let addMore = try Self.contents("Sources/Home/AddMoreView.swift")
+        XCTAssertTrue(addMore.contains("AddMoreSuggestionsCard()"))
+        let card = try Self.section(
+            in: addMore,
+            from: "private struct AddMoreSuggestionsCard: View {",
+            to: "\n}"
+        )
+        XCTAssertTrue(card.contains("https://support.solstone.app"))
+        XCTAssertTrue(card.contains("SourceVocabulary.addMoreSuggestionsTitle"))
+        XCTAssertTrue(card.contains("SourceVocabulary.addMoreSuggestionsBody"))
+    }
+
     func testWatchDetailHasNoSwitchAndNoSyncNow() throws {
         let text = try Self.contents("Sources/WatchCapture/WatchSourceDetailView.swift")
         XCTAssertFalse(text.contains("Toggle"))

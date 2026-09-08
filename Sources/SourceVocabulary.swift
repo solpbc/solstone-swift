@@ -188,6 +188,8 @@ nonisolated enum SourceVocabulary {
     static let addMoreNotOnHome = "not on home"
     static let addMoreAlreadyOnHome = "already on home"
     static let addMoreFooter = "open any source to change what it does, and to add or remove its tile."
+    static let addMoreSuggestionsTitle = "suggestions"
+    static let addMoreSuggestionsBody = "suggest other sources you'd like to have here"
     static let importTitle = "import"
     // `anything` is not an honest category: the import surface names photos and files
     // and nothing else, so the tile names those two and stops.

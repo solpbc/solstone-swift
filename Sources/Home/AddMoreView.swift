@@ -27,6 +27,9 @@ struct AddMoreView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                // No source list is ever complete; the last card names the door for
+                // what isn't here yet — the same support site the help area links to.
+                AddMoreSuggestionsCard()
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding(ShellMetrics.screenMargin)
@@ -87,5 +90,47 @@ struct AddMoreView: View {
             watch: bundle.watch,
             hiddenIDs: UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)
         )
+    }
+}
+
+/// Matches `SourceRowView`'s card, with `arrow.up.right` in place of `chevron.right`
+/// — this one leaves the app, so it gets the external-link glyph, not the in-app one.
+private struct AddMoreSuggestionsCard: View {
+    var body: some View {
+        Link(destination: URL(string: "https://support.solstone.app")!) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "lifepreserver")
+                    .font(.system(size: 20, weight: .medium))
+                    .foregroundStyle(Color.solOrangeAdaptive)
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 28, height: 24, alignment: .center)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(SourceVocabulary.addMoreSuggestionsTitle)
+                        .font(ShellFont.tileName)
+                        .foregroundStyle(.primary)
+                    Text(SourceVocabulary.addMoreSuggestionsBody)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                Image(systemName: "arrow.up.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(height: 24)
+            }
+            .padding(ShellMetrics.surfacePadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(ShellMetrics.cardShape)
+            .background(Color.deckSurface, in: ShellMetrics.cardShape)
+            .overlay {
+                ShellMetrics.cardShape.stroke(Color.deckHairline, lineWidth: 0.5)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(SourceVocabulary.addMoreSuggestionsTitle). \(SourceVocabulary.addMoreSuggestionsBody)")
+        .accessibilityIdentifier("addMore.suggestions")
     }
 }
