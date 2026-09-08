@@ -5,10 +5,11 @@ import Foundation
 import XCTest
 
 nonisolated final class LocationProjectConfigTests: XCTestCase {
-    func testProjectYMLIncludesLocationUsageStringsAndBackgroundMode() throws {
+    func testProjectYMLIncludesNetworkAndLocationUsageStringsAndBackgroundMode() throws {
         let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8)
 
         XCTAssertTrue(projectYML.contains(#"INFOPLIST_KEY_NSMicrophoneUsageDescription: "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in.""#))
+        XCTAssertTrue(projectYML.contains(#"INFOPLIST_KEY_NSLocalNetworkUsageDescription: "connect this iphone or ipad directly to your journal when they're on the same network.""#))
         XCTAssertTrue(projectYML.contains(#"INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time.""#))
         XCTAssertTrue(projectYML.contains(#"INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it, including in the background. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time.""#))
         XCTAssertTrue(projectYML.contains("          - audio"))
