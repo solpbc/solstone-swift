@@ -135,7 +135,7 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
             from: ".sheet(isPresented: self.isJournalPresented)",
             to: ".sheet(isPresented: self.$showingSources)"
         )
-        XCTAssertTrue(sheet.contains(".presentationDetents([.fraction(0.75)])"))
+        XCTAssertTrue(sheet.contains(".presentationDetents([.fraction(0.93)])"))
     }
 
     func testDayHomeStatusPillIsButtonNotNavigationLink() throws {
