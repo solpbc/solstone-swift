@@ -379,7 +379,8 @@ struct SolstoneSwiftApp: App {
                     share: shareTransferHolder
                 ),
                 backlogPending: totals.pending,
-                backlogFailed: totals.failed
+                backlogFailed: totals.failed,
+                lastProbeAlive: tunnel.lastProbeAlive
             )
         }
         let locationManager = LocationManager(mobileSegmentEngine: mobileSegmentEngine)

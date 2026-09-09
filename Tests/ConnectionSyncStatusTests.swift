@@ -133,6 +133,28 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
         )
     }
 
+    func testFailedProbeWithdrawsConnectedReachabilityClaim() {
+        XCTAssertEqual(
+            Self.derive(
+                tunnelState: .connected(localPort: 42, via: .remote),
+                lastProbeAlive: false
+            ),
+            .unreachable
+        )
+    }
+
+    func testFailedProbeStillWithdrawsClaimWhenRecentByteWindowIsWarm() {
+        XCTAssertEqual(
+            Self.derive(
+                tunnelState: .connected(localPort: 42, via: .remote),
+                recentBytesPerSecond: 128,
+                backlogPending: 1,
+                lastProbeAlive: false
+            ),
+            .unreachable
+        )
+    }
+
     func testWatchAndImportAggregationCanDriveTransferring() {
         let confirmedCount = confirmedTransferCount(mobileSegment: 0, watch: 2, share: 3)
         XCTAssertEqual(confirmedCount, 5)
@@ -179,7 +201,8 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
         confirmedTransferCount: Int = 0,
         recentBytesPerSecond: Double = 0,
         backlogPending: Int = 0,
-        backlogFailed: Int = 0
+        backlogFailed: Int = 0,
+        lastProbeAlive: Bool? = nil
     ) -> ConnectionSyncStatus {
         ConnectionSyncStatus.derive(
             ConnectionSyncInputs(
@@ -189,7 +212,8 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
                 confirmedTransferCount: confirmedTransferCount,
                 recentBytesPerSecond: recentBytesPerSecond,
                 backlogPending: backlogPending,
-                backlogFailed: backlogFailed
+                backlogFailed: backlogFailed,
+                lastProbeAlive: lastProbeAlive
             )
         )
     }
@@ -201,7 +225,8 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
         confirmedTransferCount: Int = 0,
         recentBytesPerSecond: Double = 0,
         backlogPending: Int = 0,
-        backlogFailed: Int = 0
+        backlogFailed: Int = 0,
+        lastProbeAlive: Bool? = nil
     ) -> ConnectionSyncInputs {
         ConnectionSyncInputs(
             tunnelState: tunnelState,
@@ -210,7 +235,8 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
             confirmedTransferCount: confirmedTransferCount,
             recentBytesPerSecond: recentBytesPerSecond,
             backlogPending: backlogPending,
-            backlogFailed: backlogFailed
+            backlogFailed: backlogFailed,
+            lastProbeAlive: lastProbeAlive
         )
     }
 }

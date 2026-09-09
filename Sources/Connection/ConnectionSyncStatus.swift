@@ -56,6 +56,12 @@ nonisolated enum ConnectionSyncStatus: Equatable, Sendable {
         case .error(let error):
             return error.isRetryable && inputs.reconnectCountdown != nil ? .reconnecting : .unreachable
         case .connected:
+            // A live loopback socket is not proof that the journal still answers behind it.
+            // Withdraw the reachability claim on the first failed status probe; the watchdog
+            // keeps its separate multi-strike threshold before it tears down the transport.
+            if inputs.lastProbeAlive == false {
+                return .unreachable
+            }
             let backlog = inputs.backlogPending + inputs.backlogFailed
             if backlog == 0 {
                 return .connectedIdle
@@ -87,6 +93,27 @@ nonisolated struct ConnectionSyncInputs: Sendable {
     let recentBytesPerSecond: Double
     let backlogPending: Int
     let backlogFailed: Int
+    let lastProbeAlive: Bool?
+
+    nonisolated init(
+        tunnelState: TunnelState,
+        reconnectCountdown: Int?,
+        isNetworkSatisfied: Bool?,
+        confirmedTransferCount: Int,
+        recentBytesPerSecond: Double,
+        backlogPending: Int,
+        backlogFailed: Int,
+        lastProbeAlive: Bool? = nil
+    ) {
+        self.tunnelState = tunnelState
+        self.reconnectCountdown = reconnectCountdown
+        self.isNetworkSatisfied = isNetworkSatisfied
+        self.confirmedTransferCount = confirmedTransferCount
+        self.recentBytesPerSecond = recentBytesPerSecond
+        self.backlogPending = backlogPending
+        self.backlogFailed = backlogFailed
+        self.lastProbeAlive = lastProbeAlive
+    }
 }
 
 nonisolated func isJournalReachable(_ status: ConnectionSyncStatus) -> Bool {

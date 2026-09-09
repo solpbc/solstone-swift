@@ -214,6 +214,46 @@ final class ConnectionSyncModelTests: XCTestCase {
         await Self.cancel(task, advancing: clock)
     }
 
+    func testFailedProbeObservationWithdrawsReachabilityWithoutWaitingForPoll() async {
+        let clock = MockObserverClock()
+        let manager = TunnelManager(transport: MockCFTunnelTransport())
+        manager.state = .connected(localPort: 42, via: .remote)
+        manager.isNetworkSatisfied = true
+        manager.lastProbeAlive = true
+        var sampleReadCount = 0
+        let model = ConnectionSyncModel(
+            clock: clock,
+            debounceInterval: .milliseconds(1_500),
+            pollCadence: .milliseconds(100),
+            sample: {
+                sampleReadCount += 1
+                return ConnectionSyncInputs(
+                    tunnelState: manager.state,
+                    reconnectCountdown: manager.reconnectCountdown,
+                    isNetworkSatisfied: manager.isNetworkSatisfied,
+                    confirmedTransferCount: 0,
+                    recentBytesPerSecond: 0,
+                    backlogPending: 0,
+                    backlogFailed: 0,
+                    lastProbeAlive: manager.lastProbeAlive
+                )
+            }
+        )
+        let task = Task { await model.run() }
+
+        await Self.drainUntil {
+            clock.pendingSleeperCount == 1 && sampleReadCount >= 2
+        }
+        manager.lastProbeAlive = false
+
+        await Self.drainUntil {
+            model.status == .unreachable
+        }
+        XCTAssertFalse(isJournalReachable(model.status))
+
+        await Self.cancel(task, advancing: clock)
+    }
+
     func testRefreshFromInputChangePublishesImmediateLeaveWithoutPoll() {
         let clock = MockObserverClock()
         let box = InputBox(Self.inputs(status: .connectedIdle))

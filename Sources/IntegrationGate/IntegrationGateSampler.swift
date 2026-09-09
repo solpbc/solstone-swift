@@ -47,12 +47,10 @@ final class IntegrationGateSampler {
         boundCanary: IntegrationGateCanaryRecord? = nil
     ) async -> IntegrationGateSampleObservation {
         let generationBeforeCanary = tunnelManager.transportGenerationSnapshot.activeGeneration
-        let inputs = connectionSyncModel.integrationGateCurrentInputs()
-        let rawStatus = ConnectionSyncStatus.derive(inputs)
-        let publishedStatus = connectionSyncModel.status
-        let sampleGeneration = tunnelManager.transportGenerationSnapshot.activeGeneration
-        let sampleMonotonic = self.monotonicMillis()
-        let needsCanary = rawStatus.integrationGateIsPositive || publishedStatus.integrationGateIsPositive
+        let initialInputs = connectionSyncModel.integrationGateCurrentInputs()
+        let initialRawStatus = ConnectionSyncStatus.derive(initialInputs)
+        let initialPublishedStatus = connectionSyncModel.status
+        let needsCanary = initialRawStatus.integrationGateIsPositive || initialPublishedStatus.integrationGateIsPositive
 
         var canary = boundCanary
         if needsCanary, canary == nil {
@@ -65,7 +63,18 @@ final class IntegrationGateSampler {
                 durationMillis: outcome.durationMillis
             )
         }
-        let coBoundFailure = needsCanary
+        // A canary can consume ten seconds. Snapshot every exported product field after it
+        // completes so one record cannot combine a pre-canary `connected` claim with the
+        // post-canary endpoint/reconnect state. A product that has honestly withdrawn its
+        // health claim while the request was outstanding has not made a false-healthy claim
+        // at the time the canary establishes failure.
+        let inputs = connectionSyncModel.integrationGateCurrentInputs()
+        let rawStatus = ConnectionSyncStatus.derive(inputs)
+        let publishedStatus = connectionSyncModel.status
+        let sampleGeneration = tunnelManager.transportGenerationSnapshot.activeGeneration
+        let sampleMonotonic = self.monotonicMillis()
+        let finalNeedsCanary = rawStatus.integrationGateIsPositive || publishedStatus.integrationGateIsPositive
+        let coBoundFailure = needsCanary && finalNeedsCanary
             ? Self.coBoundFailure(canary: canary, sampleGeneration: sampleGeneration, sampleMonotonic: sampleMonotonic)
             : nil
 

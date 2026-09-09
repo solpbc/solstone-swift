@@ -299,7 +299,10 @@ final class TunnelManager {
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
         },
         probeWatchdogPolicy: ProbeWatchdogPolicy = ProbeWatchdogPolicy(
-            healthyInterval: .seconds(15),
+            // Keep the owner-visible reachability lease under ten seconds. The request
+            // itself may consume the full 6-second timeout, so starting every 3 seconds
+            // bounds a silent-loss over-claim to 9 seconds.
+            healthyInterval: .seconds(3),
             // why: inbound bytes prove tunnel liveness; a failed probe more likely indicts the probe path than the tunnel.
             // iOS runs silent=2 / activeInbound=6 deliberately because stronger liveness evidence warrants the higher bar.
             silentFailureLimit: 2,

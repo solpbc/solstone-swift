@@ -105,6 +105,69 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
         XCTAssertEqual(classified.1, .publishedHealthyCanaryFailed)
     }
 
+    func testSamplerExportsCoherentPostCanaryStateAfterHonestWithdrawal() async {
+        let releaseCanary = DispatchSemaphore(value: 0)
+        IntegrationGateRangeHeaderURLProtocol.handler = { request in
+            releaseCanary.wait()
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 503,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return IntegrationGateRangeHeaderURLProtocolPayload(response: response, chunks: [])
+        }
+
+        let clock = MockObserverClock()
+        let transport = MockCFTunnelTransport()
+        transport.generationSnapshot = TransportGenerationSnapshot(
+            currentGeneration: 7,
+            activeGeneration: 7,
+            lastClosedGeneration: nil
+        )
+        let manager = TunnelManager(transport: transport)
+        manager.forceConnected(port: 5151, via: .remote)
+        let inputs = G1InputBox(Self.inputs(status: .connectedIdle))
+        let configuration = IntegrationGateHTTPClient.productionSessionConfiguration()
+        configuration.protocolClasses = [IntegrationGateRangeHeaderURLProtocol.self]
+        let httpClient = IntegrationGateHTTPClient(
+            tunnelManager: manager,
+            sessionConfiguration: configuration,
+            now: { clock.now() }
+        )
+        defer { httpClient.shutdown() }
+        let sync = ConnectionSyncModel(clock: clock) { inputs.current }
+        let sampler = IntegrationGateSampler(
+            tunnelManager: manager,
+            connectionSyncModel: sync,
+            httpClient: httpClient,
+            clock: clock
+        )
+
+        let task = Task { await sampler.captureSample(sampleIndex: 0) }
+        await Self.drainUntil {
+            !IntegrationGateRangeHeaderURLProtocol.capturedRequests.isEmpty
+        }
+        inputs.current = Self.inputs(status: .unreachable)
+        sync.refreshNow()
+        manager.state = .error(.unreachable)
+        transport.generationSnapshot = TransportGenerationSnapshot(
+            currentGeneration: 8,
+            activeGeneration: nil,
+            lastClosedGeneration: 7
+        )
+        clock.advance(by: 1)
+        releaseCanary.signal()
+
+        let observation = await task.value
+        XCTAssertEqual(observation.sample.rawConnectionSyncStatus, "unreachable")
+        XCTAssertEqual(observation.sample.publishedConnectionSyncStatus, "unreachable")
+        XCTAssertNil(observation.sample.transportGeneration)
+        XCTAssertEqual(observation.sample.endpointKind, "none")
+        XCTAssertEqual(observation.sample.canaryStatusCode, 503)
+        XCTAssertNil(observation.coBoundFailure)
+    }
+
     func testCanaryActionWindowPassesOnThirdPositiveSampleAndExportsAllSamples() async throws {
         Self.installTwoHundredCanaryHandler()
         let harness = Self.actionHarness(initialInputs: Self.inputs(status: .offline))
