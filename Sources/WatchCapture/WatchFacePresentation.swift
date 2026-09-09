@@ -88,6 +88,12 @@ nonisolated func watchFaceModel(
             subtext: SourceVocabulary.watchWaitingForPhone,
             role: .calm
         )
+    } else if presentation.abandonedCount > 0 {
+        handoff = WatchFaceHandoff(
+            line: SourceVocabulary.watchAbandonedCount(presentation.abandonedCount),
+            subtext: SourceVocabulary.watchPipelineAbandonedSubtext,
+            role: .calm
+        )
     } else {
         handoff = nil
     }

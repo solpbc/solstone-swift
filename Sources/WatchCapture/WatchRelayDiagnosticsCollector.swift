@@ -1040,7 +1040,8 @@ private extension WatchRelayDiagnosticsCollector {
                     transferring: counts.transferring,
                     delivered: counts.delivered,
                     acked: counts.acked,
-                    safeToDelete: counts.safeToDelete
+                    safeToDelete: counts.safeToDelete,
+                    abandoned: counts.abandoned
                 )
             case .persisted:
                 counts = WatchRelayManifestCounts(
@@ -1051,7 +1052,8 @@ private extension WatchRelayDiagnosticsCollector {
                     transferring: counts.transferring,
                     delivered: counts.delivered,
                     acked: counts.acked,
-                    safeToDelete: counts.safeToDelete
+                    safeToDelete: counts.safeToDelete,
+                    abandoned: counts.abandoned
                 )
             case .finalized:
                 counts = WatchRelayManifestCounts(
@@ -1062,7 +1064,8 @@ private extension WatchRelayDiagnosticsCollector {
                     transferring: counts.transferring,
                     delivered: counts.delivered,
                     acked: counts.acked,
-                    safeToDelete: counts.safeToDelete
+                    safeToDelete: counts.safeToDelete,
+                    abandoned: counts.abandoned
                 )
             case .queued:
                 counts = WatchRelayManifestCounts(
@@ -1073,7 +1076,8 @@ private extension WatchRelayDiagnosticsCollector {
                     transferring: counts.transferring,
                     delivered: counts.delivered,
                     acked: counts.acked,
-                    safeToDelete: counts.safeToDelete
+                    safeToDelete: counts.safeToDelete,
+                    abandoned: counts.abandoned
                 )
             case .transferring:
                 counts = WatchRelayManifestCounts(
@@ -1084,7 +1088,8 @@ private extension WatchRelayDiagnosticsCollector {
                     transferring: counts.transferring + 1,
                     delivered: counts.delivered,
                     acked: counts.acked,
-                    safeToDelete: counts.safeToDelete
+                    safeToDelete: counts.safeToDelete,
+                    abandoned: counts.abandoned
                 )
             case .delivered:
                 counts = WatchRelayManifestCounts(
@@ -1095,7 +1100,8 @@ private extension WatchRelayDiagnosticsCollector {
                     transferring: counts.transferring,
                     delivered: counts.delivered + 1,
                     acked: counts.acked,
-                    safeToDelete: counts.safeToDelete
+                    safeToDelete: counts.safeToDelete,
+                    abandoned: counts.abandoned
                 )
             case .acked:
                 counts = WatchRelayManifestCounts(
@@ -1106,7 +1112,8 @@ private extension WatchRelayDiagnosticsCollector {
                     transferring: counts.transferring,
                     delivered: counts.delivered,
                     acked: counts.acked + 1,
-                    safeToDelete: counts.safeToDelete
+                    safeToDelete: counts.safeToDelete,
+                    abandoned: counts.abandoned
                 )
             case .safeToDelete:
                 counts = WatchRelayManifestCounts(

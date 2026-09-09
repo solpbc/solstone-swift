@@ -1683,8 +1683,8 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertNil(confirming.attentionLine)
 
         let abandoned = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, abandonedCount: 1)
-        XCTAssertEqual(abandoned.headline, SourceVocabulary.watchPipelineAbandoned)
-        XCTAssertEqual(abandoned.countsLine, SourceVocabulary.watchAbandonedCount(1))
+        XCTAssertEqual(abandoned.headline, "never reached your iphone")
+        XCTAssertEqual(abandoned.countsLine, "1 never reached your iphone")
         XCTAssertNil(abandoned.attentionLine)
 
         let handedOff = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, handedOffCount: 1)
@@ -2028,7 +2028,35 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertTrue(sessionD.cancelledSegmentIDs.contains(idD))
     }
 
-    func testMissingOrUnparseableAttemptMetadataCancelsAndRedrives() async throws {
+    func testMissingAttemptMetadataCancelsAndRedrives() async throws {
+        let storage = try self.makeStorage("missing-attempt")
+        let id = UUID()
+        let now = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .transferring)
+        let session = MockWatchConnectivitySession()
+        session.isReachable = true
+        session.activate()
+
+        session.seedOutstandingTransfer(
+            id: id,
+            idState: .parseable,
+            attemptID: nil,
+            attemptIDState: .missing,
+            attemptStartedAt: nil
+        )
+
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session, clock: { now })
+        await sender.requestDrain(trigger: .testDirect)
+        await self.settleConnectivityCallback()
+        await sender.requestDrain(trigger: .testDirect)
+
+        XCTAssertTrue(session.cancelledSegmentIDs.contains(id))
+        XCTAssertEqual(session.transferredFiles.count, 1)
+        let metadata = session.transferredFiles.first?.1
+        XCTAssertNotNil(UUID(uuidString: metadata?["attempt_id"] as? String ?? ""))
+    }
+
+    func testUnparseableAttemptMetadataCancelsAndRedrives() async throws {
         let storage = try self.makeStorage("unparseable-attempt")
         let id = UUID()
         let now = Date(timeIntervalSince1970: 5_000_000)
@@ -2037,7 +2065,6 @@ final class WatchRelayTests: XCTestCase {
         session.isReachable = true
         session.activate()
 
-        // Seed outstanding transfer with unparseable attempt metadata
         session.seedOutstandingTransfer(
             id: id,
             idState: .parseable,
@@ -2049,7 +2076,6 @@ final class WatchRelayTests: XCTestCase {
         await self.settleConnectivityCallback()
         await sender.requestDrain(trigger: .testDirect)
 
-        // Missing/unparseable attempt should be cancelled and redriven with valid metadata
         XCTAssertTrue(session.cancelledSegmentIDs.contains(id))
         XCTAssertEqual(session.transferredFiles.count, 1)
         let metadata = session.transferredFiles.first?.1

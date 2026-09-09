@@ -76,6 +76,40 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
         XCTAssertEqual(model.compactHandoff?.role, .flight)
     }
 
+    func testAbandonedHandoffUsesCountLabelAndSubtext() {
+        let model = watchFaceModel(
+            for: WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, abandonedCount: 2),
+            isReachable: false
+        )
+
+        XCTAssertEqual(model.compactHandoff?.line, SourceVocabulary.watchAbandonedCount(2))
+        XCTAssertEqual(model.compactHandoff?.subtext, SourceVocabulary.watchPipelineAbandonedSubtext)
+        XCTAssertEqual(model.compactHandoff?.role, .calm)
+        XCTAssertEqual(
+            model.detailRows,
+            [
+                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineAbandoned, value: 2),
+            ]
+        )
+    }
+
+    func testQueuedTakesHandoffPriorityOverAbandoned() {
+        let model = watchFaceModel(
+            for: WatchCaptureOwnerPresentation(status: .off, queuedCount: 3, abandonedCount: 2),
+            isReachable: false
+        )
+
+        XCTAssertEqual(model.compactHandoff?.line, SourceVocabulary.watchSavedOnWatchCount(3))
+        XCTAssertEqual(model.compactHandoff?.subtext, SourceVocabulary.watchWaitingForPhone)
+        XCTAssertEqual(
+            model.detailRows,
+            [
+                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: 3),
+                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineAbandoned, value: 2),
+            ]
+        )
+    }
+
     func testDetailRowsSuppressZerosAndKeepOrder() {
         let empty = watchFaceModel(
             for: WatchCaptureOwnerPresentation(status: .off, queuedCount: 0),
@@ -120,7 +154,8 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
                 queuedCount: 2,
                 transferringCount: 3,
                 confirmingCount: 1,
-                handedOffCount: 4
+                handedOffCount: 4,
+                abandonedCount: 5
             ),
             isReachable: false
         )
@@ -130,6 +165,7 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: 2),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSending, value: 3),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineConfirming, value: 1),
+                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineAbandoned, value: 5),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineHandedOff, value: 4),
             ]
         )

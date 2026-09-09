@@ -714,8 +714,13 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         for index in 0..<800 {
             let id = Self.uuid(index + 1000)
-            session.seedOutstandingTransfer(id: id)
-            allObservations.append(Self.orphanObservation(id: id))
+            let attemptID = Self.uuid(index + 5000)
+            session.seedOutstandingTransfer(
+                id: id,
+                attemptID: attemptID,
+                attemptStartedAt: Date(timeIntervalSince1970: 0)
+            )
+            allObservations.append(Self.orphanObservation(id: id, attemptID: attemptID))
         }
         let collector = WatchRelayDiagnosticsCollector(
             paths: storage.paths,
@@ -725,8 +730,8 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         )
         let envelopeData = await collector.makeEnvelopeData(asOf: now)
         let data = try XCTUnwrap(envelopeData)
-        // Budget baseline: a real orphan observation is 966 B and a maximal compact history entry is 554 B.
-        // With the ten-entry window, the 26-observation floor remains below the 32 KiB envelope limit.
+        // Budget baseline: a real orphan observation with attempt identity is 1123 B and a maximal compact history entry is 525 B.
+        // With the ten-entry window, the 22-observation floor remains below the 32 KiB envelope limit.
         XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
         let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
         let queue = try XCTUnwrap(payload.appleQueue.value)
@@ -751,7 +756,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
     func testHistoryBudgetBackwardDecodeAndCompactionFidelity() async throws {
         let now = Self.now
         let entries = (0..<10).map { Self.historyEntry($0, at: now) }
-        let observations = (0..<26).map { Self.orphanObservation(id: Self.uuid(9_000 + $0)) }
+        let observations = (0..<22).map { Self.orphanObservation(id: Self.uuid(9_000 + $0)) }
         let storage = try self.storage("history-compaction")
         let history = self.storageActor(for: storage)
         for entry in entries {
@@ -780,7 +785,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
             generatedAt: now, diagnostics: .available(payload)
         ))
-        // Budget baseline: a real orphan observation is 966 B and a maximal compact history entry is 554 B.
+        // Budget baseline: a real orphan observation with attempt identity is 1123 B and a maximal compact history entry is 525 B.
         XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
         let maxEntryBytes = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(Self.historyEntry(99, at: now)).count
         XCTAssertLessThanOrEqual(10 * maxEntryBytes, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount - 20 * 1024)
@@ -2961,8 +2966,16 @@ private extension WatchRelayDiagnosticsCollectorTests {
         )
     }
 
-    nonisolated static func orphanObservation(id: UUID) -> WatchRelayTransferObservation {
-        WatchRelayTransferObservation(
+    nonisolated static func orphanObservation(
+        id: UUID,
+        attemptID: UUID? = UUID(),
+        attemptIDState: WatchRelayTransferIDState? = nil,
+        attemptStartedAt: Date? = Date(timeIntervalSince1970: 0),
+        attemptStartedAtState: WatchRelayTransferIDState? = nil
+    ) -> WatchRelayTransferObservation {
+        let resolvedAttemptState = attemptIDState ?? (attemptID == nil ? .missing : .parseable)
+        let resolvedStartedState = attemptStartedAtState ?? (attemptStartedAt == nil ? .missing : .parseable)
+        return WatchRelayTransferObservation(
             asOf: Date(timeIntervalSince1970: 0),
             segmentID: id,
             idState: .parseable,
@@ -2973,6 +2986,10 @@ private extension WatchRelayDiagnosticsCollectorTests {
             sourcePresent: .unavailable(reason: "no app-active manifest"),
             isTransferring: .available(true),
             progress: .available(MockWatchConnectivitySession.defaultProgress()),
+            attemptID: attemptID,
+            attemptIDState: resolvedAttemptState,
+            attemptStartedAt: attemptStartedAt,
+            attemptStartedAtState: resolvedStartedState,
             originalAudioFile: .unavailable(reason: "no app-active manifest"),
             originalLocationFile: .unavailable(reason: "no app-active manifest"),
             relayBundlePresent: .unavailable(reason: "no app-active manifest"),
