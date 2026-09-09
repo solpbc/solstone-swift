@@ -1374,4 +1374,14 @@ private final class WatchModelEnvironmentProvider: WatchRelayDiagnosticsEnvironm
             watchThermalState: .unavailable(reason: "test")
         )
     }
+
+    func holdBatteryMonitoring() {}
+    func restoreBatteryMonitoring() {}
+    func sampleSegmentPower() throws -> WatchSegmentPowerSample {
+        WatchSegmentPowerSample(
+            level: .unavailable(reason: "test"),
+            state: .unavailable(reason: "test"),
+            lowPowerModeEnabled: false
+        )
+    }
 }

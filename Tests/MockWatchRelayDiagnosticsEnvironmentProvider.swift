@@ -15,8 +15,38 @@ final class MockWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsE
         watchLowPowerModeEnabled: .available(false),
         watchThermalState: .available("nominal")
     )
+    var defaultPowerSample = WatchSegmentPowerSample(
+        level: .available(0.75),
+        state: .available("unplugged"),
+        lowPowerModeEnabled: false
+    )
+    var queuedPowerSamples: [WatchSegmentPowerSample] = []
+    var shouldThrowOnSample = false
+    var sampleCount = 0
+    var holdCount = 0
+    var restoreCount = 0
 
     func snapshot() -> WatchRelayDiagnosticsEnvironmentSnapshot {
         self.value
+    }
+
+    func holdBatteryMonitoring() {
+        self.holdCount += 1
+    }
+
+    func restoreBatteryMonitoring() {
+        self.restoreCount += 1
+    }
+
+    func sampleSegmentPower() throws -> WatchSegmentPowerSample {
+        self.sampleCount += 1
+        if self.shouldThrowOnSample {
+            struct PowerSampleError: Error {}
+            throw PowerSampleError()
+        }
+        if !self.queuedPowerSamples.isEmpty {
+            return self.queuedPowerSamples.removeFirst()
+        }
+        return self.defaultPowerSample
     }
 }

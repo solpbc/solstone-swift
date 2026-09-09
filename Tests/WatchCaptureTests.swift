@@ -5233,6 +5233,172 @@ private extension WatchCaptureTests {
         }
     }
 
+    func testEnginePowerSamplingPopulatesSegmentManifestAtCreation() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        env.defaultPowerSample = WatchSegmentPowerSample(
+            level: .available(0.82),
+            state: .available("unplugged"),
+            lowPowerModeEnabled: true
+        )
+        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { statuses.append($0) }
+
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } })
+
+        let catalog = await harness.storageActor.scanCatalog(transactionClass: .captureSafety)
+        let manifest = try XCTUnwrap(catalog.entries.first?.manifest)
+        XCTAssertEqual(manifest.batteryLevel, 0.82)
+        XCTAssertEqual(manifest.batteryState, "unplugged")
+        XCTAssertEqual(manifest.lowPowerMode, true)
+        XCTAssertNotNil(manifest.powerSampledAt)
+
+        harness.engine.stop(); await harness.engine.settled()
+    }
+
+    func testEngineBatteryMonitoringLifecycleHeldAndRestored() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { statuses.append($0) }
+
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } })
+
+        XCTAssertEqual(env.holdCount, 1)
+        XCTAssertEqual(env.restoreCount, 0)
+
+        harness.engine.stop(); await harness.engine.settled()
+        XCTAssertEqual(env.restoreCount, 1)
+    }
+
+    func testEnginePowerSamplingThrowDoesNotFailSegmentOpen() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        env.shouldThrowOnSample = true
+        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { statuses.append($0) }
+
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } })
+
+        let catalog = await harness.storageActor.scanCatalog(transactionClass: .captureSafety)
+        let manifest = try XCTUnwrap(catalog.entries.first?.manifest)
+        XCTAssertNil(manifest.batteryLevel)
+        XCTAssertNil(manifest.batteryState)
+        XCTAssertNil(manifest.lowPowerMode)
+        XCTAssertNotNil(manifest.powerSampledAt)
+
+        harness.engine.stop(); await harness.engine.settled()
+    }
+
+    func testTwoSegmentsInOneSessionSamplePowerIndependentlyAtEachSegmentOpen() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        env.queuedPowerSamples = [
+            WatchSegmentPowerSample(level: .available(0.80), state: .available("unplugged"), lowPowerModeEnabled: false),
+            WatchSegmentPowerSample(level: .available(0.70), state: .available("unplugged"), lowPowerModeEnabled: true),
+        ]
+        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+
+        harness.clock.advance(by: 300)
+        await self.drain(until: {
+            let manifests = await self.catalogEntries(for: harness.storage).map(\.manifest)
+            return harness.recorder.startURLs.count == 2
+                && manifests.contains { $0.state == .queued }
+                && manifests.contains { $0.state == .persisted }
+        })
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        XCTAssertEqual(entries.count, 2)
+        XCTAssertEqual(harness.recorder.startURLs.count, 2)
+        let sorted = entries.sorted { $0.manifest.startedAt < $1.manifest.startedAt }
+        XCTAssertEqual(sorted[0].manifest.batteryLevel, 0.80)
+        XCTAssertEqual(sorted[0].manifest.lowPowerMode, false)
+        XCTAssertEqual(sorted[1].manifest.batteryLevel, 0.70)
+        XCTAssertEqual(sorted[1].manifest.lowPowerMode, true)
+        let firstSampledAt = try XCTUnwrap(sorted[0].manifest.powerSampledAt)
+        let secondSampledAt = try XCTUnwrap(sorted[1].manifest.powerSampledAt)
+        XCTAssertNotEqual(firstSampledAt, secondSampledAt)
+
+        for entry in sorted {
+            let manifest = entry.manifest
+            let sampledAt = try XCTUnwrap(manifest.powerSampledAt)
+            let maxDuration = max(manifest.duration, 0)
+            XCTAssertGreaterThanOrEqual(sampledAt, manifest.startedAt)
+            XCTAssertLessThanOrEqual(sampledAt, manifest.startedAt.addingTimeInterval(maxDuration))
+        }
+
+        harness.engine.stop(); await harness.engine.settled()
+    }
+
+    func testRecoverUncleanPreservesCaptureWindowPowerWithoutRestampingAtRecoveryTime() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        env.defaultPowerSample = WatchSegmentPowerSample(
+            level: .available(0.55),
+            state: .available("charging"),
+            lowPowerModeEnabled: false
+        )
+        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
+        let captureDate = Date(timeIntervalSince1970: 1_713_624_000)
+        let day = harness.storage.dayString(for: captureDate)
+        let segment = harness.storage.provisionalSegmentString(for: captureDate)
+        let directory = try await harness.storageActor.prepareSegmentDirectory(day: day, segment: segment)
+        let manifest = WatchSegmentManifest(
+            id: UUID(),
+            day: day,
+            segment: segment,
+            startedAt: captureDate,
+            duration: 0,
+            sensors: [.audio],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 0,
+            state: .persisted,
+            failureReason: nil,
+            deliveredAt: nil,
+            batteryLevel: 0.88,
+            batteryState: "unplugged",
+            lowPowerMode: true,
+            powerSampledAt: captureDate
+        )
+        try await harness.storageActor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
+        let audioURL = harness.storage.audioURL(directory: directory)
+        try Data("audio".utf8).write(to: audioURL)
+        await harness.audioProbe.setDuration(30, forPath: audioURL.path)
+
+        // recoverUnclean preserves capture-window power recorded at segment open
+        // rather than restamping with recovery-time power readings, providing the journal
+        // with an uncorrupted distinguishing signal for when capture actually occurred.
+        // The journal signal is `power_sampled_at` inside `[started_at, started_at+duration_s]`;
+        // a leftover with no capture-window sample is indistinguishable from a pre-feature sender
+        // on the journal event; watch record `partial`/`lost` can tell.
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let recovered = try XCTUnwrap(entries.first?.manifest)
+        XCTAssertEqual(recovered.state, WatchSegmentState.queued)
+        XCTAssertEqual(recovered.batteryLevel, 0.88)
+        XCTAssertEqual(recovered.batteryState, "unplugged")
+        XCTAssertEqual(recovered.lowPowerMode, true)
+        XCTAssertEqual(recovered.powerSampledAt, captureDate)
+        XCTAssertEqual(env.holdCount, 0)
+        XCTAssertEqual(env.sampleCount, 0)
+    }
+
+    func testEngineBatteryMonitoringHeldThenRestoredOnStartFailure() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        let harness = try self.makeHarness(audioPermission: false, environmentProvider: env)
+
+        harness.engine.start(); await harness.engine.settled()
+
+        XCTAssertEqual(env.holdCount, 1)
+        XCTAssertEqual(env.restoreCount, 1)
+    }
+
     func advanceNotificationGate(
         _ gate: WatchCaptureHoldGate,
         scheduler: MockWatchNotificationScheduler,

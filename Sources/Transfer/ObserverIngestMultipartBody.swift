@@ -28,6 +28,10 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
     var sessionID: UUID?
     var modeRawValue: String?
     var segmentID: UUID?
+    var batteryLevel: Double?
+    var batteryState: String?
+    var lowPowerMode: Bool?
+    var powerSampledAt: Date?
     var parts: [ObserverIngestMultipartPart]
 
     init(
@@ -43,6 +47,10 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
         sessionID: UUID? = nil,
         modeRawValue: String? = nil,
         segmentID: UUID? = nil,
+        batteryLevel: Double? = nil,
+        batteryState: String? = nil,
+        lowPowerMode: Bool? = nil,
+        powerSampledAt: Date? = nil,
         parts: [ObserverIngestMultipartPart]
     ) {
         self.boundary = boundary
@@ -57,6 +65,10 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
         self.sessionID = sessionID
         self.modeRawValue = modeRawValue
         self.segmentID = segmentID
+        self.batteryLevel = batteryLevel
+        self.batteryState = batteryState
+        self.lowPowerMode = lowPowerMode
+        self.powerSampledAt = powerSampledAt
         self.parts = parts
     }
 }
@@ -89,6 +101,18 @@ nonisolated enum ObserverIngestMultipartBody {
         }
         if let segmentID = payload.segmentID {
             metaObject["segment_id"] = segmentID.uuidString
+        }
+        if let batteryLevel = payload.batteryLevel {
+            metaObject["battery_level"] = batteryLevel
+        }
+        if let batteryState = payload.batteryState {
+            metaObject["battery_state"] = batteryState
+        }
+        if let lowPowerMode = payload.lowPowerMode {
+            metaObject["low_power_mode"] = lowPowerMode
+        }
+        if let powerSampledAt = payload.powerSampledAt {
+            metaObject["power_sampled_at"] = ISO8601DateFormatter().string(from: powerSampledAt)
         }
         let envelope: [String: Any] = [
             "day": payload.day,

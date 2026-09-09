@@ -25,6 +25,42 @@ nonisolated final class WatchSegmentDrainTests: XCTestCase {
     }
 
     @MainActor
+    func testDrainHandlesPredecessorManifestLiteralWithoutPowerFields() async throws {
+        let stagingRoot = self.stagingRootURL(name: "predecessor-staging")
+        let segmentID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let segmentDirectory = stagingRoot.appendingPathComponent(segmentID.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: segmentDirectory, withIntermediateDirectories: true)
+        let jsonLiteral = """
+        {"day":"20250101","duration":300,"fix_count":1,"gap":false,"id":"00000000-0000-0000-0000-000000000001","lost":false,"partial":false,"segment":"120001_300","sensors":["audio","location"],"started_at":"2025-01-01T00:05:00Z","state":"queued"}
+        """
+        try Data(jsonLiteral.utf8).write(to: segmentDirectory.appendingPathComponent("manifest.json"), options: .atomic)
+        try Data("audio".utf8).write(to: segmentDirectory.appendingPathComponent("audio.m4a"), options: .atomic)
+
+        let transferHarness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("predecessor-transfer", isDirectory: true)
+        )
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
+            ledger: WatchSegmentLedger(fileURL: self.ledgerFileURL(name: "predecessor-ledger")),
+            transferEnqueuer: transferHarness.enqueuer,
+            transferEngine: transferHarness.engine
+        )
+
+        await drain.drain()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: segmentDirectory.path))
+
+        let snapshots = await transferHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        XCTAssertEqual(snapshots.count, 1)
+        let ingest = try XCTUnwrap(snapshots.first?.manifest.observerIngest)
+        XCTAssertEqual(ingest.sessionID, segmentID)
+        XCTAssertNil(ingest.batteryLevel)
+        XCTAssertNil(ingest.batteryState)
+        XCTAssertNil(ingest.lowPowerMode)
+        XCTAssertNil(ingest.powerSampledAt)
+    }
+
+    @MainActor
     func testColdStartNoMergeHoldsThenResumesUnderWatchKey() async throws {
         let stagingRoot = self.stagingRootURL()
         let manifest = self.makeManifest()

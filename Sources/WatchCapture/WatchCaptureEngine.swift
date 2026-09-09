@@ -108,6 +108,7 @@ final class WatchCaptureEngine {
     private var presentationAdmissionGeneration = 0
     private var admittedStartPending = false
     private var captureSafetyReadinessFailed = false
+    private var sessionBatteryMonitoringActive = false
     private var maintenanceGeneration = 0
     private var maintenanceTask: Task<Void, Never>?
     private var executingLifecycleIntent: WatchCaptureLifecycleSerializer.Intent?
@@ -386,6 +387,18 @@ final class WatchCaptureEngine {
         }
     }
 
+    private func beginSessionBatteryMonitoring() {
+        guard !self.sessionBatteryMonitoringActive else { return }
+        self.environmentProvider.holdBatteryMonitoring()
+        self.sessionBatteryMonitoringActive = true
+    }
+
+    private func endSessionBatteryMonitoring() {
+        guard self.sessionBatteryMonitoringActive else { return }
+        self.environmentProvider.restoreBatteryMonitoring()
+        self.sessionBatteryMonitoringActive = false
+    }
+
     private func startInner(generation: Int) async {
         self.clearTransientStateForStart()
         guard await self.mintSessionIdentity(startedAt: self.clock.now()) else {
@@ -401,14 +414,20 @@ final class WatchCaptureEngine {
             generation: generation
         ) != nil else { return }
 
+        self.beginSessionBatteryMonitoring()
+
         guard await self.prepareAudioForOwnerStart(generation: generation) else {
+            self.endSessionBatteryMonitoring()
             if self.isLifecycleGenerationCurrent(generation) {
                 await self.publishStatus(.idle)
                 self.notifyPresentationChanged()
             }
             return
         }
-        guard await self.continueLifecycleOperation(generation) else { return }
+        guard await self.continueLifecycleOperation(generation) else {
+            self.endSessionBatteryMonitoring()
+            return
+        }
 
         self.locationArmed = self.armLocation()
         if self.locationArmed {
@@ -424,18 +443,31 @@ final class WatchCaptureEngine {
         do {
             let startedAt = self.sessionStartedAt ?? self.clock.now()
             guard await self.beginStatusSession(startedAt: startedAt) else {
+                self.endSessionBatteryMonitoring()
                 self.status = .needsAttention(.unavailable(reason: SourceVocabulary.watchStatusSaveFailed))
                 self.notifyPresentationChanged()
                 return
             }
-            guard await self.continueLifecycleOperation(generation) else { return }
+            guard await self.continueLifecycleOperation(generation) else {
+                self.endSessionBatteryMonitoring()
+                return
+            }
             guard try await self.openSegment(
                 startedAt: startedAt,
                 ownerSessionID: currentSessionID,
                 generation: generation
-            ) else { return }
-            guard await self.continueLifecycleOperation(generation) else { return }
-            guard let segment = self.activeSegment else { return }
+            ) else {
+                self.endSessionBatteryMonitoring()
+                return
+            }
+            guard await self.continueLifecycleOperation(generation) else {
+                self.endSessionBatteryMonitoring()
+                return
+            }
+            guard let segment = self.activeSegment else {
+                self.endSessionBatteryMonitoring()
+                return
+            }
             if !segment.hasLiveSensor {
                 await self.refuseInitialStartAfterSegmentOpen(
                     error: .unavailable(reason: SourceVocabulary.watchMicrophoneUnavailable)
@@ -443,20 +475,32 @@ final class WatchCaptureEngine {
                 return
             }
             await self.writeActiveSessionRecord(startedAt: startedAt)
-            guard await self.continueLifecycleOperation(generation) else { return }
+            guard await self.continueLifecycleOperation(generation) else {
+                self.endSessionBatteryMonitoring()
+                return
+            }
             await self.replaceAudioTruthLease(verifiedAt: startedAt, generation: generation)
-            guard await self.continueLifecycleOperation(generation) else { return }
+            guard await self.continueLifecycleOperation(generation) else {
+                self.endSessionBatteryMonitoring()
+                return
+            }
             self.installAudioSessionObservers(source: ownerSource)
             self.status = self.statusForRunningSegment(segment)
             self.startSegmentationTask()
         } catch WatchCaptureEngineError.audioStartFailed {
-            guard await self.continueLifecycleOperation(generation) else { return }
+            guard await self.continueLifecycleOperation(generation) else {
+                self.endSessionBatteryMonitoring()
+                return
+            }
             await self.refuseInitialStartAfterSegmentOpen(
                 error: WatchCaptureTerminalReason.audioStartFailed.observerError
             )
             return
         } catch {
-            guard await self.continueLifecycleOperation(generation) else { return }
+            guard await self.continueLifecycleOperation(generation) else {
+                self.endSessionBatteryMonitoring()
+                return
+            }
             await self.refuseInitialStartAfterSegmentOpen(
                 error: WatchCaptureFailureMapper.observerError(for: error),
                 persistenceFailed: self.openingSegmentHasPersistedManifest
@@ -468,6 +512,7 @@ final class WatchCaptureEngine {
             await self.publishStatus(.observing)
             self.startHeartbeatTask(source: ownerSource)
         } else {
+            self.endSessionBatteryMonitoring()
             await self.publishStatus(.idle)
         }
         self.notifyPresentationChanged()
@@ -828,6 +873,7 @@ private extension WatchCaptureEngine {
         error: ObserverError,
         persistenceFailed: Bool = false
     ) async {
+        self.endSessionBatteryMonitoring()
         let segment = self.activeSegment ?? self.openingSegment
         self.activeSegment = nil
         self.openingSegment = nil
@@ -901,6 +947,19 @@ private extension WatchCaptureEngine {
             state: .captured,
             failureReason: nil
         )
+        do {
+            let sample = try self.environmentProvider.sampleSegmentPower()
+            manifest.powerSampledAt = self.clock.now()
+            if case .available(let level) = sample.level {
+                manifest.batteryLevel = level
+            }
+            if case .available(let state) = sample.state {
+                manifest.batteryState = state
+            }
+            manifest.lowPowerMode = sample.lowPowerModeEnabled
+        } catch {
+            manifest.powerSampledAt = self.clock.now()
+        }
         var active = ActiveSegment(
             directoryURL: directory,
             manifest: manifest,
@@ -2260,6 +2319,7 @@ private extension WatchCaptureEngine {
         self.segmentationTask = nil
         self.removeAudioSessionObservers()
         self.locationProvider.stop()
+        self.endSessionBatteryMonitoring()
         self.currentAudioEnrollment = nil
 
         let audioDuration: TimeInterval?

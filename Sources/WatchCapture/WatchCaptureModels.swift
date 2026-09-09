@@ -42,6 +42,10 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
     var state: WatchSegmentState
     var failureReason: String?
     var deliveredAt: Date? = nil
+    var batteryLevel: Double? = nil
+    var batteryState: String? = nil
+    var lowPowerMode: Bool? = nil
+    var powerSampledAt: Date? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -57,6 +61,10 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
         case state
         case failureReason = "failure_reason"
         case deliveredAt = "delivered_at"
+        case batteryLevel = "battery_level"
+        case batteryState = "battery_state"
+        case lowPowerMode = "low_power_mode"
+        case powerSampledAt = "power_sampled_at"
     }
 }
 

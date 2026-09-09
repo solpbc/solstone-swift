@@ -124,6 +124,23 @@ final class ObserverAudioTransferEnqueuer {
         return try await self.engine.enqueue(manifest: manifest, payloadFileURLs: payloadFileURLs)
     }
 
+    nonisolated static func mapWatchSegmentPowerForWire(
+        watchManifest: WatchSegmentManifest
+    ) -> (batteryLevel: Double?, batteryState: String?, lowPowerMode: Bool?, powerSampledAt: Date?) {
+        let batteryState: String?
+        if let state = watchManifest.batteryState, state != WatchBatteryStateReading.unknown.rawValue {
+            batteryState = state
+        } else {
+            batteryState = nil
+        }
+        return (
+            batteryLevel: watchManifest.batteryLevel,
+            batteryState: batteryState,
+            lowPowerMode: watchManifest.lowPowerMode,
+            powerSampledAt: watchManifest.powerSampledAt
+        )
+    }
+
     nonisolated static func makeWatchManifest(
         itemID: UUID = UUID(),
         watchManifest: WatchSegmentManifest,
@@ -140,6 +157,7 @@ final class ObserverAudioTransferEnqueuer {
             sources.append("location")
             parts.append(Self.locationPart())
         }
+        let power = self.mapWatchSegmentPowerForWire(watchManifest: watchManifest)
         return self.makeManifest(
             itemID: itemID,
             source: ObserverAudioTransferSource.watch,
@@ -154,6 +172,10 @@ final class ObserverAudioTransferEnqueuer {
             sessionID: watchManifest.id,
             modeRawValue: ObserverMode.meeting.rawValue,
             segmentID: watchManifest.id,
+            batteryLevel: power.batteryLevel,
+            batteryState: power.batteryState,
+            lowPowerMode: power.lowPowerMode,
+            powerSampledAt: power.powerSampledAt,
             payloadParts: parts
         )
     }
@@ -232,6 +254,10 @@ final class ObserverAudioTransferEnqueuer {
         sessionID: UUID?,
         modeRawValue: String?,
         segmentID: UUID?,
+        batteryLevel: Double? = nil,
+        batteryState: String? = nil,
+        lowPowerMode: Bool? = nil,
+        powerSampledAt: Date? = nil,
         payloadParts: [TransferPayloadPartDescriptor]
     ) -> TransferManifest {
         TransferManifest(
@@ -255,6 +281,10 @@ final class ObserverAudioTransferEnqueuer {
                 sessionID: sessionID,
                 modeRawValue: modeRawValue,
                 segmentID: segmentID,
+                batteryLevel: batteryLevel,
+                batteryState: batteryState,
+                lowPowerMode: lowPowerMode,
+                powerSampledAt: powerSampledAt,
                 ingestProtocolVersion: 3
             ),
             meta: .object(["source": .string(source)]),

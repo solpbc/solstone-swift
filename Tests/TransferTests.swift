@@ -51,6 +51,34 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(snapshot.counters.inFlightCount, 0)
     }
 
+    func testDecodePredecessorTransferManifestLiteralWithoutPowerKeys() async throws {
+        let jsonLiteral = """
+        {"schemaVersion":"solstone.transfer.item/1","itemID":"00000000-0000-0000-0000-000000000700","source":"watch","createdAt":"2026-04-20T12:00:00Z","priority":{"basePriority":"normal","sourceKey":"watch","userInitiated":false},"payloadParts":[{"partID":"audio","kind":"audio","relativePath":"audio.m4a","filename":"audio.m4a","contentType":"audio/mp4","requiredForDispatch":true}],"endpoint":{"destinationKind":"observer_ingest","path":"/app/devices/ingest"},"observerIngest":{"platform":"watchos","segment":"120000_300","day":"20260420","startedAt":"2026-04-20T12:00:00Z","durationS":300,"sources":["audio"],"chunkIndex":0,"sessionID":"00000000-0000-0000-0000-000000000700","modeRawValue":"meeting","segmentID":"00000000-0000-0000-0000-000000000700","ingestProtocolVersion":3},"meta":{"source":"watch"},"diskState":"queued","retryCount":0}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let manifest = try decoder.decode(TransferManifest.self, from: Data(jsonLiteral.utf8))
+        XCTAssertEqual(manifest.itemID, UUID(uuidString: "00000000-0000-0000-0000-000000000700"))
+        XCTAssertEqual(manifest.source, "watch")
+        XCTAssertNil(manifest.observerIngest?.batteryLevel)
+        XCTAssertNil(manifest.observerIngest?.batteryState)
+        XCTAssertNil(manifest.observerIngest?.lowPowerMode)
+        XCTAssertNil(manifest.observerIngest?.powerSampledAt)
+
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("predecessor-transfer-spool", isDirectory: true))
+        _ = try spool.commitStagedItem(itemID: spool.stage(manifest: manifest, payloads: self.audioPayloads()).item.manifest.itemID)
+
+        let resolver = TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        let engine = self.makeEngine(spool: spool, resolver: resolver)
+        try await engine.start()
+        try await self.waitFor("predecessor manifest dispatch") { TransferURLProtocol.bodies.count == 1 }
+        XCTAssertEqual(TransferURLProtocol.bodies.count, 1)
+    }
+
     func testQueuedPredecessorObserverItemDeletesV2CacheBeforeV3Dispatch() async throws {
         TransferURLProtocol.handler = { request, _ in
             (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))

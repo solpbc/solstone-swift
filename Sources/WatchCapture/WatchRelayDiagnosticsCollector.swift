@@ -17,6 +17,12 @@ nonisolated struct WatchRelayDiagnosticsEnvironmentSnapshot: Codable, Equatable,
     let watchThermalState: DiagnosticAvailability<String>
 }
 
+nonisolated struct WatchSegmentPowerSample: Equatable, Sendable {
+    let level: DiagnosticAvailability<Double>
+    let state: DiagnosticAvailability<String>
+    let lowPowerModeEnabled: Bool
+}
+
 nonisolated enum WatchBatteryStateReading: String, Equatable, Sendable {
     case unknown
     case unplugged
@@ -34,10 +40,24 @@ protocol WatchBatteryDevice: AnyObject {
 @MainActor
 protocol WatchRelayDiagnosticsEnvironmentProviding: AnyObject {
     func snapshot() -> WatchRelayDiagnosticsEnvironmentSnapshot
+    func holdBatteryMonitoring()
+    func restoreBatteryMonitoring()
+    func sampleSegmentPower() throws -> WatchSegmentPowerSample
 }
 
 @MainActor
 final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsEnvironmentProviding {
+    #if os(watchOS)
+    private let batteryDevice: any WatchBatteryDevice
+    private var previousBatteryMonitoringEnabled: Bool?
+    #endif
+
+    init() {
+        #if os(watchOS)
+        self.batteryDevice = WatchKitBatteryDevice(device: WKInterfaceDevice.current())
+        #endif
+    }
+
     func snapshot() -> WatchRelayDiagnosticsEnvironmentSnapshot {
         let battery = Self.watchBatterySnapshot()
         return WatchRelayDiagnosticsEnvironmentSnapshot(
@@ -51,21 +71,68 @@ final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsE
         )
     }
 
-    static func batterySnapshot(
-        device: any WatchBatteryDevice
-    ) -> (level: DiagnosticAvailability<Double>, state: DiagnosticAvailability<String>) {
-        let previous = device.isBatteryMonitoringEnabled
-        device.isBatteryMonitoringEnabled = true
-        defer { device.isBatteryMonitoringEnabled = previous }
+    func holdBatteryMonitoring() {
+        #if os(watchOS)
+        if self.previousBatteryMonitoringEnabled == nil {
+            self.previousBatteryMonitoringEnabled = self.batteryDevice.isBatteryMonitoringEnabled
+            self.batteryDevice.isBatteryMonitoringEnabled = true
+        }
+        #endif
+    }
 
-        let levelReading = device.batteryLevelReading
+    func restoreBatteryMonitoring() {
+        #if os(watchOS)
+        if let previous = self.previousBatteryMonitoringEnabled {
+            self.batteryDevice.isBatteryMonitoringEnabled = previous
+            self.previousBatteryMonitoringEnabled = nil
+        }
+        #endif
+    }
+
+    func sampleSegmentPower() throws -> WatchSegmentPowerSample {
+        let lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+        #if os(watchOS)
+        let mapped = Self.mapBatteryReadings(
+            levelReading: self.batteryDevice.batteryLevelReading,
+            stateReading: self.batteryDevice.batteryStateReading
+        )
+        return WatchSegmentPowerSample(
+            level: mapped.level,
+            state: mapped.state,
+            lowPowerModeEnabled: lowPowerMode
+        )
+        #else
+        return WatchSegmentPowerSample(
+            level: .unavailable(reason: "not available off watch"),
+            state: .unavailable(reason: "not available off watch"),
+            lowPowerModeEnabled: lowPowerMode
+        )
+        #endif
+    }
+
+    nonisolated static func mapBatteryReadings(
+        levelReading: Float,
+        stateReading: WatchBatteryStateReading
+    ) -> (level: DiagnosticAvailability<Double>, state: DiagnosticAvailability<String>) {
         let level: DiagnosticAvailability<Double>
         if levelReading >= 0 {
             level = .available(Double(levelReading))
         } else {
             level = .unavailable(reason: "not provided")
         }
-        return (level, .available(device.batteryStateReading.rawValue))
+        return (level, .available(stateReading.rawValue))
+    }
+
+    static func batterySnapshot(
+        device: any WatchBatteryDevice
+    ) -> (level: DiagnosticAvailability<Double>, state: DiagnosticAvailability<String>) {
+        let previous = device.isBatteryMonitoringEnabled
+        device.isBatteryMonitoringEnabled = true
+        defer { device.isBatteryMonitoringEnabled = previous }
+        return self.mapBatteryReadings(
+            levelReading: device.batteryLevelReading,
+            stateReading: device.batteryStateReading
+        )
     }
 }
 

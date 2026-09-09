@@ -151,6 +151,10 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
     var sessionID: UUID?
     var modeRawValue: String?
     var segmentID: UUID?
+    var batteryLevel: Double?
+    var batteryState: String?
+    var lowPowerMode: Bool?
+    var powerSampledAt: Date?
     /// The wire format used for this persisted observer ingest item. `nil`
     /// marks a v2 persisted item.
     var ingestProtocolVersion: Int?
@@ -166,6 +170,10 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         sessionID: UUID? = nil,
         modeRawValue: String? = nil,
         segmentID: UUID? = nil,
+        batteryLevel: Double? = nil,
+        batteryState: String? = nil,
+        lowPowerMode: Bool? = nil,
+        powerSampledAt: Date? = nil,
         ingestProtocolVersion: Int? = nil
     ) {
         self.platform = platform
@@ -178,6 +186,10 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         self.sessionID = sessionID
         self.modeRawValue = modeRawValue
         self.segmentID = segmentID
+        self.batteryLevel = batteryLevel
+        self.batteryState = batteryState
+        self.lowPowerMode = lowPowerMode
+        self.powerSampledAt = powerSampledAt
         self.ingestProtocolVersion = ingestProtocolVersion
     }
 }

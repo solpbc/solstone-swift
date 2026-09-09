@@ -106,6 +106,10 @@ nonisolated enum DefaultTransferBodyBuilder {
                 sessionID: ingest.sessionID,
                 modeRawValue: ingest.modeRawValue,
                 segmentID: ingest.segmentID,
+                batteryLevel: ingest.batteryLevel,
+                batteryState: ingest.batteryState,
+                lowPowerMode: ingest.lowPowerMode,
+                powerSampledAt: ingest.powerSampledAt,
                 parts: parts
             )))
         case .saveThenStart:

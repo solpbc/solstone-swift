@@ -44,6 +44,41 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertEqual(afterDelete, afterWrite + 1)
     }
 
+    func testDecodePredecessorManifestLiteralWithoutPowerFields() async throws {
+        let jsonLiteral = """
+        {"day":"20250101","duration":300,"fix_count":1,"gap":false,"id":"00000000-0000-0000-0000-000000000001","lost":false,"partial":false,"segment":"120001_300","sensors":["audio","location"],"started_at":"2025-01-01T00:05:00Z","state":"queued"}
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let manifest = try decoder.decode(WatchSegmentManifest.self, from: Data(jsonLiteral.utf8))
+        XCTAssertEqual(manifest.id, UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        XCTAssertEqual(manifest.day, "20250101")
+        XCTAssertEqual(manifest.duration, 300)
+        XCTAssertEqual(manifest.fixCount, 1)
+        XCTAssertEqual(manifest.segment, "120001_300")
+        XCTAssertEqual(manifest.sensors, [.audio, .location])
+        XCTAssertEqual(manifest.state, .queued)
+        XCTAssertNil(manifest.batteryLevel)
+        XCTAssertNil(manifest.batteryState)
+        XCTAssertNil(manifest.lowPowerMode)
+        XCTAssertNil(manifest.powerSampledAt)
+
+        let actor = self.actor()
+        try await actor.prepareRoot()
+        let segmentDir = self.root.appendingPathComponent("20250101/120001_300", isDirectory: true)
+        try FileManager.default.createDirectory(at: segmentDir, withIntermediateDirectories: true)
+        try Data(jsonLiteral.utf8).write(to: segmentDir.appendingPathComponent("manifest.json"))
+
+        let catalog = await actor.scanCatalog(transactionClass: .maintenance)
+        let entry = try XCTUnwrap(catalog.entries.first { $0.manifest.id == manifest.id })
+        XCTAssertEqual(entry.manifest.id, UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        XCTAssertEqual(entry.manifest.state, .queued)
+        XCTAssertNil(entry.manifest.batteryLevel)
+        XCTAssertNil(entry.manifest.batteryState)
+        XCTAssertNil(entry.manifest.lowPowerMode)
+        XCTAssertNil(entry.manifest.powerSampledAt)
+    }
+
     func testScanCatalogCarriesGenerationSampledAtStart() async throws {
         let actor = self.actor()
         try await actor.prepareRoot()

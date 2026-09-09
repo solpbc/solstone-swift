@@ -1245,6 +1245,41 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertEqual(device.monitoringAssignments, [true, false])
     }
 
+    func testMapBatteryReadingsWithNegativeSentinel() {
+        let mapped = LiveWatchRelayDiagnosticsEnvironmentProvider.mapBatteryReadings(
+            levelReading: -1.0,
+            stateReading: .unknown
+        )
+        XCTAssertEqual(mapped.level, .unavailable(reason: "not provided"))
+        XCTAssertEqual(mapped.state, .available("unknown"))
+    }
+
+    func testMapBatteryReadingsWithZeroLevelAndKnownState() {
+        let mapped = LiveWatchRelayDiagnosticsEnvironmentProvider.mapBatteryReadings(
+            levelReading: 0.0,
+            stateReading: .unplugged
+        )
+        if case .available(let level) = mapped.level {
+            XCTAssertEqual(level, 0.0, accuracy: 0.001)
+        } else {
+            XCTFail("Expected available battery level for 0.0")
+        }
+        XCTAssertEqual(mapped.state, .available("unplugged"))
+    }
+
+    func testMapBatteryReadingsWithValidReadings() {
+        let mapped = LiveWatchRelayDiagnosticsEnvironmentProvider.mapBatteryReadings(
+            levelReading: 0.88,
+            stateReading: .charging
+        )
+        if case .available(let level) = mapped.level {
+            XCTAssertEqual(level, 0.88, accuracy: 0.001)
+        } else {
+            XCTFail("Expected available battery level")
+        }
+        XCTAssertEqual(mapped.state, .available("charging"))
+    }
+
     func testDiagnosticWriteFailureDoesNotBlockEnqueueRelayEffectAndMarksHistoryUnavailable() async throws {
         let now = Self.now
         let writer = WriteFailingWatchFileWriter()
