@@ -147,6 +147,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
 
         watchSession.outstandingFileTransfers.first?.cancel()
+        await self.settleConnectivityCallback()
         await sender.requestDrain(trigger: .testDirect)
         XCTAssertEqual(watchSession.transferredFiles.count, 2)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
@@ -316,6 +317,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(stagedIDs, [id])
 
         watchSession.outstandingFileTransfers.first?.cancel()
+        await self.settleConnectivityCallback()
         await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
@@ -387,6 +389,7 @@ final class WatchRelayTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(10))
 
         watchSession.outstandingFileTransfers.first?.cancel()
+        await self.settleConnectivityCallback()
         await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
@@ -466,6 +469,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(ledger.lifetimeReceived, 1)
 
         watchSession.outstandingFileTransfers.first?.cancel()
+        await self.settleConnectivityCallback()
         await sender.requestDrain(trigger: .testDirect)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
@@ -858,7 +862,7 @@ final class WatchRelayTests: XCTestCase {
     func testAC4DeliveredPastDeadlineRequeuesAndRetransfers() async throws {
         let storage = try self.makeStorage("ac4-delivered-expired")
         let id = UUID()
-        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var now = Date(timeIntervalSince1970: 2_000_000_000)
         _ = try await self.writeSegment(
             storage: storage,
             id: id,
@@ -867,17 +871,41 @@ final class WatchRelayTests: XCTestCase {
             deliveredAt: now.addingTimeInterval(-900)
         )
         let watchSession = MockWatchConnectivitySession()
+        watchSession.isReachable = true
         let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession, clock: { now })
 
         watchSession.activate()
         await sender.requestDrain(trigger: .testDirect)
 
+        // Advance 900s within the established hear-back window
+        now = now.addingTimeInterval(900)
+        await sender.requestDrain(trigger: .testDirect)
+
         XCTAssertEqual(watchSession.transferredFiles.count, 1)
         XCTAssertEqual(watchSession.transferredFiles.first?.1["id"] as? String, id.uuidString)
-        let state = try await self.manifestState(storage: storage, id: id)
+        var state = try await self.manifestState(storage: storage, id: id)
         XCTAssertEqual(state, .transferring)
         let manifest = try await self.manifest(storage: storage, id: id)
         XCTAssertNil(manifest?.deliveredAt)
+
+        // Complete the transfer to .delivered with a fresh deliveredAt
+        let storageActor = self.storageActor(for: storage)
+        let currentEntry = (await self.catalogEntries(for: storage)).first!
+        var deliveredManifest = currentEntry.manifest
+        deliveredManifest.state = .delivered
+        deliveredManifest.deliveredAt = now
+        _ = try await storageActor.writeManifest(deliveredManifest, ensuringDirectory: false, transactionClass: .captureSafety)
+        watchSession.finishTransfer(id: id, failure: nil)
+        await self.settleConnectivityCallback()
+
+        // Jump another >= 900s reachable
+        now = now.addingTimeInterval(900)
+        await sender.requestDrain(trigger: .testDirect)
+
+        // Expires again and retransfers
+        XCTAssertEqual(watchSession.transferredFiles.count, 2)
+        state = try await self.manifestState(storage: storage, id: id)
+        XCTAssertEqual(state, .transferring)
     }
 
     func testAC5FailureRetryViaNaturalDrainRequeuesAndRetries() async throws {
@@ -1467,6 +1495,7 @@ final class WatchRelayTests: XCTestCase {
 
         await sender.requestDrain(trigger: .testDirect)
         session.outstandingFileTransfers.first?.cancel()
+        await self.settleConnectivityCallback()
         await sender.requestDrain(trigger: .testDirect)
 
         XCTAssertEqual(session.transferredFiles.count, 2)
@@ -1653,6 +1682,11 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(confirming.countsLine, "1 confirming with your iphone")
         XCTAssertNil(confirming.attentionLine)
 
+        let abandoned = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, abandonedCount: 1)
+        XCTAssertEqual(abandoned.headline, SourceVocabulary.watchPipelineAbandoned)
+        XCTAssertEqual(abandoned.countsLine, SourceVocabulary.watchAbandonedCount(1))
+        XCTAssertNil(abandoned.attentionLine)
+
         let handedOff = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, handedOffCount: 1)
         XCTAssertEqual(handedOff.headline, "handed to your iphone")
         XCTAssertEqual(handedOff.countsLine, "1 handed to your iphone")
@@ -1668,6 +1702,572 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(attention.headline, "storage is full")
         XCTAssertEqual(attention.countsLine, "1 sending · 1 saved on your watch · 1 confirming with your iphone · 1 handed to your iphone")
         XCTAssertEqual(attention.attentionLine, "storage is full")
+    }
+
+    func testDeliveredDeadlineExpiresOnlyInHearBackWindow() async throws {
+        let storage = try self.makeStorage("delivered-hearback-window")
+        let id = UUID()
+        var now = Date(timeIntervalSince1970: 1_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .delivered, deliveredAt: now)
+        let watchSession = MockWatchConnectivitySession()
+        watchSession.isReachable = false
+        watchSession.activate()
+
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: watchSession,
+            clock: { now }
+        )
+
+        // Advance clock by 1000s while unreachable -> should NOT expire
+        now = now.addingTimeInterval(1000)
+        await sender.requestDrain(trigger: .testDirect)
+        var entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.first?.manifest.state, .delivered)
+
+        // Now become reachable -> enters hear-back window at new now
+        watchSession.isReachable = true
+        await sender.requestDrain(trigger: .connectivityReachability)
+        entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.first?.manifest.state, .delivered)
+
+        // Advance clock within window (< 900s) -> still delivered
+        now = now.addingTimeInterval(500)
+        await sender.requestDrain(trigger: .testDirect)
+        entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.first?.manifest.state, .delivered)
+
+        // Advance past 900s in window -> re-queues to .queued
+        now = now.addingTimeInterval(450)
+        await sender.requestDrain(trigger: .testDirect)
+        entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.first?.manifest.state, .transferring) // promoted/transferred
+    }
+
+    func testStickyHearBackWindowAccumulatesAcrossSparsePasses() async throws {
+        let storage = try self.makeStorage("sparse-hearback-window")
+        let id = UUID()
+        var now = Date(timeIntervalSince1970: 2_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .delivered, deliveredAt: now)
+        let watchSession = MockWatchConnectivitySession()
+        watchSession.isReachable = true
+        watchSession.activate()
+
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: watchSession,
+            clock: { now }
+        )
+
+        // First pass sets windowStart = 2,000,000
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(sender.hearBackWindowStart, now)
+
+        // Sparse pass 500s later in same process -> keeps windowStart
+        now = now.addingTimeInterval(500)
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(sender.hearBackWindowStart, Date(timeIntervalSince1970: 2_000_000))
+
+        // Sparse pass 450s later (total 950s since window start) -> re-queues
+        now = now.addingTimeInterval(450)
+        await sender.requestDrain(trigger: .testDirect)
+        let entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.first?.manifest.state, .transferring)
+    }
+
+    func testProcessRestartContinuesFreshWindowAndRebasesStale() async throws {
+        let storage = try self.makeStorage("process-restart-window")
+        var now = Date(timeIntervalSince1970: 3_000_000)
+        let watchSession = MockWatchConnectivitySession()
+        watchSession.isReachable = true
+        watchSession.activate()
+
+        let sender1 = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: watchSession,
+            clock: { now }
+        )
+        await sender1.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(sender1.hearBackWindowStart, now)
+
+        // Process restart 100s later (< 900s) -> continues existing window
+        now = now.addingTimeInterval(100)
+        let sender2 = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: watchSession,
+            clock: { now }
+        )
+        await sender2.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(sender2.hearBackWindowStart, Date(timeIntervalSince1970: 3_000_000))
+
+        // Process restart 1000s later (>= 900s since last sample) -> rebases window start to now
+        now = now.addingTimeInterval(1000)
+        let sender3 = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: watchSession,
+            clock: { now }
+        )
+        await sender3.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(sender3.hearBackWindowStart, now)
+    }
+
+    func testRelayDeliveryCeilingConjunctionAbandonsAndPrunesAfterSevenDays() async throws {
+        let storage = try self.makeStorage("ceiling-abandon-prune")
+        let id = UUID()
+        var now = Date(timeIntervalSince1970: 4_000_000)
+        let directory = try await self.writeSegment(storage: storage, id: id, index: 0, state: .queued)
+        let storageActor = self.storageActor(for: storage)
+
+        // Set manifest attempt count = 8 and effort = 43200 (12 hours)
+        var initialManifest = await storageActor.scanCatalog(transactionClass: .captureSafety).entries.first!.manifest
+        initialManifest.relayDeliveryAttemptCount = 8
+        initialManifest.relayDeliveryEffortSeconds = 43200
+        _ = try await storageActor.writeManifest(initialManifest, ensuringDirectory: false, transactionClass: .captureSafety)
+
+        let watchSession = MockWatchConnectivitySession()
+        watchSession.isReachable = true
+        watchSession.activate()
+
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: watchSession,
+            clock: { now }
+        )
+
+        await sender.requestDrain(trigger: .testDirect)
+
+        var entries = await self.catalogEntries(for: storage)
+        let abandonedManifest = try XCTUnwrap(entries.first?.manifest)
+        XCTAssertEqual(abandonedManifest.state, WatchSegmentState.abandoned)
+        XCTAssertEqual(abandonedManifest.failureReason, "relayDeliveryCeiling")
+        XCTAssertEqual(abandonedManifest.abandonedAt, now)
+
+        // Payload files should be deleted, manifest preserved
+        let audioExists = await storage.fileWriter.fileExists(at: storage.audioURL(directory: directory))
+        let manifestExists = await storage.fileWriter.fileExists(at: storage.manifestURL(directory: directory))
+        XCTAssertFalse(audioExists)
+        XCTAssertTrue(manifestExists)
+
+        // Advance 6 days -> still kept
+        now = now.addingTimeInterval(6 * 86400)
+        await sender.requestDrain(trigger: .testDirect)
+        entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.count, 1)
+
+        // Advance past 7 days -> pruned completely
+        now = now.addingTimeInterval(2 * 86400)
+        await sender.requestDrain(trigger: .testDirect)
+        entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.count, 0)
+    }
+
+    func testDeliveredDeadlineDoesNotExpireOnFirstReconnectPass() async throws {
+        let storage = try self.makeStorage("reconnect-pass-no-requeue")
+        let id = UUID()
+        var now = Date(timeIntervalSince1970: 1_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .delivered, deliveredAt: now.addingTimeInterval(-1000))
+        let watchSession = MockWatchConnectivitySession()
+        watchSession.isReachable = false
+        watchSession.activate()
+
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: watchSession,
+            clock: { now }
+        )
+
+        // Drain while unreachable: deliveredAt > 900s ago, but unreachable -> state stays .delivered
+        await sender.requestDrain(trigger: .testDirect)
+        var entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.first?.manifest.state, .delivered)
+        XCTAssertEqual(watchSession.transferredFiles.count, 0)
+
+        // Reconnect via emitReachability(true) + requestDrain(.connectivityReachability)
+        watchSession.emitReachability(true)
+        await sender.requestDrain(trigger: .connectivityReachability)
+
+        // THAT reconnect pass: no re-queue, transferredFiles still 0, no new bundle, no new attempt record
+        entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.first?.manifest.state, .delivered)
+        XCTAssertEqual(watchSession.transferredFiles.count, 0)
+        let bundleExists = await storage.fileWriter.fileExists(at: sender.bundleURL(for: id))
+        XCTAssertFalse(bundleExists)
+    }
+
+    func testStickyHearBackWindowAccumulatesAcrossSparsePassesWiderThanDeadline() async throws {
+        let storage = try self.makeStorage("sparse-wider-than-deadline")
+        let id = UUID()
+        var now = Date(timeIntervalSince1970: 2_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .delivered, deliveredAt: now)
+        let watchSession = MockWatchConnectivitySession()
+        watchSession.isReachable = true
+        watchSession.activate()
+
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: watchSession,
+            clock: { now }
+        )
+
+        // First pass sets windowStart = 2,000,000
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(sender.hearBackWindowStart, now)
+        XCTAssertEqual(watchSession.transferredFiles.count, 0)
+
+        // Two reachable drains with >= 1800s between them in same process (2000s)
+        now = now.addingTimeInterval(2000)
+        await sender.requestDrain(trigger: .testDirect)
+
+        // Lost ACK expires exactly once
+        XCTAssertEqual(sender.hearBackWindowStart, Date(timeIntervalSince1970: 2_000_000))
+        XCTAssertEqual(watchSession.transferredFiles.count, 1)
+        let entries = await self.catalogEntries(for: storage)
+        XCTAssertEqual(entries.first?.manifest.state, .transferring)
+    }
+
+    func testLivenessStallNeverMovedOffZeroAndPartialThenStall() async throws {
+        // Part A: never moved off zero cancels and redrives, then completes
+        let storageA = try self.makeStorage("stall-never-moved")
+        let idA = UUID()
+        var nowA = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storageA, id: idA, index: 0, state: .queued)
+        let sessionA = MockWatchConnectivitySession()
+        sessionA.isReachable = true
+        sessionA.activate()
+        let senderA = WatchRelaySender(paths: storageA.paths, storageActor: self.storageActor(for: storageA), session: sessionA, clock: { nowA })
+
+        await senderA.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(sessionA.transferredFiles.count, 1)
+
+        // Advance 30 minutes with fractionCompleted = 0
+        nowA = nowA.addingTimeInterval(1800)
+        await senderA.requestDrain(trigger: .testDirect)
+        await self.settleConnectivityCallback()
+        await senderA.requestDrain(trigger: .testDirect)
+
+        XCTAssertTrue(sessionA.cancelledSegmentIDs.contains(idA))
+        XCTAssertEqual(sessionA.transferredFiles.count, 2)
+
+        // Complete the redrive
+        sessionA.finishTransfer(id: idA, failure: nil)
+        await self.settleConnectivityCallback()
+
+        // Part B: partial progress then stall
+        let storageB = try self.makeStorage("stall-partial-progress")
+        let idB = UUID()
+        var nowB = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storageB, id: idB, index: 0, state: .queued)
+        let sessionB = MockWatchConnectivitySession()
+        sessionB.isReachable = true
+        sessionB.activate()
+        let senderB = WatchRelaySender(paths: storageB.paths, storageActor: self.storageActor(for: storageB), session: sessionB, clock: { nowB })
+
+        await senderB.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(sessionB.transferredFiles.count, 1)
+
+        // Move progress to 0.5 at 10 minutes
+        nowB = nowB.addingTimeInterval(600)
+        sessionB.updateOutstandingProgress(segmentID: idB, completedUnitCount: 50, totalUnitCount: 100, fractionCompleted: 0.5)
+        await senderB.requestDrain(trigger: .testDirect)
+        XCTAssertFalse(sessionB.cancelledSegmentIDs.contains(idB))
+
+        // Freeze progress for 30 minutes past the last progress
+        nowB = nowB.addingTimeInterval(1800)
+        await senderB.requestDrain(trigger: .testDirect)
+        await self.settleConnectivityCallback()
+        await senderB.requestDrain(trigger: .testDirect)
+
+        XCTAssertTrue(sessionB.cancelledSegmentIDs.contains(idB))
+        XCTAssertEqual(sessionB.transferredFiles.count, 2)
+
+        // Part C: Healthy slow advancing is never cancelled
+        let storageC = try self.makeStorage("stall-healthy-advancing")
+        let idC = UUID()
+        var nowC = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storageC, id: idC, index: 0, state: .queued)
+        let sessionC = MockWatchConnectivitySession()
+        sessionC.isReachable = true
+        sessionC.activate()
+        let senderC = WatchRelaySender(paths: storageC.paths, storageActor: self.storageActor(for: storageC), session: sessionC, clock: { nowC })
+
+        await senderC.requestDrain(trigger: .testDirect)
+        // Advance 20 minutes with progress increment
+        nowC = nowC.addingTimeInterval(1200)
+        sessionC.updateOutstandingProgress(segmentID: idC, completedUnitCount: 30, totalUnitCount: 100, fractionCompleted: 0.3)
+        await senderC.requestDrain(trigger: .testDirect)
+        XCTAssertFalse(sessionC.cancelledSegmentIDs.contains(idC))
+
+        // Advance another 20 minutes with progress increment
+        nowC = nowC.addingTimeInterval(1200)
+        sessionC.updateOutstandingProgress(segmentID: idC, completedUnitCount: 60, totalUnitCount: 100, fractionCompleted: 0.6)
+        await senderC.requestDrain(trigger: .testDirect)
+        XCTAssertFalse(sessionC.cancelledSegmentIDs.contains(idC))
+
+        // Part D: 1.5-day (36 hours / 129600s) zero-progress fires stall cancel
+        let storageD = try self.makeStorage("stall-day-and-a-half")
+        let idD = UUID()
+        var nowD = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storageD, id: idD, index: 0, state: .queued)
+        let sessionD = MockWatchConnectivitySession()
+        sessionD.isReachable = true
+        sessionD.activate()
+        let senderD = WatchRelaySender(paths: storageD.paths, storageActor: self.storageActor(for: storageD), session: sessionD, clock: { nowD })
+
+        await senderD.requestDrain(trigger: .testDirect)
+        nowD = nowD.addingTimeInterval(129_600) // 1.5 days
+        await senderD.requestDrain(trigger: .testDirect)
+        await self.settleConnectivityCallback()
+        XCTAssertTrue(sessionD.cancelledSegmentIDs.contains(idD))
+    }
+
+    func testMissingOrUnparseableAttemptMetadataCancelsAndRedrives() async throws {
+        let storage = try self.makeStorage("unparseable-attempt")
+        let id = UUID()
+        let now = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .transferring)
+        let session = MockWatchConnectivitySession()
+        session.isReachable = true
+        session.activate()
+
+        // Seed outstanding transfer with unparseable attempt metadata
+        session.seedOutstandingTransfer(
+            id: id,
+            idState: .parseable,
+            attemptIDState: .unparseable
+        )
+
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session, clock: { now })
+        await sender.requestDrain(trigger: .testDirect)
+        await self.settleConnectivityCallback()
+        await sender.requestDrain(trigger: .testDirect)
+
+        // Missing/unparseable attempt should be cancelled and redriven with valid metadata
+        XCTAssertTrue(session.cancelledSegmentIDs.contains(id))
+        XCTAssertEqual(session.transferredFiles.count, 1)
+        let metadata = session.transferredFiles.first?.1
+        XCTAssertNotNil(UUID(uuidString: metadata?["attempt_id"] as? String ?? ""))
+    }
+
+    func testRelayDeliveryCeilingTwinsAndConjunctions() async throws {
+        let storage = try self.makeStorage("ceiling-twins")
+        let storageActor = self.storageActor(for: storage)
+        let session = MockWatchConnectivitySession()
+        session.isReachable = true
+        session.activate()
+
+        // Twin 1: Age twin (started 3 days ago, but only attempt #1 today -> NOT abandoned)
+        let idAge = UUID()
+        let now = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storage, id: idAge, index: 0, state: .queued, startedAt: now.addingTimeInterval(-3 * 86400))
+        var manifestAge = (await storageActor.scanCatalog(transactionClass: .captureSafety)).entries.first { $0.manifest.id == idAge }!.manifest
+        manifestAge.relayDeliveryAttemptCount = 1
+        manifestAge.relayDeliveryEffortSeconds = 300
+        _ = try await storageActor.writeManifest(manifestAge, ensuringDirectory: false, transactionClass: .captureSafety)
+
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session, clock: { now })
+        await sender.requestDrain(trigger: .testDirect)
+        let stateAge = try await self.manifestState(storage: storage, id: idAge)
+        XCTAssertNotEqual(stateAge, .abandoned)
+
+        // Twin 2: Unreachability twin (many drain passes while unreachable -> NOT abandoned)
+        let idUnreachable = UUID()
+        _ = try await self.writeSegment(storage: storage, id: idUnreachable, index: 1, state: .queued)
+        let unreachableSession = MockWatchConnectivitySession()
+        unreachableSession.isReachable = false
+        unreachableSession.activate()
+        let unreachableSender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: unreachableSession, clock: { now })
+        for _ in 0..<10 {
+            await unreachableSender.requestDrain(trigger: .testDirect)
+        }
+        let stateUnreachable = try await self.manifestState(storage: storage, id: idUnreachable)
+        XCTAssertNotEqual(stateUnreachable, .abandoned)
+
+        // Redrives do not reset manifest attempt count
+        let redriveManifest = (await storageActor.scanCatalog(transactionClass: .captureSafety)).entries.first { $0.manifest.id == idAge }!.manifest
+        XCTAssertGreaterThanOrEqual(redriveManifest.relayDeliveryAttemptCount ?? 0, 1)
+
+        // Delivered segments are NEVER abandoned even if attempts and effort are high
+        let idDelivered = UUID()
+        _ = try await self.writeSegment(storage: storage, id: idDelivered, index: 2, state: .delivered, deliveredAt: now)
+        var manifestDelivered = (await storageActor.scanCatalog(transactionClass: .captureSafety)).entries.first { $0.manifest.id == idDelivered }!.manifest
+        manifestDelivered.relayDeliveryAttemptCount = 10
+        manifestDelivered.relayDeliveryEffortSeconds = 100_000
+        _ = try await storageActor.writeManifest(manifestDelivered, ensuringDirectory: false, transactionClass: .captureSafety)
+
+        await sender.requestDrain(trigger: .testDirect)
+        let stateDelivered = try await self.manifestState(storage: storage, id: idDelivered)
+        XCTAssertEqual(stateDelivered, .delivered)
+    }
+
+    func testLivenessCancelLeavesFailureCountAndLastStructuredFailureUnchanged() async throws {
+        let storage = try self.makeStorage("liveness-cancel-accounting")
+        let id = UUID()
+        var now = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .queued)
+        let storageActor = self.storageActor(for: storage)
+        let session = MockWatchConnectivitySession()
+        session.isReachable = true
+        session.activate()
+        let sink = WatchSignpostTestSink()
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: session,
+            clock: { now },
+            signposter: WatchSignposter(sink: sink)
+        )
+
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(session.transferredFiles.count, 1)
+
+        // Advance 31m to trigger stall cancel
+        now = now.addingTimeInterval(1860)
+        await sender.requestDrain(trigger: .testDirect)
+        await self.settleConnectivityCallback()
+
+        // Signpost / drain accounting must show failureCount == 0
+        let drainEnd = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
+        XCTAssertEqual(drainEnd.fields.failureCount ?? 0, 0)
+        let manifest = try await self.manifest(storage: storage, id: id)
+        XCTAssertNil(manifest?.failureReason)
+    }
+
+    func testCancelWithNoCompletionRemainsRedrivable() async throws {
+        let storage = try self.makeStorage("cancel-no-completion")
+        let id = UUID()
+        let now = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .queued)
+        let session = MockWatchConnectivitySession()
+        session.driveCompletionOnCancel = false
+        session.isReachable = true
+        session.activate()
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session, clock: { now })
+
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(session.transferredFiles.count, 1)
+
+        // Cancel with no completion: remains in outstandingFileTransfers as cancelled
+        session.outstandingFileTransfers.first?.cancel()
+        XCTAssertTrue(session.outstandingFileTransfers.first?.snapshot.progress.isCancelled ?? false)
+
+        // Next drain should recognize activeGroup is empty (cancelled) and redrive
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(session.transferredFiles.count, 2)
+    }
+
+    func testStaleCancelCompletionAfterRedriveDoesNotRequeueOrBookFailure() async throws {
+        let storage = try self.makeStorage("stale-cancel-completion")
+        let id = UUID()
+        let now = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .queued)
+        let session = MockWatchConnectivitySession()
+        session.driveCompletionOnCancel = false
+        session.isReachable = true
+        session.activate()
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session, clock: { now })
+
+        // Attempt 1
+        await sender.requestDrain(trigger: .testDirect)
+        let attempt1Metadata = session.transferredFiles[0].1
+        let attempt1ID = try XCTUnwrap(UUID(uuidString: attempt1Metadata["attempt_id"] as? String ?? ""))
+
+        // Cancel Attempt 1 without completion
+        session.outstandingFileTransfers.first?.cancel()
+
+        // Attempt 2 starts on next drain
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(session.transferredFiles.count, 2)
+
+        // Now delayed completion for Attempt 1 arrives with failure
+        session.finishTransfer(attemptID: attempt1ID, failure: Self.transferFailure("stale attempt 1 failed"))
+        await self.settleConnectivityCallback()
+
+        // Disk state must remain .transferring (Attempt 2), not requeued to .queued
+        let state = try await self.manifestState(storage: storage, id: id)
+        XCTAssertEqual(state, .transferring)
+        let manifest = try await self.manifest(storage: storage, id: id)
+        XCTAssertNil(manifest?.failureReason)
+    }
+
+    func testCancelThenRedriveWithLeftoverRetainedDoesNotCancelRedriveAsRedundant() async throws {
+        let storage = try self.makeStorage("leftover-retained-redundancy")
+        let id = UUID()
+        let now = Date(timeIntervalSince1970: 5_000_000)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .queued)
+        let session = MockWatchConnectivitySession()
+        session.driveCompletionOnCancel = false
+        session.isReachable = true
+        session.activate()
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: session, clock: { now })
+
+        await sender.requestDrain(trigger: .testDirect)
+        session.outstandingFileTransfers.first?.cancel()
+
+        // Redrive creates transfer 2 while transfer 1 is retained as cancelled
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(session.transferredFiles.count, 2)
+
+        // The second transfer must not have been cancelled by cancelRedundant
+        let transfer2 = session.outstandingFileTransfers.last
+        XCTAssertFalse(transfer2?.snapshot.progress.isCancelled ?? true)
+    }
+
+    func testOldQueuedManifestLiteralDecodesAndRemainsDeliverable() async throws {
+        let storage = try self.makeStorage("old-manifest-literal")
+        let id = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let storageActor = self.storageActor(for: storage)
+        let directory = try await storageActor.prepareSegmentDirectory(day: "2026-08-01", segment: "2026-08-01T12:00:00.000Z-60s")
+        try Data("audio-0".utf8).write(to: storage.audioURL(directory: directory), options: .atomic)
+
+        // Old JSON literal containing no new fields
+        let oldJSON = """
+        {
+            "id": "\(id.uuidString)",
+            "day": "2026-08-01",
+            "segment": "2026-08-01T12:00:00.000Z-60s",
+            "state": "queued",
+            "started_at": "2026-08-01T12:00:00.000Z",
+            "duration": 60,
+            "sensors": ["audio"],
+            "partial": false,
+            "lost": false,
+            "gap": false,
+            "fix_count": 0
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(WatchSegmentManifest.self, from: oldJSON)
+
+        XCTAssertEqual(decoded.id, id)
+        XCTAssertEqual(decoded.state, .queued)
+        XCTAssertNil(decoded.relayDeliveryAttemptCount)
+        XCTAssertNil(decoded.relayDeliveryEffortSeconds)
+        XCTAssertNil(decoded.relayLastProgress)
+        XCTAssertNil(decoded.relayLastProgressAt)
+        XCTAssertNil(decoded.abandonedAt)
+
+        // Write to storage and verify it can be promoted and transferred
+        _ = try await storageActor.writeManifest(decoded, ensuringDirectory: false, transactionClass: .captureSafety)
+
+        let session = MockWatchConnectivitySession()
+        session.isReachable = true
+        session.activate()
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session)
+        await sender.requestDrain(trigger: .testDirect)
+
+        XCTAssertEqual(session.transferredFiles.count, 1)
+        let state = try await self.manifestState(storage: storage, id: id)
+        XCTAssertEqual(state, .transferring)
     }
 }
 
@@ -1749,11 +2349,12 @@ private extension WatchRelayTests {
         id: UUID,
         index: Int,
         state: WatchSegmentState = .queued,
+        startedAt: Date? = nil,
         deliveredAt: Date? = nil
     ) async throws -> URL {
-        let startedAt = Date(timeIntervalSince1970: 1_713_624_000 + Double(index * 60))
-        let day = storage.dayString(for: startedAt)
-        let segment = storage.segmentString(for: startedAt, durationSeconds: 60)
+        let segmentStartedAt = startedAt ?? Date(timeIntervalSince1970: 1_713_624_000 + Double(index * 60))
+        let day = storage.dayString(for: segmentStartedAt)
+        let segment = storage.segmentString(for: segmentStartedAt, durationSeconds: 60)
         let storageActor = WatchCaptureStorageActor(
             paths: storage.paths,
             fileWriter: storage.fileWriter
@@ -1763,7 +2364,7 @@ private extension WatchRelayTests {
             id: id,
             day: day,
             segment: segment,
-            startedAt: startedAt,
+            startedAt: segmentStartedAt,
             duration: 60,
             sensors: [.audio],
             partial: false,

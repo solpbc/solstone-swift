@@ -246,6 +246,59 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             lastReceivedAt: now.addingTimeInterval(-600),
             activationState: .inactive
         )).stuck, WatchPipelineStuck.none)
+
+        // Confirming path: confirmingCount > 0 && confirmingHearBackSeconds >= 600, no lastReceivedAt required
+        XCTAssertEqual(WatchPipelineReducer.reduce(Self.input(
+            now: now,
+            watchStatus: Self.context(confirmingCount: 1, confirmingHearBackSeconds: 600, asOf: now.addingTimeInterval(-90)),
+            lastReceivedAt: nil
+        )).stuck, .relay)
+        XCTAssertEqual(WatchPipelineReducer.reduce(Self.input(
+            now: now,
+            watchStatus: Self.context(confirmingCount: 1, confirmingHearBackSeconds: 599, asOf: now.addingTimeInterval(-90)),
+            lastReceivedAt: nil
+        )).stuck, WatchPipelineStuck.none)
+        XCTAssertEqual(WatchPipelineReducer.reduce(Self.input(
+            now: now,
+            watchStatus: Self.context(confirmingCount: 1, confirmingHearBackSeconds: 600, asOf: now.addingTimeInterval(-91)),
+            lastReceivedAt: nil
+        )).stuck, WatchPipelineStuck.none)
+    }
+
+    func testOvernightConfirmingDoesNotTriggerRelayStuckMorningFalseAlarm() {
+        let now = Self.now
+        let hoursAgo = now.addingTimeInterval(-28800) // 8 hours ago
+
+        // Overnight trap: confirmingCount=1, confirmingHearBackSeconds=0 (or small), lastReceivedAt hours old, claim fresh -> isRelayStuck false (morning false alarm)
+        let morningFalseAlarmCase = Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 1, confirmingHearBackSeconds: 0, asOf: now),
+            lastReceivedAt: hoursAgo
+        )
+        XCTAssertEqual(WatchPipelineReducer.reduce(morningFalseAlarmCase).stuck, WatchPipelineStuck.none)
+
+        let morningSmallHearBackCase = Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 1, confirmingHearBackSeconds: 50, asOf: now),
+            lastReceivedAt: hoursAgo
+        )
+        XCTAssertEqual(WatchPipelineReducer.reduce(morningSmallHearBackCase).stuck, WatchPipelineStuck.none)
+
+        // Same confirming with confirmingHearBackSeconds >= 600 -> stuck
+        let confirmingStuckCase = Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 1, confirmingHearBackSeconds: 600, asOf: now),
+            lastReceivedAt: hoursAgo
+        )
+        XCTAssertEqual(WatchPipelineReducer.reduce(confirmingStuckCase).stuck, .relay)
+
+        // Transferring-only still not stuck
+        let transferringOnlyCase = Self.input(
+            now: now,
+            watchStatus: Self.context(queuedCount: 0, transferringCount: 1, confirmingCount: 0, confirmingHearBackSeconds: 0, asOf: now),
+            lastReceivedAt: hoursAgo
+        )
+        XCTAssertEqual(WatchPipelineReducer.reduce(transferringOnlyCase).stuck, WatchPipelineStuck.none)
     }
 
     func testHandoffStuckBoundariesAndReachability() {
@@ -1162,6 +1215,8 @@ private extension WatchPipelineReducerTests {
         phase: WatchStatusContext.Phase = .idle,
         queuedCount: Int = 0,
         transferringCount: Int = 0,
+        confirmingCount: Int = 0,
+        confirmingHearBackSeconds: Double = 0,
         asOf: Date = Date(timeIntervalSince1970: 2_000),
         startedAt: Date? = nil,
         audioTerminalReason: WatchCaptureTerminalReason? = nil,
@@ -1175,6 +1230,8 @@ private extension WatchPipelineReducerTests {
             seq: 1,
             queuedCount: queuedCount,
             transferringCount: transferringCount,
+            confirmingCount: confirmingCount,
+            confirmingHearBackSeconds: confirmingHearBackSeconds,
             audioTerminalReason: audioTerminalReason,
             audioTerminalDisposition: audioTerminalDisposition
         )

@@ -1117,7 +1117,20 @@ private extension WatchRelayDiagnosticsCollector {
                     transferring: counts.transferring,
                     delivered: counts.delivered,
                     acked: counts.acked,
-                    safeToDelete: counts.safeToDelete + 1
+                    safeToDelete: counts.safeToDelete + 1,
+                    abandoned: counts.abandoned
+                )
+            case .abandoned:
+                counts = WatchRelayManifestCounts(
+                    captured: counts.captured,
+                    persisted: counts.persisted,
+                    finalized: counts.finalized,
+                    queued: counts.queued,
+                    transferring: counts.transferring,
+                    delivered: counts.delivered,
+                    acked: counts.acked,
+                    safeToDelete: counts.safeToDelete,
+                    abandoned: counts.abandoned + 1
                 )
             }
         }

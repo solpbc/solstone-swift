@@ -799,7 +799,8 @@ actor WatchCaptureStorageActor {
     func refreshRelayDeliveredDeadline(
         _ entry: WatchCaptureCatalogEntry,
         at now: Date,
-        deadline: TimeInterval
+        deadline: TimeInterval,
+        windowStart: Date? = nil
     ) async throws -> WatchRelayStorageTransition {
         try await self.withTransaction(transactionClass: .maintenance) {
             let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
@@ -813,7 +814,9 @@ actor WatchCaptureStorageActor {
                     manifest.deliveredAt = now
                     return manifest
                 }
-                guard now.timeIntervalSince(deliveredAt) >= deadline else { return nil }
+                guard let windowStart else { return nil }
+                let baseline = max(deliveredAt, windowStart)
+                guard now.timeIntervalSince(baseline) >= deadline else { return nil }
                 manifest.state = .queued
                 manifest.deliveredAt = nil
                 return manifest
@@ -828,10 +831,97 @@ actor WatchCaptureStorageActor {
         }
     }
 
+    func updateRelayProgress(
+        _ entry: WatchCaptureCatalogEntry,
+        progress: Double? = nil,
+        progressAt: Date? = nil,
+        effortSeconds: Double? = nil
+    ) async throws -> WatchRelayStorageTransition {
+        try await self.withTransaction(transactionClass: .maintenance) {
+            let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
+            let transition = try self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest? in
+                try self.verifyRelayWitness(current, against: entry)
+                var manifest = current.manifest
+                var changed = false
+                if let progress, manifest.relayLastProgress != progress {
+                    manifest.relayLastProgress = progress
+                    changed = true
+                }
+                if let progressAt, manifest.relayLastProgressAt != progressAt {
+                    manifest.relayLastProgressAt = progressAt
+                    changed = true
+                }
+                if let effortSeconds, manifest.relayDeliveryEffortSeconds != effortSeconds {
+                    manifest.relayDeliveryEffortSeconds = effortSeconds
+                    changed = true
+                }
+                guard changed else { return nil }
+                return manifest
+            }
+            guard let transition else {
+                return WatchRelayStorageTransition(entry: current, didChange: false)
+            }
+            return WatchRelayStorageTransition(
+                entry: try await self.writeRelayManifest(transition, replacing: current, boundary: .relaySegmentTransition),
+                didChange: true
+            )
+        }
+    }
+
+    func readRelayAttempt(
+        directoryURL: URL,
+        transactionClass: WatchCaptureStorageTransactionClass = .maintenance
+    ) async throws -> WatchRelayAttemptRecord? {
+        try await self.withTransaction(transactionClass: transactionClass) {
+            let attemptURL = directoryURL.appendingPathComponent(WatchRelayAttemptRecord.filename, isDirectory: false)
+            guard let data = try? await self.fileWriter.readData(from: attemptURL) else { return nil }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            return try? decoder.decode(WatchRelayAttemptRecord.self, from: data)
+        }
+    }
+
+    func abandonRelaySegment(
+        _ entry: WatchCaptureCatalogEntry,
+        at now: Date,
+        reason: String = "relayDeliveryCeiling"
+    ) async throws -> WatchRelayStorageTransition {
+        try await self.withTransaction(transactionClass: .maintenance) {
+            let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
+            let transition = try self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest in
+                try self.verifyRelayWitness(current, against: entry)
+                var manifest = current.manifest
+                manifest.state = .abandoned
+                manifest.failureReason = reason
+                manifest.abandonedAt = now
+                return manifest
+            }
+            let updatedEntry = try await self.writeRelayManifest(
+                transition,
+                replacing: current,
+                boundary: .relaySegmentTransition
+            )
+
+            let audioURL = self.paths.audioURL(directory: updatedEntry.directoryURL)
+            let locationURL = self.paths.locationURL(directory: updatedEntry.directoryURL)
+            let bundleURL = self.paths.rootURL.appendingPathComponent(".relay-bundles/\(updatedEntry.manifest.id.uuidString).watchrelay")
+            let receiptURL = self.paths.relayReceiptURL(directory: updatedEntry.directoryURL)
+
+            try? await self.fileWriter.removeItem(at: audioURL)
+            try? await self.fileWriter.removeItem(at: locationURL)
+            try? await self.fileWriter.removeItem(at: bundleURL)
+            try? await self.fileWriter.removeItem(at: receiptURL)
+            self.bumpRelevantMutationGeneration()
+
+            return WatchRelayStorageTransition(entry: updatedEntry, didChange: true)
+        }
+    }
+
     func prepareRelayTransfer(
         _ entry: WatchCaptureCatalogEntry,
         bundleURL: URL,
-        attempt: WatchRelayAttemptRecord
+        attempt: WatchRelayAttemptRecord,
+        incrementAttemptCount: Bool = false
     ) async throws -> WatchRelayTransferPreparation {
         return try await self.withTransaction(transactionClass: .maintenance) {
             let ioInvocation = self.storageSignposter.begin(.relayBundlePreparation)
@@ -848,7 +938,7 @@ actor WatchCaptureStorageActor {
                     )
                 )
             }
-            let current = try await self.currentRelayEntry(
+            var current = try await self.currentRelayEntry(
                 entry,
                 boundary: .relayBundleWrite,
                 wholeFileReads: wholeFileReads
@@ -858,6 +948,19 @@ actor WatchCaptureStorageActor {
                     throw self.staleState(entry, expected: .transferring, actual: current.manifest.state)
                 }
                 try self.verifyRelayWitness(current, against: entry)
+            }
+            if incrementAttemptCount {
+                let updatedManifest = self.withSynchronousActorWork(.relayBundleWrite) { () -> WatchSegmentManifest in
+                    var manifest = current.manifest
+                    manifest.relayDeliveryAttemptCount = (manifest.relayDeliveryAttemptCount ?? 0) + 1
+                    return manifest
+                }
+                let writtenEntry = try await self.writeRelayManifest(
+                    updatedManifest,
+                    replacing: current,
+                    boundary: .relayBundleWrite
+                )
+                current = writtenEntry
             }
             let startWitness = current.witness
             let heldManifestData = startWitness.manifestData

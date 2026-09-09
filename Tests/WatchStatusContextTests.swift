@@ -42,6 +42,8 @@ nonisolated final class WatchStatusContextTests: XCTestCase {
 
         XCTAssertEqual(decoded.queuedCount, 0)
         XCTAssertEqual(decoded.transferringCount, 0)
+        XCTAssertEqual(decoded.confirmingCount, 0)
+        XCTAssertEqual(decoded.confirmingHearBackSeconds, 0)
         XCTAssertNil(decoded.audioTerminalReason)
         XCTAssertNil(decoded.audioTerminalDisposition)
     }

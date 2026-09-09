@@ -19,6 +19,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
     let seq: Int
     let queuedCount: Int
     let transferringCount: Int
+    let confirmingCount: Int
+    let confirmingHearBackSeconds: Double
     let audioTerminalReason: WatchCaptureTerminalReason?
     let audioTerminalDisposition: WatchCaptureTerminalDisposition?
     let diagnosticsEnvelope: Data?
@@ -31,6 +33,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         case seq
         case queuedCount
         case transferringCount
+        case confirmingCount
+        case confirmingHearBackSeconds
         case audioTerminalReason
         case audioTerminalDisposition
         case diagnosticsEnvelope
@@ -44,6 +48,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         seq: Int,
         queuedCount: Int,
         transferringCount: Int,
+        confirmingCount: Int = 0,
+        confirmingHearBackSeconds: Double = 0,
         audioTerminalReason: WatchCaptureTerminalReason? = nil,
         audioTerminalDisposition: WatchCaptureTerminalDisposition? = nil,
         diagnosticsEnvelope: Data? = nil
@@ -55,6 +61,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         self.seq = seq
         self.queuedCount = queuedCount
         self.transferringCount = transferringCount
+        self.confirmingCount = confirmingCount
+        self.confirmingHearBackSeconds = confirmingHearBackSeconds
         self.audioTerminalReason = audioTerminalReason
         self.audioTerminalDisposition = audioTerminalDisposition
         self.diagnosticsEnvelope = diagnosticsEnvelope
@@ -69,6 +77,8 @@ nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
         self.seq = try container.decode(Int.self, forKey: .seq)
         self.queuedCount = max(0, try container.decodeIfPresent(Int.self, forKey: .queuedCount) ?? 0)
         self.transferringCount = max(0, try container.decodeIfPresent(Int.self, forKey: .transferringCount) ?? 0)
+        self.confirmingCount = max(0, try container.decodeIfPresent(Int.self, forKey: .confirmingCount) ?? 0)
+        self.confirmingHearBackSeconds = max(0, try container.decodeIfPresent(Double.self, forKey: .confirmingHearBackSeconds) ?? 0)
         self.audioTerminalReason = try container.decodeIfPresent(String.self, forKey: .audioTerminalReason)
             .flatMap { WatchCaptureTerminalReason(rawValue: $0) }
         self.audioTerminalDisposition = try container.decodeIfPresent(String.self, forKey: .audioTerminalDisposition)

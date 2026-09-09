@@ -21,6 +21,7 @@ nonisolated enum WatchSegmentState: String, Codable, Equatable, Sendable, CaseIt
     case delivered
     case acked
     case safeToDelete
+    case abandoned
 }
 
 nonisolated enum WatchSensor: String, Codable, Equatable, Sendable, CaseIterable {
@@ -46,6 +47,11 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
     var batteryState: String? = nil
     var lowPowerMode: Bool? = nil
     var powerSampledAt: Date? = nil
+    var relayDeliveryAttemptCount: Int? = nil
+    var relayLastProgress: Double? = nil
+    var relayLastProgressAt: Date? = nil
+    var relayDeliveryEffortSeconds: Double? = nil
+    var abandonedAt: Date? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -65,6 +71,11 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
         case batteryState = "battery_state"
         case lowPowerMode = "low_power_mode"
         case powerSampledAt = "power_sampled_at"
+        case relayDeliveryAttemptCount = "relay_delivery_attempt_count"
+        case relayLastProgress = "relay_last_progress"
+        case relayLastProgressAt = "relay_last_progress_at"
+        case relayDeliveryEffortSeconds = "relay_delivery_effort_seconds"
+        case abandonedAt = "abandoned_at"
     }
 }
 
@@ -466,6 +477,7 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
     let transferringCount: Int
     let confirmingCount: Int
     let handedOffCount: Int
+    let abandonedCount: Int
     let isSessionRunning: Bool
     let sessionStartedAt: Date?
     let settingsRoute: WatchCaptureSettingsRoute?
@@ -483,6 +495,7 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         transferringCount: Int = 0,
         confirmingCount: Int = 0,
         handedOffCount: Int = 0,
+        abandonedCount: Int = 0,
         isSessionRunning: Bool = false,
         sessionStartedAt: Date? = nil,
         settingsRoute: WatchCaptureSettingsRoute? = nil,
@@ -499,6 +512,7 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         self.transferringCount = transferringCount
         self.confirmingCount = confirmingCount
         self.handedOffCount = handedOffCount
+        self.abandonedCount = abandonedCount
         self.isSessionRunning = isSessionRunning
         self.sessionStartedAt = sessionStartedAt
         self.settingsRoute = settingsRoute
@@ -532,6 +546,9 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
             if self.confirmingCount > 0 {
                 return SourceVocabulary.watchPipelineConfirming
             }
+            if self.abandonedCount > 0 {
+                return SourceVocabulary.watchPipelineAbandoned
+            }
             if self.handedOffCount > 0 {
                 return SourceVocabulary.watchPipelineHandedOff
             }
@@ -549,6 +566,9 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         }
         if self.confirmingCount > 0 {
             parts.append(SourceVocabulary.watchConfirmingCount(self.confirmingCount))
+        }
+        if self.abandonedCount > 0 {
+            parts.append(SourceVocabulary.watchAbandonedCount(self.abandonedCount))
         }
         if self.handedOffCount > 0 {
             parts.append(SourceVocabulary.watchHandedToPhoneCount(self.handedOffCount))

@@ -125,6 +125,9 @@ final class WatchCaptureModel {
                 await relaySender?.requestDrain(trigger: trigger)
             }
         }
+        engine.onHearBackWindowStartRequested = { [weak relaySender] in
+            relaySender?.hearBackWindowStart
+        }
         engine.onPublishStatus = { [weak self, session, signposter] context in
             let diagnosticsGeneration = self?.diagnosticsPublicationGeneration
             self?.diagnosticsPublicationGeneration = nil
@@ -158,6 +161,8 @@ final class WatchCaptureModel {
                         seq: context.seq,
                         queuedCount: context.queuedCount,
                         transferringCount: context.transferringCount,
+                        confirmingCount: context.confirmingCount,
+                        confirmingHearBackSeconds: context.confirmingHearBackSeconds,
                         audioTerminalReason: context.audioTerminalReason,
                         audioTerminalDisposition: context.audioTerminalDisposition,
                         diagnosticsEnvelope: fallbackEnvelope

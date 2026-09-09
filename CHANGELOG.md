@@ -14,6 +14,8 @@ All notable changes to the solstone app for iphone, including its embedded apple
 - sharing a large file onto this phone now keeps one copy on the phone, and solstone tells you when the phone cannot hold it. a file your journal turns away stays on the phone instead of disappearing.
 
 ### Fixed
+- your watch now waits for your phone to be reachable before retrying unconfirmed recordings, so overnight gaps no longer trigger duplicate transfers or false stuck warnings in the morning.
+- transfers between your watch and phone that stop making progress are cleanly restarted, and recordings that cannot be delivered after repeated attempts are safely set aside so they don't fill your watch.
 - the solstone card on your watch updates the moment things change. it could sit up to half an hour behind, and it could get stuck saying audio was on after solstone had stopped.
 - your watch's widget list shows one solstone card instead of two identical ones you couldn't tell apart.
 

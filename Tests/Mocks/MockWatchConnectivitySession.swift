@@ -30,6 +30,7 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     var activationState: WCSessionActivationState = .notActivated
     var hasContentPending = false
     var receivedApplicationContext: [String: Any] = [:]
+    var driveCompletionOnCancel = true
     var outstandingFileTransfers: [WatchConnectivityFileTransferObservation] {
         self.outstandingRecords.enumerated().map { index, record in
             let completion = LiveWatchConnectivitySession.fileTransferCompletion(
@@ -164,15 +165,18 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
         isTransferring: Bool = true,
         progress: WatchConnectivityProgressSnapshot? = nil,
         generation: Int? = nil,
-        attemptID: UUID? = nil,
-        attemptStartedAt: Date? = nil
+        attemptID: UUID? = UUID(),
+        attemptIDState: WatchRelayTransferIDState? = nil,
+        attemptStartedAt: Date? = Date(timeIntervalSince1970: 0)
     ) {
         let state = idState ?? (id == nil ? .missing : .parseable)
+        let resolvedAttemptState = attemptIDState ?? (attemptID == nil ? .missing : .parseable)
         let metadata = Self.metadata(
             id: id,
             idState: state,
             generation: generation,
             attemptID: attemptID,
+            attemptIDState: resolvedAttemptState,
             attemptStartedAt: attemptStartedAt
         )
         self.appendOutstandingTransfer(
@@ -262,12 +266,13 @@ final class MockWatchConnectivitySession: WatchConnectivitySession {
     }
 }
 
-private extension MockWatchConnectivitySession {
+extension MockWatchConnectivitySession {
     static func metadata(
         id: UUID?,
         idState: WatchRelayTransferIDState,
         generation: Int?,
         attemptID: UUID?,
+        attemptIDState: WatchRelayTransferIDState = .parseable,
         attemptStartedAt: Date?
     ) -> [String: Any] {
         var metadata: [String: Any] = [:]
@@ -282,8 +287,15 @@ private extension MockWatchConnectivitySession {
         if let generation {
             metadata["generation"] = generation
         }
-        if let attemptID {
-            metadata["attempt_id"] = attemptID.uuidString
+        switch attemptIDState {
+        case .parseable:
+            if let attemptID {
+                metadata["attempt_id"] = attemptID.uuidString
+            }
+        case .missing:
+            break
+        case .unparseable:
+            metadata["attempt_id"] = "not-a-uuid"
         }
         if let attemptStartedAt {
             metadata["attempt_started_at"] = ISO8601DateFormatter().string(from: attemptStartedAt)
@@ -332,10 +344,83 @@ private extension MockWatchConnectivitySession {
         ))
     }
 
+    func updateOutstandingProgress(
+        segmentID: UUID,
+        completedUnitCount: Int64,
+        totalUnitCount: Int64 = 1,
+        fractionCompleted: Double? = nil
+    ) {
+        guard let index = self.outstandingRecords.firstIndex(where: { $0.snapshot.segmentID == segmentID }) else {
+            return
+        }
+        let current = self.outstandingRecords[index]
+        let newProgress = WatchConnectivityProgressSnapshot(
+            isIndeterminate: current.snapshot.progress.isIndeterminate,
+            isFinished: current.snapshot.progress.isFinished,
+            isCancelled: current.snapshot.progress.isCancelled,
+            completedUnitCount: completedUnitCount,
+            totalUnitCount: totalUnitCount,
+            fractionCompleted: fractionCompleted ?? (Double(completedUnitCount) / Double(max(1, totalUnitCount))),
+            throughputBytesPerSecond: current.snapshot.progress.throughputBytesPerSecond,
+            estimatedTimeRemainingSeconds: current.snapshot.progress.estimatedTimeRemainingSeconds,
+            kind: current.snapshot.progress.kind,
+            fileTotalCount: current.snapshot.progress.fileTotalCount,
+            fileCompletedCount: current.snapshot.progress.fileCompletedCount
+        )
+        self.outstandingRecords[index] = OutstandingRecord(
+            token: current.token,
+            snapshot: WatchConnectivityFileTransferSnapshot(
+                asOf: current.snapshot.asOf,
+                segmentID: current.snapshot.segmentID,
+                idState: current.snapshot.idState,
+                isTransferring: current.snapshot.isTransferring,
+                progress: newProgress
+            ),
+            metadata: current.metadata,
+            fileURL: current.fileURL
+        )
+    }
+
     func cancelOutstanding(token: Int) {
         guard let index = self.outstandingRecords.firstIndex(where: { $0.token == token }) else { return }
-        let record = self.outstandingRecords.remove(at: index)
-        self.cancelledSegmentIDs.append(record.snapshot.segmentID)
-        self.callLedger.append(.cancel(record.snapshot.segmentID))
+        let current = self.outstandingRecords[index]
+        let cancelledProgress = WatchConnectivityProgressSnapshot(
+            isIndeterminate: current.snapshot.progress.isIndeterminate,
+            isFinished: current.snapshot.progress.isFinished,
+            isCancelled: true,
+            completedUnitCount: current.snapshot.progress.completedUnitCount,
+            totalUnitCount: current.snapshot.progress.totalUnitCount,
+            fractionCompleted: current.snapshot.progress.fractionCompleted,
+            throughputBytesPerSecond: current.snapshot.progress.throughputBytesPerSecond,
+            estimatedTimeRemainingSeconds: current.snapshot.progress.estimatedTimeRemainingSeconds,
+            kind: current.snapshot.progress.kind,
+            fileTotalCount: current.snapshot.progress.fileTotalCount,
+            fileCompletedCount: current.snapshot.progress.fileCompletedCount
+        )
+        let updatedSnapshot = WatchConnectivityFileTransferSnapshot(
+            asOf: current.snapshot.asOf,
+            segmentID: current.snapshot.segmentID,
+            idState: current.snapshot.idState,
+            isTransferring: current.snapshot.isTransferring,
+            progress: cancelledProgress
+        )
+        self.outstandingRecords[index] = OutstandingRecord(
+            token: current.token,
+            snapshot: updatedSnapshot,
+            metadata: current.metadata,
+            fileURL: current.fileURL
+        )
+        self.cancelledSegmentIDs.append(current.snapshot.segmentID)
+        self.callLedger.append(.cancel(current.snapshot.segmentID))
+        if self.driveCompletionOnCancel {
+            let cancellationFailure = WatchConnectivityTransferFailureSnapshot(
+                domain: "WCErrorDomain",
+                code: 7007,
+                boundedRedactedDescription: "transfer cancelled"
+            )
+            let recordToFinish = self.outstandingRecords[index]
+            self.finish(record: recordToFinish, failure: cancellationFailure)
+            self.outstandingRecords.removeAll { $0.token == token }
+        }
     }
 }

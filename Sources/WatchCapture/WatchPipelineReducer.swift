@@ -248,7 +248,7 @@ nonisolated enum WatchPipelineReducer {
         let phone = PhoneSideWaiting(count: self.phoneWaitingCount(input))
         let watch: WatchSideWaiting
         if let context = input.watchStatus {
-            let watchCount = max(0, context.queuedCount) + max(0, context.transferringCount)
+            let watchCount = max(0, context.queuedCount) + max(0, context.transferringCount) + max(0, context.confirmingCount)
             let age = max(0, input.now.timeIntervalSince(context.asOf))
             let freshness: WatchClaimFreshness = age > self.watchClaimFreshnessWindow
                 ? .stale(asOf: context.asOf, age: age)
@@ -281,15 +281,22 @@ nonisolated enum WatchPipelineReducer {
         guard let watchStatus = input.watchStatus,
               let claimAge = self.age(of: watchStatus.asOf, now: input.now),
               claimAge <= self.watchClaimFreshnessWindow,
-              max(0, watchStatus.queuedCount) > 0,
               input.isPaired,
               input.isWatchAppInstalled,
-              input.activationState == .activated,
-              let receivedAge = self.age(of: input.lastReceivedAt, now: input.now)
+              input.activationState == .activated
         else {
             return false
         }
-        return receivedAge >= self.relayStuckThreshold
+        if max(0, watchStatus.queuedCount) > 0,
+           let receivedAge = self.age(of: input.lastReceivedAt, now: input.now),
+           receivedAge >= self.relayStuckThreshold {
+            return true
+        }
+        if max(0, watchStatus.confirmingCount) > 0,
+           watchStatus.confirmingHearBackSeconds >= self.relayStuckThreshold {
+            return true
+        }
+        return false
     }
 
     nonisolated static func isHandoffStuck(_ input: WatchPipelineInput) -> Bool {

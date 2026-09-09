@@ -30,9 +30,10 @@ final class WatchCaptureEngine {
         let transferring: Int
         let confirming: Int
         let handedOff: Int
+        let abandoned: Int
 
         var total: Int {
-            self.queued + self.transferring + self.confirming + self.handedOff
+            self.queued + self.transferring + self.confirming + self.handedOff + self.abandoned
         }
     }
 
@@ -100,6 +101,9 @@ final class WatchCaptureEngine {
     private var transferringCount = 0
     private var confirmingCount = 0
     private var handedOffCount = 0
+    private var abandonedCount = 0
+    private(set) var oldestDeliveredAt: Date?
+    var onHearBackWindowStartRequested: (@MainActor () -> Date?)?
     private var relayCountSnapshotAuthority = RelayCountSnapshotAuthority.none
     private var zeroAudioCurrentTimeObservationCount = 0
     private var terminalEnvironmentSnapshot: WatchRelayDiagnosticsEnvironmentSnapshot?
@@ -173,6 +177,7 @@ final class WatchCaptureEngine {
             transferringCount: self.transferringCount,
             confirmingCount: self.confirmingCount,
             handedOffCount: self.handedOffCount,
+            abandonedCount: self.abandonedCount,
             isSessionRunning: self.activeSegment != nil,
             sessionStartedAt: self.sessionStartedAt,
             settingsRoute: self.settingsRoute,
@@ -191,7 +196,8 @@ final class WatchCaptureEngine {
             queued: self.queuedCount,
             transferring: self.transferringCount,
             confirming: self.confirmingCount,
-            handedOff: self.handedOffCount
+            handedOff: self.handedOffCount,
+            abandoned: self.abandonedCount
         )
         let catalog = await self.refreshRelayCountsFromDiskCatalog()
         if !Task.isCancelled,
@@ -202,7 +208,8 @@ final class WatchCaptureEngine {
             queued: self.queuedCount,
             transferring: self.transferringCount,
             confirming: self.confirmingCount,
-            handedOff: self.handedOffCount
+            handedOff: self.handedOffCount,
+            abandoned: self.abandonedCount
         )
         if refreshed != prior {
             await self.republishCurrentStatus()
@@ -258,7 +265,7 @@ final class WatchCaptureEngine {
                 switch entry.manifest.state {
                 case .captured, .persisted:
                     try await self.recoverUnclean(entry, sessionID: sessionReadiness.reconciledSessionID)
-                case .finalized, .queued, .transferring, .delivered, .acked, .safeToDelete:
+                case .finalized, .queued, .transferring, .delivered, .acked, .safeToDelete, .abandoned:
                     break
                 }
             } catch {
@@ -1736,6 +1743,14 @@ private extension WatchCaptureEngine {
             _ = await self.beginStatusSession(startedAt: asOf)
         }
         let diagnosticsEnvelope = self.onDiagnosticsEnvelopeRequested?(asOf)
+        let hearBackWindowStart = self.onHearBackWindowStartRequested?()
+        let confirmingHearBackSeconds: Double
+        if self.confirmingCount > 0, let hearBackWindowStart {
+            let baseline = max(self.oldestDeliveredAt ?? asOf, hearBackWindowStart)
+            confirmingHearBackSeconds = max(0, asOf.timeIntervalSince(baseline))
+        } else {
+            confirmingHearBackSeconds = 0
+        }
         let context = WatchStatusContext(
             phase: phase,
             sessionID: self.currentSessionID,
@@ -1744,6 +1759,8 @@ private extension WatchCaptureEngine {
             seq: self.statusSeq,
             queuedCount: max(0, self.queuedCount),
             transferringCount: max(0, self.transferringCount),
+            confirmingCount: max(0, self.confirmingCount),
+            confirmingHearBackSeconds: confirmingHearBackSeconds,
             audioTerminalReason: self.terminalReason,
             audioTerminalDisposition: self.terminalDisposition,
             diagnosticsEnvelope: diagnosticsEnvelope
@@ -2424,13 +2441,16 @@ private extension WatchCaptureEngine {
 
     private func relayCounts(from catalog: WatchCaptureCatalog) -> RelayCounts {
         let entries = catalog.entries
+        let deliveredEntries = entries.filter { $0.manifest.state == .delivered }
+        self.oldestDeliveredAt = deliveredEntries.compactMap(\.manifest.deliveredAt).min()
         return RelayCounts(
             queued: entries.filter { $0.manifest.state == .queued }.count,
             transferring: entries.filter { $0.manifest.state == .transferring }.count,
-            confirming: entries.filter { $0.manifest.state == .delivered }.count,
+            confirming: deliveredEntries.count,
             handedOff: entries.filter {
                 $0.manifest.state == .acked || $0.manifest.state == .safeToDelete
-            }.count
+            }.count,
+            abandoned: entries.filter { $0.manifest.state == .abandoned }.count
         )
     }
 
@@ -2439,6 +2459,7 @@ private extension WatchCaptureEngine {
         self.transferringCount = counts.transferring
         self.confirmingCount = counts.confirming
         self.handedOffCount = counts.handedOff
+        self.abandonedCount = counts.abandoned
     }
 
     private func applyRelayCountLowerBound(_ counts: RelayCounts) {
@@ -2447,7 +2468,8 @@ private extension WatchCaptureEngine {
             queued: self.queuedCount,
             transferring: self.transferringCount,
             confirming: self.confirmingCount,
-            handedOff: self.handedOffCount
+            handedOff: self.handedOffCount,
+            abandoned: self.abandonedCount
         )
         guard self.relayCountSnapshotAuthority == .none || counts.total > current.total else { return }
         self.applyRelayCounts(counts)

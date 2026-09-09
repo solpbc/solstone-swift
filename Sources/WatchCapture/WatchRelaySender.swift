@@ -19,13 +19,22 @@ nonisolated enum WatchRelayACK {
     }
 }
 
+nonisolated struct WatchRelayWindowState: Codable, Equatable, Sendable {
+    var hearBackWindowStart: Date?
+    var lastHearBackSampleAt: Date?
+}
+
 @MainActor
 final class WatchRelaySender {
-    // 15 min — normal transfer→stage→ACK is seconds; 900s sits between the reducer
-    // relay/handoff-stuck (600s) and orphan (1800s) thresholds so a stranded
-    // .delivered self-heals before the orphan alarm without fighting a merely-slow ACK.
+    // 15 min — 900s of accumulated hear-back time (sticky window, sparse passes count)
+    // sits between relayStuckThreshold/handoffStuckThreshold 600s and orphanStuckThreshold 1800s
+    // so a stranded .delivered self-heals before the orphan alarm without fighting a merely-slow ACK.
     // One constant, no config.
     private static let deliveredDeadline: TimeInterval = 900
+    private static let livenessStallThreshold: TimeInterval = 1800
+    private static let maxDeliveryAttempts = 8
+    private static let maxDeliveryEffort: TimeInterval = 43200 // 12h
+    private static let abandonedRetention: TimeInterval = 7 * 24 * 60 * 60 // 7 days
 
     var onStateChanged: (@MainActor () -> Void)?
 
@@ -38,6 +47,13 @@ final class WatchRelaySender {
     private var drainOwnerTask: Task<Void, Never>?
     private var queuedDrainTask: Task<Void, Never>?
     private var queuedDrainTrigger: RelayTrigger?
+
+    private(set) var hearBackWindowStart: Date?
+    private var lastHearBackSampleAt: Date?
+    private var sampledThisProcess = false
+    private var persistedWindowState: WatchRelayWindowState?
+    private var activeLivenessCancels: Set<UUID> = []
+    private var activeMissingMetadataCancels: Set<UUID> = []
 
     init(
         paths: WatchCaptureStoragePaths,
@@ -61,6 +77,75 @@ final class WatchRelaySender {
                 await self?.handleFileTransferFinished(completion)
             }
         }
+    }
+
+    private var windowSidecarURL: URL {
+        self.paths.rootURL.appendingPathComponent(".relay-window.json", isDirectory: false)
+    }
+
+    private func readWindowSidecar() -> WatchRelayWindowState? {
+        guard let data = try? Data(contentsOf: self.windowSidecarURL),
+              let state = try? JSONDecoder().decode(WatchRelayWindowState.self, from: data)
+        else {
+            return nil
+        }
+        return state
+    }
+
+    private func persistWindowSidecarIfNeeded() {
+        let current = WatchRelayWindowState(
+            hearBackWindowStart: self.hearBackWindowStart,
+            lastHearBackSampleAt: self.lastHearBackSampleAt
+        )
+        if current.hearBackWindowStart == nil, current.lastHearBackSampleAt == nil, self.persistedWindowState == nil {
+            return
+        }
+        guard current != self.persistedWindowState else { return }
+        if current.hearBackWindowStart == nil, current.lastHearBackSampleAt == nil {
+            try? FileManager.default.removeItem(at: self.windowSidecarURL)
+            self.persistedWindowState = nil
+            return
+        }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        if let data = try? encoder.encode(current) {
+            try? FileManager.default.createDirectory(at: self.paths.rootURL, withIntermediateDirectories: true)
+            try? data.write(to: self.windowSidecarURL, options: .atomic)
+            self.persistedWindowState = current
+        }
+    }
+
+    private func updateHearBackWindow(now: Date) {
+        let isReachable = self.session.isReachable
+        if !self.sampledThisProcess {
+            self.sampledThisProcess = true
+            let sidecar = self.readWindowSidecar()
+            self.persistedWindowState = sidecar
+            if isReachable {
+                if let sidecar,
+                   let sidecarStart = sidecar.hearBackWindowStart,
+                   let sidecarSample = sidecar.lastHearBackSampleAt,
+                   now.timeIntervalSince(sidecarSample) < Self.deliveredDeadline {
+                    self.hearBackWindowStart = sidecarStart
+                } else {
+                    self.hearBackWindowStart = now
+                }
+                self.lastHearBackSampleAt = now
+            } else {
+                self.hearBackWindowStart = nil
+                self.lastHearBackSampleAt = nil
+            }
+        } else {
+            if !isReachable {
+                self.hearBackWindowStart = nil
+            } else {
+                if self.hearBackWindowStart == nil {
+                    self.hearBackWindowStart = now
+                }
+                self.lastHearBackSampleAt = now
+            }
+        }
+        self.persistWindowSidecarIfNeeded()
     }
 
     func requestDrain(trigger: RelayTrigger) async {
@@ -120,6 +205,8 @@ final class WatchRelaySender {
     }
 
     private func drainPass(trigger: RelayTrigger) async {
+        self.updateHearBackWindow(now: self.clock())
+
         var accounting = WatchRelayDrainAccounting(
             trigger: trigger,
             activation: self.relayActivation
@@ -150,6 +237,14 @@ final class WatchRelaySender {
                         try await self.deleteIfSafe(entry)
                         catalog = catalog.removingEntry(manifestID: entry.manifest.id)
                         successfulBumps += originalState == .acked ? 2 : 1
+                    case .abandoned:
+                        let abandonedAt = entry.manifest.abandonedAt ?? entry.manifest.startedAt
+                        if self.clock().timeIntervalSince(abandonedAt) >= Self.abandonedRetention {
+                            try await self.storageActor.removeItem(at: entry.directoryURL, transactionClass: .maintenance)
+                            try? await self.storageActor.removeItem(at: self.bundleURL(for: entry.manifest.id), transactionClass: .maintenance)
+                            catalog = catalog.removingEntry(manifestID: entry.manifest.id)
+                            successfulBumps += 1
+                        }
                     case .delivered:
                         let transition = try await self.refreshDeliveredDeadline(entry)
                         if transition.didChange {
@@ -226,20 +321,75 @@ final class WatchRelaySender {
                 let transition = self.signposter.begin(.relaySegmentTransition)
                 do {
                     switch entry.manifest.state {
-                    case .queued:
-                        if group.isEmpty {
-                            try await self.promoteAndTransfer(entry: entry, accounting: &accounting)
-                        } else {
-                            try await self.adoptAsTransferring(entry)
-                            self.cancelRedundant(group)
+                    case .abandoned:
+                        self.cancelAll(group)
+                    case .queued, .transferring:
+                        var currentEntry = entry
+                        let now = self.clock()
+                        let attempts = currentEntry.manifest.relayDeliveryAttemptCount ?? 0
+                        let effort = currentEntry.manifest.relayDeliveryEffortSeconds ?? 0
+                        if attempts >= Self.maxDeliveryAttempts && effort >= Self.maxDeliveryEffort {
+                            let abandoned = try await self.storageActor.abandonRelaySegment(currentEntry, at: now)
+                            self.cancelAll(group)
+                            if abandoned.didChange {
+                                self.notifyStateChanged()
+                            }
+                            self.signposter.end(transition, fields: WatchSignpostFields(result: .completed))
+                            continue
                         }
-                    case .transferring:
-                        if group.isEmpty {
-                            try await self.transfer(entry: entry, accounting: &accounting)
-                        } else {
-                            self.cancelRedundant(group)
+
+                        let uncancelledGroup = group.filter { !$0.snapshot.progress.isCancelled }
+
+                        if currentEntry.manifest.state == .transferring,
+                           let windowStart = self.hearBackWindowStart,
+                           let primaryObs = uncancelledGroup.first {
+                            if primaryObs.attemptIDState == .missing || primaryObs.attemptIDState == .unparseable {
+                                if let attemptID = primaryObs.attemptID {
+                                    self.activeLivenessCancels.insert(attemptID)
+                                } else {
+                                    self.activeMissingMetadataCancels.insert(entry.manifest.id)
+                                }
+                                primaryObs.cancel()
+                            } else {
+                                let currentProgress = primaryObs.snapshot.progress.fractionCompleted ?? (primaryObs.snapshot.progress.totalUnitCount > 0 ? Double(primaryObs.snapshot.progress.completedUnitCount) / Double(primaryObs.snapshot.progress.totalUnitCount) : 0.0)
+                                let lastProgress = currentEntry.manifest.relayLastProgress ?? 0.0
+                                if currentProgress > lastProgress {
+                                    let progressTransition = try await self.storageActor.updateRelayProgress(
+                                        currentEntry,
+                                        progress: currentProgress,
+                                        progressAt: now
+                                    )
+                                    if progressTransition.didChange {
+                                        currentEntry = progressTransition.entry
+                                    }
+                                } else {
+                                    let progressBaseline = currentEntry.manifest.relayLastProgressAt ?? primaryObs.attemptStartedAt ?? windowStart
+                                    if now.timeIntervalSince(progressBaseline) >= Self.livenessStallThreshold {
+                                        if let attemptID = primaryObs.attemptID {
+                                            self.activeLivenessCancels.insert(attemptID)
+                                        }
+                                        primaryObs.cancel()
+                                    }
+                                }
+                            }
                         }
-                    case .captured, .persisted, .finalized, .delivered, .acked, .safeToDelete:
+
+                        let activeGroup = group.filter { !$0.snapshot.progress.isCancelled }
+                        if currentEntry.manifest.state == .queued {
+                            if activeGroup.isEmpty {
+                                try await self.promoteAndTransfer(entry: currentEntry, accounting: &accounting)
+                            } else {
+                                try await self.adoptAsTransferring(currentEntry)
+                                self.cancelRedundant(group)
+                            }
+                        } else if currentEntry.manifest.state == .transferring {
+                            if activeGroup.isEmpty {
+                                try await self.transfer(entry: currentEntry, accounting: &accounting)
+                            } else {
+                                self.cancelRedundant(group)
+                            }
+                        }
+                    case .delivered, .captured, .persisted, .finalized, .acked, .safeToDelete:
                         break
                     }
                     self.signposter.end(transition, fields: WatchSignpostFields(result: .completed))
@@ -315,8 +465,26 @@ private extension WatchRelaySender {
     func handleFileTransferFinished(_ completion: WatchConnectivityFileTransferCompletion) async {
         do {
             guard let id = completion.segmentID else { return }
+            if let attemptID = completion.attemptID {
+                if self.activeLivenessCancels.contains(attemptID) {
+                    self.activeLivenessCancels.remove(attemptID)
+                    await self.requestDrain(trigger: .connectivityActivation)
+                    return
+                }
+            }
+            if self.activeMissingMetadataCancels.contains(id) {
+                self.activeMissingMetadataCancels.remove(id)
+                await self.requestDrain(trigger: .connectivityActivation)
+                return
+            }
             let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
             guard let entry = catalog.entries.first(where: { $0.manifest.id == id }) else { return }
+            if let attemptID = completion.attemptID {
+                let currentAttempt = try? await self.storageActor.readRelayAttempt(directoryURL: entry.directoryURL, transactionClass: .maintenance)
+                if let currentAttempt, currentAttempt.attemptID != attemptID {
+                    return
+                }
+            }
             if let failure = completion.failure {
                 guard entry.manifest.state == .transferring else { return }
                 let transition = try await self.storageActor.requeueFailedRelayTransfer(entry)
@@ -403,7 +571,8 @@ private extension WatchRelaySender {
         let transition = try await self.storageActor.refreshRelayDeliveredDeadline(
             entry,
             at: self.clock(),
-            deadline: Self.deliveredDeadline
+            deadline: Self.deliveredDeadline,
+            windowStart: self.hearBackWindowStart
         )
         if transition.didChange {
             self.notifyStateChanged()
@@ -450,7 +619,8 @@ private extension WatchRelaySender {
             preparation = try await self.storageActor.prepareRelayTransfer(
                 entry,
                 bundleURL: bundleURL,
-                attempt: attemptRecord
+                attempt: attemptRecord,
+                incrementAttemptCount: self.hearBackWindowStart != nil
             )
             if preparation.bundleCleanupFailed {
                 accounting.failureCount += 1
@@ -549,12 +719,16 @@ private extension WatchRelaySender {
     }
 
     func cancelRedundant(_ group: [WatchConnectivityFileTransferObservation]) {
-        guard group.count > 1 else { return }
-        self.cancelAll(Array(group.dropFirst()))
+        let uncancelled = group.filter { !$0.snapshot.progress.isCancelled }
+        guard uncancelled.count > 1 else { return }
+        self.cancelAll(Array(uncancelled.dropFirst()))
     }
 
     func cancelAll(_ transfers: [WatchConnectivityFileTransferObservation]) {
         for transfer in transfers {
+            if let attemptID = transfer.attemptID {
+                self.activeLivenessCancels.insert(attemptID)
+            }
             transfer.cancel()
         }
     }

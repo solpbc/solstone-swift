@@ -477,6 +477,42 @@ nonisolated struct WatchRelayManifestCounts: Codable, Equatable, Sendable {
     let delivered: Int
     let acked: Int
     let safeToDelete: Int
+    let abandoned: Int
+
+    init(
+        captured: Int,
+        persisted: Int,
+        finalized: Int,
+        queued: Int,
+        transferring: Int,
+        delivered: Int,
+        acked: Int,
+        safeToDelete: Int,
+        abandoned: Int = 0
+    ) {
+        self.captured = captured
+        self.persisted = persisted
+        self.finalized = finalized
+        self.queued = queued
+        self.transferring = transferring
+        self.delivered = delivered
+        self.acked = acked
+        self.safeToDelete = safeToDelete
+        self.abandoned = abandoned
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.captured = try container.decode(Int.self, forKey: .captured)
+        self.persisted = try container.decode(Int.self, forKey: .persisted)
+        self.finalized = try container.decode(Int.self, forKey: .finalized)
+        self.queued = try container.decode(Int.self, forKey: .queued)
+        self.transferring = try container.decode(Int.self, forKey: .transferring)
+        self.delivered = try container.decode(Int.self, forKey: .delivered)
+        self.acked = try container.decode(Int.self, forKey: .acked)
+        self.safeToDelete = try container.decode(Int.self, forKey: .safeToDelete)
+        self.abandoned = try container.decodeIfPresent(Int.self, forKey: .abandoned) ?? 0
+    }
 
     static let zero = WatchRelayManifestCounts(
         captured: 0,
@@ -486,7 +522,8 @@ nonisolated struct WatchRelayManifestCounts: Codable, Equatable, Sendable {
         transferring: 0,
         delivered: 0,
         acked: 0,
-        safeToDelete: 0
+        safeToDelete: 0,
+        abandoned: 0
     )
 }
 

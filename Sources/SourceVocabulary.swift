@@ -236,6 +236,7 @@ nonisolated enum SourceVocabulary {
     static let watchPipelineSaved = "saved on your watch"
     static let watchPipelineUnknown = "—"
     static let watchPipelineConfirming = "confirming with your iphone"
+    static let watchPipelineAbandoned = "abandoned"
     static let watchPipelineHandedOff = "handed to your iphone"
     static let watchPipelineRelayStuckReason = "your watch has segments saved, but this iphone has not received anything for a while."
     static let watchPipelineHandoffStuckReason = "segments are on this iphone and waiting to reach your journal."
@@ -397,6 +398,10 @@ nonisolated enum SourceVocabulary {
 
     static func watchConfirmingCount(_ n: Int) -> String {
         "\(n) \(Self.watchPipelineConfirming)"
+    }
+
+    static func watchAbandonedCount(_ n: Int) -> String {
+        "\(n) \(Self.watchPipelineAbandoned)"
     }
 
     static func watchHandedToPhoneCount(_ n: Int) -> String {
