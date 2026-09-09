@@ -146,9 +146,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [id.uuidString])
         XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
 
-        watchSession.outstandingFileTransfers.first?.cancel()
-        await self.settleConnectivityCallback()
-        await sender.requestDrain(trigger: .testDirect)
+        await self.cancelOutstandingAndRedrive(sender: sender, session: watchSession)
         XCTAssertEqual(watchSession.transferredFiles.count, 2)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
@@ -316,9 +314,7 @@ final class WatchRelayTests: XCTestCase {
 
         XCTAssertEqual(stagedIDs, [id])
 
-        watchSession.outstandingFileTransfers.first?.cancel()
-        await self.settleConnectivityCallback()
-        await sender.requestDrain(trigger: .testDirect)
+        await self.cancelOutstandingAndRedrive(sender: sender, session: watchSession)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
         XCTAssertEqual(stagedIDs, [id, id])
@@ -388,9 +384,7 @@ final class WatchRelayTests: XCTestCase {
         let firstReceivedAt = try XCTUnwrap(receiver.lastReceivedAt)
         try await Task.sleep(for: .milliseconds(10))
 
-        watchSession.outstandingFileTransfers.first?.cancel()
-        await self.settleConnectivityCallback()
-        await sender.requestDrain(trigger: .testDirect)
+        await self.cancelOutstandingAndRedrive(sender: sender, session: watchSession)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
         XCTAssertEqual(ledger.lifetimeReceived, 1)
@@ -468,9 +462,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(stagedIDs, [id])
         XCTAssertEqual(ledger.lifetimeReceived, 1)
 
-        watchSession.outstandingFileTransfers.first?.cancel()
-        await self.settleConnectivityCallback()
-        await sender.requestDrain(trigger: .testDirect)
+        await self.cancelOutstandingAndRedrive(sender: sender, session: watchSession)
         try await self.deliverTransfer(from: watchSession, index: 1, to: phoneSession)
 
         XCTAssertEqual(phoneSession.transferredUserInfos.count, 2)
@@ -1494,9 +1486,7 @@ final class WatchRelayTests: XCTestCase {
         session.activate()
 
         await sender.requestDrain(trigger: .testDirect)
-        session.outstandingFileTransfers.first?.cancel()
-        await self.settleConnectivityCallback()
-        await sender.requestDrain(trigger: .testDirect)
+        await self.cancelOutstandingAndRedrive(sender: sender, session: session)
 
         XCTAssertEqual(session.transferredFiles.count, 2)
         let first = session.transferredFiles[0].1
@@ -2458,6 +2448,30 @@ private extension WatchRelayTests {
         for _ in 0..<64 {
             await Task.yield()
         }
+    }
+
+    func cancelOutstandingAndRedrive(
+        sender: WatchRelaySender,
+        session: MockWatchConnectivitySession,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let priorCount = session.transferredFiles.count
+        session.outstandingFileTransfers.first?.cancel()
+        for _ in 0..<8 {
+            await self.settleConnectivityCallback()
+            await sender.requestDrain(trigger: .testDirect)
+            if session.transferredFiles.count > priorCount {
+                return
+            }
+        }
+        XCTAssertGreaterThan(
+            session.transferredFiles.count,
+            priorCount,
+            "expected a redrive on an empty-outstanding pass after cancel",
+            file: file,
+            line: line
+        )
     }
 
     func drain(
