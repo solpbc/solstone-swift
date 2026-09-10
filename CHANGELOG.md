@@ -14,7 +14,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 - the solstone card rises toward the top of your watch's smart stack while audio is on, so you can see it without going to look for it. the live activity on your iphone also has a layout made for your apple watch now. before, the watch built its own from the icon and timer, with nothing to say what it was.
 
 ### Changed
-- the omi pendant is no longer supported. solstone doesn't connect to a pendant over bluetooth anymore, and no longer asks for bluetooth at all. if a pendant was one of your sources, it's gone from this release, though audio from it that was already waiting to be sent still goes to your journal.
+- the omi pendant is no longer supported. solstone doesn't connect to a pendant over bluetooth anymore, and no longer asks for bluetooth at all. if a pendant was one of your sources, it's gone from this release, though audio from it that was already waiting to sync still lands in your journal.
 - the app on your home screen is called solstone now, on iphone, ipad and apple watch, and it carries a new icon.
 - home is rebuilt around your sources: each one is a tile you can read at a glance, settings live in a drawer that slides in from the left, and your journal opens as a pane over it. solstone also follows your light or dark setting instead of always being light, works in landscape on iphone, and holds its layout at the largest text sizes.
 - asking a question inside the app is gone, along with the notifications that came with it.
