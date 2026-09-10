@@ -1806,6 +1806,273 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(sessionRecord?.noticeOwed, false)
     }
 
+    func testReconcileActiveRecordWithStartTimeHistoryRequestsSelfStopNotice() async throws {
+        let harness = try self.makeHarness()
+        let t0 = Date(timeIntervalSince1970: 1_713_624_000)
+        let record = WatchCaptureSessionRecord(
+            sessionID: "session-1",
+            startedAt: t0,
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try await harness.storageActor.writeSessionRecord(record, transactionClass: .captureSafety)
+        let historyEntry = self.startTimeHistoryEntry(id: "session-1", startedAt: t0)
+        try await harness.storageActor.upsertSessionHistory(historyEntry, asOf: t0, transactionClass: .captureSafety)
+
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
+
+        let notice = try XCTUnwrap(harness.notificationScheduler.submittedRequests.first {
+            $0.identifier == WatchNoticeIdentifiers.notice
+        })
+        XCTAssertEqual(notice.title, WatchNoticeCopy.audioCouldNotBeConfirmed.title)
+        XCTAssertEqual(notice.body, WatchNoticeCopy.audioCouldNotBeConfirmed.body)
+
+        guard case let .available(entries) = await harness.storageActor.readSessionHistory(asOf: harness.clock.now()) else {
+            return XCTFail("history unreadable")
+        }
+        let entry = try XCTUnwrap(entries.first { $0.sessionID == "session-1" })
+        XCTAssertEqual(entry.noticeDelivered, true)
+        XCTAssertEqual(entry.noticeOwed, false)
+    }
+
+    func testReconcileActiveRecordWithStartTimeHistoryPersistsNoticeOwedBeforeDelivery() async throws {
+        let harness = try self.makeHarness()
+        let t0 = Date(timeIntervalSince1970: 1_713_624_000)
+        let record = WatchCaptureSessionRecord(
+            sessionID: "session-1",
+            startedAt: t0,
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try await harness.storageActor.writeSessionRecord(record, transactionClass: .captureSafety)
+        let historyEntry = self.startTimeHistoryEntry(id: "session-1", startedAt: t0)
+        try await harness.storageActor.upsertSessionHistory(historyEntry, asOf: t0, transactionClass: .captureSafety)
+
+        let hold = WatchCaptureHoldGate()
+        harness.notificationScheduler.addGateIdentifier = WatchNoticeIdentifiers.notice
+        harness.notificationScheduler.addGate = hold
+
+        harness.engine.reconcileOnLaunch()
+        await self.waitForGate(hold)
+
+        guard case let .available(entriesBeforeDelivery) = await harness.storageActor.readSessionHistory(asOf: harness.clock.now()) else {
+            return XCTFail("history unreadable")
+        }
+        let entryBeforeDelivery = try XCTUnwrap(entriesBeforeDelivery.first { $0.sessionID == "session-1" })
+        XCTAssertTrue(entryBeforeDelivery.noticeOwed)
+        let sessionRecordBeforeDelivery = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        XCTAssertEqual(sessionRecordBeforeDelivery?.noticeOwed, true)
+
+        harness.notificationScheduler.addGate = nil
+        harness.notificationScheduler.addGateIdentifier = nil
+        await hold.release()
+        await harness.engine.settled()
+    }
+
+    func testReconcileActiveRecordWithStartTimeHistoryPublishesStoppedItselfStatus() async throws {
+        let harness = try self.makeHarness()
+        let t0 = Date(timeIntervalSince1970: 1_713_624_000)
+        let record = WatchCaptureSessionRecord(
+            sessionID: "session-1",
+            startedAt: t0,
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try await harness.storageActor.writeSessionRecord(record, transactionClass: .captureSafety)
+        let historyEntry = self.startTimeHistoryEntry(id: "session-1", startedAt: t0)
+        try await harness.storageActor.upsertSessionHistory(historyEntry, asOf: t0, transactionClass: .captureSafety)
+
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { statuses.append($0) }
+
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
+
+        let published = try XCTUnwrap(statuses.last)
+        XCTAssertEqual(published.audioTerminalReason, .processExitedWhileActive)
+        XCTAssertEqual(published.audioTerminalDisposition, .inferredStoppedItself)
+
+        let now = harness.clock.now()
+        let recordingStatus = watchRecordingStatus(context: published, now: now, lastReceivedAt: now)
+        XCTAssertEqual(recordingStatus, .stoppedItself(.audioCouldNotBeConfirmed))
+    }
+
+    func testReconcileActiveRecordWithStartTimeHistoryFreshEngineDoesNotResubmitNotice() async throws {
+        let harness = try self.makeHarness()
+        let t0 = Date(timeIntervalSince1970: 1_713_624_000)
+        let record = WatchCaptureSessionRecord(
+            sessionID: "session-1",
+            startedAt: t0,
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try await harness.storageActor.writeSessionRecord(record, transactionClass: .captureSafety)
+        let historyEntry = self.startTimeHistoryEntry(id: "session-1", startedAt: t0)
+        try await harness.storageActor.upsertSessionHistory(historyEntry, asOf: t0, transactionClass: .captureSafety)
+
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
+
+        guard case let .available(afterFirstEntries) = await harness.storageActor.readSessionHistory(asOf: harness.clock.now()) else {
+            return XCTFail("history unreadable")
+        }
+        let afterFirstEntry = try XCTUnwrap(afterFirstEntries.first { $0.sessionID == "session-1" })
+        XCTAssertEqual(afterFirstEntry.noticeDelivered, true)
+        let afterFirstRecordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let afterFirstRecord = try XCTUnwrap(afterFirstRecordValue)
+
+        let relaunchEngine = WatchCaptureEngine(
+            audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted),
+            audioSession: MockWatchAudioSession(),
+            locationProvider: MockWatchLocationProvider(authorizationStatus: .authorized),
+            paths: harness.storage.paths,
+            storageActor: harness.storageActor,
+            clock: MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_100)),
+            notificationScheduler: harness.notificationScheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        relaunchEngine.reconcileOnLaunch(); await relaunchEngine.settled()
+
+        let afterSecondRecordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let afterSecondRecord = try XCTUnwrap(afterSecondRecordValue)
+        XCTAssertEqual(afterSecondRecord.terminalReason, afterFirstRecord.terminalReason)
+        XCTAssertEqual(afterSecondRecord.terminalDisposition, afterFirstRecord.terminalDisposition)
+        XCTAssertEqual(afterSecondRecord.terminalAt, afterFirstRecord.terminalAt)
+        XCTAssertEqual(afterSecondRecord.noticeOwed, false)
+
+        guard case let .available(afterSecondEntries) = await harness.storageActor.readSessionHistory(asOf: harness.clock.now()) else {
+            return XCTFail("history unreadable")
+        }
+        let afterSecondEntry = try XCTUnwrap(afterSecondEntries.first { $0.sessionID == "session-1" })
+        XCTAssertEqual(afterSecondEntry.terminalReason, afterFirstEntry.terminalReason)
+        XCTAssertEqual(afterSecondEntry.terminalDisposition, afterFirstEntry.terminalDisposition)
+        XCTAssertEqual(afterSecondEntry.terminalAt, afterFirstEntry.terminalAt)
+        XCTAssertEqual(afterSecondEntry.noticeOwed, false)
+
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+    }
+
+    func testReconcileActiveRecordWithTerminalHistoryNoticeOwedTrueRequestsWristAlert() async throws {
+        // This test passes on the unfixed tree; it guards against deleting the else branch in durableNoticeOwed resolution.
+        let harness = try self.makeHarness()
+        let t0 = Date(timeIntervalSince1970: 1_713_624_000)
+        let terminalAt = Date(timeIntervalSince1970: 1_713_624_030)
+        let record = WatchCaptureSessionRecord(
+            sessionID: "session-1",
+            startedAt: t0,
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try await harness.storageActor.writeSessionRecord(record, transactionClass: .captureSafety)
+        var historyEntry = self.startTimeHistoryEntry(id: "session-1", startedAt: t0)
+        historyEntry.terminalAt = terminalAt
+        historyEntry.terminalReason = .processExitedWhileActive
+        historyEntry.terminalDisposition = .inferredStoppedItself
+        historyEntry.noticeOwed = true
+        try await harness.storageActor.upsertSessionHistory(historyEntry, asOf: t0, transactionClass: .captureSafety)
+
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
+
+        let notice = try XCTUnwrap(harness.notificationScheduler.submittedRequests.first {
+            $0.identifier == WatchNoticeIdentifiers.notice
+        })
+        XCTAssertEqual(notice.title, WatchNoticeCopy.audioCouldNotBeConfirmed.title)
+        XCTAssertEqual(notice.body, WatchNoticeCopy.audioCouldNotBeConfirmed.body)
+    }
+
+    func testReconcileActiveRecordWithDamagedHistorySubmitsNoticePerLaunchWhileMergeFails() async throws {
+        let harness = try self.makeHarness()
+        let t0 = Date(timeIntervalSince1970: 1_713_624_000)
+        let record = WatchCaptureSessionRecord(
+            sessionID: "session-1",
+            startedAt: t0,
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false
+        )
+        try await harness.storageActor.writeSessionRecord(record, transactionClass: .captureSafety)
+        let historyEntry = self.startTimeHistoryEntry(id: "session-1", startedAt: t0)
+        try await harness.storageActor.upsertSessionHistory(historyEntry, asOf: t0, transactionClass: .captureSafety)
+
+        let url = harness.storage.rootURL.appendingPathComponent(WatchCaptureStorageActor.historyFileName)
+        var data = try await harness.storage.fileWriter.readData(from: url)
+        data.append(Data("bad tail\n".utf8))
+        try await harness.storage.fileWriter.atomicReplaceFile(at: url, with: data)
+
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
+
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
+        let sessionRecordAfterFirst = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        XCTAssertEqual(sessionRecordAfterFirst?.noticeOwed, true)
+
+        let relaunchEngine = WatchCaptureEngine(
+            audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted),
+            audioSession: MockWatchAudioSession(),
+            locationProvider: MockWatchLocationProvider(authorizationStatus: .authorized),
+            paths: harness.storage.paths,
+            storageActor: harness.storageActor,
+            clock: MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_100)),
+            notificationScheduler: harness.notificationScheduler,
+            notificationCenter: NotificationCenter()
+        )
+
+        relaunchEngine.reconcileOnLaunch(); await relaunchEngine.settled()
+
+        XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 2)
+        let sessionRecordAfterSecond = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        XCTAssertEqual(sessionRecordAfterSecond?.noticeOwed, true)
+    }
+
+    private func startTimeHistoryEntry(
+        id: String,
+        startedAt: Date
+    ) -> WatchCaptureSessionHistoryEntry {
+        WatchCaptureSessionHistoryEntry(
+            sessionID: id,
+            startedAt: startedAt,
+            terminalAt: nil,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            startRefusalReason: nil,
+            settingsRoute: nil,
+            noticeOwed: false,
+            noticeDecision: nil,
+            noticeDelivered: nil,
+            notificationAuthorizationStatus: nil,
+            notificationAlertSetting: nil,
+            wristAlertAssurance: nil,
+            audioArmed: false,
+            audioSessionIsActive: false,
+            locationArmed: false,
+            segmentsProduced: 0,
+            batteryLevelAtEnd: nil,
+            batteryStateAtEnd: nil,
+            lowPowerModeEnabledAtEnd: nil,
+            thermalStateAtEnd: nil,
+            lastVerifiedAudioAt: nil,
+            lastAudioCurrentTime: nil,
+            zeroAudioCurrentTimeObservationCount: nil,
+            locationAdvisory: nil,
+            persistenceAdvisory: nil
+        )
+    }
+
     func testReconcileActiveRecordRemovesPendingLease() async throws {
         let harness = try self.makeHarness()
         harness.notificationScheduler.pendingRequests[WatchNoticeIdentifiers.lease] = .init(

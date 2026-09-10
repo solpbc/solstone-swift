@@ -1959,7 +1959,7 @@ private extension WatchCaptureEngine {
                 triggerDate: nil
             )
             await self.performSignposted(.sessionHistory) {
-                _ = await self.storageActor.mergeTerminalNoticeMetadata(
+                let merged = await self.storageActor.mergeTerminalNoticeMetadata(
                     expected: terminal,
                     update: WatchCaptureTerminalNoticeMetadata(
                         noticeDecision: decision.historyRawValue,
@@ -1972,13 +1972,19 @@ private extension WatchCaptureEngine {
                         )
                     )
                 )
+                if !merged {
+                    watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
+                }
             }
             if delivered {
                 await self.performSignposted(.sessionHistory) {
-                    _ = await self.storageActor.mergeTerminalNoticeMetadata(
+                    let merged = await self.storageActor.mergeTerminalNoticeMetadata(
                         expected: terminal,
                         update: WatchCaptureTerminalNoticeMetadata(noticeOwed: false)
                     )
+                    if !merged {
+                        watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
+                    }
                 }
             }
         case let .cannotSchedule(route):
@@ -1987,7 +1993,7 @@ private extension WatchCaptureEngine {
                 self.setSettingsRouteIfVacant(resolvedRoute)
             }
             await self.performSignposted(.sessionHistory) {
-                _ = await self.storageActor.mergeTerminalNoticeMetadata(
+                let merged = await self.storageActor.mergeTerminalNoticeMetadata(
                     expected: terminal,
                     update: WatchCaptureTerminalNoticeMetadata(
                         noticeDecision: decision.historyRawValue,
@@ -2001,13 +2007,16 @@ private extension WatchCaptureEngine {
                         settingsRoute: resolvedRoute
                     )
                 )
+                if !merged {
+                    watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
+                }
             }
         case .cancelLease:
             if terminal.sessionID == self.currentSessionID {
                 self.removeAudioTruthLease()
             }
             await self.performSignposted(.sessionHistory) {
-                _ = await self.storageActor.mergeTerminalNoticeMetadata(
+                let merged = await self.storageActor.mergeTerminalNoticeMetadata(
                     expected: terminal,
                     update: WatchCaptureTerminalNoticeMetadata(
                         noticeDecision: decision.historyRawValue,
@@ -2020,10 +2029,13 @@ private extension WatchCaptureEngine {
                         )
                     )
                 )
+                if !merged {
+                    watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
+                }
             }
         case .none:
             await self.performSignposted(.sessionHistory) {
-                _ = await self.storageActor.mergeTerminalNoticeMetadata(
+                let merged = await self.storageActor.mergeTerminalNoticeMetadata(
                     expected: terminal,
                     update: WatchCaptureTerminalNoticeMetadata(
                         noticeDecision: decision.historyRawValue,
@@ -2036,6 +2048,9 @@ private extension WatchCaptureEngine {
                         )
                     )
                 )
+                if !merged {
+                    watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
+                }
             }
         }
     }

@@ -558,6 +558,52 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertEqual(conflictingHistoryAfterResolution, conflictingHistory)
     }
 
+    func testResolveActiveRecordWithTerminalHistoryEntryPreservesDurableNoticeOwedFalse() async throws {
+        // This test guards against rewriting resolveAndPersistTerminalTuple to always prefer the proposal.
+        // It does not discriminate the start-time history defect fix because both expressions select the same terminal entry.
+        let storage = self.storage(named: "terminal-history-notice-owed-false")
+        let date = Date(timeIntervalSince1970: 1_713_624_000)
+        let record = self.terminalRecord(
+            id: "session-1",
+            startedAt: date,
+            reason: nil,
+            disposition: nil,
+            terminalAt: nil,
+            noticeOwed: false,
+            state: .active
+        )
+        try await storage.writeSessionRecord(record, transactionClass: .captureSafety)
+        let history = self.terminalHistoryEntry(
+            id: "session-1",
+            startedAt: date,
+            reason: .processExitedWhileActive,
+            disposition: .inferredStoppedItself,
+            terminalAt: date.addingTimeInterval(30),
+            noticeOwed: false
+        )
+        try await storage.upsertSessionHistory(history, asOf: date, transactionClass: .captureSafety)
+
+        let proposal = self.terminalTuple(
+            id: "session-1",
+            startedAt: date,
+            reason: .processExitedWhileActive,
+            disposition: .inferredStoppedItself,
+            terminalAt: date.addingTimeInterval(30),
+            noticeOwed: true
+        )
+        let resolution = await storage.resolveAndPersistTerminalTuple(
+            recordProposal: record,
+            proposedTerminal: proposal,
+            asOf: date.addingTimeInterval(30)
+        )
+        guard case let .resolvedAndPersisted(tuple) = resolution else {
+            return XCTFail("expected terminal tuple to resolve and persist")
+        }
+        XCTAssertFalse(tuple.noticeOwed)
+        let persistedRecord = try await storage.readSessionRecord(transactionClass: .captureSafety)
+        XCTAssertEqual(persistedRecord?.noticeOwed, false)
+    }
+
     func testTerminalTupleResolverFillsOnlyOwnerStoppedAndMintsTerminalDateOnce() async throws {
         let date = Date(timeIntervalSince1970: 1_735_689_600)
         let ownerStoppedCases: [(String, WatchCaptureTerminalReason?, WatchCaptureTerminalDisposition?)] = [

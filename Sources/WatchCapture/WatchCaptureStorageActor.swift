@@ -2601,7 +2601,7 @@ actor WatchCaptureStorageActor {
 
         let durableNoticeOwed = currentRecord.record?.state == .terminal
             ? currentRecord.record?.noticeOwed
-            : matchingHistory.first?.noticeOwed
+            : (matchingHistory.first?.terminalAt != nil ? matchingHistory.first?.noticeOwed : nil)
         let resolved = WatchCaptureTerminalTuple(
             sessionID: proposedTerminal.sessionID,
             startedAt: proposedTerminal.startedAt,
