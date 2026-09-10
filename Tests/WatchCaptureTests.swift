@@ -4967,6 +4967,639 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         XCTAssertEqual(String(decoding: try Data(contentsOf: destinationMarker), as: UTF8.self), "destination")
     }
+
+    func testSessionStartInitialHistoryEntryStampsLastObservedAtAndEnvironment() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
+        let startTime = harness.clock.now()
+        harness.engine.start(); await harness.engine.settled()
+        let record = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let sessionID = try XCTUnwrap(record).sessionID
+        let entry = await harness.storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: harness.clock.now(),
+            transactionClass: .captureSafety
+        )
+        let entryValue = try XCTUnwrap(entry)
+        XCTAssertEqual(entryValue.lastObservedAt, startTime)
+        XCTAssertEqual(entryValue.batteryLevelAtEnd, env.value.watchBatteryLevel.value)
+        XCTAssertEqual(entryValue.batteryStateAtEnd, env.value.watchBatteryState.value)
+        XCTAssertEqual(entryValue.lowPowerModeEnabledAtEnd, env.value.watchLowPowerModeEnabled.value)
+        XCTAssertEqual(entryValue.thermalStateAtEnd, env.value.watchThermalState.value)
+        XCTAssertEqual(entryValue.segmentsProduced, 0)
+        harness.engine.stop(); await harness.engine.settled()
+    }
+
+    func testReconcileOnFreshEngineDoesNotRestampKilledSessionHistoryObservation() async throws {
+        let rootURL = self.tempDirectory.appendingPathComponent("c5-reconcile-fresh-\(UUID().uuidString)", isDirectory: true)
+        let storage = try WatchCaptureTestStorage(rootURL: rootURL, fileWriter: FoundationWatchFileWriter())
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_000))
+        let audioProbe = MockWatchAudioProbe()
+        let storageActor = WatchCaptureStorageActor(paths: storage.paths, fileWriter: storage.fileWriter, audioProbe: audioProbe)
+        let deadSessionID = "dead-session-c5"
+        let startedAt = clock.now().addingTimeInterval(-600)
+        let lastObserved = clock.now().addingTimeInterval(-300)
+
+        // Plant unclean .persisted segment on disk
+        let day = storage.dayString(for: startedAt)
+        let segment = storage.provisionalSegmentString(for: startedAt)
+        let directory = try await storageActor.prepareSegmentDirectory(day: day, segment: segment)
+        let manifest = WatchSegmentManifest(
+            id: UUID(),
+            day: day,
+            segment: segment,
+            startedAt: startedAt,
+            duration: 0,
+            sensors: [.audio],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 0,
+            state: .persisted,
+            failureReason: nil,
+            deliveredAt: nil,
+            batteryLevel: 0.88,
+            batteryState: "unplugged",
+            lowPowerMode: true,
+            powerSampledAt: startedAt
+        )
+        try await storageActor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
+        let audioURL = storage.audioURL(directory: directory)
+        try Data("audio".utf8).write(to: audioURL)
+        await audioProbe.setDuration(30, forPath: audioURL.path)
+
+        // Dead-session active record
+        let record = WatchCaptureSessionRecord(
+            sessionID: deadSessionID,
+            startedAt: startedAt,
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false,
+            segmentsProduced: 0
+        )
+        try await storageActor.writeSessionRecord(record, transactionClass: .captureSafety)
+
+        // Dead-session history row with known values
+        let deadEntry = WatchCaptureSessionHistoryEntry(
+            sessionID: deadSessionID,
+            startedAt: startedAt,
+            terminalAt: nil,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            startRefusalReason: nil,
+            settingsRoute: nil,
+            noticeOwed: false,
+            noticeDecision: nil,
+            noticeDelivered: nil,
+            notificationAuthorizationStatus: nil,
+            notificationAlertSetting: nil,
+            wristAlertAssurance: nil,
+            audioArmed: true,
+            audioSessionIsActive: true,
+            locationArmed: false,
+            segmentsProduced: 0,
+            batteryLevelAtEnd: 0.77,
+            batteryStateAtEnd: "unplugged",
+            lowPowerModeEnabledAtEnd: false,
+            thermalStateAtEnd: "nominal",
+            lastVerifiedAudioAt: lastObserved,
+            lastAudioCurrentTime: 299.5,
+            zeroAudioCurrentTimeObservationCount: 0,
+            lastObservedAt: lastObserved,
+            locationAdvisory: nil,
+            persistenceAdvisory: nil
+        )
+        try await storageActor.upsertSessionHistory(deadEntry, asOf: lastObserved, transactionClass: .captureSafety)
+
+        // Advance clock to recovery time
+        clock.advance(by: 60)
+
+        // Fresh Engine B with DIFFERENT environment
+        let envB = MockWatchRelayDiagnosticsEnvironmentProvider()
+        envB.value = WatchRelayDiagnosticsEnvironmentSnapshot(
+            watchAppMarketingVersion: .available("0.2.0"),
+            watchAppBuild: .available("99"),
+            watchOSVersion: .available("27.0"),
+            watchBatteryLevel: .available(0.12),
+            watchBatteryState: .available("charging"),
+            watchLowPowerModeEnabled: .available(true),
+            watchThermalState: .available("serious")
+        )
+        let engineB = WatchCaptureEngine(
+            audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted),
+            audioSession: MockWatchAudioSession(),
+            locationProvider: MockWatchLocationProvider(authorizationStatus: .denied),
+            paths: storage.paths,
+            storageActor: storageActor,
+            clock: clock,
+            notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
+            environmentProvider: envB,
+            notificationCenter: NotificationCenter()
+        )
+        engineB.reconcileOnLaunch(); await engineB.settled()
+
+        let history = await storageActor.sessionHistoryEntry(
+            sessionID: deadSessionID,
+            asOf: clock.now(),
+            transactionClass: .captureSafety
+        )
+        let historyValue = try XCTUnwrap(history)
+        XCTAssertEqual(historyValue.lastObservedAt, lastObserved)
+        XCTAssertEqual(historyValue.batteryLevelAtEnd, 0.77)
+        XCTAssertEqual(historyValue.batteryStateAtEnd, "unplugged")
+        XCTAssertEqual(historyValue.lowPowerModeEnabledAtEnd, false)
+        XCTAssertEqual(historyValue.thermalStateAtEnd, "nominal")
+        XCTAssertEqual(historyValue.lastAudioCurrentTime, 299.5)
+        XCTAssertEqual(historyValue.zeroAudioCurrentTimeObservationCount, 0)
+        XCTAssertEqual(historyValue.lastVerifiedAudioAt, lastObserved)
+        XCTAssertEqual(historyValue.segmentsProduced, 1)
+        XCTAssertEqual(historyValue.terminalReason, .processExitedWhileActive)
+        XCTAssertEqual(historyValue.terminalDisposition, .inferredStoppedItself)
+    }
+
+    func testReconcileWithLeftoverMatchingTokenDoesNotRestampSessionHistory() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
+        harness.engine.start(); await harness.engine.settled()
+        let record = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let sessionID = try XCTUnwrap(record).sessionID
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count == 2 })
+        await harness.engine.settled()
+
+        harness.engine.stop(); await harness.engine.settled()
+
+        let postTerminalRead = await harness.storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: harness.clock.now(),
+            transactionClass: .captureSafety
+        )
+        let postTerminalEntry = try XCTUnwrap(postTerminalRead)
+
+        // Re-assign leftover token
+        harness.engine.ownerSourceToken = WatchCaptureSourceToken(sessionID: sessionID)
+
+        // Mutate environmentProvider.value so a bug would restamp
+        env.value = WatchRelayDiagnosticsEnvironmentSnapshot(
+            watchAppMarketingVersion: .available("0.9.0"),
+            watchAppBuild: .available("999"),
+            watchOSVersion: .available("29.0"),
+            watchBatteryLevel: .available(0.05),
+            watchBatteryState: .available("charging"),
+            watchLowPowerModeEnabled: .available(true),
+            watchThermalState: .available("critical")
+        )
+
+        // Plant unclean .persisted segment for that session id
+        let captureDate = harness.clock.now().addingTimeInterval(-100)
+        let day = harness.storage.dayString(for: captureDate)
+        let segment = harness.storage.provisionalSegmentString(for: captureDate)
+        let directory = try await harness.storageActor.prepareSegmentDirectory(day: day, segment: segment)
+        let manifest = WatchSegmentManifest(
+            id: UUID(),
+            day: day,
+            segment: segment,
+            startedAt: captureDate,
+            duration: 0,
+            sensors: [.audio],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 0,
+            state: .persisted,
+            failureReason: nil,
+            deliveredAt: nil,
+            batteryLevel: 0.88,
+            batteryState: "unplugged",
+            lowPowerMode: true,
+            powerSampledAt: captureDate
+        )
+        try await harness.storageActor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
+        let audioURL = harness.storage.audioURL(directory: directory)
+        try Data("audio".utf8).write(to: audioURL)
+        await harness.audioProbe.setDuration(30, forPath: audioURL.path)
+
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
+
+        let historyAfterReconcileRead = await harness.storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: harness.clock.now(),
+            transactionClass: .captureSafety
+        )
+        let historyAfterReconcile = try XCTUnwrap(historyAfterReconcileRead)
+
+        XCTAssertEqual(historyAfterReconcile.lastObservedAt, postTerminalEntry.lastObservedAt)
+        XCTAssertEqual(historyAfterReconcile.batteryLevelAtEnd, postTerminalEntry.batteryLevelAtEnd)
+        XCTAssertEqual(historyAfterReconcile.batteryStateAtEnd, postTerminalEntry.batteryStateAtEnd)
+        XCTAssertEqual(historyAfterReconcile.lowPowerModeEnabledAtEnd, postTerminalEntry.lowPowerModeEnabledAtEnd)
+        XCTAssertEqual(historyAfterReconcile.thermalStateAtEnd, postTerminalEntry.thermalStateAtEnd)
+    }
+
+    func testLiveRolloverAdvancesLastObservedAtAndRefreshesEnvironment() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
+        harness.engine.start(); await harness.engine.settled()
+        let record = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let sessionID = try XCTUnwrap(record).sessionID
+
+        let startEntryRead = await harness.storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: harness.clock.now(),
+            transactionClass: .captureSafety
+        )
+        let startEntry = try XCTUnwrap(startEntryRead)
+        let startStamp = try XCTUnwrap(startEntry.lastObservedAt)
+
+        // Mutate env.value so fields differ from start
+        env.value = WatchRelayDiagnosticsEnvironmentSnapshot(
+            watchAppMarketingVersion: .available("0.1.0"),
+            watchAppBuild: .available("55"),
+            watchOSVersion: .available("26.0"),
+            watchBatteryLevel: .available(0.62),
+            watchBatteryState: .available("charging"),
+            watchLowPowerModeEnabled: .available(true),
+            watchThermalState: .available("fair")
+        )
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: {
+            let manifests = await self.catalogEntries(for: harness.storage).map(\.manifest)
+            return harness.recorder.startURLs.count == 2
+                && manifests.contains { $0.state == .queued }
+        })
+        await harness.engine.settled()
+
+        let rolloverEntryRead = await harness.storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: harness.clock.now(),
+            transactionClass: .captureSafety
+        )
+        let rolloverEntry = try XCTUnwrap(rolloverEntryRead)
+        let rolloverStamp = try XCTUnwrap(rolloverEntry.lastObservedAt)
+        XCTAssertGreaterThan(rolloverStamp, startStamp)
+        XCTAssertEqual(rolloverEntry.batteryLevelAtEnd, env.value.watchBatteryLevel.value)
+        XCTAssertEqual(rolloverEntry.batteryStateAtEnd, env.value.watchBatteryState.value)
+        XCTAssertEqual(rolloverEntry.lowPowerModeEnabledAtEnd, env.value.watchLowPowerModeEnabled.value)
+        XCTAssertEqual(rolloverEntry.thermalStateAtEnd, env.value.watchThermalState.value)
+        XCTAssertEqual(rolloverEntry.segmentsProduced, 1)
+
+        harness.engine.stop(); await harness.engine.settled()
+    }
+
+    func testCleanStopDoesNotObserveAfterTerminal() async throws {
+        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
+        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
+        harness.engine.start(); await harness.engine.settled()
+        let record = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let sessionID = try XCTUnwrap(record).sessionID
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count == 2 })
+        await harness.engine.settled()
+
+        // Stop the session
+        harness.engine.stop(); await harness.engine.settled()
+
+        let terminalEntryRead = await harness.storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: harness.clock.now(),
+            transactionClass: .captureSafety
+        )
+        let terminalEntry = try XCTUnwrap(terminalEntryRead)
+        let terminalAt = try XCTUnwrap(terminalEntry.terminalAt)
+        if let lastObservedAt = terminalEntry.lastObservedAt {
+            XCTAssertLessThanOrEqual(lastObservedAt, terminalAt)
+        }
+        XCTAssertFalse(terminalEntry.audioArmed)
+        XCTAssertFalse(terminalEntry.audioSessionIsActive)
+        XCTAssertFalse(terminalEntry.locationArmed)
+        XCTAssertEqual(terminalEntry.terminalReason, .ownerStopped)
+        XCTAssertEqual(terminalEntry.terminalDisposition, .ownerStopped)
+    }
+
+    func testLastObservedAtIsNeverLoweredOnceSet() async throws {
+        // Path 1: start -> rollover -> clean stop
+        do {
+            let harness = try self.makeHarness(locationAuthorization: .denied)
+            let startTime = harness.clock.now()
+            harness.engine.start(); await harness.engine.settled()
+            let record = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+            let sessionID = try XCTUnwrap(record).sessionID
+
+            let startEntryRead = await harness.storageActor.sessionHistoryEntry(
+                sessionID: sessionID, asOf: harness.clock.now(), transactionClass: .captureSafety
+            )
+            let startEntry = try XCTUnwrap(startEntryRead)
+            let startObserved = try XCTUnwrap(startEntry.lastObservedAt)
+            XCTAssertEqual(startObserved, startTime)
+
+            await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+            harness.clock.advance(by: 300)
+            await self.drain(until: { harness.recorder.startURLs.count == 2 })
+            await harness.engine.settled()
+
+            let rolloverEntryRead = await harness.storageActor.sessionHistoryEntry(
+                sessionID: sessionID, asOf: harness.clock.now(), transactionClass: .captureSafety
+            )
+            let rolloverEntry = try XCTUnwrap(rolloverEntryRead)
+            let rolloverObserved = try XCTUnwrap(rolloverEntry.lastObservedAt)
+            XCTAssertGreaterThanOrEqual(rolloverObserved, startObserved)
+
+            harness.engine.stop(); await harness.engine.settled()
+
+            let stopEntryRead = await harness.storageActor.sessionHistoryEntry(
+                sessionID: sessionID, asOf: harness.clock.now(), transactionClass: .captureSafety
+            )
+            let stopEntry = try XCTUnwrap(stopEntryRead)
+            let stopObserved = try XCTUnwrap(stopEntry.lastObservedAt)
+            XCTAssertGreaterThanOrEqual(stopObserved, rolloverObserved)
+        }
+
+        // Path 2: start -> rollover -> kill (engine = nil) -> fresh reconcileOnLaunch()
+        do {
+            let rootURL = self.tempDirectory.appendingPathComponent("c9-path2-\(UUID().uuidString)", isDirectory: true)
+            let storage = try WatchCaptureTestStorage(rootURL: rootURL, fileWriter: FoundationWatchFileWriter())
+            let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_000))
+            let storageActor = WatchCaptureStorageActor(paths: storage.paths, fileWriter: storage.fileWriter)
+            let recorder = MockWatchAudioRecorder(microphonePermission: .granted)
+            let audioSession = MockWatchAudioSession()
+            let locationProvider = MockWatchLocationProvider(authorizationStatus: .denied)
+            let notificationScheduler = MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled)
+            let notificationCenter = NotificationCenter()
+
+            var engine: WatchCaptureEngine? = WatchCaptureEngine(
+                audioRecorder: recorder,
+                audioSession: audioSession,
+                locationProvider: locationProvider,
+                paths: storage.paths,
+                storageActor: storageActor,
+                clock: clock,
+                notificationScheduler: notificationScheduler,
+                notificationCenter: notificationCenter
+            )
+            engine?.start(); await engine?.settled()
+            let record = try await storageActor.readSessionRecord(transactionClass: .captureSafety)
+            let sessionID = try XCTUnwrap(record).sessionID
+
+            await self.drain(until: { self.pendingSleeperCount(in: clock) >= 2 })
+            clock.advance(by: 300)
+            await self.drain(until: { recorder.startURLs.count == 2 })
+            await engine?.settled()
+
+            let preKillRead = await storageActor.sessionHistoryEntry(
+                sessionID: sessionID, asOf: clock.now(), transactionClass: .captureSafety
+            )
+            let preKillEntry = try XCTUnwrap(preKillRead)
+            let preKillObserved = try XCTUnwrap(preKillEntry.lastObservedAt)
+
+            engine = nil
+            clock.advance(by: 60)
+
+            let freshEngine = WatchCaptureEngine(
+                audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted),
+                audioSession: MockWatchAudioSession(),
+                locationProvider: MockWatchLocationProvider(authorizationStatus: .denied),
+                paths: storage.paths,
+                storageActor: storageActor,
+                clock: clock,
+                notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
+                notificationCenter: NotificationCenter()
+            )
+            freshEngine.reconcileOnLaunch(); await freshEngine.settled()
+
+            let postReconcileRead = await storageActor.sessionHistoryEntry(
+                sessionID: sessionID, asOf: clock.now(), transactionClass: .captureSafety
+            )
+            let postReconcileEntry = try XCTUnwrap(postReconcileRead)
+            let postReconcileObserved = try XCTUnwrap(postReconcileEntry.lastObservedAt)
+            XCTAssertGreaterThanOrEqual(postReconcileObserved, preKillObserved)
+        }
+
+        // Path 3: start -> rollover, then call refuseStart directly on that engine
+        do {
+            let harness = try self.makeHarness(locationAuthorization: .denied)
+            harness.engine.start(); await harness.engine.settled()
+            let record = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+            let sessionID = try XCTUnwrap(record).sessionID
+
+            await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+            harness.clock.advance(by: 300)
+            await self.drain(until: { harness.recorder.startURLs.count == 2 })
+            await harness.engine.settled()
+
+            let preRefusalRead = await harness.storageActor.sessionHistoryEntry(
+                sessionID: sessionID, asOf: harness.clock.now(), transactionClass: .captureSafety
+            )
+            let preRefusalEntry = try XCTUnwrap(preRefusalRead)
+            let preRefusalObserved = try XCTUnwrap(preRefusalEntry.lastObservedAt)
+
+            // Direct refusal call
+            await harness.engine.refuseStart(.audioArmFailed, error: .permissionDenied)
+
+            let postRefusalRead = await harness.storageActor.sessionHistoryEntry(
+                sessionID: sessionID, asOf: harness.clock.now(), transactionClass: .captureSafety
+            )
+            let postRefusalEntry = try XCTUnwrap(postRefusalRead)
+            let postRefusalObserved = try XCTUnwrap(postRefusalEntry.lastObservedAt)
+            XCTAssertEqual(postRefusalObserved, preRefusalObserved)
+        }
+    }
+
+    func testLiveSegmentRolloverStampsInRunObservation() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        let record = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let sessionID = try XCTUnwrap(record).sessionID
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let rolloverTime = harness.clock.now().addingTimeInterval(300)
+        harness.clock.advance(by: 300)
+        await self.drain(until: {
+            let manifests = await self.catalogEntries(for: harness.storage).map(\.manifest)
+            return harness.recorder.startURLs.count == 2
+                && manifests.contains { $0.state == .queued }
+        })
+        await harness.engine.settled()
+
+        let entry = await harness.storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: harness.clock.now(),
+            transactionClass: .captureSafety
+        )
+        let entryValue = try XCTUnwrap(entry)
+        XCTAssertEqual(entryValue.lastObservedAt, rolloverTime)
+        XCTAssertEqual(entryValue.segmentsProduced, 1)
+        XCTAssertTrue(entryValue.audioArmed)
+        XCTAssertTrue(entryValue.audioSessionIsActive)
+        XCTAssertNotNil(entryValue.batteryLevelAtEnd)
+        XCTAssertNotNil(entryValue.batteryStateAtEnd)
+        XCTAssertNotNil(entryValue.lowPowerModeEnabledAtEnd)
+        XCTAssertNotNil(entryValue.thermalStateAtEnd)
+        harness.engine.stop(); await harness.engine.settled()
+    }
+
+    func testReconciliationUncleanRecoveryDoesNotStampInRunObservation() async throws {
+        let storage = try WatchCaptureTestStorage(
+            rootURL: self.tempDirectory.appendingPathComponent("reconcile-unclean-\(UUID().uuidString)", isDirectory: true),
+            fileWriter: FoundationWatchFileWriter()
+        )
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_000))
+        let storageActor = WatchCaptureStorageActor(paths: storage.paths, fileWriter: storage.fileWriter)
+        let uncleanSessionID = "unclean-session-1"
+        let startedAt = clock.now().addingTimeInterval(-600)
+        _ = try await self.writeManifest(
+            storage: storage,
+            startedAt: startedAt,
+            state: .persisted,
+            sensors: [.audio]
+        )
+
+        let initialRecord = WatchCaptureSessionRecord(
+            sessionID: uncleanSessionID,
+            startedAt: startedAt,
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil,
+            noticeOwed: false,
+            segmentsProduced: 0
+        )
+        try await storageActor.writeSessionRecord(initialRecord, transactionClass: .captureSafety)
+
+        let engine = WatchCaptureEngine(
+            audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted),
+            audioSession: MockWatchAudioSession(),
+            locationProvider: MockWatchLocationProvider(authorizationStatus: .denied),
+            paths: storage.paths,
+            storageActor: storageActor,
+            clock: clock,
+            notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
+            notificationCenter: NotificationCenter()
+        )
+        engine.reconcileOnLaunch(); await engine.settled()
+
+        let history = await storageActor.sessionHistoryEntry(
+            sessionID: uncleanSessionID,
+            asOf: clock.now(),
+            transactionClass: .captureSafety
+        )
+        let historyValue = try XCTUnwrap(history)
+        XCTAssertNil(historyValue.lastObservedAt)
+        XCTAssertEqual(historyValue.terminalReason, .processExitedWhileActive)
+        XCTAssertEqual(historyValue.terminalDisposition, .inferredStoppedItself)
+        XCTAssertEqual(historyValue.segmentsProduced, 1)
+    }
+
+    func testLiveSessionKilledAfterRolloverPreservesLastObservedAtOnRestart() async throws {
+        let rootURL = self.tempDirectory.appendingPathComponent("killed-session-\(UUID().uuidString)", isDirectory: true)
+        let storage = try WatchCaptureTestStorage(rootURL: rootURL, fileWriter: FoundationWatchFileWriter())
+        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_000))
+        let storageActor = WatchCaptureStorageActor(paths: storage.paths, fileWriter: storage.fileWriter)
+        let recorder = MockWatchAudioRecorder(microphonePermission: .granted)
+        let audioSession = MockWatchAudioSession()
+        let locationProvider = MockWatchLocationProvider(authorizationStatus: .denied)
+        let notificationScheduler = MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled)
+        let notificationCenter = NotificationCenter()
+
+        var engine: WatchCaptureEngine? = WatchCaptureEngine(
+            audioRecorder: recorder,
+            audioSession: audioSession,
+            locationProvider: locationProvider,
+            paths: storage.paths,
+            storageActor: storageActor,
+            clock: clock,
+            notificationScheduler: notificationScheduler,
+            notificationCenter: notificationCenter
+        )
+        engine?.start(); await engine?.settled()
+        let record = try await storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let sessionID = try XCTUnwrap(record).sessionID
+        await self.drain(until: { self.pendingSleeperCount(in: clock) >= 2 })
+        let rolloverTime = clock.now().addingTimeInterval(300)
+        clock.advance(by: 300)
+        await self.drain(until: { recorder.startURLs.count == 2 })
+        await engine?.settled()
+
+        let preKillHistory = await storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: clock.now(),
+            transactionClass: .captureSafety
+        )
+        XCTAssertEqual(preKillHistory?.lastObservedAt, rolloverTime)
+
+        // Drop process / engine without calling stop()
+        engine = nil
+        clock.advance(by: 60)
+        let restartTime = clock.now()
+
+        let restartEngine = WatchCaptureEngine(
+            audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted),
+            audioSession: MockWatchAudioSession(),
+            locationProvider: MockWatchLocationProvider(authorizationStatus: .denied),
+            paths: storage.paths,
+            storageActor: storageActor,
+            clock: clock,
+            notificationScheduler: MockWatchNotificationScheduler(authorizationStatus: .authorized, alertSetting: .enabled),
+            notificationCenter: NotificationCenter()
+        )
+        restartEngine.reconcileOnLaunch(); await restartEngine.settled()
+
+        let postRecoveryHistory = await storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: clock.now(),
+            transactionClass: .captureSafety
+        )
+        let recovered = try XCTUnwrap(postRecoveryHistory)
+        XCTAssertEqual(recovered.lastObservedAt, rolloverTime)
+        XCTAssertEqual(recovered.terminalReason, .processExitedWhileActive)
+        XCTAssertEqual(recovered.terminalDisposition, .inferredStoppedItself)
+        XCTAssertEqual(recovered.terminalAt, restartTime)
+        XCTAssertEqual(recovered.segmentsProduced, 2)
+    }
+
+    func testMultipleRolloversUpdateLastObservedAtAndIncrementSegmentsProduced() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        let record = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let sessionID = try XCTUnwrap(record).sessionID
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let firstRollover = harness.clock.now().addingTimeInterval(300)
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count == 2 })
+        await harness.engine.settled()
+
+        let firstEntryRead = await harness.storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: harness.clock.now(),
+            transactionClass: .captureSafety
+        )
+        let firstEntry = try XCTUnwrap(firstEntryRead)
+        XCTAssertEqual(firstEntry.lastObservedAt, firstRollover)
+        XCTAssertEqual(firstEntry.segmentsProduced, 1)
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        let secondRollover = harness.clock.now().addingTimeInterval(300)
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count == 3 })
+        await harness.engine.settled()
+
+        let secondEntryRead = await harness.storageActor.sessionHistoryEntry(
+            sessionID: sessionID,
+            asOf: harness.clock.now(),
+            transactionClass: .captureSafety
+        )
+        let secondEntry = try XCTUnwrap(secondEntryRead)
+        XCTAssertEqual(secondEntry.lastObservedAt, secondRollover)
+        XCTAssertEqual(secondEntry.segmentsProduced, 2)
+
+        harness.engine.stop(); await harness.engine.settled()
+    }
 }
 
 @MainActor

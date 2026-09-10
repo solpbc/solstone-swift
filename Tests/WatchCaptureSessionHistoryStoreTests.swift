@@ -116,10 +116,61 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
     }
 
     func testHistoryEntryCodingUsesCompactKeys() throws {
-        let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(self.entry(1, at: Date()))
+        let entry = self.entry(1, at: Date())
+        XCTAssertNotNil(entry.lastObservedAt)
+        let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(entry)
         let json = try XCTUnwrap(String(data: data, encoding: .utf8))
         XCTAssertTrue(json.contains("\"id\""))
         XCTAssertFalse(json.contains("sessionID"))
+        XCTAssertTrue(json.contains("\"oa\""))
+        XCTAssertFalse(json.contains("lastObservedAt"))
+    }
+
+    func testHistoryEntryBackwardDecodeWithoutLastObservedAt() throws {
+        let jsonWithoutOA = """
+        {
+            "id": "legacy-session",
+            "sa": "2026-07-27T00:00:00Z",
+            "ta": "2026-07-27T00:05:00Z",
+            "td": "inferred-stopped-itself",
+            "tr": "process-exited-while-active",
+            "aa": true,
+            "as": true,
+            "la": false,
+            "sp": 1,
+            "no": false
+        }
+        """
+        let data = try XCTUnwrap(jsonWithoutOA.data(using: .utf8))
+        let decoded = try WatchRelayDiagnosticsEnvelope.makeDecoder().decode(WatchCaptureSessionHistoryEntry.self, from: data)
+        XCTAssertEqual(decoded.sessionID, "legacy-session")
+        XCTAssertNil(decoded.lastObservedAt)
+        XCTAssertEqual(decoded.terminalDisposition, .inferredStoppedItself)
+
+        let rows = WatchPipelineReducer.sessionHistoryRows(entry: decoded, index: 1, total: 1, now: Date(timeIntervalSince1970: 1784074000))
+        let lastCheckRow = try XCTUnwrap(rows.first { $0.label == "last check" })
+        XCTAssertEqual(lastCheckRow.value, SourceVocabulary.watchDiagnosticsNotProvided)
+        XCTAssertFalse(rows.contains { $0.label == "gap before discovery" })
+    }
+
+    func testHistoryEntryWithLastObservedAtPersistsToDiskAndRoundTripsInEnvelope() async throws {
+        let storage = try WatchCaptureTestStorage(rootURL: self.root)
+        let actor = self.storageActor(for: storage)
+        let now = Date(timeIntervalSince1970: 1_784_073_600)
+        let entry = self.entry(42, at: now)
+        XCTAssertNotNil(entry.lastObservedAt)
+
+        try await actor.upsertSessionHistory(entry, asOf: now, transactionClass: .captureSafety)
+        let readResult = await actor.readSessionHistory(asOf: now)
+        guard case let .available(entries) = readResult, let restored = entries.first else {
+            XCTFail("Failed to read back session history from disk")
+            return
+        }
+        XCTAssertEqual(restored.lastObservedAt, entry.lastObservedAt)
+
+        let encoded = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(restored)
+        let envelopeDecoded = try WatchRelayDiagnosticsEnvelope.makeDecoder().decode(WatchCaptureSessionHistoryEntry.self, from: encoded)
+        XCTAssertEqual(envelopeDecoded.lastObservedAt, entry.lastObservedAt)
     }
 
     private func entry(_ index: Int, at date: Date) -> WatchCaptureSessionHistoryEntry {
@@ -132,6 +183,7 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
             segmentsProduced: 1, batteryLevelAtEnd: 0.75, batteryStateAtEnd: "unplugged",
             lowPowerModeEnabledAtEnd: false, thermalStateAtEnd: "nominal", lastVerifiedAudioAt: date,
             lastAudioCurrentTime: 1.23456789, zeroAudioCurrentTimeObservationCount: 3,
+            lastObservedAt: date,
             locationAdvisory: nil, persistenceAdvisory: nil
         )
     }

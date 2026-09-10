@@ -388,6 +388,7 @@ actor WatchCaptureStorageActor {
     // Tests use this only to make a synchronous actor-work span long enough to observe.
     // The production default is a no-op and is skipped while signposting is disabled.
     private let synchronousWorkHook: @Sendable (WatchSignpostBoundary) -> Void
+    private let readDiagnosticsEntryStorageFactsHook: (@Sendable (WatchCaptureCatalogEntry) throws -> Void)?
     private var transactionIsActive = false
     private var captureSafetyWaiters: [TransactionWaiter] = []
     private var maintenanceWaiters: [TransactionWaiter] = []
@@ -401,13 +402,15 @@ actor WatchCaptureStorageActor {
         fileWriter: any WatchFileWriting,
         audioProbe: any WatchAudioProbing = LiveWatchAudioProbe(),
         storageSignposter: WatchStorageSignposter = WatchStorageSignposter(),
-        synchronousWorkHook: @escaping @Sendable (WatchSignpostBoundary) -> Void = { _ in }
+        synchronousWorkHook: @escaping @Sendable (WatchSignpostBoundary) -> Void = { _ in },
+        readDiagnosticsEntryStorageFactsHook: (@Sendable (WatchCaptureCatalogEntry) throws -> Void)? = nil
     ) {
         self.paths = paths
         self.fileWriter = fileWriter
         self.audioProbe = audioProbe
         self.storageSignposter = storageSignposter
         self.synchronousWorkHook = synchronousWorkHook
+        self.readDiagnosticsEntryStorageFactsHook = readDiagnosticsEntryStorageFactsHook
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
@@ -1154,7 +1157,8 @@ actor WatchCaptureStorageActor {
         entry: WatchCaptureCatalogEntry,
         bundleURL: URL
     ) async throws -> WatchRelayDiagnosticsEntryStorageFacts {
-        try await self.withCancellableTransaction(transactionClass: .maintenance) {
+        try self.readDiagnosticsEntryStorageFactsHook?(entry)
+        return try await self.withCancellableTransaction(transactionClass: .maintenance) {
             let sidecar = await self.readDiagnosticsSidecarInner(
                 manifest: entry.manifest,
                 directoryURL: entry.directoryURL
@@ -2793,6 +2797,7 @@ actor WatchCaptureStorageActor {
             lastVerifiedAudioAt: nil,
             lastAudioCurrentTime: nil,
             zeroAudioCurrentTimeObservationCount: nil,
+            lastObservedAt: nil,
             locationAdvisory: nil,
             persistenceAdvisory: nil
         )

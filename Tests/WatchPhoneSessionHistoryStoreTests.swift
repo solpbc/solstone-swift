@@ -313,13 +313,42 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
         )).diagnosticsExportText
     }
 
+    func testSparseLaterEntryDoesNotClearKnownLastObservedAt() throws {
+        let observedDate = self.now.addingTimeInterval(-30)
+        let complete = self.entry("one", terminal: self.now, reason: .audioClockStalled, noticeDelivered: true, lastObservedAt: observedDate)
+        let sparse = self.entry("one", complete: false, reason: nil, noticeDelivered: nil, lastObservedAt: nil)
+        let store = self.store()
+
+        _ = store.merge(diagnostics: self.diagnostics([complete]), status: nil)
+        _ = store.merge(diagnostics: self.diagnostics([sparse]), status: nil)
+
+        let entry = try XCTUnwrap(store.readSnapshot(asOf: self.now).value?.entries.first)
+        XCTAssertEqual(entry.lastObservedAt, observedDate)
+    }
+
+    func testIncomingNonNilLastObservedAtSurvivesMergeIntoNilExisting() throws {
+        let observedDate = self.now.addingTimeInterval(-15)
+        let sparse = self.entry("one", complete: false, reason: nil, noticeDelivered: nil, lastObservedAt: nil)
+        let incoming = self.entry("one", complete: true, reason: .ownerStopped, noticeDelivered: false, lastObservedAt: observedDate)
+        let store = self.store()
+
+        _ = store.merge(diagnostics: self.diagnostics([sparse]), status: nil)
+        let firstSnapshot = try XCTUnwrap(store.readSnapshot(asOf: self.now).value?.entries.first)
+        XCTAssertNil(firstSnapshot.lastObservedAt)
+
+        _ = store.merge(diagnostics: self.diagnostics([incoming]), status: nil)
+        let mergedSnapshot = try XCTUnwrap(store.readSnapshot(asOf: self.now).value?.entries.first)
+        XCTAssertEqual(mergedSnapshot.lastObservedAt, observedDate)
+    }
+
     private func entry(
         _ id: String,
         startedAt: Date? = nil,
         terminal: Date? = nil,
         complete: Bool = true,
         reason: WatchCaptureTerminalReason? = .audioClockStalled,
-        noticeDelivered: Bool? = true
+        noticeDelivered: Bool? = true,
+        lastObservedAt: Date? = nil
     ) -> WatchCaptureSessionHistoryEntry {
         WatchCaptureSessionHistoryEntry(
             sessionID: id,
@@ -346,6 +375,7 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
             lastVerifiedAudioAt: self.now,
             lastAudioCurrentTime: 1,
             zeroAudioCurrentTimeObservationCount: 0,
+            lastObservedAt: lastObservedAt,
             locationAdvisory: nil,
             persistenceAdvisory: nil
         )

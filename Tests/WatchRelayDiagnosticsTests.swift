@@ -116,7 +116,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         let envelopeData = await collector.makeEnvelopeData(asOf: Self.now)
         let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
-        let reason = WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue
+        let reason = WatchRelayDiagnosticsCollector.membershipUnavailableMembershipUndetermined
         XCTAssertEqual(payload.manifestSummary.unavailableReason, reason)
         XCTAssertEqual(payload.appleQueue.unavailableReason, reason)
         XCTAssertTrue(payload.observedFileTransfers.isEmpty)
@@ -514,7 +514,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         )
         let envelopeData = await collector.makeEnvelopeData(asOf: now)
         let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
-        let reason = WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue
+        let reason = WatchRelayDiagnosticsCollector.membershipUnavailableMembershipUndetermined
 
         XCTAssertEqual(payload.manifestSummary.unavailableReason, reason)
         XCTAssertEqual(payload.appleQueue.unavailableReason, reason)
@@ -568,7 +568,39 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         await writer.releaseFileExists()
         let envelopeData = await collection.value
         let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
-        let reason = WatchRelayObservationCollectionResolution.snapshotChangedDuringCollection.rawValue
+        let reason = WatchRelayDiagnosticsCollector.membershipUnavailableScanCancelled
+        XCTAssertEqual(payload.manifestSummary.unavailableReason, reason)
+        XCTAssertEqual(payload.appleQueue.unavailableReason, reason)
+        XCTAssertTrue(payload.observedFileTransfers.isEmpty)
+    }
+
+    func testEntryFactsIncompleteYieldsEntryFactsIncompleteMembershipCause() async throws {
+        let now = Self.now
+        let storage = try self.storage("entry-facts-incomplete")
+        struct IncompleteFactsError: Error {}
+        let store = WatchCaptureStorageActor(
+            paths: storage.paths,
+            fileWriter: storage.fileWriter,
+            readDiagnosticsEntryStorageFactsHook: { _ in
+                throw IncompleteFactsError()
+            }
+        )
+        let session = MockWatchConnectivitySession()
+        let entry = try await self.writeManifest(id: Self.uuid(130), state: .transferring, storage: storage)
+        let audioURL = storage.audioURL(directory: entry.directoryURL)
+        try await storage.fileWriter.writeData(Data(repeating: 9, count: 10), to: audioURL, options: .atomic)
+        try await self.recordRelayEnqueue(store: store, entry: entry, storage: storage, byte: 9, at: now)
+
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: store,
+            session: session,
+            environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
+        )
+        let envelopeData = await collector.makeEnvelopeData(asOf: now)
+        let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
+        let reason = WatchRelayDiagnosticsCollector.membershipUnavailableEntryFactsIncomplete
+
         XCTAssertEqual(payload.manifestSummary.unavailableReason, reason)
         XCTAssertEqual(payload.appleQueue.unavailableReason, reason)
         XCTAssertTrue(payload.observedFileTransfers.isEmpty)
@@ -730,7 +762,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         )
         let envelopeData = await collector.makeEnvelopeData(asOf: now)
         let data = try XCTUnwrap(envelopeData)
-        // Budget baseline: a real orphan observation with attempt identity is 1123 B and a maximal compact history entry is 525 B.
+        // Budget baseline: a real orphan observation with attempt identity is 1123 B and a maximal compact history entry is 553 B.
         // With the ten-entry window, the 22-observation floor remains below the 32 KiB envelope limit.
         XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
         let payload = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
@@ -774,8 +806,10 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
         )
         let envelopeData = await collector.makeEnvelopeData(asOf: now)
+        let expectedObservationFloor = 22
         let compacted = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
         XCTAssertGreaterThan(compacted.omittedObservationCount, 0)
+        XCTAssertEqual(compacted.observedFileTransfers.count, expectedObservationFloor)
         XCTAssertEqual(Set(compacted.sessionHistoryWindow.value?.map(\.sessionID) ?? []), Set(entries.map(\.sessionID)))
         XCTAssertEqual(compacted.sessionHistoryDepth, 10)
         XCTAssertEqual(compacted.lifetimeSessionsStarted.value, 10)
@@ -785,9 +819,10 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
             generatedAt: now, diagnostics: .available(payload)
         ))
-        // Budget baseline: a real orphan observation with attempt identity is 1123 B and a maximal compact history entry is 525 B.
+        // Budget baseline: a real orphan observation with attempt identity is 1123 B and a maximal compact history entry is 553 B.
         XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
         let maxEntryBytes = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(Self.historyEntry(99, at: now)).count
+        XCTAssertEqual(maxEntryBytes, 553)
         XCTAssertLessThanOrEqual(10 * maxEntryBytes, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount - 20 * 1024)
         let decoded = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
         XCTAssertEqual(decoded.sessionHistoryWindow.value, entries)
@@ -2893,7 +2928,9 @@ private extension WatchRelayDiagnosticsCollectorTests {
             audioArmed: true, audioSessionIsActive: true, locationArmed: true, segmentsProduced: 99,
             batteryLevelAtEnd: 0.987654321, batteryStateAtEnd: "charging", lowPowerModeEnabledAtEnd: true,
             thermalStateAtEnd: "critical", lastVerifiedAudioAt: date, lastAudioCurrentTime: 123456.789012345,
-            zeroAudioCurrentTimeObservationCount: 999, locationAdvisory: .providerFailed, persistenceAdvisory: .sessionRecordWriteFailed)
+            zeroAudioCurrentTimeObservationCount: 999,
+            lastObservedAt: date,
+            locationAdvisory: .providerFailed, persistenceAdvisory: .sessionRecordWriteFailed)
     }
 
     static func withHistory(_ payload: WatchRelayDiagnosticsPayload, entries: [WatchCaptureSessionHistoryEntry], depth: Int) -> WatchRelayDiagnosticsPayload {

@@ -384,6 +384,7 @@ private extension WatchPhoneSessionHistoryStore {
         if existing.lastVerifiedAudioAt == nil { existing.lastVerifiedAudioAt = incoming.lastVerifiedAudioAt }
         if existing.lastAudioCurrentTime == nil { existing.lastAudioCurrentTime = incoming.lastAudioCurrentTime }
         if existing.zeroAudioCurrentTimeObservationCount == nil { existing.zeroAudioCurrentTimeObservationCount = incoming.zeroAudioCurrentTimeObservationCount }
+        if existing.lastObservedAt == nil { existing.lastObservedAt = incoming.lastObservedAt }
         if existing.locationAdvisory == nil { existing.locationAdvisory = incoming.locationAdvisory }
         if existing.persistenceAdvisory == nil { existing.persistenceAdvisory = incoming.persistenceAdvisory }
     }

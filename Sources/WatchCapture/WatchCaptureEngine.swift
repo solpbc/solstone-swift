@@ -116,6 +116,7 @@ final class WatchCaptureEngine {
     private var maintenanceGeneration = 0
     private var maintenanceTask: Task<Void, Never>?
     private var executingLifecycleIntent: WatchCaptureLifecycleSerializer.Intent?
+    var ownerSourceToken: WatchCaptureSourceToken?
     private var terminalClaimedSessionIDs: Set<String> = []
 
     init(
@@ -416,6 +417,7 @@ final class WatchCaptureEngine {
         guard await self.continueLifecycleOperation(generation) else { return }
         guard let currentSessionID else { return }
         let ownerSource = WatchCaptureSourceToken(sessionID: currentSessionID)
+        self.ownerSourceToken = ownerSource
         guard await self.refreshWristAlertState(
             requestIfNotDetermined: true,
             generation: generation
@@ -726,7 +728,7 @@ extension WatchCaptureEngine: WatchAudioRecorderEventSink {
     }
 }
 
-private extension WatchCaptureEngine {
+extension WatchCaptureEngine {
     func waitForAdmittedLocationFixes() async {
         let tail = self.locationFixTail
         await tail.value
@@ -847,6 +849,7 @@ private extension WatchCaptureEngine {
         let startedAt = self.sessionStartedAt
         self.startRefusalReason = reason
         self.settingsRoute = settingsRoute
+        self.ownerSourceToken = nil
         self.status = .needsAttention(error)
         self.currentSessionID = nil
         self.currentAudioEnrollment = nil
@@ -1212,6 +1215,7 @@ private extension WatchCaptureEngine {
         await self.persistFinalization(
             prepared,
             sessionID: self.currentSessionID,
+            source: self.ownerSourceToken,
             relayTrigger: .segmentFinalization
         )
         return true
@@ -1230,6 +1234,7 @@ private extension WatchCaptureEngine {
         await self.persistFinalization(
             prepared,
             sessionID: self.currentSessionID,
+            source: self.ownerSourceToken,
             relayTrigger: .segmentFinalization
         )
     }
@@ -1329,6 +1334,7 @@ private extension WatchCaptureEngine {
     func persistFinalization(
         _ prepared: PreparedFinalization,
         sessionID: String?,
+        source: WatchCaptureSourceToken?,
         relayTrigger: RelayTrigger
     ) async {
         let segment = prepared.segment
@@ -1384,7 +1390,7 @@ private extension WatchCaptureEngine {
                 )
             }
             self.queuedCount += 1
-            await self.incrementSegmentsProduced(sessionID: sessionID)
+            await self.incrementSegmentsProduced(sessionID: sessionID, source: source)
             self.requestRelayDrain(trigger: relayTrigger)
         } catch {
             self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
@@ -1423,6 +1429,7 @@ private extension WatchCaptureEngine {
         await self.persistFinalization(
             prepared,
             sessionID: sessionID,
+            source: nil,
             relayTrigger: .launchReconciliation
         )
     }
@@ -1468,7 +1475,10 @@ private extension WatchCaptureEngine {
         await self.storageActor.probeAudio(at: url)
     }
 
-    func incrementSegmentsProduced(sessionID: String?) async {
+    func incrementSegmentsProduced(
+        sessionID: String?,
+        source: WatchCaptureSourceToken?
+    ) async {
         guard let sessionID else { return }
         if var record = try? await self.storageActor.readSessionRecord(transactionClass: .maintenance), record.sessionID == sessionID {
             record.segmentsProduced += 1
@@ -1485,6 +1495,25 @@ private extension WatchCaptureEngine {
             asOf: self.clock.now(),
             transactionClass: .maintenance
         ) else { return }
+
+        if source != nil,
+           self.executingLifecycleIntent != .reconcile,
+           entry.terminalAt == nil,
+           source?.sessionID == entry.sessionID {
+            entry.lastObservedAt = self.clock.now()
+            entry.lastVerifiedAudioAt = self.lastVerifiedAudioAt
+            entry.lastAudioCurrentTime = self.lastAudioCurrentTime
+            entry.zeroAudioCurrentTimeObservationCount = self.zeroAudioCurrentTimeObservationCount
+            entry.audioArmed = self.audioArmed
+            entry.audioSessionIsActive = self.audioSessionIsActive
+            entry.locationArmed = self.locationArmed
+            let snap = self.environmentProvider.snapshot()
+            entry.batteryLevelAtEnd = snap.watchBatteryLevel.value
+            entry.batteryStateAtEnd = snap.watchBatteryState.value
+            entry.lowPowerModeEnabledAtEnd = snap.watchLowPowerModeEnabled.value
+            entry.thermalStateAtEnd = snap.watchThermalState.value
+        }
+
         if let record = try? await self.storageActor.readSessionRecord(transactionClass: .maintenance),
            record.sessionID == sessionID,
            record.state == .terminal,
@@ -1828,7 +1857,24 @@ private extension WatchCaptureEngine {
             transactionClass: transactionClass
         )
         let terminalSnapshotExists = prior?.terminalAt != nil
-        let terminalEnvironment = environment ?? self.terminalEnvironmentSnapshot
+        let batteryLevelAtEnd: Double?
+        let batteryStateAtEnd: String?
+        let lowPowerModeEnabledAtEnd: Bool?
+        let thermalStateAtEnd: String?
+        let lastObservedAt: Date?
+        if let environment {
+            batteryLevelAtEnd = environment.watchBatteryLevel.value
+            batteryStateAtEnd = environment.watchBatteryState.value
+            lowPowerModeEnabledAtEnd = environment.watchLowPowerModeEnabled.value
+            thermalStateAtEnd = environment.watchThermalState.value
+            lastObservedAt = self.clock.now()
+        } else {
+            batteryLevelAtEnd = prior?.batteryLevelAtEnd
+            batteryStateAtEnd = prior?.batteryStateAtEnd
+            lowPowerModeEnabledAtEnd = prior?.lowPowerModeEnabledAtEnd
+            thermalStateAtEnd = prior?.thermalStateAtEnd
+            lastObservedAt = prior?.lastObservedAt
+        }
         let entry = WatchCaptureSessionHistoryEntry(
             sessionID: id,
             startedAt: start,
@@ -1847,13 +1893,14 @@ private extension WatchCaptureEngine {
             audioSessionIsActive: terminalSnapshotExists ? prior?.audioSessionIsActive ?? false : self.audioSessionIsActive,
             locationArmed: terminalSnapshotExists ? prior?.locationArmed ?? false : self.locationArmed,
             segmentsProduced: record?.segmentsProduced ?? prior?.segmentsProduced ?? 0,
-            batteryLevelAtEnd: terminalEnvironment?.watchBatteryLevel.value ?? prior?.batteryLevelAtEnd,
-            batteryStateAtEnd: terminalEnvironment?.watchBatteryState.value ?? prior?.batteryStateAtEnd,
-            lowPowerModeEnabledAtEnd: terminalEnvironment?.watchLowPowerModeEnabled.value ?? prior?.lowPowerModeEnabledAtEnd,
-            thermalStateAtEnd: terminalEnvironment?.watchThermalState.value ?? prior?.thermalStateAtEnd,
+            batteryLevelAtEnd: batteryLevelAtEnd,
+            batteryStateAtEnd: batteryStateAtEnd,
+            lowPowerModeEnabledAtEnd: lowPowerModeEnabledAtEnd,
+            thermalStateAtEnd: thermalStateAtEnd,
             lastVerifiedAudioAt: terminalSnapshotExists ? prior?.lastVerifiedAudioAt : self.lastVerifiedAudioAt,
             lastAudioCurrentTime: liveness?.audioCurrentTime ?? (terminalSnapshotExists ? prior?.lastAudioCurrentTime : self.lastAudioCurrentTime),
             zeroAudioCurrentTimeObservationCount: liveness?.zeroAudioCurrentTimeObservationCount ?? (terminalSnapshotExists ? prior?.zeroAudioCurrentTimeObservationCount : self.zeroAudioCurrentTimeObservationCount),
+            lastObservedAt: lastObservedAt,
             locationAdvisory: self.locationAdvisory ?? prior?.locationAdvisory,
             persistenceAdvisory: self.persistenceAdvisory ?? prior?.persistenceAdvisory
         )
@@ -2094,7 +2141,7 @@ private extension WatchCaptureEngine {
             _ = await self.upsertSessionHistory(
                 record: record,
                 liveness: nil,
-                environment: nil,
+                environment: self.environmentProvider.snapshot(),
                 transactionClass: .captureSafety
             )
         } catch {
@@ -2339,6 +2386,7 @@ private extension WatchCaptureEngine {
         }
 
         self.locationFixDeliveryClosed = true
+        self.ownerSourceToken = nil
         await self.waitForAdmittedLocationFixes()
         var segment = self.activeSegment
         self.activeSegment = nil

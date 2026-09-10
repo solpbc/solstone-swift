@@ -138,6 +138,11 @@ final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsE
 
 @MainActor
 final class WatchRelayDiagnosticsCollector {
+    static let membershipUnavailableEntryFactsIncomplete = "entry facts incomplete"
+    static let membershipUnavailableMembershipUndetermined = "membership undetermined"
+    static let membershipUnavailableStoreChangedMidScan = "store changed mid-scan"
+    static let membershipUnavailableScanCancelled = "scan cancelled"
+
     private let paths: WatchCaptureStoragePaths
     private let storageActor: WatchCaptureStorageActor
     private let session: any WatchConnectivitySession
@@ -399,17 +404,17 @@ private extension WatchRelayDiagnosticsCollector {
         }
         let manifestFactsInterval = self.signposter.begin(.diagnosticsManifestFacts)
         var activeFacts: [ActiveManifestFact] = []
-        var entryFactsCompleted = catalog.canInferUUIDAbsence
-        if entryFactsCompleted {
-            for entry in activeEntries {
-                guard !Task.isCancelled,
-                      let fact = await self.activeManifestFact(entry: entry)
-                else {
-                    entryFactsCompleted = false
-                    break
-                }
-                activeFacts.append(fact)
+        var entryFactsCompleted = true
+        for entry in activeEntries {
+            guard !Task.isCancelled else {
+                entryFactsCompleted = false
+                break
             }
+            guard let fact = await self.activeManifestFact(entry: entry) else {
+                entryFactsCompleted = false
+                break
+            }
+            activeFacts.append(fact)
         }
         if Task.isCancelled {
             entryFactsCompleted = false
@@ -476,6 +481,9 @@ private extension WatchRelayDiagnosticsCollector {
         switch historyResult {
         case let .available(entries):
             historyDepth = entries.count
+            // Coupling: first-write-wins phone merge is safe only because this window
+            // is complete-only. If this filter is ever relaxed to live sessions, merge
+            // must become last-write-wins for the four environment fields and lastObservedAt.
             historyWindow = .available(Array(entries.filter(\.isComplete).prefix(10)))
         case .unreadable:
             historyDepth = 0
@@ -485,19 +493,20 @@ private extension WatchRelayDiagnosticsCollector {
         self.signposter.end(historyInterval, fields: WatchSignpostFields(result: .completed))
 
         let witnessInterval = self.signposter.begin(.diagnosticsChangedWitnessRevalidation)
-        let membershipIsAuthoritative = await self.isMembershipAuthoritative(
+        let authorityResult = await self.evaluateMembershipAuthority(
             snapshotGeneration: catalog.relevantMutationGeneration,
             canInferUUIDAbsence: catalog.canInferUUIDAbsence,
             entryFactsCompleted: entryFactsCompleted
-        ) && !Task.isCancelled
+        )
+        let membershipIsAuthoritative = authorityResult.isAuthoritative
         let resolvedObservations = membershipIsAuthoritative ? observations : []
         self.signposter.end(
             witnessInterval,
             fields: WatchSignpostFields(result: membershipIsAuthoritative ? .completed : .partial)
         )
 
-        let membershipUnavailableReason = WatchRelayObservationCollectionResolution
-            .snapshotChangedDuringCollection.rawValue
+        let membershipUnavailableReason = authorityResult.unavailableReason
+            ?? Self.membershipUnavailableStoreChangedMidScan
         let manifestSummary = membershipIsAuthoritative
             ? self.manifestSummary(catalog: catalog, activeFacts: activeFacts, asOf: asOf)
             : .unavailable(reason: membershipUnavailableReason)
@@ -911,15 +920,41 @@ private extension WatchRelayDiagnosticsCollector {
         }
     }
 
-    func isMembershipAuthoritative(
+
+    private struct MembershipAuthoritativeResult {
+        let isAuthoritative: Bool
+        let unavailableReason: String?
+    }
+
+    private func evaluateMembershipAuthority(
         snapshotGeneration: UInt64,
         canInferUUIDAbsence: Bool,
         entryFactsCompleted: Bool
-    ) async -> Bool {
-        guard entryFactsCompleted, canInferUUIDAbsence else {
-            return false
+    ) async -> MembershipAuthoritativeResult {
+        if Task.isCancelled {
+            return MembershipAuthoritativeResult(isAuthoritative: false, unavailableReason: Self.membershipUnavailableScanCancelled)
         }
-        return (try? await self.storageActor.validateRelevantMutationGeneration(snapshotGeneration)) == true
+        guard canInferUUIDAbsence else {
+            return MembershipAuthoritativeResult(isAuthoritative: false, unavailableReason: Self.membershipUnavailableMembershipUndetermined)
+        }
+        guard entryFactsCompleted else {
+            return MembershipAuthoritativeResult(isAuthoritative: false, unavailableReason: Self.membershipUnavailableEntryFactsIncomplete)
+        }
+        do {
+            let isValid = try await self.storageActor.validateRelevantMutationGeneration(snapshotGeneration)
+            if Task.isCancelled {
+                return MembershipAuthoritativeResult(isAuthoritative: false, unavailableReason: Self.membershipUnavailableScanCancelled)
+            }
+            if isValid {
+                return MembershipAuthoritativeResult(isAuthoritative: true, unavailableReason: nil)
+            } else {
+                return MembershipAuthoritativeResult(isAuthoritative: false, unavailableReason: Self.membershipUnavailableStoreChangedMidScan)
+            }
+        } catch is CancellationError {
+            return MembershipAuthoritativeResult(isAuthoritative: false, unavailableReason: Self.membershipUnavailableScanCancelled)
+        } catch {
+            return MembershipAuthoritativeResult(isAuthoritative: false, unavailableReason: Self.membershipUnavailableStoreChangedMidScan)
+        }
     }
 
     func bundleURL(for id: UUID) -> URL {

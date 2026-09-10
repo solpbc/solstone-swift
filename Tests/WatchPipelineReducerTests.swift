@@ -1554,4 +1554,125 @@ private extension WatchPipelineReducerTests {
             )
         })
     }
+
+    func testSessionHistoryRowsBranchSelectionAndLabels() {
+        let now = Date(timeIntervalSince1970: 1_784_074_000)
+        let started = now.addingTimeInterval(-600)
+        let observed = now.addingTimeInterval(-300)
+        let terminal = now.addingTimeInterval(-100)
+
+        // 1. owner-stopped
+        let ownerStoppedEntry = WatchCaptureSessionHistoryEntry(
+            sessionID: "s1", startedAt: started, terminalAt: terminal,
+            terminalReason: .ownerStopped, terminalDisposition: .ownerStopped,
+            startRefusalReason: nil, settingsRoute: nil, noticeOwed: false, noticeDecision: nil,
+            noticeDelivered: nil, notificationAuthorizationStatus: nil, notificationAlertSetting: nil,
+            wristAlertAssurance: nil, audioArmed: true, audioSessionIsActive: true, locationArmed: false,
+            segmentsProduced: 2, batteryLevelAtEnd: 0.8, batteryStateAtEnd: "unplugged",
+            lowPowerModeEnabledAtEnd: false, thermalStateAtEnd: "nominal", lastVerifiedAudioAt: observed,
+            lastAudioCurrentTime: 300, zeroAudioCurrentTimeObservationCount: 0, lastObservedAt: observed,
+            locationAdvisory: nil, persistenceAdvisory: nil
+        )
+        let ownerRows = WatchPipelineReducer.sessionHistoryRows(entry: ownerStoppedEntry, index: 1, total: 1, now: now)
+        XCTAssertTrue(ownerRows.contains { $0.label == "ended" })
+        XCTAssertFalse(ownerRows.contains { $0.label == "discovered" })
+        XCTAssertFalse(ownerRows.contains { $0.label == "gap before discovery" })
+        XCTAssertTrue(ownerRows.contains { $0.label == "last check" })
+        XCTAssertTrue(ownerRows.contains { $0.label == "last confirmed audio" })
+        XCTAssertTrue(ownerRows.contains { $0.label == "battery at last check" })
+        XCTAssertTrue(ownerRows.contains { $0.label == "low power at last check" })
+        XCTAssertTrue(ownerRows.contains { $0.label == "thermal at last check" })
+        XCTAssertTrue(ownerRows.contains { $0.label == "audio clock at last check" })
+        XCTAssertTrue(ownerRows.contains { $0.label == "zero-clock samples at last check" })
+
+        // 2. detected-stopped-itself
+        let detectedEntry = WatchCaptureSessionHistoryEntry(
+            sessionID: "s2", startedAt: started, terminalAt: terminal,
+            terminalReason: .audioClockStalled, terminalDisposition: .detectedStoppedItself,
+            startRefusalReason: nil, settingsRoute: nil, noticeOwed: false, noticeDecision: nil,
+            noticeDelivered: nil, notificationAuthorizationStatus: nil, notificationAlertSetting: nil,
+            wristAlertAssurance: nil, audioArmed: true, audioSessionIsActive: true, locationArmed: false,
+            segmentsProduced: 2, batteryLevelAtEnd: 0.8, batteryStateAtEnd: "unplugged",
+            lowPowerModeEnabledAtEnd: false, thermalStateAtEnd: "nominal", lastVerifiedAudioAt: observed,
+            lastAudioCurrentTime: 300, zeroAudioCurrentTimeObservationCount: 0, lastObservedAt: observed,
+            locationAdvisory: nil, persistenceAdvisory: nil
+        )
+        let detectedRows = WatchPipelineReducer.sessionHistoryRows(entry: detectedEntry, index: 1, total: 1, now: now)
+        XCTAssertTrue(detectedRows.contains { $0.label == "ended" })
+        XCTAssertFalse(detectedRows.contains { $0.label == "discovered" })
+        XCTAssertFalse(detectedRows.contains { $0.label == "gap before discovery" })
+
+        // 3. inferred-stopped-itself with lastObservedAt
+        let inferredEntry = WatchCaptureSessionHistoryEntry(
+            sessionID: "s3", startedAt: started, terminalAt: terminal,
+            terminalReason: .processExitedWhileActive, terminalDisposition: .inferredStoppedItself,
+            startRefusalReason: nil, settingsRoute: nil, noticeOwed: false, noticeDecision: nil,
+            noticeDelivered: nil, notificationAuthorizationStatus: nil, notificationAlertSetting: nil,
+            wristAlertAssurance: nil, audioArmed: true, audioSessionIsActive: true, locationArmed: false,
+            segmentsProduced: 2, batteryLevelAtEnd: 0.8, batteryStateAtEnd: "unplugged",
+            lowPowerModeEnabledAtEnd: false, thermalStateAtEnd: "nominal", lastVerifiedAudioAt: observed,
+            lastAudioCurrentTime: 300, zeroAudioCurrentTimeObservationCount: 0, lastObservedAt: observed,
+            locationAdvisory: nil, persistenceAdvisory: nil
+        )
+        let inferredRows = WatchPipelineReducer.sessionHistoryRows(entry: inferredEntry, index: 1, total: 1, now: now)
+        XCTAssertFalse(inferredRows.contains { $0.label == "ended" })
+        XCTAssertTrue(inferredRows.contains { $0.label == "discovered" })
+        let gapRow = try? XCTUnwrap(inferredRows.first { $0.label == "gap before discovery" })
+        XCTAssertEqual(gapRow?.value, "200s")
+
+        // 4. inferred-stopped-itself with nil lastObservedAt
+        var inferredNilObserved = inferredEntry
+        inferredNilObserved.lastObservedAt = nil
+        let inferredNilRows = WatchPipelineReducer.sessionHistoryRows(entry: inferredNilObserved, index: 1, total: 1, now: now)
+        XCTAssertTrue(inferredNilRows.contains { $0.label == "discovered" })
+        XCTAssertFalse(inferredNilRows.contains { $0.label == "gap before discovery" })
+
+        // 5. nil disposition
+        var nilDispositionEntry = ownerStoppedEntry
+        nilDispositionEntry.terminalDisposition = nil
+        let nilDispRows = WatchPipelineReducer.sessionHistoryRows(entry: nilDispositionEntry, index: 1, total: 1, now: now)
+        XCTAssertTrue(nilDispRows.contains { $0.label == "ended" })
+        XCTAssertFalse(nilDispRows.contains { $0.label == "gap before discovery" })
+    }
+
+    func testRelayAssessmentTextReturnsBacklogSummaryInconsistent() {
+        let reasons = [
+            "membership undetermined",
+            "entry facts incomplete",
+            "store changed mid-scan",
+            "scan cancelled"
+        ]
+        for reason in reasons {
+            let payload = WatchRelayDiagnosticsPayload(
+                watchAppMarketingVersion: .available("1.0"),
+                watchAppBuild: .available("1"),
+                watchOSVersion: .available("10.0"),
+                activationState: "activated",
+                isCompanionAppInstalled: .available(true),
+                isReachable: true,
+                iOSDeviceNeedsUnlockAfterRebootForReachability: .available(false),
+                hasContentPending: false,
+                watchBatteryLevel: .available(0.9),
+                watchBatteryState: .available("unplugged"),
+                watchLowPowerModeEnabled: .available(false),
+                watchThermalState: .available("nominal"),
+                manifestSummary: .unavailable(reason: reason),
+                appleQueue: .unavailable(reason: reason),
+                lastFacts: .unavailable(reason: "none"),
+                observedFileTransfers: [],
+                omittedObservationCount: 0,
+                sessionHistoryWindow: .available([]),
+                lifetimeSessionsStarted: .available(1),
+                sessionHistoryCounterEpoch: .available("epoch"),
+                sessionHistoryDepth: 1
+            )
+            let envelopeResult = WatchRelayDiagnosticsEnvelopeResult.available(payload, rawEnvelopeByteCount: nil)
+            let input = Self.input(
+                now: Self.now,
+                watchDiagnostics: envelopeResult
+            )
+            let assessment = WatchPipelineReducer.relayAssessmentText(input)
+            XCTAssertEqual(assessment, "backlog summary inconsistent: \(reason)")
+        }
+    }
 }

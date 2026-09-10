@@ -204,7 +204,7 @@ nonisolated struct WatchRelayClassificationReport: Equatable, Sendable {
     let classifications: [WatchRelayIdentityClassification]
 }
 
-private nonisolated struct WatchDiagnosticsExportRow: Equatable, Sendable {
+nonisolated struct WatchDiagnosticsExportRow: Equatable, Sendable {
     let label: String
     let value: String
 }
@@ -387,7 +387,7 @@ nonisolated enum WatchPipelineReducer {
     }
 }
 
-private extension WatchPipelineReducer {
+extension WatchPipelineReducer {
     nonisolated static func visibleActiveObservations(
         _ observations: [WatchRelayTransferObservation]
     ) -> [(segmentID: UUID, observation: WatchRelayTransferObservation)] {
@@ -682,24 +682,45 @@ private extension WatchPipelineReducer {
         total: Int,
         now: Date
     ) -> [WatchDiagnosticsExportRow] {
-        [
+        let terminalLabel: String
+        switch entry.terminalDisposition {
+        case .inferredStoppedItself:
+            terminalLabel = "discovered"
+        case .ownerStopped, .detectedStoppedItself, .none:
+            terminalLabel = "ended"
+        }
+
+        var rows: [WatchDiagnosticsExportRow] = [
             WatchDiagnosticsExportRow(label: "session", value: "\(index) of \(total)"),
             WatchDiagnosticsExportRow(label: "started", value: self.dateWithAgeText(entry.startedAt, now: now)),
-            WatchDiagnosticsExportRow(label: "ended", value: self.optionalDateWithAgeText(entry.terminalAt, now: now)),
+            WatchDiagnosticsExportRow(label: terminalLabel, value: self.optionalDateWithAgeText(entry.terminalAt, now: now)),
+            WatchDiagnosticsExportRow(label: "last check", value: self.optionalDateWithAgeText(entry.lastObservedAt, now: now)),
+        ]
+
+        if entry.terminalDisposition == .inferredStoppedItself,
+           let lastObservedAt = entry.lastObservedAt,
+           let terminalAt = entry.terminalAt {
+            let gap = terminalAt.timeIntervalSince(lastObservedAt)
+            rows.append(WatchDiagnosticsExportRow(label: "gap before discovery", value: self.secondsText(gap)))
+        }
+
+        rows.append(contentsOf: [
+            WatchDiagnosticsExportRow(label: "last confirmed audio", value: self.optionalDateWithAgeText(entry.lastVerifiedAudioAt, now: now)),
             WatchDiagnosticsExportRow(label: "outcome", value: "\(entry.terminalReason?.rawValue ?? SourceVocabulary.watchDiagnosticsNotProvided) / \(entry.terminalDisposition?.rawValue ?? SourceVocabulary.watchDiagnosticsNotProvided)"),
             WatchDiagnosticsExportRow(label: "start refusal", value: entry.startRefusalReason?.rawValue ?? "none"),
             WatchDiagnosticsExportRow(label: "wrist alert", value: "\(entry.noticeDecision ?? "none") / delivered \(self.optionalBooleanText(entry.noticeDelivered))"),
             WatchDiagnosticsExportRow(label: "wrist alert authorization", value: "\(entry.notificationAuthorizationStatus?.rawValue ?? SourceVocabulary.watchDiagnosticsNotProvided) / alerts \(entry.notificationAlertSetting?.rawValue ?? SourceVocabulary.watchDiagnosticsNotProvided)"),
             WatchDiagnosticsExportRow(label: "notice owed cleared", value: self.booleanText(!entry.noticeOwed)),
-            WatchDiagnosticsExportRow(label: "battery at end", value: "\(self.optionalPercentText(entry.batteryLevelAtEnd)) / \(entry.batteryStateAtEnd ?? SourceVocabulary.watchDiagnosticsNotProvided)"),
-            WatchDiagnosticsExportRow(label: "low power at end", value: self.optionalBooleanText(entry.lowPowerModeEnabledAtEnd)),
-            WatchDiagnosticsExportRow(label: "thermal at end", value: entry.thermalStateAtEnd ?? SourceVocabulary.watchDiagnosticsNotProvided),
-            WatchDiagnosticsExportRow(label: "audio clock at end", value: entry.lastAudioCurrentTime.map { self.secondsText($0) } ?? SourceVocabulary.watchDiagnosticsNotProvided),
-            WatchDiagnosticsExportRow(label: "zero-clock observations at end", value: entry.zeroAudioCurrentTimeObservationCount.map(String.init) ?? SourceVocabulary.watchDiagnosticsNotProvided),
+            WatchDiagnosticsExportRow(label: "battery at last check", value: "\(self.optionalPercentText(entry.batteryLevelAtEnd)) / \(entry.batteryStateAtEnd ?? SourceVocabulary.watchDiagnosticsNotProvided)"),
+            WatchDiagnosticsExportRow(label: "low power at last check", value: self.optionalBooleanText(entry.lowPowerModeEnabledAtEnd)),
+            WatchDiagnosticsExportRow(label: "thermal at last check", value: entry.thermalStateAtEnd ?? SourceVocabulary.watchDiagnosticsNotProvided),
+            WatchDiagnosticsExportRow(label: "audio clock at last check", value: entry.lastAudioCurrentTime.map { self.secondsText($0) } ?? SourceVocabulary.watchDiagnosticsNotProvided),
+            WatchDiagnosticsExportRow(label: "zero-clock samples at last check", value: entry.zeroAudioCurrentTimeObservationCount.map(String.init) ?? SourceVocabulary.watchDiagnosticsNotProvided),
             WatchDiagnosticsExportRow(label: "segments produced", value: "\(entry.segmentsProduced)"),
             WatchDiagnosticsExportRow(label: "persistence advisory", value: entry.persistenceAdvisory?.rawValue ?? "none"),
             WatchDiagnosticsExportRow(label: "location advisory", value: entry.locationAdvisory?.rawValue ?? "none")
-        ]
+        ])
+        return rows
     }
 
     nonisolated static func watchRetentionRows(input: WatchPipelineInput) -> [WatchDiagnosticsExportRow] {
@@ -1009,7 +1030,8 @@ private extension WatchPipelineReducer {
         }
 
         guard case let .available(manifestSummary) = payload.manifestSummary else {
-            return "diagnostic evidence unavailable"
+            let reason = payload.manifestSummary.unavailableReason ?? SourceVocabulary.watchDiagnosticsUnavailable
+            return "backlog summary inconsistent: \(reason)"
         }
         guard manifestSummary.activeBacklogCount > 0 else {
             return "no active backlog"

@@ -33,6 +33,7 @@ nonisolated struct WatchCaptureSessionHistoryEntry: Codable, Equatable, Sendable
     var lastVerifiedAudioAt: Date?
     var lastAudioCurrentTime: Double?
     var zeroAudioCurrentTimeObservationCount: Int?
+    var lastObservedAt: Date? = nil
     var locationAdvisory: WatchCaptureLocationAdvisory?
     var persistenceAdvisory: WatchCapturePersistenceAdvisory?
 
@@ -61,6 +62,7 @@ nonisolated struct WatchCaptureSessionHistoryEntry: Codable, Equatable, Sendable
         case lastVerifiedAudioAt = "lv"
         case lastAudioCurrentTime = "ac"
         case zeroAudioCurrentTimeObservationCount = "zc"
+        case lastObservedAt = "oa"
         case locationAdvisory = "lo"
         case persistenceAdvisory = "pe"
     }
