@@ -1,23 +1,29 @@
 # Changelog
 
-All notable changes to the solstone app for iphone, including its embedded apple watch app, are recorded here. The format follows
+All notable changes to the solstone app for iphone and ipad, including its embedded apple watch app, are listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-10
+
 ### Added
-- the solstone card rises toward the top of your watch's smart stack while audio is on, so you can see it without going to look for it.
-- the solstone live activity on your iphone now has a layout made for your apple watch. before, the watch built its own from the icon and timer, with nothing to say what it was.
+- solstone has a layout of its own on ipad. your sources stay in a column down the left while whatever you open fills the rest of the window, and a menu bar carries keyboard shortcuts for moving between them. before, ipad ran the iphone screen stretched wide.
+- widgets on your iphone home and lock screens: pick a source and see whether it's on and how much is waiting. control center gets a button to turn audio on and off and another that goes straight to your journal, and siri can turn audio on.
+- the solstone card rises toward the top of your watch's smart stack while audio is on, so you can see it without going to look for it. the live activity on your iphone also has a layout made for your apple watch now. before, the watch built its own from the icon and timer, with nothing to say what it was.
 
 ### Changed
+- the omi pendant is no longer supported. solstone doesn't connect to a pendant over bluetooth anymore, and no longer asks for bluetooth at all. if a pendant was one of your sources, it's gone from this release, though audio from it that was already waiting to be sent still goes to your journal.
+- the app on your home screen is called solstone now, on iphone, ipad and apple watch, and it carries a new icon.
+- home is rebuilt around your sources: each one is a tile you can read at a glance, settings live in a drawer that slides in from the left, and your journal opens as a pane over it. solstone also follows your light or dark setting instead of always being light, works in landscape on iphone, and holds its layout at the largest text sizes.
+- asking a question inside the app is gone, along with the notifications that came with it.
 - sharing a large file onto this phone now keeps one copy on the phone, and solstone tells you when the phone cannot hold it. a file your journal turns away stays on the phone instead of disappearing.
 
 ### Fixed
-- your watch now waits for your phone to be reachable before retrying unconfirmed recordings, so overnight gaps no longer trigger duplicate transfers or false stuck warnings in the morning.
-- transfers between your watch and phone that stop making progress are cleanly restarted, and recordings that cannot be delivered after repeated attempts are safely set aside so they don't fill your watch.
-- the solstone card on your watch updates the moment things change. it could sit up to half an hour behind, and it could get stuck saying audio was on after solstone had stopped.
-- your watch's widget list shows one solstone card instead of two identical ones you couldn't tell apart.
+- solstone no longer shows your journal as reachable when it isn't. an open connection was taken as proof your journal was still answering behind it, so one that had gone quiet could keep reading connected while nothing was moving. a single failed check now withdraws that, and a connection that is cycling reads connecting rather than claiming to be either up or down.
+- a voice memo from your iphone plays back at its true length. a seven-second memo could land in your journal running three times longer than that.
+- a moment your watch can't hand to your iphone no longer waits on the watch indefinitely. your watch retries while your iphone is in reach and restarts a transfer that stalls; after about twelve hours of trying it stops, the audio is deleted from the watch, and the entry reads never reached your iphone rather than looking like it's still on its way. the card on your watch face can also no longer get stuck reading audio on after solstone has stopped.
 
 ## [0.1.2] - 2026-08-02
 
