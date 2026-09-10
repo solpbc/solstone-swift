@@ -444,6 +444,5 @@ private extension AudioEnrollmentContent {
 
         self.observerSourcePauseState.isPaused = false
         _ = await self.observerManager.startSession(mode: self.mode)
-        self.observerManager.persistEnrolledIfActive()
     }
 }

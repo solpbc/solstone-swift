@@ -186,7 +186,111 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         XCTAssertEqual(Set(handoff.sourceSet), [.audio, .location, .screencast])
         XCTAssertGreaterThan(handoff.revision, 1)
         XCTAssertEqual(darwin.postCallCount, 1)
+        XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
         _ = manager
+    }
+
+    @MainActor
+    func testStartBoundaryWritesEnrolled() async throws {
+        let engine = FakeScreencastEngine(
+            sources: [.audio, .location],
+            handoff: ScreencastFixtures.handoff(sourceSet: [.audio, .location, .screencast])
+        )
+        let manager = self.makeManager(engine: engine, uploader: FakeScreencastUploader(), rootURLProvider: { self.tempDirectory })
+        try self.write(ScreencastFixtures.runtime(state: .broadcastStarted), relativePath: MobileSegmentScreencastPaths.runtimeRelativePath())
+
+        await manager.reconcileScreencast(reason: .darwinNotification)
+
+        XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
+    }
+
+    @MainActor
+    func testAdoptLeaseWritesEnrolled() async throws {
+        let now = ScreencastFixtures.start.addingTimeInterval(300)
+        let lease = ScreencastFixtures.lease(sourceSet: [.audio, .location, .screencast], now: now)
+        let engine = FakeScreencastEngine(sources: [.audio, .location, .screencast])
+        let clock = MockObserverClock(now: now)
+        let manager = self.makeManager(
+            engine: engine,
+            uploader: FakeScreencastUploader(),
+            clock: clock,
+            rootURLProvider: { self.tempDirectory }
+        )
+        try self.write(
+            ScreencastFixtures.runtime(state: .writerOpen, segmentID: lease.segmentID),
+            relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
+        )
+        try self.write(
+            ScreencastFixtures.handoff(sourceSet: lease.sourceSet, segmentID: lease.fromSegmentID),
+            relativePath: MobileSegmentScreencastPaths.handoffRelativePath()
+        )
+        try self.write(
+            lease,
+            relativePath: MobileSegmentScreencastPaths.continuationLeaseRelativePath(fromSegmentID: lease.fromSegmentID)
+        )
+        try self.writeScreenFile(segmentID: lease.fromSegmentID)
+
+        await manager.reconcileScreencast(reason: .foreground)
+
+        XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
+    }
+
+    @MainActor
+    func testKeepLivePartWritesEnrolled() async throws {
+        let clock = MockObserverClock(now: ScreencastFixtures.start)
+        let manager = self.makeManager(clock: clock, rootURLProvider: { self.tempDirectory })
+        try self.write(
+            ScreencastFixtures.runtime(state: .finishing, segmentID: ScreencastFixtures.segmentID),
+            relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
+        )
+        try self.writePartFile(segmentID: ScreencastFixtures.segmentID)
+        try self.writeLiveness(segmentID: ScreencastFixtures.segmentID, lastSeenAt: clock.now())
+
+        await manager.reconcileScreencast(reason: .darwinNotification)
+
+        XCTAssertEqual(
+            manager.state,
+            .active(
+                sessionID: ScreencastFixtures.sessionID,
+                segmentID: ScreencastFixtures.segmentID,
+                startedAt: ScreencastFixtures.start
+            )
+        )
+        XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
+    }
+
+    @MainActor
+    func testBackfillEnrolledFromExistingLastSessionIDOnStartup() {
+        self.defaults.set(UUID().uuidString, forKey: "screencast.lastSessionID")
+        XCTAssertNil(self.defaults.object(forKey: "screencast.enrolled"))
+
+        _ = self.makeManager()
+
+        XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
+    }
+
+    @MainActor
+    func testEmptyReadableSuiteLeavesEnrolledAbsent() {
+        XCTAssertNil(self.defaults.object(forKey: "screencast.enrolled"))
+
+        _ = self.makeManager()
+
+        XCTAssertNil(self.defaults.object(forKey: "screencast.enrolled"))
+    }
+
+    @MainActor
+    func testNilDefaultsDoesNotWriteToStandardDefaults() {
+        let manager = ScreencastManager(
+            engine: FakeScreencastEngine(),
+            uploader: FakeScreencastUploader(),
+            clock: MockObserverClock(now: ScreencastFixtures.start),
+            defaults: nil,
+            rootURLProvider: { self.tempDirectory },
+            darwin: StubScreencastDarwin()
+        )
+
+        _ = manager
+        XCTAssertNil(UserDefaults.standard.object(forKey: "screencast.enrolled"))
     }
 
     @MainActor
@@ -280,6 +384,27 @@ private extension ScreencastManagerTests {
         )
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("mp4".utf8).write(to: url)
+    }
+
+    func writePartFile(segmentID: UUID) throws {
+        let url = MobileSegmentScreencastPaths.url(
+            root: self.tempDirectory,
+            relativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID)
+        )
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("part".utf8).write(to: url)
+    }
+
+    func writeLiveness(segmentID: UUID, lastSeenAt: Date) throws {
+        let liveness = MobileSegmentScreencastSegmentLiveness(
+            sessionID: ScreencastFixtures.sessionID,
+            segmentID: segmentID,
+            handoffRevision: 1,
+            lastSeenAt: lastSeenAt,
+            acceptedFrameCount: 1,
+            droppedFrameCount: 0
+        )
+        try self.write(liveness, relativePath: MobileSegmentScreencastPaths.screenLivenessRelativePath(segmentID: segmentID))
     }
 
     func readLease(fromSegmentID: UUID) throws -> MobileSegmentScreencastContinuationLease {

@@ -379,7 +379,6 @@ private extension DayHomeView {
                         self.observerSourcePauseState.isPaused = false
                         let mode = ObserverMode(rawValue: self.preferredMode) ?? .meeting
                         _ = await self.observerManager.startSession(mode: mode)
-                        self.observerManager.persistEnrolledIfActive()
                     } else {
                         _ = await self.observerManager.stopSession()
                     }

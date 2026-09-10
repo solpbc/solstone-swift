@@ -68,6 +68,7 @@ final class ObserverManager {
     @ObservationIgnored private let mobileSegmentEngine: MobileSegmentEngine
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let liveActivity: any ObserverLiveActivitying
+    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var elapsedTask: Task<Void, Never>?
     @ObservationIgnored private var interruptionDeadlineTask: Task<Void, Never>?
     @ObservationIgnored private var watchdogTask: Task<Void, Never>?
@@ -88,12 +89,14 @@ final class ObserverManager {
             uploader: MobileSegmentUploader()
         ),
         clock: any ObserverClock = SystemObserverClock(),
-        liveActivity: any ObserverLiveActivitying = ObserverLiveActivity()
+        liveActivity: any ObserverLiveActivitying = ObserverLiveActivity(),
+        defaults: UserDefaults = .standard
     ) {
         self.recorder = recorder
         self.mobileSegmentEngine = mobileSegmentEngine
         self.clock = clock
         self.liveActivity = liveActivity
+        self.defaults = defaults
         self.mobileSegmentEngine.rotateAudio = { [weak recorder] url in
             guard let recorder else { return nil }
             return try await recorder.rotate(to: url)
@@ -174,6 +177,7 @@ final class ObserverManager {
                 currentChunkIndex: 0,
                 elapsed: 0
             ))
+            self.defaults.set(true, forKey: AudioStorageKey.enrolled)
             await self.liveActivity.start(mode: mode, sessionID: sessionID, startedAt: startedAt)
             guard self.isCurrentStart(startGeneration) else {
                 return .refused(.cancelled)
@@ -245,13 +249,6 @@ final class ObserverManager {
             sessionID: session.sessionID,
             startedAt: session.startedAt
         )
-    }
-}
-
-extension ObserverManager {
-    func persistEnrolledIfActive(into defaults: UserDefaults = .standard) {
-        guard case .active = self.state else { return }
-        defaults.set(true, forKey: AudioStorageKey.enrolled)
     }
 }
 

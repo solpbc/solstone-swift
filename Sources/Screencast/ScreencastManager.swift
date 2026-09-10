@@ -423,9 +423,14 @@ final class ScreencastManager {
         static let lastProcessedRuntimeRevision = "screencast.lastProcessedRuntimeRevision"
         static let lastProcessedHandoffRevision = "screencast.lastProcessedHandoffRevision"
         static let lastSessionID = "screencast.lastSessionID"
+        static let enrolled = "screencast.enrolled"
         static let startingDeadline = "screencast.startingDeadline"
         static let lastAttentionReason = "screencast.lastAttentionReason"
         static let lastAttentionAt = "screencast.lastAttentionAt"
+    }
+
+    private func persistEnrolled() {
+        self.defaults?.set(true, forKey: Key.enrolled)
     }
 
     static let startingTimeoutSeconds: TimeInterval = 20
@@ -465,6 +470,9 @@ final class ScreencastManager {
         self.rootURLProvider = rootURLProvider
         self.darwin = darwin
         self.restoreStartingState()
+        if self.defaults?.object(forKey: Key.lastSessionID) != nil {
+            self.persistEnrolled()
+        }
         self.engine.screencastRolloverHandler = { [weak self] handoff in
             self?.publishRolloverHandoff(handoff)
         }
@@ -786,6 +794,7 @@ private extension ScreencastManager {
                 self.darwin.postChanged()
                 currentHandoff = published
                 self.defaults?.set(sessionID.uuidString, forKey: Key.lastSessionID)
+                self.persistEnrolled()
                 self.clearStarting()
                 self.state = .active(sessionID: sessionID, segmentID: published.segmentID, startedAt: published.startedAt)
             case .adoptLease(let lease, let sessionID):
@@ -795,6 +804,7 @@ private extension ScreencastManager {
                 self.darwin.postChanged()
                 currentHandoff = currentHandoff?.segmentID == lease.fromSegmentID ? currentHandoff : nil
                 self.defaults?.set(sessionID.uuidString, forKey: Key.lastSessionID)
+                self.persistEnrolled()
                 self.clearStarting()
                 self.state = .active(sessionID: sessionID, segmentID: published.segmentID, startedAt: published.startedAt)
             case .recordFinalized(let segmentID):
@@ -841,6 +851,7 @@ private extension ScreencastManager {
                 self.state = .off
             case .keepLivePart(let segmentID):
                 guard let runtime else { break }
+                self.persistEnrolled()
                 self.clearStarting()
                 self.state = .active(sessionID: runtime.sessionID, segmentID: segmentID, startedAt: runtime.startedAt)
             case .surfaceAttention(let reason):
@@ -879,6 +890,7 @@ private extension ScreencastManager {
             )
             try self.writeHandoff(published, root: root)
             self.darwin.postChanged()
+            self.persistEnrolled()
             self.state = .active(sessionID: sessionID, segmentID: published.segmentID, startedAt: published.startedAt)
             self.startLeaseRefreshTask()
         } catch {

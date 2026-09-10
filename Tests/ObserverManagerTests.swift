@@ -12,6 +12,12 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     @MainActor private lazy var liveActivity = MockObserverLiveActivity()
     private lazy var tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ObserverManagerTests-\(UUID().uuidString)", isDirectory: true)
+    private lazy var suiteName = "ObserverManagerTests.\(UUID().uuidString)"
+    private lazy var defaults: UserDefaults = {
+        let defaults = UserDefaults(suiteName: self.suiteName)!
+        defaults.removePersistentDomain(forName: self.suiteName)
+        return defaults
+    }()
     @MainActor private lazy var mobileSegmentUploader = MobileSegmentUploader(
         store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true)),
         clock: self.clock
@@ -24,10 +30,12 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         recorder: self.recorder,
         mobileSegmentEngine: self.mobileSegmentEngine,
         clock: self.clock,
-        liveActivity: self.liveActivity
+        liveActivity: self.liveActivity,
+        defaults: self.defaults
     )
 
     override func tearDown() {
+        self.defaults.removePersistentDomain(forName: self.suiteName)
         try? FileManager.default.removeItem(at: self.tempDirectory)
         ObserverManagerURLProtocol.handler = nil
         super.tearDown()
@@ -527,6 +535,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.manager.state, .idle)
         XCTAssertTrue(self.liveActivity.endCalls.isEmpty)
         XCTAssertEqual(self.liveActivity.endAllCallCount, 0)
+        XCTAssertNil(self.defaults.object(forKey: AudioStorageKey.enrolled))
     }
 
     @MainActor
@@ -574,26 +583,26 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testPersistEnrolledIfActiveWritesAudioEnrollment() async {
-        let (defaults, suiteName) = self.makeEphemeralDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
+    func testStartSessionWritesAudioEnrollment() async {
         await self.manager.startSession(mode: .meeting)
-        self.manager.persistEnrolledIfActive(into: defaults)
 
-        XCTAssertEqual(defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
+        XCTAssertEqual(self.defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
     }
 
     @MainActor
-    func testPersistEnrolledIfActiveDoesNotWriteForUnavailableOrPermissionDenied() async {
-        let (defaults, suiteName) = self.makeEphemeralDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+    func testStartCaptureSessionWritesAudioEnrollment() async {
+        let outcome = await self.manager.startCaptureSession(mode: .meeting)
 
+        XCTAssertTrue(outcome)
+        XCTAssertEqual(self.defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
+    }
+
+    @MainActor
+    func testStartSessionDoesNotWriteAudioEnrollmentForUnavailableOrPermissionDenied() async {
         self.recorder.permissionGranted = false
         await self.manager.startSession(mode: .meeting)
         XCTAssertEqual(self.manager.state, .error(.permissionDenied))
-        self.manager.persistEnrolledIfActive(into: defaults)
-        XCTAssertNil(defaults.object(forKey: AudioStorageKey.enrolled))
+        XCTAssertNil(self.defaults.object(forKey: AudioStorageKey.enrolled))
 
         self.recorder.permissionGranted = true
         self.recorder.startError = ObserverManagerTestError.startFailed
@@ -601,8 +610,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         guard case .error(.unavailable) = self.manager.state else {
             return XCTFail("Expected unavailable error")
         }
-        self.manager.persistEnrolledIfActive(into: defaults)
-        XCTAssertNil(defaults.object(forKey: AudioStorageKey.enrolled))
+        XCTAssertNil(self.defaults.object(forKey: AudioStorageKey.enrolled))
     }
 
     @MainActor
@@ -616,19 +624,15 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
     @MainActor
     func testAudioEnrollmentStateIgnoresLiveActivityOutcome() async {
-        let (defaults, suiteName) = self.makeEphemeralDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
         await self.manager.startSession(mode: .meeting)
         guard case .active = self.manager.state else {
             return XCTFail("Expected active state")
         }
 
         // MockObserverLiveActivity does no real ActivityKit work; manager state never depends on live-activity results.
-        self.manager.persistEnrolledIfActive(into: defaults)
         await self.manager.stopSession()
 
-        XCTAssertEqual(defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
+        XCTAssertEqual(self.defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
         XCTAssertEqual(self.manager.state, .idle)
     }
 
@@ -702,6 +706,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.recorder.stopCallCount, 1)
         XCTAssertEqual(self.liveActivity.startCalls.count, 1)
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
     }
 }
 
@@ -767,13 +772,6 @@ private extension ObserverManagerTests {
             second: second
         )
         return try XCTUnwrap(calendar.date(from: components))
-    }
-
-    func makeEphemeralDefaults() -> (defaults: UserDefaults, suiteName: String) {
-        let suiteName = "ObserverManagerTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        return (defaults, suiteName)
     }
 
     func pendingFileCount(pathExtension: String) throws -> Int {
