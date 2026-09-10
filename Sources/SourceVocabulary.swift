@@ -179,7 +179,7 @@ nonisolated enum SourceVocabulary {
     static let statusOfflineLabel = "offline"
 
     static let addMoreTitle = "add more"
-    static let addMoreSubline = "sources and devices"
+    static let addMoreSubline = "sources"
     // The status view's own lead. `all caught up` is words, never a zero.
     static let whatIsWaitingSection = "what is waiting"
     static let syncingToYourJournal = "syncing to your journal…"

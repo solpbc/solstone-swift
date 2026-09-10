@@ -66,7 +66,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
         XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
         XCTAssertEqual(SourceVocabulary.addMoreTitle, "add more")
-        XCTAssertEqual(SourceVocabulary.addMoreSubline, "sources and devices")
+        XCTAssertEqual(SourceVocabulary.addMoreSubline, "sources")
         XCTAssertEqual(SourceVocabulary.importTitle, "import")
         XCTAssertEqual(SourceVocabulary.importSubline, "photos and files")
         XCTAssertEqual(SourceVocabulary.giveThisATileOnHome, "give this a tile on home")
