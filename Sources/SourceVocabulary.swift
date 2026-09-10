@@ -204,7 +204,8 @@ nonisolated enum SourceVocabulary {
     // What VoiceOver calls the dimmed shell beside the open shelf: it is the way back.
     static let shelfDismissLabel = "close settings"
     static let deckToggleTitle = "toggle deck"
-    static let supportSiteTitle = "support site"
+    static let getHelp = "get help"
+    static let reportAProblem = "report a problem"
     static let trustLineConfigured = "syncs only to your journal"
     static let watchHeadlineOff = "off"
     static let watchHeadlineEnrolling = "setting up"

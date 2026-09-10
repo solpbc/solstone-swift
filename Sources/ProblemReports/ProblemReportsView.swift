@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
+import UIKit
 
 struct ProblemReportsView: View {
     var showsSupportHeader = false
@@ -41,8 +42,18 @@ struct ProblemReportsView: View {
                 Section {
                     self.supportRow(
                         glyph: "lifepreserver",
-                        title: SourceVocabulary.supportSiteTitle,
-                        destination: URL(string: "https://support.solstone.app")!
+                        title: SourceVocabulary.getHelp,
+                        destination: SupportReportURL.help
+                    )
+                    self.supportRow(
+                        glyph: "exclamationmark.bubble",
+                        title: SourceVocabulary.reportAProblem,
+                        destination: SupportReportURL.make(
+                            version: AppVersion.shortVersion,
+                            build: AppVersion.build,
+                            osVersion: UIDevice.current.systemVersion,
+                            state: self.supportState
+                        )
                     )
                     self.supportRow(
                         glyph: "envelope",
@@ -142,6 +153,13 @@ struct ProblemReportsView: View {
             return
         }
         self.shareAllURL = self.manager.shareAllURL()
+    }
+
+    private var supportState: String {
+        if let report = self.manager.reports.first {
+            return report.kind.filenameSlug
+        }
+        return self.manager.isEnabled ? "no recent problem report" : "on-device reports off"
     }
 }
 

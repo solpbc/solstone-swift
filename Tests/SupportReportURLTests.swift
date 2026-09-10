@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (c) 2026 sol pbc
+
+import Foundation
+import Testing
+@testable import solstone_swift
+
+struct SupportReportURLTests {
+    @Test func reportUsesFixedFragmentContract() {
+        let url = SupportReportURL.make(
+            version: "2.0.0",
+            build: "86",
+            osVersion: "26.0",
+            state: "no recent problem report"
+        ).absoluteString
+
+        #expect(url.hasPrefix("https://support.solstone.app/#report=v1&app=solstone+for+ios"))
+        #expect(url.contains("&state=no+recent+problem+report"))
+        #expect(!url.contains("?"))
+        #expect(!url.contains("device"))
+        #expect(!url.contains("journal"))
+    }
+
+    @Test func optionalFieldsAreOmittedAndStateIsBounded() {
+        let url = SupportReportURL.make(
+            version: "1",
+            build: "2",
+            osVersion: "",
+            state: String(repeating: "é", count: 501)
+        ).absoluteString
+
+        #expect(!url.contains("os_version="))
+        #expect(url.components(separatedBy: "%C3%A9").count - 1 == 500)
+        #expect(!SupportReportURL.make(version: "1", build: "2", osVersion: "", state: "")
+            .absoluteString.contains("state="))
+    }
+}
