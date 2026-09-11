@@ -43,6 +43,7 @@ nonisolated final class LocationAppWiringSmokeTests: XCTestCase {
         )
 
         XCTAssertEqual(manager.tier, .balanced)
-        XCTAssertEqual(manager.sourceState, .off)
+        // No `location.enabled` record, so the owner has not set this up.
+        XCTAssertEqual(manager.sourceState, .readyToSetUp)
     }
 }

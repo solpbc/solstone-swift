@@ -572,9 +572,13 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "setting up. getting ready — connecting to your journal."
         )
         XCTAssertNil(SourceState.readyToSetUp.universalSubtext(isJournalPaired: true))
+        // ⛔ The state word is the whole message. It used to speak the source's *running*
+        // line underneath it — "ready to set up. on." — which is the defect, not the spec.
+        XCTAssertNil(SourceState.readyToSetUp.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true))
+        XCTAssertNil(SourceState.readyToSetUp.compactSubtext(activeSubtext: SourceVocabulary.observerActiveSubtext))
         XCTAssertEqual(
             SourceState.readyToSetUp.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
-            "ready to set up. on."
+            "ready to set up"
         )
         XCTAssertNil(SourceState.checking.universalSubtext(isJournalPaired: true))
         XCTAssertEqual(

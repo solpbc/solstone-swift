@@ -129,7 +129,9 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
         coordinator.showingPrimer = false
 
         XCTAssertEqual(recorder.events(), [.primerShown])
-        XCTAssertEqual(manager.sourceState, .off)
+        // Dismissing the primer never wrote a wish, so this is not `off` — the owner
+        // made no choice to report.
+        XCTAssertEqual(manager.sourceState, .readyToSetUp)
         XCTAssertEqual(self.provider.startCallCount, 0)
     }
 
