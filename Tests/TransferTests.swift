@@ -263,12 +263,12 @@ nonisolated final class TransferTests: XCTestCase {
             (
                 TransferHTTPResult(statusCode: 204),
                 .observerIngest,
-                .terminalAttention(.decodeFailed("invalid observer ingest response"))
+                .terminalAttention(.decodeFailed("invalid ingest response"))
             ),
             (
                 TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"other"}"#.utf8)),
                 .observerIngest,
-                .terminalAttention(.decodeFailed("unknown observer ingest status other"))
+                .terminalAttention(.decodeFailed("unknown ingest status other"))
             ),
             (
                 TransferHTTPResult(statusCode: 200, data: Data(#"{"recommended_action":"start","path":"/imports/item","timestamp":"2026-04-20T12:00:00Z","source":"audio"}"#.utf8)),

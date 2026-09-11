@@ -31,7 +31,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         ])
         XCTAssertEqual(summary.syncSummary, WatchSourceSyncSummary(received: 5, waiting: 2, handedToJournal: 3, lastSyncAt: now))
         XCTAssertEqual(summary.stuck, WatchPipelineStuck.none)
-        XCTAssertEqual(summary.diagnosticsRows.first { $0.label == SourceVocabulary.watchStatusLabel }?.value, "idle · \(Self.relativeText(secondsAgo: 10))")
+        XCTAssertEqual(summary.diagnosticsRows.first { $0.label == SourceVocabulary.watchStatusLabel }?.value, "\(SourceVocabulary.watchHeadlineOff) · \(Self.relativeText(secondsAgo: 10))")
         XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchDiagnosticsStageRetentionAppleQueue))
     }
 
@@ -407,7 +407,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchDiagnosticsStageWatchSnapshot))
         XCTAssertTrue(
             summary.diagnosticsExportText.contains(
-                "\(SourceVocabulary.watchStatusLabel): idle · \(relative)"
+                "\(SourceVocabulary.watchStatusLabel): \(SourceVocabulary.watchHeadlineOff) · \(relative)"
             )
         )
         XCTAssertTrue(summary.diagnosticsExportText.contains(SourceVocabulary.watchPipelineOrphanStuckReason))
@@ -887,7 +887,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
 
         let export = WatchPipelineReducer.reduce(input).diagnosticsExportText
 
-        XCTAssertTrue(export.contains("\(SourceVocabulary.watchStatusLabel): observing · \(Self.relativeText(secondsAgo: 0))"))
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchStatusLabel): \(SourceVocabulary.watchHeadlineListening) · \(Self.relativeText(secondsAgo: 0))"))
         XCTAssertTrue(
             export.contains("\(SourceVocabulary.watchStatusAudioOutcomeLabel): \(WatchNoticeCopy.microphoneAccessNeeded.title)")
         )
@@ -905,7 +905,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
 
         let export = WatchPipelineReducer.reduce(input).diagnosticsExportText
 
-        XCTAssertTrue(export.contains("\(SourceVocabulary.watchStatusLabel): observing · \(Self.relativeText(secondsAgo: 0))"))
+        XCTAssertTrue(export.contains("\(SourceVocabulary.watchStatusLabel): \(SourceVocabulary.watchHeadlineListening) · \(Self.relativeText(secondsAgo: 0))"))
         XCTAssertFalse(export.contains("\(SourceVocabulary.watchStatusAudioOutcomeLabel):"))
         XCTAssertFalse(export.contains(WatchNoticeCopy.microphoneAccessNeeded.title))
         for rawValue in Self.terminalRawValues {
@@ -1205,6 +1205,46 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertTrue(empty.contains("sessions retained on this iphone: 0"))
         XCTAssertFalse(unavailable.contains("sessions retained on this iphone: 0"))
         XCTAssertTrue(unavailable.contains(WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable))
+    }
+
+    func testWatchStatusRendersMappedPhaseWordsAndNeverTheLemma() {
+        let expected: [(WatchStatusContext.Phase, String)] = [
+            (.observing, SourceVocabulary.watchHeadlineListening),
+            (.idle, SourceVocabulary.watchHeadlineOff),
+            (.stopping, SourceVocabulary.watchHeadlineStopping),
+        ]
+        for (phase, word) in expected {
+            let input = Self.input(watchStatus: Self.context(phase: phase))
+            let rendered = WatchPipelineReducer.watchStatusText(input.watchStatus, now: input.now)
+            XCTAssertTrue(rendered.hasPrefix(word), "\(phase) rendered \(rendered)")
+            // The rawValue is wire state between the watch and the phone. It is mapped at
+            // the render site, so no owner-visible line may carry the retired lemma.
+            for banned in ["observing", "observation", "observed"] {
+                XCTAssertFalse(
+                    rendered.localizedCaseInsensitiveContains(banned),
+                    "\(phase) rendered \(rendered)"
+                )
+            }
+        }
+    }
+
+    func testQueueRelationRendersMappedWordsAndNeverTheLemma() {
+        for relation in [
+            WatchRelayObservationRelation.matched,
+            .appActiveNotObserved,
+            .duplicate,
+            .orphaned,
+            .unparseable,
+        ] {
+            let rendered = WatchPipelineReducer.relationText(relation)
+            for banned in ["observing", "observation", "observed"] {
+                XCTAssertFalse(
+                    rendered.localizedCaseInsensitiveContains(banned),
+                    "\(relation) rendered \(rendered)"
+                )
+            }
+        }
+        XCTAssertEqual(WatchPipelineReducer.relationText(.appActiveNotObserved), "app-active-not-in-apple-queue")
     }
 }
 

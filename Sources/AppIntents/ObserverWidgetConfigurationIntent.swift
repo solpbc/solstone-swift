@@ -13,7 +13,7 @@ enum ObserverWidgetSource: String, AppEnum {
 
     static var caseDisplayRepresentations: [Self: DisplayRepresentation] {
         [
-            .observer: "observer",
+            .observer: "audio",
             .location: "location",
             .screencast: "screencast",
             .watch: "watch",

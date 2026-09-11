@@ -805,8 +805,8 @@ private extension WatchRelayDiagnosticsCollector {
             isTransferring = .available(transfer.snapshot.isTransferring)
             progress = .available(transfer.snapshot.progress)
         } else {
-            isTransferring = .unavailable(reason: "not observed in Apple queue snapshot")
-            progress = .unavailable(reason: "not observed in Apple queue snapshot")
+            isTransferring = .unavailable(reason: "not in Apple queue snapshot")
+            progress = .unavailable(reason: "not in Apple queue snapshot")
         }
 
         return WatchRelayTransferObservation(

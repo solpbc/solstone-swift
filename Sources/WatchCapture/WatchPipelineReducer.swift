@@ -762,7 +762,7 @@ extension WatchPipelineReducer {
                 WatchDiagnosticsExportRow(label: "Apple outstanding file transfers", value: "\(queue.outstandingFileTransferCount)"),
                 WatchDiagnosticsExportRow(label: "reconciliation", value: self.reconciliationText(queue.reconciliation)),
                 WatchDiagnosticsExportRow(label: SourceVocabulary.watchDiagnosticsWatchUserInfoQueueLabel, value: "\(queue.outstandingUserInfoTransferCountWatchToPhone)"),
-                WatchDiagnosticsExportRow(label: "exact observations before compaction", value: "\(queue.exactObservationCountBeforeCompaction)"),
+                WatchDiagnosticsExportRow(label: "exact rows before compaction", value: "\(queue.exactObservationCountBeforeCompaction)"),
             ])
         case let .unavailable(reason):
             rows.append(WatchDiagnosticsExportRow(label: "Apple queue", value: reason))
@@ -779,7 +779,7 @@ extension WatchPipelineReducer {
         let staleSnapshotAge = self.staleWatchSnapshotAge(input)
         for (index, observation) in payload.observedFileTransfers.enumerated() {
             rows.append(WatchDiagnosticsExportRow(
-                label: "transfer observation \(index + 1)",
+                label: "queue entry \(index + 1)",
                 value: self.observationText(observation, staleSnapshotAge: staleSnapshotAge)
             ))
         }
@@ -902,7 +902,7 @@ extension WatchPipelineReducer {
             "segment \(classification.segmentID.uuidString)",
             "phone \(self.phoneOutcomeText(classification.phoneOutcome))",
         ]
-        parts.append("apple relation \(classification.observation.relation.rawValue)")
+        parts.append("apple relation \(self.relationText(classification.observation.relation))")
         if let sourceAssessment = classification.sourceAssessment {
             parts.append("source \(sourceAssessment.rawValue)")
         }
@@ -1039,13 +1039,13 @@ extension WatchPipelineReducer {
 
         if case let .available(queue) = payload.appleQueue {
             if queue.reconciliation.duplicate > 0 {
-                return "duplicate Apple queue entries observed"
+                return "duplicate Apple queue entries"
             }
             if queue.reconciliation.orphaned > 0 {
-                return "orphaned Apple queue entries observed"
+                return "orphaned Apple queue entries"
             }
             if queue.reconciliation.unparseable > 0 {
-                return "unparseable Apple queue entries observed"
+                return "unparseable Apple queue entries"
             }
         }
 
@@ -1085,7 +1085,7 @@ extension WatchPipelineReducer {
         if isOld {
             return "point-in-time app/Apple queue disagreement"
         }
-        return "newly queued in the app but not yet observed in Apple's queue"
+        return "newly queued in the app but not yet in Apple's queue"
     }
 
     nonisolated static func diagnosticEvidenceText(_ input: WatchPipelineInput) -> String {
@@ -1139,7 +1139,7 @@ extension WatchPipelineReducer {
             rows.append(WatchDiagnosticsExportRow(label: "last background wake deadline", value: self.backgroundWakeText(fact, now: now)))
         }
         if rows.isEmpty {
-            rows.append(WatchDiagnosticsExportRow(label: "last facts", value: "not observed yet"))
+            rows.append(WatchDiagnosticsExportRow(label: "last facts", value: "nothing yet"))
         }
         return rows
     }
@@ -1164,7 +1164,7 @@ extension WatchPipelineReducer {
             ?? self.progressText(observation.progress)
         return [
             "segment \(segment)",
-            "relation \(observation.relation.rawValue)",
+            "relation \(self.relationText(observation.relation))",
             "id \(observation.idState.rawValue)",
             "manifest \(observation.appManifestState ?? SourceVocabulary.watchDiagnosticsUnavailable)",
             "original enqueue age \(self.intervalAvailabilityText(observation.appOwnedEnqueueAgeSeconds))",
@@ -1241,7 +1241,7 @@ extension WatchPipelineReducer {
     }
 
     nonisolated static func reconciliationText(_ counts: WatchRelayReconciliationCounts) -> String {
-        "matched \(counts.matched), app-active-not-observed \(counts.appActiveNotObserved), duplicate \(counts.duplicate), orphaned \(counts.orphaned), unparseable \(counts.unparseable)"
+        "matched \(counts.matched), app-active-not-in-apple-queue \(counts.appActiveNotObserved), duplicate \(counts.duplicate), orphaned \(counts.orphaned), unparseable \(counts.unparseable)"
     }
 
     nonisolated static func factCounterText(_ fact: WatchRelayFactCounter, now: Date) -> String {
@@ -1261,7 +1261,7 @@ extension WatchPipelineReducer {
     }
 
     nonisolated static func queueReconciliationText(_ fact: WatchRelayQueueReconciliationFact, now: Date) -> String {
-        "\(self.dateWithAgeText(fact.at, now: now)); \(self.reconciliationText(fact.counts)); observed \(fact.observedFileTransferCount); active \(fact.activeManifestCount)"
+        "\(self.dateWithAgeText(fact.at, now: now)); \(self.reconciliationText(fact.counts)); in Apple's queue \(fact.observedFileTransferCount); active \(fact.activeManifestCount)"
     }
 
     nonisolated static func backgroundWakeText(_ fact: WatchRelayBackgroundWakeFact, now: Date) -> String {
@@ -1457,12 +1457,42 @@ extension WatchPipelineReducer {
         )
     }
 
+    /// Owner-facing word for a published capture phase. The rawValue is wire state
+    /// carried between the watch and the phone, so it is mapped here rather than renamed.
+    nonisolated static func phaseText(_ phase: WatchStatusContext.Phase) -> String {
+        switch phase {
+        case .observing:
+            SourceVocabulary.watchHeadlineListening
+        case .idle:
+            SourceVocabulary.watchHeadlineOff
+        case .stopping:
+            SourceVocabulary.watchHeadlineStopping
+        }
+    }
+
+    /// Owner-facing wording for how an app-side record relates to Apple's transfer queue.
+    /// The rawValue rides the diagnostics envelope, so it is mapped rather than renamed.
+    nonisolated static func relationText(_ relation: WatchRelayObservationRelation) -> String {
+        switch relation {
+        case .matched:
+            "matched"
+        case .appActiveNotObserved:
+            "app-active-not-in-apple-queue"
+        case .duplicate:
+            "duplicate"
+        case .orphaned:
+            "orphaned"
+        case .unparseable:
+            "unparseable"
+        }
+    }
+
     nonisolated static func watchStatusText(_ status: WatchStatusContext?, now: Date) -> String {
         guard let status else {
             return SourceVocabulary.watchDetailNone
         }
         var parts = [
-            status.phase.rawValue,
+            self.phaseText(status.phase),
             self.relativeText(secondsAgo: self.age(of: status.asOf, now: now) ?? 0),
         ]
         if status.audioTerminalDisposition == .ownerStopped {

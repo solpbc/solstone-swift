@@ -682,6 +682,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
     }
 
     private static let forbiddenWatchTerms = [
+        "observing",
+        "observed",
+        "observation",
+        "observations",
         "capture",
         "record",
         "recording",
@@ -714,6 +718,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     private var watchOwnerVisibleStrings: [String] {
         [
+            SourceVocabulary.watchHeadlineStopping,
             SourceVocabulary.sourceStateReadyToSetUpLabel,
             SourceVocabulary.sourceStateCheckingLabel,
             SourceVocabulary.watchSourceDisplayName,

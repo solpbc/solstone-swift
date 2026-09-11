@@ -155,7 +155,7 @@ nonisolated enum TransferHTTPClassifier {
         guard !data.isEmpty,
               let response = try? JSONDecoder().decode(ObserverIngestResponse.self, from: data)
         else {
-            return .terminalAttention(.decodeFailed("invalid observer ingest response"))
+            return .terminalAttention(.decodeFailed("invalid ingest response"))
         }
 
         switch response.status {
@@ -166,11 +166,11 @@ nonisolated enum TransferHTTPClassifier {
             if let reasonCode = response.reasonCode, !reasonCode.isEmpty {
                 detail = "reason_code=\(reasonCode)"
             } else {
-                detail = "observer ingest status \(response.status) without reason_code"
+                detail = "ingest status \(response.status) without reason_code"
             }
             return .terminalAttention(.httpClientError(statusCode: statusCode, detail: detail))
         default:
-            return .terminalAttention(.decodeFailed("unknown observer ingest status \(response.status)"))
+            return .terminalAttention(.decodeFailed("unknown ingest status \(response.status)"))
         }
     }
 
