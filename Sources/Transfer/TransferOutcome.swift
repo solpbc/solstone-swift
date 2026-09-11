@@ -57,6 +57,35 @@ nonisolated enum TransferTransientReason: Equatable, Sendable {
     case transport(String)
 }
 
+nonisolated extension TransferTransientReason {
+    /// Detail recorded while a transfer is still being retried.
+    ///
+    /// The state word stays first so a row labelled `last upload error` cannot read as a
+    /// settled failure: a bare `cancelled` there reads as a dropped upload, and a cancel
+    /// is the ordinary consequence of the app being backgrounded, recovered idempotently.
+    ///
+    /// Any runtime payload is bounded here, before the value is stored, so every consumer
+    /// inherits the bound rather than only the one that redacts at render time.
+    var retryDetail: String {
+        switch self {
+        case .httpServerError(let statusCode):
+            "retrying: http \(statusCode)"
+        case .timeout:
+            "retrying: timeout"
+        case .cancelled:
+            "retrying: cancelled"
+        case .transport(let detail):
+            Self.networkDetail(detail)
+        }
+    }
+
+    private static func networkDetail(_ detail: String) -> String {
+        let bounded = WatchTransferFailureFormatter.redactedDescription(detail)
+        guard !bounded.isEmpty else { return "retrying: network" }
+        return "retrying: network (\(bounded))"
+    }
+}
+
 nonisolated enum TransferHTTPClassifier {
     private struct SaveResponse: Decodable {
         let path: String?

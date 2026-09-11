@@ -966,7 +966,7 @@ actor TransferEngine {
             let nextAttemptAt = self.clock.wallNow().addingTimeInterval(decision.delay)
             let updatedManifest = item.manifest.replacingNextAttemptAt(nextAttemptAt)
             var retryItem = item
-            var retryDetail = "retrying"
+            var retryDetail = reason.retryDetail
             do {
                 let updated = try self.spool.updateQueuedManifest(updatedManifest, directoryURL: item.directoryURL)
                 self.queuedItems[itemID] = updated

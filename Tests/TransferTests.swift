@@ -527,6 +527,77 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(finalSnapshot.counters.deliveredCount, 0)
     }
 
+    func testTransientRetryDetailNamesTheCause() {
+        // Four causes whose next action differs: the service, the network twice over,
+        // and a cancel, which is the ordinary consequence of backgrounding the app.
+        let rendered: [String] = [
+            TransferTransientReason.httpServerError(statusCode: 503).retryDetail,
+            TransferTransientReason.timeout.retryDetail,
+            TransferTransientReason.cancelled.retryDetail,
+            TransferTransientReason.transport("connection lost").retryDetail,
+        ]
+        XCTAssertEqual(Set(rendered).count, rendered.count, "each cause needs its own detail")
+        for detail in rendered {
+            // The state word stays first: a bare cause under a row labelled
+            // `last upload error` reads as a settled failure, and a retry is not one.
+            XCTAssertTrue(detail.hasPrefix("retrying: "), detail)
+        }
+        XCTAssertEqual(TransferTransientReason.httpServerError(statusCode: 503).retryDetail, "retrying: http 503")
+        XCTAssertEqual(TransferTransientReason.timeout.retryDetail, "retrying: timeout")
+        XCTAssertEqual(TransferTransientReason.cancelled.retryDetail, "retrying: cancelled")
+    }
+
+    func testTransientRetryDetailBoundsTheTransportPayload() {
+        let hostile = "failed for https://journal.example/ingest at /Users/someone/Library/x "
+            + String(repeating: "y", count: 400)
+        let detail = TransferTransientReason.transport(hostile).retryDetail
+
+        // The authored token survives whatever the payload is.
+        XCTAssertTrue(detail.hasPrefix("retrying: network"), detail)
+        // Bounded before it is stored, so every consumer inherits the bound rather
+        // than only the one that redacts at render time.
+        XCTAssertFalse(detail.contains("https://"), detail)
+        XCTAssertFalse(detail.contains("/Users/"), detail)
+        XCTAssertLessThanOrEqual(detail.count, WatchTransferFailureFormatter.maxDescriptionLength + 32, detail)
+    }
+
+    func testTransientRetryDetailFallsBackToTheTokenWhenThePayloadIsEmpty() {
+        XCTAssertEqual(TransferTransientReason.transport("").retryDetail, "retrying: network")
+    }
+
+    func testTransientRetryRecordsTheCauseNotTheState() async throws {
+        // Drives the engine so the retry CALL SITE is exercised. Asserting the rendering
+        // in isolation passes even when the branch still records a bare state word.
+        let spool = TransferSpool(rootURL: self.tempDirectory, fileSystem: FoundationTransferFileSystem())
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
+        let itemID = Self.uuid(91)
+        TransferURLProtocol.handler = { request, _ in
+            if Self.boundaryItemID(from: request) == itemID {
+                return (Self.response(for: request, statusCode: 503), Data())
+            }
+            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let engine = self.makeEngine(
+            spool: spool,
+            clock: clock,
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [60], maxDelay: 300, jitterSalt: 1)),
+            diagnosticsSink: { event in events.withLock { $0.append(event) } }
+        )
+        try await engine.start()
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: itemID), payloads: self.audioPayloads())
+
+        try await self.waitFor("retry names the cause") {
+            events.withLock { values in
+                values.contains { $0.outcome == .retrying && $0.shortDetail == "retrying: http 503" }
+            }
+        }
+        let bareState = events.withLock { values in
+            values.contains { $0.outcome == .retrying && $0.shortDetail == "retrying" }
+        }
+        XCTAssertFalse(bareState, "a retry must not record a bare state word as its detail")
+    }
+
     func testRetryPersistenceFailureStillAppliesInMemoryBackoffAndDiagnostic() async throws {
         let fileSystem = FailingManifestWriteFileSystem()
         let spool = TransferSpool(rootURL: self.tempDirectory, fileSystem: fileSystem)
