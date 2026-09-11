@@ -87,7 +87,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(heartbeat.startedAt, initial.startedAt)
     }
 
-    func testHeartbeatPublishDoesNotCollectDiagnosticsWhenCacheIsWarm() async throws {
+    func testHeartbeatPublishOmitsDiagnosticsEnvelopeWhileIncrementingSequence() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []
         var refreshCount = 0
@@ -107,14 +107,17 @@ final class WatchCaptureTests: XCTestCase {
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } && self.pendingSleeperCount(in: harness.clock) >= 2 })
         let initial = try XCTUnwrap(statuses.last)
+        XCTAssertEqual(initial.diagnosticsEnvelope, cached)
         let refreshesAfterStart = refreshCount
         let readsAfterStart = envelopeReads
         harness.clock.advance(by: 15)
         await self.drain(until: { statuses.count >= 2 && statuses.last?.seq == initial.seq + 1 })
 
         XCTAssertEqual(refreshCount, refreshesAfterStart)
-        XCTAssertEqual(envelopeReads, readsAfterStart + 1)
-        XCTAssertEqual(statuses.last?.diagnosticsEnvelope, cached)
+        XCTAssertEqual(envelopeReads, readsAfterStart)
+        XCTAssertNil(statuses.last?.diagnosticsEnvelope)
+        XCTAssertEqual(statuses.last?.phase, .observing)
+        XCTAssertEqual(statuses.last?.seq, initial.seq + 1)
     }
 
     func testCaptureLifecycleDoesNotAwaitDiagnosticsRefreshWork() async throws {
@@ -1085,6 +1088,48 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(entry.notificationAuthorizationStatus, .denied)
         XCTAssertEqual(entry.notificationAlertSetting, .disabled)
         XCTAssertEqual(entry.settingsRoute, .notificationSettings)
+    }
+
+    func testAudioSessionCategoryConfiguredForRecord() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        XCTAssertFalse(harness.audioSession.setCategoryCalls.isEmpty)
+        let firstCall = try XCTUnwrap(harness.audioSession.setCategoryCalls.first)
+        XCTAssertEqual(firstCall.category, .record)
+        XCTAssertEqual(firstCall.mode, .measurement)
+        XCTAssertEqual(firstCall.options, [])
+    }
+
+    func testInterruptionEndedDoesNotAutoResume() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        var statuses: [WatchStatusContext] = []
+        harness.engine.onPublishStatus = { statuses.append($0) }
+
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { statuses.contains { $0.phase == .observing } })
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+        )
+        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        await harness.engine.settled()
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.engine.ownerPresentation.terminalReason, .audioInterrupted)
+
+        // Posting interruption ended should not restart recording
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+                AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue,
+            ]
+        )
+        await harness.engine.settled()
+        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.engine.ownerPresentation.terminalReason, .audioInterrupted)
     }
 
     func testLeaseRenewsOnlyForPositiveDecodableFinalizedAudio() async throws {
@@ -4823,7 +4868,7 @@ final class WatchCaptureTests: XCTestCase {
         try await harness.storageActor.appendLocationFix(Self.fix(time: startedAt.addingTimeInterval(1)), at: locationURL)
         let originalIDValue = await self.catalogEntries(for: harness.storage).first?.manifest.id
         let originalID = try XCTUnwrap(originalIDValue)
-        writer.failRead(at: audioURL)
+        writer.failFileSize(at: audioURL)
 
         let firstRelaunch = self.relaunchEngine(for: harness)
         firstRelaunch.reconcileOnLaunch(); await firstRelaunch.settled()
@@ -4838,7 +4883,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: audioURL), originalAudio)
         XCTAssertTrue(writer.atomicReplaceURLs.contains(locationURL))
 
-        writer.clearReadFailure(at: audioURL)
+        writer.clearFileSizeFailure(at: audioURL)
         await harness.audioProbe.markIOUnknown(at: audioURL.path)
         let probeUnknownRelaunch = self.relaunchEngine(for: harness)
         probeUnknownRelaunch.reconcileOnLaunch(); await probeUnknownRelaunch.settled()
@@ -4907,6 +4952,20 @@ final class WatchCaptureTests: XCTestCase {
         let missingResult = await probe.probe(at: missingURL)
         XCTAssertEqual(corruptResult, .confirmedUndecodable)
         XCTAssertEqual(missingResult, .ioUnknown)
+
+        let validURL = self.tempDirectory.appendingPathComponent("valid.caf")
+        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
+        let validFile = try AVAudioFile(forWriting: validURL, settings: format.settings)
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 44100)!
+        buffer.frameLength = 44100
+        try validFile.write(from: buffer)
+        let validResult = await probe.probe(at: validURL)
+        if case .decodable(let duration) = validResult {
+            XCTAssertEqual(duration, 1.0, accuracy: 0.05)
+        } else {
+            XCTFail("Expected .decodable result for valid audio file, got \(validResult)")
+        }
+
         XCTAssertEqual(
             LiveWatchAudioProbe.classification(
                 for: NSError(domain: NSOSStatusErrorDomain, code: 0x6474_613F)
@@ -4925,6 +4984,28 @@ final class WatchCaptureTests: XCTestCase {
             ),
             .ioUnknown
         )
+    }
+
+    func testProbePathsDoNotLoadWholeFileData() throws {
+        let storageSource = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/WatchCapture/WatchCaptureStorageActor.swift"),
+            encoding: .utf8
+        )
+        let recorderSource = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/WatchCapture/LiveWatchAudioRecorder.swift"),
+            encoding: .utf8
+        )
+        let probeSection = try XCTUnwrap(storageSource.components(separatedBy: "func probeAudio(at url: URL)").last?.components(separatedBy: "func scanCatalog").first)
+        XCTAssertFalse(probeSection.contains("readData("))
+        XCTAssertFalse(probeSection.contains("Data(contentsOf:"))
+        XCTAssertFalse(recorderSource.contains("readData("))
+        XCTAssertFalse(recorderSource.contains("Data(contentsOf:"))
     }
 
     func testSegmentDirectoryCollisionsDoNotOverwriteExistingData() async throws {
@@ -6157,22 +6238,6 @@ private extension WatchCaptureTests {
         harness.engine.stop(); await harness.engine.settled()
     }
 
-    func testEngineBatteryMonitoringLifecycleHeldAndRestored() async throws {
-        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
-        let harness = try self.makeHarness(locationAuthorization: .denied, environmentProvider: env)
-        var statuses: [WatchStatusContext] = []
-        harness.engine.onPublishStatus = { statuses.append($0) }
-
-        harness.engine.start(); await harness.engine.settled()
-        await self.drain(until: { statuses.contains { $0.phase == .observing } })
-
-        XCTAssertEqual(env.holdCount, 1)
-        XCTAssertEqual(env.restoreCount, 0)
-
-        harness.engine.stop(); await harness.engine.settled()
-        XCTAssertEqual(env.restoreCount, 1)
-    }
-
     func testEnginePowerSamplingThrowDoesNotFailSegmentOpen() async throws {
         let env = MockWatchRelayDiagnosticsEnvironmentProvider()
         env.shouldThrowOnSample = true
@@ -6285,18 +6350,7 @@ private extension WatchCaptureTests {
         XCTAssertEqual(recovered.batteryState, "unplugged")
         XCTAssertEqual(recovered.lowPowerMode, true)
         XCTAssertEqual(recovered.powerSampledAt, captureDate)
-        XCTAssertEqual(env.holdCount, 0)
         XCTAssertEqual(env.sampleCount, 0)
-    }
-
-    func testEngineBatteryMonitoringHeldThenRestoredOnStartFailure() async throws {
-        let env = MockWatchRelayDiagnosticsEnvironmentProvider()
-        let harness = try self.makeHarness(audioPermission: false, environmentProvider: env)
-
-        harness.engine.start(); await harness.engine.settled()
-
-        XCTAssertEqual(env.holdCount, 1)
-        XCTAssertEqual(env.restoreCount, 1)
     }
 
     func advanceNotificationGate(
@@ -6713,12 +6767,15 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
 private final class MockWatchAudioSession: WatchAudioSessionControlling {
     var hasSuitableInput = true
     var setActiveCalls: [Bool] = []
+    var setCategoryCalls: [(category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions)] = []
 
     func setCategory(
         _ category: AVAudioSession.Category,
         mode: AVAudioSession.Mode,
         options: AVAudioSession.CategoryOptions
-    ) throws {}
+    ) throws {
+        self.setCategoryCalls.append((category, mode, options))
+    }
 
     func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws {
         self.setActiveCalls.append(active)

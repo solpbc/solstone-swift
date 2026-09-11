@@ -341,6 +341,48 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
         XCTAssertEqual(mergedSnapshot.lastObservedAt, observedDate)
     }
 
+    func testOmittedEnvelopeAfterAvailablePreservesPayloadAndAppliesStatus() throws {
+        let store = self.store()
+        let observingStatus = self.status(phase: .observing, sessionID: "live-session")
+        let entry1 = self.entry("session-1")
+
+        // 1. Initial merge with available envelope
+        XCTAssertTrue(store.merge(
+            diagnostics: self.diagnostics([entry1], lifetime: 51),
+            status: observingStatus
+        ))
+        let initialSnapshot = try XCTUnwrap(store.readSnapshot(asOf: self.now).value)
+        XCTAssertEqual(initialSnapshot.entries.count, 1)
+        XCTAssertEqual(initialSnapshot.adjustedWatchStarted, .available(50))
+
+        // 2. Status update with omitted envelope (.absent)
+        let idleStatus = self.status(phase: .idle, sessionID: nil)
+        XCTAssertTrue(store.merge(
+            diagnostics: .absent,
+            status: idleStatus
+        ), "Status change to idle must update counters and persist even with omitted envelope")
+
+        let updatedSnapshot = try XCTUnwrap(store.readSnapshot(asOf: self.now).value)
+        XCTAssertEqual(updatedSnapshot.entries.count, 1, "Prior session history entries must remain")
+        XCTAssertEqual(updatedSnapshot.adjustedWatchStarted, .available(51), "Counter must update from unmerged session transitioning to idle")
+
+        // 3. Subsequent identical omitted merge is a no-op
+        XCTAssertFalse(store.merge(
+            diagnostics: .absent,
+            status: idleStatus
+        ))
+
+        // 4. Later available envelope replaces and adds new entries
+        let entry2 = self.entry("session-2")
+        XCTAssertTrue(store.merge(
+            diagnostics: self.diagnostics([entry1, entry2], lifetime: 52),
+            status: idleStatus
+        ))
+        let finalSnapshot = try XCTUnwrap(store.readSnapshot(asOf: self.now).value)
+        XCTAssertEqual(finalSnapshot.entries.count, 2)
+        XCTAssertEqual(finalSnapshot.adjustedWatchStarted, .available(52))
+    }
+
     private func entry(
         _ id: String,
         startedAt: Date? = nil,

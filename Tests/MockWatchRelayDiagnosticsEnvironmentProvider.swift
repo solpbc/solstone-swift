@@ -23,19 +23,9 @@ final class MockWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsE
     var queuedPowerSamples: [WatchSegmentPowerSample] = []
     var shouldThrowOnSample = false
     var sampleCount = 0
-    var holdCount = 0
-    var restoreCount = 0
 
     func snapshot() -> WatchRelayDiagnosticsEnvironmentSnapshot {
         self.value
-    }
-
-    func holdBatteryMonitoring() {
-        self.holdCount += 1
-    }
-
-    func restoreBatteryMonitoring() {
-        self.restoreCount += 1
     }
 
     func sampleSegmentPower() throws -> WatchSegmentPowerSample {

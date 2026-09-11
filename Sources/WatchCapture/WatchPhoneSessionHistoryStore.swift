@@ -184,6 +184,7 @@ final class WatchPhoneSessionHistoryStore {
     private var unreadableLines: [Data] = []
     private var hadDamage = false
     private var metadataReadable = true
+    private var lastPayload: WatchRelayDiagnosticsPayload?
 
     init(
         fileURL: URL? = nil,
@@ -211,11 +212,14 @@ final class WatchPhoneSessionHistoryStore {
         diagnostics: WatchRelayDiagnosticsEnvelopeResult,
         status: WatchStatusContext?
     ) -> Bool {
-        guard let payload = diagnostics.payload else { return false }
+        if let payload = diagnostics.payload {
+            self.lastPayload = payload
+        }
+        guard let payload = diagnostics.payload ?? self.lastPayload else { return false }
         let now = self.clock()
         var changed = false
 
-        if case let .available(entries) = payload.sessionHistoryWindow {
+        if diagnostics.payload != nil, case let .available(entries) = payload.sessionHistoryWindow {
             for entry in entries {
                 changed = self.merge(entry: entry, now: now) || changed
             }
@@ -223,7 +227,7 @@ final class WatchPhoneSessionHistoryStore {
 
         changed = self.updateCounters(payload: payload, status: status) || changed
 
-        if case .available = payload.sessionHistoryWindow {
+        if diagnostics.payload != nil, case .available = payload.sessionHistoryWindow {
             changed = self.captureBaselineIfNeeded() || changed
         }
 

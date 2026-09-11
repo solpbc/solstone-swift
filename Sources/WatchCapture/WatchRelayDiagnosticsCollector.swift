@@ -40,26 +40,28 @@ protocol WatchBatteryDevice: AnyObject {
 @MainActor
 protocol WatchRelayDiagnosticsEnvironmentProviding: AnyObject {
     func snapshot() -> WatchRelayDiagnosticsEnvironmentSnapshot
-    func holdBatteryMonitoring()
-    func restoreBatteryMonitoring()
     func sampleSegmentPower() throws -> WatchSegmentPowerSample
 }
 
 @MainActor
 final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsEnvironmentProviding {
-    #if os(watchOS)
-    private let batteryDevice: any WatchBatteryDevice
-    private var previousBatteryMonitoringEnabled: Bool?
-    #endif
+    private let batteryDevice: (any WatchBatteryDevice)?
 
-    init() {
+    init(batteryDevice: (any WatchBatteryDevice)? = nil) {
         #if os(watchOS)
-        self.batteryDevice = WatchKitBatteryDevice(device: WKInterfaceDevice.current())
+        self.batteryDevice = batteryDevice ?? WatchKitBatteryDevice(device: WKInterfaceDevice.current())
+        #else
+        self.batteryDevice = batteryDevice
         #endif
     }
 
     func snapshot() -> WatchRelayDiagnosticsEnvironmentSnapshot {
-        let battery = Self.watchBatterySnapshot()
+        let battery: (level: DiagnosticAvailability<Double>, state: DiagnosticAvailability<String>)
+        if let batteryDevice = self.batteryDevice {
+            battery = Self.batterySnapshot(device: batteryDevice)
+        } else {
+            battery = Self.watchBatterySnapshot()
+        }
         return WatchRelayDiagnosticsEnvironmentSnapshot(
             watchAppMarketingVersion: Self.bundleString("CFBundleShortVersionString"),
             watchAppBuild: Self.bundleString("CFBundleVersion"),
@@ -71,43 +73,28 @@ final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsE
         )
     }
 
-    func holdBatteryMonitoring() {
-        #if os(watchOS)
-        if self.previousBatteryMonitoringEnabled == nil {
-            self.previousBatteryMonitoringEnabled = self.batteryDevice.isBatteryMonitoringEnabled
-            self.batteryDevice.isBatteryMonitoringEnabled = true
-        }
-        #endif
-    }
-
-    func restoreBatteryMonitoring() {
-        #if os(watchOS)
-        if let previous = self.previousBatteryMonitoringEnabled {
-            self.batteryDevice.isBatteryMonitoringEnabled = previous
-            self.previousBatteryMonitoringEnabled = nil
-        }
-        #endif
-    }
-
     func sampleSegmentPower() throws -> WatchSegmentPowerSample {
         let lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
-        #if os(watchOS)
-        let mapped = Self.mapBatteryReadings(
-            levelReading: self.batteryDevice.batteryLevelReading,
-            stateReading: self.batteryDevice.batteryStateReading
-        )
-        return WatchSegmentPowerSample(
-            level: mapped.level,
-            state: mapped.state,
-            lowPowerModeEnabled: lowPowerMode
-        )
-        #else
-        return WatchSegmentPowerSample(
-            level: .unavailable(reason: "not available off watch"),
-            state: .unavailable(reason: "not available off watch"),
-            lowPowerModeEnabled: lowPowerMode
-        )
-        #endif
+        if let batteryDevice = self.batteryDevice {
+            let previous = batteryDevice.isBatteryMonitoringEnabled
+            batteryDevice.isBatteryMonitoringEnabled = true
+            defer { batteryDevice.isBatteryMonitoringEnabled = previous }
+            let mapped = Self.mapBatteryReadings(
+                levelReading: batteryDevice.batteryLevelReading,
+                stateReading: batteryDevice.batteryStateReading
+            )
+            return WatchSegmentPowerSample(
+                level: mapped.level,
+                state: mapped.state,
+                lowPowerModeEnabled: lowPowerMode
+            )
+        } else {
+            return WatchSegmentPowerSample(
+                level: .unavailable(reason: "not available off watch"),
+                state: .unavailable(reason: "not available off watch"),
+                lowPowerModeEnabled: lowPowerMode
+            )
+        }
     }
 
     nonisolated static func mapBatteryReadings(

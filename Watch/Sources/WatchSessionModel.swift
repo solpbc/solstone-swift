@@ -15,7 +15,7 @@ final class WatchSessionModel {
         didSet { if !isReachable { journalVersion.disconnected() } }
     }
 
-    @ObservationIgnored var onReachableRepublish: (@MainActor () -> Void)?
+    @ObservationIgnored var onActivationRepublish: (@MainActor () -> Void)?
     @ObservationIgnored private let session: any WatchConnectivitySession
     @ObservationIgnored private let relaySender: WatchRelaySender?
 
@@ -79,7 +79,7 @@ private extension WatchSessionModel {
             Task { @MainActor in
                 await self.relaySender?.requestDrain(trigger: .connectivityActivation)
             }
-            self.onReachableRepublish?()
+            self.onActivationRepublish?()
         }
     }
 
@@ -92,7 +92,6 @@ private extension WatchSessionModel {
             Task { @MainActor in
                 await self.relaySender?.requestDrain(trigger: .connectivityReachability)
             }
-            self.onReachableRepublish?()
         }
     }
 }

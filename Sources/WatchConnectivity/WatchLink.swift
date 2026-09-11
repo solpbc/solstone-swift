@@ -175,11 +175,13 @@ private extension WatchLink {
         if status != nil {
             self.facts.noteStatusContextCheckedIn()
         }
-        let diagnostics = WatchRelayDiagnosticsEnvelope.decodeResult(
-            from: status?.diagnosticsEnvelope
-        )
-        self.watchDiagnosticsEnvelopeResult = diagnostics
-        _ = self.phoneSessionHistoryStore.merge(diagnostics: diagnostics, status: status)
+        if let envelopeData = status?.diagnosticsEnvelope {
+            let diagnostics = WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData)
+            if diagnostics.payload != nil || self.watchDiagnosticsEnvelopeResult.payload == nil {
+                self.watchDiagnosticsEnvelopeResult = diagnostics
+            }
+        }
+        _ = self.phoneSessionHistoryStore.merge(diagnostics: self.watchDiagnosticsEnvelopeResult, status: status)
     }
 
     func handleActivationChanged(_ didActivate: Bool) {

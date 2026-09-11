@@ -5,7 +5,7 @@ import Foundation
 import XCTest
 
 nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
-    func testActivationSuccessRefiresReachableRepublish() throws {
+    func testActivationSuccessRefiresActivationRepublish() throws {
         let (text, path) = try Self.contents("Watch/Sources/WatchSessionModel.swift")
         let activation = try Self.section(
             from: "func handleActivationChanged(_ didActivate: Bool) {",
@@ -15,10 +15,11 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
         )
         XCTAssertTrue(activation.contains("if didActivate {"))
         XCTAssertTrue(activation.contains("await self.relaySender?.requestDrain(trigger: .connectivityActivation)"))
-        XCTAssertTrue(activation.contains("self.onReachableRepublish?()"))
+        XCTAssertTrue(activation.contains("self.onActivationRepublish?()"))
+        XCTAssertFalse(activation.contains("onReachableRepublish"))
     }
 
-    func testReachabilityChangeStillRefiresReachableRepublish() throws {
+    func testReachabilityChangeDoesNotRefireRepublish() throws {
         let (text, path) = try Self.contents("Watch/Sources/WatchSessionModel.swift")
         let reachability = try Self.section(
             from: "func handleReachabilityChanged(_ isReachable: Bool) {",
@@ -29,7 +30,8 @@ nonisolated final class WatchActivationRepublishGrepTests: XCTestCase {
 
         XCTAssertTrue(reachability.contains("if isReachable {"))
         XCTAssertTrue(reachability.contains("await self.relaySender?.requestDrain(trigger: .connectivityReachability)"))
-        XCTAssertTrue(reachability.contains("self.onReachableRepublish?()"))
+        XCTAssertFalse(reachability.contains("onActivationRepublish"))
+        XCTAssertFalse(reachability.contains("onReachableRepublish"))
     }
 
     func testLaunchFinalizedRewriteUsesMaintenanceLaneAndCatalogWitness() throws {

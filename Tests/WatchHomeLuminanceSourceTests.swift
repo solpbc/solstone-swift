@@ -30,8 +30,10 @@ nonisolated final class WatchHomeLuminanceSourceTests: XCTestCase {
             source.structuralBranches,
             [
                 "if let trustLine = face.trustLine {",
+                "if newPhase == .active {",
                 "if self.captureModel.isRunning {",
                 "if face.showsElapsed, let start = self.captureModel.presentation.sessionStartedAt {",
+                "if !self.isLuminanceReduced && self.scenePhase == .active {",
                 "if let handoff = face.compactHandoff {",
                 "if let subtext = handoff.subtext {",
                 "if markVariant == .activeDimmed {",

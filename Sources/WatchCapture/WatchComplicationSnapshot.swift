@@ -107,6 +107,16 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
         self.trustLine = try container.decodeIfPresent(String.self, forKey: .trustLine)
         self.lastVerifiedAudioAt = try container.decodeIfPresent(Date.self, forKey: .lastVerifiedAudioAt)
     }
+
+    func requiresTimelineReload(comparedTo prior: WatchComplicationSnapshot?) -> Bool {
+        guard let prior else { return true }
+        return self.stateWord != prior.stateWord
+            || self.role != prior.role
+            || self.mark != prior.mark
+            || self.showsElapsed != prior.showsElapsed
+            || self.sessionStartedAt != prior.sessionStartedAt
+            || self.trustLine != prior.trustLine
+    }
 }
 
 nonisolated struct WatchComplicationTimelinePoint: Equatable, Sendable {

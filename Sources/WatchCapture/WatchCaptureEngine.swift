@@ -112,7 +112,6 @@ final class WatchCaptureEngine {
     private var presentationAdmissionGeneration = 0
     private var admittedStartPending = false
     private var captureSafetyReadinessFailed = false
-    private var sessionBatteryMonitoringActive = false
     private var maintenanceGeneration = 0
     private var maintenanceTask: Task<Void, Never>?
     private var executingLifecycleIntent: WatchCaptureLifecycleSerializer.Intent?
@@ -213,7 +212,7 @@ final class WatchCaptureEngine {
             abandoned: self.abandonedCount
         )
         if refreshed != prior {
-            await self.republishCurrentStatus()
+            await self.republishCurrentStatus(envelopeAttachment: .omit)
         }
         self.notifyPresentationChanged()
     }
@@ -387,24 +386,12 @@ final class WatchCaptureEngine {
         self.applyRelayCounts(from: refreshedCatalog)
         self.applyCatalogAdvisory(refreshedCatalog.rootState)
         self.onDiagnosticsRefreshRequested?()
-        await self.republishCurrentStatus()
+        await self.republishCurrentStatus(envelopeAttachment: .attach)
         self.notifyPresentationChanged()
         self.requestRelayDrain(trigger: .launchReconciliation)
         if maintenanceFailed || Task.isCancelled {
             result = .partial
         }
-    }
-
-    private func beginSessionBatteryMonitoring() {
-        guard !self.sessionBatteryMonitoringActive else { return }
-        self.environmentProvider.holdBatteryMonitoring()
-        self.sessionBatteryMonitoringActive = true
-    }
-
-    private func endSessionBatteryMonitoring() {
-        guard self.sessionBatteryMonitoringActive else { return }
-        self.environmentProvider.restoreBatteryMonitoring()
-        self.sessionBatteryMonitoringActive = false
     }
 
     private func startInner(generation: Int) async {
@@ -423,18 +410,14 @@ final class WatchCaptureEngine {
             generation: generation
         ) != nil else { return }
 
-        self.beginSessionBatteryMonitoring()
-
         guard await self.prepareAudioForOwnerStart(generation: generation) else {
-            self.endSessionBatteryMonitoring()
             if self.isLifecycleGenerationCurrent(generation) {
-                await self.publishStatus(.idle)
+                await self.publishStatus(.idle, envelopeAttachment: .attach)
                 self.notifyPresentationChanged()
             }
             return
         }
         guard await self.continueLifecycleOperation(generation) else {
-            self.endSessionBatteryMonitoring()
             return
         }
 
@@ -452,13 +435,11 @@ final class WatchCaptureEngine {
         do {
             let startedAt = self.sessionStartedAt ?? self.clock.now()
             guard await self.beginStatusSession(startedAt: startedAt) else {
-                self.endSessionBatteryMonitoring()
                 self.status = .needsAttention(.unavailable(reason: SourceVocabulary.watchStatusSaveFailed))
                 self.notifyPresentationChanged()
                 return
             }
             guard await self.continueLifecycleOperation(generation) else {
-                self.endSessionBatteryMonitoring()
                 return
             }
             guard try await self.openSegment(
@@ -466,15 +447,12 @@ final class WatchCaptureEngine {
                 ownerSessionID: currentSessionID,
                 generation: generation
             ) else {
-                self.endSessionBatteryMonitoring()
                 return
             }
             guard await self.continueLifecycleOperation(generation) else {
-                self.endSessionBatteryMonitoring()
                 return
             }
             guard let segment = self.activeSegment else {
-                self.endSessionBatteryMonitoring()
                 return
             }
             if !segment.hasLiveSensor {
@@ -485,12 +463,10 @@ final class WatchCaptureEngine {
             }
             await self.writeActiveSessionRecord(startedAt: startedAt)
             guard await self.continueLifecycleOperation(generation) else {
-                self.endSessionBatteryMonitoring()
                 return
             }
             await self.replaceAudioTruthLease(verifiedAt: startedAt, generation: generation)
             guard await self.continueLifecycleOperation(generation) else {
-                self.endSessionBatteryMonitoring()
                 return
             }
             self.installAudioSessionObservers(source: ownerSource)
@@ -498,7 +474,6 @@ final class WatchCaptureEngine {
             self.startSegmentationTask()
         } catch WatchCaptureEngineError.audioStartFailed {
             guard await self.continueLifecycleOperation(generation) else {
-                self.endSessionBatteryMonitoring()
                 return
             }
             await self.refuseInitialStartAfterSegmentOpen(
@@ -507,7 +482,6 @@ final class WatchCaptureEngine {
             return
         } catch {
             guard await self.continueLifecycleOperation(generation) else {
-                self.endSessionBatteryMonitoring()
                 return
             }
             await self.refuseInitialStartAfterSegmentOpen(
@@ -518,17 +492,16 @@ final class WatchCaptureEngine {
         }
         if self.activeSegment != nil {
             self.onDiagnosticsRefreshRequested?()
-            await self.publishStatus(.observing)
+            await self.publishStatus(.observing, envelopeAttachment: .attach)
             self.startHeartbeatTask(source: ownerSource)
         } else {
-            self.endSessionBatteryMonitoring()
-            await self.publishStatus(.idle)
+            await self.publishStatus(.idle, envelopeAttachment: .attach)
         }
         self.notifyPresentationChanged()
     }
 
     private func stopInner() async {
-        await self.publishStatus(.stopping)
+        await self.publishStatus(.stopping, envelopeAttachment: .omit)
         await self.terminalize(
             reason: .ownerStopped,
             disposition: .ownerStopped,
@@ -536,9 +509,11 @@ final class WatchCaptureEngine {
         )
     }
 
-    func republishCurrentStatus() async {
+    func republishCurrentStatus(
+        envelopeAttachment: WatchStatusEnvelopeAttachment = .omit
+    ) async {
         let phase: WatchStatusContext.Phase = self.activeSegment == nil ? .idle : .observing
-        await self.publishStatus(phase)
+        await self.publishStatus(phase, envelopeAttachment: envelopeAttachment)
     }
 
     private func admitLifecycleIntent(
@@ -689,7 +664,7 @@ final class WatchCaptureEngine {
         guard !self.isLifecycleGenerationCurrent(generation) else { return true }
         guard self.currentSessionID != nil else {
             self.status = .off
-            await self.publishStatus(.idle)
+            await self.publishStatus(.idle, envelopeAttachment: .attach)
             self.notifyPresentationChanged()
             return false
         }
@@ -883,7 +858,6 @@ extension WatchCaptureEngine {
         error: ObserverError,
         persistenceFailed: Bool = false
     ) async {
-        self.endSessionBatteryMonitoring()
         let segment = self.activeSegment ?? self.openingSegment
         self.activeSegment = nil
         self.openingSegment = nil
@@ -900,7 +874,7 @@ extension WatchCaptureEngine {
             self.persistenceAdvisory = .sessionRecordWriteFailed
         }
         await self.refuseStart(.audioArmFailed, error: error)
-        await self.publishStatus(.idle)
+        await self.publishStatus(.idle, envelopeAttachment: .attach)
         self.notifyPresentationChanged()
     }
 
@@ -1181,8 +1155,7 @@ extension WatchCaptureEngine {
         self.rolloverPriorSegment = nil
         self.rolloverPriorAudioDuration = nil
         guard await self.continueLifecycleOperation(generation) else { return }
-        self.onDiagnosticsRefreshRequested?()
-        await self.publishStatus(.observing)
+        await self.publishStatus(.observing, envelopeAttachment: .omit)
         self.notifyPresentationChanged()
     }
 
@@ -1765,13 +1738,22 @@ extension WatchCaptureEngine {
         await self.mintSessionIdentity(startedAt: startedAt)
     }
 
-    func publishStatus(_ phase: WatchStatusContext.Phase) async {
+    func publishStatus(
+        _ phase: WatchStatusContext.Phase,
+        envelopeAttachment: WatchStatusEnvelopeAttachment = .omit
+    ) async {
         self.statusSeq += 1
         let asOf = self.clock.now()
         if phase != .idle, self.currentSessionID == nil || self.sessionStartedAt == nil {
             _ = await self.beginStatusSession(startedAt: asOf)
         }
-        let diagnosticsEnvelope = self.onDiagnosticsEnvelopeRequested?(asOf)
+        let diagnosticsEnvelope: Data?
+        switch envelopeAttachment {
+        case .attach:
+            diagnosticsEnvelope = self.onDiagnosticsEnvelopeRequested?(asOf)
+        case .omit:
+            diagnosticsEnvelope = nil
+        }
         let hearBackWindowStart = self.onHearBackWindowStartRequested?()
         let confirmingHearBackSeconds: Double
         if self.confirmingCount > 0, let hearBackWindowStart {
@@ -2114,7 +2096,7 @@ extension WatchCaptureEngine {
                 }
                 guard !Task.isCancelled, self.activeSegment != nil else { return }
                 guard self.evaluateAudioLiveness(source: source) else { return }
-                await self.publishStatus(.observing)
+                await self.publishStatus(.observing, envelopeAttachment: .omit)
             }
         }
     }
@@ -2399,7 +2381,6 @@ extension WatchCaptureEngine {
         self.segmentationTask = nil
         self.removeAudioSessionObservers()
         self.locationProvider.stop()
-        self.endSessionBatteryMonitoring()
         self.currentAudioEnrollment = nil
 
         let audioDuration: TimeInterval?
@@ -2444,7 +2425,7 @@ extension WatchCaptureEngine {
         case .detectedStoppedItself, .inferredStoppedItself:
             self.status = .needsAttention(reason.observerError(disposition: disposition))
         }
-        await self.publishStatus(.idle)
+        await self.publishStatus(.idle, envelopeAttachment: .attach)
         self.notifyPresentationChanged()
 
         let record = await self.persistTerminalFact(

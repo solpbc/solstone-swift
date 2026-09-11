@@ -576,11 +576,6 @@ actor WatchCaptureStorageActor {
     func probeAudio(at url: URL) async -> WatchAudioProbeResult {
         await self.withTransaction(transactionClass: .captureSafety) {
             let audioURL = self.withSynchronousActorWork(.captureFinalization) { url }
-            do {
-                _ = try await self.fileWriter.readData(from: audioURL)
-            } catch {
-                return self.withSynchronousActorWork(.captureFinalization) { .ioUnknown }
-            }
             return await self.audioProbe.probe(at: audioURL)
         }
     }

@@ -133,6 +133,105 @@ nonisolated final class WatchLinkTests: XCTestCase {
     }
 
     @MainActor
+    func testOmittedDiagnosticsEnvelopePreservesPriorAvailableEnvelope() async throws {
+        let store = Self.historyStore()
+        let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts(), phoneSessionHistoryStore: store)
+        let now = Date()
+        let entry = Self.historyEntry(now: now)
+        let payload = Self.historyPayload(entries: [entry])
+        let envelope = WatchRelayDiagnosticsEnvelope(
+            generatedAt: now,
+            diagnostics: .available(payload)
+        )
+        let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(envelope)
+        let statusWithEnvelope = WatchStatusContext(
+            phase: .observing,
+            sessionID: "session-1",
+            startedAt: now,
+            asOf: now,
+            seq: 1,
+            queuedCount: 0,
+            transferringCount: 0,
+            diagnosticsEnvelope: data
+        )
+
+        self.session.deliverApplicationContext(statusWithEnvelope.applicationContext())
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(watchLink.watchStatus?.seq, 1)
+        XCTAssertNotNil(watchLink.watchDiagnosticsEnvelopeResult.payload)
+
+        // Deliver status with omitted envelope (diagnosticsEnvelope: nil)
+        let statusWithoutEnvelope = WatchStatusContext(
+            phase: .observing,
+            sessionID: "session-1",
+            startedAt: now,
+            asOf: now.addingTimeInterval(15),
+            seq: 2,
+            queuedCount: 1,
+            transferringCount: 0,
+            diagnosticsEnvelope: nil
+        )
+
+        self.session.deliverApplicationContext(statusWithoutEnvelope.applicationContext())
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(watchLink.watchStatus?.seq, 2)
+        XCTAssertEqual(watchLink.watchStatus?.queuedCount, 1)
+        XCTAssertNotNil(watchLink.watchDiagnosticsEnvelopeResult.payload, "Prior available diagnostics must be preserved when incoming status omits envelope")
+
+        // Deliver status with unavailable envelope blob
+        let unavailableData = WatchRelayDiagnosticsEnvelope.unavailableData(generatedAt: now.addingTimeInterval(30), reason: "temporary error")
+        let statusWithUnavailable = WatchStatusContext(
+            phase: .observing,
+            sessionID: "session-1",
+            startedAt: now,
+            asOf: now.addingTimeInterval(30),
+            seq: 3,
+            queuedCount: 2,
+            transferringCount: 0,
+            diagnosticsEnvelope: unavailableData
+        )
+
+        self.session.deliverApplicationContext(statusWithUnavailable.applicationContext())
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(watchLink.watchStatus?.seq, 3)
+        XCTAssertEqual(watchLink.watchStatus?.queuedCount, 2)
+        XCTAssertNotNil(watchLink.watchDiagnosticsEnvelopeResult.payload, "Unavailable blob must not clobber prior available diagnostics")
+
+        // Deliver later status with a new available envelope
+        let laterEntry = Self.historyEntry(now: now.addingTimeInterval(45))
+        let laterPayload = Self.historyPayload(entries: [entry, laterEntry])
+        let laterEnvelope = WatchRelayDiagnosticsEnvelope(
+            generatedAt: now.addingTimeInterval(45),
+            diagnostics: .available(laterPayload)
+        )
+        let laterData = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(laterEnvelope)
+        let statusWithLaterEnvelope = WatchStatusContext(
+            phase: .idle,
+            sessionID: nil,
+            startedAt: nil,
+            asOf: now.addingTimeInterval(45),
+            seq: 4,
+            queuedCount: 0,
+            transferringCount: 0,
+            diagnosticsEnvelope: laterData
+        )
+
+        self.session.deliverApplicationContext(statusWithLaterEnvelope.applicationContext())
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(watchLink.watchStatus?.seq, 4)
+        XCTAssertEqual(watchLink.watchStatus?.phase, .idle)
+        if case let .available(entries)? = watchLink.watchDiagnosticsEnvelopeResult.payload?.sessionHistoryWindow {
+            XCTAssertEqual(entries.count, 2)
+        } else {
+            XCTFail("Expected 2 entries in replaced diagnostics payload")
+        }
+    }
+
+    @MainActor
     func testActivateRecoversReceivedApplicationContext() async {
         let status = Self.status(seq: 2)
         self.session.receivedApplicationContext = status.applicationContext()

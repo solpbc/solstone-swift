@@ -136,11 +136,6 @@ nonisolated struct LiveWatchAudioProbe: WatchAudioProbing {
 
     func probe(at url: URL) async -> WatchAudioProbeResult {
         do {
-            _ = try Data(contentsOf: url, options: .mappedIfSafe)
-        } catch {
-            return .ioUnknown
-        }
-        do {
             let file = try AVAudioFile(forReading: url)
             guard file.fileFormat.sampleRate > 0 else {
                 return .confirmedUndecodable

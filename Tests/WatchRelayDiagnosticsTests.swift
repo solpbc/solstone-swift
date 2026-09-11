@@ -1285,6 +1285,17 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         XCTAssertEqual(device.monitoringAssignments, [true, false])
     }
 
+    func testSampleSegmentPowerReadsInsideSingleMonitoringWindowAndLeavesDisabled() throws {
+        let device = MockWatchBatteryDevice()
+        let provider = LiveWatchRelayDiagnosticsEnvironmentProvider(batteryDevice: device)
+        let sample = try provider.sampleSegmentPower()
+
+        XCTAssertEqual(sample.level.value ?? -1, 0.42, accuracy: 0.001)
+        XCTAssertEqual(sample.state.value, "charging")
+        XCTAssertFalse(device.isBatteryMonitoringEnabled)
+        XCTAssertEqual(device.monitoringAssignments, [true, false])
+    }
+
     func testMapBatteryReadingsWithNegativeSentinel() {
         let mapped = LiveWatchRelayDiagnosticsEnvironmentProvider.mapBatteryReadings(
             levelReading: -1.0,

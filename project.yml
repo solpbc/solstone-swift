@@ -277,6 +277,14 @@ targets:
       - path: Sources/WatchCapture
         excludes:
           - WatchSegmentDrain.swift
+          - WatchRelayReceiver.swift
+          - WatchSegmentLedger.swift
+          - WatchPhoneSessionHistoryStore.swift
+          - WatchPipelineReducer.swift
+          - PhoneWatchSourceStateMapping.swift
+          - WatchSourceFacts.swift
+          - WatchSteadyVerdictReducer.swift
+          - WatchSourceDetailPresentation.swift
       - path: Sources/WatchConnectivity
         excludes:
           - WatchLink.swift
@@ -359,6 +367,14 @@ targets:
       - path: Sources/WatchCapture
         excludes:
           - WatchSegmentDrain.swift
+          - WatchRelayReceiver.swift
+          - WatchSegmentLedger.swift
+          - WatchPhoneSessionHistoryStore.swift
+          - WatchPipelineReducer.swift
+          - PhoneWatchSourceStateMapping.swift
+          - WatchSourceFacts.swift
+          - WatchSteadyVerdictReducer.swift
+          - WatchSourceDetailPresentation.swift
       - path: Sources/WatchConnectivity
         excludes:
           - WatchLink.swift

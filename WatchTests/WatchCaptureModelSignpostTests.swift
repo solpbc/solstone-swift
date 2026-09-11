@@ -506,38 +506,35 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         signpostSink.reset()
 
         session.remainingPublicationFailures = 1
-        model.republishStatusOnReconnect()
-        let didPublishFallback = await self.waitUntil {
+        model.republishStatusOnActivation()
+        let didFailPublication = await self.waitUntil {
             signpostSink.events.contains {
-                $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .partial
+                $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .failed
             }
         }
-        XCTAssertTrue(didPublishFallback)
+        XCTAssertTrue(didFailPublication)
 
         XCTAssertEqual(
             signpostSink.events.filter { event in
                 event.boundary == .statusPublication
                     || event.boundary == .applicationContextPrimary
-                    || event.boundary == .applicationContextFallback
             },
             [
                 .init(kind: .begin, boundary: .statusPublication, fields: WatchSignpostFields()),
                 .init(kind: .begin, boundary: .applicationContextPrimary, fields: WatchSignpostFields()),
                 .init(kind: .end, boundary: .applicationContextPrimary, fields: WatchSignpostFields(result: .failed)),
-                .init(kind: .begin, boundary: .applicationContextFallback, fields: WatchSignpostFields()),
-                .init(kind: .end, boundary: .applicationContextFallback, fields: WatchSignpostFields(result: .completed)),
-                .init(kind: .end, boundary: .statusPublication, fields: WatchSignpostFields(result: .partial)),
+                .init(kind: .end, boundary: .statusPublication, fields: WatchSignpostFields(result: .failed)),
             ]
         )
     }
 
-    func testStatusPublicationAllSuccessEmitsNoFallbackInterval() async throws {
+    func testStatusPublicationAllSuccessEmitsSinglePrimaryInterval() async throws {
         let (model, sink) = try self.makeStatusPublicationFixture(name: "status-success")
         await Task.yield()
         await Task.yield()
         sink.reset()
 
-        model.republishStatusOnReconnect()
+        model.republishStatusOnActivation()
         let didPublish = await self.waitUntil {
             sink.events.contains {
                 $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .completed
@@ -548,10 +545,134 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertTrue(sink.events.contains {
             $0.kind == .end && $0.boundary == .applicationContextPrimary && $0.fields.result == .completed
         })
-        XCTAssertFalse(sink.events.contains { $0.boundary == .applicationContextFallback })
         XCTAssertTrue(sink.events.contains {
             $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .completed
         })
+    }
+
+    func testLocationPresentationAssignmentSkippedWhenPresentationEqual() async throws {
+        let storage = try WatchModelTestStorage(rootURL: self.temporaryDirectory.appendingPathComponent("loc-presentation"))
+        let storageActor = self.storageActor(for: storage)
+        let session = WatchModelConnectivitySession()
+        let signposter = WatchSignpost.live
+        let relaySender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: session,
+            signposter: signposter
+        )
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: session,
+            signposter: signposter
+        )
+        let complicationRoot = self.temporaryDirectory.appendingPathComponent("loc-complication", isDirectory: true)
+        try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
+        let model = WatchCaptureModel(
+            paths: storage.paths,
+            storageActor: storageActor,
+            relaySender: relaySender,
+            session: session,
+            diagnosticsCollector: collector,
+            notificationScheduler: WatchModelNotificationScheduler(),
+            environmentProvider: WatchModelEnvironmentProvider(),
+            clock: WatchModelFixedClock(date: Date()),
+            signposter: signposter,
+            complicationRootURL: { complicationRoot },
+            reloadComplicationTimelines: {}
+        )
+        await model.settled()
+
+        let initialPresentation = WatchCaptureOwnerPresentation(
+            status: .active,
+            queuedCount: 0,
+            locationAdvisory: nil
+        )
+        model.presentation = initialPresentation
+
+        // Same presentation with advisory still nil: equatable matches
+        let secondFixPresentation = WatchCaptureOwnerPresentation(
+            status: .active,
+            queuedCount: 0,
+            locationAdvisory: nil
+        )
+        XCTAssertEqual(initialPresentation, secondFixPresentation)
+
+        // Advisory appearing: presentation changes
+        let advisoryAppeared = WatchCaptureOwnerPresentation(
+            status: .active,
+            queuedCount: 0,
+            locationAdvisory: .authorizationLost
+        )
+        XCTAssertNotEqual(initialPresentation, advisoryAppeared)
+        model.presentation = advisoryAppeared
+        XCTAssertEqual(model.presentation.locationAdvisory, .authorizationLost)
+
+        // Advisory clearing: presentation changes
+        let advisoryCleared = WatchCaptureOwnerPresentation(
+            status: .active,
+            queuedCount: 0,
+            locationAdvisory: nil
+        )
+        XCTAssertNotEqual(advisoryAppeared, advisoryCleared)
+        model.presentation = advisoryCleared
+        XCTAssertNil(model.presentation.locationAdvisory)
+    }
+
+    func testComplicationTimelineReloadsOnlyOnLifecycleChanges() async throws {
+        let storage = try WatchModelTestStorage(rootURL: self.temporaryDirectory.appendingPathComponent("comp-reload"))
+        let storageActor = self.storageActor(for: storage)
+        let session = WatchModelConnectivitySession()
+        let signposter = WatchSignpost.live
+        let relaySender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: session,
+            signposter: signposter
+        )
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: session,
+            signposter: signposter
+        )
+        let complicationRoot = self.temporaryDirectory.appendingPathComponent("comp-root", isDirectory: true)
+        try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
+        var reloadCount = 0
+        let model = WatchCaptureModel(
+            paths: storage.paths,
+            storageActor: storageActor,
+            relaySender: relaySender,
+            session: session,
+            diagnosticsCollector: collector,
+            notificationScheduler: WatchModelNotificationScheduler(),
+            environmentProvider: WatchModelEnvironmentProvider(),
+            clock: WatchModelFixedClock(date: Date()),
+            signposter: signposter,
+            complicationRootURL: { complicationRoot },
+            reloadComplicationTimelines: {
+                reloadCount += 1
+            }
+        )
+        await model.settled()
+        // Initial setup write reloaded timeline
+        let initialReloads = reloadCount
+
+        // In-session count update: does NOT trigger timeline reload
+        model.presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 2)
+        await model.settled()
+        XCTAssertEqual(reloadCount, initialReloads, "In-session queued count change must not reload timeline")
+
+        // In-session status change (start: off -> active): DOES trigger timeline reload
+        model.presentation = WatchCaptureOwnerPresentation(status: .active, queuedCount: 2)
+        await model.settled()
+        XCTAssertEqual(reloadCount, initialReloads + 1, "Capture start must reload timeline")
+
+        // In-session status change (stop: active -> off): DOES trigger timeline reload
+        model.presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 2)
+        await model.settled()
+        XCTAssertEqual(reloadCount, initialReloads + 2, "Capture stop must reload timeline")
     }
 
     func testReconnectPublishesCachedStatusBeforeDiagnosticsRefreshCompletes() async throws {
@@ -602,7 +723,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             applicationContext: session.receivedApplicationContext
         )?.diagnosticsEnvelope
         await writer.armNextRead()
-        model.republishStatusOnReconnect()
+        model.republishStatusOnActivation()
         await writer.waitUntilReadEntered()
 
         XCTAssertEqual(session.applicationContextUpdateCount, updatesBeforeReconnect + 1)
@@ -618,14 +739,14 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertTrue(didPublishFreshDiagnostics)
     }
 
-    func testStatusPublicationBothFailuresReportsFailedParent() async throws {
-        let (model, sink, session) = try self.makeStatusPublicationFixtureIncludingSession(name: "status-both-fail")
+    func testStatusPublicationFailureReportsFailedParent() async throws {
+        let (model, sink, session) = try self.makeStatusPublicationFixtureIncludingSession(name: "status-fail")
         await Task.yield()
         await Task.yield()
         sink.reset()
-        session.remainingPublicationFailures = 2
+        session.remainingPublicationFailures = 1
 
-        model.republishStatusOnReconnect()
+        model.republishStatusOnActivation()
         let didFailPublication = await self.waitUntil {
             sink.events.contains {
                 $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .failed
@@ -635,9 +756,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
 
         XCTAssertTrue(sink.events.contains {
             $0.kind == .end && $0.boundary == .applicationContextPrimary && $0.fields.result == .failed
-        })
-        XCTAssertTrue(sink.events.contains {
-            $0.kind == .end && $0.boundary == .applicationContextFallback && $0.fields.result == .failed
         })
         XCTAssertTrue(sink.events.contains {
             $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .failed
@@ -667,10 +785,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             $0.kind == .end && $0.boundary == .applicationContextPrimary && $0.fields.result == .failed
         })
         XCTAssertTrue(sink.events.contains {
-            $0.kind == .end && $0.boundary == .applicationContextFallback && $0.fields.result == .completed
-        })
-        XCTAssertTrue(sink.events.contains {
-            $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .partial
+            $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .failed
         })
 
         sink.reset()
@@ -680,7 +795,9 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertTrue(sink.events.contains {
             $0.kind == .end && $0.boundary == .applicationContextPrimary && $0.fields.result == .completed
         })
-        XCTAssertFalse(sink.events.contains { $0.boundary == .applicationContextFallback })
+        XCTAssertTrue(sink.events.contains {
+            $0.kind == .end && $0.boundary == .statusPublication && $0.fields.result == .completed
+        })
     }
 
     func testDiagnosticsAcceptanceRequiresCurrentGenerationEvenWhenBytesMatch() {
@@ -1375,8 +1492,6 @@ private final class WatchModelEnvironmentProvider: WatchRelayDiagnosticsEnvironm
         )
     }
 
-    func holdBatteryMonitoring() {}
-    func restoreBatteryMonitoring() {}
     func sampleSegmentPower() throws -> WatchSegmentPowerSample {
         WatchSegmentPowerSample(
             level: .unavailable(reason: "test"),

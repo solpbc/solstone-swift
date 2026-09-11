@@ -3,6 +3,11 @@
 
 import Foundation
 
+nonisolated enum WatchStatusEnvelopeAttachment: Sendable {
+    case attach
+    case omit
+}
+
 nonisolated struct WatchStatusContext: Codable, Equatable, Sendable {
     nonisolated enum Phase: String, Codable, Equatable, Sendable {
         case idle

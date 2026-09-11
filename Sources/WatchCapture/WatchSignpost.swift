@@ -71,7 +71,6 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
     case diagnosticsRefreshRequest
     case relayStateRefreshRequest
     case applicationContextPrimary
-    case applicationContextFallback
     case relayDrain
     case relayCleanupScan
     case relayQueueReconciliation
@@ -130,8 +129,6 @@ nonisolated enum WatchSignpostBoundary: CaseIterable, Sendable {
             "watch.relay_state_refresh_request"
         case .applicationContextPrimary:
             "watch.application_context_primary"
-        case .applicationContextFallback:
-            "watch.application_context_fallback"
         case .relayDrain:
             "watch.relay_drain"
         case .relayCleanupScan:

@@ -82,7 +82,7 @@ struct SolstoneWatchApp: App {
                 notificationScheduler: self.notificationScheduler,
                 environmentProvider: environmentProvider
             )
-            sessionModel.onReachableRepublish = { [weak captureModel] in captureModel?.republishStatusOnReconnect() }
+            sessionModel.onActivationRepublish = { [weak captureModel] in captureModel?.republishStatusOnActivation() }
             self._sessionModel = State(initialValue: sessionModel)
             self._captureModel = State(initialValue: captureModel)
         } catch {

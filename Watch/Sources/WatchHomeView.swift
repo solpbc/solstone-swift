@@ -8,6 +8,7 @@ struct WatchHomeView: View {
     let model: WatchSessionModel
     let captureModel: WatchCaptureModel
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         let face = watchFaceModel(
@@ -71,6 +72,11 @@ struct WatchHomeView: View {
         .background(Color.black)
         .opacity(self.isLuminanceReduced ? 0.82 : 1)
         .saturation(self.isLuminanceReduced ? 0.45 : 1)
+        .onChange(of: self.scenePhase) { _, newPhase in
+            if newPhase == .active {
+                self.captureModel.handleOwnerVisibleRaise()
+            }
+        }
     }
 }
 
@@ -127,8 +133,14 @@ private extension WatchHomeView {
                 .lineLimit(2)
 
             if face.showsElapsed, let start = self.captureModel.presentation.sessionStartedAt {
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text(Self.elapsedText(from: start, now: context.date))
+                if !self.isLuminanceReduced && self.scenePhase == .active {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(Self.elapsedText(from: start, now: context.date))
+                            .font(.footnote.monospacedDigit())
+                            .foregroundStyle(self.secondaryTextColor)
+                    }
+                } else {
+                    Text(Self.elapsedText(from: start, now: .now))
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(self.secondaryTextColor)
                 }
