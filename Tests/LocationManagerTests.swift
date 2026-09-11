@@ -585,6 +585,38 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.startCallCount, 0)
     }
 
+    /// 🔴 Declining the ios dialog is not a fault. The owner was asked and said no, so
+    /// there is no evidence the permission was ever held. ⚠ The reason line and the
+    /// recovery survive the word — both are drawn from the capability, not the state — so
+    /// an owner who declined by accident still has a route back via ios settings.
+    @MainActor
+    func testDeclinedPermissionReadsReadyToSetUpAndKeepsItsRecovery() async {
+        self.provider.capability = .denied
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(manager.sourceState, .readyToSetUp)
+        XCTAssertNotNil(manager.sourceAttention)
+        XCTAssertEqual(manager.recoveryActions, [.openSettings])
+    }
+
+    /// ⛔ Once the owner HAS set location up, a missing permission is a genuine fault:
+    /// something they enabled stopped working.
+    @MainActor
+    func testDeclinedPermissionIsStillAFaultOnceEnabled() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.provider.capability = .denied
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+    }
+
     /// An enabled source that is idle and unpaused still reads `off` — the owner's own
     /// choice is reported as a choice. ⛔ Only the absence of a record reads as never set up.
     @MainActor

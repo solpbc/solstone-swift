@@ -255,7 +255,16 @@ private extension LocationManager {
             return (.active, nil)
         case .error(let error):
             let mapped = locationSourceState(effective: self.effectiveCapability(), tier: self.tier, paused: self.paused)
-            return (.needsAttention, mapped.1 ?? SourceAttention(message: error.message))
+            let attention = mapped.1 ?? SourceAttention(message: error.message)
+            // ⛔ A permission the owner declined is not a fault. Without `location.enabled`
+            // there is no evidence the permission was ever held, so there is nothing to
+            // diagnose — they were asked and said no. ⚠ The attention message rides along
+            // unchanged, and the detail screen draws its reason line and its recovery from
+            // the capability rather than from this word, so the way back survives.
+            if case .capabilityInsufficient = error, !Self.readEnabled(defaults: self.defaults) {
+                return (.readyToSetUp, attention)
+            }
+            return (.needsAttention, attention)
         }
     }
 

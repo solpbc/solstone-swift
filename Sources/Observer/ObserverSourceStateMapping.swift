@@ -11,6 +11,13 @@ import Foundation
 /// from what the owner actually did.
 nonisolated func sourceState(for observerState: ObserverState, paused: Bool, enrolled: Bool) -> SourceState {
     switch observerState {
+    case .error(.permissionDenied) where !enrolled:
+        // ⛔ Not a fault. The owner was asked for the microphone and said no, so nothing
+        // they set up has stopped working — there is no evidence the permission was ever
+        // held. `needs attention` here would be a diagnosis of a thing that never started.
+        // The recovery route survives the word: the detail screen offers ios settings off
+        // the manager's own error state, not off this one.
+        .readyToSetUp
     case .error:
         .needsAttention
     case .starting:

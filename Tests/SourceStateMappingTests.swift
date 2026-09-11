@@ -30,6 +30,23 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertEqual(sourceState(for: .starting, paused: false, enrolled: false), .enrolling)
     }
 
+    /// 🔴 A permission the owner DECLINED is not a fault — they were asked and said no,
+    /// so there is no evidence the permission was ever held and nothing to diagnose.
+    /// ⛔ But once they have set the source up, a missing permission IS a genuine fault:
+    /// something they enabled stopped working.
+    func testDeclinedMicrophoneIsReadyToSetUpUntilTheOwnerHasEnrolled() {
+        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false, enrolled: false), .readyToSetUp)
+        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false, enrolled: true), .needsAttention)
+    }
+
+    /// ⛔ Only the permission error softens. Every other fault is real whatever the record says.
+    func testNonPermissionAudioFaultsStayNeedsAttentionWithoutARecord() {
+        XCTAssertEqual(sourceState(for: .error(.diskFull), paused: false, enrolled: false), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.audioSessionConflict), paused: false, enrolled: false), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.unavailable(reason: "x")), paused: false, enrolled: false), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.uploadFailed(chunkID: "c")), paused: false, enrolled: false), .needsAttention)
+    }
+
     /// An explicit pause outranks the record: the owner did act.
     func testPausedOutranksAMissingRecord() {
         XCTAssertEqual(sourceState(for: .idle, paused: true, enrolled: false), .paused)
