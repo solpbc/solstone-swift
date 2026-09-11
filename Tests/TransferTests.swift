@@ -600,7 +600,8 @@ nonisolated final class TransferTests: XCTestCase {
         try await self.waitFor("terminal http attention") {
             (await engine.itemSnapshot(itemID: itemID))?.state == .attention
         }
-        let detail = try XCTUnwrap(await engine.itemSnapshot(itemID: itemID)?.manifest.attention?.shortDetail)
+        let itemSnapshot = await engine.itemSnapshot(itemID: itemID)
+        let detail = try XCTUnwrap(itemSnapshot?.manifest.attention?.shortDetail)
         let sourceDetail = (await engine.snapshot()).sources["alpha"]?.lastErrorDetail
         XCTAssertEqual(sourceDetail, detail)
         XCTAssertFalse(detail.contains("https://"), detail)
@@ -622,7 +623,8 @@ nonisolated final class TransferTests: XCTestCase {
         try await self.waitFor("terminal missing-payload attention") {
             (await engine.itemSnapshot(itemID: itemID))?.state == .attention
         }
-        let detail = try XCTUnwrap(await engine.itemSnapshot(itemID: itemID)?.manifest.attention?.shortDetail)
+        let itemSnapshot = await engine.itemSnapshot(itemID: itemID)
+        let detail = try XCTUnwrap(itemSnapshot?.manifest.attention?.shortDetail)
         let sourceDetail = (await engine.snapshot()).sources["alpha"]?.lastErrorDetail
         XCTAssertEqual(sourceDetail, detail)
         XCTAssertFalse(detail.contains("/Users/"), detail)
