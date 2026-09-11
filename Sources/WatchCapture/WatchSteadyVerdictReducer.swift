@@ -33,6 +33,23 @@ extension WatchWaitingBreakdown {
         }
         return max(0, count)
     }
+
+    // Same staleness gate as `freshWatchWaitingCount`, applied to the
+    // not-yet-sent/confirming split — a stale watch claim must not leak a
+    // non-zero count into owner-facing copy.
+    nonisolated var freshWatchNotYetSent: Int {
+        guard case .reported(_, .fresh) = self.watch else {
+            return 0
+        }
+        return max(0, self.watchNotYetSent)
+    }
+
+    nonisolated var freshWatchConfirming: Int {
+        guard case .reported(_, .fresh) = self.watch else {
+            return 0
+        }
+        return max(0, self.watchConfirming)
+    }
 }
 
 nonisolated enum WatchSteadyVerdictReducer {
@@ -48,7 +65,7 @@ nonisolated enum WatchSteadyVerdictReducer {
             lastReceivedAt: input.lastReceivedAt
         )
         let detailsSummary = SourceVocabulary.watchSteadyDetailsSummary(
-            watchWaiting: waiting.freshWatchWaitingCount,
+            watchWaiting: waiting.freshWatchNotYetSent,
             phoneWaiting: max(0, waiting.phone.count)
         )
         let presenceLine = self.presenceLine(input: input, facts: facts)
@@ -110,10 +127,23 @@ nonisolated enum WatchSteadyVerdictReducer {
 
         if case .some(.watch) = waiting.leading,
            waiting.freshWatchWaitingCount > 0 {
+            if waiting.watchNotYetSent > 0 {
+                return self.verdict(
+                    kind: .watchWaiting,
+                    headline: SourceVocabulary.watchSteadyWatchWaitingHeadline,
+                    sentence: SourceVocabulary.watchSteadyWatchWaitingSentence(waiting.watchNotYetSent),
+                    nextStep: nil,
+                    presenceLine: presenceLine,
+                    todayLine: todayLine,
+                    detailsSummary: detailsSummary
+                )
+            }
+            // Nothing left on the watch itself — everything outstanding already
+            // reached the iPhone and is only waiting on the durable ACK back.
             return self.verdict(
                 kind: .watchWaiting,
-                headline: SourceVocabulary.watchSteadyWatchWaitingHeadline,
-                sentence: SourceVocabulary.watchSteadyWatchWaitingSentence(waiting.freshWatchWaitingCount),
+                headline: SourceVocabulary.watchPipelineConfirming,
+                sentence: SourceVocabulary.watchConfirmingCount(waiting.watchConfirming),
                 nextStep: nil,
                 presenceLine: presenceLine,
                 todayLine: todayLine,

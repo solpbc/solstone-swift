@@ -217,10 +217,22 @@ nonisolated func phoneWatchSourcePresentation(
         )
     case .installedActive(.waiting(let waiting)):
         let status = watchWaitingStatusPresentation(waiting.watch)
+        let leadingSubtext: String?
+        if case .watch = waiting.leading, waiting.watchNotYetSent > 0 {
+            leadingSubtext = SourceVocabulary.watchWaitingToSyncFromWatch(waiting.watchNotYetSent)
+        } else if case .watch = waiting.leading {
+            // Nothing left on the watch — the leading backlog already reached
+            // the iPhone and is only waiting on its durable ACK back.
+            leadingSubtext = SourceVocabulary.watchConfirmingCount(waiting.watchConfirming)
+        } else if case let .phone(count) = waiting.leading {
+            leadingSubtext = SourceVocabulary.watchWaitingToSyncFromWatch(count)
+        } else {
+            leadingSubtext = nil
+        }
         return PhoneWatchSourcePresentation(
             state: .off,
             attention: nil,
-            subtext: status.subtext ?? waiting.leading.map { SourceVocabulary.watchWaitingToSyncFromWatch($0.count) },
+            subtext: status.subtext ?? leadingSubtext,
             statusReason: status.reason
         )
     case .installedActive(.idle(let watchWaiting)):

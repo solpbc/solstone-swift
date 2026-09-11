@@ -599,6 +599,44 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyWatchWaitingSentence(5))
     }
 
+    func testSteadyVerdictConfirmingOnlyDoesNotClaimStillOnWatch() {
+        let input = Self.input(
+            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 37, asOf: Self.now),
+            nonTerminalCount: 0
+        )
+        let waiting = WatchPipelineReducer.waitingBreakdown(input)
+
+        XCTAssertEqual(waiting.watchNotYetSent, 0)
+        XCTAssertEqual(waiting.watchConfirming, 37)
+
+        let verdict = Self.steadyVerdict(input, waiting: waiting)
+
+        XCTAssertEqual(verdict.kind, .watchWaiting)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.watchPipelineConfirming)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchConfirmingCount(37))
+        XCTAssertEqual(
+            verdict.detailsSummary,
+            SourceVocabulary.watchSteadyDetailsSummary(watchWaiting: 0, phoneWaiting: 0)
+        )
+    }
+
+    func testSteadyVerdictWatchWaitingSentenceExcludesConfirmingPortion() {
+        let input = Self.input(
+            watchStatus: Self.context(queuedCount: 2, transferringCount: 0, confirmingCount: 37, asOf: Self.now),
+            nonTerminalCount: 0
+        )
+        let waiting = WatchPipelineReducer.waitingBreakdown(input)
+
+        XCTAssertEqual(waiting.watchNotYetSent, 2)
+        XCTAssertEqual(waiting.watchConfirming, 37)
+
+        let verdict = Self.steadyVerdict(input, waiting: waiting)
+
+        XCTAssertEqual(verdict.kind, .watchWaiting)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.watchSteadyWatchWaitingHeadline)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyWatchWaitingSentence(2))
+    }
+
     func testSteadyVerdictPhoneSyncingUsesLeadingPhonePortion() {
         let input = Self.input(
             watchStatus: Self.context(queuedCount: 1, transferringCount: 0, asOf: Self.now),

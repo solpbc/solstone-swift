@@ -201,6 +201,24 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         )
     }
 
+    func testWatchLeadingConfirmingOnlyDoesNotClaimStillOnWatch() {
+        let confirmingOnly = phoneWatchSourcePresentation(
+            lane: .installedActive(.waiting(Self.watchLeadingWaiting(notYetSent: 0, confirming: 37)))
+        )
+        XCTAssertEqual(confirmingOnly.state, .off)
+        XCTAssertEqual(confirmingOnly.subtext, SourceVocabulary.watchConfirmingCount(37))
+
+        let notYetSent = phoneWatchSourcePresentation(
+            lane: .installedActive(.waiting(Self.watchLeadingWaiting(notYetSent: 5, confirming: 0)))
+        )
+        XCTAssertEqual(notYetSent.subtext, SourceVocabulary.watchWaitingToSyncFromWatch(5))
+
+        let mixed = phoneWatchSourcePresentation(
+            lane: .installedActive(.waiting(Self.watchLeadingWaiting(notYetSent: 2, confirming: 37)))
+        )
+        XCTAssertEqual(mixed.subtext, SourceVocabulary.watchWaitingToSyncFromWatch(2))
+    }
+
     func testUnknownAndStaleClaimsHaveDistinctSubtextAndReason() {
         let unknown = phoneWatchSourcePresentation(
             lane: .installedActive(.idle(.unknown))
@@ -510,6 +528,17 @@ private extension PhoneWatchSourceStateMappingTests {
             watch: .reported(count: 0, freshness: .fresh(asOf: Self.waitingAsOf)),
             phone: phone,
             leading: count > 0 ? .phone(count: count) : nil
+        )
+    }
+
+    static func watchLeadingWaiting(notYetSent: Int, confirming: Int) -> WatchWaitingBreakdown {
+        let total = notYetSent + confirming
+        return WatchWaitingBreakdown(
+            watch: .reported(count: total, freshness: .fresh(asOf: Self.waitingAsOf)),
+            phone: PhoneSideWaiting(count: 0),
+            leading: .watch(count: total, freshness: .fresh(asOf: Self.waitingAsOf)),
+            watchNotYetSent: notYetSent,
+            watchConfirming: confirming
         )
     }
 

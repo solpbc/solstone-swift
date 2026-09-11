@@ -144,6 +144,28 @@ nonisolated struct WatchWaitingBreakdown: Equatable, Sendable {
     let watch: WatchSideWaiting
     let phone: PhoneSideWaiting
     let leading: WatchWaitingLead?
+    // Split of `watch`'s combined count: segments genuinely still on the
+    // watch (not yet transferred) vs. already delivered to the iPhone and
+    // only awaiting its durable ACK. `watch`/`leading` stay combined for the
+    // watch-vs-phone priority comparison; owner-facing copy must use this
+    // split so a delivered-but-unacked segment isn't described as "hasn't
+    // come over yet."
+    let watchNotYetSent: Int
+    let watchConfirming: Int
+
+    init(
+        watch: WatchSideWaiting,
+        phone: PhoneSideWaiting,
+        leading: WatchWaitingLead?,
+        watchNotYetSent: Int = 0,
+        watchConfirming: Int = 0
+    ) {
+        self.watch = watch
+        self.phone = phone
+        self.leading = leading
+        self.watchNotYetSent = watchNotYetSent
+        self.watchConfirming = watchConfirming
+    }
 }
 
 nonisolated enum WatchSideWaiting: Equatable, Sendable {
@@ -247,8 +269,12 @@ nonisolated enum WatchPipelineReducer {
     nonisolated static func waitingBreakdown(_ input: WatchPipelineInput) -> WatchWaitingBreakdown {
         let phone = PhoneSideWaiting(count: self.phoneWaitingCount(input))
         let watch: WatchSideWaiting
+        let watchNotYetSent: Int
+        let watchConfirming: Int
         if let context = input.watchStatus {
-            let watchCount = max(0, context.queuedCount) + max(0, context.transferringCount) + max(0, context.confirmingCount)
+            watchNotYetSent = max(0, context.queuedCount) + max(0, context.transferringCount)
+            watchConfirming = max(0, context.confirmingCount)
+            let watchCount = watchNotYetSent + watchConfirming
             let age = max(0, input.now.timeIntervalSince(context.asOf))
             let freshness: WatchClaimFreshness = age > self.watchClaimFreshnessWindow
                 ? .stale(asOf: context.asOf, age: age)
@@ -256,6 +282,8 @@ nonisolated enum WatchPipelineReducer {
             watch = .reported(count: watchCount, freshness: freshness)
         } else {
             watch = .unknown
+            watchNotYetSent = 0
+            watchConfirming = 0
         }
 
         let leading: WatchWaitingLead?
@@ -270,7 +298,13 @@ nonisolated enum WatchPipelineReducer {
             leading = nil
         }
 
-        return WatchWaitingBreakdown(watch: watch, phone: phone, leading: leading)
+        return WatchWaitingBreakdown(
+            watch: watch,
+            phone: phone,
+            leading: leading,
+            watchNotYetSent: watchNotYetSent,
+            watchConfirming: watchConfirming
+        )
     }
 
     nonisolated static func stuckState(_ input: WatchPipelineInput) -> WatchPipelineStuck {
@@ -740,6 +774,18 @@ extension WatchPipelineReducer {
         case let .available(summary):
             rows.append(contentsOf: [
                 WatchDiagnosticsExportRow(label: "manifest counts", value: self.manifestCountsText(summary.counts)),
+                // How long the watch's accumulated hear-back clock has run for the
+                // current confirming (delivered, unacked) backlog. The auto-retry
+                // that requeues a stuck delivered segment only evaluates this clock
+                // when a relay drain pass runs (app launch, a new segment, a
+                // connectivity activation/reachability change, or a durable ACK) —
+                // there is no periodic timer, so this can sit well past its own
+                // threshold between those events. 0s here (with delivered > 0 above)
+                // means the clock isn't currently accumulating at all.
+                WatchDiagnosticsExportRow(
+                    label: "confirming hear-back elapsed",
+                    value: self.secondsText(input.watchStatus?.confirmingHearBackSeconds ?? 0)
+                ),
                 WatchDiagnosticsExportRow(label: "original audio files", value: self.originalFileCountsText(summary.originalAudioFileCounts)),
                 WatchDiagnosticsExportRow(label: "retained source bytes", value: self.int64AvailabilityText(summary.retainedSourceBytes)),
                 WatchDiagnosticsExportRow(label: "oldest active enqueue", value: self.dateAvailabilityText(summary.oldestActiveEnqueuedAt, now: input.now)),
