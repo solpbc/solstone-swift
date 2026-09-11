@@ -620,10 +620,16 @@ nonisolated final class LocationManagerTests: XCTestCase {
             XCTAssertEqual(manager.sourceState, .needsAttention, "\(capability)")
         }
 
-        // A partial grant: the owner allowed `whenInUse` under a tier needing `always`.
-        self.provider.capability = .whenInUse(accuracy: .full)
+        // A partial grant: the owner allowed `always` but only at reduced accuracy, under a
+        // tier that needs full. ⚠ The grant has to actually ARRIVE — a manager still waiting
+        // on the always-upgrade prompt is `enrolling`, not a fault, and an earlier draft of
+        // this test asserted against that window instead of the outcome.
+        self.provider.capability = .notDetermined
         let partial = self.makeManager()
         await partial.start(tier: .full)
+        self.provider.emitAuthorization(.whenInUse(accuracy: .full))
+        await self.yieldToMainActor()
+        self.provider.emitAuthorization(.always(accuracy: .reduced))
         await self.yieldToMainActor()
         XCTAssertEqual(partial.sourceState, .needsAttention)
     }
