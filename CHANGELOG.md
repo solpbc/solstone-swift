@@ -6,6 +6,19 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-09-11
+
+### Added
+- report a problem opens the support site with your app version, ios version and a short problem status included.
+
+### Changed
+- audio, location and screen now read ready to set up until you've first enabled them. declining microphone or location access during first setup also leaves that source ready to set up, with a way back to ios settings.
+
+### Fixed
+- web addresses and common device file paths no longer appear in error details from a network failure or a refused transfer.
+- retry messages now say why a transfer is retrying, such as a timeout or a network problem.
+- reopening the app on your apple watch now shows needs attention if the app stopped during a moment. it could previously open showing off and miss the wrist alert.
+
 ## [2.0.0] - 2026-09-10
 
 ### Added
