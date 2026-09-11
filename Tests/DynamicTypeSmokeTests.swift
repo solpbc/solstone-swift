@@ -86,11 +86,17 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         XCTAssertEqual(activeLocationManager.sourceState, .active)
         let needsAttentionLocationProvider = MockLocationProvider()
         needsAttentionLocationProvider.capability = .denied
+        // A revoked permission is only a fault for a source the owner DID set up, so the
+        // record is what keeps this case rendering `needs attention` at all.
+        let needsAttentionSuite = "DynamicTypeSmokeTests.\(UUID().uuidString)"
+        let needsAttentionDefaults = UserDefaults(suiteName: needsAttentionSuite)!
+        defer { needsAttentionDefaults.removePersistentDomain(forName: needsAttentionSuite) }
+        needsAttentionDefaults.set(true, forKey: "location.enabled")
         let needsAttentionLocationManager = LocationManager(
             provider: needsAttentionLocationProvider,
             mobileSegmentEngine: mobileSegmentEngine,
             clock: MockObserverClock(),
-            defaults: nil
+            defaults: needsAttentionDefaults
         )
         await needsAttentionLocationManager.start(tier: .balanced)
         XCTAssertEqual(needsAttentionLocationManager.sourceState, .needsAttention)

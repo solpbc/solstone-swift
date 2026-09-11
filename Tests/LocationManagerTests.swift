@@ -330,7 +330,11 @@ nonisolated final class LocationManagerTests: XCTestCase {
 
         await manager.start(tier: .balanced)
 
-        XCTAssertEqual(manager.sourceState, .needsAttention)
+        // ⚠ The subject of this test is the RECOVERY, and it survives the state word: an
+        // owner who declined still gets the ios-settings route, which ios itself will not
+        // re-offer. The word is `ready to set up` because they declined rather than broke
+        // something — covered directly by the two declined-permission tests above.
+        XCTAssertEqual(manager.sourceState, .readyToSetUp)
         XCTAssertEqual(manager.recoveryActions, [.openSettings])
     }
 
@@ -601,6 +605,27 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(manager.sourceState, .readyToSetUp)
         XCTAssertNotNil(manager.sourceAttention)
         XCTAssertEqual(manager.recoveryActions, [.openSettings])
+    }
+
+    /// 🔴 ⛔ Only an OUTRIGHT DECLINE softens. These three are insufficient-capability faults
+    /// that `ready to set up` must never swallow, and the first version of this rule did:
+    /// a device restriction and disabled location services mean the owner did not decline
+    /// and *cannot* set it up, and a partial grant means they said yes, just not enough.
+    @MainActor
+    func testOnlyAnOutrightDeclineSoftens() async {
+        for capability in [LocationCapability.restricted, .servicesDisabled] {
+            self.provider.capability = capability
+            let manager = self.makeManager()
+            await manager.start(tier: .balanced)
+            XCTAssertEqual(manager.sourceState, .needsAttention, "\(capability)")
+        }
+
+        // A partial grant: the owner allowed `whenInUse` under a tier needing `always`.
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let partial = self.makeManager()
+        await partial.start(tier: .full)
+        await self.yieldToMainActor()
+        XCTAssertEqual(partial.sourceState, .needsAttention)
     }
 
     /// ⛔ Once the owner HAS set location up, a missing permission is a genuine fault:

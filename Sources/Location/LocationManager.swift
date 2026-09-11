@@ -256,12 +256,22 @@ private extension LocationManager {
         case .error(let error):
             let mapped = locationSourceState(effective: self.effectiveCapability(), tier: self.tier, paused: self.paused)
             let attention = mapped.1 ?? SourceAttention(message: error.message)
-            // ⛔ A permission the owner declined is not a fault. Without `location.enabled`
-            // there is no evidence the permission was ever held, so there is nothing to
-            // diagnose — they were asked and said no. ⚠ The attention message rides along
+            // ⛔ A permission the owner DECLINED outright is not a fault. Without
+            // `location.enabled` there is no evidence it was ever held, so there is nothing
+            // to diagnose — they were asked and said no. ⚠ The attention message rides along
             // unchanged, and the detail screen draws its reason line and its recovery from
             // the capability rather than from this word, so the way back survives.
-            if case .capabilityInsufficient = error, !Self.readEnabled(defaults: self.defaults) {
+            //
+            // 🔴 `.denied` ONLY, and the narrowness is the point. The other insufficient
+            // capabilities are real faults that this must not swallow:
+            //   · `.restricted` / `.servicesDisabled` — the device forbids it. The owner did
+            //     not decline and CANNOT set it up, so `ready to set up` would be a lie.
+            //   · a partial grant (`whenInUse` under an `always` tier, reduced accuracy under
+            //     full) — the owner said YES, just not enough. They chose a tier and granted
+            //     against it; the gap between the two is exactly what they need told.
+            if case .capabilityInsufficient = error,
+               case .denied = self.effectiveCapability(),
+               !Self.readEnabled(defaults: self.defaults) {
                 return (.readyToSetUp, attention)
             }
             return (.needsAttention, attention)
