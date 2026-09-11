@@ -555,9 +555,13 @@ struct RootShellView: View {
 
     private var sourcesBadgeVisible: Bool {
         [
-            sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused),
+            sourceState(
+                for: self.observerManager.state,
+                paused: self.observerSourcePauseState.isPaused,
+                enrolled: self.observerManager.isEnrolled
+            ),
             self.locationManager.sourceState,
-            screencastSourceState(for: self.screencastManager.state),
+            screencastSourceState(for: self.screencastManager.state, enrolled: self.screencastManager.isEnrolled),
         ].contains(where: \.showsSourcesBadge)
     }
 

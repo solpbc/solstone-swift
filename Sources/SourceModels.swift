@@ -59,21 +59,22 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         self.showsSubtext = showsSubtext
     }
 
-    var subtext: String {
+    var subtext: String? {
         self.subtextOverride ?? self.state.subtext(
             activeSubtext: self.activeSubtext,
             isJournalPaired: self.isJournalPaired
         )
     }
 
-    /// The sub-line a list row shows under the state word.
+    /// The sub-line a list row shows under the state word, when there is one.
     ///
     /// Suppressed when it would only restate the state word: `screen` supplies `off`
     /// as its own override, which rendered as "off / off". A sub-line that repeats
-    /// the line above it is noise, not information.
+    /// the line above it is noise, not information. Also absent for `readyToSetUp`,
+    /// where the state word is the whole message.
     var rowSubtext: String? {
-        guard self.showsSubtext, self.subtext != self.state.label else { return nil }
-        return self.subtext
+        guard self.showsSubtext, let subtext = self.subtext, subtext != self.state.label else { return nil }
+        return subtext
     }
 
     var voiceOverText: String {

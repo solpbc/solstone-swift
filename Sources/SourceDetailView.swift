@@ -103,7 +103,11 @@ private extension SourceDetailView {
     }
 
     var currentSourceState: SourceState {
-        sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused)
+        sourceState(
+            for: self.observerManager.state,
+            paused: self.observerSourcePauseState.isPaused,
+            enrolled: self.observerManager.isEnrolled
+        )
     }
 
     @ViewBuilder

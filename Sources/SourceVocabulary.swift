@@ -67,17 +67,30 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         }
     }
 
-    func subtext(activeSubtext: String, isJournalPaired: Bool) -> String {
-        self.universalSubtext(isJournalPaired: isJournalPaired) ?? activeSubtext
+    /// The sub-line under the state word, or `nil` when the state says it all.
+    ///
+    /// `readyToSetUp` returns `nil` deliberately. A source the owner has never set up
+    /// has nothing to add that the state word did not already say, and the fall-through
+    /// below would hand it the source's *running* line — `ready to set up` over `on`.
+    /// A source with something of its own to say here supplies a `subtextOverride`.
+    func subtext(activeSubtext: String, isJournalPaired: Bool) -> String? {
+        if case .readyToSetUp = self {
+            return nil
+        }
+        return self.universalSubtext(isJournalPaired: isJournalPaired) ?? activeSubtext
     }
 
     /// The deck tile's sub-line.
     ///
-    /// Same information as `subtext(...)`, said in the room a tile has. The detail
-    /// view is where a state explains itself in full ("not sending to your journal.
-    /// turn it on any time."); on a tile that wraps to three lines and truncates, so
-    /// the tile takes the short half of the same sentence. ⛔ Not a second vocabulary:
-    /// every string here is the tail of the long form, never a new claim.
+    /// The short half of `subtext(...)`, said in the room a tile has. The detail view is
+    /// where a state explains itself in full ("not sending to your journal. turn it on
+    /// any time."); on a tile that wraps to three lines and truncates, so the tile takes
+    /// less. ⛔ Not a second vocabulary: never a claim the long form does not make.
+    ///
+    /// ⛔ Do not read "the tail of the long form" into this. Of the instances here, `off`
+    /// is a tail, `paused` is the long form's first sentence and `setting up` is its head
+    /// clause — the binding rule is that a tile says nothing new, not where the cut falls.
+    /// `readyToSetUp` returns `nil`: the state word is the whole message on a tile.
     func compactSubtext(activeSubtext: String) -> String? {
         switch self {
         case .off:
@@ -88,9 +101,9 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
             SourceVocabulary.pausedSubtextCompact
         case .needsAttention:
             SourceVocabulary.needsAttentionSubtext
-        case .checking:
+        case .checking, .readyToSetUp:
             nil
-        case .active, .readyToSetUp:
+        case .active:
             activeSubtext
         }
     }
@@ -102,7 +115,7 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         case .enrolling:
             "setting up. \(SourceVocabulary.enrollingSubtext(isJournalPaired: isJournalPaired))"
         case .readyToSetUp:
-            "\(SourceVocabulary.sourceStateReadyToSetUpLabel). \(Self.sentence(activeSubtext))"
+            SourceVocabulary.sourceStateReadyToSetUpLabel
         case .checking:
             "checking."
         case .active:

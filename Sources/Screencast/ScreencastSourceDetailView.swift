@@ -41,7 +41,8 @@ private extension ScreencastSourceDetailView {
     var stateBlock: some View {
         let source = screencastSourcePresentation(
             managerState: self.screencastManager.state,
-            isJournalPaired: self.appConfig.isPaired
+            isJournalPaired: self.appConfig.isPaired,
+            enrolled: self.screencastManager.isEnrolled
         )
 
         return VStack(alignment: .leading, spacing: 12) {

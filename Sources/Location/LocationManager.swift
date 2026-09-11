@@ -241,7 +241,12 @@ private extension LocationManager {
     var sourcePresentation: (state: SourceState, attention: SourceAttention?) {
         switch self.state {
         case .idle:
-            return self.paused ? (.paused, nil) : (.off, nil)
+            if self.paused {
+                return (.paused, nil)
+            }
+            // `location.enabled` is the owner's own record that they turned location on at
+            // least once. Without it, `off` would report a choice nobody made.
+            return Self.readEnabled(defaults: self.defaults) ? (.off, nil) : (.readyToSetUp, nil)
         case .starting:
             return (.enrolling, nil)
         case .active:

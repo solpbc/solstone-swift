@@ -7,13 +7,47 @@ import XCTest
 
 nonisolated final class SourceStateMappingTests: XCTestCase {
     func testObserverStatesMapToSourceStates() {
-        XCTAssertEqual(sourceState(for: .idle, paused: false), .off)
-        XCTAssertEqual(sourceState(for: .starting, paused: false), .enrolling)
-        XCTAssertEqual(sourceState(for: .active(Self.session()), paused: false), .active)
-        XCTAssertEqual(sourceState(for: .stopping, paused: false), .active)
-        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false), .needsAttention)
-        XCTAssertEqual(sourceState(for: .error(.diskFull), paused: false), .needsAttention)
-        XCTAssertEqual(sourceState(for: .idle, paused: true), .paused)
+        XCTAssertEqual(sourceState(for: .idle, paused: false, enrolled: true), .off)
+        XCTAssertEqual(sourceState(for: .starting, paused: false, enrolled: true), .enrolling)
+        XCTAssertEqual(sourceState(for: .active(Self.session()), paused: false, enrolled: true), .active)
+        XCTAssertEqual(sourceState(for: .stopping, paused: false, enrolled: true), .active)
+        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false, enrolled: true), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.diskFull), paused: false, enrolled: true), .needsAttention)
+        XCTAssertEqual(sourceState(for: .idle, paused: true, enrolled: true), .paused)
+    }
+
+    /// A source the owner has never set up is `ready to set up`, never `off` —
+    /// `off` is the owner's own choice and a fresh install has not made one.
+    func testIdleAudioIsReadyToSetUpWithoutTheOwnersRecord() {
+        XCTAssertEqual(sourceState(for: .idle, paused: false, enrolled: false), .readyToSetUp)
+        XCTAssertEqual(sourceState(for: .idle, paused: false, enrolled: true), .off)
+    }
+
+    /// ⛔ Never `ready to set up` over a source that is running, whatever the record says.
+    func testRunningAudioIsNeverReadyToSetUp() {
+        XCTAssertEqual(sourceState(for: .active(Self.session()), paused: false, enrolled: false), .active)
+        XCTAssertEqual(sourceState(for: .stopping, paused: false, enrolled: false), .active)
+        XCTAssertEqual(sourceState(for: .starting, paused: false, enrolled: false), .enrolling)
+    }
+
+    /// An explicit pause outranks the record: the owner did act.
+    func testPausedOutranksAMissingRecord() {
+        XCTAssertEqual(sourceState(for: .idle, paused: true, enrolled: false), .paused)
+    }
+
+    func testScreencastOffIsReadyToSetUpWithoutTheOwnersRecord() {
+        XCTAssertEqual(screencastSourceState(for: .off, enrolled: false), .readyToSetUp)
+        XCTAssertEqual(screencastSourceState(for: .off, enrolled: true), .off)
+    }
+
+    /// The sub-line under `ready to set up` is absent, ⛔ never the source's running line.
+    func testReadyToSetUpHasNoSubLine() {
+        XCTAssertNil(SourceState.readyToSetUp.subtext(activeSubtext: "on", isJournalPaired: true))
+        XCTAssertNil(SourceState.readyToSetUp.compactSubtext(activeSubtext: "on"))
+        XCTAssertEqual(
+            SourceState.readyToSetUp.voiceOverText(activeSubtext: "on", isJournalPaired: true),
+            SourceVocabulary.sourceStateReadyToSetUpLabel
+        )
     }
 
     func testOnThisPhoneSendStateMapping() {

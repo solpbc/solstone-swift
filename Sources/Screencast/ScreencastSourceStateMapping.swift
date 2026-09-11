@@ -3,10 +3,10 @@
 
 import Foundation
 
-nonisolated func screencastSourceState(for state: ScreencastManager.State) -> SourceState {
+nonisolated func screencastSourceState(for state: ScreencastManager.State, enrolled: Bool) -> SourceState {
     switch state {
     case .off:
-        .off
+        enrolled ? .off : .readyToSetUp
     case .starting:
         .enrolling
     case .active:

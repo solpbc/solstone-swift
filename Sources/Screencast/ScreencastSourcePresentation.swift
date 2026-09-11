@@ -5,15 +5,19 @@ import Foundation
 
 nonisolated func screencastSourcePresentation(
     managerState: ScreencastManager.State,
-    isJournalPaired: Bool
+    isJournalPaired: Bool,
+    enrolled: Bool
 ) -> Source {
-    let state = screencastSourceState(for: managerState)
-    let subtextOverride: String
+    let state = screencastSourceState(for: managerState, enrolled: enrolled)
+    let subtextOverride: String?
     let attention: SourceAttention?
 
     switch managerState {
     case .off:
-        subtextOverride = SourceVocabulary.screencastOffSubtext
+        // Screen always supplies its own sub-line, so it never reaches the shared
+        // fall-through — which means a never-set-up source would read
+        // `ready to set up` over `off`. It gets no sub-line instead.
+        subtextOverride = enrolled ? SourceVocabulary.screencastOffSubtext : nil
         attention = nil
     case .starting:
         subtextOverride = SourceVocabulary.screencastStartingSubtext

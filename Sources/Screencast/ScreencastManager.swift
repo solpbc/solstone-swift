@@ -429,6 +429,13 @@ final class ScreencastManager {
         static let lastAttentionAt = "screencast.lastAttentionAt"
     }
 
+    /// Whether the owner has ever set screen up. Written at every transition into the
+    /// running state, and backfilled once from `Key.lastSessionID` for owners who were
+    /// already using screen before the record existed.
+    var isEnrolled: Bool {
+        self.defaults?.bool(forKey: Key.enrolled) ?? false
+    }
+
     private func persistEnrolled() {
         self.defaults?.set(true, forKey: Key.enrolled)
     }

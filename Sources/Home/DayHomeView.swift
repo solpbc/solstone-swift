@@ -366,7 +366,11 @@ private extension DayHomeView {
     var audioIsOn: Binding<Bool> {
         Binding(
             get: {
-                switch sourceState(for: self.observerManager.state, paused: self.observerSourcePauseState.isPaused) {
+                switch sourceState(
+                    for: self.observerManager.state,
+                    paused: self.observerSourcePauseState.isPaused,
+                    enrolled: self.observerManager.isEnrolled
+                ) {
                 case .active, .enrolling:
                     true
                 case .off, .paused, .readyToSetUp, .checking, .needsAttention:

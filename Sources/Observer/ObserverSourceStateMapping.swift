@@ -3,7 +3,13 @@
 
 import Foundation
 
-nonisolated func sourceState(for observerState: ObserverState, paused: Bool) -> SourceState {
+/// `enrolled` is the owner's own record that they set audio up at least once.
+///
+/// Without it an idle manager is indistinguishable from one the owner switched off,
+/// and `off` is the owner's *intent* — so a fresh install would claim a decision
+/// nobody made. ⛔ `enrolled` is never inferred from the manager's state; it is read
+/// from what the owner actually did.
+nonisolated func sourceState(for observerState: ObserverState, paused: Bool, enrolled: Bool) -> SourceState {
     switch observerState {
     case .error:
         .needsAttention
@@ -12,6 +18,10 @@ nonisolated func sourceState(for observerState: ObserverState, paused: Bool) -> 
     case .active, .stopping:
         .active
     case .idle:
-        paused ? .paused : .off
+        if paused {
+            .paused
+        } else {
+            enrolled ? .off : .readyToSetUp
+        }
     }
 }

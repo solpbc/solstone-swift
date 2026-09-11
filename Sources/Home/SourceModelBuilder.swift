@@ -39,11 +39,13 @@ nonisolated func makeLocationSource(
 
 nonisolated func makeScreencastSource(
     managerState: ScreencastManager.State,
-    isJournalPaired: Bool
+    isJournalPaired: Bool,
+    enrolled: Bool
 ) -> Source {
     screencastSourcePresentation(
         managerState: managerState,
-        isJournalPaired: isJournalPaired
+        isJournalPaired: isJournalPaired,
+        enrolled: enrolled
     )
 }
 
@@ -86,7 +88,11 @@ func makeHomeSourceBundle(
     screencastManager: ScreencastManager,
     watchLane: PhoneWatchSourceLane
 ) -> HomeSourceBundle {
-    let audioState = sourceState(for: observerManager.state, paused: observerSourcePauseState.isPaused)
+    let audioState = sourceState(
+        for: observerManager.state,
+        paused: observerSourcePauseState.isPaused,
+        enrolled: observerManager.isEnrolled
+    )
     let audioAttention: SourceAttention? = {
         if case .error(let error) = observerManager.state {
             return SourceAttention(message: error.message)
@@ -102,7 +108,8 @@ func makeHomeSourceBundle(
         ),
         screencast: makeScreencastSource(
             managerState: screencastManager.state,
-            isJournalPaired: isJournalPaired
+            isJournalPaired: isJournalPaired,
+            enrolled: screencastManager.isEnrolled
         ),
         watch: watchSourceModel(from: watchLane, isJournalPaired: isJournalPaired)
     )

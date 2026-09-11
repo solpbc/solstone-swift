@@ -252,6 +252,17 @@ final class ObserverManager {
     }
 }
 
+extension ObserverManager {
+    /// Whether the owner has ever set audio up.
+    ///
+    /// Written where `startSession` enters the running state, so it flips at the same
+    /// moment `state` does — which is what keeps a view reading it in step without its
+    /// own observation.
+    var isEnrolled: Bool {
+        self.defaults.bool(forKey: AudioStorageKey.enrolled)
+    }
+}
+
 extension ObserverManager: ObserverSessionControlling {
     func startCaptureSession(mode: ObserverMode) async -> Bool {
         switch await self.startSession(mode: mode) {

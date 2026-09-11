@@ -108,12 +108,14 @@ private extension LocationSourceDetailView {
                 }
             )
 
-            Text(sourceState.subtext(
+            if let subtext = sourceState.subtext(
                 activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: self.appConfig.isPaired),
                 isJournalPaired: self.appConfig.isPaired
-            ))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            ) {
+                Text(subtext)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
             Text(sharingStatus)
                 .font(.subheadline)

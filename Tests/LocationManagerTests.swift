@@ -53,7 +53,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
         let manager = self.makeManager()
 
         XCTAssertEqual(manager.sharingGrant, .always(accuracy: .reduced))
-        XCTAssertEqual(manager.sourceState, .off)
+        XCTAssertEqual(manager.sourceState, .readyToSetUp)
     }
 
     @MainActor
@@ -537,7 +537,8 @@ nonisolated final class LocationManagerTests: XCTestCase {
         await manager.stopForDelete()
         XCTAssertEqual(self.defaults.bool(forKey: "location.enabled"), false)
         XCTAssertEqual(self.defaults.bool(forKey: "location.paused"), false)
-        XCTAssertEqual(manager.sourceState, .off)
+        // Deleting withdraws the wish, so the source honestly reads as one that can be set up.
+        XCTAssertEqual(manager.sourceState, .readyToSetUp)
     }
 
     @MainActor
@@ -584,14 +585,24 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.startCallCount, 0)
     }
 
+    /// An enabled source that is idle and unpaused still reads `off` — the owner's own
+    /// choice is reported as a choice. ⛔ Only the absence of a record reads as never set up.
     @MainActor
-    func testResumeIfNeverEnabledStaysOffAndEndsOrphans() async {
+    func testEnabledButIdleStillReadsOff() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        let manager = self.makeManager()
+
+        XCTAssertEqual(manager.sourceState, .off)
+    }
+
+    @MainActor
+    func testResumeIfNeverEnabledStaysReadyToSetUpAndEndsOrphans() async {
         self.provider.capability = .always(accuracy: .full)
         let manager = self.makeManager()
 
         await manager.resumeIfEnabled()
 
-        XCTAssertEqual(manager.sourceState, .off)
+        XCTAssertEqual(manager.sourceState, .readyToSetUp)
         XCTAssertEqual(self.provider.requestWhenInUseCallCount, 0)
         XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
         XCTAssertEqual(self.provider.startCallCount, 0)
@@ -674,9 +685,9 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testOffToEnrollingToActiveSourceState() async {
+    func testReadyToSetUpToEnrollingToActiveSourceState() async {
         let manager = self.makeManager()
-        XCTAssertEqual(manager.sourceState, .off)
+        XCTAssertEqual(manager.sourceState, .readyToSetUp)
 
         await manager.start(tier: .light)
         XCTAssertEqual(manager.sourceState, .enrolling)
@@ -752,7 +763,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
 
         await manager.stopForDelete()
 
-        XCTAssertEqual(manager.sourceState, .off)
+        XCTAssertEqual(manager.sourceState, .readyToSetUp)
     }
 
     @MainActor
