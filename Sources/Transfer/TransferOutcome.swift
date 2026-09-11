@@ -86,6 +86,32 @@ nonisolated extension TransferTransientReason {
     }
 }
 
+nonisolated extension TransferAttentionReason {
+    /// Detail retained for a terminal attention state.
+    ///
+    /// Runtime-provided text is bounded before storage because the detail fans out
+    /// to the source row, diagnostics, and status mirror. Those consumers must not
+    /// each need to remember how to make a server response or NSError safe to share.
+    var ownerSafeDetail: String {
+        switch self {
+        case .httpClientError(let statusCode, let detail):
+            Self.boundedRuntimeDetail(detail, fallback: "http \(statusCode)")
+        case .decodeFailed(let detail):
+            detail
+        case .missingPayload(let detail):
+            Self.boundedRuntimeDetail(detail, fallback: "missing source details")
+        case .malformedManifest(let detail):
+            detail
+        }
+    }
+
+    private static func boundedRuntimeDetail(_ detail: String?, fallback: String) -> String {
+        guard let detail else { return fallback }
+        let bounded = WatchTransferFailureFormatter.redactedDescription(detail)
+        return bounded.isEmpty ? fallback : bounded
+    }
+}
+
 nonisolated enum TransferHTTPClassifier {
     private struct SaveResponse: Decodable {
         let path: String?

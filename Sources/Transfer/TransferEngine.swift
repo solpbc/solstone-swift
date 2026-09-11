@@ -1465,15 +1465,6 @@ private extension TransferEngine {
     }
 
     func shortDetail(for reason: TransferAttentionReason) -> String {
-        switch reason {
-        case .httpClientError(let statusCode, let detail):
-            return detail ?? "http \(statusCode)"
-        case .decodeFailed(let detail):
-            return detail
-        case .missingPayload(let detail):
-            return detail
-        case .malformedManifest(let detail):
-            return detail
-        }
+        reason.ownerSafeDetail
     }
 }

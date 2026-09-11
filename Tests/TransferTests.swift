@@ -565,6 +565,70 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(TransferTransientReason.transport("").retryDetail, "retrying: network")
     }
 
+    func testTerminalAttentionDetailBoundsBothRuntimePayloads() {
+        let serverBody = "request to https://journal.example/ingest at /Users/owner/Library/Private "
+            + "Authorization: Bearer secret-token "
+            + String(repeating: "x", count: 400)
+        let httpDetail = TransferAttentionReason
+            .httpClientError(statusCode: 422, detail: serverBody)
+            .ownerSafeDetail
+        XCTAssertFalse(httpDetail.contains("https://"), httpDetail)
+        XCTAssertFalse(httpDetail.contains("/Users/"), httpDetail)
+        XCTAssertFalse(httpDetail.contains("secret-token"), httpDetail)
+        XCTAssertLessThanOrEqual(httpDetail.count, WatchTransferFailureFormatter.maxDescriptionLength, httpDetail)
+
+        let errorDetail = TransferAttentionReason
+            .missingPayload("Error Domain=upload Code=1 UserInfo={NSFilePath=/Users/owner/Library/Private/file.m4a}")
+            .ownerSafeDetail
+        XCTAssertFalse(errorDetail.contains("/Users/"), errorDetail)
+        XCTAssertLessThanOrEqual(errorDetail.count, WatchTransferFailureFormatter.maxDescriptionLength, errorDetail)
+
+        XCTAssertEqual(TransferAttentionReason.decodeFailed("invalid response").ownerSafeDetail, "invalid response")
+        XCTAssertEqual(TransferAttentionReason.malformedManifest("invalid manifest").ownerSafeDetail, "invalid manifest")
+    }
+
+    func testTerminalHttpAttentionStoresOnlyTheBoundedServerDetail() async throws {
+        let hostile = "request to https://journal.example/ingest at /Users/owner/Library/Private "
+            + String(repeating: "x", count: 400)
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 422), Data(hostile.utf8))
+        }
+        let engine = self.makeEngine()
+        try await engine.start()
+        let itemID = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(92)), payloads: self.audioPayloads())
+
+        try await self.waitFor("terminal http attention") {
+            (await engine.itemSnapshot(itemID: itemID))?.state == .attention
+        }
+        let detail = try XCTUnwrap(await engine.itemSnapshot(itemID: itemID)?.manifest.attention?.shortDetail)
+        let sourceDetail = (await engine.snapshot()).sources["alpha"]?.lastErrorDetail
+        XCTAssertEqual(sourceDetail, detail)
+        XCTAssertFalse(detail.contains("https://"), detail)
+        XCTAssertFalse(detail.contains("/Users/"), detail)
+        XCTAssertLessThanOrEqual(detail.count, WatchTransferFailureFormatter.maxDescriptionLength, detail)
+    }
+
+    func testTerminalMissingPayloadStoresOnlyTheBoundedNSErrorDescription() async throws {
+        let engine = self.makeEngine(bodyBuilder: { _, _ in
+            throw NSError(
+                domain: "Upload",
+                code: 1,
+                userInfo: [NSFilePathErrorKey: "/Users/owner/Library/Private/file.m4a"]
+            )
+        })
+        try await engine.start()
+        let itemID = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(93)), payloads: self.audioPayloads())
+
+        try await self.waitFor("terminal missing-payload attention") {
+            (await engine.itemSnapshot(itemID: itemID))?.state == .attention
+        }
+        let detail = try XCTUnwrap(await engine.itemSnapshot(itemID: itemID)?.manifest.attention?.shortDetail)
+        let sourceDetail = (await engine.snapshot()).sources["alpha"]?.lastErrorDetail
+        XCTAssertEqual(sourceDetail, detail)
+        XCTAssertFalse(detail.contains("/Users/"), detail)
+        XCTAssertLessThanOrEqual(detail.count, WatchTransferFailureFormatter.maxDescriptionLength, detail)
+    }
+
     func testTransientRetryRecordsTheCauseNotTheState() async throws {
         // Drives the engine so the retry CALL SITE is exercised. Asserting the rendering
         // in isolation passes even when the branch still records a bare state word.
