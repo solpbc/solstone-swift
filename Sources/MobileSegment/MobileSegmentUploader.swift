@@ -60,6 +60,10 @@ final class MobileSegmentUploader {
     @ObservationIgnored private let storageDisabledReason: String?
     @ObservationIgnored private let cooperator: MaintenanceCooperator
     @ObservationIgnored private var enqueuingSegmentIDs: Set<UUID> = []
+    /// Segments this process opened or adopted and still holds open. Reconcile
+    /// exists for the previous process's orphans; a segment the running engine
+    /// owns is still being written and must not be swept.
+    @ObservationIgnored private var liveSegmentIDs: Set<UUID> = []
 
     init(
         transferEngine: TransferEngine? = nil,
@@ -90,6 +94,7 @@ final class MobileSegmentUploader {
             activeSourceSetVersion: sourceSetVersion
         )
         _ = try self.store.createActive(manifest: manifest)
+        self.liveSegmentIDs.insert(manifest.segmentID)
         self.refreshCounts()
         return manifest.segmentID
     }
@@ -101,6 +106,7 @@ final class MobileSegmentUploader {
         sourceSetVersion: Int
     ) throws {
         try self.requireStorageAvailable()
+        self.liveSegmentIDs.insert(segmentID)
         let directory = self.activeDirectory(segmentID: segmentID)
         if self.store.fileExists(directory), (try? self.store.readManifest(in: directory)) != nil {
             self.refreshCounts()
@@ -429,6 +435,7 @@ final class MobileSegmentUploader {
     }
 
     func finalizeActiveSegment(segmentID: UUID, endedAt: Date) async {
+        self.liveSegmentIDs.remove(segmentID)
         guard self.guardStorageAvailable() else { return }
         let directory = self.activeDirectory(segmentID: segmentID)
         do {
@@ -684,7 +691,9 @@ final class MobileSegmentUploader {
                 try self.store.writeOutcome(resolution, source: .screencast, manifest: &manifest, in: directory, now: now)
             case .audio:
                 let audioURL = self.store.audioURL(in: directory)
-                if self.store.fileExists(audioURL) {
+                let hasAudioFile = self.store.fileExists(audioURL)
+                let container = hasAudioFile ? await MobileSegmentDuration.probeContainerDuration(at: audioURL) : nil
+                if let container {
                     let finalized = MobileSegmentSourceResolution(
                         state: .finalizedArtifact,
                         artifactFilename: audioURL.lastPathComponent,
@@ -692,17 +701,20 @@ final class MobileSegmentUploader {
                         startedAt: manifest.startedAt,
                         endedAt: now,
                         durationS: MobileSegmentDuration.bounded(
-                            container: await MobileSegmentDuration.probeContainerDuration(at: audioURL),
+                            container: container,
                             elapsed: now.timeIntervalSince(manifest.startedAt)
                         ),
                         mode: manifest.resolution(for: .audio).mode
                     )
                     try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
                 } else {
+                    if hasAudioFile {
+                        mobileSegmentUploadLog.notice("mobile segment audio container unreadable segment=\(segmentID.uuidString, privacy: .public) bytes=\(self.store.fileSize(at: audioURL) ?? 0, privacy: .public)")
+                    }
                     self.store.removeIfExists(audioURL)
                     let resolution = MobileSegmentSourceResolution(
                         state: .removed,
-                        reason: "audio_no_local_data",
+                        reason: hasAudioFile ? "audio_container_unreadable" : "audio_no_local_data",
                         lastAttemptAt: now
                     )
                     try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: now)
@@ -735,6 +747,7 @@ final class MobileSegmentUploader {
     }
 
     func dropSegment(segmentID: UUID) {
+        self.liveSegmentIDs.remove(segmentID)
         guard self.guardStorageAvailable() else { return }
         if let found = self.store.findDirectory(segmentID: segmentID) {
             try? self.store.remove(found.url)
@@ -1492,6 +1505,11 @@ private extension MobileSegmentUploader {
         )
     }
 
+}
+
+extension MobileSegmentUploader {
+    /// Sweeps `active/` for segments a previous process left behind. Internal so tests
+    /// can observe the reconcile verdict before `resumeFromDisk` resolves the failure pile.
     func reconcileActiveSegments() async throws {
         guard self.guardStorageAvailable() else { return }
         let active = try self.store.list(.active)
@@ -1501,6 +1519,9 @@ private extension MobileSegmentUploader {
             guard !Task.isCancelled else { return }
             guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
             let now = self.clock.now()
+            if self.liveSegmentIDs.contains(segmentID) {
+                continue
+            }
             if self.isReservedLeasedScreencastSegment(segmentID: segmentID, now: now) {
                 continue
             }
@@ -1535,7 +1556,9 @@ private extension MobileSegmentUploader {
                 switch source {
                 case .audio:
                     let audioURL = self.store.audioURL(in: directory)
-                    if self.store.fileExists(audioURL) {
+                    let hasAudioFile = self.store.fileExists(audioURL)
+                    let container = hasAudioFile ? await MobileSegmentDuration.probeContainerDuration(at: audioURL) : nil
+                    if let container {
                         let finalized = MobileSegmentSourceResolution(
                             state: .finalizedArtifact,
                             artifactFilename: audioURL.lastPathComponent,
@@ -1543,16 +1566,19 @@ private extension MobileSegmentUploader {
                             startedAt: manifest.startedAt,
                             endedAt: now,
                             durationS: MobileSegmentDuration.bounded(
-                                container: await MobileSegmentDuration.probeContainerDuration(at: audioURL),
+                                container: container,
                                 elapsed: now.timeIntervalSince(manifest.startedAt)
                             ),
                             mode: resolution.mode
                         )
                         try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
                     } else {
+                        // A recorder that never closed its file leaves an m4a with the
+                        // header written and no `moov` atom, so nothing downstream can
+                        // decode it. Only a container that reads back is an artifact.
                         let failed = MobileSegmentSourceResolution(
                             state: .failedToFinalize,
-                            reason: "unclean relaunch unresolved source",
+                            reason: hasAudioFile ? "audio_container_unreadable" : "unclean relaunch unresolved source",
                             stage: "reconcile",
                             lastAttemptAt: now
                         )
@@ -1626,7 +1652,10 @@ private extension MobileSegmentUploader {
         }
     }
 
-    private func hasFreshScreencastLiveness(segmentID: UUID, directory: URL, now: Date) -> Bool {
+}
+
+private extension MobileSegmentUploader {
+    func hasFreshScreencastLiveness(segmentID: UUID, directory: URL, now: Date) -> Bool {
         let diagnosticURL = MobileSegmentScreencastPaths.screenDiagnosticURL(inSegmentDirectory: directory)
         guard !self.store.fileExists(diagnosticURL) else { return false }
         let livenessURL = MobileSegmentScreencastPaths.screenLivenessURL(inSegmentDirectory: directory)
