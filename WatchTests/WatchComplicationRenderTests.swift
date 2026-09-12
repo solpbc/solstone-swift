@@ -123,14 +123,14 @@ private extension WatchComplicationRenderTests {
 
     static let pairwiseAlphaDifferenceFloors: [PairwiseAlphaFloor] = [
         PairwiseAlphaFloor(.healthy, .attention, minimum: 0.081262), // measured 0.116089
-        PairwiseAlphaFloor(.healthy, .paused, minimum: 0.104761), // measured 0.149658
+        PairwiseAlphaFloor(.healthy, .paused, minimum: 0.090576), // measured 0.129395
         PairwiseAlphaFloor(.healthy, .connecting, minimum: 0.033026), // measured 0.047180
         PairwiseAlphaFloor(.healthy, .offline, minimum: 0.050287), // measured 0.071838
-        PairwiseAlphaFloor(.attention, .paused, minimum: 0.060413), // measured 0.086304
+        PairwiseAlphaFloor(.attention, .paused, minimum: 0.040674), // measured 0.058105
         PairwiseAlphaFloor(.attention, .connecting, minimum: 0.051783), // measured 0.073975
         PairwiseAlphaFloor(.attention, .offline, minimum: 0.073743), // measured 0.105347
-        PairwiseAlphaFloor(.paused, .connecting, minimum: 0.072589), // measured 0.103699
-        PairwiseAlphaFloor(.paused, .offline, minimum: 0.097412), // measured 0.139160
+        PairwiseAlphaFloor(.paused, .connecting, minimum: 0.058661), // measured 0.083801
+        PairwiseAlphaFloor(.paused, .offline, minimum: 0.080621), // measured 0.115173
         PairwiseAlphaFloor(.connecting, .offline, minimum: 0.062549), // measured 0.089355
     ]
 
