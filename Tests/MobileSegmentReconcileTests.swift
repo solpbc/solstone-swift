@@ -50,14 +50,16 @@ final class MobileSegmentReconcileTests: XCTestCase {
 
         await harness.uploader.resumeFromDisk()
         try await self.waitFor("first reconcile uploads") {
-            MobileSegmentReconcileURLProtocol.callCount == 2
+            MobileSegmentReconcileURLProtocol.callCount == 1
         }
         await harness.uploader.resumeFromDisk()
         try await Task.sleep(for: .milliseconds(50))
 
-        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 2)
+        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 1)
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: finalizedWithFile).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: uncleanAudio).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: uncleanAudio).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(uncleanAudio.uuidString).json").path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: finalizedMissingFile).path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: unresolvedNoMarker).path))
         XCTAssertEqual(try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.failed, segmentID: finalizedMissingFile)).audio.state, .finalizedArtifact)
@@ -107,35 +109,72 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertEqual(manifest.segment, ChunkSidecar.segmentString(for: startedAt, durationSeconds: 300))
     }
 
-    func testResumeReconcileUnreadableAudioBoundsElapsedFallback() async throws {
+    func testReconcileMarksUnreadableAudioContainerFailedAndKeepsTheFile() async throws {
         let harness = try await self.makeHarness(connected: false)
-        let hoursOldID = UUID()
-        let ninetySecondID = UUID()
-        let futureID = UUID()
-        let hoursOld = self.clock.now().addingTimeInterval(-3_600)
-        let ninetySecondsOld = self.clock.now().addingTimeInterval(-90)
-        let future = self.clock.now().addingTimeInterval(10)
-        let hoursDirectory = try self.writeActiveSegment(segmentID: hoursOldID, store: harness.store, sources: [.audio], startedAt: hoursOld)
-        let ninetyDirectory = try self.writeActiveSegment(segmentID: ninetySecondID, store: harness.store, sources: [.audio], startedAt: ninetySecondsOld)
-        let futureDirectory = try self.writeActiveSegment(segmentID: futureID, store: harness.store, sources: [.audio], startedAt: future)
-        try Data("audio-\(hoursOldID.uuidString)".utf8).write(to: harness.store.audioURL(in: hoursDirectory), options: .atomic)
-        try Data("audio-\(ninetySecondID.uuidString)".utf8).write(to: harness.store.audioURL(in: ninetyDirectory), options: .atomic)
-        try Data("audio-\(futureID.uuidString)".utf8).write(to: harness.store.audioURL(in: futureDirectory), options: .atomic)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-90)
+        let directory = try self.writeActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio], startedAt: startedAt)
+        // An m4a whose recorder never closed it: `ftyp` header, no `moov` atom.
+        try self.writeUnfinalizedAudio(at: harness.store.audioURL(in: directory))
+
+        try await harness.uploader.reconcileActiveSegments()
+
+        let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedDirectory.path))
+        let manifest = try harness.store.readManifest(in: failedDirectory)
+        XCTAssertEqual(manifest.audio.state, .failedToFinalize)
+        XCTAssertEqual(manifest.audio.reason, "audio_container_unreadable")
+        XCTAssertEqual(manifest.audio.stage, "reconcile")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: failedDirectory).path))
+    }
+
+    func testResumeRetiresUnreadableAudioContainerWithoutUploading() async throws {
+        let harness = try await self.makeHarness(connected: true)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-90)
+        let directory = try self.writeActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio], startedAt: startedAt)
+        try self.writeUnfinalizedAudio(at: harness.store.audioURL(in: directory))
+        MobileSegmentReconcileURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"status":"ok"}"#.utf8)
+            )
+        }
 
         await harness.uploader.resumeFromDisk()
+        try await Task.sleep(for: .milliseconds(100))
 
-        let hoursManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: hoursOldID))
-        let ninetyManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: ninetySecondID))
-        let futureManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: futureID))
-        XCTAssertEqual(hoursManifest.audio.durationS, 300)
-        XCTAssertEqual(hoursManifest.durationS, 300)
-        XCTAssertEqual(hoursManifest.segment, ChunkSidecar.segmentString(for: hoursOld, durationSeconds: 300))
-        XCTAssertEqual(ninetyManifest.audio.durationS, 90)
-        XCTAssertEqual(ninetyManifest.durationS, 90)
-        XCTAssertEqual(ninetyManifest.segment, ChunkSidecar.segmentString(for: ninetySecondsOld, durationSeconds: 90))
-        XCTAssertEqual(futureManifest.audio.durationS, 1)
-        XCTAssertEqual(futureManifest.durationS, 1)
-        XCTAssertEqual(futureManifest.segment, ChunkSidecar.segmentString(for: future, durationSeconds: 1))
+        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
+        for lifecycle in [MobileSegmentLifecycle.active, .pending, .failed] {
+            XCTAssertFalse(
+                FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(lifecycle, segmentID: segmentID).path),
+                "unreadable audio must not linger in \(lifecycle)"
+            )
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json").path))
+    }
+
+    func testResumeReconcileSkipsSegmentThisProcessOpened() async throws {
+        let harness = try await self.makeHarness(connected: true)
+        let segmentID = try harness.uploader.openSegment(sources: [.audio], startedAt: self.clock.now().addingTimeInterval(-5), sourceSetVersion: 1)
+        // The recorder is mid-write: the file exists but is not yet a finished container.
+        try self.writeUnfinalizedAudio(at: harness.uploader.activeAudioURL(segmentID: segmentID))
+        MobileSegmentReconcileURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"status":"ok"}"#.utf8)
+            )
+        }
+
+        await harness.uploader.resumeFromDisk()
+        try await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
+        let activeDirectory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: activeDirectory.path))
+        XCTAssertEqual(try harness.store.readManifest(in: activeDirectory).audio.state, .unresolved)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: activeDirectory).path))
     }
 
     func testResumeReconcileUploadedMetadataUsesBoundedSegmentKey() async throws {
@@ -143,7 +182,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-3_600)
         let directory = try self.writeActiveSegment(segmentID: segmentID, store: harness.store, sources: [.audio], startedAt: startedAt)
-        try Data("audio-\(segmentID.uuidString)".utf8).write(to: harness.store.audioURL(in: directory), options: .atomic)
+        try self.writeReadableAudio(at: harness.store.audioURL(in: directory), seconds: 301)
         MobileSegmentReconcileURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -421,7 +460,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
         let harness = try await self.makeHarness(connected: true)
         let segmentID = UUID()
         let directory = try self.liveLocation.writeActiveLocation(segmentID: segmentID, store: harness.store, sources: [.audio, .location])
-        try Data("audio-\(segmentID.uuidString)".utf8).write(to: harness.store.audioURL(in: directory), options: .atomic)
+        try self.writeReadableAudio(at: harness.store.audioURL(in: directory), seconds: 12)
         MobileSegmentReconcileURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -546,7 +585,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
             now: self.clock.now().addingTimeInterval(-60)
         )
         let mixedDirectory = try self.liveLocation.writeActiveLocation(segmentID: mixedID, store: harness.store, sources: [.audio, .location])
-        try Data("audio-\(mixedID.uuidString)".utf8).write(to: harness.store.audioURL(in: mixedDirectory), options: .atomic)
+        try self.writeReadableAudio(at: harness.store.audioURL(in: mixedDirectory), seconds: 12)
         MobileSegmentReconcileURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -686,6 +725,18 @@ private extension MobileSegmentReconcileTests {
 
     func writeReadableAudio(at url: URL, seconds: TimeInterval, sampleRate: Double = 16_000) throws {
         try MobileSegmentTestFixtures.writeReadableAudio(at: url, seconds: seconds, sampleRate: sampleRate)
+    }
+
+    /// The file an `AVAudioFile` leaves behind when its process dies mid-write: a valid
+    /// `ftyp` box, then the zeroed region where `moov` would have been written on close.
+    func writeUnfinalizedAudio(at url: URL) throws {
+        var bytes = Data([0x00, 0x00, 0x00, 0x1C])
+        bytes.append(contentsOf: "ftypM4A ".utf8)
+        bytes.append(contentsOf: [0x00, 0x00, 0x00, 0x00])
+        bytes.append(contentsOf: "M4A mp42isom".utf8)
+        bytes.append(Data(count: 4_096))
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try bytes.write(to: url, options: .atomic)
     }
 
     func writeActiveAudio(segmentID: UUID, store: MobileSegmentStore, state: MobileSegmentResolutionState, includeFile: Bool) throws {

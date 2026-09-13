@@ -54,7 +54,7 @@ private final class ValueBox<T>: @unchecked Sendable {
 }
 
 final class HomeConnectionLifecycleTests: XCTestCase {
-    final class MockURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated final class MockURLProtocol: URLProtocol, @unchecked Sendable {
         private static let box = LifecycleHandlerBox()
         private static let asyncBox = ValueBox<(@Sendable (URLRequest) async throws -> (HTTPURLResponse, Data))?>(nil)
 

@@ -6,6 +6,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+- a recording the app couldn't finish, such as one cut off when the app closed, no longer syncs to your journal as a file that can't be played. it's set aside on the phone instead, and a recording that's still in progress when the app opens is left alone.
+
 ## [2.0.1] - 2026-09-11
 
 ### Added
