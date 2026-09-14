@@ -6,6 +6,17 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.1 (91)] - 2026-09-14
+
+### Changed
+- the paused mark on your apple watch is now a single dash instead of two bars.
+- while audio is on, your apple watch does less in the background: its watch-face card refreshes when audio starts or stops rather than each time it checks in, and its timer only runs while the screen is awake.
+
+### Fixed
+- once audio from your watch had reached your iphone and was only waiting on confirmation, the watch row could still say it was on your watch and to keep your watch nearby. it now reads as confirming with your iphone.
+- if your journal stopped opening from the app with "couldn't reach your journal" after the app had been open a while, this resolves it.
+- a connection to your journal that dropped before it finished connecting no longer waits more than it should before trying again.
+
 ## [2.0.1] - 2026-09-11
 
 ### Added
