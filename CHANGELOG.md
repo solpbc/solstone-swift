@@ -7,7 +7,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ## [Unreleased]
 
 ### Fixed
-- if audio recorded on your iphone or ipad stopped partway through, that moment could still land in your journal as if it had finished, with nothing playable in it. the unfinished audio is now deleted instead: a moment that held only that audio no longer reaches your journal, and one that also held location or screen arrives without the audio. thanks to @dvanduzer, who tracked this down.
+- if audio from your iphone or ipad stopped partway through, that moment could still land in your journal as if it had finished, with nothing playable in it. the unfinished audio is now deleted instead: a moment that held only that audio no longer reaches your journal, and one that also held location or screen arrives without the audio. thanks to @dvanduzer, who diagnosed it.
 
 ## [2.0.1 (91)] - 2026-09-14
 
