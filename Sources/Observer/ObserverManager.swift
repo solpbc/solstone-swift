@@ -144,8 +144,10 @@ final class ObserverManager {
         let sessionID = UUID()
         let startedAt = self.clock.now()
 
+        var didOpenAudioSegment = false
         do {
             let chunkURL = try await self.mobileSegmentEngine.startAudio(mode: mode)
+            didOpenAudioSegment = true
             guard self.isCurrentStart(startGeneration) else {
                 await self.mobileSegmentEngine.stopAudio(finalized: nil)
                 return .refused(.cancelled)
@@ -189,12 +191,14 @@ final class ObserverManager {
             guard self.isCurrentStart(startGeneration) else {
                 return .refused(.cancelled)
             }
+            await self.releaseFailedAudioStart(didOpenAudioSegment)
             self.state = .error(observerError)
             return .refused(.error(observerError))
         } catch {
             guard self.isCurrentStart(startGeneration) else {
                 return .refused(.cancelled)
             }
+            await self.releaseFailedAudioStart(didOpenAudioSegment)
             let observerError = Self.observerError(from: error)
             self.state = .error(observerError)
             return .refused(.error(observerError))
@@ -222,9 +226,9 @@ final class ObserverManager {
         self.cancelTasks()
 
         let stopResult = await self.stopRecorder()
-        if wasActive {
-            await self.mobileSegmentEngine.stopAudio(finalized: stopResult.finalized)
-        }
+        // stopRecorder() runs whatever the prior state was, so a stop racing a start can hold a
+        // real chunk. Hand it over unconditionally; the engine no-ops when it owns no audio.
+        await self.mobileSegmentEngine.stopAudio(finalized: stopResult.finalized)
 
         if wasActive, let sessionID = self.currentSessionID {
             await self.liveActivity.end(sessionID: sessionID)
@@ -480,6 +484,15 @@ private extension ObserverManager {
 
     func isCurrentStart(_ generation: Int) -> Bool {
         generation == self.startGeneration
+    }
+
+    /// Release a start that failed after the engine had already opened a segment. Stopping the
+    /// recorder closes the writer and the audio session; handing its chunk to the engine resolves
+    /// the segment, so nothing is left holding one that will never be finished.
+    private func releaseFailedAudioStart(_ didOpenAudioSegment: Bool) async {
+        guard didOpenAudioSegment else { return }
+        let stopResult = await self.stopRecorder()
+        await self.mobileSegmentEngine.stopAudio(finalized: stopResult.finalized)
     }
 
     func stopRecorder() async -> (finalized: ObserverRecordedChunk?, failure: ObserverError?) {

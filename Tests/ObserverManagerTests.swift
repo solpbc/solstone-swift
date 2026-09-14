@@ -614,6 +614,43 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testFailedAudioStartReleasesItsSegmentSoARetryRecordsSomewhereFresh() async throws {
+        // A start that throws never installed the tap, so the writer holds no frames.
+        self.recorder.nextChunkDuration = 0
+        self.recorder.startError = ObserverManagerTestError.startFailed
+
+        await self.manager.startSession(mode: .meeting)
+
+        guard case .error = self.manager.state else {
+            return XCTFail("Expected error state after a failed start")
+        }
+        let failedURL = try XCTUnwrap(self.recorder.lastStartURL)
+
+        self.recorder.startError = nil
+        await self.manager.startSession(mode: .meeting)
+
+        let retryURL = try XCTUnwrap(self.recorder.lastStartURL)
+        XCTAssertNotEqual(
+            failedURL.deletingLastPathComponent(),
+            retryURL.deletingLastPathComponent(),
+            "A retry must record into a fresh segment, not the failed start's"
+        )
+    }
+
+    @MainActor
+    func testFailedAudioStartLeavesNoSegmentBehind() async throws {
+        self.recorder.nextChunkDuration = 0
+        self.recorder.startError = ObserverManagerTestError.startFailed
+
+        await self.manager.startSession(mode: .meeting)
+
+        let store = self.mobileSegmentUploader.storeForTransferMigration
+        XCTAssertEqual(try store.list(.active).count, 0, "The failed start's segment must not be left open")
+        XCTAssertEqual(try store.list(.pending).count, 0)
+        XCTAssertEqual(try store.list(.failed).count, 0)
+    }
+
+    @MainActor
     func testStartSessionPreservesThrownObserverError() async {
         self.recorder.startError = ObserverError.unavailable(reason: "audio input unavailable")
 
