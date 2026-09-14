@@ -22,4 +22,33 @@ enum MobileSegmentTestFixtures {
         buffer.frameLength = frameCount
         try file.write(from: buffer)
     }
+
+    static func writeFtypOnlyAudio(at url: URL) throws {
+        try? FileManager.default.removeItem(at: url)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let ftypBytes: [UInt8] = [
+            0x00, 0x00, 0x00, 0x18, // size: 24
+            0x66, 0x74, 0x79, 0x70, // 'ftyp'
+            0x6D, 0x70, 0x34, 0x32, // 'mp42'
+            0x00, 0x00, 0x00, 0x00, // minor version
+            0x69, 0x73, 0x6F, 0x6D, // compatible: 'isom'
+            0x6D, 0x70, 0x34, 0x32, // compatible: 'mp42'
+        ]
+        try Data(ftypBytes).write(to: url, options: .atomic)
+    }
+
+    static func writeUnreadableRegularAudio(at url: URL) throws {
+        try? FileManager.default.removeItem(at: url)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("unreadable-audio-content".utf8).write(to: url, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: url.path)
+    }
+
+    @MainActor
+    static func setAudioModificationDate(at url: URL, offset: TimeInterval, clock: any ObserverClock) throws {
+        try FileManager.default.setAttributes(
+            [.modificationDate: clock.now().addingTimeInterval(offset)],
+            ofItemAtPath: url.path
+        )
+    }
 }

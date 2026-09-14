@@ -91,7 +91,9 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
             sources: [.audio],
             startedAt: startedAt
         ) { directory, manifest, startedAt, endedAt in
-            try MobileSegmentTestFixtures.writeReadableAudio(at: harness.store.audioURL(in: directory), seconds: 400)
+            let audioURL = harness.store.audioURL(in: directory)
+            try MobileSegmentTestFixtures.writeReadableAudio(at: audioURL, seconds: 400)
+            try MobileSegmentTestFixtures.setAudioModificationDate(at: audioURL, offset: -400, clock: self.clock)
             try self.writeFailedOutcome(source: .audio, store: harness.store, directory: directory, manifest: &manifest, startedAt: startedAt, endedAt: endedAt)
         }
 
@@ -106,8 +108,10 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         XCTAssertEqual(try self.emptyTombstoneCount(store: harness.store), 0)
     }
 
-    func testFailedAudioPresentUnprobeablePromotesUsingElapsedFallback() async throws {
-        let harness = try await self.makeHarness()
+    // AC13 inversion & AC9
+    func testFailedAudioPresentUndecodableRetiresWithAudioUndecodableTombstone() async throws {
+        let diagnosticLog = DiagnosticLog()
+        let harness = try await self.makeHarness(diagnosticLog: diagnosticLog)
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-120)
         let failedDirectory = try self.writeBundle(
@@ -117,20 +121,29 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
             sources: [.audio],
             startedAt: startedAt
         ) { directory, manifest, startedAt, endedAt in
-            try Data("stub".utf8).write(to: harness.store.audioURL(in: directory), options: .atomic)
+            let audioURL = harness.store.audioURL(in: directory)
+            try MobileSegmentTestFixtures.writeFtypOnlyAudio(at: audioURL)
+            try MobileSegmentTestFixtures.setAudioModificationDate(at: audioURL, offset: -400, clock: self.clock)
             try self.writeFailedOutcome(source: .audio, store: harness.store, directory: directory, manifest: &manifest, startedAt: startedAt, endedAt: endedAt)
         }
 
         let result = try await harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
 
-        XCTAssertEqual(result, .repend)
-        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
-        let manifest = try harness.store.readManifest(in: pendingDirectory)
-        XCTAssertEqual(manifest.audio.state, .finalizedArtifact)
-        let duration = try XCTUnwrap(manifest.audio.durationS)
-        XCTAssertEqual(duration, 120)
-        XCTAssertLessThan(duration, 300)
-        XCTAssertEqual(try self.emptyTombstoneCount(store: harness.store), 0)
+        XCTAssertEqual(result, .retired)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        let tombstone = try self.emptyTombstone(segmentID: segmentID, store: harness.store)
+        XCTAssertEqual(tombstone.reason, "audio_undecodable_container")
+
+        let uploadEvents = diagnosticLog.filtered(by: [.upload])
+        let event = try XCTUnwrap(uploadEvents.first { $0.detail?.contains(segmentID.uuidString) == true })
+        XCTAssertEqual(event.severity, DiagnosticSeverity.warning)
+        XCTAssertEqual(event.message, "needs attention")
+        let detail = try XCTUnwrap(event.detail)
+        XCTAssertTrue(detail.contains("source=audio"))
+        XCTAssertTrue(detail.contains("reason=audio_undecodable_container"))
+        XCTAssertTrue(detail.contains("domain=AVFoundationErrorDomain"))
+        XCTAssertTrue(detail.contains("code=-11829"))
     }
 
     func testFailedLiveLocationPartialCorruptPartSalvagesLocationAndRequeuesBoth() async throws {
@@ -512,7 +525,7 @@ private extension MobileSegmentFinalizeResolverTests {
         MobileSegmentLiveLocationTestSupport(clock: self.clock)
     }
 
-    func makeHarness(connected: Bool = true, maxAttempts: Int = 1) async throws -> Harness {
+    func makeHarness(connected: Bool = true, maxAttempts: Int = 1, diagnosticLog: DiagnosticLog? = nil) async throws -> Harness {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MobileSegmentFinalizeResolverURLProtocol.self]
         _ = maxAttempts
@@ -525,7 +538,7 @@ private extension MobileSegmentFinalizeResolverTests {
         )
         try await transferHarness.engine.start()
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
-        let uploader = MobileSegmentUploader(transferEngine: transferHarness.engine, store: store, clock: self.clock)
+        let uploader = MobileSegmentUploader(transferEngine: transferHarness.engine, store: store, clock: self.clock, diagnosticLog: diagnosticLog)
         return Harness(
             uploader: uploader,
             store: store,

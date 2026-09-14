@@ -59,6 +59,7 @@ final class MobileSegmentUploader {
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let storageDisabledReason: String?
     @ObservationIgnored private let cooperator: MaintenanceCooperator
+    @ObservationIgnored private let diagnosticLog: DiagnosticLog?
     @ObservationIgnored private var enqueuingSegmentIDs: Set<UUID> = []
 
     init(
@@ -66,13 +67,15 @@ final class MobileSegmentUploader {
         store: MobileSegmentStore = MobileSegmentStore(),
         clock: any ObserverClock = SystemObserverClock(),
         storageDisabledReason: String? = nil,
-        cooperator: MaintenanceCooperator = MaintenanceCooperator()
+        cooperator: MaintenanceCooperator = MaintenanceCooperator(),
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.transferEngine = transferEngine
         self.store = store
         self.clock = clock
         self.storageDisabledReason = storageDisabledReason
         self.cooperator = cooperator
+        self.diagnosticLog = diagnosticLog
         if let storageDisabledReason {
             self.lastError = storageDisabledReason
             return
@@ -533,8 +536,12 @@ final class MobileSegmentUploader {
             if manifest.isEmptyResolved {
                 manifest.upload = .empty
                 try self.store.writeManifest(manifest, in: directory)
-                try self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: "no_artifacts", now: endedAt)
+                let tombstoneReason = self.tombstoneReasonForEmptyRetirement(manifest: manifest, defaultReason: "no_artifacts")
+                try self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: tombstoneReason, now: endedAt)
                 try self.store.remove(directory)
+                if manifest.audio.reason == "audio_undecodable_container" {
+                    self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
+                }
             } else if manifest.hasFinalizeFailure {
                 manifest.upload = .failed
                 try self.store.writeManifest(manifest, in: directory)
@@ -631,6 +638,89 @@ final class MobileSegmentUploader {
         self.refreshCounts()
     }
 
+    private enum AudioDeriveResult {
+        case resolved
+        case missingFile
+        case liveOrDeferred
+    }
+
+    private func deriveAudioArtifact(
+        directory: URL,
+        manifest: inout MobileSegmentManifest,
+        now: Date
+    ) async throws -> AudioDeriveResult {
+        let audioURL = self.store.audioURL(in: directory)
+        guard self.store.fileExists(audioURL) else {
+            return .missingFile
+        }
+        let mtime = self.fileDate(audioURL, fileManager: .default)
+        let isFresh: Bool
+        if let mtime {
+            isFresh = now.timeIntervalSince(mtime) < MobileSegmentDuration.rotationCeiling
+        } else {
+            isFresh = true
+        }
+        if isFresh {
+            return .liveOrDeferred
+        }
+        let verdict = await MobileSegmentDuration.classifyAudioContainer(at: audioURL)
+        switch verdict {
+        case .decodable(let duration):
+            let finalized = MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: audioURL.lastPathComponent,
+                bytes: self.store.fileSize(at: audioURL),
+                startedAt: manifest.startedAt,
+                endedAt: now,
+                durationS: MobileSegmentDuration.bounded(
+                    container: duration,
+                    elapsed: now.timeIntervalSince(manifest.startedAt)
+                ),
+                mode: manifest.resolution(for: .audio).mode
+            )
+            try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
+            return .resolved
+        case .permanentlyUndecodable(let domain, let code):
+            self.store.removeIfExists(audioURL)
+            let resolution = MobileSegmentSourceResolution(
+                state: .removed,
+                reason: "audio_undecodable_container",
+                stage: "\(domain) \(code)",
+                lastAttemptAt: now,
+                mode: manifest.resolution(for: .audio).mode
+            )
+            try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: now)
+            return .resolved
+        case .unknownOrTransient:
+            return .liveOrDeferred
+        }
+    }
+
+    private func tombstoneReasonForEmptyRetirement(manifest: MobileSegmentManifest, defaultReason: String) -> String {
+        if manifest.audio.reason == "audio_undecodable_container" {
+            return "audio_undecodable_container"
+        }
+        return defaultReason
+    }
+
+    private func emitUndecodableAudioDiagnostic(segmentID: UUID, manifest: MobileSegmentManifest) {
+        var domain = "AVFoundationErrorDomain"
+        var code = "-11829"
+        if let stage = manifest.audio.stage {
+            let parts = stage.split(separator: " ")
+            if parts.count >= 2 {
+                domain = String(parts[0])
+                code = String(parts[1])
+            }
+        }
+        self.diagnosticLog?.append(
+            category: .upload,
+            severity: .warning,
+            message: "needs attention",
+            detail: "segment=\(segmentID.uuidString) source=audio reason=audio_undecodable_container domain=\(domain) code=\(code)"
+        )
+    }
+
     func resolveFinalizeFailure(
         segmentID: UUID,
         directory: URL,
@@ -640,6 +730,7 @@ final class MobileSegmentUploader {
         var manifest = try self.store.readManifest(in: directory)
         guard manifest.hasFinalizeFailure else { return .deferred }
 
+        var deferredAudio = false
         for source in [MobileSegmentSource.location, .screencast, .audio] {
             guard manifest.declaredSources.contains(source),
                   manifest.resolution(for: source).state == .failedToFinalize else {
@@ -683,32 +774,31 @@ final class MobileSegmentUploader {
                 )
                 try self.store.writeOutcome(resolution, source: .screencast, manifest: &manifest, in: directory, now: now)
             case .audio:
-                let audioURL = self.store.audioURL(in: directory)
-                if self.store.fileExists(audioURL) {
-                    let finalized = MobileSegmentSourceResolution(
-                        state: .finalizedArtifact,
-                        artifactFilename: audioURL.lastPathComponent,
-                        bytes: self.store.fileSize(at: audioURL),
-                        startedAt: manifest.startedAt,
-                        endedAt: now,
-                        durationS: MobileSegmentDuration.bounded(
-                            container: await MobileSegmentDuration.probeContainerDuration(at: audioURL),
-                            elapsed: now.timeIntervalSince(manifest.startedAt)
-                        ),
-                        mode: manifest.resolution(for: .audio).mode
-                    )
-                    try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
-                } else {
-                    self.store.removeIfExists(audioURL)
+                let result = try await self.deriveAudioArtifact(
+                    directory: directory,
+                    manifest: &manifest,
+                    now: now
+                )
+                switch result {
+                case .missingFile:
+                    self.store.removeIfExists(self.store.audioURL(in: directory))
                     let resolution = MobileSegmentSourceResolution(
                         state: .removed,
                         reason: "audio_no_local_data",
                         lastAttemptAt: now
                     )
                     try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: now)
+                case .liveOrDeferred:
+                    deferredAudio = true
+                case .resolved:
+                    break
                 }
             }
             manifest = try self.store.readManifest(in: directory)
+        }
+
+        if deferredAudio {
+            return .deferred
         }
 
         manifest = try self.store.readManifest(in: directory)
@@ -723,20 +813,31 @@ final class MobileSegmentUploader {
             return .repend
         }
 
+        let tombstoneReason = self.tombstoneReasonForEmptyRetirement(manifest: manifest, defaultReason: "unrecoverable_lost_data")
         try self.store.writeTombstone(
             segmentID: segmentID,
             kind: "empty",
-            reason: "unrecoverable_lost_data",
+            reason: tombstoneReason,
             now: self.clock.now()
         )
         try self.store.remove(directory)
-        mobileSegmentUploadLog.notice("mobile segment retired unrecoverable segment=\(segmentID.uuidString, privacy: .public) reason=unrecoverable_lost_data")
+        if manifest.audio.reason == "audio_undecodable_container" {
+            self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
+        }
+        mobileSegmentUploadLog.notice("mobile segment retired unrecoverable segment=\(segmentID.uuidString, privacy: .public) reason=\(tombstoneReason, privacy: .public)")
         return .retired
     }
 
     func dropSegment(segmentID: UUID) {
         guard self.guardStorageAvailable() else { return }
         if let found = self.store.findDirectory(segmentID: segmentID) {
+            if let manifest = try? self.store.readManifest(in: found.url),
+               manifest.audio.reason == "audio_undecodable_container" {
+                if !self.store.hasTombstone(segmentID: segmentID, kind: "empty") {
+                    try? self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: "audio_undecodable_container", now: self.clock.now())
+                }
+                self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
+            }
             try? self.store.remove(found.url)
         }
         self.refreshCounts()
@@ -770,6 +871,10 @@ final class MobileSegmentUploader {
                 }
                 await self.enqueuePendingSegmentIntoTransfer(segmentID: segmentID)
             } else {
+                if manifest.audio.reason == "audio_undecodable_container" {
+                    try self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: "audio_undecodable_container", now: now)
+                    self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
+                }
                 try self.store.remove(found.url)
             }
         } catch {
@@ -802,8 +907,12 @@ final class MobileSegmentUploader {
                 }
                 await self.enqueuePendingSegmentIntoTransfer(segmentID: segmentID)
             } else {
-                try self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: "screencast_removed", now: self.clock.now())
+                let tombstoneReason = self.tombstoneReasonForEmptyRetirement(manifest: manifest, defaultReason: "screencast_removed")
+                try self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: tombstoneReason, now: self.clock.now())
                 try self.store.remove(found.url)
+                if manifest.audio.reason == "audio_undecodable_container" {
+                    self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
+                }
             }
         } catch {
             let diagnostic = "mobile segment screencast redaction failed segment=\(segmentID.uuidString) source=screencast"
@@ -1292,6 +1401,9 @@ private extension MobileSegmentUploader {
                 payloadFileURLs: payloadFileURLs
             )
             try self.store.remove(directory)
+            if manifest.audio.reason == "audio_undecodable_container" {
+                self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
+            }
         } catch {
             let diagnostic = "mobile segment enqueue failed segment=\(segmentID.uuidString) stage=transfer-enqueue"
             self.lastError = diagnostic
@@ -1486,7 +1598,7 @@ private extension MobileSegmentUploader {
         _ = MobileSegmentTransferSpoolMigrator.quarantine(
             directory,
             quarantineRootURL: quarantineRoot,
-            diagnosticLog: nil,
+            diagnosticLog: self.diagnosticLog,
             reason: reason,
             fileManager: .default
         )
@@ -1508,6 +1620,7 @@ private extension MobileSegmentUploader {
             let screenURL = self.store.screenURL(in: directory)
             var hasLiveUnresolvedScreencast = false
             var hasLiveUnresolvedLocation = false
+            var hasLiveUnresolvedAudio = false
             if !manifest.openedWithSources.contains(.screencast),
                manifest.screencast.state == .notDeclared,
                self.store.fileExists(screenURL) {
@@ -1534,22 +1647,13 @@ private extension MobileSegmentUploader {
                 guard !resolution.state.isTerminal else { continue }
                 switch source {
                 case .audio:
-                    let audioURL = self.store.audioURL(in: directory)
-                    if self.store.fileExists(audioURL) {
-                        let finalized = MobileSegmentSourceResolution(
-                            state: .finalizedArtifact,
-                            artifactFilename: audioURL.lastPathComponent,
-                            bytes: self.store.fileSize(at: audioURL),
-                            startedAt: manifest.startedAt,
-                            endedAt: now,
-                            durationS: MobileSegmentDuration.bounded(
-                                container: await MobileSegmentDuration.probeContainerDuration(at: audioURL),
-                                elapsed: now.timeIntervalSince(manifest.startedAt)
-                            ),
-                            mode: resolution.mode
-                        )
-                        try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
-                    } else {
+                    let result = try await self.deriveAudioArtifact(
+                        directory: directory,
+                        manifest: &manifest,
+                        now: now
+                    )
+                    switch result {
+                    case .missingFile:
                         let failed = MobileSegmentSourceResolution(
                             state: .failedToFinalize,
                             reason: "unclean relaunch unresolved source",
@@ -1557,6 +1661,11 @@ private extension MobileSegmentUploader {
                             lastAttemptAt: now
                         )
                         try self.store.writeOutcome(failed, source: .audio, manifest: &manifest, in: directory, now: now)
+                    case .liveOrDeferred:
+                        hasLiveUnresolvedAudio = true
+                        continue
+                    case .resolved:
+                        break
                     }
                 case .location:
                     let locationURL = self.store.locationURL(in: directory)
@@ -1620,7 +1729,7 @@ private extension MobileSegmentUploader {
                 }
                 manifest = try self.store.readManifest(in: directory)
             }
-            if !hasLiveUnresolvedScreencast && !hasLiveUnresolvedLocation {
+            if !hasLiveUnresolvedScreencast && !hasLiveUnresolvedLocation && !hasLiveUnresolvedAudio {
                 await self.finalizeActiveSegment(segmentID: segmentID, endedAt: now)
             }
         }

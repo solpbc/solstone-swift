@@ -195,6 +195,198 @@ nonisolated final class MobileSegmentOwnerSurfaceTests: XCTestCase {
         XCTAssertEqual(Set(snapshot.manifest.payloadParts.map(\.partID)), ["audio", "screencast"])
         XCTAssertEqual(snapshot.manifest.observerIngest?.sources.sorted(), ["audio", "screencast"])
     }
+
+    // AC8: Redact screencast with undecodable audio writes audio_undecodable_container tombstone
+    @MainActor
+    func testRedactScreencastFacetWithUndecodableAudioWritesAudioUndecodableTombstone() async throws {
+        let diagnosticLog = DiagnosticLog()
+        let harness = self.makeHarness(diagnosticLog: diagnosticLog)
+        let segmentID = UUID()
+        let startedAt = self.fixedNow
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio, .screencast],
+            activeSourceSetVersion: 1
+        )
+        manifest.day = "20260628"
+        manifest.segment = "090000_60"
+        manifest.endedAt = endedAt
+        manifest.durationS = 60
+        manifest.upload = .pending
+        let directory = try harness.store.createActive(manifest: manifest)
+        try Data("screen".utf8).write(to: harness.store.screenURL(in: directory), options: .atomic)
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .removed,
+                reason: "audio_undecodable_container",
+                stage: "AVFoundationErrorDomain -11829",
+                lastAttemptAt: endedAt,
+                mode: .meeting
+            ),
+            source: .audio,
+            manifest: &manifest,
+            in: directory,
+            now: endedAt
+        )
+        manifest = try harness.store.readManifest(in: directory)
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: "screen.mp4",
+                bytes: harness.store.fileSize(at: harness.store.screenURL(in: directory)),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: 60
+            ),
+            source: .screencast,
+            manifest: &manifest,
+            in: directory,
+            now: endedAt
+        )
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+
+        await harness.mobileSegmentUploader.redactScreencastFacet(segmentID: segmentID)
+
+        let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tombstoneURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let tombstone = try decoder.decode(MobileSegmentTombstone.self, from: Data(contentsOf: tombstoneURL))
+        XCTAssertEqual(tombstone.reason, "audio_undecodable_container")
+
+        let uploadEvents = diagnosticLog.filtered(by: [.upload])
+        XCTAssertTrue(uploadEvents.contains(where: {
+            $0.detail?.contains("audio_undecodable_container") == true &&
+            $0.detail?.contains("AVFoundationErrorDomain") == true &&
+            $0.detail?.contains("-11829") == true &&
+            $0.detail?.contains(segmentID.uuidString) == true
+        }))
+    }
+
+    // AC8: Redact location with undecodable audio writes audio_undecodable_container tombstone
+    @MainActor
+    func testRedactLocationFacetWithUndecodableAudioWritesAudioUndecodableTombstone() async throws {
+        let diagnosticLog = DiagnosticLog()
+        let harness = self.makeHarness(diagnosticLog: diagnosticLog)
+        let segmentID = UUID()
+        let startedAt = self.fixedNow
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio, .location],
+            activeSourceSetVersion: 1
+        )
+        manifest.day = "20260628"
+        manifest.segment = "090000_60"
+        manifest.endedAt = endedAt
+        manifest.durationS = 60
+        manifest.upload = .pending
+        let directory = try harness.store.createActive(manifest: manifest)
+        try Data(#"{"schema":"solstone.location.segment/1","fix_count":1}"#.utf8).write(to: harness.store.locationURL(in: directory), options: .atomic)
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .removed,
+                reason: "audio_undecodable_container",
+                stage: "AVFoundationErrorDomain -11829",
+                lastAttemptAt: endedAt,
+                mode: .meeting
+            ),
+            source: .audio,
+            manifest: &manifest,
+            in: directory,
+            now: endedAt
+        )
+        manifest = try harness.store.readManifest(in: directory)
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .finalizedArtifact,
+                artifactFilename: "location.jsonl",
+                bytes: harness.store.fileSize(at: harness.store.locationURL(in: directory)),
+                startedAt: startedAt,
+                endedAt: endedAt,
+                durationS: 60,
+                fixCount: 1
+            ),
+            source: .location,
+            manifest: &manifest,
+            in: directory,
+            now: endedAt
+        )
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+
+        await harness.mobileSegmentUploader.redactLocationFacet(segmentID: segmentID)
+
+        let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tombstoneURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let tombstone = try decoder.decode(MobileSegmentTombstone.self, from: Data(contentsOf: tombstoneURL))
+        XCTAssertEqual(tombstone.reason, "audio_undecodable_container")
+
+        let uploadEvents = diagnosticLog.filtered(by: [.upload])
+        XCTAssertTrue(uploadEvents.contains(where: {
+            $0.detail?.contains("audio_undecodable_container") == true &&
+            $0.detail?.contains("AVFoundationErrorDomain") == true &&
+            $0.detail?.contains("-11829") == true &&
+            $0.detail?.contains(segmentID.uuidString) == true
+        }))
+    }
+
+    // AC9: dropSegment with undecodable audio writes audio_undecodable_container tombstone and emits diagnostic [.audio]
+    @MainActor
+    func testDropSegmentWithUndecodableAudioWritesTombstoneAndEmitsDiagnostic() async throws {
+        let diagnosticLog = DiagnosticLog()
+        let harness = self.makeHarness(diagnosticLog: diagnosticLog)
+        let segmentID = UUID()
+        let startedAt = self.fixedNow
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio],
+            activeSourceSetVersion: 1
+        )
+        manifest.day = "20260628"
+        manifest.segment = "090000_60"
+        manifest.endedAt = endedAt
+        manifest.durationS = 60
+        manifest.upload = .pending
+        let directory = try harness.store.createActive(manifest: manifest)
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .removed,
+                reason: "audio_undecodable_container",
+                stage: "AVFoundationErrorDomain -11829",
+                lastAttemptAt: endedAt,
+                mode: .meeting
+            ),
+            source: .audio,
+            manifest: &manifest,
+            in: directory,
+            now: endedAt
+        )
+        _ = try harness.store.move(segmentID: segmentID, from: .active, to: .pending)
+
+        harness.mobileSegmentUploader.dropSegment(segmentID: segmentID)
+
+        let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tombstoneURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let tombstone = try decoder.decode(MobileSegmentTombstone.self, from: Data(contentsOf: tombstoneURL))
+        XCTAssertEqual(tombstone.reason, "audio_undecodable_container")
+
+        let uploadEvents = diagnosticLog.filtered(by: [.upload])
+        XCTAssertTrue(uploadEvents.contains(where: {
+            $0.detail?.contains("audio_undecodable_container") == true &&
+            $0.detail?.contains("AVFoundationErrorDomain") == true &&
+            $0.detail?.contains("-11829") == true &&
+            $0.detail?.contains(segmentID.uuidString) == true
+        }))
+    }
 }
 
 @MainActor
@@ -209,7 +401,7 @@ private extension MobileSegmentOwnerSurfaceTests {
         let clock: MockObserverClock
     }
 
-    func makeHarness(fileSystem: (any TransferFileSystem)? = nil) -> Harness {
+    func makeHarness(fileSystem: (any TransferFileSystem)? = nil, diagnosticLog: DiagnosticLog? = nil) -> Harness {
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         let clock = MockObserverClock(now: self.fixedNow)
         let transferHarness = makeTransferCutoverHarness(
@@ -219,7 +411,8 @@ private extension MobileSegmentOwnerSurfaceTests {
         let mobileSegmentUploader = MobileSegmentUploader(
             transferEngine: transferHarness.engine,
             store: store,
-            clock: clock
+            clock: clock,
+            diagnosticLog: diagnosticLog
         )
         let mobileSegmentHolder = MobileSegmentTransferHolder(
             transferEngine: transferHarness.engine,

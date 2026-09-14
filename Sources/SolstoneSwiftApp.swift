@@ -289,7 +289,8 @@ struct SolstoneSwiftApp: App {
             transferEngine: transferEngine,
             store: mobileSegmentStore,
             clock: observerClock,
-            storageDisabledReason: mobileSegmentStorageDisabledReason
+            storageDisabledReason: mobileSegmentStorageDisabledReason,
+            diagnosticLog: log
         )
         if mobileSegmentUploader.lastError == nil {
             mobileSegmentUploader.lastError = mobileSegmentMigrationDiagnostics.first

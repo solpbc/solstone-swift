@@ -6,6 +6,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+- if audio capture is killed mid-recording, the unfinished file is no longer sent to your journal as if it had finished. a recording the phone is still writing is left in place. thanks @dvanduzer.
+
 ## [2.0.1 (91)] - 2026-09-14
 
 ### Changed
