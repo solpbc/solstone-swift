@@ -1604,6 +1604,8 @@ private extension MobileSegmentUploader {
         )
     }
 
+    private static let youngMissingAudioDeferralWindow: TimeInterval = 60
+
     func reconcileActiveSegments() async throws {
         guard self.guardStorageAvailable() else { return }
         let active = try self.store.list(.active)
@@ -1654,6 +1656,11 @@ private extension MobileSegmentUploader {
                     )
                     switch result {
                     case .missingFile:
+                        if now >= manifest.startedAt,
+                           now.timeIntervalSince(manifest.startedAt) < Self.youngMissingAudioDeferralWindow {
+                            hasLiveUnresolvedAudio = true
+                            continue
+                        }
                         let failed = MobileSegmentSourceResolution(
                             state: .failedToFinalize,
                             reason: "unclean relaunch unresolved source",

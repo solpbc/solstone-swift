@@ -906,6 +906,156 @@ final class MobileSegmentReconcileTests: XCTestCase {
                 .path
         ))
     }
+
+    func testResumeReconcileYoungMissingAudioRemainsActiveWithoutRetirement() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now()
+        let directory = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.audio],
+            startedAt: startedAt
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
+        let manifest = try harness.store.readManifest(in: directory)
+        XCTAssertEqual(manifest.audio.state, .unresolved)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
+        let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tombstoneURL.path))
+        XCTAssertNil(manifest.endedAt)
+    }
+
+    func testResumeReconcileAgedMissingAudioRetiresViaEmptyTombstone() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-61)
+        let directory = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.audio],
+            startedAt: startedAt
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tombstoneURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let tombstone = try decoder.decode(MobileSegmentTombstone.self, from: Data(contentsOf: tombstoneURL))
+        XCTAssertEqual(tombstone.reason, "unrecoverable_lost_data")
+    }
+
+    func testResumeReconcileFutureDatedMissingAudioRetiresViaEmptyTombstone() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(120)
+        let directory = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.audio],
+            startedAt: startedAt
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tombstoneURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let tombstone = try decoder.decode(MobileSegmentTombstone.self, from: Data(contentsOf: tombstoneURL))
+        XCTAssertEqual(tombstone.reason, "unrecoverable_lost_data")
+    }
+
+    func testResumeReconcileYoungMissingAudioRetiresAfterClockAdvancesPastDeadline() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now()
+        let directory = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.audio],
+            startedAt: startedAt
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
+        let manifest = try harness.store.readManifest(in: directory)
+        XCTAssertEqual(manifest.audio.state, .unresolved)
+        XCTAssertNil(manifest.endedAt)
+
+        self.clock.advance(by: 65)
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tombstoneURL.path))
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let tombstone = try decoder.decode(MobileSegmentTombstone.self, from: Data(contentsOf: tombstoneURL))
+        XCTAssertEqual(tombstone.reason, "unrecoverable_lost_data")
+    }
+
+    func testResumeReconcileYoungMissingAudioAllowsSubsequentRecorderFinalizationAndUpload() async throws {
+        let harness = try await self.makeHarness(connected: true)
+        let segmentID = UUID()
+        let startedAt = self.clock.now()
+        let directory = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.audio],
+            startedAt: startedAt
+        )
+
+        MobileSegmentReconcileURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"status":"ok"}"#.utf8)
+            )
+        }
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
+        var manifest = try harness.store.readManifest(in: directory)
+        XCTAssertEqual(manifest.audio.state, .unresolved)
+        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
+
+        let audioURL = harness.store.audioURL(in: directory)
+        try MobileSegmentTestFixtures.writeReadableAudio(at: audioURL, seconds: 12)
+
+        let chunk = ObserverRecordedChunk(url: audioURL, duration: 12)
+        try harness.uploader.recordAudioFinalized(
+            segmentID: segmentID,
+            finalized: chunk,
+            startedAt: startedAt,
+            endedAt: self.clock.now(),
+            mode: .meeting,
+            minimumDuration: 0.1
+        )
+
+        manifest = try harness.store.readManifest(in: directory)
+        XCTAssertEqual(manifest.audio.state, .finalizedArtifact)
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: self.clock.now())
+
+        try await self.waitFor("audio upload") {
+            MobileSegmentReconcileURLProtocol.callCount == 1
+        }
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: tombstoneURL.path))
+    }
 }
 
 private extension MobileSegmentReconcileTests {
