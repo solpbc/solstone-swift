@@ -6,6 +6,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+- if you turned your screen source off on your iphone or ipad and then back on, it wouldn't start again, and nothing from that attempt reached your journal. it does now.
+
 ## [2.0.2] - 2026-09-16
 
 ### Fixed
