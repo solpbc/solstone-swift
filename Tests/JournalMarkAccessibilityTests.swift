@@ -52,7 +52,7 @@ nonisolated final class JournalMarkAccessibilityTests: XCTestCase {
         XCTAssertEqual(JournalMarkGeneric.dashOn(side: 64), 3.2 * 64 / 27, accuracy: 0.0001)
         XCTAssertEqual(JournalMarkGeneric.dashOff(side: 64), 2.4 * 64 / 27, accuracy: 0.0001)
         XCTAssertEqual(JournalMarkGeneric.fillOpacity, 0.07)
-        XCTAssertEqual(JournalMarkGeneric.orangeHex, "#E8923A")
+        XCTAssertEqual(JournalMarkGeneric.orangeHex, "#E8913A")
         XCTAssertEqual(JournalMarkGeneric.goldHex, "#D4A017")
     }
 
