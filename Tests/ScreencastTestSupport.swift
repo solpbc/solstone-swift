@@ -182,6 +182,7 @@ nonisolated enum ScreencastFixtures {
     static let start = Date(timeIntervalSince1970: 1_780_480_800)
 
     static func runtime(
+        sessionID: UUID = Self.sessionID,
         revision: Int64 = 1,
         state: MobileSegmentScreencastRuntimeState = .broadcastStarted,
         segmentID: UUID? = nil,
@@ -190,7 +191,7 @@ nonisolated enum ScreencastFixtures {
     ) -> MobileSegmentScreencastRuntimeRecord {
         MobileSegmentScreencastRuntimeRecord(
             revision: revision,
-            sessionID: Self.sessionID,
+            sessionID: sessionID,
             state: state,
             startedAt: Self.start,
             lastSeenAt: lastSeenAt,
@@ -202,6 +203,7 @@ nonisolated enum ScreencastFixtures {
     }
 
     static func handoff(
+        sessionID: UUID = Self.sessionID,
         revision: Int64 = 1,
         sourceSet: [MobileSegmentSource] = [.screencast],
         segmentID: UUID = Self.segmentID
@@ -209,7 +211,7 @@ nonisolated enum ScreencastFixtures {
         MobileSegmentScreencastHandoffRecord(
             revision: revision,
             eventID: Self.eventID,
-            sessionID: Self.sessionID,
+            sessionID: sessionID,
             segmentID: segmentID,
             sourceSetVersion: Int(revision),
             sourceSet: sourceSet,
@@ -224,11 +226,12 @@ nonisolated enum ScreencastFixtures {
     }
 
     static func diagnostic(
+        sessionID: UUID = Self.sessionID,
         reason: MobileSegmentScreencastDiagnosticReason,
         segmentID: UUID? = Self.segmentID
     ) -> MobileSegmentScreencastDiagnostic {
         MobileSegmentScreencastDiagnostic(
-            sessionID: Self.sessionID,
+            sessionID: sessionID,
             segmentID: segmentID,
             handoffRevision: 1,
             reason: reason,

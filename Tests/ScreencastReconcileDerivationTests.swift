@@ -234,6 +234,119 @@ nonisolated final class ScreencastReconcileDerivationTests: XCTestCase {
 
         XCTAssertEqual(actions, [.noOp])
     }
+
+    func testLeftoverTerminalManifestResolutionDoesNotBlockNewSession() {
+        let previousSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000100")!
+        let newSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000200")!
+        let leftoverSegmentID = UUID(uuidString: "00000000-0000-0000-0000-000000000300")!
+
+        let runtime = ScreencastFixtures.runtime(
+            sessionID: newSessionID,
+            revision: 1,
+            state: .broadcastStarted,
+            segmentID: nil
+        )
+        let leftoverHandoff = ScreencastFixtures.handoff(
+            sessionID: previousSessionID,
+            revision: 1,
+            segmentID: leftoverSegmentID
+        )
+
+        let actions = deriveScreencastReconcileActions(input: self.input(
+            runtime: runtime,
+            handoff: leftoverHandoff,
+            filesystem: ScreencastFilesystemState(
+                segmentID: leftoverSegmentID,
+                screenExists: false,
+                partExists: false,
+                hasFreshLiveness: false,
+                terminalDiagnostic: nil
+            ),
+            engineSources: [.audio],
+            manifestResolution: MobileSegmentSourceResolution(state: .finalizedArtifact),
+            lastSessionID: previousSessionID
+        ))
+
+        XCTAssertEqual(actions, [.startBoundary(startedAt: runtime.startedAt, sessionID: newSessionID)])
+    }
+
+    func testStaleRevisionDoesNotBlockNewSessionStart() {
+        let previousSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000100")!
+        let newSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000200")!
+        let leftoverSegmentID = UUID(uuidString: "00000000-0000-0000-0000-000000000300")!
+
+        let runtime = ScreencastFixtures.runtime(
+            sessionID: newSessionID,
+            revision: 1,
+            state: .broadcastStarted,
+            segmentID: nil
+        )
+        let leftoverHandoff = ScreencastFixtures.handoff(
+            sessionID: previousSessionID,
+            revision: 5,
+            segmentID: leftoverSegmentID
+        )
+
+        let actions = deriveScreencastReconcileActions(input: self.input(
+            runtime: runtime,
+            handoff: leftoverHandoff,
+            filesystem: .empty,
+            engineSources: [.audio],
+            lastProcessedRuntimeRevision: 10,
+            lastProcessedHandoffRevision: 5,
+            lastSessionID: previousSessionID
+        ))
+
+        XCTAssertEqual(actions, [.startBoundary(startedAt: runtime.startedAt, sessionID: newSessionID)])
+    }
+
+    func testFailedRuntimeWithoutSegmentDoesNotTouchLeftoverSegment() {
+        let previousSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000100")!
+        let newSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000200")!
+        let leftoverSegmentID = UUID(uuidString: "00000000-0000-0000-0000-000000000300")!
+
+        let runtime = ScreencastFixtures.runtime(
+            sessionID: newSessionID,
+            revision: 1,
+            state: .failed,
+            segmentID: nil
+        )
+        let leftoverHandoff = ScreencastFixtures.handoff(
+            sessionID: previousSessionID,
+            revision: 1,
+            segmentID: leftoverSegmentID
+        )
+
+        let actions = deriveScreencastReconcileActions(input: self.input(
+            runtime: runtime,
+            handoff: leftoverHandoff,
+            filesystem: ScreencastFilesystemState(
+                segmentID: leftoverSegmentID,
+                screenExists: false,
+                partExists: false,
+                hasFreshLiveness: false,
+                terminalDiagnostic: nil
+            ),
+            engineSources: [.audio, .screencast],
+            lastSessionID: previousSessionID
+        ))
+
+        XCTAssertTrue(actions.contains { action in
+            if case .surfaceAttention = action { return true }
+            return false
+        })
+        XCTAssertFalse(actions.contains { action in
+            switch action {
+            case .recordFinalized(let segmentID),
+                 .recordNoArtifact(let segmentID, _),
+                 .recordFailed(let segmentID, _),
+                 .finalizeSegment(let segmentID, _):
+                return segmentID == leftoverSegmentID
+            default:
+                return false
+            }
+        })
+    }
 }
 
 private extension ScreencastReconcileDerivationTests {
@@ -246,6 +359,7 @@ private extension ScreencastReconcileDerivationTests {
         manifestResolution: MobileSegmentSourceResolution? = nil,
         lastProcessedRuntimeRevision: Int64 = 0,
         lastProcessedHandoffRevision: Int64 = 0,
+        lastSessionID: UUID? = nil,
         now: Date = ScreencastFixtures.start.addingTimeInterval(12)
     ) -> ScreencastReconcileInput {
         ScreencastReconcileInput(
@@ -257,6 +371,7 @@ private extension ScreencastReconcileDerivationTests {
             manifestResolution: manifestResolution,
             lastProcessedRuntimeRevision: lastProcessedRuntimeRevision,
             lastProcessedHandoffRevision: lastProcessedHandoffRevision,
+            lastSessionID: lastSessionID ?? runtime?.sessionID ?? ScreencastFixtures.sessionID,
             now: now
         )
     }

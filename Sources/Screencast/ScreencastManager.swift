@@ -66,6 +66,7 @@ nonisolated struct ScreencastReconcileInput: Equatable, Sendable {
     let manifestResolution: MobileSegmentSourceResolution?
     let lastProcessedRuntimeRevision: Int64
     let lastProcessedHandoffRevision: Int64
+    let lastSessionID: UUID?
     let now: Date
 
     init(
@@ -77,6 +78,7 @@ nonisolated struct ScreencastReconcileInput: Equatable, Sendable {
         manifestResolution: MobileSegmentSourceResolution?,
         lastProcessedRuntimeRevision: Int64,
         lastProcessedHandoffRevision: Int64,
+        lastSessionID: UUID? = nil,
         now: Date
     ) {
         self.runtime = runtime
@@ -87,6 +89,7 @@ nonisolated struct ScreencastReconcileInput: Equatable, Sendable {
         self.manifestResolution = manifestResolution
         self.lastProcessedRuntimeRevision = lastProcessedRuntimeRevision
         self.lastProcessedHandoffRevision = lastProcessedHandoffRevision
+        self.lastSessionID = lastSessionID
         self.now = now
     }
 }
@@ -117,23 +120,37 @@ nonisolated enum ScreencastContinuationLeaseDecision: Equatable, Sendable {
 }
 
 nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInput) -> [ScreencastReconcileAction] {
-    if input.manifestResolution?.state.isTerminal == true {
+    let currentSessionID = input.runtime?.sessionID ?? input.handoff?.sessionID
+    let handoff = (input.runtime != nil && input.handoff?.sessionID != input.runtime?.sessionID) ? nil : input.handoff
+    let terminalDiagnostic = (currentSessionID != nil && input.filesystem.terminalDiagnostic?.sessionID != currentSessionID)
+        ? nil
+        : input.filesystem.terminalDiagnostic
+
+    let isLeaseOwned: Bool
+    if let lease = input.continuationLease {
+        let validIDs = [input.runtime?.currentSegmentID, handoff?.segmentID].compactMap { $0 }
+        isLeaseOwned = validIDs.contains(lease.fromSegmentID) || validIDs.contains(lease.segmentID)
+    } else {
+        isLeaseOwned = false
+    }
+    let continuationLease = isLeaseOwned ? input.continuationLease : nil
+
+    let terminalSegmentID = terminalDiagnostic?.segmentID
+        ?? (isLeaseOwned ? input.filesystem.segmentID : nil)
+        ?? input.runtime?.currentSegmentID
+        ?? handoff?.segmentID
+
+    if terminalSegmentID != nil && input.manifestResolution?.state.isTerminal == true {
         return [.noOp]
     }
 
-    let terminalDiagnostic = input.filesystem.terminalDiagnostic
-    let terminalSegmentID = terminalDiagnostic?.segmentID
-        ?? input.filesystem.segmentID
-        ?? input.runtime?.currentSegmentID
-        ?? input.handoff?.segmentID
-
-    if let lease = input.continuationLease,
-       let sessionID = input.runtime?.sessionID ?? input.handoff?.sessionID,
+    if let lease = continuationLease,
+       let sessionID = input.runtime?.sessionID ?? handoff?.sessionID,
        input.filesystem.segmentID == lease.fromSegmentID,
        input.filesystem.screenExists {
         switch evaluateScreencastContinuationLease(
             lease,
-            currentHandoff: input.handoff?.segmentID == lease.fromSegmentID ? input.handoff : nil,
+            currentHandoff: handoff?.segmentID == lease.fromSegmentID ? handoff : nil,
             currentSegmentID: lease.fromSegmentID,
             now: input.now
         ) {
@@ -151,12 +168,12 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
         }
     }
 
-    if let handoff = input.handoff,
+    if let handoff,
        input.filesystem.partExists,
        input.filesystem.hasFreshLiveness,
        input.now >= handoff.rolloverAfter {
         switch evaluateScreencastContinuationLease(
-            input.continuationLease,
+            continuationLease,
             currentHandoff: handoff,
             currentSegmentID: handoff.segmentID,
             now: input.now
@@ -211,8 +228,10 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
 
     switch runtime.state {
     case .broadcastStarted, .writerOpen:
-        if runtime.revision <= input.lastProcessedRuntimeRevision,
-           input.handoff?.revision ?? 0 <= input.lastProcessedHandoffRevision {
+        let isSameSession = (input.lastSessionID != nil && runtime.sessionID == input.lastSessionID)
+        if isSameSession,
+           runtime.revision <= input.lastProcessedRuntimeRevision,
+           handoff?.revision ?? 0 <= input.lastProcessedHandoffRevision {
             return [.noOp]
         }
         if !input.engineSources.contains(.screencast) {
@@ -237,7 +256,7 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
         if let terminalDiagnostic {
             return [.surfaceAttention(terminalDiagnostic.reason)]
         }
-        return [.noOp]
+        return [.surfaceAttention(.writerFailure)]
     }
 }
 
@@ -522,11 +541,6 @@ final class ScreencastManager {
         self.state = .off
     }
 
-    func markExtensionUnavailable() {
-        self.clearStarting()
-        self.state = .unavailable(.extensionUnavailable)
-    }
-
     func reconcileScreencast(reason: ScreencastReconcileReason) async {
         let root: URL
         do {
@@ -555,6 +569,7 @@ final class ScreencastManager {
         let manifestResolution = filesystem.segmentID.flatMap {
             self.segmentUploader.screencastResolution(segmentID: $0)
         }
+        let lastSessionID = self.defaults?.string(forKey: Key.lastSessionID).flatMap(UUID.init)
         let input = ScreencastReconcileInput(
             runtime: runtime,
             handoff: handoff,
@@ -564,6 +579,7 @@ final class ScreencastManager {
             manifestResolution: manifestResolution,
             lastProcessedRuntimeRevision: self.readRevision(Key.lastProcessedRuntimeRevision),
             lastProcessedHandoffRevision: self.readRevision(Key.lastProcessedHandoffRevision),
+            lastSessionID: lastSessionID,
             now: self.clock.now()
         )
 
@@ -640,8 +656,8 @@ private extension ScreencastManager {
         if let runtimeSegmentID = runtime?.currentSegmentID {
             candidateIDs.append(runtimeSegmentID)
         }
-        if let handoffSegmentID = handoff?.segmentID {
-            candidateIDs.append(handoffSegmentID)
+        if let handoff, (runtime == nil || handoff.sessionID == runtime?.sessionID) {
+            candidateIDs.append(handoff.segmentID)
         }
         for segmentID in candidateIDs {
             if let direct = self.readContinuationLease(root: root, fromSegmentID: segmentID) {
@@ -685,6 +701,9 @@ private extension ScreencastManager {
         handoff: MobileSegmentScreencastHandoffRecord?,
         lease: MobileSegmentScreencastContinuationLease?
     ) -> MobileSegmentScreencastDiagnostic? {
+        let currentSessionID = runtime?.sessionID ?? handoff?.sessionID
+        let currentHandoff = (runtime != nil && handoff?.sessionID != runtime?.sessionID) ? nil : handoff
+
         var candidateIDs: [UUID] = []
         if let leaseFromSegmentID = lease?.fromSegmentID {
             candidateIDs.append(leaseFromSegmentID)
@@ -692,7 +711,7 @@ private extension ScreencastManager {
         if let runtimeSegmentID = runtime?.currentSegmentID {
             candidateIDs.append(runtimeSegmentID)
         }
-        if let handoffSegmentID = handoff?.segmentID {
+        if let handoffSegmentID = currentHandoff?.segmentID {
             candidateIDs.append(handoffSegmentID)
         }
 
@@ -702,15 +721,22 @@ private extension ScreencastManager {
                 relativePath: MobileSegmentScreencastPaths.screenDiagnosticRelativePath(segmentID: segmentID)
             )
             if let diagnostic = try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastDiagnostic.self, from: segmentDiagnostic) {
-                return diagnostic
+                if currentSessionID == nil || diagnostic.sessionID == currentSessionID {
+                    return diagnostic
+                }
             }
         }
-        guard let sessionID = runtime?.sessionID ?? handoff?.sessionID else { return nil }
+        guard let sessionID = currentSessionID else { return nil }
         let runtimeDiagnostic = MobileSegmentScreencastPaths.url(
             root: root,
             relativePath: MobileSegmentScreencastPaths.runtimeDiagnosticRelativePath(sessionID: sessionID)
         )
-        return try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastDiagnostic.self, from: runtimeDiagnostic)
+        if let diagnostic = try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastDiagnostic.self, from: runtimeDiagnostic) {
+            if diagnostic.sessionID == sessionID {
+                return diagnostic
+            }
+        }
+        return nil
     }
 
     func filesystemState(
@@ -720,17 +746,30 @@ private extension ScreencastManager {
         lease: MobileSegmentScreencastContinuationLease?,
         diagnostic: MobileSegmentScreencastDiagnostic?
     ) -> ScreencastFilesystemState {
-        let segmentID = diagnostic?.segmentID
-            ?? self.leaseBackedClosingSegmentID(root: root, lease: lease)
+        let currentSessionID = runtime?.sessionID ?? handoff?.sessionID
+        let currentHandoff = (runtime != nil && handoff?.sessionID != runtime?.sessionID) ? nil : handoff
+        let currentDiagnostic = (currentSessionID != nil && diagnostic?.sessionID != currentSessionID) ? nil : diagnostic
+
+        let isLeaseOwned: Bool
+        if let lease {
+            let validIDs = [runtime?.currentSegmentID, currentHandoff?.segmentID].compactMap { $0 }
+            isLeaseOwned = validIDs.contains(lease.fromSegmentID) || validIDs.contains(lease.segmentID)
+        } else {
+            isLeaseOwned = false
+        }
+        let currentLease = isLeaseOwned ? lease : nil
+
+        let segmentID = currentDiagnostic?.segmentID
+            ?? self.leaseBackedClosingSegmentID(root: root, lease: currentLease)
             ?? runtime?.currentSegmentID
-            ?? handoff?.segmentID
+            ?? currentHandoff?.segmentID
         guard let segmentID else {
             return ScreencastFilesystemState(
                 segmentID: nil,
                 screenExists: false,
                 partExists: false,
                 hasFreshLiveness: false,
-                terminalDiagnostic: diagnostic
+                terminalDiagnostic: currentDiagnostic
             )
         }
         let screenURL = MobileSegmentScreencastPaths.url(
@@ -748,6 +787,7 @@ private extension ScreencastManager {
         let liveness = try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastSegmentLiveness.self, from: livenessURL)
         let hasFreshLiveness = liveness.map {
             $0.segmentID == segmentID
+                && (currentSessionID == nil || $0.sessionID == currentSessionID)
                 && MobileSegmentScreencastLivenessPolicy.isFresh(lastSeenAt: $0.lastSeenAt, now: self.clock.now())
         } ?? false
         return ScreencastFilesystemState(
@@ -755,7 +795,7 @@ private extension ScreencastManager {
             screenExists: FileManager.default.fileExists(atPath: screenURL.path),
             partExists: FileManager.default.fileExists(atPath: partURL.path),
             hasFreshLiveness: hasFreshLiveness,
-            terminalDiagnostic: diagnostic
+            terminalDiagnostic: currentDiagnostic
         )
     }
 
@@ -987,7 +1027,7 @@ private extension ScreencastManager {
         if let runtime {
             self.defaults?.set(runtime.revision, forKey: Key.lastProcessedRuntimeRevision)
         }
-        if let handoff {
+        if let handoff, (runtime == nil || handoff.sessionID == runtime?.sessionID) {
             self.defaults?.set(handoff.revision, forKey: Key.lastProcessedHandoffRevision)
         }
     }

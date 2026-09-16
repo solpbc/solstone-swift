@@ -702,13 +702,17 @@ private extension MobileSegmentEngine {
         sources: Set<MobileSegmentSource>,
         at now: Date
     ) -> MobileSegmentScreencastContinuationLease? {
+        guard let lease = self.screencastContinuationLease else { return nil }
         guard sources.contains(.screencast),
-              let lease = self.screencastContinuationLease,
               lease.fromSegmentID == fromSegmentID,
               Set(lease.sourceSet) == sources,
               now >= lease.notBefore,
               now <= lease.expiresAt
-        else { return nil }
+        else {
+            self.segmentUploader.dropSegment(segmentID: lease.segmentID)
+            self.screencastContinuationLease = nil
+            return nil
+        }
         self.sourceSetVersion = max(self.sourceSetVersion, lease.sourceSetVersion)
         self.screencastContinuationLease = nil
         return lease

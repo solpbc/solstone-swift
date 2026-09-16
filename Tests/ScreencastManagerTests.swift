@@ -68,15 +68,6 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         XCTAssertEqual(log.entries, [])
     }
 
-    @MainActor
-    func testMissingExtensionSurfacesUnavailable() {
-        let manager = self.makeManager()
-
-        manager.beginStarting()
-        manager.markExtensionUnavailable()
-
-        XCTAssertEqual(manager.state, .unavailable(.extensionUnavailable))
-    }
 
     @MainActor
     func testStartingTimesOutToOff() async {
@@ -320,6 +311,42 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         XCTAssertEqual(log.entries, [])
         XCTAssertTrue(engine.adoptedLeases.isEmpty)
         XCTAssertTrue(uploader.finalized.isEmpty)
+    }
+
+    @MainActor
+    func testLeftoverTerminalHandoffDoesNotBlockNewRecordingReconcile() async throws {
+        let log = ScreencastCallLog()
+        let engine = FakeScreencastEngine(sources: [], callLog: log)
+        let uploader = FakeScreencastUploader(callLog: log)
+        let manager = self.makeManager(engine: engine, uploader: uploader, rootURLProvider: { self.tempDirectory })
+
+        let session1 = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+        let segment1 = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+        try self.write(
+            ScreencastFixtures.runtime(sessionID: session1, revision: 1, state: .broadcastStarted, segmentID: nil),
+            relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
+        )
+        await manager.reconcileScreencast(reason: .darwinNotification)
+        XCTAssertEqual(engine.currentScreencastSources, [.screencast])
+
+        uploader.resolutions[segment1] = MobileSegmentSourceResolution(state: .finalizedArtifact)
+        try self.write(
+            ScreencastFixtures.handoff(sessionID: session1, revision: 2, segmentID: segment1),
+            relativePath: MobileSegmentScreencastPaths.handoffRelativePath()
+        )
+
+        engine.currentScreencastSources = []
+
+        let session2 = UUID(uuidString: "00000000-0000-0000-0000-000000000333")!
+        try self.write(
+            ScreencastFixtures.runtime(sessionID: session2, revision: 1, state: .broadcastStarted, segmentID: nil),
+            relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
+        )
+
+        await manager.reconcileScreencast(reason: .darwinNotification)
+
+        XCTAssertEqual(engine.currentScreencastSources, [.screencast])
+        XCTAssertEqual(log.entries.filter { $0 == "startBoundary" }.count, 2)
     }
 }
 

@@ -39,6 +39,7 @@ nonisolated final class ScreencastLeaseTests: XCTestCase {
             manifestResolution: nil,
             lastProcessedRuntimeRevision: 0,
             lastProcessedHandoffRevision: 0,
+            lastSessionID: ScreencastFixtures.sessionID,
             now: now
         ))
 

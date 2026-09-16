@@ -116,6 +116,65 @@ final class MobileSegmentEngineScreencastTests: XCTestCase {
         let nextManifest = try harness.store.readManifest(in: nextDirectory)
         XCTAssertEqual(Set(nextManifest.openedWithSources), [.audio, .location, .screencast])
     }
+
+    func testPreparedLeaseSegmentDiscardedWhenScreencastStopped() async throws {
+        let harness = self.makeHarness()
+        try await self.open(sources: [.audio, .location], harness: harness)
+        self.clock.advance(by: 10)
+        let handoff = try await harness.engine.startScreencast(at: self.clock.now())
+
+        let rolloverAt = self.clock.now().addingTimeInterval(300)
+        let expiresAt = rolloverAt.addingTimeInterval(30)
+        let preparedLease = try await harness.engine.prepareScreencastContinuationLease(rolloverAt: rolloverAt, expiresAt: expiresAt)
+        let preparedSegmentID = try XCTUnwrap(preparedLease?.segmentID)
+
+        let preparedActiveDirectory = harness.store.segmentDirectoryURL(.active, segmentID: preparedSegmentID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: preparedActiveDirectory.path))
+
+        try harness.uploader.recordScreencastNoArtifact(
+            segmentID: handoff.segmentID,
+            startedAt: handoff.startedAt,
+            endedAt: self.clock.now(),
+            durationS: 0,
+            reason: "test_stop"
+        )
+        self.clock.advance(by: 5)
+        try await harness.engine.stopScreencast(at: self.clock.now())
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: preparedActiveDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: preparedSegmentID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: preparedSegmentID).path))
+
+        self.clock.advance(by: 10)
+        let freshHandoff = try await harness.engine.startScreencast(at: self.clock.now())
+        XCTAssertNotEqual(freshHandoff.segmentID, preparedSegmentID)
+    }
+
+    func testPreparedLeaseSegmentDiscardedOnSourceSetMismatch() async throws {
+        let harness = self.makeHarness()
+        try await self.open(sources: [.audio], harness: harness)
+        self.clock.advance(by: 10)
+        _ = try await harness.engine.startScreencast(at: self.clock.now())
+
+        let rolloverAt = self.clock.now().addingTimeInterval(300)
+        let expiresAt = rolloverAt.addingTimeInterval(30)
+        let preparedLease = try await harness.engine.prepareScreencastContinuationLease(rolloverAt: rolloverAt, expiresAt: expiresAt)
+        let preparedSegmentID = try XCTUnwrap(preparedLease?.segmentID)
+
+        let preparedActiveDirectory = harness.store.segmentDirectoryURL(.active, segmentID: preparedSegmentID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: preparedActiveDirectory.path))
+
+        self.clock.advance(by: 5)
+        await harness.engine.startLocation(tier: .balanced, accuracy: .full)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: preparedActiveDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: preparedSegmentID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: preparedSegmentID).path))
+
+        let activeDirectories = try harness.store.list(.active)
+        let activeIDs = activeDirectories.map(\.lastPathComponent)
+        XCTAssertFalse(activeIDs.contains(preparedSegmentID.uuidString))
+    }
 }
 
 private extension MobileSegmentEngineScreencastTests {
