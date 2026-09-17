@@ -6,6 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.3 (96)] - 2026-09-17
+
+### Fixed
+- after you stopped sharing your screen, turning it back on could say it could not start. it now starts sharing your screen again.
+
 ## [2.0.3] - 2026-09-16
 
 ### Fixed
