@@ -137,7 +137,7 @@ final class ShellPaneShotTests: XCTestCase {
         let app = self.launchOwned(style: "Light", ax5: false)
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
-        let screencastAction = app.buttons["dayHome.tile.screencast.action"]
+        let screencastAction = app.buttons["dayHome.tile.screencast.action"].firstMatch
         self.tapHittable(screencastAction, in: app, missing: "screencast action button missing")
         XCTAssertTrue(
             app.descendants(matching: .any)["screencast.primer.sheet"].waitForExistence(timeout: 10),
