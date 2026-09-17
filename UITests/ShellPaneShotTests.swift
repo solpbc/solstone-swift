@@ -137,12 +137,18 @@ final class ShellPaneShotTests: XCTestCase {
         let app = self.launchOwned(style: "Light", ax5: false)
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
+        // SwiftUI exposes the nested tile and its action with the same identifier.
+        // Either may receive the hit depending on AX tree ordering, so follow the
+        // parent tile through its equivalent detail-page start control when needed.
         let screencastAction = app.buttons["dayHome.tile.screencast.action"].firstMatch
         self.tapHittable(screencastAction, in: app, missing: "screencast action button missing")
-        XCTAssertTrue(
-            app.descendants(matching: .any)["screencast.primer.sheet"].waitForExistence(timeout: 10),
-            "screencast primer sheet missing"
-        )
+        let primerSheet = app.descendants(matching: .any)["screencast.primer.sheet"]
+        if !primerSheet.waitForExistence(timeout: 3) {
+            let detailStart = app.descendants(matching: .any)["source.screencast.start"].firstMatch
+            XCTAssertTrue(detailStart.waitForExistence(timeout: 10), "screencast detail start missing")
+            detailStart.tap()
+        }
+        XCTAssertTrue(primerSheet.waitForExistence(timeout: 10), "screencast primer sheet missing")
 
         let actionRow = app.descendants(matching: .any)["screencast.primer.action"]
         XCTAssertTrue(actionRow.waitForExistence(timeout: 5), "screencast primer action missing")
