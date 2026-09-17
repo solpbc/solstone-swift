@@ -79,18 +79,18 @@ private struct ScreencastPrimerIllustration: View {
             let cardWidth = proxy.size.width
             VStack(spacing: 12) {
                 Capsule()
-                    .fill(Color.deckSurfaceRaised)
+                    .fill(Color.secondary)
                     .frame(width: cardWidth * 0.40, height: self.titleHeight)
                     .frame(maxWidth: .infinity)
 
                 Spacer(minLength: 0)
 
                 ShellMetrics.cardShape
-                    .fill(Color.deckSurfaceRaised)
+                    .fill(Color.secondary)
                     .frame(height: self.destinationHeight)
 
                 Capsule()
-                    .fill(Color.solOrange)
+                    .fill(Color.primary)
                     .frame(height: self.actionHeight)
                     .overlay(
                         Capsule()

@@ -44,6 +44,12 @@ nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
         XCTAssertTrue(primerText.contains("LocationVocabulary.alwaysPrimerHeader"))
         XCTAssertTrue(primerText.contains("SourceVocabulary.screencastPrimerBody"))
         XCTAssertTrue(primerText.contains("SourceVocabulary.screencastOpenSystemSheet"))
+        XCTAssertFalse(primerText.contains(".fill(Color.solOrange)"))
+        XCTAssertFalse(primerText.contains("Color.deckSurfaceRaised"))
+        XCTAssertFalse(primerText.contains(".fill(Color.deckSurface)"))
+        XCTAssertTrue(primerText.contains("Color.solOrangeAdaptive"))
+        XCTAssertTrue(primerText.contains(".fill(Color.secondary)"))
+        XCTAssertTrue(primerText.contains(".fill(Color.primary)"))
     }
 
     private static func contents(_ relative: String) throws -> String {
