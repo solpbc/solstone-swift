@@ -41,9 +41,10 @@ struct ScreencastPickerView: UIViewRepresentable {
         }
 
         func attach(to picker: RPSystemBroadcastPickerView) {
-            guard let button = self.broadcastButton(in: picker),
-                  button !== self.attachedButton
-            else { return }
+            guard let button = self.broadcastButton(in: picker) else { return }
+            button.frame = picker.bounds
+            button.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            guard button !== self.attachedButton else { return }
             self.attachedButton?.removeTarget(self, action: #selector(self.handleTap), for: .touchUpInside)
             button.addTarget(self, action: #selector(self.handleTap), for: .touchUpInside)
             self.attachedButton = button

@@ -8,6 +8,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 - if you turned your screen source off on your iphone or ipad and then back on, it wouldn't start again, and nothing from that attempt reached your journal. it does now.
+- pairing told you your journal's dashboard showed a pairing code. it does not. it now says to open the dashboard, go to the network app, and choose "pair a device".
+- if this device and your journal were on different networks, pairing said you could switch the journal to private network to pair from anywhere. that was not true of pairing. those messages now say private network lets your devices reach your journal from anywhere, and the cellular failure no longer mentions it.
+- the screen tile looked like a switch. it was not. it is now a button that shows what to tap before ios asks, then opens the system sheet. dismissing that sheet no longer leaves screen stuck waiting.
+- if the camera became unavailable while you were pointing it at a pairing code, the scan screen stayed up. it now offers paste instead.
 
 ## [2.0.2] - 2026-09-16
 

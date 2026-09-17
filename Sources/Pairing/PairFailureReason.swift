@@ -85,18 +85,18 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             this device: \(phoneAddress)
             your journal: \(targetAddress)
             connect both to the same wi-fi, then try again.
-            you can also switch your journal to private network to pair from anywhere.
+            turning on private network on your journal lets your devices reach it from anywhere.
             """
         case .hostUnreachable(let targetAddress):
             if let targetAddress {
-                "couldn't reach your journal at \(targetAddress). make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. you can also switch your journal to private network to pair from anywhere."
+                "couldn't reach your journal at \(targetAddress). make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. turning on private network on your journal lets your devices reach it from anywhere."
             } else {
-                "couldn't reach your journal. make sure it's running and on the same wi-fi, then try again. you can also switch your journal to private network to pair from anywhere."
+                "couldn't reach your journal. make sure it's running and on the same wi-fi, then try again. turning on private network on your journal lets your devices reach it from anywhere."
             }
         case .loopbackAddress:
             "that address points back at this device. paste the pairing link shown on your journal instead."
         case .journalUnreachableOffLAN:
-            "your journal isn't reachable from here. you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. everything the solstone app has taken in is on this device and syncs once you reconnect."
+            "your journal isn't reachable from here. you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. everything the solstone app has taken in is on this device and syncs once you reconnect."
         case .directAddressNotLocal:
             "that pairing link points to an address the solstone app won't open directly. connect this device and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
         case .connectionDropped:

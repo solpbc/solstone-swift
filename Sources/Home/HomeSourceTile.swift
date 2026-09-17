@@ -6,6 +6,7 @@ import SwiftUI
 nonisolated enum HomeSourceTileControl: Equatable {
     case none
     case toggle
+    case button
 }
 
 /// The deck tile.
@@ -24,8 +25,8 @@ struct HomeSourceTile: View {
     let route: SourceRoute
     let control: HomeSourceTileControl
     var isOn: Binding<Bool> = .constant(false)
-    var presentsScreencastPicker: Bool = false
-    var onScreencastWillOpen: @MainActor @Sendable () -> Void = {}
+    var buttonTitle: String = ""
+    var onButton: @MainActor @Sendable () -> Void = {}
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -68,13 +69,27 @@ struct HomeSourceTile: View {
         if self.dynamicTypeSize.isAccessibilitySize {
             VStack(alignment: .leading, spacing: 10) {
                 self.glyph
-                if self.control == .toggle { self.switchSlot }
+                switch self.control {
+                case .none:
+                    EmptyView()
+                case .toggle:
+                    self.switchSlot
+                case .button:
+                    self.buttonSlot
+                }
             }
         } else {
             HStack(alignment: .top, spacing: 8) {
                 self.glyph
                 Spacer(minLength: 4)
-                if self.control == .toggle { self.switchSlot }
+                switch self.control {
+                case .none:
+                    EmptyView()
+                case .toggle:
+                    self.switchSlot
+                case .button:
+                    self.buttonSlot
+                }
             }
             .frame(minHeight: 22)
         }
@@ -124,22 +139,24 @@ struct HomeSourceTile: View {
 
     @ViewBuilder
     private var switchSlot: some View {
-        ZStack {
-            Toggle("", isOn: self.isOn)
-                .labelsHidden()
-                .tint(.solOrange)
-                .allowsHitTesting(!self.presentsScreencastPicker)
+        Toggle("", isOn: self.isOn)
+            .labelsHidden()
+            .tint(.solOrange)
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isToggle)
+            .accessibilityLabel(self.source.displayName)
+            .accessibilityValue(self.source.state.label)
+    }
 
-            if self.presentsScreencastPicker {
-                ScreencastPickerView(onWillOpen: self.onScreencastWillOpen)
-                    .frame(width: 44, height: 44)
-            }
-        }
-        .frame(minWidth: 44, minHeight: 44)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isToggle)
-        .accessibilityLabel(self.source.displayName)
-        .accessibilityValue(self.source.state.label)
+    @ViewBuilder
+    private var buttonSlot: some View {
+        Button(self.buttonTitle, action: self.onButton)
+            .buttonStyle(.borderless)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.solOrangeAdaptive)
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityIdentifier("dayHome.tile.\(self.source.id).action")
     }
 
     /// The glyph carries the source's liveness: lit while it is taking something in,

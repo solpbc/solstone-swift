@@ -185,6 +185,7 @@ struct DayHomeView: View {
     /// side of `.padding()` the geometry read sits.
     @State private var deckColumnWidth: CGFloat = 0
     @State private var now = Date()
+    @State private var showingScreencastPrimer = false
 
     var body: some View {
         ScrollView {
@@ -200,6 +201,9 @@ struct DayHomeView: View {
             // `ConcentricRectangle` has no container to derive from and every tile
             // renders as a hard-cornered rectangle, which is what shipped.
             .containerShape(.rect(cornerRadius: ShellMetrics.containerRadius))
+        }
+        .sheet(isPresented: self.$showingScreencastPrimer) {
+            ScreencastPrimerSheet()
         }
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
@@ -343,10 +347,9 @@ private extension DayHomeView {
                 HomeSourceTile(
                     source: self.bundle.screencast,
                     route: .screencast,
-                    control: .toggle,
-                    isOn: self.screencastIsOn,
-                    presentsScreencastPicker: true,
-                    onScreencastWillOpen: { self.screencastManager.beginStarting() }
+                    control: .button,
+                    buttonTitle: SourceVocabulary.screencastStartButton,
+                    onButton: { self.showingScreencastPrimer = true }
                 )
             }
             if let watch = self.bundle.watch, self.isOnHome(watch.id) {
@@ -414,20 +417,6 @@ private extension DayHomeView {
                     }
                 }
             }
-        )
-    }
-
-    var screencastIsOn: Binding<Bool> {
-        Binding(
-            get: {
-                switch self.screencastManager.state {
-                case .active, .starting:
-                    true
-                case .off, .needsAttention, .unavailable:
-                    false
-                }
-            },
-            set: { _ in }
         )
     }
 

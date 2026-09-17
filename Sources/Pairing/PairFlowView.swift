@@ -418,9 +418,9 @@ struct PairFlowView: View {
     private var subtitleForMode: String {
         switch self.mode {
         case .scan:
-            return "on your computer, open your journal's dashboard and go to the network app — it shows your pairing code."
+            return "on your computer, open your journal's dashboard, go to the network app, and choose \"pair a device\"."
         case .paste:
-            return "copy the pairing link from your journal's network app and paste it here."
+            return "on your computer, open your journal's dashboard, go to the network app, choose \"pair a device\", then copy the link."
         }
     }
 

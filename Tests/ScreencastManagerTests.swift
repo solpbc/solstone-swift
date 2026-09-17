@@ -85,6 +85,36 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testForegroundWhileStartingWithoutRuntimeClearsToOff() async {
+        let clock = MockObserverClock(now: ScreencastFixtures.start)
+        let log = ScreencastCallLog()
+        let manager = self.makeManager(clock: clock, callLog: log)
+
+        manager.beginStarting()
+        await manager.reconcileScreencast(reason: .foreground)
+
+        XCTAssertEqual(manager.state, .off)
+        XCTAssertEqual(log.entries, [])
+    }
+
+    @MainActor
+    func testForegroundWhileStartingWithFailedRuntimeSurfacesFinalizeFailed() async throws {
+        let clock = MockObserverClock(now: ScreencastFixtures.start)
+        let log = ScreencastCallLog()
+        let manager = self.makeManager(clock: clock, callLog: log)
+
+        try self.write(
+            ScreencastFixtures.runtime(state: .failed),
+            relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
+        )
+
+        manager.beginStarting()
+        await manager.reconcileScreencast(reason: .foreground)
+
+        XCTAssertEqual(manager.state, .needsAttention(.finalizeFailed))
+    }
+
+    @MainActor
     func testRelaunchWhileStartingWithoutMarkerNoBoundary() {
         self.defaults.set(ScreencastFixtures.start.addingTimeInterval(-1), forKey: "screencast.startingDeadline")
         let clock = MockObserverClock(now: ScreencastFixtures.start)

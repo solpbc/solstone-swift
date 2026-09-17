@@ -26,6 +26,10 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.screencastNoVideoText, "no screen video was saved")
         XCTAssertEqual(SourceVocabulary.screencastFinalizeFailedText, "screen video could not be saved")
         XCTAssertEqual(SourceVocabulary.screencastPointerFailedText, "screen could not connect to this journal")
+        XCTAssertEqual(
+            SourceVocabulary.screencastPrimerBody,
+            "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up."
+        )
     }
 
     func testScreencastCopyIsLowercaseFirst() {
@@ -82,5 +86,6 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         SourceVocabulary.screencastNoVideoText,
         SourceVocabulary.screencastFinalizeFailedText,
         SourceVocabulary.screencastPointerFailedText,
+        SourceVocabulary.screencastPrimerBody,
     ]
 }

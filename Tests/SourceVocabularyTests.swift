@@ -606,7 +606,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
     }
 
-    func testRetiredOwnerVisibleCopyStaysRetired() {
+    func testRetiredOwnerVisibleCopyStaysRetired() throws {
         let strings = self.allOwnerVisibleStrings
         let retiredExactStrings = [
             "what sol made from it",
@@ -625,6 +625,21 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         }
         for string in strings {
             XCTAssertFalse(string.contains("back online"))
+        }
+
+        let retiredSubstrings = [
+            "it shows your pairing code",
+            "you can also switch your journal to private network to pair from anywhere",
+        ]
+        for relativePath in [
+            "Sources/Pairing/PairFlowView.swift",
+            "Sources/Pairing/PairFailureReason.swift",
+        ] {
+            let url = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent(relativePath)
+            let text = try String(contentsOf: url, encoding: .utf8)
+            for phrase in retiredSubstrings {
+                XCTAssertFalse(text.contains(phrase), "\(relativePath) unexpectedly contains retired phrase: \(phrase)")
+            }
         }
     }
 

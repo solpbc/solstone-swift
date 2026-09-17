@@ -8,6 +8,7 @@ struct ScreencastSourceDetailView: View {
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var showingScreencastPrimer = false
 
     var body: some View {
         ScrollView {
@@ -32,6 +33,9 @@ struct ScreencastSourceDetailView: View {
             .padding()
             .frame(maxWidth: .infinity)
         }
+        .sheet(isPresented: self.$showingScreencastPrimer) {
+            ScreencastPrimerSheet()
+        }
         .navigationTitle(SourceVocabulary.screencastDetailTitle)
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -53,17 +57,13 @@ private extension ScreencastSourceDetailView {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 12) {
-                ScreencastPickerView {
-                    self.screencastManager.beginStarting()
-                }
-                .frame(width: 44, height: 44)
-                .accessibilityLabel(SourceVocabulary.screencastOpenSystemSheet)
-
-                Text(SourceVocabulary.screencastOpenSystemSheet)
-                    .font(.subheadline.weight(.semibold))
+            Button(SourceVocabulary.screencastStartButton) {
+                self.showingScreencastPrimer = true
             }
+            .buttonStyle(.bordered)
+            .tint(.solOrange)
             .frame(minHeight: 44)
+            .accessibilityIdentifier("source.screencast.start")
         }
     }
 

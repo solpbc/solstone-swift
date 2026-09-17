@@ -41,18 +41,34 @@ private struct DataScannerRepresentable: UIViewControllerRepresentable {
             onUnavailable()
             return
         }
-        try? controller.startScanning()
+        do {
+            try controller.startScanning()
+        } catch {
+            onUnavailable()
+        }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onURL: onURL)
+        Coordinator(onURL: onURL, onUnavailable: onUnavailable)
     }
 
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         private let onURL: @MainActor (URL) -> Void
+        private let onUnavailable: @MainActor () -> Void
 
-        init(onURL: @escaping @MainActor (URL) -> Void) {
+        init(
+            onURL: @escaping @MainActor (URL) -> Void,
+            onUnavailable: @escaping @MainActor () -> Void
+        ) {
             self.onURL = onURL
+            self.onUnavailable = onUnavailable
+        }
+
+        func dataScanner(
+            _ dataScanner: DataScannerViewController,
+            becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable
+        ) {
+            self.onUnavailable()
         }
 
         func dataScanner(

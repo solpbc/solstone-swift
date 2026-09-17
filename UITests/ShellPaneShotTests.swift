@@ -132,6 +132,28 @@ final class ShellPaneShotTests: XCTestCase {
         try self.captureOwnedLeaves(suffix: "landscape", style: "Light", ax5: false, landscape: true)
     }
 
+    @MainActor
+    func testScreencastPrimerLeadingEdgeStartsFlow() throws {
+        let app = self.launchOwned(style: "Light", ax5: false)
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
+
+        let screencastAction = app.buttons["dayHome.tile.screencast.action"]
+        self.tapHittable(screencastAction, in: app, missing: "screencast action button missing")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["screencast.primer.sheet"].waitForExistence(timeout: 10),
+            "screencast primer sheet missing"
+        )
+
+        let actionRow = app.descendants(matching: .any)["screencast.primer.action"]
+        XCTAssertTrue(actionRow.waitForExistence(timeout: 5), "screencast primer action missing")
+        actionRow.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["waiting for the system sheet"].waitForExistence(timeout: 10),
+            "waiting for the system sheet did not appear after leading-edge tap"
+        )
+    }
+
     /// Generic mark (nil identity): light/dark × default/AX5.
     @MainActor
     func testCaptureGenericJournalMark() {
@@ -203,6 +225,16 @@ private extension ShellPaneShotTests {
             markerID: "source.homeTile.location",
             name: "21-location-\(suffix)"
         )
+
+        let screencastAction = app.buttons["dayHome.tile.screencast.action"]
+        self.tapHittable(screencastAction, in: app, missing: "screencast action button missing")
+        XCTAssertTrue(
+            app.descendants(matching: .any)["screencast.primer.sheet"].waitForExistence(timeout: 10),
+            "screencast primer sheet missing"
+        )
+        self.attach(app, "22a-screencast-primer-\(suffix)")
+        self.dismissSheet(in: app, untilMissing: "screencast.primer.sheet")
+
         self.captureSourceDetail(
             in: app,
             tileID: "dayHome.tile.screencast",

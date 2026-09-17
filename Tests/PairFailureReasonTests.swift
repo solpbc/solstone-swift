@@ -303,20 +303,28 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
             this device: 192.168.1.20
             your journal: 10.0.0.5
             connect both to the same wi-fi, then try again.
-            you can also switch your journal to private network to pair from anywhere.
+            turning on private network on your journal lets your devices reach it from anywhere.
             """
         )
         XCTAssertEqual(
             PairFailureReason.hostUnreachable(targetAddress: "192.168.1.99").message,
-            "couldn't reach your journal at 192.168.1.99. make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. you can also switch your journal to private network to pair from anywhere."
+            "couldn't reach your journal at 192.168.1.99. make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. turning on private network on your journal lets your devices reach it from anywhere."
         )
         XCTAssertEqual(
             PairFailureReason.hostUnreachable(targetAddress: nil).message,
-            "couldn't reach your journal. make sure it's running and on the same wi-fi, then try again. you can also switch your journal to private network to pair from anywhere."
+            "couldn't reach your journal. make sure it's running and on the same wi-fi, then try again. turning on private network on your journal lets your devices reach it from anywhere."
         )
         XCTAssertEqual(
             PairFailureReason.journalUnreachableOffLAN.message,
-            "your journal isn't reachable from here. you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. you can also switch your journal to private network to pair from anywhere. everything the solstone app has taken in is on this device and syncs once you reconnect."
+            "your journal isn't reachable from here. you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. everything the solstone app has taken in is on this device and syncs once you reconnect."
+        )
+        XCTAssertFalse(
+            PairFailureReason.journalUnreachableOffLAN.message
+                .contains("you can also switch your journal to private network to pair from anywhere")
+        )
+        XCTAssertFalse(
+            PairFailureReason.journalUnreachableOffLAN.message
+                .contains("private network")
         )
         XCTAssertEqual(
             PairFailureReason.directAddressNotLocal.message,

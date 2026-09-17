@@ -554,11 +554,10 @@ final class ScreencastManager {
         }
 
         let runtime = self.readRuntime(root: root)
-        if reason == .startingTimeout,
+        if reason == .startingTimeout || reason == .foreground,
            runtime == nil,
            case .starting = self.state {
-            self.clearStarting()
-            self.state = .off
+            self.cancelStarting()
             return
         }
 

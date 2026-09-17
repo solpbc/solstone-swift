@@ -93,4 +93,29 @@ nonisolated final class PairFlowViewTests: XCTestCase {
     }
 
     private static let canonicalPairingLink = "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
+
+    func testPairFlowSubtitlesMatchLockedExactCopy() throws {
+        let text = try Self.contents("Sources/Pairing/PairFlowView.swift")
+        let scanSubtitle = "on your computer, open your journal's dashboard, go to the network app, and choose \\\"pair a device\\\"."
+        let pasteSubtitle = "on your computer, open your journal's dashboard, go to the network app, choose \\\"pair a device\\\", then copy the link."
+        XCTAssertTrue(text.contains(scanSubtitle), "scan subtitle missing or modified in PairFlowView.swift")
+        XCTAssertTrue(text.contains(pasteSubtitle), "paste subtitle missing or modified in PairFlowView.swift")
+    }
+
+    func testQRScannerViewHandlesUnavailableAndErrors() throws {
+        let text = try Self.contents("Sources/Pairing/QRScannerView.swift")
+        XCTAssertTrue(text.contains("becameUnavailableWithError"), "becameUnavailableWithError delegate method missing")
+        XCTAssertFalse(text.contains("try? controller.startScanning()"), "silent try? startScanning() still present")
+        XCTAssertTrue(text.contains("Coordinator(onURL: onURL, onUnavailable: onUnavailable)"), "coordinator does not receive onUnavailable")
+    }
+}
+
+private extension PairFlowViewTests {
+    static func contents(_ relative: String) throws -> String {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent(relative)
+        return try String(contentsOf: url, encoding: .utf8)
+    }
 }

@@ -183,6 +183,7 @@ nonisolated enum SourceVocabulary {
     static let screencastNoVideoText = "no screen video was saved"
     static let screencastFinalizeFailedText = "screen video could not be saved"
     static let screencastPointerFailedText = "screen could not connect to this journal"
+    static let screencastPrimerBody = "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up."
 
     // The status pill resolves to one of five states and names it in one word or
     // phrase. `connected · syncing` was two of those states at once.
