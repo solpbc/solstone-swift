@@ -300,6 +300,28 @@ nonisolated final class ScreencastReconcileDerivationTests: XCTestCase {
         XCTAssertEqual(actions, [.startBoundary(startedAt: runtime.startedAt, sessionID: newSessionID)])
     }
 
+    func testNewSessionClosesRetainedScreenBoundaryBeforeStarting() {
+        let previousSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000100")!
+        let newSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000200")!
+        let runtime = ScreencastFixtures.runtime(
+            sessionID: newSessionID,
+            revision: 1,
+            state: .broadcastStarted,
+            segmentID: nil
+        )
+
+        let actions = deriveScreencastReconcileActions(input: self.input(
+            runtime: runtime,
+            engineSources: [.audio, .screencast],
+            lastSessionID: previousSessionID
+        ))
+
+        XCTAssertEqual(actions, [
+            .stopBoundary(endedAt: runtime.startedAt),
+            .startBoundary(startedAt: runtime.startedAt, sessionID: newSessionID),
+        ])
+    }
+
     func testFailedRuntimeWithoutSegmentDoesNotTouchLeftoverSegment() {
         let previousSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000100")!
         let newSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000200")!

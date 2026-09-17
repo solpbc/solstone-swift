@@ -237,6 +237,12 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
         if !input.engineSources.contains(.screencast) {
             return [.startBoundary(startedAt: runtime.startedAt, sessionID: runtime.sessionID)]
         }
+        if input.lastSessionID != nil, !isSameSession {
+            return [
+                .stopBoundary(endedAt: runtime.startedAt),
+                .startBoundary(startedAt: runtime.startedAt, sessionID: runtime.sessionID),
+            ]
+        }
         return [.noOp]
     case .finishing:
         if let segmentID = terminalSegmentID, input.filesystem.partExists, input.filesystem.hasFreshLiveness {
