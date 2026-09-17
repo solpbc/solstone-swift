@@ -226,14 +226,30 @@ private extension ShellPaneShotTests {
             name: "21-location-\(suffix)"
         )
 
-        let screencastAction = app.buttons["dayHome.tile.screencast.action"]
-        self.tapHittable(screencastAction, in: app, missing: "screencast action button missing")
+        // Nested tile/action AX nodes make `buttons[id]` ambiguous. firstMatch.tap()
+        // uses the accessibility action (coordinate tap hits the parent tile).
+        let screencastAction = app.buttons["dayHome.tile.screencast.action"].firstMatch
         XCTAssertTrue(
-            app.descendants(matching: .any)["screencast.primer.sheet"].waitForExistence(timeout: 10),
-            "screencast primer sheet missing"
+            screencastAction.waitForExistence(timeout: 10),
+            "screencast action button missing"
         )
+        screencastAction.tap()
+        let primerSheet = app.descendants(matching: .any)["screencast.primer.sheet"]
+        if !primerSheet.waitForExistence(timeout: 3) {
+            // Parent tile ate the hit; detail presents the same primer sheet.
+            let detailStart = app.descendants(matching: .any)["source.screencast.start"].firstMatch
+            XCTAssertTrue(detailStart.waitForExistence(timeout: 10), "screencast detail start missing")
+            detailStart.tap()
+        }
+        guard primerSheet.waitForExistence(timeout: 10) else {
+            XCTFail("screencast primer sheet missing")
+            return
+        }
         self.attach(app, "22a-screencast-primer-\(suffix)")
         self.dismissSheet(in: app, untilMissing: "screencast.primer.sheet")
+        if app.descendants(matching: .any)["source.homeTile.screencast"].exists {
+            self.popNavigation(in: app)
+        }
 
         self.captureSourceDetail(
             in: app,

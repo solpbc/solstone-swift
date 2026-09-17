@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build-metadata-bootstrap build-metadata build build-generic release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
+.PHONY: generate build-metadata-bootstrap build-metadata build build-generic release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test primer-shots integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
 			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       sim-shots sim-widget-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
@@ -281,6 +281,21 @@ ui-test: deps
 		-skipMacroValidation \
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-derivedDataPath $(DERIVED)
+
+# Three owned-leaves UITests with a pinned result bundle. `ui-test` has none;
+# `test-one` only sees unit tests. Attachments in DerivedData die with the lode.
+# SIM_DESTINATION so a private `make sim-create` UDID can dodge a contended
+# `name=iPhone 17 Pro` (kAXErrorAPIDisabled under host load).
+primer-shots: deps
+	@rm -rf build/primer-shots.xcresult
+	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
+		-only-testing:solstone-swiftUITests/ShellPaneShotTests/testCaptureOwnedLeavesDefaultLight \
+		-only-testing:solstone-swiftUITests/ShellPaneShotTests/testCaptureOwnedLeavesDefaultDark \
+		-only-testing:solstone-swiftUITests/ShellPaneShotTests/testCaptureOwnedLeavesAX5 \
+		-skipMacroValidation \
+		-destination '$(SIM_DESTINATION)' \
+		-derivedDataPath $(DERIVED) \
+		-resultBundlePath build/primer-shots.xcresult
 
 integration-test: PORT ?= 7071
 integration-test: sim
