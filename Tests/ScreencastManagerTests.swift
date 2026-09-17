@@ -344,7 +344,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testLeftoverTerminalHandoffDoesNotBlockNewRecordingReconcile() async throws {
+    func testMissedTerminalStateClosesRetainedBoundaryBeforeNewRecording() async throws {
         let log = ScreencastCallLog()
         let engine = FakeScreencastEngine(sources: [], callLog: log)
         let uploader = FakeScreencastUploader(callLog: log)
@@ -359,13 +359,10 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         await manager.reconcileScreencast(reason: .darwinNotification)
         XCTAssertEqual(engine.currentScreencastSources, [.screencast])
 
-        uploader.resolutions[segment1] = MobileSegmentSourceResolution(state: .finalizedArtifact)
         try self.write(
             ScreencastFixtures.handoff(sessionID: session1, revision: 2, segmentID: segment1),
             relativePath: MobileSegmentScreencastPaths.handoffRelativePath()
         )
-
-        engine.currentScreencastSources = []
 
         let session2 = UUID(uuidString: "00000000-0000-0000-0000-000000000333")!
         try self.write(
@@ -376,7 +373,15 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         await manager.reconcileScreencast(reason: .darwinNotification)
 
         XCTAssertEqual(engine.currentScreencastSources, [.screencast])
-        XCTAssertEqual(log.entries.filter { $0 == "startBoundary" }.count, 2)
+        XCTAssertEqual(log.entries, ["startBoundary", "stopBoundary", "startBoundary"])
+        let published = try MobileSegmentScreencastJSONStore.read(
+            MobileSegmentScreencastHandoffRecord.self,
+            from: MobileSegmentScreencastPaths.url(
+                root: self.tempDirectory,
+                relativePath: MobileSegmentScreencastPaths.handoffRelativePath()
+            )
+        )
+        XCTAssertEqual(published.sessionID, session2)
     }
 }
 
