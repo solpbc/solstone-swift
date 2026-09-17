@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-09-16
+
 ### Fixed
 - if you turned your screen source off on your iphone or ipad and then back on, it wouldn't start again, and nothing from that attempt reached your journal. it does now.
 - pairing told you your journal's dashboard showed a pairing code. it does not. it now says to open the dashboard, go to the network app, and choose "pair a device".
