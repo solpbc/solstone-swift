@@ -6,13 +6,15 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.4 (97)] - 2026-09-18
+
 ### Fixed
 - if the app could not finish checking your journal's mark in time while connecting, it no longer completes pairing silently. it now lets you choose whether to continue or cancel.
 - audio on your apple watch now starts again after another app temporarily interrupts it. before, that interruption could end the moment even though you hadn't turned audio off.
-- your journal's fingerprint no longer shows as a plain row in journal settings. it's now under a technical details disclosure.
+- your journal's fingerprint no longer shows as a plain row in journal settings. it's now under "technical details".
 
 ### Removed
-- the watch no longer tries to send a notification to your wrist when intake stops unexpectedly. opening the solstone app on your watch still tells you honestly why the last session ended.
+- the watch no longer tries to send a notification to your wrist when intake stops unexpectedly. opening the solstone app on your watch still tells you why the last session ended.
 
 ## [2.0.3 (96)] - 2026-09-17
 
