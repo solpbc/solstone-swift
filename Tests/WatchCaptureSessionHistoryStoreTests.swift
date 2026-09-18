@@ -152,6 +152,36 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.label == "gap before discovery" })
     }
 
+    func testRetiredNotificationSettingsRoutesDecodeAsAbsentWithoutDamagingHistory() async throws {
+        let storage = try WatchCaptureTestStorage(rootURL: self.root)
+        let actor = self.storageActor(for: storage)
+        let retiredRoutes = ["notification-settings", "notification-grant"]
+        let rows = retiredRoutes.enumerated().map { index, route in
+            """
+            {"id":"legacy-\(index)","sa":"2026-09-17T00:00:00Z","ta":"2026-09-17T00:05:00Z","tr":"process-exited-while-active","td":"inferred-stopped-itself","rt":"\(route)","aa":true,"as":true,"la":false,"sp":1}
+            """
+        }
+        let data = try XCTUnwrap((rows.joined(separator: "\n") + "\n").data(using: .utf8))
+        let url = storage.rootURL.appendingPathComponent(WatchCaptureStorageActor.historyFileName)
+        try await storage.fileWriter.atomicReplaceFile(at: url, with: data)
+        let asOf = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-09-17T00:05:00Z"))
+
+        guard case let .available(entries) = await actor.readSessionHistory(asOf: asOf) else {
+            return XCTFail("retired settings routes must not make valid history unreadable")
+        }
+        XCTAssertEqual(Set(entries.map(\.sessionID)), Set(["legacy-0", "legacy-1"]))
+        XCTAssertTrue(entries.allSatisfy { $0.settingsRoute == nil })
+
+        try await actor.upsertSessionHistory(
+            self.entry(2, at: asOf),
+            asOf: asOf,
+            transactionClass: .captureSafety
+        )
+        let rewritten = String(decoding: try await storage.fileWriter.readData(from: url), as: UTF8.self)
+        XCTAssertFalse(rewritten.contains("notification-settings"))
+        XCTAssertFalse(rewritten.contains("notification-grant"))
+    }
+
     func testHistoryEntryWithLastObservedAtPersistsToDiskAndRoundTripsInEnvelope() async throws {
         let storage = try WatchCaptureTestStorage(rootURL: self.root)
         let actor = self.storageActor(for: storage)

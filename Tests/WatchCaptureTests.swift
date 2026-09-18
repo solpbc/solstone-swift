@@ -1188,6 +1188,7 @@ final class WatchCaptureTests: XCTestCase {
         let stationary = try self.makeHarness(locationAuthorization: .authorized)
         stationary.engine.start(); await stationary.engine.settled()
         stationary.locationProvider.emitFix(Self.fix())
+        await stationary.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: stationary.clock) >= 2 })
         stationary.clock.advance(by: 300)
         await self.drain(until: {
@@ -1590,7 +1591,7 @@ final class WatchCaptureTests: XCTestCase {
 
 
 
-    func testUndecodableSessionRecordFailsClosedWithoutTerminalNotice() async throws {
+    func testUndecodableSessionRecordFailsClosedAndSurfacesTerminalFact() async throws {
         let harness = try self.makeHarness()
         try await harness.storage.fileWriter.atomicReplaceFile(
             at: harness.storage.rootURL.appendingPathComponent(WatchCaptureStoragePaths.sessionRecordFileName),
@@ -1665,7 +1666,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(recordingStatus, .stoppedItself(.audioCouldNotBeConfirmed))
     }
 
-    func testReconcileActiveRecordWithStartTimeHistoryFreshEngineDoesNotResubmitNotice() async throws {
+    func testRepeatedReconcilePreservesTerminalFactAcrossFreshEngine() async throws {
         let harness = try self.makeHarness()
         let t0 = Date(timeIntervalSince1970: 1_713_624_000)
         let record = WatchCaptureSessionRecord(
@@ -1747,7 +1748,7 @@ final class WatchCaptureTests: XCTestCase {
     }
 
 
-    func testReconcileCleanOwnerStopDoesNotReportStoppedItselfOrNoticeOwed() async throws {
+    func testReconcileCleanOwnerStopDoesNotReportStoppedItself() async throws {
         let harness = try self.makeHarness()
         let record = WatchCaptureSessionRecord(
             sessionID: "session-1",
@@ -1766,7 +1767,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertNotEqual(statuses.last?.audioTerminalDisposition, .inferredStoppedItself)
     }
 
-    func testReconcileAbsentSessionRecordDoesNotReportStoppedItselfOrNoticeOwed() async throws {
+    func testReconcileAbsentSessionRecordDoesNotReportStoppedItself() async throws {
         let harness = try self.makeHarness()
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
@@ -2580,6 +2581,35 @@ final class WatchCaptureTests: XCTestCase {
 
 
 
+
+    func testStaleReconcileMaintenanceDoesNotRepublishAfterNewerStart() async throws {
+        try await self.assertStaleReconcileMaintenancePublicationIsSuppressed(
+            rewriteFails: false,
+            partialCatalog: false
+        )
+    }
+
+    func testStaleReconcileMaintenanceRewriteFailureDoesNotRepublishAfterNewerStart() async throws {
+        try await self.assertStaleReconcileMaintenancePublicationIsSuppressed(
+            rewriteFails: true,
+            partialCatalog: false
+        )
+    }
+
+    func testStaleReconcileMaintenancePartialCatalogDoesNotRepublishAfterNewerStart() async throws {
+        try await self.assertStaleReconcileMaintenancePublicationIsSuppressed(
+            rewriteFails: false,
+            partialCatalog: true
+        )
+    }
+
+    func testStartAdmittedDuringReadinessSuppressesStaleMaintenancePublication() async throws {
+        try await self.assertStaleReconcileMaintenancePublicationIsSuppressed(
+            rewriteFails: false,
+            partialCatalog: false,
+            startAdmittedDuringReadiness: true
+        )
+    }
 
     func testReadinessHoldAcknowledgesStartAndCancelsPendingStartSynchronously() async throws {
         let writer = FailingWatchFileWriter(failAppend: false)
@@ -5003,6 +5033,117 @@ private extension WatchCaptureTests {
         return publications
     }
 
+    func assertStaleReconcileMaintenancePublicationIsSuppressed(
+        rewriteFails: Bool,
+        partialCatalog: Bool,
+        startAdmittedDuringReadiness: Bool = false
+    ) async throws {
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: writer)
+        let finalizedDirectory = try await self.writeManifest(
+            storage: harness.storage,
+            startedAt: harness.clock.now().addingTimeInterval(-WatchCaptureTiming.segmentDurationSeconds),
+            state: .finalized,
+            sensors: [.audio]
+        )
+        let finalizedManifestURL = harness.storage.manifestURL(directory: finalizedDirectory)
+        let finalizedManifest = try XCTUnwrap(self.readManifestSynchronously(at: finalizedManifestURL))
+        if rewriteFails {
+            writer.failWriteData(at: finalizedManifestURL, ordinal: 2)
+        }
+        if partialCatalog {
+            try Data("malformed day".utf8).write(
+                to: harness.storage.rootURL.appendingPathComponent("malformed-day"),
+                options: .atomic
+            )
+        }
+
+        let prior = WatchCaptureSessionRecord(
+            sessionID: "reconcile-prior",
+            startedAt: harness.clock.now().addingTimeInterval(-30),
+            state: .active,
+            terminalReason: nil,
+            terminalDisposition: nil,
+            terminalAt: nil
+        )
+        try await harness.storageActor.writeSessionRecord(prior, transactionClass: .captureSafety)
+
+        let publications = WatchCapturePublicationRecord()
+        var diagnosticsRefreshCount = 0
+        harness.engine.onDiagnosticsRefreshRequested = { diagnosticsRefreshCount += 1 }
+        harness.engine.onPublishStatus = { publications.statuses.append($0) }
+        harness.engine.onPresentationChanged = { publications.presentations.append($0) }
+
+        let readinessHold = WatchCaptureHoldGate()
+        if startAdmittedDuringReadiness {
+            writer.atomicReplaceGateURL = harness.storage.paths.sessionHistoryURL()
+            writer.atomicReplaceGate = readinessHold
+        }
+        let maintenanceHold = WatchCaptureHoldGate()
+        writer.writeDataGateURL = finalizedManifestURL
+        writer.writeDataGateOrdinal = 2
+        writer.writeDataGate = maintenanceHold
+
+        harness.engine.reconcileOnLaunch()
+        if startAdmittedDuringReadiness {
+            await self.waitForGate(readinessHold)
+            harness.engine.start()
+            XCTAssertEqual(harness.engine.ownerPresentation.status, .enrolling)
+            writer.atomicReplaceGateURL = nil
+            writer.atomicReplaceGate = nil
+            await readinessHold.release()
+        }
+        await self.waitForGate(maintenanceHold)
+
+        writer.writeDataGateURL = nil
+        writer.writeDataGateOrdinal = nil
+        writer.writeDataGate = nil
+        if !startAdmittedDuringReadiness {
+            harness.engine.start()
+            XCTAssertEqual(harness.engine.ownerPresentation.status, .enrolling)
+        }
+        publications.statuses.removeAll()
+        publications.presentations.removeAll()
+        diagnosticsRefreshCount = 0
+        await maintenanceHold.release()
+        await harness.engine.settled()
+
+        let currentRecordValue = try await harness.storageActor.readSessionRecord(
+            transactionClass: .captureSafety
+        )
+        let currentRecord = try XCTUnwrap(currentRecordValue)
+        XCTAssertNotEqual(currentRecord.sessionID, prior.sessionID)
+        XCTAssertEqual(currentRecord.state, .active)
+        XCTAssertNil(currentRecord.terminalReason)
+        XCTAssertNil(currentRecord.terminalDisposition)
+        XCTAssertEqual(harness.engine.ownerPresentation.status, .active)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertNil(harness.engine.ownerPresentation.terminalReason)
+        XCTAssertNil(harness.engine.ownerPresentation.terminalDisposition)
+
+        XCTAssertEqual(diagnosticsRefreshCount, 1)
+        XCTAssertFalse(publications.statuses.contains {
+            $0.sessionID == prior.sessionID || $0.audioTerminalReason != nil
+        })
+        XCTAssertFalse(publications.presentations.contains {
+            $0.terminalReason != nil || $0.terminalDisposition != nil
+        })
+        XCTAssertTrue(publications.statuses.contains {
+            $0.sessionID == currentRecord.sessionID && $0.phase == .observing
+        })
+
+        let catalog = await harness.storageActor.scanCatalog(transactionClass: .maintenance)
+        let reconciledManifest = try XCTUnwrap(
+            catalog.entries.first { $0.manifest.id == finalizedManifest.id }?.manifest
+        )
+        XCTAssertEqual(reconciledManifest.state, rewriteFails ? .finalized : .queued)
+        XCTAssertEqual(
+            catalog.entries.filter { $0.manifest.state == .queued }.count,
+            rewriteFails ? 0 : 1
+        )
+        XCTAssertEqual(catalog.rootState, partialCatalog ? .partial : .complete)
+    }
+
 
     func testEnginePowerSamplingPopulatesSegmentManifestAtCreation() async throws {
         let env = MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -5758,14 +5899,12 @@ final class FailingWatchFileWriter: WatchFileWriting {
     private func writeDataOutcome(for url: URL) -> (Bool, WatchCaptureHoldGate?) {
         self.writeDataURLs.append(url)
         let ordinal = self.nextOrdinal(for: url, in: &self.writeDataOrdinals)
-        if self.failWriteData || self.writeDataFailures[url.path]?.contains(ordinal) == true {
-            return (true, nil)
-        }
+        let shouldFail = self.failWriteData || self.writeDataFailures[url.path]?.contains(ordinal) == true
         self.writeDataObservations[url.path]?()
         let gate = self.writeDataGateURL == url
             && (self.writeDataGateOrdinal == nil || self.writeDataGateOrdinal == ordinal)
             ? self.writeDataGate : nil
-        return (false, gate)
+        return (shouldFail, gate)
     }
 
     nonisolated func writeData(_ data: Data, to url: URL, options: Data.WritingOptions) async throws {
