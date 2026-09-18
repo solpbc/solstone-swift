@@ -18,7 +18,7 @@ final class AppConfig {
     var deviceID: String
     var isPaired: Bool
     var homeLabel: String
-    var caFingerprintHex: String
+    var clientCertFingerprintHex: String
     var pairedAt: Date?
     var loopbackPort: Int?
     let journalVersion: JournalVersionMetadata
@@ -55,7 +55,7 @@ final class AppConfig {
         self.deviceID = ""
         self.isPaired = false
         self.homeLabel = ""
-        self.caFingerprintHex = ""
+        self.clientCertFingerprintHex = ""
         self.pairedAt = nil
         self.loopbackPort = nil
 
@@ -104,7 +104,7 @@ final class AppConfig {
         self.deviceID = ""
         self.isPaired = false
         self.homeLabel = ""
-        self.caFingerprintHex = ""
+        self.clientCertFingerprintHex = ""
         self.pairedAt = nil
         self.loopbackPort = nil
         self.appGroupMirror.clearPairing()
@@ -172,7 +172,7 @@ final class AppConfig {
         self.deviceID = pairing.instanceID
         self.isPaired = true
         self.homeLabel = pairing.homeLabel
-        self.caFingerprintHex = Self.normalizedFingerprint(pairing.fingerprint)
+        self.clientCertFingerprintHex = Self.normalizedFingerprint(pairing.fingerprint)
         self.pairedAt = pairing.pairedAt
         self.loopbackPort = firstEndpoint?.port
         self.appGroupMirror.writePairing(journalName: pairing.homeLabel)

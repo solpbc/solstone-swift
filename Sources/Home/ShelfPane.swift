@@ -319,8 +319,11 @@ struct JournalSettingsPane: View {
 
             Section {
                 LabeledContent("label", value: self.appConfig.homeLabel.isEmpty ? "unpaired" : self.appConfig.homeLabel)
-                LabeledContent("fingerprint", value: self.shortFingerprint)
                 LabeledContent("paired", value: self.pairedAtText)
+
+                DisclosureGroup("technical details") {
+                    LabeledContent("fingerprint", value: self.shortFingerprint)
+                }
 
                 Button("forget this journal", role: .destructive) {
                     self.showingForgetConfirm = true
@@ -385,10 +388,10 @@ struct JournalSettingsPane: View {
     }
 
     private var shortFingerprint: String {
-        guard !self.appConfig.caFingerprintHex.isEmpty else {
+        guard !self.appConfig.clientCertFingerprintHex.isEmpty else {
             return "unpaired"
         }
-        return String(self.appConfig.caFingerprintHex.prefix(8))
+        return String(self.appConfig.clientCertFingerprintHex.prefix(8))
     }
 
     private var pairedAtText: String {

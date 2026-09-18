@@ -8,6 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 - audio on your apple watch now starts again after another app temporarily interrupts it. before, that interruption could end the moment even though you hadn't turned audio off.
+- your journal's fingerprint no longer shows as a plain row in journal settings. it's now under a technical details disclosure.
 
 ## [2.0.3 (96)] - 2026-09-17
 

@@ -64,7 +64,7 @@ nonisolated final class AppConfigTests: XCTestCase {
 
         XCTAssertTrue(config.isPaired)
         XCTAssertEqual(config.homeLabel, "sol")
-        XCTAssertEqual(config.caFingerprintHex, String(repeating: "a", count: 64))
+        XCTAssertEqual(config.clientCertFingerprintHex, String(repeating: "a", count: 64))
         XCTAssertEqual(config.deviceID, "instance-123")
         XCTAssertEqual(self.pairingState.load(), pairing)
         XCTAssertEqual(

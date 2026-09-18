@@ -53,7 +53,7 @@ struct ContentView: View {
         guard self.appConfig.isPaired else { return nil }
         return ContentPairingIdentity(
             instanceID: self.appConfig.deviceID,
-            certificateFingerprint: self.appConfig.caFingerprintHex,
+            certificateFingerprint: self.appConfig.clientCertFingerprintHex,
             pairedAt: self.appConfig.pairedAt
         )
     }
