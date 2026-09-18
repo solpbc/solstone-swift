@@ -564,7 +564,7 @@ nonisolated enum SourceVocabulary {
     static let journalMarkCouldNotVerifyContinue = "continue anyway"
     static let journalMarkCouldNotVerifyCancel = "cancel pairing"
     static let journalMarkCouldNotVerifyContinueAccessibility = "continue pairing without verifying the journal mark"
-    static let journalMarkCouldNotVerifyCancelAccessibility = "cancel pairing and disconnect this journal"
+    static let journalMarkCouldNotVerifyCancelAccessibility = "cancel pairing and discard this attempt"
     static let rePairLine = "your journal asked this device to reconnect."
     static let rePairAction = "re-pair"
     static let journalLivesTitle = "where your journal lives"
