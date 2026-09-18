@@ -71,6 +71,9 @@ final class WatchCaptureEngine {
     private var rolloverPriorAudioDuration: TimeInterval?
     private var segmentationTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    private var audioResumeRetryTask: Task<Void, Never>?
+    private var interruptedAudioSource: WatchCaptureSourceToken?
+    private var audioResumeAttempt = 0
     private var locationFixTail: Task<Void, Never> = Task { @MainActor in }
     /// Closed before a segment leaves `activeSegment`, so callbacks admitted
     /// while finalization waits for the existing tail cannot target that segment.
@@ -178,7 +181,7 @@ final class WatchCaptureEngine {
             confirmingCount: self.confirmingCount,
             handedOffCount: self.handedOffCount,
             abandonedCount: self.abandonedCount,
-            isSessionRunning: self.activeSegment != nil,
+            isSessionRunning: self.activeSegment != nil || self.interruptedAudioSource != nil,
             sessionStartedAt: self.sessionStartedAt,
             settingsRoute: self.settingsRoute,
             startRefusalReason: self.startRefusalReason,
@@ -227,6 +230,11 @@ final class WatchCaptureEngine {
 
     func stop() {
         self.lifecycleSerializer.submit(.stop)
+    }
+
+    func resumeInterruptedAudioIfNeeded() {
+        guard let interruptedAudioSource else { return }
+        self.lifecycleSerializer.submit(.resumeInterruptedAudio(interruptedAudioSource))
     }
 
     func settled() async {
@@ -540,7 +548,7 @@ final class WatchCaptureEngine {
                 self.status = .off
                 self.notifyPresentationChanged()
             }
-        case .reconcile, .rollover, .terminal:
+        case .reconcile, .rollover, .audioInterruptionBegan, .resumeInterruptedAudio, .terminal:
             break
         }
         return .enqueue
@@ -615,6 +623,20 @@ final class WatchCaptureEngine {
                 self.lifecycleState = .running(sessionID: sessionID)
             }
 
+        case let .audioInterruptionBegan(source):
+            guard case let .running(sessionID) = self.lifecycleState,
+                  source.sessionID == sessionID,
+                  self.interruptedAudioSource == nil
+            else { return }
+            await self.beginAudioInterruption(source: source)
+
+        case let .resumeInterruptedAudio(source):
+            guard case let .running(sessionID) = self.lifecycleState,
+                  source.sessionID == sessionID,
+                  self.interruptedAudioSource?.sessionID == sessionID
+            else { return }
+            await self.attemptInterruptedAudioResume(source: source)
+
         case let .terminal(terminal):
             guard case let .running(sessionID) = self.lifecycleState,
                   terminal.source.sessionID == sessionID
@@ -640,7 +662,7 @@ final class WatchCaptureEngine {
         switch executingLifecycleIntent {
         case .start, .rollover:
             return true
-        case .reconcile, .stop, .terminal:
+        case .reconcile, .stop, .audioInterruptionBegan, .resumeInterruptedAudio, .terminal:
             return false
         }
     }
@@ -774,6 +796,9 @@ extension WatchCaptureEngine {
     }
 
     func clearTransientStateForStart() {
+        self.cancelAudioResumeRetry()
+        self.interruptedAudioSource = nil
+        self.audioResumeAttempt = 0
         self.locationFixDeliveryClosed = false
         self.currentSessionID = nil
         self.currentAudioEnrollment = nil
@@ -1643,19 +1668,19 @@ extension WatchCaptureEngine {
     func handleInterruption(_ type: AVAudioSession.InterruptionType, source: WatchCaptureSourceToken) {
         switch type {
         case .began:
-            self.submitTerminalIntent(
-                reason: .audioInterrupted,
-                disposition: .detectedStoppedItself,
-                source: source
-            )
+            self.lifecycleSerializer.submit(.audioInterruptionBegan(source))
         case .ended:
-            break
+            self.lifecycleSerializer.submit(.resumeInterruptedAudio(source))
         @unknown default:
             break
         }
     }
 
     func handleRouteChange(source: WatchCaptureSourceToken) {
+        if self.interruptedAudioSource != nil, self.audioSession.hasSuitableInput {
+            self.lifecycleSerializer.submit(.resumeInterruptedAudio(source))
+            return
+        }
         guard self.activeSegment != nil, !self.audioSession.hasSuitableInput else { return }
         self.submitTerminalIntent(
             reason: .audioRouteUnavailable,
@@ -1680,6 +1705,135 @@ extension WatchCaptureEngine {
 
     func notifyPresentationChanged() {
         self.onPresentationChanged?(self.ownerPresentation)
+    }
+
+    func beginAudioInterruption(source: WatchCaptureSourceToken) async {
+        guard var segment = self.activeSegment else { return }
+        self.interruptedAudioSource = source
+        self.audioResumeAttempt = 0
+        self.cancelAudioResumeRetry()
+        self.cancelHeartbeatTask()
+        self.segmentationTask?.cancel()
+        self.segmentationTask = nil
+        self.locationFixDeliveryClosed = true
+        await self.waitForAdmittedLocationFixes()
+        self.activeSegment = nil
+        self.currentAudioEnrollment = nil
+        let audioDuration: TimeInterval?
+        do {
+            audioDuration = try self.audioRecorder.stop()
+        } catch {
+            audioDuration = nil
+            self.markPartial(&segment, error: WatchCaptureFailureMapper.observerError(for: error))
+        }
+        // The system has already deactivated the session. Keep our flag honest so
+        // resumption always performs an explicit activation.
+        self.audioSessionIsActive = false
+        _ = await self.finalize(
+            segment: segment,
+            audioDuration: audioDuration,
+            end: self.clock.now()
+        )
+        self.status = .needsAttention(WatchCaptureTerminalReason.audioInterrupted.observerError)
+        await self.publishStatus(.idle, envelopeAttachment: .omit)
+        self.notifyPresentationChanged()
+        self.scheduleAudioResumeRetry(source: source)
+    }
+
+    func attemptInterruptedAudioResume(source: WatchCaptureSourceToken) async {
+        guard self.interruptedAudioSource?.sessionID == source.sessionID,
+              let currentSessionID,
+              currentSessionID == source.sessionID
+        else { return }
+        self.cancelAudioResumeRetry()
+        do {
+            try self.audioSession.setCategory(.record, mode: .measurement, options: [])
+            try self.audioSession.setActive(true, options: [])
+            self.audioSessionIsActive = true
+            guard try await self.openSegment(
+                startedAt: self.clock.now(),
+                ownerSessionID: currentSessionID,
+                generation: nil
+            ), let segment = self.activeSegment, segment.hasLiveSensor else {
+                throw WatchCaptureEngineError.audioStartFailed
+            }
+            self.interruptedAudioSource = nil
+            self.audioResumeAttempt = 0
+            self.locationFixDeliveryClosed = false
+            self.status = self.statusForRunningSegment(segment)
+            self.startSegmentationTask()
+            self.startHeartbeatTask(source: source)
+            self.onDiagnosticsRefreshRequested?()
+            await self.publishStatus(.observing, envelopeAttachment: .attach)
+            self.notifyPresentationChanged()
+        } catch {
+            await self.retainFailedAudioResumeAttempt(error: error)
+            self.status = .needsAttention(WatchCaptureTerminalReason.audioInterrupted.observerError)
+            await self.publishStatus(.idle, envelopeAttachment: .omit)
+            self.notifyPresentationChanged()
+            self.scheduleAudioResumeRetry(source: source)
+        }
+    }
+
+    func retainFailedAudioResumeAttempt(error: any Error) async {
+        var segment = self.activeSegment ?? self.openingSegment
+        self.activeSegment = nil
+        self.openingSegment = nil
+        self.openingSegmentHasPersistedManifest = false
+        self.currentAudioEnrollment = nil
+        if segment?.audioURL != nil {
+            do {
+                let duration = try self.audioRecorder.stop()
+                if let segment {
+                    await self.finalizeTerminalSegment(segment, audioDuration: duration, end: self.clock.now())
+                }
+            } catch {
+                if var retained = segment {
+                    self.markPartial(&retained, error: WatchCaptureFailureMapper.observerError(for: error))
+                    segment = retained
+                    await self.finalizeTerminalSegment(retained, audioDuration: nil, end: self.clock.now())
+                }
+            }
+        } else if let segment {
+            _ = await self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL)
+        }
+        if self.audioSessionIsActive {
+            try? self.audioSession.setActive(false, options: [])
+            self.audioSessionIsActive = false
+        }
+        watchCaptureLog.error(
+            "watch audio interruption resume failed: \(String(describing: error), privacy: .public)"
+        )
+    }
+
+    func scheduleAudioResumeRetry(source: WatchCaptureSourceToken) {
+        guard self.interruptedAudioSource?.sessionID == source.sessionID else { return }
+        let attempt = self.audioResumeAttempt
+        self.audioResumeAttempt += 1
+        let delay = Self.audioResumeRetryDelay(attempt: attempt)
+        self.cancelAudioResumeRetry()
+        self.audioResumeRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.clock.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  self.interruptedAudioSource?.sessionID == source.sessionID
+            else { return }
+            self.lifecycleSerializer.submit(.resumeInterruptedAudio(source))
+        }
+    }
+
+    func cancelAudioResumeRetry() {
+        self.audioResumeRetryTask?.cancel()
+        self.audioResumeRetryTask = nil
+    }
+
+    nonisolated static func audioResumeRetryDelay(attempt: Int) -> TimeInterval {
+        let delays: [TimeInterval] = [1, 2, 5, 15, 30, 60]
+        return delays[min(max(attempt, 0), delays.count - 1)]
     }
 
     func requestRelayDrain(trigger: RelayTrigger) {
@@ -2086,6 +2240,9 @@ extension WatchCaptureEngine {
 
     func startHeartbeatTask(source: WatchCaptureSourceToken) {
         self.cancelHeartbeatTask()
+        self.cancelAudioResumeRetry()
+        self.interruptedAudioSource = nil
+        self.audioResumeAttempt = 0
         self.heartbeatTask = Task { @MainActor [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
@@ -2377,6 +2534,9 @@ extension WatchCaptureEngine {
         self.rolloverPriorSegment = nil
         self.rolloverPriorAudioDuration = nil
         self.cancelHeartbeatTask()
+        self.cancelAudioResumeRetry()
+        self.interruptedAudioSource = nil
+        self.audioResumeAttempt = 0
         self.segmentationTask?.cancel()
         self.segmentationTask = nil
         self.removeAudioSessionObservers()

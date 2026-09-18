@@ -350,7 +350,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
     }
 
-    func testInterruptionBeganTerminatesWithDetectedReason() async throws {
+    func testInterruptionFinalizesCapturedAudioAndEndedResumesSameEnabledSession() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { status in
@@ -365,12 +365,38 @@ final class WatchCaptureTests: XCTestCase {
             object: nil,
             userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
         )
-        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        await self.drain(until: { statuses.last?.phase == .idle })
+        await harness.engine.settled()
 
+        let interruptedRecordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let interruptedRecord = try XCTUnwrap(interruptedRecordValue)
         XCTAssertEqual(statuses.last?.phase, .idle)
-        XCTAssertEqual(statuses.last?.audioTerminalReason, .audioInterrupted)
-        XCTAssertEqual(statuses.last?.audioTerminalDisposition, .detectedStoppedItself)
-        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertNil(statuses.last?.audioTerminalReason)
+        XCTAssertNil(statuses.last?.audioTerminalDisposition)
+        XCTAssertEqual(interruptedRecord.state, .active)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.recorder.stopCallCount, 1)
+        let interruptedManifestStates = await self.catalogEntries(for: harness.storage).map(\.manifest.state)
+        XCTAssertEqual(interruptedManifestStates, [.queued])
+
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [
+                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+                AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue,
+            ]
+        )
+        await self.drain(until: { harness.recorder.startURLs.count == 2 && statuses.last?.phase == .observing })
+        await harness.engine.settled()
+
+        let resumedRecordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let resumedRecord = try XCTUnwrap(resumedRecordValue)
+        XCTAssertEqual(resumedRecord.sessionID, interruptedRecord.sessionID)
+        XCTAssertEqual(resumedRecord.state, .active)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.engine.ownerPresentation.status, .active)
+        XCTAssertNil(harness.engine.ownerPresentation.terminalReason)
     }
 
     func testReconcileOnLaunchPublishesInitialBacklogOnce() async throws {
@@ -553,12 +579,9 @@ final class WatchCaptureTests: XCTestCase {
 
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
-        harness.notificationCenter.post(
-            name: AVAudioSession.interruptionNotification,
-            object: nil,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
-        )
-        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
+        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioFinishUnsuccessful } })
         await harness.engine.settled()
 
         XCTAssertEqual(harness.notificationScheduler.calls.filter { $0 == .requestAuthorization }.count, 0)
@@ -588,12 +611,9 @@ final class WatchCaptureTests: XCTestCase {
         detected.notificationScheduler.calls.removeAll()
         detected.notificationScheduler.authorizationStatusValue = .notDetermined
 
-        detected.notificationCenter.post(
-            name: AVAudioSession.interruptionNotification,
-            object: nil,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
-        )
-        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        let detectedSource = try XCTUnwrap(detected.recorder.startSources.last)
+        detected.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: detectedSource)
+        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioFinishUnsuccessful } })
 
         XCTAssertEqual(detected.notificationScheduler.calls.filter { $0 == .requestAuthorization }.count, 0)
 
@@ -624,12 +644,9 @@ final class WatchCaptureTests: XCTestCase {
 
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
-        harness.notificationCenter.post(
-            name: AVAudioSession.interruptionNotification,
-            object: nil,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
-        )
-        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
+        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioFinishUnsuccessful } })
 
         XCTAssertEqual(harness.notificationScheduler.calls.filter { $0 == .requestAuthorization }.count, 0)
         XCTAssertTrue(harness.notificationScheduler.submittedRequests.filter {
@@ -684,12 +701,9 @@ final class WatchCaptureTests: XCTestCase {
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         harness.notificationScheduler.calls.removeAll()
-        harness.notificationCenter.post(
-            name: AVAudioSession.interruptionNotification,
-            object: nil,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
-        )
-        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
+        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioFinishUnsuccessful } })
         await harness.engine.settled()
 
         let removeIndex = try XCTUnwrap(harness.notificationScheduler.calls.firstIndex(
@@ -815,7 +829,7 @@ final class WatchCaptureTests: XCTestCase {
     }
 
     func testDelayedAudioSessionNotificationsRemainBoundToFormerSession() async throws {
-        for notification in self.audioSessionNotificationCases {
+        for notification in self.delayedAudioSessionNotificationCases {
             let handoffs = AudioSessionNotificationHandoffProbe()
             let harness = try self.makeHarness(
                 locationAuthorization: .denied,
@@ -878,6 +892,48 @@ final class WatchCaptureTests: XCTestCase {
             XCTAssertTrue(publications.statuses.isEmpty)
             XCTAssertTrue(publications.presentations.isEmpty)
         }
+    }
+
+    func testStaleInterruptionHandoffDoesNotCompactCurrentSessionInterruption() async throws {
+        let handoffs = AudioSessionNotificationHandoffProbe()
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            audioSessionNotificationHandoff: { operation in
+                handoffs.capture(operation)
+            }
+        )
+
+        harness.engine.start(); await self.settleCaptureEngine(harness.engine)
+        let formerSource = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+        )
+        XCTAssertEqual(handoffs.pendingCount, 1)
+
+        harness.engine.stop(); await self.settleCaptureEngine(harness.engine)
+        harness.clock.advance(by: 1)
+        harness.engine.start(); await self.settleCaptureEngine(harness.engine)
+        let currentSource = try XCTUnwrap(harness.recorder.startSources.last)
+        XCTAssertNotEqual(formerSource.sessionID, currentSource.sessionID)
+
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+        )
+        XCTAssertEqual(handoffs.pendingCount, 2)
+        handoffs.releaseAll()
+        await self.settleCaptureEngine(harness.engine)
+
+        let recordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let record = try XCTUnwrap(recordValue)
+        XCTAssertEqual(record.sessionID, currentSource.sessionID)
+        XCTAssertEqual(record.state, .active)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertNotEqual(harness.engine.ownerPresentation.status, .active)
+        XCTAssertEqual(harness.recorder.stopCallCount, 2)
     }
 
     func testBoundAudioSessionNotificationsTerminateNewCurrentSessionAfterRestart() async throws {
@@ -1076,9 +1132,9 @@ final class WatchCaptureTests: XCTestCase {
         )
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
-        harness.notificationCenter.post(name: AVAudioSession.interruptionNotification, object: nil,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
-        await self.drain(until: { harness.engine.ownerPresentation.terminalReason == .audioInterrupted })
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
+        await self.drain(until: { harness.engine.ownerPresentation.terminalReason == .audioFinishUnsuccessful })
         await harness.engine.settled()
         let history = harness.storageActor
         guard case let .available(entries) = await history.readSessionHistory(asOf: harness.clock.now()) else { return XCTFail("history unreadable") }
@@ -1101,7 +1157,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(firstCall.options, [])
     }
 
-    func testInterruptionEndedDoesNotAutoResume() async throws {
+    func testInterruptionCanResumeFromActivationWhenEndedNotificationNeverArrives() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         var statuses: [WatchStatusContext] = []
         harness.engine.onPublishStatus = { statuses.append($0) }
@@ -1113,23 +1169,120 @@ final class WatchCaptureTests: XCTestCase {
             object: nil,
             userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
         )
-        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        await self.drain(until: { statuses.last?.phase == .idle })
         await harness.engine.settled()
-        XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
-        XCTAssertEqual(harness.engine.ownerPresentation.terminalReason, .audioInterrupted)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.recorder.startURLs.count, 1)
 
-        // Posting interruption ended should not restart recording
+        harness.engine.resumeInterruptedAudioIfNeeded()
+        await self.drain(until: { harness.recorder.startURLs.count == 2 })
+        await harness.engine.settled()
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertEqual(harness.engine.ownerPresentation.status, .active)
+    }
+
+    func testInterruptionRetrySurvivesTransientReactivationFailure() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { harness.recorder.startURLs.count == 1 })
+        let sleepersBeforeInterruption = self.pendingSleeperCount(in: harness.clock)
+
         harness.notificationCenter.post(
             name: AVAudioSession.interruptionNotification,
             object: nil,
-            userInfo: [
-                AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
-                AVAudioSessionInterruptionOptionKey: AVAudioSession.InterruptionOptions.shouldResume.rawValue,
-            ]
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+        )
+        await self.drain(until: { harness.engine.ownerPresentation.status != .active })
+        await harness.engine.settled()
+        await self.drain(until: {
+            self.pendingSleeperCount(in: harness.clock) > sleepersBeforeInterruption
+        })
+        let sleepersBeforeImmediateResume = self.pendingSleeperCount(in: harness.clock)
+        harness.audioSession.activeErrors = [NSError(domain: "WatchCaptureTests.resume", code: 1)]
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue]
         )
         await harness.engine.settled()
+
+        XCTAssertEqual(harness.recorder.startURLs.count, 1)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        await self.drain(until: {
+            self.pendingSleeperCount(in: harness.clock) > sleepersBeforeImmediateResume
+        })
+        harness.clock.advance(by: 2)
+        await self.drain(until: { harness.recorder.startURLs.count == 2 })
+        await harness.engine.settled()
+        XCTAssertEqual(harness.engine.ownerPresentation.status, .active)
+    }
+
+    func testInterruptionRetryDelayBacksOffAndCapsAtOneMinute() {
+        XCTAssertEqual((0 ... 7).map(WatchCaptureEngine.audioResumeRetryDelay), [1, 2, 5, 15, 30, 60, 60, 60])
+    }
+
+    func testOwnerStopDuringInterruptionCancelsRetryAndIsSoleTerminalFact() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+        )
+        await self.drain(until: { harness.engine.ownerPresentation.status != .active })
+
+        harness.engine.stop(); await harness.engine.settled()
+        let recordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let record = try XCTUnwrap(recordValue)
+        XCTAssertEqual(record.state, .terminal)
+        XCTAssertEqual(record.terminalReason, .ownerStopped)
+        XCTAssertEqual(record.terminalDisposition, .ownerStopped)
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
-        XCTAssertEqual(harness.engine.ownerPresentation.terminalReason, .audioInterrupted)
+
+        harness.clock.advance(by: 120)
+        await Task.yield()
+        XCTAssertEqual(harness.recorder.startURLs.count, 1)
+    }
+
+    func testStalePreInterruptionRecorderCallbackCannotStopResumedCapture() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        let staleSource = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+        )
+        await self.drain(until: { harness.engine.ownerPresentation.status != .active })
+        harness.engine.resumeInterruptedAudioIfNeeded()
+        await self.drain(until: { harness.recorder.startSources.count == 2 })
+
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: staleSource)
+        await harness.engine.settled()
+
+        XCTAssertEqual(harness.engine.ownerPresentation.status, .active)
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertNil(harness.engine.ownerPresentation.terminalReason)
+    }
+
+    func testRelaunchDuringInterruptionDiscoversProcessExitDurably() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .denied)
+        harness.engine.start(); await harness.engine.settled()
+        harness.notificationCenter.post(
+            name: AVAudioSession.interruptionNotification,
+            object: nil,
+            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
+        )
+        await self.drain(until: { harness.engine.ownerPresentation.status != .active })
+
+        let relaunch = self.relaunchEngine(for: harness)
+        relaunch.reconcileOnLaunch(); await relaunch.settled()
+
+        let recordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
+        let record = try XCTUnwrap(recordValue)
+        XCTAssertEqual(record.state, .terminal)
+        XCTAssertEqual(record.terminalReason, .processExitedWhileActive)
+        XCTAssertEqual(record.terminalDisposition, .inferredStoppedItself)
     }
 
     func testLeaseRenewsOnlyForPositiveDecodableFinalizedAudio() async throws {
@@ -1716,12 +1869,9 @@ final class WatchCaptureTests: XCTestCase {
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         fileWriter.failAtomicReplace = true
-        harness.notificationCenter.post(
-            name: AVAudioSession.interruptionNotification,
-            object: nil,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
-        )
-        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
+        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioFinishUnsuccessful } })
         await self.drain(until: {
             harness.engine.ownerPresentation.persistenceAdvisory == .sessionRecordWriteFailed
                 && harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count == 1
@@ -1729,7 +1879,7 @@ final class WatchCaptureTests: XCTestCase {
 
         XCTAssertEqual(harness.engine.ownerPresentation.persistenceAdvisory, .sessionRecordWriteFailed)
         XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
-        XCTAssertEqual(statuses.last?.audioTerminalReason, .audioInterrupted)
+        XCTAssertEqual(statuses.last?.audioTerminalReason, .audioFinishUnsuccessful)
         XCTAssertEqual(statuses.last?.audioTerminalDisposition, .detectedStoppedItself)
     }
 
@@ -1741,18 +1891,15 @@ final class WatchCaptureTests: XCTestCase {
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
         harness.notificationScheduler.addError = NSError(domain: "WatchCaptureTests.notification", code: 1)
-        harness.notificationCenter.post(
-            name: AVAudioSession.interruptionNotification,
-            object: nil,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
-        )
-        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
+        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioFinishUnsuccessful } })
         await harness.engine.settled()
 
         let recordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
         let record = try XCTUnwrap(recordValue)
         XCTAssertEqual(record.state, .terminal)
-        XCTAssertEqual(record.terminalReason, .audioInterrupted)
+        XCTAssertEqual(record.terminalReason, .audioFinishUnsuccessful)
         XCTAssertEqual(record.terminalDisposition, .detectedStoppedItself)
         XCTAssertTrue(record.noticeOwed)
         XCTAssertEqual(harness.notificationScheduler.addCalls(identifier: WatchNoticeIdentifiers.notice).count, 1)
@@ -1765,12 +1912,9 @@ final class WatchCaptureTests: XCTestCase {
 
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { statuses.contains { $0.phase == .observing } })
-        harness.notificationCenter.post(
-            name: AVAudioSession.interruptionNotification,
-            object: nil,
-            userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
-        )
-        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioInterrupted } })
+        let source = try XCTUnwrap(harness.recorder.startSources.last)
+        harness.recorder.eventSink?.audioRecorderDidFinish(successfully: false, source: source)
+        await self.drain(until: { statuses.contains { $0.audioTerminalReason == .audioFinishUnsuccessful } })
         await harness.engine.settled()
 
         let sessionRecord = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
@@ -5720,18 +5864,23 @@ private extension WatchCaptureTests {
                 makesInputUnsuitable: false
             ),
             .init(
+                name: AVAudioSession.routeChangeNotification,
+                reason: .audioRouteUnavailable,
+                userInfo: nil,
+                makesInputUnsuitable: true
+            ),
+        ]
+    }
+
+    var delayedAudioSessionNotificationCases: [AudioSessionNotificationCase] {
+        self.audioSessionNotificationCases + [
+            .init(
                 name: AVAudioSession.interruptionNotification,
                 reason: .audioInterrupted,
                 userInfo: [
                     AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue,
                 ],
                 makesInputUnsuitable: false
-            ),
-            .init(
-                name: AVAudioSession.routeChangeNotification,
-                reason: .audioRouteUnavailable,
-                userInfo: nil,
-                makesInputUnsuitable: true
             ),
         ]
     }
@@ -6767,6 +6916,7 @@ private final class MockWatchNotificationScheduler: WatchNotificationScheduling 
 private final class MockWatchAudioSession: WatchAudioSessionControlling {
     var hasSuitableInput = true
     var setActiveCalls: [Bool] = []
+    var activeErrors: [any Error] = []
     var setCategoryCalls: [(category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions)] = []
 
     func setCategory(
@@ -6779,6 +6929,9 @@ private final class MockWatchAudioSession: WatchAudioSessionControlling {
 
     func setActive(_ active: Bool, options: AVAudioSession.SetActiveOptions) throws {
         self.setActiveCalls.append(active)
+        if active, !self.activeErrors.isEmpty {
+            throw self.activeErrors.removeFirst()
+        }
     }
 }
 

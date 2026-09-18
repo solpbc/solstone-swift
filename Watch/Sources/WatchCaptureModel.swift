@@ -230,6 +230,7 @@ final class WatchCaptureModel {
     func republishStatusOnActivation() {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            self.engine?.resumeInterruptedAudioIfNeeded()
             self.enqueueDiagnosticsRefresh()
             await self.engine?.republishCurrentStatus(envelopeAttachment: .attach)
         }

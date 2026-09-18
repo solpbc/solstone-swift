@@ -30,6 +30,8 @@ final class WatchCaptureLifecycleSerializer {
         case start
         case stop
         case rollover
+        case audioInterruptionBegan(WatchCaptureSourceToken)
+        case resumeInterruptedAudio(WatchCaptureSourceToken)
         case terminal(Terminal)
     }
 
@@ -127,6 +129,14 @@ final class WatchCaptureLifecycleSerializer {
         case .reconcile:
             return self.current?.isReconcile == true || self.pending.contains(where: \.isReconcile)
 
+        case .audioInterruptionBegan(let source):
+            return self.current?.matchesAudioInterruption(source) == true
+                || self.pending.contains { $0.matchesAudioInterruption(source) }
+
+        case .resumeInterruptedAudio(let source):
+            return self.current?.matchesAudioResume(source) == true
+                || self.pending.contains { $0.matchesAudioResume(source) }
+
         case .rollover, .terminal:
             return false
         }
@@ -175,6 +185,16 @@ private extension WatchCaptureLifecycleSerializer.Intent {
 
     var isStop: Bool {
         if case .stop = self { return true }
+        return false
+    }
+
+    func matchesAudioInterruption(_ source: WatchCaptureSourceToken) -> Bool {
+        if case .audioInterruptionBegan(let candidate) = self { return candidate == source }
+        return false
+    }
+
+    func matchesAudioResume(_ source: WatchCaptureSourceToken) -> Bool {
+        if case .resumeInterruptedAudio(let candidate) = self { return candidate == source }
         return false
     }
 }
