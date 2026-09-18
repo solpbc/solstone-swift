@@ -1232,10 +1232,12 @@ final class TunnelManager {
                 case .error(let error) where error.isRetryable:
                     if status.isSatisfied {
                         self.consecutiveNotEntitled = 0
-                        self.pendingReconnectReason = .pathRestore
+                        if self.pendingReconnectReason == nil {
+                            self.pendingReconnectReason = .pathRestore
 #if DEBUG && targetEnvironment(simulator)
-                        self.integrationGateLastReconnectReasonBucket = .pathRestore
+                            self.integrationGateLastReconnectReasonBucket = .pathRestore
 #endif
+                        }
                         self.scheduleReconnect(for: error)
                     }
                 case .disconnected:

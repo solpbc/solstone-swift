@@ -1490,6 +1490,38 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testSatisfiedPathPreservesPendingTransportClosedBucket() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        let manager = makeManager(transport: transport, pathMonitor: pathMonitor)
+
+        await manager.connect()
+        transport.simulateDisconnect(error: TunnelError.muxTeardown)
+        let didSchedule = await Self.waitUntil {
+            if case .error(.muxTeardown) = manager.state {
+                return manager.reconnectCountdown != nil
+            }
+            return false
+        }
+        XCTAssertTrue(didSchedule)
+
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        let didApplyPath = await Self.waitUntil {
+            manager.currentPathStatus == .satisfiedWiFi
+        }
+        XCTAssertTrue(didApplyPath)
+
+        await manager.retryNow()
+
+        Self.assertReconnectBuckets(manager, expected: [.transportClosed: 1])
+        manager.stopNetworkMonitoring()
+        await manager.disconnect()
+    }
+
+    @MainActor
     func testReconnectCountBucketKeepaliveMissed() async {
         let transport = MockCFTunnelTransport()
         transport.connectionMode = .plDirect
@@ -1670,11 +1702,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .connected(localPort: 4444, via: .lan))
 
         Self.assertReconnectBuckets(manager, expected: [
-            .transportClosed: 1,
+            .transportClosed: 2,
             .keepaliveMissed: 1,
             .connectFailed: 1,
             .watchdogTimeout: 1,
-            .pathRestore: 1,
         ])
         manager.stopNetworkMonitoring()
         await manager.disconnect()
@@ -2793,6 +2824,12 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertNotNil(manager.reconnectCountdown)
         XCTAssertEqual(transport.connectCallCount, 0)
+
+        await manager.retryNow()
+
+        Self.assertReconnectBuckets(manager, expected: [.pathRestore: 1])
+        manager.stopNetworkMonitoring()
+        await manager.disconnect()
     }
 
     @MainActor
