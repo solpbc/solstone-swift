@@ -63,13 +63,6 @@ struct PairFlowView: View {
         var id: String { rawValue }
     }
 
-    private enum Phase: Equatable {
-        case pairing
-        case connecting
-        case confirm(JournalMark)
-        case mismatch
-    }
-
     nonisolated enum PastedLinkOutcome: Equatable {
         case loopback
         case pair(PairURL)
@@ -106,7 +99,7 @@ struct PairFlowView: View {
     @State private var coordinator = PairFlowCoordinator()
     @State private var fallbackTimer = PairFlowFallbackTimer()
     @State private var completionGate = PairFlowCompletionGate()
-    @State private var phase: Phase = .pairing
+    @State private var phase: PairFlowPhase = .pairing
     @State private var flowTask: Task<Void, Never>?
     @State private var mode: EntryMode = .scan
     @State private var pastedURL = ""
@@ -192,6 +185,8 @@ struct PairFlowView: View {
             self.connectingContent
         case .confirm(let mark):
             self.confirmContent(mark)
+        case .couldNotVerify:
+            self.couldNotVerifyContent
         case .mismatch:
             self.mismatchContent
         }
@@ -303,6 +298,25 @@ struct PairFlowView: View {
     }
 
     @ViewBuilder
+    private var couldNotVerifyContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Button(SourceVocabulary.journalMarkCouldNotVerifyContinue) {
+                self.completeOnce()
+            }
+            .buttonStyle(.borderedProminent)
+            .accessibilityLabel(SourceVocabulary.journalMarkCouldNotVerifyContinueAccessibility)
+            .frame(maxWidth: .infinity, minHeight: 44)
+
+            Button(SourceVocabulary.journalMarkCouldNotVerifyCancel) {
+                self.startCouldNotVerifyCancel()
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel(SourceVocabulary.journalMarkCouldNotVerifyCancelAccessibility)
+            .frame(maxWidth: .infinity, minHeight: 44)
+        }
+    }
+
+    @ViewBuilder
     private var mismatchContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             Button(SourceVocabulary.journalMarkMismatchScanAgain) {
@@ -328,6 +342,8 @@ struct PairFlowView: View {
             return SourceVocabulary.journalMarkConnecting
         case .confirm:
             return SourceVocabulary.journalMarkConfirmQuestion
+        case .couldNotVerify:
+            return SourceVocabulary.journalMarkCouldNotVerifyTitle
         case .mismatch:
             return SourceVocabulary.journalMarkMismatchTitle
         }
@@ -341,6 +357,8 @@ struct PairFlowView: View {
             return ""
         case .confirm:
             return SourceVocabulary.journalMarkConfirmSubtext
+        case .couldNotVerify:
+            return SourceVocabulary.journalMarkCouldNotVerifyBody
         case .mismatch:
             return SourceVocabulary.journalMarkMismatchBody
         }
@@ -380,6 +398,19 @@ struct PairFlowView: View {
         }
     }
 
+    private func startCouldNotVerifyCancel() {
+        self.cancelFlowTask()
+        self.flowTask = Task { @MainActor in
+            await tearDownMismatchedPairing(
+                appConfig: self.appConfig,
+                tunnelManager: self.tunnelManager,
+                coordinator: self.coordinator
+            )
+            guard !Task.isCancelled else { return }
+            self.restoreScanUI()
+        }
+    }
+
     private func cancelFlowTask() {
         self.flowTask?.cancel()
         self.flowTask = nil
@@ -393,6 +424,10 @@ struct PairFlowView: View {
 
     private func resetForScan() {
         self.cancelFlowTask()
+        self.restoreScanUI()
+    }
+
+    private func restoreScanUI() {
         self.errorMessage = nil
         self.pastedURL = ""
         self.coordinator.hasAutoPaired = false
@@ -478,14 +513,13 @@ struct PairFlowView: View {
             )
             guard !Task.isCancelled else { return }
             self.errorMessage = nil
-            switch outcome {
-            case .confirm(let mark):
-                self.phase = .confirm(mark)
-            case .fallback(.cancelled):
-                break
-            case .fallback:
-                self.completeOnce()
-            }
+            let applicator = PairFlowConfirmationApplicator(
+                initialPhase: self.phase,
+                completionGate: self.completionGate,
+                tearDown: {}
+            )
+            applicator.apply(outcome)
+            self.phase = applicator.phase
         } catch {
             if case .failed(let message) = self.coordinator.state {
                 self.errorMessage = message

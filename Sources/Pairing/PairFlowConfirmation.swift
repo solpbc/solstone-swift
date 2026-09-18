@@ -6,6 +6,14 @@ import os
 
 private let confirmationLog = Logger(subsystem: "app.solstone.swift", category: "journal-mark")
 
+nonisolated enum PairFlowPhase: Equatable, Sendable {
+    case pairing
+    case connecting
+    case confirm(JournalMark)
+    case couldNotVerify
+    case mismatch
+}
+
 nonisolated enum ConfirmFallbackReason: Equatable, Sendable {
     case timeout
     case missingOrInvalidMark
@@ -15,6 +23,44 @@ nonisolated enum ConfirmFallbackReason: Equatable, Sendable {
 nonisolated enum ConfirmOutcome: Equatable, Sendable {
     case confirm(JournalMark)
     case fallback(ConfirmFallbackReason)
+}
+
+@MainActor
+final class PairFlowConfirmationApplicator {
+    var phase: PairFlowPhase
+    private let completionGate: PairFlowCompletionGate
+    private let tearDown: @MainActor () async -> Void
+
+    init(
+        initialPhase: PairFlowPhase = .connecting,
+        completionGate: PairFlowCompletionGate = PairFlowCompletionGate(),
+        tearDown: @escaping @MainActor () async -> Void
+    ) {
+        self.phase = initialPhase
+        self.completionGate = completionGate
+        self.tearDown = tearDown
+    }
+
+    func apply(_ outcome: ConfirmOutcome) {
+        guard self.phase == .connecting else { return }
+        switch outcome {
+        case .confirm(let mark):
+            self.phase = .confirm(mark)
+        case .fallback(.timeout), .fallback(.missingOrInvalidMark):
+            self.phase = .couldNotVerify
+        case .fallback(.cancelled):
+            break
+        }
+    }
+
+    func continueAnyway(onComplete: @MainActor () -> Void) {
+        self.completionGate.completeOnce(onComplete)
+    }
+
+    func cancelPairing() async {
+        await self.tearDown()
+        self.phase = .pairing
+    }
 }
 
 @MainActor
