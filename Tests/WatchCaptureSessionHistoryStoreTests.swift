@@ -104,7 +104,6 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
             terminalReason: .ownerStopped,
             terminalDisposition: .ownerStopped,
             terminalAt: Date(timeIntervalSince1970: 1_784_073_900),
-            noticeOwed: false,
             segmentsProduced: 3
         )
 
@@ -177,9 +176,8 @@ final class WatchCaptureSessionHistoryStoreTests: XCTestCase {
         WatchCaptureSessionHistoryEntry(
             sessionID: "session-\(index)", startedAt: date, terminalAt: date,
             terminalReason: .audioClockStalled, terminalDisposition: .detectedStoppedItself,
-            startRefusalReason: nil, settingsRoute: nil, noticeOwed: false, noticeDecision: "schedule",
-            noticeDelivered: true, notificationAuthorizationStatus: .authorized, notificationAlertSetting: .enabled,
-            wristAlertAssurance: .willTap, audioArmed: true, audioSessionIsActive: true, locationArmed: false,
+            startRefusalReason: nil, settingsRoute: nil,
+            audioArmed: true, audioSessionIsActive: true, locationArmed: false,
             segmentsProduced: 1, batteryLevelAtEnd: 0.75, batteryStateAtEnd: "unplugged",
             lowPowerModeEnabledAtEnd: false, thermalStateAtEnd: "nominal", lastVerifiedAudioAt: date,
             lastAudioCurrentTime: 1.23456789, zeroAudioCurrentTimeObservationCount: 3,

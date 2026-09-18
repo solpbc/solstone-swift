@@ -246,8 +246,6 @@ nonisolated enum SourceVocabulary {
     static let watchNoticeAudioCouldNotBeSavedBody = "open the solstone app on your watch before your next moment."
     static let watchNoticeAudioCouldNotBeConfirmedTitle = "audio could not be confirmed"
     static let watchNoticeAudioCouldNotBeConfirmedBody = "open the solstone app on your watch to check audio."
-    static let watchWristAlertWillTap = "you'll get a wrist tap if audio needs attention"
-    static let watchWristAlertsOff = "wrist alerts are off"
     static let watchPipelineSending = "sending"
     static let watchPipelineSaved = "saved on your watch"
     static let watchPipelineUnknown = "—"

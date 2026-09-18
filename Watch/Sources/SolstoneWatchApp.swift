@@ -2,7 +2,6 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
-import UserNotifications
 
 @main
 struct SolstoneWatchApp: App {
@@ -10,7 +9,6 @@ struct SolstoneWatchApp: App {
     @State private var sessionModel: WatchSessionModel
     @State private var captureModel: WatchCaptureModel
     @State private var backgroundTaskCoordinator: WatchBackgroundTaskCoordinator
-    private let notificationScheduler: LiveWatchNotificationScheduler
 
     init() {
         let bootstrap = WatchSignpost.begin(.bootstrap)
@@ -20,7 +18,6 @@ struct SolstoneWatchApp: App {
 #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("--app-store-screenshots") {
             let session = LiveWatchConnectivitySession(messageSend: { _, _ in })
-            self.notificationScheduler = LiveWatchNotificationScheduler()
             let model = WatchSessionModel(session: session, relaySender: nil)
             let saved = ProcessInfo.processInfo.arguments.contains("--screenshot-saved")
             model.isReachable = !saved
@@ -49,8 +46,6 @@ struct SolstoneWatchApp: App {
         }
 #endif
         let session = LiveWatchConnectivitySession()
-        self.notificationScheduler = LiveWatchNotificationScheduler()
-        UNUserNotificationCenter.current().delegate = self.notificationScheduler
         let storageActor: WatchCaptureStorageActor?
         do {
             let paths = try WatchCaptureStoragePaths()
@@ -79,7 +74,6 @@ struct SolstoneWatchApp: App {
                 relaySender: relaySender,
                 session: session,
                 diagnosticsCollector: diagnosticsCollector,
-                notificationScheduler: self.notificationScheduler,
                 environmentProvider: environmentProvider
             )
             sessionModel.onActivationRepublish = { [weak captureModel] in captureModel?.republishStatusOnActivation() }

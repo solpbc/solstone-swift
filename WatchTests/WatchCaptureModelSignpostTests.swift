@@ -73,7 +73,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             signposter: signposter,
             complicationRootURL: { complicationRoot },
@@ -117,7 +116,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             complicationRootURL: { complicationRoot },
             reloadComplicationTimelines: {}
@@ -179,7 +177,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             signposter: signposter,
             complicationRootURL: { complicationRoot },
@@ -257,7 +254,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             signposter: signposter,
             complicationRootURL: { complicationRoot },
@@ -330,7 +326,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             complicationRootURL: { complicationRoot },
             reloadComplicationTimelines: { reloadCount += 1 }
@@ -384,7 +379,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             signposter: WatchSignposter(sink: sink),
             complicationRootURL: { complicationRoot },
@@ -432,7 +426,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             signposter: WatchSignposter(sink: sink),
             complicationRootURL: { complicationRoot },
@@ -495,7 +488,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             signposter: signposter,
             complicationRootURL: { complicationRoot },
@@ -575,7 +567,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             clock: WatchModelFixedClock(date: Date()),
             signposter: signposter,
@@ -646,7 +637,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             clock: WatchModelFixedClock(date: Date()),
             signposter: signposter,
@@ -706,7 +696,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             complicationRootURL: { complicationRoot },
             reloadComplicationTimelines: {}
@@ -904,7 +893,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: relaySender,
             session: session,
             diagnosticsCollector: collector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             signposter: signposter,
             complicationRootURL: { complicationRoot },
@@ -998,7 +986,6 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             relaySender: snapshotSender,
             session: snapshotSession,
             diagnosticsCollector: snapshotCollector,
-            notificationScheduler: WatchModelNotificationScheduler(),
             environmentProvider: WatchModelEnvironmentProvider(),
             clock: WatchModelFixedClock(date: now),
             signposter: signposter,
@@ -1467,15 +1454,6 @@ nonisolated private struct WatchModelFixedClock: ObserverClock {
     func sleep(for duration: Duration) async throws {
         try await Task.sleep(for: duration)
     }
-}
-
-@MainActor
-private final class WatchModelNotificationScheduler: WatchNotificationScheduling {
-    func authorizationStatus() async -> WatchNotificationAuthorizationStatus { .authorized }
-    func alertSetting() async -> WatchNotificationAlertSetting { .enabled }
-    func requestAuthorization() async throws -> WatchNotificationAuthorizationStatus { .authorized }
-    func add(identifier: String, title: String, body: String, triggerDate: Date?) async throws {}
-    func removePending(identifier: String) {}
 }
 
 @MainActor

@@ -16,12 +16,6 @@ nonisolated struct WatchCaptureSessionHistoryEntry: Codable, Equatable, Sendable
     var terminalDisposition: WatchCaptureTerminalDisposition?
     var startRefusalReason: WatchCaptureStartRefusalReason?
     var settingsRoute: WatchCaptureSettingsRoute?
-    var noticeOwed: Bool
-    var noticeDecision: String?
-    var noticeDelivered: Bool?
-    var notificationAuthorizationStatus: WatchNotificationAuthorizationStatus?
-    var notificationAlertSetting: WatchNotificationAlertSetting?
-    var wristAlertAssurance: WatchWristAlertAssurance?
     var audioArmed: Bool
     var audioSessionIsActive: Bool
     var locationArmed: Bool
@@ -45,12 +39,6 @@ nonisolated struct WatchCaptureSessionHistoryEntry: Codable, Equatable, Sendable
         case terminalDisposition = "td"
         case startRefusalReason = "sr"
         case settingsRoute = "rt"
-        case noticeOwed = "no"
-        case noticeDecision = "nd"
-        case noticeDelivered = "dl"
-        case notificationAuthorizationStatus = "na"
-        case notificationAlertSetting = "ns"
-        case wristAlertAssurance = "wa"
         case audioArmed = "aa"
         case audioSessionIsActive = "as"
         case locationArmed = "la"

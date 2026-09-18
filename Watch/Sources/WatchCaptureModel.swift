@@ -81,7 +81,6 @@ final class WatchCaptureModel {
         relaySender: WatchRelaySender,
         session: any WatchConnectivitySession,
         diagnosticsCollector: WatchRelayDiagnosticsCollector,
-        notificationScheduler: any WatchNotificationScheduling,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding,
         clock: any ObserverClock = SystemObserverClock(),
         signposter: any WatchSignposting = WatchSignpost.live,
@@ -109,7 +108,6 @@ final class WatchCaptureModel {
             paths: paths,
             storageActor: storageActor,
             clock: clock,
-            notificationScheduler: notificationScheduler,
             environmentProvider: environmentProvider,
             signposter: signposter
         )

@@ -386,4 +386,54 @@ nonisolated final class WatchComplicationSnapshotTests: XCTestCase {
             XCTAssertEqual(snapshot.mark, expectedMark)
         }
     }
+
+    func testComplicationProviderUsesTimelineDerivation() throws {
+        let body = try self.section(
+            from: "func getTimeline(",
+            to: "private enum WatchComplicationSnapshotSource",
+            in: "SolstoneWatchComplication/SolstoneWatchComplication.swift"
+        )
+
+        XCTAssertTrue(body.contains("watchComplicationTimelinePoints(snapshot: WatchComplicationSnapshotSource.load(), now: now)"))
+        XCTAssertFalse(body.contains("SolstoneWatchComplicationEntry(date: Date(), snapshot: WatchComplicationSnapshotSource.load())"))
+
+        // 🔒 The timeline must carry a bounded fallback, never a bare `.never`.
+        //
+        // `.never` has no clock fallback: WidgetKit does not request another timeline until the
+        // app asks it to. A dropped reload — budget exhausted, the post-launch throttle, or the
+        // app killed before it fires — then leaves the card frozen indefinitely, including stuck
+        // reading `on` after a crash. That is the worst owner-visible failure this surface has.
+        XCTAssertTrue(body.contains("policy: .after(SolstoneWatchComplicationRefresh.nextReloadDate(after: now))"))
+        XCTAssertFalse(body.contains("policy: .never"))
+    }
+
+    private func contents(_ path: String) throws -> String {
+        try String(contentsOfFile: self.worktreeRoot().appendingPathComponent(path).path, encoding: .utf8)
+    }
+
+    private func section(from start: String, to end: String, in path: String) throws -> String {
+        let text = try self.contents(path)
+        guard let startRange = text.range(of: start),
+              let endRange = text.range(of: end, range: startRange.upperBound..<text.endIndex)
+        else {
+            throw GrepFailure(path: path, start: start, end: end)
+        }
+        return String(text[startRange.lowerBound..<endRange.lowerBound])
+    }
+
+    private func worktreeRoot() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+}
+
+private struct GrepFailure: Error, CustomStringConvertible {
+    let path: String
+    let start: String
+    let end: String
+
+    var description: String {
+        "Could not find section \(self.start) ... \(self.end) in \(self.path)"
+    }
 }

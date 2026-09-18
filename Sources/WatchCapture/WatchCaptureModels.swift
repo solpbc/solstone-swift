@@ -7,11 +7,6 @@ nonisolated enum WatchCaptureTiming {
     static let segmentDurationSeconds: TimeInterval = 300
 }
 
-nonisolated enum WatchNoticeIdentifiers {
-    static let lease = "app.solstone.swift.watch.audio-lease"
-    static let notice = "app.solstone.swift.watch.audio-notice"
-}
-
 nonisolated enum WatchSegmentState: String, Codable, Equatable, Sendable, CaseIterable {
     case captured
     case persisted
@@ -117,62 +112,6 @@ nonisolated enum WatchMicrophonePermission: Equatable, Sendable {
     case notDetermined
 }
 
-nonisolated enum WatchNotificationAuthorizationStatus: String, Codable, Equatable, Sendable {
-    case notDetermined = "not-determined"
-    case authorized
-    case denied
-    case provisional
-    case ephemeral
-}
-
-nonisolated enum WatchNotificationAlertSetting: String, Codable, Equatable, Sendable {
-    case enabled
-    case disabled
-    case notSupported = "not-supported"
-}
-
-nonisolated enum WatchNotificationPresentationOption: Hashable, Sendable {
-    case banner
-    case list
-}
-
-nonisolated func watchNoticePresentationOptions() -> Set<WatchNotificationPresentationOption> {
-    [.banner, .list]
-}
-
-nonisolated enum WatchWristAlertAssurance: String, Codable, Equatable, Sendable {
-    case willTap = "will-tap"
-    case alertsOff = "alerts-off"
-
-    var line: String {
-        switch self {
-        case .willTap:
-            SourceVocabulary.watchWristAlertWillTap
-        case .alertsOff:
-            SourceVocabulary.watchWristAlertsOff
-        }
-    }
-}
-
-nonisolated func watchWristAlertAssurance(
-    authorization: WatchNotificationAuthorizationStatus,
-    alertSetting: WatchNotificationAlertSetting
-) -> WatchWristAlertAssurance? {
-    switch authorization {
-    case .notDetermined:
-        return nil
-    case .denied:
-        return .alertsOff
-    case .authorized, .provisional, .ephemeral:
-        switch alertSetting {
-        case .enabled:
-            return .willTap
-        case .disabled, .notSupported:
-            return .alertsOff
-        }
-    }
-}
-
 nonisolated enum WatchCaptureStartRefusalReason: String, Codable, Equatable, Sendable {
     case microphonePermissionDenied = "microphone-permission-denied"
     case microphonePermissionNotDetermined = "microphone-permission-not-determined"
@@ -261,8 +200,6 @@ nonisolated enum WatchCaptureLocationAdvisory: String, Codable, Equatable, Senda
 
 nonisolated enum WatchCaptureSettingsRoute: String, Codable, Equatable, Sendable {
     case microphone
-    case notificationGrant = "notification-grant"
-    case notificationSettings = "notification-settings"
 }
 
 nonisolated enum WatchNoticeCopy: Equatable, Sendable, CaseIterable {
@@ -362,49 +299,6 @@ nonisolated enum WatchNoticeCopy: Equatable, Sendable, CaseIterable {
     }
 }
 
-nonisolated enum WatchNoticeDecision: Equatable, Sendable {
-    case none
-    case cancelLease
-    case schedule(copy: WatchNoticeCopy)
-    case cannotSchedule(settingsRoute: WatchCaptureSettingsRoute)
-}
-
-nonisolated extension WatchNoticeDecision {
-    var historyRawValue: String {
-        switch self {
-        case .none:
-            "none"
-        case .cancelLease:
-            "cancel-lease"
-        case .schedule:
-            "schedule"
-        case .cannotSchedule:
-            "cannot-schedule"
-        }
-    }
-}
-
-nonisolated func watchNoticeDecision(
-    authorizationStatus: WatchNotificationAuthorizationStatus,
-    alertSetting: WatchNotificationAlertSetting,
-    disposition: WatchCaptureTerminalDisposition,
-    reason: WatchCaptureTerminalReason,
-    leaseArmed: Bool
-) -> WatchNoticeDecision {
-    guard let copy = WatchNoticeCopy(reason: reason, disposition: disposition) else {
-        return leaseArmed ? .cancelLease : .none
-    }
-
-    switch watchWristAlertAssurance(authorization: authorizationStatus, alertSetting: alertSetting) {
-    case .willTap:
-        return .schedule(copy: copy)
-    case .alertsOff:
-        return .cannotSchedule(settingsRoute: .notificationSettings)
-    case nil:
-        return .cannotSchedule(settingsRoute: .notificationGrant)
-    }
-}
-
 nonisolated enum WatchCaptureSessionRecordState: String, Codable, Equatable, Sendable {
     case active
     case terminal
@@ -417,7 +311,6 @@ nonisolated struct WatchCaptureSessionRecord: Codable, Equatable, Sendable {
     var terminalReason: WatchCaptureTerminalReason?
     var terminalDisposition: WatchCaptureTerminalDisposition?
     var terminalAt: Date?
-    var noticeOwed: Bool
     var segmentsProduced: Int
 
     enum CodingKeys: String, CodingKey {
@@ -427,7 +320,6 @@ nonisolated struct WatchCaptureSessionRecord: Codable, Equatable, Sendable {
         case terminalReason
         case terminalDisposition
         case terminalAt
-        case noticeOwed
         case segmentsProduced
     }
 
@@ -438,7 +330,6 @@ nonisolated struct WatchCaptureSessionRecord: Codable, Equatable, Sendable {
         terminalReason: WatchCaptureTerminalReason?,
         terminalDisposition: WatchCaptureTerminalDisposition?,
         terminalAt: Date?,
-        noticeOwed: Bool,
         segmentsProduced: Int = 0
     ) {
         self.sessionID = sessionID
@@ -447,7 +338,6 @@ nonisolated struct WatchCaptureSessionRecord: Codable, Equatable, Sendable {
         self.terminalReason = terminalReason
         self.terminalDisposition = terminalDisposition
         self.terminalAt = terminalAt
-        self.noticeOwed = noticeOwed
         self.segmentsProduced = segmentsProduced
     }
 
@@ -459,7 +349,6 @@ nonisolated struct WatchCaptureSessionRecord: Codable, Equatable, Sendable {
         self.terminalReason = try container.decodeIfPresent(WatchCaptureTerminalReason.self, forKey: .terminalReason)
         self.terminalDisposition = try container.decodeIfPresent(WatchCaptureTerminalDisposition.self, forKey: .terminalDisposition)
         self.terminalAt = try container.decodeIfPresent(Date.self, forKey: .terminalAt)
-        self.noticeOwed = try container.decode(Bool.self, forKey: .noticeOwed)
         self.segmentsProduced = try container.decodeIfPresent(Int.self, forKey: .segmentsProduced) ?? 0
     }
 }
@@ -486,7 +375,6 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
     let terminalDisposition: WatchCaptureTerminalDisposition?
     let locationAdvisory: WatchCaptureLocationAdvisory?
     let persistenceAdvisory: WatchCapturePersistenceAdvisory?
-    let wristAlertAssurance: WatchWristAlertAssurance?
     let lastVerifiedAudioAt: Date?
 
     init(
@@ -504,7 +392,6 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         terminalDisposition: WatchCaptureTerminalDisposition? = nil,
         locationAdvisory: WatchCaptureLocationAdvisory? = nil,
         persistenceAdvisory: WatchCapturePersistenceAdvisory? = nil,
-        wristAlertAssurance: WatchWristAlertAssurance? = nil,
         lastVerifiedAudioAt: Date? = nil
     ) {
         self.status = status
@@ -521,7 +408,6 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
         self.terminalDisposition = terminalDisposition
         self.locationAdvisory = locationAdvisory
         self.persistenceAdvisory = persistenceAdvisory
-        self.wristAlertAssurance = wristAlertAssurance
         self.lastVerifiedAudioAt = lastVerifiedAudioAt
     }
 

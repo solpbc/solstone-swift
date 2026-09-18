@@ -42,8 +42,8 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
     }
 
     func testCompleteEntryWinsInBothArrivalOrders() throws {
-        let live = self.entry("one", complete: false, reason: nil, noticeDelivered: nil)
-        let complete = self.entry("one", terminal: self.now, reason: .audioClockStalled, noticeDelivered: true)
+        let live = self.entry("one", complete: false, reason: nil)
+        let complete = self.entry("one", terminal: self.now, reason: .audioClockStalled)
 
         let firstStore = self.store(name: "first")
         _ = firstStore.merge(diagnostics: self.diagnostics([live]), status: nil)
@@ -56,14 +56,12 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
         let first = try XCTUnwrap(firstStore.readSnapshot(asOf: self.now).value?.entries.first)
         let second = try XCTUnwrap(secondStore.readSnapshot(asOf: self.now).value?.entries.first)
         XCTAssertEqual(first.terminalReason, .audioClockStalled)
-        XCTAssertEqual(first.noticeDelivered, true)
         XCTAssertEqual(second.terminalReason, .audioClockStalled)
-        XCTAssertEqual(second.noticeDelivered, true)
     }
 
     func testSparseLaterEntryDoesNotClearKnownOptionalFields() throws {
-        let complete = self.entry("one", terminal: self.now, reason: .audioClockStalled, noticeDelivered: true)
-        let sparse = self.entry("one", complete: false, reason: nil, noticeDelivered: nil)
+        let complete = self.entry("one", terminal: self.now, reason: .audioClockStalled)
+        let sparse = self.entry("one", complete: false, reason: nil)
         let store = self.store()
 
         _ = store.merge(diagnostics: self.diagnostics([complete]), status: nil)
@@ -71,7 +69,6 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
 
         let entry = try XCTUnwrap(store.readSnapshot(asOf: self.now).value?.entries.first)
         XCTAssertEqual(entry.terminalReason, .audioClockStalled)
-        XCTAssertEqual(entry.noticeDelivered, true)
     }
 
     func testRelaunchAndPureSnapshotAgeAccounting() throws {
@@ -94,7 +91,7 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
 
     func testFutureTimestampUsesFirstReceiptTimeAndIdenticalReapplyIsANoOp() throws {
         let fileURL = self.fileURL("future")
-        let future = self.entry("future", terminal: self.now.addingTimeInterval(365 * 24 * 60 * 60), reason: .audioClockStalled, noticeDelivered: true)
+        let future = self.entry("future", terminal: self.now.addingTimeInterval(365 * 24 * 60 * 60), reason: .audioClockStalled)
         let diagnostics = self.diagnostics([future])
         let store = WatchPhoneSessionHistoryStore(fileURL: fileURL, clock: { self.now })
         XCTAssertTrue(store.merge(diagnostics: diagnostics, status: nil))
@@ -315,8 +312,8 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
 
     func testSparseLaterEntryDoesNotClearKnownLastObservedAt() throws {
         let observedDate = self.now.addingTimeInterval(-30)
-        let complete = self.entry("one", terminal: self.now, reason: .audioClockStalled, noticeDelivered: true, lastObservedAt: observedDate)
-        let sparse = self.entry("one", complete: false, reason: nil, noticeDelivered: nil, lastObservedAt: nil)
+        let complete = self.entry("one", terminal: self.now, reason: .audioClockStalled, lastObservedAt: observedDate)
+        let sparse = self.entry("one", complete: false, reason: nil, lastObservedAt: nil)
         let store = self.store()
 
         _ = store.merge(diagnostics: self.diagnostics([complete]), status: nil)
@@ -328,8 +325,8 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
 
     func testIncomingNonNilLastObservedAtSurvivesMergeIntoNilExisting() throws {
         let observedDate = self.now.addingTimeInterval(-15)
-        let sparse = self.entry("one", complete: false, reason: nil, noticeDelivered: nil, lastObservedAt: nil)
-        let incoming = self.entry("one", complete: true, reason: .ownerStopped, noticeDelivered: false, lastObservedAt: observedDate)
+        let sparse = self.entry("one", complete: false, reason: nil, lastObservedAt: nil)
+        let incoming = self.entry("one", complete: true, reason: .ownerStopped, lastObservedAt: observedDate)
         let store = self.store()
 
         _ = store.merge(diagnostics: self.diagnostics([sparse]), status: nil)
@@ -389,7 +386,6 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
         terminal: Date? = nil,
         complete: Bool = true,
         reason: WatchCaptureTerminalReason? = .audioClockStalled,
-        noticeDelivered: Bool? = true,
         lastObservedAt: Date? = nil
     ) -> WatchCaptureSessionHistoryEntry {
         WatchCaptureSessionHistoryEntry(
@@ -400,12 +396,6 @@ final class WatchPhoneSessionHistoryStoreTests: XCTestCase {
             terminalDisposition: reason == nil ? nil : .detectedStoppedItself,
             startRefusalReason: nil,
             settingsRoute: nil,
-            noticeOwed: false,
-            noticeDecision: "schedule",
-            noticeDelivered: noticeDelivered,
-            notificationAuthorizationStatus: .authorized,
-            notificationAlertSetting: .enabled,
-            wristAlertAssurance: .willTap,
             audioArmed: true,
             audioSessionIsActive: true,
             locationArmed: false,

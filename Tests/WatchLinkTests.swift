@@ -129,7 +129,6 @@ nonisolated final class WatchLinkTests: XCTestCase {
         let phoneHistory = WatchPipelineInputReader.phoneSessionHistoryInput(from: rawSnapshot)
         let export = WatchPipelineReducer.reduce(Self.pipelineInput(phoneSessionHistory: phoneHistory)).diagnosticsExportText
         XCTAssertTrue(export.contains("outcome: audio-clock-stalled / detected-stopped-itself"))
-        XCTAssertTrue(export.contains("wrist alert: schedule / delivered yes"))
     }
 
     @MainActor
@@ -498,12 +497,6 @@ nonisolated final class WatchLinkTests: XCTestCase {
             terminalDisposition: .detectedStoppedItself,
             startRefusalReason: nil,
             settingsRoute: nil,
-            noticeOwed: false,
-            noticeDecision: "schedule",
-            noticeDelivered: true,
-            notificationAuthorizationStatus: .authorized,
-            notificationAlertSetting: .enabled,
-            wristAlertAssurance: .willTap,
             audioArmed: true,
             audioSessionIsActive: true,
             locationArmed: false,

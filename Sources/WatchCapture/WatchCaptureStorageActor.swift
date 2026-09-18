@@ -309,56 +309,25 @@ nonisolated struct WatchCaptureTerminalTuple: Equatable, Sendable {
     let reason: WatchCaptureTerminalReason?
     let disposition: WatchCaptureTerminalDisposition?
     let terminalAt: Date?
-    let noticeOwed: Bool
 
     init(
         sessionID: String,
         startedAt: Date,
         reason: WatchCaptureTerminalReason?,
         disposition: WatchCaptureTerminalDisposition?,
-        terminalAt: Date?,
-        noticeOwed: Bool
+        terminalAt: Date?
     ) {
         self.sessionID = sessionID
         self.startedAt = startedAt
         self.reason = reason
         self.disposition = disposition
         self.terminalAt = terminalAt
-        self.noticeOwed = noticeOwed
     }
 }
 
 nonisolated enum WatchCaptureTerminalTupleResolution: Equatable, Sendable {
     case resolvedAndPersisted(WatchCaptureTerminalTuple)
     case failClosed
-}
-
-nonisolated struct WatchCaptureTerminalNoticeMetadata: Equatable, Sendable {
-    let noticeOwed: Bool?
-    let noticeDecision: String?
-    let noticeDelivered: Bool?
-    let notificationAuthorizationStatus: WatchNotificationAuthorizationStatus?
-    let notificationAlertSetting: WatchNotificationAlertSetting?
-    let wristAlertAssurance: WatchWristAlertAssurance?
-    let settingsRoute: WatchCaptureSettingsRoute?
-
-    init(
-        noticeOwed: Bool? = nil,
-        noticeDecision: String? = nil,
-        noticeDelivered: Bool? = nil,
-        notificationAuthorizationStatus: WatchNotificationAuthorizationStatus? = nil,
-        notificationAlertSetting: WatchNotificationAlertSetting? = nil,
-        wristAlertAssurance: WatchWristAlertAssurance? = nil,
-        settingsRoute: WatchCaptureSettingsRoute? = nil
-    ) {
-        self.noticeOwed = noticeOwed
-        self.noticeDecision = noticeDecision
-        self.noticeDelivered = noticeDelivered
-        self.notificationAuthorizationStatus = notificationAuthorizationStatus
-        self.notificationAlertSetting = notificationAlertSetting
-        self.wristAlertAssurance = wristAlertAssurance
-        self.settingsRoute = settingsRoute
-    }
 }
 
 /// The Watch app's single owner for durable capture files and catalog reads.
@@ -1479,15 +1448,6 @@ actor WatchCaptureStorageActor {
         }
     }
 
-    func mergeTerminalNoticeMetadata(
-        expected: WatchCaptureTerminalTuple,
-        update: WatchCaptureTerminalNoticeMetadata
-    ) async -> Bool {
-        await self.withTransaction(transactionClass: .maintenance) {
-            await self.mergeTerminalNoticeMetadataInner(expected: expected, update: update)
-        }
-    }
-
     func readSessionHistoryCounter() async -> WatchCaptureSessionHistoryCounter? {
         await self.withTransaction(transactionClass: .maintenance) {
             await self.readSessionHistoryCounterInner(boundary: .sessionHistory)
@@ -2598,16 +2558,12 @@ actor WatchCaptureStorageActor {
         guard let reason, let disposition else { return .failClosed }
         let terminalAt = durableTerminalAt ?? proposedTerminal.terminalAt ?? asOf
 
-        let durableNoticeOwed = currentRecord.record?.state == .terminal
-            ? currentRecord.record?.noticeOwed
-            : (matchingHistory.first?.terminalAt != nil ? matchingHistory.first?.noticeOwed : nil)
         let resolved = WatchCaptureTerminalTuple(
             sessionID: proposedTerminal.sessionID,
             startedAt: proposedTerminal.startedAt,
             reason: reason,
             disposition: disposition,
-            terminalAt: terminalAt,
-            noticeOwed: durableNoticeOwed ?? proposedTerminal.noticeOwed
+            terminalAt: terminalAt
         )
         let record = WatchCaptureSessionRecord(
             sessionID: resolved.sessionID,
@@ -2616,7 +2572,6 @@ actor WatchCaptureStorageActor {
             terminalReason: reason,
             terminalDisposition: disposition,
             terminalAt: terminalAt,
-            noticeOwed: resolved.noticeOwed,
             segmentsProduced: currentRecord.record?.segmentsProduced ?? recordProposal?.segmentsProduced ?? 0
         )
         let historyEntry = self.resolvedHistoryEntry(
@@ -2652,87 +2607,13 @@ actor WatchCaptureStorageActor {
         }
     }
 
-    private func mergeTerminalNoticeMetadataInner(
-        expected: WatchCaptureTerminalTuple,
-        update: WatchCaptureTerminalNoticeMetadata
-    ) async -> Bool {
-        let currentRecord = await self.readRawSessionRecord(boundary: .sessionRecord)
-        let rawHistory = await self.readRawSessionHistoryPopulation(boundary: .sessionHistory)
-        guard currentRecord.isReadable,
-              rawHistory.isReadable,
-              !rawHistory.hadDamage
-        else {
-            return false
-        }
-        let matchingHistory = rawHistory.entries.filter { $0.sessionID == expected.sessionID }
-        guard !matchingHistory.isEmpty,
-              matchingHistory.allSatisfy({ self.terminalTuple(from: $0) == expected })
-        else {
-            return false
-        }
-
-        var recordToUpdate: WatchCaptureSessionRecord?
-        if var record = currentRecord.record,
-           record.sessionID == expected.sessionID {
-            guard self.terminalTuple(from: record) == expected else { return false }
-            if let noticeOwed = update.noticeOwed {
-                record.noticeOwed = noticeOwed
-            }
-            recordToUpdate = record
-        }
-
-        let updatedHistory = rawHistory.entries.map { entry -> WatchCaptureSessionHistoryEntry in
-            guard entry.sessionID == expected.sessionID else { return entry }
-            var entry = entry
-            if let noticeOwed = update.noticeOwed {
-                entry.noticeOwed = noticeOwed
-            }
-            if let noticeDecision = update.noticeDecision {
-                entry.noticeDecision = noticeDecision
-            }
-            if let noticeDelivered = update.noticeDelivered {
-                entry.noticeDelivered = noticeDelivered
-            }
-            if let authorization = update.notificationAuthorizationStatus {
-                entry.notificationAuthorizationStatus = authorization
-            }
-            if let alertSetting = update.notificationAlertSetting {
-                entry.notificationAlertSetting = alertSetting
-            }
-            if let assurance = update.wristAlertAssurance {
-                entry.wristAlertAssurance = assurance
-            }
-            if let settingsRoute = update.settingsRoute {
-                entry.settingsRoute = settingsRoute
-            }
-            return entry
-        }
-        do {
-            try await self.writeSessionHistory(
-                entries: updatedHistory.sorted { $0.startedAt < $1.startedAt },
-                unreadableLines: rawHistory.unreadableLines,
-                boundary: .sessionHistory
-            )
-            if let recordToUpdate {
-                let data = try self.withSynchronousActorWork(.sessionRecord) {
-                    try self.manifestEncoder.encode(recordToUpdate)
-                }
-                try await self.fileWriter.atomicReplaceFile(at: self.paths.sessionRecordURL(), with: data)
-            }
-            return true
-        } catch {
-            return false
-        }
-    }
-
     private func terminalTuple(from record: WatchCaptureSessionRecord) -> WatchCaptureTerminalTuple {
         WatchCaptureTerminalTuple(
             sessionID: record.sessionID,
             startedAt: record.startedAt,
             reason: record.terminalReason,
             disposition: record.terminalDisposition,
-            terminalAt: record.terminalAt,
-            noticeOwed: record.noticeOwed
+            terminalAt: record.terminalAt
         )
     }
 
@@ -2742,8 +2623,7 @@ actor WatchCaptureStorageActor {
             startedAt: entry.startedAt,
             reason: entry.terminalReason,
             disposition: entry.terminalDisposition,
-            terminalAt: entry.terminalAt,
-            noticeOwed: entry.noticeOwed
+            terminalAt: entry.terminalAt
         )
     }
 
@@ -2775,12 +2655,6 @@ actor WatchCaptureStorageActor {
             terminalDisposition: nil,
             startRefusalReason: nil,
             settingsRoute: nil,
-            noticeOwed: false,
-            noticeDecision: nil,
-            noticeDelivered: nil,
-            notificationAuthorizationStatus: nil,
-            notificationAlertSetting: nil,
-            wristAlertAssurance: nil,
             audioArmed: false,
             audioSessionIsActive: false,
             locationArmed: false,
@@ -2799,7 +2673,6 @@ actor WatchCaptureStorageActor {
         entry.terminalAt = tuple.terminalAt
         entry.terminalReason = tuple.reason
         entry.terminalDisposition = tuple.disposition
-        entry.noticeOwed = tuple.noticeOwed
         return entry
     }
 

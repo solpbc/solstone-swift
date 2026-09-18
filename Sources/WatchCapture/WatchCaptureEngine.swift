@@ -22,7 +22,6 @@ final class WatchCaptureEngine {
 
     private struct ReconcileReadinessSeed: Sendable {
         let reconciledSessionID: String?
-        let deferredTerminalNotice: WatchCaptureTerminalTuple?
     }
 
     private struct RelayCounts: Equatable, Sendable {
@@ -55,7 +54,6 @@ final class WatchCaptureEngine {
     private let paths: WatchCaptureStoragePaths
     private let storageActor: WatchCaptureStorageActor
     private let clock: any ObserverClock
-    private let notificationScheduler: any WatchNotificationScheduling
     private let notificationCenter: NotificationCenter
     private let audioSessionNotificationHandoff: WatchAudioSessionNotificationHandoff
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
@@ -93,10 +91,6 @@ final class WatchCaptureEngine {
     private var settingsRoute: WatchCaptureSettingsRoute?
     private var terminalReason: WatchCaptureTerminalReason?
     private var terminalDisposition: WatchCaptureTerminalDisposition?
-    private var notificationAuthorizationStatus: WatchNotificationAuthorizationStatus?
-    private var notificationAlertSetting: WatchNotificationAlertSetting?
-    private var wristAlertAssurance: WatchWristAlertAssurance?
-    private var leaseIsArmed = false
     private var lastVerifiedAudioAt: Date?
     private var locationAdvisory: WatchCaptureLocationAdvisory?
     private var persistenceAdvisory: WatchCapturePersistenceAdvisory?
@@ -128,7 +122,6 @@ final class WatchCaptureEngine {
         paths: WatchCaptureStoragePaths,
         storageActor: WatchCaptureStorageActor,
         clock: any ObserverClock = SystemObserverClock(),
-        notificationScheduler: any WatchNotificationScheduling,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
         notificationCenter: NotificationCenter = .default,
         signposter: any WatchSignposting = WatchSignpost.live,
@@ -142,7 +135,6 @@ final class WatchCaptureEngine {
         self.paths = paths
         self.storageActor = storageActor
         self.clock = clock
-        self.notificationScheduler = notificationScheduler
         self.environmentProvider = environmentProvider
         self.signposter = signposter
         self.notificationCenter = notificationCenter
@@ -189,7 +181,6 @@ final class WatchCaptureEngine {
             terminalDisposition: self.terminalDisposition,
             locationAdvisory: self.locationAdvisory,
             persistenceAdvisory: self.persistenceAdvisory,
-            wristAlertAssurance: self.wristAlertAssurance,
             lastVerifiedAudioAt: self.lastVerifiedAudioAt
         )
     }
@@ -324,9 +315,6 @@ final class WatchCaptureEngine {
             }
         }
 
-        if let deferredTerminalNotice = seed.deferredTerminalNotice {
-            await self.submitTerminalNotice(expected: deferredTerminalNotice)
-        }
         guard !Task.isCancelled else {
             result = .partial
             return
@@ -413,10 +401,6 @@ final class WatchCaptureEngine {
         guard let currentSessionID else { return }
         let ownerSource = WatchCaptureSourceToken(sessionID: currentSessionID)
         self.ownerSourceToken = ownerSource
-        guard await self.refreshWristAlertState(
-            requestIfNotDetermined: true,
-            generation: generation
-        ) != nil else { return }
 
         guard await self.prepareAudioForOwnerStart(generation: generation) else {
             if self.isLifecycleGenerationCurrent(generation) {
@@ -473,10 +457,7 @@ final class WatchCaptureEngine {
             guard await self.continueLifecycleOperation(generation) else {
                 return
             }
-            await self.replaceAudioTruthLease(verifiedAt: startedAt, generation: generation)
-            guard await self.continueLifecycleOperation(generation) else {
-                return
-            }
+            self.lastVerifiedAudioAt = startedAt
             self.installAudioSessionObservers(source: ownerSource)
             self.status = self.statusForRunningSegment(segment)
             self.startSegmentationTask()
@@ -868,7 +849,6 @@ extension WatchCaptureEngine {
                 sessionID: sessionID,
                 startedAt: startedAt,
                 terminalAt: nil,
-                noticeOwed: false,
                 liveness: nil,
                 environment: nil,
                 transactionClass: .captureSafety
@@ -894,7 +874,6 @@ extension WatchCaptureEngine {
         if let segment {
             _ = await self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL)
         }
-        self.removeAudioTruthLease()
         if persistenceFailed {
             self.persistenceAdvisory = .sessionRecordWriteFailed
         }
@@ -1189,7 +1168,6 @@ extension WatchCaptureEngine {
         segment: ActiveSegment,
         audioDuration: TimeInterval?,
         end: Date,
-        renewLease: Bool = true,
         generation: Int? = nil
     ) async -> Bool {
         await self.waitForAdmittedLocationFixes()
@@ -1204,11 +1182,8 @@ extension WatchCaptureEngine {
         if let generation, !self.isLifecycleGenerationCurrent(generation) {
             return false
         }
-        if renewLease, let verifiedAt = prepared.verifiedAudioAt {
-            await self.replaceAudioTruthLease(verifiedAt: verifiedAt, generation: generation)
-            if let generation, !self.isLifecycleGenerationCurrent(generation) {
-                return false
-            }
+        if let verifiedAt = prepared.verifiedAudioAt {
+            self.lastVerifiedAudioAt = verifiedAt
         }
         await self.persistFinalization(
             prepared,
@@ -1521,7 +1496,6 @@ extension WatchCaptureEngine {
             entry.terminalReason = terminalReason
             entry.terminalDisposition = terminalDisposition
             entry.terminalAt = terminalAt
-            entry.noticeOwed = record.noticeOwed
         }
         entry.segmentsProduced += 1
         do {
@@ -1869,7 +1843,6 @@ extension WatchCaptureEngine {
             sessionID: sessionID,
             startedAt: startedAt,
             terminalAt: nil,
-            noticeOwed: false,
             liveness: nil,
             environment: nil,
             transactionClass: .captureSafety
@@ -1933,41 +1906,6 @@ extension WatchCaptureEngine {
         self.onPublishStatus?(context)
     }
 
-    @discardableResult
-    func refreshWristAlertState(
-        requestIfNotDetermined: Bool,
-        generation: Int? = nil
-    ) async -> (WatchNotificationAuthorizationStatus, WatchNotificationAlertSetting)? {
-        var authorization = await self.notificationScheduler.authorizationStatus()
-        if let generation {
-            guard await self.continueLifecycleOperation(generation) else { return nil }
-        }
-        if authorization == .notDetermined, requestIfNotDetermined {
-            do {
-                authorization = try await self.notificationScheduler.requestAuthorization()
-                if let generation {
-                    guard await self.continueLifecycleOperation(generation) else { return nil }
-                }
-            } catch {
-                watchCaptureLog.error("watch notification authorization failed: \(String(describing: error), privacy: .public)")
-                if let generation {
-                    guard await self.continueLifecycleOperation(generation) else { return nil }
-                }
-            }
-        }
-        let alertSetting = await self.notificationScheduler.alertSetting()
-        if let generation {
-            guard await self.continueLifecycleOperation(generation) else { return nil }
-        }
-        self.notificationAuthorizationStatus = authorization
-        self.notificationAlertSetting = alertSetting
-        self.wristAlertAssurance = watchWristAlertAssurance(
-            authorization: authorization,
-            alertSetting: alertSetting
-        )
-        return (authorization, alertSetting)
-    }
-
     func setSettingsRouteIfVacant(_ route: WatchCaptureSettingsRoute) {
         if self.settingsRoute == nil {
             self.settingsRoute = route
@@ -1979,7 +1917,6 @@ extension WatchCaptureEngine {
         sessionID: String? = nil,
         startedAt: Date? = nil,
         terminalAt: Date? = nil,
-        noticeOwed: Bool? = nil,
         liveness: WatchCaptureLivenessEvidence?,
         environment: WatchRelayDiagnosticsEnvironmentSnapshot?,
         transactionClass: WatchCaptureStorageTransactionClass
@@ -2019,12 +1956,6 @@ extension WatchCaptureEngine {
             terminalDisposition: record?.terminalDisposition ?? self.terminalDisposition ?? prior?.terminalDisposition,
             startRefusalReason: self.startRefusalReason ?? prior?.startRefusalReason,
             settingsRoute: self.settingsRoute ?? prior?.settingsRoute,
-            noticeOwed: record?.noticeOwed ?? noticeOwed ?? prior?.noticeOwed ?? false,
-            noticeDecision: prior?.noticeDecision,
-            noticeDelivered: prior?.noticeDelivered,
-            notificationAuthorizationStatus: prior?.notificationAuthorizationStatus,
-            notificationAlertSetting: prior?.notificationAlertSetting,
-            wristAlertAssurance: prior?.wristAlertAssurance,
             audioArmed: terminalSnapshotExists ? prior?.audioArmed ?? false : self.audioArmed,
             audioSessionIsActive: terminalSnapshotExists ? prior?.audioSessionIsActive ?? false : self.audioSessionIsActive,
             locationArmed: terminalSnapshotExists ? prior?.locationArmed ?? false : self.locationArmed,
@@ -2053,189 +1984,8 @@ extension WatchCaptureEngine {
         }
     }
 
-    func removeAudioTruthLease() {
-        self.notificationScheduler.removePending(identifier: WatchNoticeIdentifiers.lease)
-        self.leaseIsArmed = false
-    }
-
     func reopenFailureTerminalReason() -> WatchCaptureTerminalReason {
         self.audioRecorder.microphonePermission == .denied ? .microphonePermissionRevoked : .audioStartFailed
-    }
-
-    func addWatchNotification(identifier: String, copy: WatchNoticeCopy, triggerDate: Date?) async -> Bool {
-        do {
-            try await self.notificationScheduler.add(
-                identifier: identifier,
-                title: copy.title,
-                body: copy.body,
-                triggerDate: triggerDate
-            )
-            return true
-        } catch {
-            watchCaptureLog.error("watch notification add failed id=\(identifier, privacy: .public): \(String(describing: error), privacy: .public)")
-            return false
-        }
-    }
-
-    func replaceAudioTruthLease(verifiedAt: Date, generation: Int? = nil) async {
-        self.lastVerifiedAudioAt = verifiedAt
-        guard let (authorization, alertSetting) = await self.refreshWristAlertState(
-            requestIfNotDetermined: false,
-            generation: generation
-        ) else { return }
-        let decision = watchNoticeDecision(
-            authorizationStatus: authorization,
-            alertSetting: alertSetting,
-            disposition: .inferredStoppedItself,
-            reason: .processExitedWhileActive,
-            leaseArmed: self.leaseIsArmed
-        )
-        switch decision {
-        case let .schedule(copy):
-            let deadline = verifiedAt.addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds * 2)
-            if await self.addWatchNotification(
-                identifier: WatchNoticeIdentifiers.lease,
-                copy: copy,
-                triggerDate: deadline
-            ) {
-                if let generation {
-                    guard await self.continueLifecycleOperation(generation) else { return }
-                }
-                self.leaseIsArmed = true
-            } else {
-                if let generation {
-                    guard await self.continueLifecycleOperation(generation) else { return }
-                }
-                self.removeAudioTruthLease()
-            }
-        case let .cannotSchedule(route):
-            self.removeAudioTruthLease()
-            self.setSettingsRouteIfVacant(route)
-        case .cancelLease, .none:
-            self.removeAudioTruthLease()
-        }
-    }
-
-    func submitTerminalNotice(expected terminal: WatchCaptureTerminalTuple) async {
-        guard terminal.noticeOwed,
-              let reason = terminal.reason,
-              let disposition = terminal.disposition,
-              disposition != .ownerStopped,
-              let copy = WatchNoticeCopy(reason: reason, disposition: disposition)
-        else { return }
-
-        guard let (authorization, alertSetting) = await self.refreshWristAlertState(requestIfNotDetermined: false) else {
-            return
-        }
-        let decision = watchNoticeDecision(
-            authorizationStatus: authorization,
-            alertSetting: alertSetting,
-            disposition: disposition,
-            reason: reason,
-            leaseArmed: self.leaseIsArmed
-        )
-        switch decision {
-        case let .schedule(copy):
-            let delivered = await self.addWatchNotification(
-                identifier: WatchNoticeIdentifiers.notice,
-                copy: copy,
-                triggerDate: nil
-            )
-            await self.performSignposted(.sessionHistory) {
-                let merged = await self.storageActor.mergeTerminalNoticeMetadata(
-                    expected: terminal,
-                    update: WatchCaptureTerminalNoticeMetadata(
-                        noticeDecision: decision.historyRawValue,
-                        noticeDelivered: delivered,
-                        notificationAuthorizationStatus: authorization,
-                        notificationAlertSetting: alertSetting,
-                        wristAlertAssurance: watchWristAlertAssurance(
-                            authorization: authorization,
-                            alertSetting: alertSetting
-                        )
-                    )
-                )
-                if !merged {
-                    watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
-                }
-            }
-            if delivered {
-                await self.performSignposted(.sessionHistory) {
-                    let merged = await self.storageActor.mergeTerminalNoticeMetadata(
-                        expected: terminal,
-                        update: WatchCaptureTerminalNoticeMetadata(noticeOwed: false)
-                    )
-                    if !merged {
-                        watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
-                    }
-                }
-            }
-        case let .cannotSchedule(route):
-            let resolvedRoute: WatchCaptureSettingsRoute = copy == .microphoneAccessNeeded ? .microphone : route
-            if terminal.sessionID == self.currentSessionID {
-                self.setSettingsRouteIfVacant(resolvedRoute)
-            }
-            await self.performSignposted(.sessionHistory) {
-                let merged = await self.storageActor.mergeTerminalNoticeMetadata(
-                    expected: terminal,
-                    update: WatchCaptureTerminalNoticeMetadata(
-                        noticeDecision: decision.historyRawValue,
-                        noticeDelivered: false,
-                        notificationAuthorizationStatus: authorization,
-                        notificationAlertSetting: alertSetting,
-                        wristAlertAssurance: watchWristAlertAssurance(
-                            authorization: authorization,
-                            alertSetting: alertSetting
-                        ),
-                        settingsRoute: resolvedRoute
-                    )
-                )
-                if !merged {
-                    watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
-                }
-            }
-        case .cancelLease:
-            if terminal.sessionID == self.currentSessionID {
-                self.removeAudioTruthLease()
-            }
-            await self.performSignposted(.sessionHistory) {
-                let merged = await self.storageActor.mergeTerminalNoticeMetadata(
-                    expected: terminal,
-                    update: WatchCaptureTerminalNoticeMetadata(
-                        noticeDecision: decision.historyRawValue,
-                        noticeDelivered: false,
-                        notificationAuthorizationStatus: authorization,
-                        notificationAlertSetting: alertSetting,
-                        wristAlertAssurance: watchWristAlertAssurance(
-                            authorization: authorization,
-                            alertSetting: alertSetting
-                        )
-                    )
-                )
-                if !merged {
-                    watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
-                }
-            }
-        case .none:
-            await self.performSignposted(.sessionHistory) {
-                let merged = await self.storageActor.mergeTerminalNoticeMetadata(
-                    expected: terminal,
-                    update: WatchCaptureTerminalNoticeMetadata(
-                        noticeDecision: decision.historyRawValue,
-                        noticeDelivered: false,
-                        notificationAuthorizationStatus: authorization,
-                        notificationAlertSetting: alertSetting,
-                        wristAlertAssurance: watchWristAlertAssurance(
-                            authorization: authorization,
-                            alertSetting: alertSetting
-                        )
-                    )
-                )
-                if !merged {
-                    watchCaptureLog.error("watch terminal notice metadata merge failed session=\(terminal.sessionID, privacy: .public)")
-                }
-            }
-        }
     }
 
     func startHeartbeatTask(source: WatchCaptureSourceToken) {
@@ -2272,7 +2022,6 @@ extension WatchCaptureEngine {
             terminalReason: nil,
             terminalDisposition: nil,
             terminalAt: nil,
-            noticeOwed: false,
             segmentsProduced: 0
         )
         do {
@@ -2314,7 +2063,6 @@ extension WatchCaptureEngine {
             terminalReason: reason,
             terminalDisposition: disposition,
             terminalAt: date,
-            noticeOwed: disposition != .ownerStopped,
             segmentsProduced: priorRecord?.segmentsProduced ?? 0
         )
         let environment = self.environmentProvider.snapshot()
@@ -2354,11 +2102,10 @@ extension WatchCaptureEngine {
                     WatchCaptureTerminalReason.processExitedWhileActive.observerError(disposition: .inferredStoppedItself)
                 )
             }
-            self.removeAudioTruthLease()
-            return ReconcileReadinessSeed(reconciledSessionID: nil, deferredTerminalNotice: nil)
+            return ReconcileReadinessSeed(reconciledSessionID: nil)
         }
         guard let record else {
-            return ReconcileReadinessSeed(reconciledSessionID: nil, deferredTerminalNotice: nil)
+            return ReconcileReadinessSeed(reconciledSessionID: nil)
         }
 
         self.currentSessionID = record.sessionID
@@ -2368,8 +2115,7 @@ extension WatchCaptureEngine {
             startedAt: record.startedAt,
             reason: nil,
             disposition: nil,
-            terminalAt: nil,
-            noticeOwed: false
+            terminalAt: nil
         )
         let resolution: WatchCaptureTerminalTupleResolution
         switch record.state {
@@ -2387,8 +2133,7 @@ extension WatchCaptureEngine {
                     startedAt: record.startedAt,
                     reason: .processExitedWhileActive,
                     disposition: .inferredStoppedItself,
-                    terminalAt: self.clock.now(),
-                    noticeOwed: true
+                    terminalAt: self.clock.now()
                 )
                 self.terminalClaimedSessionIDs.insert(record.sessionID)
                 resolution = await self.storageActor.resolveAndPersistTerminalTuple(
@@ -2403,8 +2148,7 @@ extension WatchCaptureEngine {
                 startedAt: record.startedAt,
                 reason: record.terminalReason,
                 disposition: record.terminalDisposition,
-                terminalAt: record.terminalAt,
-                noticeOwed: record.noticeOwed
+                terminalAt: record.terminalAt
             )
             resolution = await self.storageActor.resolveAndPersistTerminalTuple(
                 recordProposal: record,
@@ -2427,33 +2171,22 @@ extension WatchCaptureEngine {
                     WatchCaptureTerminalReason.processExitedWhileActive.observerError(disposition: .inferredStoppedItself)
                 )
             }
-            self.removeAudioTruthLease()
-            return ReconcileReadinessSeed(reconciledSessionID: record.sessionID, deferredTerminalNotice: nil)
+            return ReconcileReadinessSeed(reconciledSessionID: record.sessionID)
         }
 
-        self.removeAudioTruthLease()
-        let shouldSurfaceTerminal: Bool
-        switch record.state {
-        case .active:
-            shouldSurfaceTerminal = tuple.noticeOwed
-        case .terminal:
-            shouldSurfaceTerminal = disposition == .ownerStopped || tuple.noticeOwed
-        }
-        if shouldSurfaceTerminal {
-            self.terminalReason = reason
-            self.terminalDisposition = disposition
-            if !self.admittedStartPending {
-                if disposition == .ownerStopped {
-                    self.status = .off
-                } else {
-                    self.status = .needsAttention(reason.observerError(disposition: disposition))
-                }
+        // Always surface the reconciled terminal fact: the owner sees the normal
+        // start affordance plus why the last session ended, every time they open
+        // the app, until they start a new session. No "already told them once" gate.
+        self.terminalReason = reason
+        self.terminalDisposition = disposition
+        if !self.admittedStartPending {
+            if disposition == .ownerStopped {
+                self.status = .off
+            } else {
+                self.status = .needsAttention(reason.observerError(disposition: disposition))
             }
         }
-        return ReconcileReadinessSeed(
-            reconciledSessionID: record.sessionID,
-            deferredTerminalNotice: tuple.noticeOwed ? tuple : nil
-        )
+        return ReconcileReadinessSeed(reconciledSessionID: record.sessionID)
     }
 
     func evaluateAudioLiveness(source: WatchCaptureSourceToken) -> Bool {
@@ -2572,7 +2305,6 @@ extension WatchCaptureEngine {
             try? self.audioSession.setActive(false, options: [])
             self.audioSessionIsActive = false
         }
-        self.removeAudioTruthLease()
         self.terminalReason = reason
         self.terminalDisposition = disposition
         if reason == .microphonePermissionRevoked {
@@ -2588,7 +2320,7 @@ extension WatchCaptureEngine {
         await self.publishStatus(.idle, envelopeAttachment: .attach)
         self.notifyPresentationChanged()
 
-        let record = await self.persistTerminalFact(
+        await self.persistTerminalFact(
             reason: reason,
             disposition: disposition,
             at: date,
@@ -2610,16 +2342,6 @@ extension WatchCaptureEngine {
         }
         self.notifyPresentationChanged()
         self.onDiagnosticsRefreshRequested?()
-        if let record {
-            await self.submitTerminalNotice(expected: WatchCaptureTerminalTuple(
-                sessionID: record.sessionID,
-                startedAt: record.startedAt,
-                reason: record.terminalReason,
-                disposition: record.terminalDisposition,
-                terminalAt: record.terminalAt,
-                noticeOwed: record.noticeOwed
-            ))
-        }
     }
 
     @discardableResult

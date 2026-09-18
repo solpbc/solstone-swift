@@ -9,29 +9,6 @@ nonisolated final class WatchNoticePolicyTests: XCTestCase {
         XCTAssertNil(WatchNoticeCopy(reason: .ownerStopped, disposition: .ownerStopped))
     }
 
-    func testOwnerStoppedWithDetectedDispositionStillDoesNotScheduleWristNotice() {
-        XCTAssertEqual(
-            watchNoticeDecision(
-                authorizationStatus: .authorized,
-                alertSetting: .enabled,
-                disposition: .detectedStoppedItself,
-                reason: .ownerStopped,
-                leaseArmed: false
-            ),
-            .none
-        )
-        XCTAssertEqual(
-            watchNoticeDecision(
-                authorizationStatus: .authorized,
-                alertSetting: .enabled,
-                disposition: .detectedStoppedItself,
-                reason: .ownerStopped,
-                leaseArmed: true
-            ),
-            .cancelLease
-        )
-    }
-
     func testTerminalResolverHandlesHalfPopulatedPairs() {
         XCTAssertNil(WatchNoticeCopy(terminalReason: nil, terminalDisposition: nil))
         XCTAssertNil(WatchNoticeCopy(
@@ -155,53 +132,6 @@ nonisolated final class WatchNoticePolicyTests: XCTestCase {
                 )
             }
         }
-    }
-
-    func testWristAlertDecisionSeparatesRequestAndSettingsRoutes() {
-        XCTAssertEqual(
-            watchNoticeDecision(
-                authorizationStatus: .notDetermined,
-                alertSetting: .enabled,
-                disposition: .detectedStoppedItself,
-                reason: .audioInterrupted,
-                leaseArmed: true
-            ),
-            .cannotSchedule(settingsRoute: .notificationGrant)
-        )
-        XCTAssertEqual(
-            watchNoticeDecision(
-                authorizationStatus: .denied,
-                alertSetting: .enabled,
-                disposition: .detectedStoppedItself,
-                reason: .audioInterrupted,
-                leaseArmed: true
-            ),
-            .cannotSchedule(settingsRoute: .notificationSettings)
-        )
-        XCTAssertEqual(
-            watchNoticeDecision(
-                authorizationStatus: .authorized,
-                alertSetting: .enabled,
-                disposition: .detectedStoppedItself,
-                reason: .audioInterrupted,
-                leaseArmed: true
-            ),
-            .schedule(copy: .audioStoppedItself)
-        )
-    }
-
-    func testWristAlertAssuranceCopy() {
-        XCTAssertEqual(WatchWristAlertAssurance.willTap.line, SourceVocabulary.watchWristAlertWillTap)
-        XCTAssertEqual(WatchWristAlertAssurance.alertsOff.line, SourceVocabulary.watchWristAlertsOff)
-        XCTAssertNil(watchWristAlertAssurance(authorization: .notDetermined, alertSetting: .enabled))
-        XCTAssertEqual(
-            watchWristAlertAssurance(authorization: .authorized, alertSetting: .notSupported),
-            .alertsOff
-        )
-    }
-
-    func testForegroundNoticePresentationOptionsExcludeSound() {
-        XCTAssertEqual(watchNoticePresentationOptions(), [.banner, .list])
     }
 
     func testMicrophoneRevokedDetectedCopyHasMicrophoneRouteInPresentation() {

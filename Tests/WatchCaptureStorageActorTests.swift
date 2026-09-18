@@ -459,8 +459,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             startedAt: date,
             reason: .ownerStopped,
             disposition: nil,
-            terminalAt: nil,
-            noticeOwed: false
+            terminalAt: nil
         )
         try await compatible.writeSessionRecord(compatibleRecord, transactionClass: .captureSafety)
         try await compatible.upsertSessionHistory(
@@ -469,8 +468,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 startedAt: date,
                 reason: nil,
                 disposition: .ownerStopped,
-                terminalAt: date,
-                noticeOwed: false
+                terminalAt: date
             ),
             asOf: date,
             transactionClass: .captureSafety
@@ -478,7 +476,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
 
         let compatibleResolution = await compatible.resolveAndPersistTerminalTuple(
             recordProposal: nil,
-            proposedTerminal: self.terminalTuple(id: "session", startedAt: date, noticeOwed: false),
+            proposedTerminal: self.terminalTuple(id: "session", startedAt: date),
             asOf: date.addingTimeInterval(1)
         )
         guard case let .resolvedAndPersisted(tuple) = compatibleResolution else {
@@ -499,8 +497,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             startedAt: date,
             reason: .ownerStopped,
             disposition: .ownerStopped,
-            terminalAt: date,
-            noticeOwed: false
+            terminalAt: date
         )
         try await startMismatch.writeSessionRecord(original, transactionClass: .captureSafety)
         let mismatchResolution = await startMismatch.resolveAndPersistTerminalTuple(
@@ -510,8 +507,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 startedAt: date.addingTimeInterval(1),
                 reason: .ownerStopped,
                 disposition: .ownerStopped,
-                terminalAt: date,
-                noticeOwed: false
+                terminalAt: date
             ),
             asOf: date
         )
@@ -525,16 +521,14 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             startedAt: date,
             reason: .ownerStopped,
             disposition: .ownerStopped,
-            terminalAt: date,
-            noticeOwed: false
+            terminalAt: date
         )
         let conflictingHistory = self.terminalHistoryEntry(
             id: "conflict",
             startedAt: date,
             reason: .audioEncodeError,
             disposition: .ownerStopped,
-            terminalAt: date,
-            noticeOwed: false
+            terminalAt: date
         )
         try await conflict.writeSessionRecord(conflictingRecord, transactionClass: .captureSafety)
         try await conflict.upsertSessionHistory(
@@ -544,7 +538,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         )
         let conflictResolution = await conflict.resolveAndPersistTerminalTuple(
             recordProposal: nil,
-            proposedTerminal: self.terminalTuple(id: "conflict", startedAt: date, noticeOwed: false),
+            proposedTerminal: self.terminalTuple(id: "conflict", startedAt: date),
             asOf: date
         )
         XCTAssertEqual(conflictResolution, .failClosed)
@@ -558,51 +552,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         XCTAssertEqual(conflictingHistoryAfterResolution, conflictingHistory)
     }
 
-    func testResolveActiveRecordWithTerminalHistoryEntryPreservesDurableNoticeOwedFalse() async throws {
-        // This test guards against rewriting resolveAndPersistTerminalTuple to always prefer the proposal.
-        // It does not discriminate the start-time history defect fix because both expressions select the same terminal entry.
-        let storage = self.storage(named: "terminal-history-notice-owed-false")
-        let date = Date(timeIntervalSince1970: 1_713_624_000)
-        let record = self.terminalRecord(
-            id: "session-1",
-            startedAt: date,
-            reason: nil,
-            disposition: nil,
-            terminalAt: nil,
-            noticeOwed: false,
-            state: .active
-        )
-        try await storage.writeSessionRecord(record, transactionClass: .captureSafety)
-        let history = self.terminalHistoryEntry(
-            id: "session-1",
-            startedAt: date,
-            reason: .processExitedWhileActive,
-            disposition: .inferredStoppedItself,
-            terminalAt: date.addingTimeInterval(30),
-            noticeOwed: false
-        )
-        try await storage.upsertSessionHistory(history, asOf: date, transactionClass: .captureSafety)
-
-        let proposal = self.terminalTuple(
-            id: "session-1",
-            startedAt: date,
-            reason: .processExitedWhileActive,
-            disposition: .inferredStoppedItself,
-            terminalAt: date.addingTimeInterval(30),
-            noticeOwed: true
-        )
-        let resolution = await storage.resolveAndPersistTerminalTuple(
-            recordProposal: record,
-            proposedTerminal: proposal,
-            asOf: date.addingTimeInterval(30)
-        )
-        guard case let .resolvedAndPersisted(tuple) = resolution else {
-            return XCTFail("expected terminal tuple to resolve and persist")
-        }
-        XCTAssertFalse(tuple.noticeOwed)
-        let persistedRecord = try await storage.readSessionRecord(transactionClass: .captureSafety)
-        XCTAssertEqual(persistedRecord?.noticeOwed, false)
-    }
 
     func testTerminalTupleResolverFillsOnlyOwnerStoppedAndMintsTerminalDateOnce() async throws {
         let date = Date(timeIntervalSince1970: 1_735_689_600)
@@ -618,14 +567,13 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                     startedAt: date,
                     reason: reason,
                     disposition: disposition,
-                    terminalAt: nil,
-                    noticeOwed: false
+                    terminalAt: nil
                 ),
                 transactionClass: .captureSafety
             )
             let resolution = await storage.resolveAndPersistTerminalTuple(
                 recordProposal: nil,
-                proposedTerminal: self.terminalTuple(id: name, startedAt: date, noticeOwed: false),
+                proposedTerminal: self.terminalTuple(id: name, startedAt: date),
                 asOf: date
             )
             guard case let .resolvedAndPersisted(tuple) = resolution else {
@@ -643,7 +591,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 reason: nil,
                 disposition: nil,
                 terminalAt: nil,
-                noticeOwed: false,
                 state: .active
             ),
             transactionClass: .captureSafety
@@ -653,8 +600,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             proposedTerminal: self.terminalTuple(
                 id: "no-guess",
                 startedAt: date,
-                reason: .audioEncodeError,
-                noticeOwed: false
+                reason: .audioEncodeError
             ),
             asOf: date
         )
@@ -668,7 +614,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 reason: nil,
                 disposition: nil,
                 terminalAt: nil,
-                noticeOwed: true,
                 state: .active
             ),
             transactionClass: .captureSafety
@@ -677,8 +622,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             id: "mint-once",
             startedAt: date,
             reason: .processExitedWhileActive,
-            disposition: .inferredStoppedItself,
-            noticeOwed: true
+            disposition: .inferredStoppedItself
         )
         let first = await mintOnce.resolveAndPersistTerminalTuple(
             recordProposal: nil,
@@ -716,7 +660,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             reason: nil,
             disposition: nil,
             terminalAt: nil,
-            noticeOwed: false,
             state: .active
         )
         try await failedHistory.writeSessionRecord(expiredRecord, transactionClass: .captureSafety)
@@ -730,8 +673,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 startedAt: expiredRecord.startedAt,
                 reason: .ownerStopped,
                 disposition: .ownerStopped,
-                terminalAt: expiredAt,
-                noticeOwed: false
+                terminalAt: expiredAt
             ),
             asOf: asOf
         ) else {
@@ -752,7 +694,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             reason: nil,
             disposition: nil,
             terminalAt: nil,
-            noticeOwed: false,
             state: .active
         )
         try await failedCapacity.writeSessionRecord(active, transactionClass: .captureSafety)
@@ -766,8 +707,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 startedAt: asOf,
                 reason: .ownerStopped,
                 disposition: .ownerStopped,
-                terminalAt: asOf,
-                noticeOwed: false
+                terminalAt: asOf
             ),
             asOf: asOf
         )
@@ -789,7 +729,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 reason: nil,
                 disposition: nil,
                 terminalAt: nil,
-                noticeOwed: false,
                 state: .active
             )
             try await storage.writeSessionRecord(target, transactionClass: .captureSafety)
@@ -799,8 +738,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                     startedAt: asOf.addingTimeInterval(-Double(index)),
                     reason: .ownerStopped,
                     disposition: .ownerStopped,
-                    terminalAt: asOf,
-                    noticeOwed: false
+                    terminalAt: asOf
                 )
             }
             history.append(self.terminalHistoryEntry(
@@ -808,8 +746,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                 startedAt: targetStart,
                 reason: nil,
                 disposition: nil,
-                terminalAt: nil,
-                noticeOwed: false
+                terminalAt: nil
             ))
             let paths = WatchCaptureStoragePaths(rootURL: root)
             try await self.writeRawHistory(
@@ -824,8 +761,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
                     startedAt: targetStart,
                     reason: .ownerStopped,
                     disposition: .ownerStopped,
-                    terminalAt: asOf,
-                    noticeOwed: false
+                    terminalAt: asOf
                 ),
                 asOf: asOf
             ) else {
@@ -843,76 +779,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         }
     }
 
-    func testMergeTerminalNoticeMetadataRequiresTheExpectedTuple() async throws {
-        let date = Date(timeIntervalSince1970: 1_735_689_600)
-        let storage = self.storage(named: "notice")
-        let record = self.terminalRecord(
-            id: "notice",
-            startedAt: date,
-            reason: .ownerStopped,
-            disposition: .ownerStopped,
-            terminalAt: date,
-            noticeOwed: true
-        )
-        let entry = self.terminalHistoryEntry(
-            id: "notice",
-            startedAt: date,
-            reason: .ownerStopped,
-            disposition: .ownerStopped,
-            terminalAt: date,
-            noticeOwed: true
-        )
-        try await storage.writeSessionRecord(record, transactionClass: .captureSafety)
-        try await storage.upsertSessionHistory(entry, asOf: date, transactionClass: .captureSafety)
-        let expected = self.terminalTuple(
-            id: "notice",
-            startedAt: date,
-            reason: .ownerStopped,
-            disposition: .ownerStopped,
-            terminalAt: date,
-            noticeOwed: true
-        )
-        let didMergeNotice = await storage.mergeTerminalNoticeMetadata(
-            expected: expected,
-            update: WatchCaptureTerminalNoticeMetadata(
-                noticeOwed: false,
-                noticeDecision: "schedule",
-                noticeDelivered: true
-            )
-        )
-        XCTAssertTrue(didMergeNotice)
-        let noticeRecord = try await storage.readSessionRecord(transactionClass: .maintenance)
-        XCTAssertEqual(noticeRecord?.noticeOwed, false)
-        let updatedEntry = await storage.sessionHistoryEntry(
-            sessionID: "notice",
-            asOf: date,
-            transactionClass: .maintenance
-        )
-        XCTAssertEqual(updatedEntry?.noticeOwed, false)
-        XCTAssertEqual(updatedEntry?.noticeDecision, "schedule")
-        XCTAssertEqual(updatedEntry?.noticeDelivered, true)
-
-        let successor = self.terminalRecord(
-            id: "newer",
-            startedAt: date.addingTimeInterval(1),
-            reason: .ownerStopped,
-            disposition: .ownerStopped,
-            terminalAt: date.addingTimeInterval(1),
-            noticeOwed: true
-        )
-        try await storage.writeSessionRecord(successor, transactionClass: .captureSafety)
-        let didMergeSupersededNotice = await storage.mergeTerminalNoticeMetadata(
-            expected: expected,
-            update: WatchCaptureTerminalNoticeMetadata(noticeOwed: true, noticeDecision: "cannot-schedule")
-        )
-        XCTAssertFalse(didMergeSupersededNotice)
-        let historyAfterSupersededNotice = await storage.sessionHistoryEntry(
-            sessionID: "notice",
-            asOf: date,
-            transactionClass: .maintenance
-        )
-        XCTAssertEqual(historyAfterSupersededNotice, updatedEntry)
-    }
 
     func testActorSignpostsMeasureSynchronousWorkAfterTransactionGateAdmission() async throws {
         let writer = BlockingStorageWriter()
@@ -2147,7 +2013,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         reason: WatchCaptureTerminalReason?,
         disposition: WatchCaptureTerminalDisposition?,
         terminalAt: Date?,
-        noticeOwed: Bool,
         state: WatchCaptureSessionRecordState = .terminal
     ) -> WatchCaptureSessionRecord {
         WatchCaptureSessionRecord(
@@ -2156,8 +2021,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             state: state,
             terminalReason: reason,
             terminalDisposition: disposition,
-            terminalAt: terminalAt,
-            noticeOwed: noticeOwed
+            terminalAt: terminalAt
         )
     }
 
@@ -2166,16 +2030,14 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         startedAt: Date,
         reason: WatchCaptureTerminalReason? = nil,
         disposition: WatchCaptureTerminalDisposition? = nil,
-        terminalAt: Date? = nil,
-        noticeOwed: Bool
+        terminalAt: Date? = nil
     ) -> WatchCaptureTerminalTuple {
         WatchCaptureTerminalTuple(
             sessionID: id,
             startedAt: startedAt,
             reason: reason,
             disposition: disposition,
-            terminalAt: terminalAt,
-            noticeOwed: noticeOwed
+            terminalAt: terminalAt
         )
     }
 
@@ -2184,8 +2046,7 @@ final class WatchCaptureStorageActorTests: XCTestCase {
         startedAt: Date,
         reason: WatchCaptureTerminalReason?,
         disposition: WatchCaptureTerminalDisposition?,
-        terminalAt: Date?,
-        noticeOwed: Bool
+        terminalAt: Date?
     ) -> WatchCaptureSessionHistoryEntry {
         WatchCaptureSessionHistoryEntry(
             sessionID: id,
@@ -2195,12 +2056,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             terminalDisposition: disposition,
             startRefusalReason: nil,
             settingsRoute: nil,
-            noticeOwed: noticeOwed,
-            noticeDecision: nil,
-            noticeDelivered: nil,
-            notificationAuthorizationStatus: nil,
-            notificationAlertSetting: nil,
-            wristAlertAssurance: nil,
             audioArmed: false,
             audioSessionIsActive: false,
             locationArmed: false,
@@ -2268,12 +2123,6 @@ final class WatchCaptureStorageActorTests: XCTestCase {
             terminalDisposition: .ownerStopped,
             startRefusalReason: nil,
             settingsRoute: nil,
-            noticeOwed: false,
-            noticeDecision: nil,
-            noticeDelivered: nil,
-            notificationAuthorizationStatus: nil,
-            notificationAlertSetting: nil,
-            wristAlertAssurance: nil,
             audioArmed: false,
             audioSessionIsActive: false,
             locationArmed: false,

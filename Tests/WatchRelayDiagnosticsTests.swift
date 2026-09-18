@@ -806,7 +806,7 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider()
         )
         let envelopeData = await collector.makeEnvelopeData(asOf: now)
-        let expectedObservationFloor = 22
+        let expectedObservationFloor = 23
         let compacted = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData).payload)
         XCTAssertGreaterThan(compacted.omittedObservationCount, 0)
         XCTAssertEqual(compacted.observedFileTransfers.count, expectedObservationFloor)
@@ -819,10 +819,11 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
         let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(WatchRelayDiagnosticsEnvelope(
             generatedAt: now, diagnostics: .available(payload)
         ))
-        // Budget baseline: a real orphan observation with attempt identity is 1123 B and a maximal compact history entry is 553 B.
+        // Budget baseline: a real orphan observation with attempt identity is 1123 B and a maximal compact history entry is 445 B
+        // (measured after the watch notification fields were removed from WatchCaptureSessionHistoryEntry).
         XCTAssertLessThanOrEqual(data.count, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount)
         let maxEntryBytes = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(Self.historyEntry(99, at: now)).count
-        XCTAssertEqual(maxEntryBytes, 553)
+        XCTAssertEqual(maxEntryBytes, 445)
         XCTAssertLessThanOrEqual(10 * maxEntryBytes, WatchRelayDiagnosticsEnvelope.maxEncodedByteCount - 20 * 1024)
         let decoded = try XCTUnwrap(WatchRelayDiagnosticsEnvelope.decodeResult(from: data).payload)
         XCTAssertEqual(decoded.sessionHistoryWindow.value, entries)
@@ -2933,9 +2934,7 @@ private extension WatchRelayDiagnosticsCollectorTests {
     static func historyEntry(_ index: Int, at date: Date) -> WatchCaptureSessionHistoryEntry {
         WatchCaptureSessionHistoryEntry(sessionID: "history-\(index)", startedAt: date.addingTimeInterval(-60), terminalAt: date,
             terminalReason: .processExitedWhileActive, terminalDisposition: .inferredStoppedItself,
-            startRefusalReason: .microphonePermissionNotDetermined, settingsRoute: .notificationSettings,
-            noticeOwed: true, noticeDecision: "cannot-schedule", noticeDelivered: false,
-            notificationAuthorizationStatus: .denied, notificationAlertSetting: .notSupported, wristAlertAssurance: .alertsOff,
+            startRefusalReason: .microphonePermissionNotDetermined, settingsRoute: .microphone,
             audioArmed: true, audioSessionIsActive: true, locationArmed: true, segmentsProduced: 99,
             batteryLevelAtEnd: 0.987654321, batteryStateAtEnd: "charging", lowPowerModeEnabledAtEnd: true,
             thermalStateAtEnd: "critical", lastVerifiedAudioAt: date, lastAudioCurrentTime: 123456.789012345,

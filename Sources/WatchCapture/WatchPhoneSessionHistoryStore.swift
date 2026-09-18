@@ -352,7 +352,6 @@ private extension WatchPhoneSessionHistoryStore {
         let incomingComplete = incoming.isComplete
         self.mergeOptionalFields(from: incoming, into: &existing.entry)
         if incomingComplete && !existingComplete {
-            existing.entry.noticeOwed = incoming.noticeOwed
             existing.entry.audioArmed = incoming.audioArmed
             existing.entry.audioSessionIsActive = incoming.audioSessionIsActive
             existing.entry.locationArmed = incoming.locationArmed
@@ -376,11 +375,6 @@ private extension WatchPhoneSessionHistoryStore {
         if existing.terminalDisposition == nil { existing.terminalDisposition = incoming.terminalDisposition }
         if existing.startRefusalReason == nil { existing.startRefusalReason = incoming.startRefusalReason }
         if existing.settingsRoute == nil { existing.settingsRoute = incoming.settingsRoute }
-        if existing.noticeDecision == nil { existing.noticeDecision = incoming.noticeDecision }
-        if existing.noticeDelivered == nil { existing.noticeDelivered = incoming.noticeDelivered }
-        if existing.notificationAuthorizationStatus == nil { existing.notificationAuthorizationStatus = incoming.notificationAuthorizationStatus }
-        if existing.notificationAlertSetting == nil { existing.notificationAlertSetting = incoming.notificationAlertSetting }
-        if existing.wristAlertAssurance == nil { existing.wristAlertAssurance = incoming.wristAlertAssurance }
         if existing.batteryLevelAtEnd == nil { existing.batteryLevelAtEnd = incoming.batteryLevelAtEnd }
         if existing.batteryStateAtEnd == nil { existing.batteryStateAtEnd = incoming.batteryStateAtEnd }
         if existing.lowPowerModeEnabledAtEnd == nil { existing.lowPowerModeEnabledAtEnd = incoming.lowPowerModeEnabledAtEnd }
