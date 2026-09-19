@@ -10,6 +10,7 @@ nonisolated struct IPv4Interface: Equatable, Sendable {
 }
 
 nonisolated enum PairFailureReason: Equatable, Sendable {
+    case publicJournalUnreachable(targetAddress: String?)
     case differentNetwork(phoneAddress: String, targetAddress: String)
     case hostUnreachable(targetAddress: String?)
     case loopbackAddress
@@ -56,6 +57,9 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
 
         let usableInterfaces = usableIPv4Interfaces(from: interfaces)
         guard let firstUsable = usableInterfaces.first else {
+            if !candidateAddresses.isEmpty, candidateAddresses.allSatisfy(isPublicIPv4Literal) {
+                return .publicJournalUnreachable(targetAddress: candidateAddresses.first)
+            }
             return .journalUnreachableOffLAN
         }
 
@@ -71,14 +75,25 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             }
         }
 
+        if !candidateAddresses.isEmpty, candidateAddresses.allSatisfy(isPublicIPv4Literal) {
+            return .publicJournalUnreachable(targetAddress: candidateAddresses.first)
+        }
+
+        let targetAddress = candidateAddresses.first(where: { !isPublicIPv4Literal($0) }) ?? candidateAddresses.first ?? ""
         return .differentNetwork(
             phoneAddress: firstUsable.address,
-            targetAddress: candidateAddresses.first ?? ""
+            targetAddress: targetAddress
         )
     }
 
     var message: String {
         switch self {
+        case .publicJournalUnreachable(let targetAddress):
+            if let targetAddress {
+                "couldn't reach your journal at \(targetAddress). make sure it's running, then try again."
+            } else {
+                "couldn't reach your journal. make sure it's running, then try again."
+            }
         case .differentNetwork(let phoneAddress, let targetAddress):
             """
             this device and your journal are on different networks.
@@ -116,14 +131,21 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         targetAddress: String?,
         interfaces: [IPv4Interface]
     ) -> PairFailureReason {
+        let isPublic = targetAddress.map(isPublicIPv4Literal) ?? false
         guard let targetOctets = parseIPv4(targetAddress),
               !interfaces.isEmpty else {
+            if isPublic {
+                return .publicJournalUnreachable(targetAddress: targetAddress)
+            }
             return .hostUnreachable(targetAddress: targetAddress)
         }
 
         let target = packIPv4(targetOctets)
         let usableInterfaces = usableIPv4Interfaces(from: interfaces)
         guard let firstUsable = usableInterfaces.first else {
+            if isPublic {
+                return .publicJournalUnreachable(targetAddress: targetAddress)
+            }
             return .hostUnreachable(targetAddress: targetAddress)
         }
 
@@ -131,6 +153,10 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             isOnSameSubnet(targetValue: target, addressValue: $0.addressValue, netmaskValue: $0.netmaskValue)
         }) {
             return .hostUnreachable(targetAddress: targetAddress)
+        }
+
+        if isPublic {
+            return .publicJournalUnreachable(targetAddress: targetAddress)
         }
 
         return .differentNetwork(
@@ -209,6 +235,35 @@ nonisolated func parseIPv4(_ string: String?) -> [UInt8]? {
         octets.append(value)
     }
     return octets
+}
+
+nonisolated func isPublicIPv4Literal(_ address: String) -> Bool {
+    guard let octets = parseIPv4(address) else {
+        return false
+    }
+    // RFC 1918: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+    if octets[0] == 10 {
+        return false
+    }
+    if octets[0] == 172 && (16...31).contains(octets[1]) {
+        return false
+    }
+    if octets[0] == 192 && octets[1] == 168 {
+        return false
+    }
+    // RFC 6598: 100.64.0.0/10
+    if octets[0] == 100 && (64...127).contains(octets[1]) {
+        return false
+    }
+    // Loopback: 127.0.0.0/8
+    if octets[0] == 127 {
+        return false
+    }
+    // Link-local: 169.254.0.0/16
+    if octets[0] == 169 && octets[1] == 254 {
+        return false
+    }
+    return true
 }
 
 nonisolated func packIPv4(_ octets: [UInt8]) -> UInt32 {

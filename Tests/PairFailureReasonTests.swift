@@ -160,6 +160,24 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
             self.classifyConnectionFailure(targetAddress: "192.168.1.5", interfaces: []),
             .hostUnreachable(targetAddress: "192.168.1.5")
         )
+        XCTAssertEqual(
+            self.classifyConnectionFailure(
+                targetAddress: "198.51.100.10",
+                interfaces: [IPv4Interface(address: "192.168.1.20", netmask: "255.255.255.0")]
+            ),
+            .publicJournalUnreachable(targetAddress: "198.51.100.10")
+        )
+        XCTAssertEqual(
+            self.classifyConnectionFailure(targetAddress: "198.51.100.10", interfaces: []),
+            .publicJournalUnreachable(targetAddress: "198.51.100.10")
+        )
+        XCTAssertEqual(
+            self.classifyConnectionFailure(
+                targetAddress: "198.51.100.10",
+                interfaces: [IPv4Interface(address: "198.51.100.20", netmask: "255.255.255.0")]
+            ),
+            .hostUnreachable(targetAddress: "198.51.100.10")
+        )
     }
 
     func testMalformedTargetsNeverClassifyAsDifferentNetwork() {
@@ -288,14 +306,82 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(
             PairFailureReason.classifyExhausted(
                 sawCAFingerprintMismatch: false,
+                candidateAddresses: ["198.51.100.10", "10.0.0.5"],
+                interfaces: interfaces
+            ),
+            .differentNetwork(phoneAddress: "192.168.1.20", targetAddress: "10.0.0.5")
+        )
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: false,
+                candidateAddresses: ["198.51.100.10", "203.0.113.8"],
+                interfaces: interfaces
+            ),
+            .publicJournalUnreachable(targetAddress: "198.51.100.10")
+        )
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: false,
                 candidateAddresses: ["10.0.0.5"],
                 interfaces: []
             ),
             .journalUnreachableOffLAN
         )
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: false,
+                candidateAddresses: ["journal.local"],
+                interfaces: []
+            ),
+            .journalUnreachableOffLAN
+        )
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: false,
+                candidateAddresses: [],
+                interfaces: []
+            ),
+            .journalUnreachableOffLAN
+        )
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: false,
+                candidateAddresses: ["198.51.100.10"],
+                interfaces: []
+            ),
+            .publicJournalUnreachable(targetAddress: "198.51.100.10")
+        )
+        XCTAssertEqual(
+            PairFailureReason.classifyExhausted(
+                sawCAFingerprintMismatch: false,
+                candidateAddresses: ["198.51.100.10", "203.0.113.8"],
+                interfaces: []
+            ),
+            .publicJournalUnreachable(targetAddress: "198.51.100.10")
+        )
     }
 
     func testPairFailureMessageCopyIsLocked() {
+        XCTAssertEqual(
+            PairFailureReason.publicJournalUnreachable(targetAddress: "198.51.100.10").message,
+            "couldn't reach your journal at 198.51.100.10. make sure it's running, then try again."
+        )
+        XCTAssertEqual(
+            PairFailureReason.publicJournalUnreachable(targetAddress: nil).message,
+            "couldn't reach your journal. make sure it's running, then try again."
+        )
+        XCTAssertFalse(
+            PairFailureReason.publicJournalUnreachable(targetAddress: "198.51.100.10").message
+                .contains("cellular")
+        )
+        XCTAssertFalse(
+            PairFailureReason.publicJournalUnreachable(targetAddress: "198.51.100.10").message
+                .contains("wi-fi")
+        )
+        XCTAssertFalse(
+            PairFailureReason.publicJournalUnreachable(targetAddress: "198.51.100.10").message
+                .contains("private network")
+        )
         XCTAssertEqual(
             PairFailureReason.differentNetwork(phoneAddress: "192.168.1.20", targetAddress: "10.0.0.5").message,
             """
@@ -334,6 +420,29 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
             PairFailureReason.wrongSolstone.message,
             "this journal's identity doesn't match the pairing code. double-check which journal you're pairing, then try again with a new code."
         )
+    }
+
+    func testPublicIPv4ClassificationAndRangeEdges() {
+        XCTAssertTrue(isPublicIPv4Literal("172.15.255.255"))
+        XCTAssertFalse(isPublicIPv4Literal("172.16.0.1"))
+        XCTAssertFalse(isPublicIPv4Literal("172.31.255.255"))
+        XCTAssertTrue(isPublicIPv4Literal("172.32.0.1"))
+        XCTAssertFalse(isPublicIPv4Literal("10.2.3.4"))
+        XCTAssertFalse(isPublicIPv4Literal("192.168.4.20"))
+        XCTAssertTrue(isPublicIPv4Literal("100.63.255.255"))
+        XCTAssertFalse(isPublicIPv4Literal("100.64.0.0"))
+        XCTAssertFalse(isPublicIPv4Literal("100.64.0.1"))
+        XCTAssertFalse(isPublicIPv4Literal("100.127.255.255"))
+        XCTAssertTrue(isPublicIPv4Literal("100.128.0.0"))
+        XCTAssertFalse(isPublicIPv4Literal("127.0.0.1"))
+        XCTAssertFalse(isPublicIPv4Literal("169.254.1.10"))
+        XCTAssertTrue(isPublicIPv4Literal("198.51.100.10"))
+        XCTAssertTrue(isPublicIPv4Literal("203.0.113.8"))
+        XCTAssertTrue(isPublicIPv4Literal("8.8.8.8"))
+        XCTAssertFalse(isPublicIPv4Literal("mymac.local"))
+        XCTAssertFalse(isPublicIPv4Literal("fd12:3456::1"))
+        XCTAssertFalse(isPublicIPv4Literal("192.168.1.999"))
+        XCTAssertFalse(isPublicIPv4Literal("10.0.0.1."))
     }
 
     @MainActor
