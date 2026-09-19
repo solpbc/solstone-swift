@@ -328,7 +328,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         )
         XCTAssertEqual(
             PairFailureReason.directAddressNotLocal.message,
-            "that pairing link points to an address the solstone app won't open directly. connect this device and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
+            "that pairing link points to an address that can't be opened. copy the link from your journal again and try again."
         )
         XCTAssertEqual(
             PairFailureReason.wrongSolstone.message,
@@ -385,7 +385,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(
             coordinator.state,
             .failed(
-                error: "that pairing link points to an address the solstone app won't open directly. connect this device and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
+                error: "that pairing link points to an address that can't be opened. copy the link from your journal again and try again."
             )
         )
     }

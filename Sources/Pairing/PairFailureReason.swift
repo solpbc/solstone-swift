@@ -98,7 +98,7 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         case .journalUnreachableOffLAN:
             "your journal isn't reachable from here. you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. everything the solstone app has taken in is on this device and syncs once you reconnect."
         case .directAddressNotLocal:
-            "that pairing link points to an address the solstone app won't open directly. connect this device and your journal to the same wi-fi or your own vpn, then try again with a new pairing code."
+            "that pairing link points to an address that can't be opened. copy the link from your journal again and try again."
         case .connectionDropped:
             "lost the connection to your journal before it answered. try again."
         case .codeExpired:
