@@ -6,6 +6,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+- pairing from a link no longer asks for camera access. that prompt only shows now when you actually choose to scan a code.
+
 ## [2.0.4 (97)] - 2026-09-18
 
 ### Fixed

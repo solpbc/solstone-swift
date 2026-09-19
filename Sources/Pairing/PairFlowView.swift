@@ -176,9 +176,20 @@ struct PairFlowView: View {
         self.mode = newMode
     }
 
+    /// True when the flow already has a link in hand (universal link or a handed-off
+    /// pairing error) before the first `onAppear` runs. Guards the very first render so
+    /// `pairingContent`'s scanner never mounts for that frame: mounting it, even briefly,
+    /// fires the camera-permission prompt, and `onAppear` advancing `phase` a moment later
+    /// doesn't undo that request.
+    private var isLinkDriven: Bool {
+        self.handoff.pairURL != nil || self.handoff.pairURLError != nil
+    }
+
     @ViewBuilder
     private var phaseContent: some View {
         switch self.phase {
+        case .pairing where self.isLinkDriven:
+            self.connectingContent
         case .pairing:
             self.pairingContent
         case .connecting:
