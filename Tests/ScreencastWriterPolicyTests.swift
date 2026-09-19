@@ -105,7 +105,7 @@ nonisolated final class ScreencastWriterPolicyTests: XCTestCase {
 
         let handler = try Self.extensionSource(named: "SampleHandler.swift")
         XCTAssertTrue(handler.contains("guard MobileSegmentScreencastSamplePolicy.accepts(kind) else { return }"))
-        XCTAssertTrue(handler.contains("self.writer.appendVideo(sampleBuffer"))
+        XCTAssertTrue(handler.contains("self.session?.processSampleBuffer(sampleBuffer)"))
     }
 
     func testExtensionWriterUsesApprovedImports() throws {

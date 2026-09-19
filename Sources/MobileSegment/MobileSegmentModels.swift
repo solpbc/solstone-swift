@@ -142,12 +142,14 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
         segmentID: UUID,
         startedAt: Date,
         openedWithSources: Set<MobileSegmentSource>,
-        activeSourceSetVersion: Int
+        activeSourceSetVersion: Int,
+        day: String? = nil,
+        segment: String? = nil
     ) {
         self.schema = Self.schemaName
         self.segmentID = segmentID
-        self.day = nil
-        self.segment = nil
+        self.day = day
+        self.segment = segment
         self.startedAt = startedAt
         self.endedAt = nil
         self.durationS = nil

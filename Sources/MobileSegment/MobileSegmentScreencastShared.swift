@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import CoreGraphics
+import CryptoKit
 import Foundation
 
 nonisolated enum MobileSegmentScreencastPaths {
@@ -9,6 +10,7 @@ nonisolated enum MobileSegmentScreencastPaths {
     static let screenFilename = "screen.mp4"
     static let screenPartFilename = "screen.mp4.part"
     static let screenLivenessFilename = "screen.live.json"
+    static let screenWindowFilename = "screen.window.json"
     static let screenDiagnosticFilename = "screen.failed.json"
 
     static func activeSegmentRelativeDirectory(segmentID: UUID) -> String {
@@ -27,16 +29,16 @@ nonisolated enum MobileSegmentScreencastPaths {
         "\(Self.activeSegmentRelativeDirectory(segmentID: segmentID))/\(Self.screenLivenessFilename)"
     }
 
+    static func screenWindowRelativePath(segmentID: UUID) -> String {
+        "\(Self.activeSegmentRelativeDirectory(segmentID: segmentID))/\(Self.screenWindowFilename)"
+    }
+
     static func screenDiagnosticRelativePath(segmentID: UUID) -> String {
         "\(Self.activeSegmentRelativeDirectory(segmentID: segmentID))/\(Self.screenDiagnosticFilename)"
     }
 
     static func handoffRelativePath() -> String {
         "\(Self.mobileSegmentDirectoryName)/screencast/handoff/current.json"
-    }
-
-    static func continuationLeaseRelativePath(fromSegmentID: UUID) -> String {
-        "\(Self.mobileSegmentDirectoryName)/screencast/leases/\(fromSegmentID.uuidString).json"
     }
 
     static func runtimeRelativePath() -> String {
@@ -61,6 +63,10 @@ nonisolated enum MobileSegmentScreencastPaths {
 
     static func screenLivenessURL(inSegmentDirectory directory: URL) -> URL {
         directory.appendingPathComponent(Self.screenLivenessFilename, isDirectory: false)
+    }
+
+    static func screenWindowURL(inSegmentDirectory directory: URL) -> URL {
+        directory.appendingPathComponent(Self.screenWindowFilename, isDirectory: false)
     }
 
     static func screenDiagnosticURL(inSegmentDirectory directory: URL) -> URL {
@@ -158,6 +164,53 @@ nonisolated enum MobileSegmentScreencastJSONStore {
     }
 }
 
+nonisolated enum MobileSegmentScreencastIdentity {
+    static func segmentID(
+        sessionID: UUID,
+        scheduleAnchorMs: Int64,
+        windowIndex: Int,
+        schedulePeriodSeconds: Int = 300
+    ) -> UUID {
+        let name = "screencast-window:\(sessionID.uuidString.lowercased()):\(scheduleAnchorMs):\(windowIndex):\(schedulePeriodSeconds)"
+        var bytes = Array(SHA256.hash(data: Data(name.utf8)).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50 // RFC 4122 version 5
+        bytes[8] = (bytes[8] & 0x3F) | 0x80 // RFC 4122 variant
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5],
+            bytes[6], bytes[7],
+            bytes[8], bytes[9],
+            bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
+    }
+
+    static func windowIndex(
+        nowMs: Int64,
+        scheduleAnchorMs: Int64,
+        schedulePeriodSeconds: Int = 300
+    ) -> Int {
+        max(0, Int((nowMs - scheduleAnchorMs) / Int64(schedulePeriodSeconds * 1000)))
+    }
+
+    static func windowStart(
+        scheduleAnchorMs: Int64,
+        windowIndex: Int,
+        schedulePeriodSeconds: Int = 300
+    ) -> Date {
+        let ms = scheduleAnchorMs + Int64(windowIndex * schedulePeriodSeconds * 1000)
+        return Date(timeIntervalSince1970: Double(ms) / 1000.0)
+    }
+
+    static func windowEnd(
+        scheduleAnchorMs: Int64,
+        windowIndex: Int,
+        schedulePeriodSeconds: Int = 300
+    ) -> Date {
+        let ms = scheduleAnchorMs + Int64((windowIndex + 1) * schedulePeriodSeconds * 1000)
+        return Date(timeIntervalSince1970: Double(ms) / 1000.0)
+    }
+}
+
 nonisolated struct MobileSegmentScreencastHandoffRecord: Codable, Equatable, Sendable {
     let schemaVersion: Int
     let revision: Int64
@@ -171,7 +224,8 @@ nonisolated struct MobileSegmentScreencastHandoffRecord: Codable, Equatable, Sen
     let screenPartRelativePath: String
     let screenFinalRelativePath: String
     let desiredState: MobileSegmentScreencastDesiredState
-    let rolloverAfter: Date
+    let scheduleAnchorMs: Int64
+    let schedulePeriodSeconds: Int
     let lastHostUpdateAt: Date
 
     init(
@@ -186,9 +240,10 @@ nonisolated struct MobileSegmentScreencastHandoffRecord: Codable, Equatable, Sen
         segmentDirectoryRelativePath: String,
         screenPartRelativePath: String,
         screenFinalRelativePath: String,
-        desiredState: MobileSegmentScreencastDesiredState,
-        rolloverAfter: Date,
-        lastHostUpdateAt: Date
+        desiredState: MobileSegmentScreencastDesiredState = .writing,
+        scheduleAnchorMs: Int64,
+        schedulePeriodSeconds: Int = 300,
+        lastHostUpdateAt: Date = Date()
     ) {
         self.schemaVersion = schemaVersion
         self.revision = revision
@@ -202,8 +257,24 @@ nonisolated struct MobileSegmentScreencastHandoffRecord: Codable, Equatable, Sen
         self.screenPartRelativePath = screenPartRelativePath
         self.screenFinalRelativePath = screenFinalRelativePath
         self.desiredState = desiredState
-        self.rolloverAfter = rolloverAfter
+        self.scheduleAnchorMs = scheduleAnchorMs
+        self.schedulePeriodSeconds = schedulePeriodSeconds
         self.lastHostUpdateAt = lastHostUpdateAt
+    }
+
+    func derivedSegmentID(at now: Date) -> UUID {
+        let nowMs = Int64((now.timeIntervalSince1970 * 1000).rounded())
+        let windowIndex = MobileSegmentScreencastIdentity.windowIndex(
+            nowMs: nowMs,
+            scheduleAnchorMs: self.scheduleAnchorMs,
+            schedulePeriodSeconds: self.schedulePeriodSeconds
+        )
+        return MobileSegmentScreencastIdentity.segmentID(
+            sessionID: self.sessionID,
+            scheduleAnchorMs: self.scheduleAnchorMs,
+            windowIndex: windowIndex,
+            schedulePeriodSeconds: self.schedulePeriodSeconds
+        )
     }
 }
 
@@ -213,55 +284,34 @@ nonisolated enum MobileSegmentScreencastDesiredState: String, Codable, Sendable 
     case closed
 }
 
-nonisolated struct MobileSegmentScreencastContinuationLease: Codable, Equatable, Sendable {
+nonisolated struct MobileSegmentScreencastWindowSidecar: Codable, Equatable, Sendable {
     let schemaVersion: Int
-    let leaseID: UUID
+    let sessionID: UUID
     let revision: Int64
-    let fromSegmentID: UUID
-    let segmentID: UUID
-    let sourceSetVersion: Int
-    let sourceSet: [MobileSegmentSource]
-    let notBefore: Date
-    let startsAt: Date
-    let rolloverAfter: Date
-    let expiresAt: Date
-    let issuedAt: Date
-    let segmentDirectoryRelativePath: String
-    let screenPartRelativePath: String
-    let screenFinalRelativePath: String
+    let windowIndex: Int
+    let startedAt: Date
+    var endedAt: Date?
+    var acceptedFrameCount: Int
+    var droppedFrameCount: Int
 
     init(
         schemaVersion: Int = 1,
-        leaseID: UUID,
+        sessionID: UUID,
         revision: Int64,
-        fromSegmentID: UUID,
-        segmentID: UUID,
-        sourceSetVersion: Int,
-        sourceSet: [MobileSegmentSource],
-        notBefore: Date,
-        startsAt: Date,
-        rolloverAfter: Date,
-        expiresAt: Date,
-        issuedAt: Date,
-        segmentDirectoryRelativePath: String,
-        screenPartRelativePath: String,
-        screenFinalRelativePath: String
+        windowIndex: Int,
+        startedAt: Date,
+        endedAt: Date? = nil,
+        acceptedFrameCount: Int = 0,
+        droppedFrameCount: Int = 0
     ) {
         self.schemaVersion = schemaVersion
-        self.leaseID = leaseID
+        self.sessionID = sessionID
         self.revision = revision
-        self.fromSegmentID = fromSegmentID
-        self.segmentID = segmentID
-        self.sourceSetVersion = sourceSetVersion
-        self.sourceSet = sourceSet
-        self.notBefore = notBefore
-        self.startsAt = startsAt
-        self.rolloverAfter = rolloverAfter
-        self.expiresAt = expiresAt
-        self.issuedAt = issuedAt
-        self.segmentDirectoryRelativePath = segmentDirectoryRelativePath
-        self.screenPartRelativePath = screenPartRelativePath
-        self.screenFinalRelativePath = screenFinalRelativePath
+        self.windowIndex = windowIndex
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.acceptedFrameCount = acceptedFrameCount
+        self.droppedFrameCount = droppedFrameCount
     }
 }
 
@@ -382,9 +432,82 @@ nonisolated enum MobileSegmentScreencastDiagnosticReason: String, Codable, Senda
     case noVideo = "no_video"
     case finalizeTimeout = "finalize_timeout"
     case writerFailure = "writer_failure"
-    case staleOrMissingPointer = "stale_or_missing_pointer"
     case filesystemHandoffFailure = "filesystem_handoff_failure"
     case appGroupUnavailable = "app_group_unavailable"
+    case storageLow = "storage_low"
+
+    var ownerSentence: String {
+        MobileSegmentScreencastStopPolicy.ownerSentence(for: self)
+    }
+}
+
+nonisolated enum ScreencastBroadcastWriterOutcome: Equatable, Sendable {
+    case completed
+    case noVideo
+    case finalizeTimeout
+    case writerFailure(String)
+    case filesystemHandoffFailure(String)
+
+    var diagnosticReason: MobileSegmentScreencastDiagnosticReason? {
+        switch self {
+        case .completed:
+            nil
+        case .noVideo:
+            .noVideo
+        case .finalizeTimeout:
+            .finalizeTimeout
+        case .writerFailure:
+            .writerFailure
+        case .filesystemHandoffFailure:
+            .filesystemHandoffFailure
+        }
+    }
+}
+
+nonisolated enum MobileSegmentScreencastStopPolicy {
+    static let errorDomain = "app.solstone.swift.screencast"
+
+    static func shouldErrorExit(for reason: MobileSegmentScreencastDiagnosticReason) -> Bool {
+        switch reason {
+        case .storageLow, .appGroupUnavailable, .finalizeTimeout, .writerFailure, .filesystemHandoffFailure:
+            true
+        case .noVideo:
+            false
+        }
+    }
+
+    static func stopError(for reason: MobileSegmentScreencastDiagnosticReason) -> NSError {
+        NSError(
+            domain: self.errorDomain,
+            code: 100,
+            userInfo: [NSLocalizedDescriptionKey: self.ownerSentence(for: reason)]
+        )
+    }
+
+    static func ownerSentence(for reason: MobileSegmentScreencastDiagnosticReason) -> String {
+        switch reason {
+        case .storageLow:
+            "screen stopped. this iphone is low on storage."
+        case .appGroupUnavailable:
+            "screen is unavailable"
+        case .noVideo:
+            "no screen video was saved"
+        case .finalizeTimeout:
+            "screen video timed out while saving"
+        case .writerFailure:
+            "screen video could not be saved"
+        case .filesystemHandoffFailure:
+            "screen video could not be stored"
+        }
+    }
+}
+
+nonisolated enum MobileSegmentScreencastStoragePolicy {
+    /// Refuse to open a new 5-minute screen window when important-usage
+    /// capacity is below 1 GB. A window can write tens of MB of HEVC plus
+    /// audio/location siblings; 1 GB leaves the OS, journal drain, and a
+    /// handful of future windows room to finish without filling the volume.
+    static let minimumFreeBytes: Int64 = 1_000_000_000
 }
 
 nonisolated enum MobileSegmentScreencastFramePolicy {

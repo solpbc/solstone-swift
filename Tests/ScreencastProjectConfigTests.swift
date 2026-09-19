@@ -50,6 +50,7 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
             "- path: Sources/MobileSegment/MobileSegmentModels.swift",
             "- path: Sources/Observer/ObserverMode.swift",
             "- path: Sources/MobileSegment/MobileSegmentScreencastShared.swift",
+            "- path: Sources/MobileSegment/MobileSegmentScreencastSession.swift",
         ] {
             XCTAssertTrue(block.contains(required), required)
         }

@@ -35,9 +35,28 @@ final class MobileSegmentEngine {
     @ObservationIgnored private var pendingBoundaryAt: Date?
     @ObservationIgnored private var pendingLocationStart: LocationStart?
     @ObservationIgnored private var pendingAudioStartContinuations: [CheckedContinuation<URL, any Error>] = []
-    @ObservationIgnored private var screencastContinuationLease: MobileSegmentScreencastContinuationLease?
+    @ObservationIgnored private var screencastSessionID: UUID?
+    @ObservationIgnored private var screencastScheduleAnchorMs: Int64 = 0
+    @ObservationIgnored private var screencastSchedulePeriodSeconds: Int = 300
     @ObservationIgnored var rotateAudio: (@MainActor @Sendable (URL) async throws -> ObserverRecordedChunk?)?
     @ObservationIgnored var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Void)?
+
+    var heldScreencastAdoptionSkipSegmentID: UUID? {
+        guard self.currentSources.contains(.screencast),
+              let sessionID = self.screencastSessionID else { return nil }
+        let nowMs = Int64(self.clock.now().timeIntervalSince1970 * 1000)
+        let k = MobileSegmentScreencastIdentity.windowIndex(
+            nowMs: nowMs,
+            scheduleAnchorMs: self.screencastScheduleAnchorMs,
+            schedulePeriodSeconds: self.screencastSchedulePeriodSeconds
+        )
+        return MobileSegmentScreencastIdentity.segmentID(
+            sessionID: sessionID,
+            scheduleAnchorMs: self.screencastScheduleAnchorMs,
+            windowIndex: k,
+            schedulePeriodSeconds: self.screencastSchedulePeriodSeconds
+        )
+    }
 
     init(
         uploader: MobileSegmentUploader,
@@ -45,13 +64,22 @@ final class MobileSegmentEngine {
     ) {
         self.segmentUploader = uploader
         self.clock = clock
+        uploader.heldScreencastAdoptionSkipSegmentID = { [weak self] in
+            self?.heldScreencastAdoptionSkipSegmentID
+        }
     }
 
     func resumeFromDisk() async {
         await self.segmentUploader.resumeFromDisk()
     }
 
-    func startScreencast(at startedAt: Date) async throws -> MobileSegmentScreencastHandoffRecord {
+    func startScreencast(at startedAt: Date, sessionID: UUID? = nil) async throws -> MobileSegmentScreencastHandoffRecord {
+        let actualSessionID = sessionID ?? self.screencastSessionID ?? UUID()
+        self.screencastSessionID = actualSessionID
+        let anchorMs = Int64(startedAt.timeIntervalSince1970 * 1000)
+        self.screencastScheduleAnchorMs = anchorMs
+        self.screencastSchedulePeriodSeconds = 300
+
         switch self.state {
         case .idle:
             let segmentID = try self.openSegment(sources: [.screencast], startedAt: startedAt)
@@ -94,91 +122,6 @@ final class MobileSegmentEngine {
         guard case .open(_, let sources, _) = self.state,
               sources.contains(.screencast) else { return }
         try await self.boundary(to: sources.subtracting([.screencast]), at: endedAt)
-    }
-
-    func prepareScreencastContinuationLease(
-        rolloverAt: Date,
-        expiresAt: Date
-    ) async throws -> MobileSegmentScreencastContinuationLease? {
-        let sources = self.currentSources
-        guard sources.contains(.screencast),
-              let fromSegmentID = self.currentSegmentID else { return nil }
-        let sourceSet = self.sortedSources(sources)
-        if let existing = self.screencastContinuationLease,
-           existing.fromSegmentID == fromSegmentID,
-           Set(existing.sourceSet) == sources {
-            let refreshed = MobileSegmentScreencastContinuationLease(
-                leaseID: existing.leaseID,
-                revision: Int64(max(self.sourceSetVersion, existing.sourceSetVersion)),
-                fromSegmentID: existing.fromSegmentID,
-                segmentID: existing.segmentID,
-                sourceSetVersion: max(self.sourceSetVersion, existing.sourceSetVersion),
-                sourceSet: sourceSet,
-                notBefore: rolloverAt,
-                startsAt: rolloverAt,
-                rolloverAfter: rolloverAt.addingTimeInterval(MobileSegmentDuration.rotationCeiling),
-                expiresAt: expiresAt,
-                issuedAt: self.clock.now(),
-                segmentDirectoryRelativePath: existing.segmentDirectoryRelativePath,
-                screenPartRelativePath: existing.screenPartRelativePath,
-                screenFinalRelativePath: existing.screenFinalRelativePath
-            )
-            self.screencastContinuationLease = refreshed
-            return refreshed
-        }
-        let segmentID = try self.createSegment(sources: sources, startedAt: rolloverAt)
-        let lease = MobileSegmentScreencastContinuationLease(
-            leaseID: UUID(),
-            revision: Int64(self.sourceSetVersion),
-            fromSegmentID: fromSegmentID,
-            segmentID: segmentID,
-            sourceSetVersion: self.sourceSetVersion,
-            sourceSet: sourceSet,
-            notBefore: rolloverAt,
-            startsAt: rolloverAt,
-            rolloverAfter: rolloverAt.addingTimeInterval(MobileSegmentDuration.rotationCeiling),
-            expiresAt: expiresAt,
-            issuedAt: self.clock.now(),
-            segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: segmentID),
-            screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID),
-            screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID)
-        )
-        self.screencastContinuationLease = lease
-        return lease
-    }
-
-    func adoptScreencastContinuationLease(
-        _ lease: MobileSegmentScreencastContinuationLease
-    ) async throws -> MobileSegmentScreencastHandoffRecord {
-        let sources = Set(lease.sourceSet)
-        guard sources.contains(.screencast) else {
-            throw MobileSegmentEngineError.noActiveSegment
-        }
-        if self.currentSegmentID == lease.segmentID,
-           self.currentSources == sources,
-           let startedAt = self.currentStartedAt {
-            return self.screencastHandoff(segmentID: lease.segmentID, sources: sources, startedAt: startedAt)
-        }
-        try self.segmentUploader.adoptActiveSegment(
-            segmentID: lease.segmentID,
-            sources: sources,
-            startedAt: lease.startsAt,
-            sourceSetVersion: lease.sourceSetVersion
-        )
-        self.sourceSetVersion = max(self.sourceSetVersion, lease.sourceSetVersion)
-        if sources.contains(.audio) {
-            self.audioSegmentStartedAt = lease.startsAt
-        }
-        if sources.contains(.location), let buffer = self.locationBuffer {
-            self.locationBuffer = LocationBuffer(
-                tier: buffer.tier,
-                accuracy: buffer.accuracy,
-                startedAt: lease.startsAt
-            )
-        }
-        self.screencastContinuationLease = nil
-        self.activateSegment(segmentID: lease.segmentID, sources: sources, startedAt: lease.startsAt, startTimer: true)
-        return self.screencastHandoff(segmentID: lease.segmentID, sources: sources, startedAt: lease.startsAt)
     }
 
     func startAudio(mode: ObserverMode) async throws -> URL {
@@ -249,7 +192,13 @@ final class MobileSegmentEngine {
         guard let segmentID = self.currentSegmentID,
               let mode = self.audioMode,
               let startedAt = self.audioSegmentStartedAt
-        else { return }
+        else {
+            self.audioMode = nil
+            self.audioSegmentStartedAt = nil
+            self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
+            return
+        }
+
         let now = self.clock.now()
         do {
             try self.segmentUploader.recordAudioFinalized(
@@ -260,11 +209,6 @@ final class MobileSegmentEngine {
                 mode: mode,
                 minimumDuration: minimumDuration
             )
-            self.audioMode = nil
-            self.audioSegmentStartedAt = nil
-            if case .open(_, let sources, _) = self.state {
-                await self.finishCurrentAndMaybeOpenNext(nextSources: sources.subtracting([.audio]), at: now)
-            }
         } catch {
             mobileSegmentEngineLog.error("audio stop resolution failed: \(String(describing: error), privacy: .public)")
             try? self.segmentUploader.recordAudioFinalizeFailed(
@@ -274,84 +218,167 @@ final class MobileSegmentEngine {
                 mode: mode,
                 reason: String(describing: error)
             )
-            self.audioMode = nil
-            self.audioSegmentStartedAt = nil
-            await self.finishCurrentAndMaybeOpenNext(nextSources: self.currentSources.subtracting([.audio]), at: now)
         }
-    }
 
-    func startLocation(tier: LocationTier, accuracy: LocationAccuracy) async {
-        let now = self.clock.now()
-        switch self.state {
-        case .idle:
-            do {
-                _ = try self.openSegment(sources: [.location], startedAt: now)
-                self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
-                self.syncLocationLiveState(now: now)
-            } catch {
-                self.lastError(error)
-            }
-        case .open(_, let sources, _):
-            guard !sources.contains(.location) else {
-                self.locationBuffer = self.locationBuffer ?? LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
-                self.syncLocationLiveState(now: now)
-                return
-            }
-            do {
-                try await self.boundary(to: sources.union([.location]), at: now)
-                self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
-                self.syncLocationLiveState(now: now)
-            } catch {
-                self.lastError(error)
-            }
-        case .finalizing(_, _, let activeSources, _, let pendingSources):
-            let desiredSources = (pendingSources ?? activeSources).union([.location])
-            self.coalesceFinalizingSources(desiredSources, at: now)
-            if activeSources.contains(.location) {
-                self.locationBuffer = self.locationBuffer ?? LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+        self.audioMode = nil
+        self.audioSegmentStartedAt = nil
+        self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
+        let remainingSources = self.currentSources.subtracting([.audio])
+        if case .open = self.state {
+            if remainingSources.isEmpty {
+                self.cancelTimer()
+                self.state = .finalizing(
+                    segmentID: segmentID,
+                    activeSegmentID: nil,
+                    activeSources: [],
+                    activeStartedAt: nil,
+                    pendingNextSourceSet: nil
+                )
+                await self.segmentUploader.finalizeActiveSegment(segmentID: segmentID, endedAt: now)
+                self.state = .idle
+                self.locationBuffer = nil
+                self.pendingLocationStart = nil
+                self.screencastSessionID = nil
+                self.syncLocationLivenessTask()
             } else {
-                self.pendingLocationStart = LocationStart(tier: tier, accuracy: accuracy, startedAt: now)
-                if var buffer = self.locationBuffer {
-                    buffer.tier = tier
-                    buffer.accuracy = accuracy
-                    self.locationBuffer = buffer
-                } else {
-                    self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: now)
+                do {
+                    try await self.boundary(to: remainingSources, at: now)
+                } catch {
+                    self.lastError(error)
                 }
             }
-            self.syncLocationLiveState(now: now)
         }
     }
 
-    func stopLocation() async {
-        let now = self.clock.now()
-        if case .finalizing(_, _, let activeSources, _, let pendingSources) = self.state {
-            self.coalesceFinalizingSources((pendingSources ?? activeSources).subtracting([.location]), at: now)
-            if !activeSources.contains(.location) {
+    func startLocation(tier: LocationTier, accuracy: LocationAccuracy, startedAt: Date? = nil) async {
+        let startedAt = startedAt ?? self.clock.now()
+        self.pendingLocationStart = LocationStart(tier: tier, accuracy: accuracy, startedAt: startedAt)
+        do {
+            switch self.state {
+            case .idle:
+                let segmentID = try self.openSegment(sources: [.location], startedAt: startedAt)
+                self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: startedAt)
                 self.pendingLocationStart = nil
-                self.locationBuffer = nil
+                self.syncLocationLiveState(now: startedAt)
+                _ = segmentID
+            case .open(let segmentID, let sources, _):
+                if sources.contains(.location) {
+                    if let buffer = self.locationBuffer {
+                        self.locationBuffer = LocationBuffer(
+                            tier: tier,
+                            accuracy: accuracy,
+                            startedAt: buffer.startedAt,
+                            fixes: buffer.fixes,
+                            visits: buffer.visits,
+                            gap: buffer.gap
+                        )
+                    } else {
+                        self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: startedAt)
+                    }
+                    self.pendingLocationStart = nil
+                    self.syncLocationLiveState(now: startedAt)
+                    return
+                }
+                try await self.boundary(to: sources.union([.location]), at: startedAt)
+                self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: startedAt)
+                self.pendingLocationStart = nil
+                self.syncLocationLiveState(now: startedAt)
+                _ = segmentID
+            case .finalizing(_, _, let activeSources, _, let pendingSources):
+                let desiredSources = (pendingSources ?? activeSources).union([.location])
+                self.coalesceFinalizingSources(desiredSources, at: startedAt)
+                if let buffer = self.locationBuffer {
+                    self.locationBuffer = LocationBuffer(
+                        tier: tier,
+                        accuracy: accuracy,
+                        startedAt: buffer.startedAt,
+                        fixes: buffer.fixes,
+                        visits: buffer.visits,
+                        gap: buffer.gap
+                    )
+                } else {
+                    self.locationBuffer = LocationBuffer(tier: tier, accuracy: accuracy, startedAt: startedAt)
+                }
+                if activeSources.contains(.location) {
+                    self.pendingLocationStart = nil
+                    self.syncLocationLiveState(now: startedAt)
+                }
             }
-            self.syncLocationLivenessTask()
-            return
+        } catch {
+            self.lastError(error)
         }
-        guard case .open(_, let sources, _) = self.state,
-              sources.contains(.location)
-        else {
-            self.locationBuffer = nil
-            self.syncLocationLivenessTask()
-            return
-        }
-        await self.finishCurrentAndMaybeOpenNext(nextSources: sources.subtracting([.location]), at: now)
-        self.locationBuffer = nil
-        self.syncLocationLivenessTask()
     }
 
     func updateLocation(tier: LocationTier, accuracy: LocationAccuracy) {
-        if var buffer = self.locationBuffer {
-            buffer.tier = tier
-            buffer.accuracy = accuracy
-            self.locationBuffer = buffer
+        if let buffer = self.locationBuffer {
+            self.locationBuffer = LocationBuffer(
+                tier: tier,
+                accuracy: accuracy,
+                startedAt: buffer.startedAt,
+                fixes: buffer.fixes,
+                visits: buffer.visits,
+                gap: buffer.gap
+            )
             self.syncLocationLiveState(now: self.clock.now())
+        }
+    }
+
+    func stopLocation(at endedAt: Date? = nil) async {
+        let endedAt = endedAt ?? self.clock.now()
+        if case .finalizing(let segmentID, let activeSegmentID, let activeSources, let activeStartedAt, let pendingSources) = self.state {
+            if activeSources.contains(.location), let activeSegmentID {
+                let buffer = self.locationBuffer
+                do {
+                    try self.finalizeLocationIfNeeded(segmentID: activeSegmentID, endedAt: endedAt, buffer: buffer)
+                } catch {
+                    mobileSegmentEngineLog.error("location stop resolution failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+            self.locationBuffer = nil
+            self.pendingLocationStart = nil
+            self.syncLocationLivenessTask()
+            self.coalesceFinalizingSources((pendingSources ?? activeSources).subtracting([.location]), at: endedAt)
+            _ = segmentID
+            _ = activeStartedAt
+            return
+        }
+
+        guard case .open(let segmentID, let sources, _) = self.state,
+              sources.contains(.location) else {
+            self.locationBuffer = nil
+            self.pendingLocationStart = nil
+            self.syncLocationLivenessTask()
+            return
+        }
+
+        let remainingSources = sources.subtracting([.location])
+        if remainingSources.isEmpty {
+            self.cancelTimer()
+            let buffer = self.locationBuffer
+            self.locationBuffer = nil
+            self.pendingLocationStart = nil
+            self.state = .finalizing(
+                segmentID: segmentID,
+                activeSegmentID: nil,
+                activeSources: [],
+                activeStartedAt: nil,
+                pendingNextSourceSet: nil
+            )
+            self.syncLocationLivenessTask()
+            do {
+                try self.finalizeLocationIfNeeded(segmentID: segmentID, endedAt: endedAt, buffer: buffer)
+            } catch {
+                mobileSegmentEngineLog.error("location stop resolution failed: \(String(describing: error), privacy: .public)")
+            }
+            await self.segmentUploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+            self.state = .idle
+            self.screencastSessionID = nil
+        } else {
+            do {
+                try await self.boundary(to: remainingSources, at: endedAt)
+            } catch {
+                self.lastError(error)
+            }
         }
     }
 
@@ -359,14 +386,16 @@ final class MobileSegmentEngine {
         guard var buffer = self.locationBuffer else { return }
         buffer.fixes.append(fix)
         self.locationBuffer = buffer
-        self.appendLocationLiveFix(fix, now: self.clock.now())
+        let now = self.clock.now()
+        self.appendLocationLiveFix(fix, now: now)
     }
 
     func recordLocationVisit(_ visit: LocationVisit) {
         guard var buffer = self.locationBuffer else { return }
         buffer.visits.append(visit)
         self.locationBuffer = buffer
-        self.appendLocationLiveVisit(visit, now: self.clock.now())
+        let now = self.clock.now()
+        self.appendLocationLiveVisit(visit, now: now)
     }
 
     func recordLocationGap() {
@@ -375,70 +404,72 @@ final class MobileSegmentEngine {
         self.locationBuffer = buffer
         self.syncLocationLiveState(now: self.clock.now())
     }
-}
-
-private extension MobileSegmentEngine {
-    struct LocationBuffer: Sendable, Equatable {
-        var tier: LocationTier
-        var accuracy: LocationAccuracy
-        let startedAt: Date
-        var fixes: [LocationFix] = []
-        var visits: [LocationVisit] = []
-        var gap = false
-    }
-
-    struct LocationStart: Sendable, Equatable {
-        var tier: LocationTier
-        var accuracy: LocationAccuracy
-        let startedAt: Date
-    }
-
-    struct LocationLiveTarget: Sendable, Equatable {
-        let segmentID: UUID
-    }
 
     var currentSegmentID: UUID? {
         switch self.state {
+        case .idle:
+            nil
         case .open(let segmentID, _, _):
             segmentID
         case .finalizing(_, let activeSegmentID, _, _, _):
             activeSegmentID
-        case .idle:
-            nil
         }
     }
 
     var currentSources: Set<MobileSegmentSource> {
         switch self.state {
+        case .idle:
+            []
         case .open(_, let sources, _):
             sources
         case .finalizing(_, _, let activeSources, _, let pendingSources):
             pendingSources ?? activeSources
-        case .idle:
-            []
         }
     }
 
     var currentStartedAt: Date? {
         switch self.state {
+        case .idle:
+            nil
         case .open(_, _, let startedAt):
             startedAt
         case .finalizing(_, _, _, let activeStartedAt, _):
             activeStartedAt
-        case .idle:
-            nil
         }
     }
 
-    var locationLiveTarget: LocationLiveTarget? {
+    private struct LocationLiveTarget {
+        let segmentID: UUID
+        let startedAt: Date
+    }
+
+    private var locationLiveTarget: LocationLiveTarget? {
         switch self.state {
-        case .open(let segmentID, let sources, _) where sources.contains(.location):
-            LocationLiveTarget(segmentID: segmentID)
-        case .finalizing(_, let activeSegmentID?, let activeSources, _?, _) where activeSources.contains(.location):
-            LocationLiveTarget(segmentID: activeSegmentID)
-        default:
-            nil
+        case .idle:
+            return nil
+        case .open(let segmentID, let sources, let startedAt):
+            return sources.contains(.location) ? LocationLiveTarget(segmentID: segmentID, startedAt: startedAt) : nil
+        case .finalizing(_, let activeSegmentID, let activeSources, let activeStartedAt, _):
+            guard activeSources.contains(.location),
+                  let activeSegmentID,
+                  let activeStartedAt else { return nil }
+            return LocationLiveTarget(segmentID: activeSegmentID, startedAt: activeStartedAt)
         }
+    }
+
+    private struct LocationBuffer {
+        let tier: LocationTier
+        let accuracy: LocationAccuracy
+        let startedAt: Date
+        var fixes: [LocationFix] = []
+        var visits: [LocationVisit] = []
+        var gap: Bool = false
+    }
+
+    private struct LocationStart {
+        let tier: LocationTier
+        let accuracy: LocationAccuracy
+        let startedAt: Date
     }
 
     func openSegment(sources: Set<MobileSegmentSource>, startedAt: Date) throws -> UUID {
@@ -447,9 +478,22 @@ private extension MobileSegmentEngine {
         return segmentID
     }
 
-    func createSegment(sources: Set<MobileSegmentSource>, startedAt: Date) throws -> UUID {
+    func createSegment(
+        segmentID: UUID? = nil,
+        sources: Set<MobileSegmentSource>,
+        startedAt: Date
+    ) throws -> UUID {
         self.sourceSetVersion += 1
+        let actualSegmentID: UUID
+        if let segmentID {
+            actualSegmentID = segmentID
+        } else if sources.contains(.screencast), let derived = self.screencastSegmentID(at: startedAt) {
+            actualSegmentID = derived
+        } else {
+            actualSegmentID = UUID()
+        }
         return try self.segmentUploader.openSegment(
+            segmentID: actualSegmentID,
             sources: sources,
             startedAt: startedAt,
             sourceSetVersion: self.sourceSetVersion
@@ -527,16 +571,9 @@ private extension MobileSegmentEngine {
             let oldAudioStartedAt = self.audioSegmentStartedAt
             let oldAudioMode = self.audioMode
             let oldLocationBuffer = oldSources.contains(.location) ? self.locationBuffer : nil
-            let preparedLease = self.consumePreparedScreencastLease(
-                fromSegmentID: segmentID,
-                sources: nextSources,
-                at: now
-            )
             let nextSegmentID: UUID?
             if nextSources.isEmpty {
                 nextSegmentID = nil
-            } else if let preparedLease {
-                nextSegmentID = preparedLease.segmentID
             } else {
                 nextSegmentID = try self.createSegment(sources: nextSources, startedAt: now)
             }
@@ -558,10 +595,10 @@ private extension MobileSegmentEngine {
                         accuracy: pendingLocationStart.accuracy,
                         startedAt: pendingLocationStart.startedAt
                     )
+                    self.pendingLocationStart = nil
                 }
-            } else if !oldSources.contains(.location) {
+            } else if oldSources.contains(.location) {
                 self.locationBuffer = nil
-                self.pendingLocationStart = nil
             }
 
             self.state = .finalizing(
@@ -601,39 +638,29 @@ private extension MobileSegmentEngine {
                             reason: String(describing: error)
                         )
                     }
-                    self.lastError(error)
                 }
             }
 
             if oldSources.contains(.location) {
-                do {
-                    try self.finalizeLocationIfNeeded(segmentID: segmentID, endedAt: now, buffer: oldLocationBuffer)
-                } catch {
-                    try? self.segmentUploader.recordLocationFinalizeRemoved(
-                        segmentID: segmentID,
-                        endedAt: now,
-                        reason: String(describing: error)
-                    )
-                    self.lastError(error)
-                }
+                try self.finalizeLocationIfNeeded(segmentID: segmentID, endedAt: now, buffer: oldLocationBuffer)
             }
 
             await self.segmentUploader.finalizeActiveSegment(segmentID: segmentID, endedAt: now)
+
             let pendingNextSources = self.finalizingPendingSources(for: segmentID)
-            let pendingAt = self.pendingBoundaryAt ?? self.clock.now()
+            let pendingAt = self.pendingBoundaryAt ?? now
             self.pendingBoundaryAt = nil
 
             if let nextSegmentID {
-                let shouldFollowUp = applyPendingFollowUp && pendingNextSources != nil && pendingNextSources != nextSources
-                self.activateSegment(
-                    segmentID: nextSegmentID,
-                    sources: nextSources,
-                    startedAt: now,
-                    startTimer: false,
-                    preservePendingAudio: shouldFollowUp && pendingNextSources?.contains(.audio) == true,
-                    preservePendingLocation: shouldFollowUp && pendingNextSources?.contains(.location) == true
-                )
-                if shouldFollowUp, let pendingNextSources {
+                if let pendingNextSources, pendingNextSources != nextSources {
+                    self.activateSegment(
+                        segmentID: nextSegmentID,
+                        sources: nextSources,
+                        startedAt: now,
+                        startTimer: false,
+                        preservePendingAudio: true,
+                        preservePendingLocation: true
+                    )
                     await self.performBoundary(
                         segmentID: nextSegmentID,
                         oldSources: nextSources,
@@ -642,11 +669,13 @@ private extension MobileSegmentEngine {
                         applyPendingFollowUp: false
                     )
                 } else {
-                    self.startTimer()
-                }
-                if oldSources.contains(.screencast), nextSources.contains(.screencast) {
-                    self.screencastRolloverHandler?(
-                        self.screencastHandoff(segmentID: nextSegmentID, sources: nextSources, startedAt: now)
+                    self.activateSegment(
+                        segmentID: nextSegmentID,
+                        sources: nextSources,
+                        startedAt: now,
+                        startTimer: true,
+                        preservePendingAudio: true,
+                        preservePendingLocation: true
                     )
                 }
             } else if let pendingNextSources, !pendingNextSources.isEmpty {
@@ -658,6 +687,7 @@ private extension MobileSegmentEngine {
                 self.state = .idle
                 self.locationBuffer = nil
                 self.pendingLocationStart = nil
+                self.screencastSessionID = nil
                 self.failPendingAudioStarts(MobileSegmentEngineError.noActiveSegment)
                 self.cancelTimer()
                 self.syncLocationLivenessTask()
@@ -697,27 +727,6 @@ private extension MobileSegmentEngine {
         return pendingNextSourceSet
     }
 
-    func consumePreparedScreencastLease(
-        fromSegmentID: UUID,
-        sources: Set<MobileSegmentSource>,
-        at now: Date
-    ) -> MobileSegmentScreencastContinuationLease? {
-        guard let lease = self.screencastContinuationLease else { return nil }
-        guard sources.contains(.screencast),
-              lease.fromSegmentID == fromSegmentID,
-              Set(lease.sourceSet) == sources,
-              now >= lease.notBefore,
-              now <= lease.expiresAt
-        else {
-            self.segmentUploader.dropSegment(segmentID: lease.segmentID)
-            self.screencastContinuationLease = nil
-            return nil
-        }
-        self.sourceSetVersion = max(self.sourceSetVersion, lease.sourceSetVersion)
-        self.screencastContinuationLease = nil
-        return lease
-    }
-
     func resolvePendingAudioStarts(with url: URL) {
         let continuations = self.pendingAudioStartContinuations
         self.pendingAudioStartContinuations = []
@@ -734,7 +743,7 @@ private extension MobileSegmentEngine {
         }
     }
 
-    func finalizeLocationIfNeeded(segmentID: UUID, endedAt: Date, buffer: LocationBuffer?) throws {
+    private func finalizeLocationIfNeeded(segmentID: UUID, endedAt: Date, buffer: LocationBuffer?) throws {
         guard let buffer else { return }
         let batch = LocationSegmentBatch(
             tier: buffer.tier,
@@ -753,16 +762,36 @@ private extension MobileSegmentEngine {
         self.timerTask = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.clock.sleep(for: .seconds(MobileSegmentDuration.rotationCeiling))
+                if self.currentSources.contains(.screencast) {
+                    let now = self.clock.now()
+                    let nowMs = Int64(now.timeIntervalSince1970 * 1000)
+                    let k = MobileSegmentScreencastIdentity.windowIndex(
+                        nowMs: nowMs,
+                        scheduleAnchorMs: self.screencastScheduleAnchorMs,
+                        schedulePeriodSeconds: self.screencastSchedulePeriodSeconds
+                    )
+                    let nextStart = MobileSegmentScreencastIdentity.windowStart(
+                        scheduleAnchorMs: self.screencastScheduleAnchorMs,
+                        windowIndex: k + 1,
+                        schedulePeriodSeconds: self.screencastSchedulePeriodSeconds
+                    )
+                    let sleepSeconds = max(0.001, nextStart.timeIntervalSince(now))
+                    try await self.clock.sleep(for: .seconds(sleepSeconds))
+                } else {
+                    try await self.clock.sleep(for: .seconds(MobileSegmentDuration.rotationCeiling))
+                }
             } catch {
                 return
             }
             guard !Task.isCancelled else { return }
-            guard !self.currentSources.isEmpty else { return }
-            let sources = self.currentSources
+            guard case .open(let segmentID, let sources, _) = self.state else { return }
             let now = self.clock.now()
             do {
-                try await self.boundary(to: sources, at: now)
+                try await self.rollStableSegment(segmentID: segmentID, sources: sources, at: now)
+                if sources.contains(.screencast),
+                   let handoff = self.currentScreencastHandoff() {
+                    self.screencastRolloverHandler?(handoff)
+                }
             } catch {
                 self.lastError(error)
             }
@@ -843,7 +872,7 @@ private extension MobileSegmentEngine {
         }
     }
 
-    func writeLocationLiveness(target: LocationLiveTarget, buffer: LocationBuffer, now: Date) throws {
+    private func writeLocationLiveness(target: LocationLiveTarget, buffer: LocationBuffer, now: Date) throws {
         try self.segmentUploader.writeLocationLiveness(
             segmentID: target.segmentID,
             sourceSetVersion: self.sourceSetVersion,
@@ -890,10 +919,12 @@ private extension MobileSegmentEngine {
         sources: Set<MobileSegmentSource>,
         startedAt: Date
     ) -> MobileSegmentScreencastHandoffRecord {
-        MobileSegmentScreencastHandoffRecord(
+        let sessionID = self.screencastSessionID ?? UUID()
+        self.screencastSessionID = sessionID
+        return MobileSegmentScreencastHandoffRecord(
             revision: Int64(self.sourceSetVersion),
             eventID: UUID(),
-            sessionID: UUID(),
+            sessionID: sessionID,
             segmentID: segmentID,
             sourceSetVersion: self.sourceSetVersion,
             sourceSet: self.sortedSources(sources),
@@ -902,8 +933,25 @@ private extension MobileSegmentEngine {
             screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID),
             screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID),
             desiredState: .writing,
-            rolloverAfter: startedAt.addingTimeInterval(MobileSegmentDuration.rotationCeiling),
+            scheduleAnchorMs: self.screencastScheduleAnchorMs,
+            schedulePeriodSeconds: self.screencastSchedulePeriodSeconds,
             lastHostUpdateAt: self.clock.now()
+        )
+    }
+
+    private func screencastSegmentID(at now: Date) -> UUID? {
+        guard let sessionID = self.screencastSessionID else { return nil }
+        let nowMs = Int64(now.timeIntervalSince1970 * 1000)
+        let k = MobileSegmentScreencastIdentity.windowIndex(
+            nowMs: nowMs,
+            scheduleAnchorMs: self.screencastScheduleAnchorMs,
+            schedulePeriodSeconds: self.screencastSchedulePeriodSeconds
+        )
+        return MobileSegmentScreencastIdentity.segmentID(
+            sessionID: sessionID,
+            scheduleAnchorMs: self.screencastScheduleAnchorMs,
+            windowIndex: k,
+            schedulePeriodSeconds: self.screencastSchedulePeriodSeconds
         )
     }
 

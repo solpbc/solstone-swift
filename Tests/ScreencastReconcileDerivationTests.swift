@@ -139,102 +139,6 @@ nonisolated final class ScreencastReconcileDerivationTests: XCTestCase {
         ])
     }
 
-    func testValidLeaseAdoptsAndFinalizesClosingSegment() {
-        let lease = ScreencastFixtures.lease(sourceSet: [.audio, .location, .screencast])
-        let runtime = ScreencastFixtures.runtime(
-            state: .writerOpen,
-            segmentID: lease.segmentID
-        )
-
-        let actions = deriveScreencastReconcileActions(input: self.input(
-            runtime: runtime,
-            handoff: ScreencastFixtures.handoff(
-                revision: lease.revision,
-                sourceSet: lease.sourceSet,
-                segmentID: lease.segmentID
-            ),
-            continuationLease: lease,
-            filesystem: ScreencastFilesystemState(
-                segmentID: lease.fromSegmentID,
-                screenExists: true,
-                partExists: false,
-                hasFreshLiveness: false,
-                terminalDiagnostic: nil
-            ),
-            engineSources: [.audio, .location, .screencast],
-            now: lease.startsAt.addingTimeInterval(1)
-        ))
-
-        XCTAssertEqual(actions, [
-            .adoptLease(lease, sessionID: runtime.sessionID),
-            .recordFinalized(segmentID: lease.fromSegmentID),
-            .finalizeSegment(segmentID: lease.fromSegmentID, endedAt: runtime.lastSeenAt),
-        ])
-        guard case .adoptLease(let adoptedLease, _) = actions.first else {
-            return XCTFail("Expected lease adoption")
-        }
-        XCTAssertEqual(Set(adoptedLease.sourceSet), [.audio, .location, .screencast])
-    }
-
-    func testExpiredLeaseSurfacesVisibleFailureAtRollover() {
-        let lease = ScreencastFixtures.lease()
-        let actions = deriveScreencastReconcileActions(input: self.input(
-            handoff: ScreencastFixtures.handoff(sourceSet: [.audio, .location, .screencast]),
-            continuationLease: lease,
-            filesystem: ScreencastFilesystemState(
-                segmentID: lease.fromSegmentID,
-                screenExists: false,
-                partExists: true,
-                hasFreshLiveness: true,
-                terminalDiagnostic: nil
-            ),
-            engineSources: [.audio, .location, .screencast],
-            now: lease.expiresAt.addingTimeInterval(1)
-        ))
-
-        XCTAssertEqual(actions, [.surfaceAttention(.staleOrMissingPointer)])
-    }
-
-    func testMissingLeaseAtRolloverSurfacesVisibleFailure() {
-        let handoff = ScreencastFixtures.handoff(sourceSet: [.audio, .location, .screencast])
-        let actions = deriveScreencastReconcileActions(input: self.input(
-            handoff: handoff,
-            continuationLease: nil,
-            filesystem: ScreencastFilesystemState(
-                segmentID: handoff.segmentID,
-                screenExists: false,
-                partExists: true,
-                hasFreshLiveness: true,
-                terminalDiagnostic: nil
-            ),
-            engineSources: [.audio, .location, .screencast],
-            now: handoff.rolloverAfter
-        ))
-
-        XCTAssertEqual(actions, [.surfaceAttention(.staleOrMissingPointer)])
-    }
-
-    func testLeaseAdoptionIsIdempotentAfterTerminalResolution() {
-        let lease = ScreencastFixtures.lease()
-        let actions = deriveScreencastReconcileActions(input: self.input(
-            runtime: ScreencastFixtures.runtime(state: .writerOpen, segmentID: lease.segmentID),
-            handoff: ScreencastFixtures.handoff(revision: lease.revision, sourceSet: lease.sourceSet, segmentID: lease.segmentID),
-            continuationLease: lease,
-            filesystem: ScreencastFilesystemState(
-                segmentID: lease.fromSegmentID,
-                screenExists: true,
-                partExists: false,
-                hasFreshLiveness: false,
-                terminalDiagnostic: nil
-            ),
-            engineSources: [.audio, .location, .screencast],
-            manifestResolution: MobileSegmentSourceResolution(state: .finalizedArtifact),
-            now: lease.startsAt.addingTimeInterval(1)
-        ))
-
-        XCTAssertEqual(actions, [.noOp])
-    }
-
     func testLeftoverTerminalManifestResolutionDoesNotBlockNewSession() {
         let previousSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000100")!
         let newSessionID = UUID(uuidString: "00000000-0000-0000-0000-000000000200")!
@@ -375,7 +279,6 @@ private extension ScreencastReconcileDerivationTests {
     func input(
         runtime: MobileSegmentScreencastRuntimeRecord? = nil,
         handoff: MobileSegmentScreencastHandoffRecord? = nil,
-        continuationLease: MobileSegmentScreencastContinuationLease? = nil,
         filesystem: ScreencastFilesystemState = .empty,
         engineSources: Set<MobileSegmentSource> = [],
         manifestResolution: MobileSegmentSourceResolution? = nil,
@@ -387,7 +290,6 @@ private extension ScreencastReconcileDerivationTests {
         ScreencastReconcileInput(
             runtime: runtime,
             handoff: handoff,
-            continuationLease: continuationLease,
             filesystem: filesystem,
             engineSources: engineSources,
             manifestResolution: manifestResolution,

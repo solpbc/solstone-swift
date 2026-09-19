@@ -7,6 +7,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ## [Unreleased]
 
 ### Fixed
+- screen on your iphone or ipad used to stop about ten minutes after you left the app, and the last stretch of screen before it stopped was thrown away. screen no longer stops on its own just because you left the app, and a cut-off stretch now reaches your journal up to its last second.
 - pairing from a link no longer asks for camera access. that prompt only shows now when you actually choose to scan a code.
 - pairing failures for a journal reachable from the internet no longer tell you to join the same wi-fi or blame your cellular connection. that advice only shows when a home network really is the reason pairing can't reach it.
 

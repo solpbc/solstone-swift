@@ -19,8 +19,6 @@ final class FakeScreencastEngine: ScreencastEngineDriving {
     var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Void)?
     let callLog: ScreencastCallLog
     var nextHandoff: MobileSegmentScreencastHandoffRecord
-    var preparedLeases: [MobileSegmentScreencastContinuationLease] = []
-    var adoptedLeases: [MobileSegmentScreencastContinuationLease] = []
     var stoppedAt: [Date] = []
 
     init(
@@ -33,9 +31,27 @@ final class FakeScreencastEngine: ScreencastEngineDriving {
         self.callLog = callLog
     }
 
-    func startScreencast(at startedAt: Date) async throws -> MobileSegmentScreencastHandoffRecord {
+    func startScreencast(at startedAt: Date, sessionID: UUID?) async throws -> MobileSegmentScreencastHandoffRecord {
         self.callLog.append("startBoundary")
         self.currentScreencastSources = Set(self.nextHandoff.sourceSet)
+        if let sessionID {
+            self.nextHandoff = MobileSegmentScreencastHandoffRecord(
+                revision: self.nextHandoff.revision,
+                eventID: self.nextHandoff.eventID,
+                sessionID: sessionID,
+                segmentID: self.nextHandoff.segmentID,
+                sourceSetVersion: self.nextHandoff.sourceSetVersion,
+                sourceSet: self.nextHandoff.sourceSet,
+                startedAt: startedAt,
+                segmentDirectoryRelativePath: self.nextHandoff.segmentDirectoryRelativePath,
+                screenPartRelativePath: self.nextHandoff.screenPartRelativePath,
+                screenFinalRelativePath: self.nextHandoff.screenFinalRelativePath,
+                desiredState: self.nextHandoff.desiredState,
+                scheduleAnchorMs: self.nextHandoff.scheduleAnchorMs,
+                schedulePeriodSeconds: self.nextHandoff.schedulePeriodSeconds,
+                lastHostUpdateAt: self.nextHandoff.lastHostUpdateAt
+            )
+        }
         return self.nextHandoff
     }
 
@@ -47,45 +63,6 @@ final class FakeScreencastEngine: ScreencastEngineDriving {
 
     func currentScreencastHandoff() -> MobileSegmentScreencastHandoffRecord? {
         guard self.currentScreencastSources.contains(.screencast) else { return nil }
-        return self.nextHandoff
-    }
-
-    func prepareScreencastContinuationLease(
-        rolloverAt: Date,
-        expiresAt: Date
-    ) async throws -> MobileSegmentScreencastContinuationLease? {
-        guard self.currentScreencastSources.contains(.screencast) else { return nil }
-        let lease = MobileSegmentScreencastContinuationLease(
-            leaseID: ScreencastFixtures.leaseID,
-            revision: self.nextHandoff.revision + 1,
-            fromSegmentID: self.nextHandoff.segmentID,
-            segmentID: ScreencastFixtures.nextSegmentID,
-            sourceSetVersion: self.nextHandoff.sourceSetVersion + 1,
-            sourceSet: self.nextHandoff.sourceSet,
-            notBefore: rolloverAt,
-            startsAt: rolloverAt,
-            rolloverAfter: rolloverAt.addingTimeInterval(300),
-            expiresAt: expiresAt,
-            issuedAt: rolloverAt.addingTimeInterval(-1),
-            segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: ScreencastFixtures.nextSegmentID),
-            screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: ScreencastFixtures.nextSegmentID),
-            screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: ScreencastFixtures.nextSegmentID)
-        )
-        self.preparedLeases.append(lease)
-        return lease
-    }
-
-    func adoptScreencastContinuationLease(
-        _ lease: MobileSegmentScreencastContinuationLease
-    ) async throws -> MobileSegmentScreencastHandoffRecord {
-        self.callLog.append("adoptLease")
-        self.adoptedLeases.append(lease)
-        self.currentScreencastSources = Set(lease.sourceSet)
-        self.nextHandoff = ScreencastFixtures.handoff(
-            revision: lease.revision,
-            sourceSet: lease.sourceSet,
-            segmentID: lease.segmentID
-        )
         return self.nextHandoff
     }
 }
@@ -145,6 +122,10 @@ final class FakeScreencastUploader: ScreencastFacetResolving {
     func finalizeActiveSegment(segmentID: UUID, endedAt: Date) async {
         self.callLog.append("finalizeSegment")
     }
+
+    func reconcileActiveSegments() async throws {
+        self.callLog.append("reconcileActiveSegments")
+    }
 }
 
 @MainActor
@@ -178,7 +159,6 @@ nonisolated enum ScreencastFixtures {
     static let segmentID = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
     static let nextSegmentID = UUID(uuidString: "00000000-0000-0000-0000-000000000303")!
     static let eventID = UUID(uuidString: "00000000-0000-0000-0000-000000000404")!
-    static let leaseID = UUID(uuidString: "00000000-0000-0000-0000-000000000505")!
     static let start = Date(timeIntervalSince1970: 1_780_480_800)
 
     static func runtime(
@@ -220,7 +200,8 @@ nonisolated enum ScreencastFixtures {
             screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID),
             screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID),
             desiredState: .writing,
-            rolloverAfter: Self.start.addingTimeInterval(300),
+            scheduleAnchorMs: Int64(Self.start.timeIntervalSince1970 * 1000),
+            schedulePeriodSeconds: 300,
             lastHostUpdateAt: Self.start
         )
     }
@@ -241,28 +222,6 @@ nonisolated enum ScreencastFixtures {
             acceptedFrameCount: reason == .noVideo ? 0 : 1,
             droppedFrameCount: 0,
             createdAt: Self.start.addingTimeInterval(8)
-        )
-    }
-
-    static func lease(
-        sourceSet: [MobileSegmentSource] = [.audio, .location, .screencast],
-        now: Date = Self.start.addingTimeInterval(300)
-    ) -> MobileSegmentScreencastContinuationLease {
-        MobileSegmentScreencastContinuationLease(
-            leaseID: Self.leaseID,
-            revision: 2,
-            fromSegmentID: Self.segmentID,
-            segmentID: Self.nextSegmentID,
-            sourceSetVersion: 2,
-            sourceSet: sourceSet,
-            notBefore: now,
-            startsAt: now,
-            rolloverAfter: now.addingTimeInterval(300),
-            expiresAt: now.addingTimeInterval(30),
-            issuedAt: now.addingTimeInterval(-1),
-            segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: Self.nextSegmentID),
-            screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: Self.nextSegmentID),
-            screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: Self.nextSegmentID)
         )
     }
 }

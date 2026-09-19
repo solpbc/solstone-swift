@@ -16,9 +16,9 @@ nonisolated enum ScreencastReconcileReason: String, Equatable, Sendable {
 }
 
 nonisolated enum ScreencastAttention: String, Codable, Equatable, Sendable {
+    case storageLow
     case noVideo
     case finalizeFailed
-    case staleOrMissingPointer
     case appGroupUnavailable
 }
 
@@ -60,7 +60,6 @@ nonisolated struct ScreencastFilesystemState: Equatable, Sendable {
 nonisolated struct ScreencastReconcileInput: Equatable, Sendable {
     let runtime: MobileSegmentScreencastRuntimeRecord?
     let handoff: MobileSegmentScreencastHandoffRecord?
-    let continuationLease: MobileSegmentScreencastContinuationLease?
     let filesystem: ScreencastFilesystemState
     let engineSources: Set<MobileSegmentSource>
     let manifestResolution: MobileSegmentSourceResolution?
@@ -72,7 +71,6 @@ nonisolated struct ScreencastReconcileInput: Equatable, Sendable {
     init(
         runtime: MobileSegmentScreencastRuntimeRecord?,
         handoff: MobileSegmentScreencastHandoffRecord?,
-        continuationLease: MobileSegmentScreencastContinuationLease?,
         filesystem: ScreencastFilesystemState,
         engineSources: Set<MobileSegmentSource>,
         manifestResolution: MobileSegmentSourceResolution?,
@@ -83,7 +81,6 @@ nonisolated struct ScreencastReconcileInput: Equatable, Sendable {
     ) {
         self.runtime = runtime
         self.handoff = handoff
-        self.continuationLease = continuationLease
         self.filesystem = filesystem
         self.engineSources = engineSources
         self.manifestResolution = manifestResolution
@@ -96,7 +93,6 @@ nonisolated struct ScreencastReconcileInput: Equatable, Sendable {
 
 nonisolated enum ScreencastReconcileAction: Equatable, Sendable {
     case startBoundary(startedAt: Date, sessionID: UUID)
-    case adoptLease(MobileSegmentScreencastContinuationLease, sessionID: UUID)
     case recordFinalized(segmentID: UUID)
     case recordNoArtifact(segmentID: UUID, reason: String)
     case recordFailed(segmentID: UUID, reason: String)
@@ -113,12 +109,6 @@ nonisolated enum ScreencastDiagnosticResolution: Equatable, Sendable {
     case runtimeAttention(MobileSegmentScreencastDiagnosticReason)
 }
 
-nonisolated enum ScreencastContinuationLeaseDecision: Equatable, Sendable {
-    case future
-    case valid(MobileSegmentScreencastContinuationLease)
-    case failed(MobileSegmentScreencastDiagnosticReason)
-}
-
 nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInput) -> [ScreencastReconcileAction] {
     let currentSessionID = input.runtime?.sessionID ?? input.handoff?.sessionID
     let handoff = (input.runtime != nil && input.handoff?.sessionID != input.runtime?.sessionID) ? nil : input.handoff
@@ -126,63 +116,12 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
         ? nil
         : input.filesystem.terminalDiagnostic
 
-    let isLeaseOwned: Bool
-    if let lease = input.continuationLease {
-        let validIDs = [input.runtime?.currentSegmentID, handoff?.segmentID].compactMap { $0 }
-        isLeaseOwned = validIDs.contains(lease.fromSegmentID) || validIDs.contains(lease.segmentID)
-    } else {
-        isLeaseOwned = false
-    }
-    let continuationLease = isLeaseOwned ? input.continuationLease : nil
-
     let terminalSegmentID = terminalDiagnostic?.segmentID
-        ?? (isLeaseOwned ? input.filesystem.segmentID : nil)
         ?? input.runtime?.currentSegmentID
         ?? handoff?.segmentID
 
     if terminalSegmentID != nil && input.manifestResolution?.state.isTerminal == true {
         return [.noOp]
-    }
-
-    if let lease = continuationLease,
-       let sessionID = input.runtime?.sessionID ?? handoff?.sessionID,
-       input.filesystem.segmentID == lease.fromSegmentID,
-       input.filesystem.screenExists {
-        switch evaluateScreencastContinuationLease(
-            lease,
-            currentHandoff: handoff?.segmentID == lease.fromSegmentID ? handoff : nil,
-            currentSegmentID: lease.fromSegmentID,
-            now: input.now
-        ) {
-        case .valid(let validLease):
-            let endedAt = terminalDiagnostic?.endedAt ?? input.runtime?.lastSeenAt ?? input.now
-            return [
-                .adoptLease(validLease, sessionID: sessionID),
-                .recordFinalized(segmentID: validLease.fromSegmentID),
-                .finalizeSegment(segmentID: validLease.fromSegmentID, endedAt: endedAt),
-            ]
-        case .failed(let reason):
-            return [.surfaceAttention(reason)]
-        case .future:
-            return [.noOp]
-        }
-    }
-
-    if let handoff,
-       input.filesystem.partExists,
-       input.filesystem.hasFreshLiveness,
-       input.now >= handoff.rolloverAfter {
-        switch evaluateScreencastContinuationLease(
-            continuationLease,
-            currentHandoff: handoff,
-            currentSegmentID: handoff.segmentID,
-            now: input.now
-        ) {
-        case .failed(let reason):
-            return [.surfaceAttention(reason)]
-        case .future, .valid:
-            break
-        }
     }
 
     if let segmentID = terminalSegmentID {
@@ -197,11 +136,15 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
         if let terminalDiagnostic {
             switch screencastDiagnosticResolution(for: terminalDiagnostic.reason, hasSegment: true) {
             case .noArtifact(let reason):
-                return terminalActions(
+                var actions = terminalActions(
                     primary: .recordNoArtifact(segmentID: segmentID, reason: reason),
                     engineSources: input.engineSources,
                     endedAt: terminalDiagnostic.endedAt
                 )
+                if terminalDiagnostic.reason == .storageLow {
+                    actions.append(.surfaceAttention(.storageLow))
+                }
+                return actions
             case .failedToFinalize(let reason):
                 var actions = terminalActions(
                     primary: .recordFailed(segmentID: segmentID, reason: reason),
@@ -271,49 +214,15 @@ nonisolated func screencastDiagnosticResolution(
     hasSegment: Bool
 ) -> ScreencastDiagnosticResolution {
     switch reason {
+    case .storageLow:
+        hasSegment ? .noArtifact(reason: reason.rawValue) : .runtimeAttention(reason)
     case .noVideo:
         hasSegment ? .noArtifact(reason: reason.rawValue) : .runtimeAttention(reason)
-    case .finalizeTimeout, .writerFailure, .staleOrMissingPointer, .filesystemHandoffFailure:
+    case .finalizeTimeout, .writerFailure, .filesystemHandoffFailure:
         hasSegment ? .failedToFinalize(reason: reason.rawValue) : .runtimeAttention(reason)
     case .appGroupUnavailable:
         .runtimeAttention(reason)
     }
-}
-
-nonisolated func evaluateScreencastContinuationLease(
-    _ lease: MobileSegmentScreencastContinuationLease?,
-    currentHandoff: MobileSegmentScreencastHandoffRecord?,
-    currentSegmentID: UUID?,
-    now: Date
-) -> ScreencastContinuationLeaseDecision {
-    guard let lease else {
-        return .failed(.staleOrMissingPointer)
-    }
-    if now < lease.notBefore {
-        return .future
-    }
-    if now > lease.expiresAt {
-        return .failed(.staleOrMissingPointer)
-    }
-    guard let currentSegmentID, lease.fromSegmentID == currentSegmentID else {
-        return .failed(.staleOrMissingPointer)
-    }
-    guard lease.sourceSet.contains(.screencast) else {
-        return .failed(.staleOrMissingPointer)
-    }
-    guard validateLeasePaths(lease) else {
-        return .failed(.staleOrMissingPointer)
-    }
-    if let currentHandoff {
-        let handoffSources = Set(currentHandoff.sourceSet)
-        let leaseSources = Set(lease.sourceSet)
-        guard currentHandoff.segmentID == lease.fromSegmentID,
-              handoffSources.isSubset(of: leaseSources)
-        else {
-            return .failed(.staleOrMissingPointer)
-        }
-    }
-    return .valid(lease)
 }
 
 @MainActor
@@ -369,16 +278,15 @@ final class ScreencastDarwinNotificationCenter: ScreencastDarwinNotifying {
 protocol ScreencastEngineDriving: AnyObject {
     var currentScreencastSources: Set<MobileSegmentSource> { get }
     var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Void)? { get set }
-    func startScreencast(at startedAt: Date) async throws -> MobileSegmentScreencastHandoffRecord
+    func startScreencast(at startedAt: Date, sessionID: UUID?) async throws -> MobileSegmentScreencastHandoffRecord
     func stopScreencast(at endedAt: Date) async throws
     func currentScreencastHandoff() -> MobileSegmentScreencastHandoffRecord?
-    func prepareScreencastContinuationLease(
-        rolloverAt: Date,
-        expiresAt: Date
-    ) async throws -> MobileSegmentScreencastContinuationLease?
-    func adoptScreencastContinuationLease(
-        _ lease: MobileSegmentScreencastContinuationLease
-    ) async throws -> MobileSegmentScreencastHandoffRecord
+}
+
+extension ScreencastEngineDriving {
+    func startScreencast(at startedAt: Date) async throws -> MobileSegmentScreencastHandoffRecord {
+        try await self.startScreencast(at: startedAt, sessionID: nil)
+    }
 }
 
 @MainActor
@@ -405,6 +313,7 @@ protocol ScreencastFacetResolving: AnyObject {
     ) throws
     func screencastResolution(segmentID: UUID) -> MobileSegmentSourceResolution?
     func finalizeActiveSegment(segmentID: UUID, endedAt: Date) async
+    func reconcileActiveSegments() async throws
 }
 
 extension MobileSegmentEngine: ScreencastEngineDriving {
@@ -442,7 +351,6 @@ final class ScreencastManager {
     @ObservationIgnored private let rootURLProvider: () throws -> URL
     @ObservationIgnored private let darwin: any ScreencastDarwinNotifying
     @ObservationIgnored private var startingTimeoutTask: Task<Void, Never>?
-    @ObservationIgnored private var leaseRefreshTask: Task<Void, Never>?
 
     private enum Key {
         static let lastProcessedRuntimeRevision = "screencast.lastProcessedRuntimeRevision"
@@ -454,9 +362,6 @@ final class ScreencastManager {
         static let lastAttentionAt = "screencast.lastAttentionAt"
     }
 
-    /// Whether the owner has ever set screen up. Written at every transition into the
-    /// running state, and backfilled once from `Key.lastSessionID` for owners who were
-    /// already using screen before the record existed.
     var isEnrolled: Bool {
         self.defaults?.bool(forKey: Key.enrolled) ?? false
     }
@@ -466,8 +371,6 @@ final class ScreencastManager {
     }
 
     static let startingTimeoutSeconds: TimeInterval = 20
-    static let leaseRefreshSeconds: TimeInterval = 30
-    static let leaseExpirySeconds: TimeInterval = 30
 
     convenience init(
         clock: any ObserverClock = SystemObserverClock(),
@@ -520,17 +423,10 @@ final class ScreencastManager {
 
     func stopObservingDarwin() {
         self.darwin.stop()
-        self.stopLeaseRefreshTask()
     }
 
     func prepareForBackground() async {
         guard case .active = self.state else { return }
-        do {
-            let root = try self.rootURLProvider()
-            try await self.publishContinuationLease(root: root)
-        } catch {
-            screencastLog.error("screencast background lease publish failed: \(String(describing: error), privacy: .public)")
-        }
     }
 
     func beginStarting() {
@@ -559,6 +455,12 @@ final class ScreencastManager {
             return
         }
 
+        do {
+            try await self.segmentUploader.reconcileActiveSegments()
+        } catch {
+            screencastLog.error("screencast active segment reconcile failed: \(String(describing: error), privacy: .public)")
+        }
+
         let runtime = self.readRuntime(root: root)
         if reason == .startingTimeout || reason == .foreground,
            runtime == nil,
@@ -568,9 +470,8 @@ final class ScreencastManager {
         }
 
         let handoff = self.readHandoff(root: root)
-        let continuationLease = self.readContinuationLease(root: root, runtime: runtime, handoff: handoff)
-        let diagnostic = self.readDiagnostic(root: root, runtime: runtime, handoff: handoff, lease: continuationLease)
-        let filesystem = self.filesystemState(root: root, runtime: runtime, handoff: handoff, lease: continuationLease, diagnostic: diagnostic)
+        let diagnostic = self.readDiagnostic(root: root, runtime: runtime, handoff: handoff)
+        let filesystem = self.filesystemState(root: root, runtime: runtime, handoff: handoff, diagnostic: diagnostic)
         let manifestResolution = filesystem.segmentID.flatMap {
             self.segmentUploader.screencastResolution(segmentID: $0)
         }
@@ -578,7 +479,6 @@ final class ScreencastManager {
         let input = ScreencastReconcileInput(
             runtime: runtime,
             handoff: handoff,
-            continuationLease: continuationLease,
             filesystem: filesystem,
             engineSources: self.engine.currentScreencastSources,
             manifestResolution: manifestResolution,
@@ -591,12 +491,6 @@ final class ScreencastManager {
         let actions = deriveScreencastReconcileActions(input: input)
         do {
             try await self.apply(actions: actions, root: root, runtime: runtime, handoff: handoff, diagnostic: diagnostic)
-            if case .active = self.state {
-                try await self.publishContinuationLease(root: root)
-                self.startLeaseRefreshTask()
-            } else {
-                self.stopLeaseRefreshTask()
-            }
             self.persistProcessed(runtime: runtime, handoff: handoff)
         } catch {
             screencastLog.error("screencast reconcile failed: \(String(describing: error), privacy: .public)")
@@ -636,6 +530,7 @@ private extension ScreencastManager {
             await self.reconcileScreencast(reason: .startingTimeout)
         }
     }
+
     func clearStarting() {
         self.startingTimeoutTask?.cancel()
         self.startingTimeoutTask = nil
@@ -652,67 +547,15 @@ private extension ScreencastManager {
         return try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastHandoffRecord.self, from: url)
     }
 
-    func readContinuationLease(
-        root: URL,
-        runtime: MobileSegmentScreencastRuntimeRecord?,
-        handoff: MobileSegmentScreencastHandoffRecord?
-    ) -> MobileSegmentScreencastContinuationLease? {
-        var candidateIDs: [UUID] = []
-        if let runtimeSegmentID = runtime?.currentSegmentID {
-            candidateIDs.append(runtimeSegmentID)
-        }
-        if let handoff, (runtime == nil || handoff.sessionID == runtime?.sessionID) {
-            candidateIDs.append(handoff.segmentID)
-        }
-        for segmentID in candidateIDs {
-            if let direct = self.readContinuationLease(root: root, fromSegmentID: segmentID) {
-                return direct
-            }
-        }
-        let leasesDirectory = MobileSegmentScreencastPaths.url(
-            root: root,
-            relativePath: "\(MobileSegmentScreencastPaths.mobileSegmentDirectoryName)/screencast/leases"
-        )
-        guard let urls = try? FileManager.default.contentsOfDirectory(
-            at: leasesDirectory,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-        var decoded: [MobileSegmentScreencastContinuationLease] = []
-        for url in urls {
-            if let lease = try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastContinuationLease.self, from: url) {
-                decoded.append(lease)
-            }
-        }
-        return decoded
-            .filter { lease in
-                candidateIDs.contains(lease.segmentID) || candidateIDs.contains(lease.fromSegmentID)
-            }
-            .sorted { $0.revision > $1.revision }
-            .first
-    }
-
-    func readContinuationLease(root: URL, fromSegmentID: UUID) -> MobileSegmentScreencastContinuationLease? {
-        let url = MobileSegmentScreencastPaths.url(
-            root: root,
-            relativePath: MobileSegmentScreencastPaths.continuationLeaseRelativePath(fromSegmentID: fromSegmentID)
-        )
-        return try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastContinuationLease.self, from: url)
-    }
-
     func readDiagnostic(
         root: URL,
         runtime: MobileSegmentScreencastRuntimeRecord?,
-        handoff: MobileSegmentScreencastHandoffRecord?,
-        lease: MobileSegmentScreencastContinuationLease?
+        handoff: MobileSegmentScreencastHandoffRecord?
     ) -> MobileSegmentScreencastDiagnostic? {
         let currentSessionID = runtime?.sessionID ?? handoff?.sessionID
         let currentHandoff = (runtime != nil && handoff?.sessionID != runtime?.sessionID) ? nil : handoff
 
         var candidateIDs: [UUID] = []
-        if let leaseFromSegmentID = lease?.fromSegmentID {
-            candidateIDs.append(leaseFromSegmentID)
-        }
         if let runtimeSegmentID = runtime?.currentSegmentID {
             candidateIDs.append(runtimeSegmentID)
         }
@@ -748,24 +591,13 @@ private extension ScreencastManager {
         root: URL,
         runtime: MobileSegmentScreencastRuntimeRecord?,
         handoff: MobileSegmentScreencastHandoffRecord?,
-        lease: MobileSegmentScreencastContinuationLease?,
         diagnostic: MobileSegmentScreencastDiagnostic?
     ) -> ScreencastFilesystemState {
         let currentSessionID = runtime?.sessionID ?? handoff?.sessionID
         let currentHandoff = (runtime != nil && handoff?.sessionID != runtime?.sessionID) ? nil : handoff
         let currentDiagnostic = (currentSessionID != nil && diagnostic?.sessionID != currentSessionID) ? nil : diagnostic
 
-        let isLeaseOwned: Bool
-        if let lease {
-            let validIDs = [runtime?.currentSegmentID, currentHandoff?.segmentID].compactMap { $0 }
-            isLeaseOwned = validIDs.contains(lease.fromSegmentID) || validIDs.contains(lease.segmentID)
-        } else {
-            isLeaseOwned = false
-        }
-        let currentLease = isLeaseOwned ? lease : nil
-
         let segmentID = currentDiagnostic?.segmentID
-            ?? self.leaseBackedClosingSegmentID(root: root, lease: currentLease)
             ?? runtime?.currentSegmentID
             ?? currentHandoff?.segmentID
         guard let segmentID else {
@@ -804,30 +636,6 @@ private extension ScreencastManager {
         )
     }
 
-    func leaseBackedClosingSegmentID(
-        root: URL,
-        lease: MobileSegmentScreencastContinuationLease?
-    ) -> UUID? {
-        guard let lease else { return nil }
-        let screenURL = MobileSegmentScreencastPaths.url(
-            root: root,
-            relativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: lease.fromSegmentID)
-        )
-        let partURL = MobileSegmentScreencastPaths.url(
-            root: root,
-            relativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: lease.fromSegmentID)
-        )
-        let diagnosticURL = MobileSegmentScreencastPaths.url(
-            root: root,
-            relativePath: MobileSegmentScreencastPaths.screenDiagnosticRelativePath(segmentID: lease.fromSegmentID)
-        )
-        guard FileManager.default.fileExists(atPath: screenURL.path)
-            || FileManager.default.fileExists(atPath: partURL.path)
-            || FileManager.default.fileExists(atPath: diagnosticURL.path)
-        else { return nil }
-        return lease.fromSegmentID
-    }
-
     func apply(
         actions: [ScreencastReconcileAction],
         root: URL,
@@ -840,21 +648,11 @@ private extension ScreencastManager {
         for action in actions {
             switch action {
             case .startBoundary(let startedAt, let sessionID):
-                let handoff = try await self.engine.startScreencast(at: startedAt)
+                let handoff = try await self.engine.startScreencast(at: startedAt, sessionID: sessionID)
                 let published = self.handoff(handoff, sessionID: sessionID, now: self.clock.now())
                 try self.writeHandoff(published, root: root)
                 self.darwin.postChanged()
                 currentHandoff = published
-                self.defaults?.set(sessionID.uuidString, forKey: Key.lastSessionID)
-                self.persistEnrolled()
-                self.clearStarting()
-                self.state = .active(sessionID: sessionID, segmentID: published.segmentID, startedAt: published.startedAt)
-            case .adoptLease(let lease, let sessionID):
-                let handoff = try await self.engine.adoptScreencastContinuationLease(lease)
-                let published = self.handoff(handoff, sessionID: sessionID, now: self.clock.now())
-                try self.writeHandoff(published, root: root)
-                self.darwin.postChanged()
-                currentHandoff = currentHandoff?.segmentID == lease.fromSegmentID ? currentHandoff : nil
                 self.defaults?.set(sessionID.uuidString, forKey: Key.lastSessionID)
                 self.persistEnrolled()
                 self.clearStarting()
@@ -944,53 +742,9 @@ private extension ScreencastManager {
             self.darwin.postChanged()
             self.persistEnrolled()
             self.state = .active(sessionID: sessionID, segmentID: published.segmentID, startedAt: published.startedAt)
-            self.startLeaseRefreshTask()
         } catch {
             screencastLog.error("screencast rollover handoff publish failed: \(String(describing: error), privacy: .public)")
         }
-    }
-
-    func publishContinuationLease(root: URL) async throws {
-        guard let handoff = self.engine.currentScreencastHandoff() else { return }
-        let lease = try await self.engine.prepareScreencastContinuationLease(
-            rolloverAt: handoff.rolloverAfter,
-            expiresAt: handoff.rolloverAfter.addingTimeInterval(Self.leaseExpirySeconds)
-        )
-        guard let lease else { return }
-        let url = MobileSegmentScreencastPaths.url(
-            root: root,
-            relativePath: MobileSegmentScreencastPaths.continuationLeaseRelativePath(fromSegmentID: lease.fromSegmentID)
-        )
-        try MobileSegmentScreencastJSONStore.write(lease, to: url)
-    }
-
-    func startLeaseRefreshTask() {
-        guard self.leaseRefreshTask == nil else { return }
-        self.leaseRefreshTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
-                do {
-                    try await self.clock.sleep(for: .seconds(Int(Self.leaseRefreshSeconds)))
-                    guard !Task.isCancelled else { return }
-                    guard case .active = self.state else {
-                        self.stopLeaseRefreshTask()
-                        return
-                    }
-                    let root = try self.rootURLProvider()
-                    try await self.publishContinuationLease(root: root)
-                } catch {
-                    if !Task.isCancelled {
-                        screencastLog.error("screencast lease refresh failed: \(String(describing: error), privacy: .public)")
-                    }
-                    return
-                }
-            }
-        }
-    }
-
-    func stopLeaseRefreshTask() {
-        self.leaseRefreshTask?.cancel()
-        self.leaseRefreshTask = nil
     }
 
     func handoff(
@@ -1019,11 +773,11 @@ private extension ScreencastManager {
             screenPartRelativePath: record.screenPartRelativePath,
             screenFinalRelativePath: record.screenFinalRelativePath,
             desiredState: .writing,
-            rolloverAfter: record.rolloverAfter,
+            scheduleAnchorMs: record.scheduleAnchorMs,
+            schedulePeriodSeconds: record.schedulePeriodSeconds,
             lastHostUpdateAt: now
         )
     }
-
 
     func persistProcessed(
         runtime: MobileSegmentScreencastRuntimeRecord?,
@@ -1079,27 +833,16 @@ private nonisolated func terminalActions(
     return [primary]
 }
 
-private nonisolated func validateLeasePaths(_ lease: MobileSegmentScreencastContinuationLease) -> Bool {
-    do {
-        try MobileSegmentScreencastPaths.validateRelativePath(lease.segmentDirectoryRelativePath)
-        try MobileSegmentScreencastPaths.validateRelativePath(lease.screenPartRelativePath)
-        try MobileSegmentScreencastPaths.validateRelativePath(lease.screenFinalRelativePath)
-        return true
-    } catch {
-        return false
-    }
-}
-
 private nonisolated func screencastAttention(
     for reason: MobileSegmentScreencastDiagnosticReason
 ) -> ScreencastAttention {
     switch reason {
+    case .storageLow:
+        .storageLow
     case .noVideo:
         .noVideo
     case .appGroupUnavailable:
         .appGroupUnavailable
-    case .staleOrMissingPointer:
-        .staleOrMissingPointer
     case .finalizeTimeout, .writerFailure, .filesystemHandoffFailure:
         .finalizeFailed
     }

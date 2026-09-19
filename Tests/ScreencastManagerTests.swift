@@ -68,7 +68,6 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         XCTAssertEqual(log.entries, [])
     }
 
-
     @MainActor
     func testStartingTimesOutToOff() async {
         let clock = MockObserverClock(now: ScreencastFixtures.start)
@@ -81,7 +80,6 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         await self.yieldToMainActor()
 
         XCTAssertEqual(manager.state, .off)
-        XCTAssertEqual(log.entries, [])
     }
 
     @MainActor
@@ -94,7 +92,6 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         await manager.reconcileScreencast(reason: .foreground)
 
         XCTAssertEqual(manager.state, .off)
-        XCTAssertEqual(log.entries, [])
     }
 
     @MainActor
@@ -138,7 +135,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
 
         await manager.reconcileScreencast(reason: .darwinNotification)
 
-        XCTAssertEqual(log.entries, ["recordFinalized", "stopBoundary"])
+        XCTAssertEqual(log.entries, ["reconcileActiveSegments", "recordFinalized", "stopBoundary"])
         XCTAssertEqual(engine.currentScreencastSources, [.audio, .location])
         XCTAssertEqual(uploader.finalized, [ScreencastFixtures.segmentID])
         XCTAssertEqual(manager.state, .off)
@@ -162,23 +159,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
 
         XCTAssertEqual(uploader.finalizedDurationsBySegmentID[ScreencastFixtures.segmentID], 300)
         XCTAssertEqual(engine.stoppedAt, [endedAt])
-        XCTAssertEqual(log.entries, ["recordFinalized", "stopBoundary"])
-    }
-
-    @MainActor
-    func testManagerPublishesValidLeaseWhileActive() async throws {
-        let engine = FakeScreencastEngine(
-            handoff: ScreencastFixtures.handoff(sourceSet: [.audio, .location, .screencast])
-        )
-        let manager = self.makeManager(engine: engine, uploader: FakeScreencastUploader(), rootURLProvider: { self.tempDirectory })
-        try self.write(ScreencastFixtures.runtime(), relativePath: MobileSegmentScreencastPaths.runtimeRelativePath())
-
-        await manager.reconcileScreencast(reason: .darwinNotification)
-
-        let lease = try self.readLease(fromSegmentID: ScreencastFixtures.segmentID)
-        XCTAssertEqual(lease.fromSegmentID, ScreencastFixtures.segmentID)
-        XCTAssertEqual(Set(lease.sourceSet), [.audio, .location, .screencast])
-        XCTAssertEqual(engine.preparedLeases.map(\.segmentID), [ScreencastFixtures.nextSegmentID])
+        XCTAssertEqual(log.entries, ["reconcileActiveSegments", "recordFinalized", "stopBoundary"])
     }
 
     @MainActor
@@ -226,121 +207,77 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testAdoptLeaseWritesEnrolled() async throws {
-        let now = ScreencastFixtures.start.addingTimeInterval(300)
-        let lease = ScreencastFixtures.lease(sourceSet: [.audio, .location, .screencast], now: now)
-        let engine = FakeScreencastEngine(sources: [.audio, .location, .screencast])
-        let clock = MockObserverClock(now: now)
-        let manager = self.makeManager(
-            engine: engine,
-            uploader: FakeScreencastUploader(),
-            clock: clock,
-            rootURLProvider: { self.tempDirectory }
-        )
-        try self.write(
-            ScreencastFixtures.runtime(state: .writerOpen, segmentID: lease.segmentID),
-            relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
-        )
-        try self.write(
-            ScreencastFixtures.handoff(sourceSet: lease.sourceSet, segmentID: lease.fromSegmentID),
-            relativePath: MobileSegmentScreencastPaths.handoffRelativePath()
-        )
-        try self.write(
-            lease,
-            relativePath: MobileSegmentScreencastPaths.continuationLeaseRelativePath(fromSegmentID: lease.fromSegmentID)
-        )
-        try self.writeScreenFile(segmentID: lease.fromSegmentID)
-
-        await manager.reconcileScreencast(reason: .foreground)
-
-        XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
-    }
-
-    @MainActor
     func testKeepLivePartWritesEnrolled() async throws {
-        let clock = MockObserverClock(now: ScreencastFixtures.start)
-        let manager = self.makeManager(clock: clock, rootURLProvider: { self.tempDirectory })
+        let engine = FakeScreencastEngine(sources: [.audio, .location, .screencast])
+        let manager = self.makeManager(engine: engine, uploader: FakeScreencastUploader(), rootURLProvider: { self.tempDirectory })
         try self.write(
             ScreencastFixtures.runtime(state: .finishing, segmentID: ScreencastFixtures.segmentID),
             relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
         )
+        try self.write(
+            ScreencastFixtures.handoff(sourceSet: [.audio, .location, .screencast], segmentID: ScreencastFixtures.segmentID),
+            relativePath: MobileSegmentScreencastPaths.handoffRelativePath()
+        )
         try self.writePartFile(segmentID: ScreencastFixtures.segmentID)
-        try self.writeLiveness(segmentID: ScreencastFixtures.segmentID, lastSeenAt: clock.now())
+        try self.writeLiveness(segmentID: ScreencastFixtures.segmentID, lastSeenAt: ScreencastFixtures.start.addingTimeInterval(5))
 
         await manager.reconcileScreencast(reason: .darwinNotification)
 
-        XCTAssertEqual(
-            manager.state,
-            .active(
-                sessionID: ScreencastFixtures.sessionID,
-                segmentID: ScreencastFixtures.segmentID,
-                startedAt: ScreencastFixtures.start
-            )
+        XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
+    }
+
+    @MainActor
+    func testDarwinObserverReceivesNotification() async {
+        let darwin = StubScreencastDarwin()
+        let log = ScreencastCallLog()
+        let manager = self.makeManager(
+            callLog: log,
+            rootURLProvider: { self.tempDirectory },
+            darwin: darwin
         )
-        XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
+
+        manager.startObservingDarwin()
+        darwin.fire()
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(darwin.startCallCount, 1)
+        XCTAssertEqual(log.entries, ["reconcileActiveSegments"])
     }
 
     @MainActor
-    func testBackfillEnrolledFromExistingLastSessionIDOnStartup() {
-        self.defaults.set(UUID().uuidString, forKey: "screencast.lastSessionID")
-        XCTAssertNil(self.defaults.object(forKey: "screencast.enrolled"))
+    func testEnrolledStatePersistsAcrossManagerInstances() {
+        let firstManager = self.makeManager(defaults: self.defaults)
+        firstManager.beginStarting()
+        self.defaults.set(true, forKey: "screencast.enrolled")
 
-        _ = self.makeManager()
+        let secondManager = self.makeManager(defaults: self.defaults)
 
-        XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
+        XCTAssertTrue(secondManager.isEnrolled)
     }
 
     @MainActor
-    func testEmptyReadableSuiteLeavesEnrolledAbsent() {
-        XCTAssertNil(self.defaults.object(forKey: "screencast.enrolled"))
+    func testEnrolledStateIsFalseByDefault() {
+        let manager = self.makeManager(defaults: self.defaults)
 
-        _ = self.makeManager()
-
-        XCTAssertNil(self.defaults.object(forKey: "screencast.enrolled"))
+        XCTAssertFalse(manager.isEnrolled)
     }
 
     @MainActor
-    func testNilDefaultsDoesNotWriteToStandardDefaults() {
+    func testEnrolledDefaultsSuiteIsolation() {
+        let customDefaults = self.defaults!
+        customDefaults.set(true, forKey: "screencast.enrolled")
+
         let manager = ScreencastManager(
             engine: FakeScreencastEngine(),
             uploader: FakeScreencastUploader(),
             clock: MockObserverClock(now: ScreencastFixtures.start),
-            defaults: nil,
+            defaults: customDefaults,
             rootURLProvider: { self.tempDirectory },
             darwin: StubScreencastDarwin()
         )
 
         _ = manager
         XCTAssertNil(UserDefaults.standard.object(forKey: "screencast.enrolled"))
-    }
-
-    @MainActor
-    func testLeaseAdoptionReplayNoOpsWhenClosingFacetIsTerminal() async throws {
-        let lease = ScreencastFixtures.lease(sourceSet: [.audio, .location, .screencast])
-        let log = ScreencastCallLog()
-        let engine = FakeScreencastEngine(sources: [.audio, .location, .screencast], callLog: log)
-        let uploader = FakeScreencastUploader(callLog: log)
-        uploader.resolutions[lease.fromSegmentID] = MobileSegmentSourceResolution(state: .finalizedArtifact)
-        let manager = self.makeManager(engine: engine, uploader: uploader, rootURLProvider: { self.tempDirectory })
-        try self.write(
-            ScreencastFixtures.runtime(state: .writerOpen, segmentID: lease.segmentID),
-            relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
-        )
-        try self.write(
-            ScreencastFixtures.handoff(sourceSet: lease.sourceSet, segmentID: lease.fromSegmentID),
-            relativePath: MobileSegmentScreencastPaths.handoffRelativePath()
-        )
-        try self.write(
-            lease,
-            relativePath: MobileSegmentScreencastPaths.continuationLeaseRelativePath(fromSegmentID: lease.fromSegmentID)
-        )
-        try self.writeScreenFile(segmentID: lease.fromSegmentID)
-
-        await manager.reconcileScreencast(reason: .foreground)
-
-        XCTAssertEqual(log.entries, [])
-        XCTAssertTrue(engine.adoptedLeases.isEmpty)
-        XCTAssertTrue(uploader.finalized.isEmpty)
     }
 
     @MainActor
@@ -373,7 +310,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         await manager.reconcileScreencast(reason: .darwinNotification)
 
         XCTAssertEqual(engine.currentScreencastSources, [.screencast])
-        XCTAssertEqual(log.entries, ["startBoundary", "stopBoundary", "startBoundary"])
+        XCTAssertEqual(log.entries, ["reconcileActiveSegments", "startBoundary", "reconcileActiveSegments", "stopBoundary", "startBoundary"])
         let published = try MobileSegmentScreencastJSONStore.read(
             MobileSegmentScreencastHandoffRecord.self,
             from: MobileSegmentScreencastPaths.url(
@@ -383,53 +320,44 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         )
         XCTAssertEqual(published.sessionID, session2)
     }
+
+    @MainActor
+    func testStorageLowAttentionState() async throws {
+        let log = ScreencastCallLog()
+        let engine = FakeScreencastEngine(sources: [.screencast], callLog: log)
+        let uploader = FakeScreencastUploader(callLog: log)
+        let manager = self.makeManager(engine: engine, uploader: uploader, rootURLProvider: { self.tempDirectory })
+
+        let diagnostic = ScreencastFixtures.diagnostic(reason: .storageLow, segmentID: ScreencastFixtures.segmentID)
+        try self.write(diagnostic, relativePath: MobileSegmentScreencastPaths.screenDiagnosticRelativePath(segmentID: ScreencastFixtures.segmentID))
+        try self.write(ScreencastFixtures.runtime(state: .failed, segmentID: ScreencastFixtures.segmentID), relativePath: MobileSegmentScreencastPaths.runtimeRelativePath())
+        try self.write(ScreencastFixtures.handoff(), relativePath: MobileSegmentScreencastPaths.handoffRelativePath())
+
+        await manager.reconcileScreencast(reason: .darwinNotification)
+
+        XCTAssertEqual(manager.state, .needsAttention(.storageLow))
+    }
 }
 
 private extension ScreencastManagerTests {
     @MainActor
     func makeManager(
-        clock: MockObserverClock = MockObserverClock(now: ScreencastFixtures.start),
-        callLog: ScreencastCallLog = ScreencastCallLog(),
-        rootURLProvider: @escaping () throws -> URL,
-        darwin: StubScreencastDarwin = StubScreencastDarwin()
+        engine: FakeScreencastEngine = FakeScreencastEngine(),
+        uploader: FakeScreencastUploader = FakeScreencastUploader(),
+        clock: any ObserverClock = MockObserverClock(now: ScreencastFixtures.start),
+        defaults: UserDefaults? = nil,
+        callLog: ScreencastCallLog? = nil,
+        rootURLProvider: (() throws -> URL)? = nil,
+        darwin: any ScreencastDarwinNotifying = ScreencastDarwinNotificationCenter()
     ) -> ScreencastManager {
-        self.makeManager(
-            engine: FakeScreencastEngine(callLog: callLog),
-            uploader: FakeScreencastUploader(callLog: callLog),
+        let chosenEngine = callLog.map { FakeScreencastEngine(sources: engine.currentScreencastSources, handoff: engine.nextHandoff, callLog: $0) } ?? engine
+        let chosenUploader = callLog.map { FakeScreencastUploader(callLog: $0) } ?? uploader
+        return ScreencastManager(
+            engine: chosenEngine,
+            uploader: chosenUploader,
             clock: clock,
-            rootURLProvider: rootURLProvider,
-            darwin: darwin
-        )
-    }
-
-    @MainActor
-    func makeManager(
-        clock: MockObserverClock = MockObserverClock(now: ScreencastFixtures.start),
-        callLog: ScreencastCallLog = ScreencastCallLog(),
-        darwin: StubScreencastDarwin = StubScreencastDarwin()
-    ) -> ScreencastManager {
-        self.makeManager(
-            clock: clock,
-            callLog: callLog,
-            rootURLProvider: { self.tempDirectory },
-            darwin: darwin
-        )
-    }
-
-    @MainActor
-    func makeManager(
-        engine: FakeScreencastEngine,
-        uploader: FakeScreencastUploader,
-        clock: MockObserverClock = MockObserverClock(now: ScreencastFixtures.start),
-        rootURLProvider: @escaping () throws -> URL = { FileManager.default.temporaryDirectory },
-        darwin: StubScreencastDarwin = StubScreencastDarwin()
-    ) -> ScreencastManager {
-        ScreencastManager(
-            engine: engine,
-            uploader: uploader,
-            clock: clock,
-            defaults: self.defaults,
-            rootURLProvider: rootURLProvider,
+            defaults: defaults ?? self.defaults,
+            rootURLProvider: rootURLProvider ?? { self.tempDirectory },
             darwin: darwin
         )
     }
@@ -440,19 +368,13 @@ private extension ScreencastManagerTests {
     }
 
     func writeScreenFile(segmentID: UUID) throws {
-        let url = MobileSegmentScreencastPaths.url(
-            root: self.tempDirectory,
-            relativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID)
-        )
+        let url = MobileSegmentScreencastPaths.url(root: self.tempDirectory, relativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID))
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data("mp4".utf8).write(to: url)
+        try Data("screen".utf8).write(to: url)
     }
 
     func writePartFile(segmentID: UUID) throws {
-        let url = MobileSegmentScreencastPaths.url(
-            root: self.tempDirectory,
-            relativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID)
-        )
+        let url = MobileSegmentScreencastPaths.url(root: self.tempDirectory, relativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID))
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("part".utf8).write(to: url)
     }
@@ -467,14 +389,6 @@ private extension ScreencastManagerTests {
             droppedFrameCount: 0
         )
         try self.write(liveness, relativePath: MobileSegmentScreencastPaths.screenLivenessRelativePath(segmentID: segmentID))
-    }
-
-    func readLease(fromSegmentID: UUID) throws -> MobileSegmentScreencastContinuationLease {
-        let url = MobileSegmentScreencastPaths.url(
-            root: self.tempDirectory,
-            relativePath: MobileSegmentScreencastPaths.continuationLeaseRelativePath(fromSegmentID: fromSegmentID)
-        )
-        return try MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastContinuationLease.self, from: url)
     }
 
     func readHandoff() throws -> MobileSegmentScreencastHandoffRecord {

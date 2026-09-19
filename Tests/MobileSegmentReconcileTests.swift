@@ -2,6 +2,8 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import AVFoundation
+import CoreMedia
 import Foundation
 import os
 import XCTest
@@ -444,7 +446,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
     }
 
-    func testResumeReconcilesScreencastPartOnlyToFinalizeFailureWithoutUpload() async throws {
+    func testResumeReconcilesScreencastPartOnlyToNoArtifactTombstoneWithoutUpload() async throws {
         let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
@@ -453,12 +455,9 @@ final class MobileSegmentReconcileTests: XCTestCase {
 
         let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
         XCTAssertFalse(FileManager.default.fileExists(atPath: failedDirectory.path))
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: harness.store.tombstoneDirectory(kind: "empty")
-                .appendingPathComponent("\(segmentID.uuidString).json", isDirectory: false)
-                .path
-        ))
+        XCTAssertTrue(harness.store.hasTombstone(segmentID: segmentID, kind: "empty"))
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: MobileSegmentScreencastPaths.screenDiagnosticURL(inSegmentDirectory: harness.store.segmentDirectoryURL(.active, segmentID: segmentID)).path))
         XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
     }
 
@@ -479,7 +478,34 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
     }
 
-    func testStaleScreencastPartFails() async throws {
+    func testFreshLivenessWithoutPartDeferredByFinalizeReconcileAndResume() async throws {
+        let harness = try await self.makeHarness()
+        let segmentID = UUID()
+        let activeDir = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.screencast],
+            startedAt: self.clock.now().addingTimeInterval(-60)
+        )
+        try self.writeScreencastLiveness(segmentID: segmentID, store: harness.store, lastSeenAt: self.clock.now())
+
+        // Finalize defers because liveness is fresh
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: self.clock.now())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: activeDir.path))
+        XCTAssertEqual(try harness.store.readManifest(in: activeDir).screencast.state, .unresolved)
+
+        // Reconcile defers because liveness is fresh
+        try await harness.uploader.reconcileActiveSegments()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: activeDir.path))
+        XCTAssertEqual(try harness.store.readManifest(in: activeDir).screencast.state, .unresolved)
+
+        // Resume defers because liveness is fresh
+        await harness.uploader.resumeFromDisk()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: activeDir.path))
+        XCTAssertEqual(try harness.store.readManifest(in: activeDir).screencast.state, .unresolved)
+    }
+
+    func testStaleScreencastPartTombstonesAsNoArtifact() async throws {
         let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
@@ -493,11 +519,8 @@ final class MobileSegmentReconcileTests: XCTestCase {
 
         let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
         XCTAssertFalse(FileManager.default.fileExists(atPath: failedDirectory.path))
-        XCTAssertTrue(FileManager.default.fileExists(
-            atPath: harness.store.tombstoneDirectory(kind: "empty")
-                .appendingPathComponent("\(segmentID.uuidString).json", isDirectory: false)
-                .path
-        ))
+        XCTAssertTrue(harness.store.hasTombstone(segmentID: segmentID, kind: "empty"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: MobileSegmentScreencastPaths.screenDiagnosticURL(inSegmentDirectory: harness.store.segmentDirectoryURL(.active, segmentID: segmentID)).path))
         XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
     }
 
@@ -517,23 +540,146 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
     }
 
-    func testFinalizeActiveSegmentFailsStaleScreencastPart() async throws {
+    func testFinalizeActiveSegmentTombstonesStaleScreencastPartAsNoArtifact() async throws {
         let harness = try await self.makeHarness()
         let segmentID = UUID()
         try self.writeActiveScreencast(segmentID: segmentID, store: harness.store, artifact: .part)
         try self.writeScreencastLiveness(
             segmentID: segmentID,
             store: harness.store,
-            lastSeenAt: self.clock.now().addingTimeInterval(-11)
+            lastSeenAt: self.clock.now().addingTimeInterval(-15)
         )
 
         await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: self.clock.now())
 
         let failedDirectory = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
-        let manifest = try harness.store.readManifest(in: failedDirectory)
-        XCTAssertEqual(manifest.screencast.state, .failedToFinalize)
-        XCTAssertEqual(manifest.screencast.reason, "screencast_partial_artifact")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedDirectory.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.active, segmentID: segmentID).path))
+        XCTAssertTrue(harness.store.hasTombstone(segmentID: segmentID, kind: "empty"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: MobileSegmentScreencastPaths.screenDiagnosticURL(inSegmentDirectory: harness.store.segmentDirectoryURL(.active, segmentID: segmentID)).path))
+    }
+
+    func testFutureDatedStartTreatedAsYoungAndDeferred() async throws {
+        let harness = try await self.makeHarness()
+        let segmentID = UUID()
+        let activeDir = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.screencast],
+            startedAt: self.clock.now().addingTimeInterval(60)
+        )
+
+        try await harness.uploader.reconcileActiveSegments()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: activeDir.path))
+        let manifest = try harness.store.readManifest(in: activeDir)
+        XCTAssertEqual(manifest.screencast.state, .unresolved)
+    }
+
+    func testLeasePreCreatedManifestOnlyScreencastPastAgeGateResolvesNoArtifact() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let activeDir = try self.writeActiveSegment(
+            segmentID: segmentID,
+            store: harness.store,
+            sources: [.audio, .screencast],
+            startedAt: self.clock.now().addingTimeInterval(-30)
+        )
+        try self.writeReadableAudio(at: harness.store.audioURL(in: activeDir), seconds: 30)
+
+        try await harness.uploader.reconcileActiveSegments()
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingDirectory.path))
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.screencast.state, .noArtifact)
+        XCTAssertNotEqual(manifest.screencast.state, .failedToFinalize)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: MobileSegmentScreencastPaths.screenDiagnosticURL(inSegmentDirectory: pendingDirectory).path))
+    }
+
+    func testCoalesceReconcileActiveSegments() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-300)
+        let directory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let sidecar = MobileSegmentScreencastWindowSidecar(
+            sessionID: UUID(),
+            revision: 1,
+            windowIndex: 0,
+            startedAt: startedAt,
+            endedAt: startedAt.addingTimeInterval(300),
+            acceptedFrameCount: 10,
+            droppedFrameCount: 0
+        )
+        try MobileSegmentScreencastJSONStore.write(
+            sidecar,
+            to: MobileSegmentScreencastPaths.screenWindowURL(inSegmentDirectory: directory)
+        )
+        try Data("screen-coalesce".utf8).write(to: harness.store.screenURL(in: directory))
+
+        let step1 = expectation(description: "first reconcile stepped")
+        let resume1 = expectation(description: "resume first reconcile")
+
+        harness.uploader.onReconcileStep = {
+            step1.fulfill()
+            _ = await XCTWaiter.fulfillment(of: [resume1], timeout: 2.0)
+        }
+
+        async let task1: Void = harness.uploader.reconcileActiveSegments()
+        await fulfillment(of: [step1], timeout: 2.0)
+
+        harness.uploader.onReconcileStep = nil
+        resume1.fulfill()
+        async let task2: Void = harness.uploader.reconcileActiveSegments()
+
+        _ = try await (task1, task2)
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingDirectory.path))
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.screencast.state, .finalizedArtifact)
+    }
+
+    func testResumeReconcileStalePlayableScreencastPartProbesDurationAndFinalizes() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-300)
+        let directory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let sidecar = MobileSegmentScreencastWindowSidecar(
+            sessionID: UUID(),
+            revision: 1,
+            windowIndex: 0,
+            startedAt: startedAt,
+            endedAt: nil,
+            acceptedFrameCount: 3,
+            droppedFrameCount: 0
+        )
+        try MobileSegmentScreencastJSONStore.write(
+            sidecar,
+            to: MobileSegmentScreencastPaths.screenWindowURL(inSegmentDirectory: directory)
+        )
+        try self.writeFragmentedMovie(to: harness.store.screenPartURL(in: directory), frames: 3)
+        try self.writeScreencastLiveness(
+            segmentID: segmentID,
+            store: harness.store,
+            lastSeenAt: self.clock.now().addingTimeInterval(-15)
+        )
+
+        await harness.uploader.resumeFromDisk()
+
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingDirectory.path))
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.screencast.state, .finalizedArtifact)
+        let probed = await MobileSegmentDuration.probeContainerDuration(at: harness.store.screenURL(in: pendingDirectory))
+        XCTAssertNotNil(probed)
+        XCTAssertEqual(manifest.screencast.durationS, probed)
+        XCTAssertGreaterThan(manifest.durationS ?? 0, 0)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.screenURL(in: pendingDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.screenPartURL(in: pendingDirectory).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: MobileSegmentScreencastPaths.screenDiagnosticURL(inSegmentDirectory: pendingDirectory).path))
     }
 
     func testFreshLiveLocationPartIsNotFailed() async throws {
@@ -859,26 +1005,82 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertEqual(try harness.store.readManifest(in: activeDirectory).screencast.state, .unresolved)
     }
 
-    func testResumeDefersValidLeasedNextScreencastSegment() async throws {
-        let harness = try await self.makeHarness(connected: true)
-        let fromSegmentID = UUID()
-        let nextSegmentID = UUID()
-        try self.writeActiveScreencast(segmentID: nextSegmentID, store: harness.store, artifact: .none)
-        try self.writeContinuationLease(
-            fromSegmentID: fromSegmentID,
-            nextSegmentID: nextSegmentID,
-            store: harness.store,
-            expiresAt: self.clock.now().addingTimeInterval(30)
+    func testResumeAdoptsOrphanDirectoryWithSidecar() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let sessionID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-30)
+        let directory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let sidecar = MobileSegmentScreencastWindowSidecar(
+            sessionID: sessionID,
+            revision: 3,
+            windowIndex: 0,
+            startedAt: startedAt,
+            endedAt: self.clock.now(),
+            acceptedFrameCount: 100,
+            droppedFrameCount: 0
         )
+        try MobileSegmentScreencastJSONStore.write(
+            sidecar,
+            to: MobileSegmentScreencastPaths.screenWindowURL(inSegmentDirectory: directory)
+        )
+        try Data("screen-final-video".utf8).write(to: harness.store.screenURL(in: directory))
 
         await harness.uploader.resumeFromDisk()
 
-        let activeDirectory = harness.store.segmentDirectoryURL(.active, segmentID: nextSegmentID)
-        let manifest = try harness.store.readManifest(in: activeDirectory)
-        XCTAssertEqual(manifest.screencast.state, .unresolved)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: nextSegmentID).path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: nextSegmentID).path))
-        XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: pendingDirectory.path))
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(manifest.openedWithSources, [.screencast])
+        XCTAssertEqual(manifest.activeSourceSetVersion, 3)
+        XCTAssertEqual(manifest.screencast.state, .finalizedArtifact)
+    }
+
+    func testResumeSkipsHeldScreencastAdoptionSkipSegmentID() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let segmentID = UUID()
+        let sessionID = UUID()
+        let startedAt = self.clock.now().addingTimeInterval(-30)
+        let directory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let sidecar = MobileSegmentScreencastWindowSidecar(
+            sessionID: sessionID,
+            revision: 1,
+            windowIndex: 0,
+            startedAt: startedAt,
+            endedAt: nil,
+            acceptedFrameCount: 10,
+            droppedFrameCount: 0
+        )
+        try MobileSegmentScreencastJSONStore.write(
+            sidecar,
+            to: MobileSegmentScreencastPaths.screenWindowURL(inSegmentDirectory: directory)
+        )
+
+        harness.uploader.heldScreencastAdoptionSkipSegmentID = { segmentID }
+
+        await harness.uploader.resumeFromDisk()
+
+        // Manifest should NOT have been generated for the skipped segment ID
+        let manifestURL = harness.store.manifestURL(in: directory)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: manifestURL.path))
+    }
+
+    func testResumeSweepsLegacyLeasesDirectory() async throws {
+        let harness = try await self.makeHarness(connected: false)
+        let leasesDir = harness.store.rootURL
+            .appendingPathComponent("screencast", isDirectory: true)
+            .appendingPathComponent("leases", isDirectory: true)
+        try FileManager.default.createDirectory(at: leasesDir, withIntermediateDirectories: true)
+        try Data("dummy".utf8).write(to: leasesDir.appendingPathComponent("lease1.json"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: leasesDir.path))
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: leasesDir.path))
     }
 
     func testResumeIgnoresUndeclaredStrayScreenFileAndReportsDiagnostic() async throws {
@@ -1202,36 +1404,49 @@ private extension MobileSegmentReconcileTests {
         )
     }
 
-    func writeContinuationLease(
-        fromSegmentID: UUID,
-        nextSegmentID: UUID,
-        store: MobileSegmentStore,
-        expiresAt: Date
-    ) throws {
-        let notBefore = self.clock.now().addingTimeInterval(-1)
-        let lease = MobileSegmentScreencastContinuationLease(
-            leaseID: UUID(),
-            revision: 2,
-            fromSegmentID: fromSegmentID,
-            segmentID: nextSegmentID,
-            sourceSetVersion: 2,
-            sourceSet: [.audio, .location, .screencast],
-            notBefore: notBefore,
-            startsAt: notBefore,
-            rolloverAfter: notBefore.addingTimeInterval(300),
-            expiresAt: expiresAt,
-            issuedAt: self.clock.now(),
-            segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: nextSegmentID),
-            screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: nextSegmentID),
-            screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: nextSegmentID)
+
+    func writeFragmentedMovie(to url: URL, frames: Int = 3) throws {
+        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+        writer.movieFragmentInterval = CMTime(seconds: 1.0, preferredTimescale: 600)
+        let outputSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: 320,
+            AVVideoHeightKey: 240,
+        ]
+        let input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
+        input.expectsMediaDataInRealTime = false
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                kCVPixelBufferWidthKey as String: 320,
+                kCVPixelBufferHeightKey as String: 240,
+            ]
         )
-        try MobileSegmentScreencastJSONStore.write(
-            lease,
-            to: MobileSegmentScreencastPaths.url(
-                root: store.rootURL.deletingLastPathComponent(),
-                relativePath: MobileSegmentScreencastPaths.continuationLeaseRelativePath(fromSegmentID: fromSegmentID)
-            )
-        )
+        writer.add(input)
+        guard writer.startWriting() else {
+            throw NSError(domain: "test", code: -1, userInfo: [NSLocalizedDescriptionKey: writer.error?.localizedDescription ?? "cannot start writing"])
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        for i in 0..<frames {
+            var pixelBuffer: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &pixelBuffer)
+            guard let pb = pixelBuffer else { continue }
+            let time = CMTime(seconds: Double(i), preferredTimescale: 600)
+            while !input.isReadyForMoreMediaData {
+                Thread.sleep(forTimeInterval: 0.01)
+            }
+            adaptor.append(pb, withPresentationTime: time)
+        }
+        input.markAsFinished()
+
+        let expectation = XCTestExpectation(description: "finishWriting")
+        writer.finishWriting {
+            expectation.fulfill()
+        }
+        let result = XCTWaiter().wait(for: [expectation], timeout: 5.0)
+        XCTAssertEqual(result, .completed)
     }
 
     func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @MainActor () -> Bool) async throws {

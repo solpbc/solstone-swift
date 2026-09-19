@@ -42,7 +42,7 @@ nonisolated final class ScreencastManagerLifecycleTests: XCTestCase {
 
             await manager.reconcileScreencast(reason: reason)
 
-            XCTAssertEqual(log.entries, ["startBoundary"], "reason \(reason.rawValue)")
+            XCTAssertEqual(log.entries, ["reconcileActiveSegments", "startBoundary"], "reason \(reason.rawValue)")
         }
 
         self.defaults.removePersistentDomain(forName: self.suiteName)
@@ -55,7 +55,7 @@ nonisolated final class ScreencastManagerLifecycleTests: XCTestCase {
         darwin.fire()
         await self.yieldToMainActor()
 
-        XCTAssertEqual(log.entries, ["startBoundary"])
+        XCTAssertEqual(log.entries, ["reconcileActiveSegments", "startBoundary"])
     }
 }
 

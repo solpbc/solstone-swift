@@ -19,8 +19,12 @@ nonisolated final class ScreencastDiagnosticTests: XCTestCase {
             .failedToFinalize(reason: "writer_failure")
         )
         XCTAssertEqual(
-            screencastDiagnosticResolution(for: .staleOrMissingPointer, hasSegment: true),
-            .failedToFinalize(reason: "stale_or_missing_pointer")
+            screencastDiagnosticResolution(for: .storageLow, hasSegment: true),
+            .noArtifact(reason: "storage_low")
+        )
+        XCTAssertEqual(
+            screencastDiagnosticResolution(for: .storageLow, hasSegment: false),
+            .runtimeAttention(.storageLow)
         )
         XCTAssertEqual(
             screencastDiagnosticResolution(for: .filesystemHandoffFailure, hasSegment: true),

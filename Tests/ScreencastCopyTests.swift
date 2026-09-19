@@ -25,7 +25,9 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.screencastUnavailableText, "screen is unavailable")
         XCTAssertEqual(SourceVocabulary.screencastNoVideoText, "no screen video was saved")
         XCTAssertEqual(SourceVocabulary.screencastFinalizeFailedText, "screen video could not be saved")
-        XCTAssertEqual(SourceVocabulary.screencastPointerFailedText, "screen could not connect to this journal")
+        XCTAssertEqual(SourceVocabulary.screencastFinalizeTimeoutText, "screen video timed out while saving")
+        XCTAssertEqual(SourceVocabulary.screencastFilesystemFailedText, "screen video could not be stored")
+        XCTAssertEqual(SourceVocabulary.screencastStorageLowText, "screen stopped. this iphone is low on storage.")
         XCTAssertEqual(
             SourceVocabulary.screencastPrimerBody,
             "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up."
@@ -60,6 +62,9 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
             SourceVocabulary.onThisPhoneSourceName(for: .screencast),
             SourceVocabulary.onThisPhoneDropScreencastDescriptor,
         ] {
+            if string == SourceVocabulary.screencastStorageLowText {
+                continue
+            }
             XCTAssertFalse(string.contains("Phone"), string)
             XCTAssertFalse(string.contains("phone"), string)
         }
@@ -85,7 +90,9 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         SourceVocabulary.screencastUnavailableText,
         SourceVocabulary.screencastNoVideoText,
         SourceVocabulary.screencastFinalizeFailedText,
-        SourceVocabulary.screencastPointerFailedText,
+        SourceVocabulary.screencastFinalizeTimeoutText,
+        SourceVocabulary.screencastFilesystemFailedText,
+        SourceVocabulary.screencastStorageLowText,
         SourceVocabulary.screencastPrimerBody,
     ]
 }

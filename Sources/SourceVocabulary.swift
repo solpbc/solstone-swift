@@ -182,7 +182,9 @@ nonisolated enum SourceVocabulary {
     static let screencastUnavailableText = "screen is unavailable"
     static let screencastNoVideoText = "no screen video was saved"
     static let screencastFinalizeFailedText = "screen video could not be saved"
-    static let screencastPointerFailedText = "screen could not connect to this journal"
+    static let screencastFinalizeTimeoutText = "screen video timed out while saving"
+    static let screencastFilesystemFailedText = "screen video could not be stored"
+    static let screencastStorageLowText = "screen stopped. this iphone is low on storage."
     static let screencastPrimerBody = "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up."
 
     // The status pill resolves to one of five states and names it in one word or

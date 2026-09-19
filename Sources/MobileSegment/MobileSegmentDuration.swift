@@ -29,6 +29,17 @@ enum MobileSegmentDuration {
             guard seconds.isFinite, seconds > 0 else { return nil }
             return seconds
         } catch {
+            if url.pathExtension == "part" {
+                let tempSymlink = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("probe-\(UUID().uuidString).mp4", isDirectory: false)
+                if (try? FileManager.default.createSymbolicLink(at: tempSymlink, withDestinationURL: url)) != nil {
+                    defer { try? FileManager.default.removeItem(at: tempSymlink) }
+                    if let seconds = try? CMTimeGetSeconds(await AVURLAsset(url: tempSymlink).load(.duration)),
+                       seconds.isFinite, seconds > 0 {
+                        return seconds
+                    }
+                }
+            }
             mobileSegmentDurationLog.debug("container duration probe failed file=\(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
             return nil
         }

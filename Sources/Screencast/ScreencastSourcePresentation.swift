@@ -48,12 +48,12 @@ nonisolated func screencastSourcePresentation(
 
 nonisolated func screencastAttentionMessage(_ attention: ScreencastAttention) -> String {
     switch attention {
+    case .storageLow:
+        SourceVocabulary.screencastStorageLowText
     case .noVideo:
         SourceVocabulary.screencastNoVideoText
     case .finalizeFailed:
         SourceVocabulary.screencastFinalizeFailedText
-    case .staleOrMissingPointer:
-        SourceVocabulary.screencastPointerFailedText
     case .appGroupUnavailable:
         SourceVocabulary.screencastUnavailableText
     }

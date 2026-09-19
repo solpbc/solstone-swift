@@ -23,6 +23,10 @@ nonisolated final class MobileSegmentScreencastSharedTests: XCTestCase {
             "MobileSegment/active/11111111-1111-1111-1111-111111111111/screen.mp4.part"
         )
         XCTAssertEqual(
+            MobileSegmentScreencastPaths.screenWindowRelativePath(segmentID: segmentID),
+            "MobileSegment/active/11111111-1111-1111-1111-111111111111/screen.window.json"
+        )
+        XCTAssertEqual(
             MobileSegmentScreencastPaths.screenLivenessRelativePath(segmentID: segmentID),
             "MobileSegment/active/11111111-1111-1111-1111-111111111111/screen.live.json"
         )
@@ -33,10 +37,6 @@ nonisolated final class MobileSegmentScreencastSharedTests: XCTestCase {
         XCTAssertEqual(
             MobileSegmentScreencastPaths.handoffRelativePath(),
             "MobileSegment/screencast/handoff/current.json"
-        )
-        XCTAssertEqual(
-            MobileSegmentScreencastPaths.continuationLeaseRelativePath(fromSegmentID: segmentID),
-            "MobileSegment/screencast/leases/11111111-1111-1111-1111-111111111111.json"
         )
         XCTAssertEqual(
             MobileSegmentScreencastPaths.runtimeRelativePath(),
@@ -157,7 +157,8 @@ nonisolated final class MobileSegmentScreencastSharedTests: XCTestCase {
             screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID),
             screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID),
             desiredState: .writing,
-            rolloverAfter: now.addingTimeInterval(300),
+            scheduleAnchorMs: Int64(now.timeIntervalSince1970 * 1000),
+            schedulePeriodSeconds: 300,
             lastHostUpdateAt: now
         )
     }

@@ -49,7 +49,7 @@ nonisolated final class SourceEnrollmentGrepTests: XCTestCase {
             }
         }
 
-        XCTAssertEqual(activeLineIndices.count, 4, "Expected exactly 4 active state assignments in ScreencastManager.swift")
+        XCTAssertEqual(activeLineIndices.count, 3, "Expected exactly 3 active state assignments in ScreencastManager.swift")
 
         for index in activeLineIndices {
             let precedingWindow = lines[max(0, index - 5)..<index]

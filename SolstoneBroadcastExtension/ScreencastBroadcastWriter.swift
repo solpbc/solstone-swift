@@ -10,36 +10,12 @@ import os
 
 nonisolated private let screencastWriterLog = Logger(subsystem: "app.solstone.swift", category: "screencast-writer")
 
-nonisolated enum ScreencastBroadcastWriterOutcome: Equatable, Sendable {
-    case completed
-    case noVideo
-    case finalizeTimeout
-    case writerFailure(String)
-    case filesystemHandoffFailure(String)
-
-    var diagnosticReason: MobileSegmentScreencastDiagnosticReason? {
-        switch self {
-        case .completed:
-            nil
-        case .noVideo:
-            .noVideo
-        case .finalizeTimeout:
-            .finalizeTimeout
-        case .writerFailure:
-            .writerFailure
-        case .filesystemHandoffFailure:
-            .filesystemHandoffFailure
-        }
-    }
-}
-
 /// Video-only writer for ReplayKit broadcast upload samples.
 ///
 /// `nonisolated` keeps this class off the app's default main-actor isolation.
 /// ReplayKit calls the handler on its sample delivery queue; this writer is
-/// only touched by that handler and uses a structural in-flight counter for
-/// deterministic backpressure.
-nonisolated final class ScreencastBroadcastWriter {
+/// synchronized exclusively on the broadcast extension's serial work queue.
+nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @unchecked Sendable {
     static let finishTimeoutSeconds: TimeInterval = 3
 
     private let fileManager: FileManager
@@ -89,7 +65,7 @@ nonisolated final class ScreencastBroadcastWriter {
         self.acceptedFrameCount = 0
         self.droppedFrameCount = 0
         self.sessionStarted = false
-        self.writeLiveness(now: now, force: true)
+        try self.writeLiveness(now: now, force: true)
     }
 
     func appendVideo(_ sampleBuffer: CMSampleBuffer, now: Date) {
@@ -107,7 +83,7 @@ nonisolated final class ScreencastBroadcastWriter {
 
         if MobileSegmentScreencastFramePolicy.shouldDropFrame(inFlightFrameCount: self.inFlightFrameCount) {
             self.droppedFrameCount += 1
-            self.writeLiveness(now: now)
+            try? self.writeLiveness(now: now)
             return
         }
 
@@ -155,7 +131,7 @@ nonisolated final class ScreencastBroadcastWriter {
         if videoInput.append(sampleBuffer) {
             self.lastAcceptedPTSSeconds = ptsSeconds
             self.acceptedFrameCount += 1
-            self.writeLiveness(now: now)
+            try? self.writeLiveness(now: now)
         }
     }
 
@@ -190,14 +166,14 @@ nonisolated final class ScreencastBroadcastWriter {
 
         do {
             try MobileSegmentScreencastJSONStore.finalizePart(partURL: partURL, finalURL: finalURL, fileManager: self.fileManager)
-            self.writeLiveness(now: now, force: true)
+            try? self.writeLiveness(now: now, force: true)
             return .completed
         } catch {
             return .filesystemHandoffFailure(String(describing: error))
         }
     }
 
-    func writeLiveness(now: Date, force: Bool = false) {
+    func writeLiveness(now: Date, force: Bool = false) throws {
         guard let livenessURL,
               let handoff else { return }
         if !force,
@@ -214,11 +190,7 @@ nonisolated final class ScreencastBroadcastWriter {
             acceptedFrameCount: self.acceptedFrameCount,
             droppedFrameCount: self.droppedFrameCount
         )
-        do {
-            try MobileSegmentScreencastJSONStore.write(liveness, to: livenessURL, fileManager: self.fileManager)
-        } catch {
-            screencastWriterLog.error("liveness write failed: \(String(describing: error), privacy: .public)")
-        }
+        try MobileSegmentScreencastJSONStore.write(liveness, to: livenessURL, fileManager: self.fileManager)
     }
 }
 
