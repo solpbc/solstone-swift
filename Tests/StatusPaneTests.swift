@@ -6,6 +6,37 @@ import Foundation
 import XCTest
 
 nonisolated final class StatusPaneTests: XCTestCase {
+    func testScreenOnlyWaitingPresentationUsesScreenRouteAndAggregateTotal() {
+        let presentation = StatusPaneWaitingPresentation.build(
+            mobileAggregateCount: 1,
+            audioCount: 0,
+            locationCount: 0,
+            screencastCount: 1,
+            watchCount: 0
+        )
+
+        XCTAssertEqual(presentation.total, 1)
+        XCTAssertEqual(presentation.rows, [StatusPaneWaitingRow(source: .screencast, count: 1)])
+        XCTAssertEqual(presentation.rows.first?.route, .screencast)
+        XCTAssertEqual(presentation.rows.first?.kind, .screencast)
+    }
+
+    func testMixedBundleRendersThreeFacetsWithoutTripleCountingHeadline() {
+        let presentation = StatusPaneWaitingPresentation.build(
+            mobileAggregateCount: 1,
+            audioCount: 1,
+            locationCount: 1,
+            screencastCount: 1,
+            watchCount: 0
+        )
+
+        XCTAssertEqual(presentation.total, 1)
+        XCTAssertEqual(presentation.rows.map(\.source), [.audio, .location, .screencast])
+        XCTAssertEqual(presentation.rows.map(\.route), [.audio, .location, .screencast])
+        XCTAssertEqual(presentation.rows.map(\.kind), [.observer, .location, .screencast])
+        XCTAssertEqual(presentation.rows.map(\.count), [1, 1, 1])
+    }
+
     func testConnectionDetailsRequireAnActiveTunnelDespitePairedStaleContext() throws {
         let text = try String(
             contentsOf: StringLiteralGrepSupport.worktreeRoot()

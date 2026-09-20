@@ -1942,6 +1942,9 @@ private extension MobileSegmentUploader {
                         hasLiveUnresolvedScreencast = true
                         continue
                     } else if self.store.fileExists(screenPartURL) {
+                        // Liveness refreshes every two seconds and remains fresh for ten, so a stale
+                        // observation already spans several missed writes. An immediate second read
+                        // would not be independent evidence and would only delay dead-part recovery.
                         let duration = await MobileSegmentDuration.probeContainerDuration(at: screenPartURL)
                         if let duration, duration > 0 {
                             try? FileManager.default.moveItem(at: screenPartURL, to: screenURL)

@@ -67,6 +67,7 @@ nonisolated final class ScreencastReconcileDerivationTests: XCTestCase {
 
     func testNoVideoDiagnosticRecordsNoArtifactAndNoUpload() {
         let diagnostic = ScreencastFixtures.diagnostic(reason: .noVideo)
+        let now = diagnostic.endedAt.addingTimeInterval(8)
 
         let actions = deriveScreencastReconcileActions(input: self.input(
             runtime: ScreencastFixtures.runtime(state: .failed, segmentID: ScreencastFixtures.segmentID, acceptedFrameCount: 0),
@@ -78,12 +79,13 @@ nonisolated final class ScreencastReconcileDerivationTests: XCTestCase {
                 hasFreshLiveness: false,
                 terminalDiagnostic: diagnostic
             ),
-            engineSources: [.audio, .screencast]
+            engineSources: [.audio, .screencast],
+            now: now
         ))
 
         XCTAssertEqual(actions, [
             .recordNoArtifact(segmentID: ScreencastFixtures.segmentID, reason: "no_video"),
-            .stopBoundary(endedAt: diagnostic.endedAt),
+            .stopBoundary(endedAt: now),
         ])
         XCTAssertFalse(actions.contains { action in
             if case .recordFinalized = action { return true }
@@ -96,6 +98,7 @@ nonisolated final class ScreencastReconcileDerivationTests: XCTestCase {
             state: .finalized,
             segmentID: ScreencastFixtures.segmentID
         )
+        let now = runtime.lastSeenAt.addingTimeInterval(8)
 
         let actions = deriveScreencastReconcileActions(input: self.input(
             runtime: runtime,
@@ -107,17 +110,19 @@ nonisolated final class ScreencastReconcileDerivationTests: XCTestCase {
                 hasFreshLiveness: false,
                 terminalDiagnostic: nil
             ),
-            engineSources: [.audio, .location, .screencast]
+            engineSources: [.audio, .location, .screencast],
+            now: now
         ))
 
         XCTAssertEqual(actions, [
             .recordFinalized(segmentID: ScreencastFixtures.segmentID),
-            .stopBoundary(endedAt: runtime.lastSeenAt),
+            .stopBoundary(endedAt: now),
         ])
     }
 
     func testStopBoundaryProducesExactNextSourceSet() {
         let diagnostic = ScreencastFixtures.diagnostic(reason: .writerFailure)
+        let now = diagnostic.endedAt.addingTimeInterval(8)
 
         let actions = deriveScreencastReconcileActions(input: self.input(
             runtime: ScreencastFixtures.runtime(state: .failed, segmentID: ScreencastFixtures.segmentID),
@@ -129,13 +134,14 @@ nonisolated final class ScreencastReconcileDerivationTests: XCTestCase {
                 hasFreshLiveness: false,
                 terminalDiagnostic: diagnostic
             ),
-            engineSources: [.audio, .location, .screencast]
+            engineSources: [.audio, .location, .screencast],
+            now: now
         ))
 
         XCTAssertEqual(actions.last, .surfaceAttention(.writerFailure))
         XCTAssertEqual(actions.dropLast(), [
             .recordFailed(segmentID: ScreencastFixtures.segmentID, reason: "writer_failure"),
-            .stopBoundary(endedAt: diagnostic.endedAt),
+            .stopBoundary(endedAt: now),
         ])
     }
 

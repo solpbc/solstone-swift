@@ -4,6 +4,73 @@
 import SwiftUI
 import UIKit
 
+nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
+    case audio
+    case location
+    case screencast
+    case watch
+
+    var route: SourceRoute {
+        switch self {
+        case .audio: .audio
+        case .location: .location
+        case .screencast: .screencast
+        case .watch: .watch
+        }
+    }
+
+    var kind: SourceKind {
+        switch self {
+        case .audio: .observer
+        case .location: .location
+        case .screencast: .screencast
+        case .watch: .watch
+        }
+    }
+
+    var name: String {
+        switch self {
+        case .audio: "audio"
+        case .location: "location"
+        case .screencast: SourceVocabulary.screencastDisplayName
+        case .watch: "watch"
+        }
+    }
+}
+
+nonisolated struct StatusPaneWaitingRow: Equatable, Sendable {
+    let source: StatusPaneWaitingSource
+    let count: Int
+
+    var route: SourceRoute { self.source.route }
+    var kind: SourceKind { self.source.kind }
+    var name: String { self.source.name }
+}
+
+nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
+    let total: Int
+    let rows: [StatusPaneWaitingRow]
+
+    static func build(
+        mobileAggregateCount: Int,
+        audioCount: Int,
+        locationCount: Int,
+        screencastCount: Int,
+        watchCount: Int
+    ) -> Self {
+        let candidates = [
+            StatusPaneWaitingRow(source: .audio, count: audioCount),
+            StatusPaneWaitingRow(source: .location, count: locationCount),
+            StatusPaneWaitingRow(source: .screencast, count: screencastCount),
+            StatusPaneWaitingRow(source: .watch, count: watchCount),
+        ]
+        return Self(
+            total: mobileAggregateCount + watchCount,
+            rows: candidates.filter { $0.count > 0 }
+        )
+    }
+}
+
 struct StatusPane: View {
     let presentation: ShellPanePresentation
 
@@ -177,33 +244,25 @@ struct StatusPane: View {
     }
 
     private var waitingTotal: Int {
-        self.waitingRows.reduce(0) { $0 + $1.count }
+        self.waitingPresentation.total
     }
 
-    private struct WaitingRow {
-        let route: SourceRoute
-        let kind: SourceKind
-        let name: String
-        let count: Int
+    private var waitingRows: [StatusPaneWaitingRow] {
+        self.waitingPresentation.rows
     }
 
-    private var waitingRows: [WaitingRow] {
-        let candidates = [
-            WaitingRow(
-                route: .audio,
-                kind: .observer,
-                name: "audio",
-                count: self.mobileSegmentTransferHolder.pendingCount
-                    + self.mobileSegmentTransferHolder.failedCount
-            ),
-            WaitingRow(
-                route: .watch,
-                kind: .watch,
-                name: "watch",
-                count: self.watchUploaderHolder.pendingCount + self.watchUploaderHolder.failedCount
-            ),
-        ]
-        return candidates.filter { $0.count > 0 }
+    private var waitingPresentation: StatusPaneWaitingPresentation {
+        let audio = self.mobileSegmentTransferHolder.summary(for: .audio)
+        let location = self.mobileSegmentTransferHolder.summary(for: .location)
+        let screencast = self.mobileSegmentTransferHolder.summary(for: .screencast)
+        return StatusPaneWaitingPresentation.build(
+            mobileAggregateCount: self.mobileSegmentTransferHolder.pendingCount
+                + self.mobileSegmentTransferHolder.failedCount,
+            audioCount: audio.pendingCount + audio.failedCount,
+            locationCount: location.pendingCount + location.failedCount,
+            screencastCount: screencast.pendingCount + screencast.failedCount,
+            watchCount: self.watchUploaderHolder.pendingCount + self.watchUploaderHolder.failedCount
+        )
     }
 
     @ViewBuilder

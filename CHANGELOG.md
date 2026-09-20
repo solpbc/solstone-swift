@@ -7,6 +7,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ## [Unreleased]
 
 ### Fixed
+- screen waiting to sync could appear under audio in status. it now appears under screen.
 - if you turned the microphone on when ios asked about sharing your screen, that sound never reached your journal. it does now, alongside the screen.
 - the system ends screen sharing when your device locks, and the app kept saying screen was on. it now shows screen as off, and what you shared up to that moment still reaches your journal.
 - screen on your iphone or ipad used to stop about ten minutes after you left the app, and the last stretch of screen before it stopped was thrown away. screen no longer stops on its own just because you left the app, and a cut-off stretch now reaches your journal up to its last second.

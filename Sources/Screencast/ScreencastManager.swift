@@ -256,7 +256,7 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
             return terminalActions(
                 primary: .recordFinalized(segmentID: segmentID),
                 engineSources: input.engineSources,
-                endedAt: terminalDiagnostic?.endedAt ?? input.runtime?.lastSeenAt ?? input.now
+                boundaryAt: input.now
             )
         }
 
@@ -266,7 +266,7 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
                 var actions = terminalActions(
                     primary: .recordNoArtifact(segmentID: segmentID, reason: reason),
                     engineSources: input.engineSources,
-                    endedAt: terminalDiagnostic.endedAt
+                    boundaryAt: input.now
                 )
                 if terminalDiagnostic.reason == .storageLow {
                     actions.append(.surfaceAttention(.storageLow))
@@ -276,7 +276,7 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
                 var actions = terminalActions(
                     primary: .recordFailed(segmentID: segmentID, reason: reason),
                     engineSources: input.engineSources,
-                    endedAt: terminalDiagnostic.endedAt
+                    boundaryAt: input.now
                 )
                 actions.append(.surfaceAttention(terminalDiagnostic.reason))
                 return actions
@@ -324,7 +324,7 @@ nonisolated func deriveScreencastReconcileActions(input: ScreencastReconcileInpu
             return terminalActions(
                 primary: .recordFinalized(segmentID: segmentID),
                 engineSources: input.engineSources,
-                endedAt: runtime.lastSeenAt
+                boundaryAt: input.now
             )
         }
         return [.noOp]
@@ -1157,10 +1157,10 @@ private let screencastDarwinCallback: CFNotificationCallback = { _, observer, _,
 private nonisolated func terminalActions(
     primary: ScreencastReconcileAction,
     engineSources: Set<MobileSegmentSource>,
-    endedAt: Date
+    boundaryAt: Date
 ) -> [ScreencastReconcileAction] {
     if engineSources.contains(.screencast) {
-        return [primary, .stopBoundary(endedAt: endedAt)]
+        return [primary, .stopBoundary(endedAt: boundaryAt)]
     }
     return [primary]
 }

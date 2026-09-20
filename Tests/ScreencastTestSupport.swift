@@ -75,6 +75,7 @@ final class FakeScreencastUploader: ScreencastFacetResolving {
     let callLog: ScreencastCallLog
     var finalized: [UUID] = []
     var finalizedDurationsBySegmentID: [UUID: TimeInterval] = [:]
+    var finalizedEndedAtBySegmentID: [UUID: Date] = [:]
     var noArtifacts: [(segmentID: UUID, reason: String)] = []
     var failures: [(segmentID: UUID, reason: String)] = []
     var resolutions: [UUID: MobileSegmentSourceResolution] = [:]
@@ -92,6 +93,7 @@ final class FakeScreencastUploader: ScreencastFacetResolving {
     ) throws {
         self.callLog.append("recordFinalized")
         self.finalized.append(segmentID)
+        self.finalizedEndedAtBySegmentID[segmentID] = endedAt
         if let durationS {
             self.finalizedDurationsBySegmentID[segmentID] = durationS
         }

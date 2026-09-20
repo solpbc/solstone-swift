@@ -201,6 +201,42 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
     }
 
     @MainActor
+    func testDispatchReresolvesEndpointAfterSelectionCutover() async throws {
+        let oldEndpoint = TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:6060")!)
+        let currentEndpoint = TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)
+        let resolver = TransferEndpointResolverStub(.available(oldEndpoint))
+        let bodyGate = TransferCutoverBodyGate()
+        TransferURLProtocol.handler = { request, _ in
+            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        }
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("endpoint-reresolve-transfer", isDirectory: true),
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: resolver,
+            bodyBuilder: { item, spool in
+                await bodyGate.waitUntilOpen()
+                return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
+            }
+        )
+        try await harness.engine.start()
+
+        _ = try await harness.engine.enqueue(
+            manifest: Self.mobileManifest(itemID: Self.uuid(40_000), segmentID: Self.uuid(41_000), index: 0),
+            payloads: ["audio": Data("mobile".utf8)]
+        )
+        await bodyGate.waitUntilEntered()
+        resolver.setResolution(.available(currentEndpoint))
+        await bodyGate.open()
+
+        try await transferTestWaitFor("mobile item delivered through current endpoint", timeout: .seconds(3)) {
+            await harness.engine.snapshot().counters.deliveredCount == 1
+        }
+        XCTAssertEqual(TransferURLProtocol.requests.count, 1)
+        XCTAssertEqual(TransferURLProtocol.requests.first?.url?.port, 7071)
+        XCTAssertFalse(TransferURLProtocol.requests.contains { $0.url?.port == 6060 })
+    }
+
+    @MainActor
     func testLinkedDeviceIngestSetsProtocolAndNoAuthorization() async throws {
         let watchID = Self.uuid(901)
         TransferURLProtocol.handler = { request, _ in
@@ -232,6 +268,38 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
             )
             XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
         }
+    }
+}
+
+private actor TransferCutoverBodyGate {
+    private var entered = false
+    private var isOpen = false
+    private var enteredWaiters: [CheckedContinuation<Void, Never>] = []
+    private var openWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func waitUntilEntered() async {
+        guard !self.entered else { return }
+        await withCheckedContinuation { continuation in
+            self.enteredWaiters.append(continuation)
+        }
+    }
+
+    func waitUntilOpen() async {
+        self.entered = true
+        let enteredWaiters = self.enteredWaiters
+        self.enteredWaiters.removeAll()
+        enteredWaiters.forEach { $0.resume() }
+        guard !self.isOpen else { return }
+        await withCheckedContinuation { continuation in
+            self.openWaiters.append(continuation)
+        }
+    }
+
+    func open() {
+        self.isOpen = true
+        let openWaiters = self.openWaiters
+        self.openWaiters.removeAll()
+        openWaiters.forEach { $0.resume() }
     }
 }
 

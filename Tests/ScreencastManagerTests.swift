@@ -142,12 +142,18 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testFinalizedScreenDurationIsCeilingClampedWithoutChangingStopTime() async throws {
+    func testFinalizedScreenKeepsArtifactEndTimeButStopsSharedEngineNow() async throws {
         let log = ScreencastCallLog()
         let endedAt = ScreencastFixtures.start.addingTimeInterval(450)
+        let reconciledAt = endedAt.addingTimeInterval(5)
         let engine = FakeScreencastEngine(sources: [.audio, .location, .screencast], callLog: log)
         let uploader = FakeScreencastUploader(callLog: log)
-        let manager = self.makeManager(engine: engine, uploader: uploader, rootURLProvider: { self.tempDirectory })
+        let manager = self.makeManager(
+            engine: engine,
+            uploader: uploader,
+            clock: MockObserverClock(now: reconciledAt),
+            rootURLProvider: { self.tempDirectory }
+        )
         try self.write(
             ScreencastFixtures.runtime(state: .finalized, segmentID: ScreencastFixtures.segmentID, lastSeenAt: endedAt),
             relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
@@ -158,7 +164,8 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         await manager.reconcileScreencast(reason: .darwinNotification)
 
         XCTAssertEqual(uploader.finalizedDurationsBySegmentID[ScreencastFixtures.segmentID], 300)
-        XCTAssertEqual(engine.stoppedAt, [endedAt])
+        XCTAssertEqual(uploader.finalizedEndedAtBySegmentID[ScreencastFixtures.segmentID], endedAt)
+        XCTAssertEqual(engine.stoppedAt, [reconciledAt])
         XCTAssertEqual(log.entries, ["reconcileActiveSegments", "recordFinalized", "stopBoundary"])
     }
 

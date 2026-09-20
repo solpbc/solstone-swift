@@ -98,6 +98,30 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
+    func testStatusBreakdownRoutesScreenOnlyQueuedItemToScreen() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-test",
+            "--ui-test-shell-disconnected",
+            "--ui-test-seed-screen-backlog",
+            "--ui-test-open-pane=status",
+        ]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
+
+        let screen = app.descendants(matching: .any)["shell.pane.status.waiting.screencast"]
+        XCTAssertTrue(screen.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["shell.pane.status.waiting.audio"].exists)
+        let lead = app.descendants(matching: .any)["shell.pane.status.lead"]
+        XCTAssertTrue(lead.waitForExistence(timeout: 5))
+        XCTAssertTrue(lead.label.contains("1") || (lead.value as? String)?.contains("1") == true)
+
+        screen.tap()
+        XCTAssertTrue(app.navigationBars["screen"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
     func testShelfPresentsFromOpener() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]

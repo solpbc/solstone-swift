@@ -16,6 +16,7 @@ enum OnThisPhoneUITestSeeder {
     private static let audioMagicDurationPrefix = "--ui-test-seed-audio-magic-duration="
     private static let largeBacklogSeedFlag = "--ui-test-seed-large-backlog"
     private static let largeBacklogCountPrefix = "--ui-test-seed-large-backlog-count="
+    private static let screenBacklogSeedFlag = "--ui-test-seed-screen-backlog"
     private static let resetAudioL5Flag = "--ui-test-reset-audio-l5"
     private static let resetNudgeDismissalFlag = "--ui-test-reset-nudge-dismissal"
     private static let resetOnThisPhoneFlag = "--ui-test-reset-on-this-phone"
@@ -39,13 +40,14 @@ enum OnThisPhoneUITestSeeder {
         let seedAgedBacklog = arguments.contains(Self.agedBacklogSeedFlag)
         let seedAudioMagic = arguments.contains(Self.audioMagicSeedFlag)
         let seedLargeBacklog = arguments.contains(Self.largeBacklogSeedFlag)
+        let seedScreenBacklog = arguments.contains(Self.screenBacklogSeedFlag)
         let resetOnThisPhone = arguments.contains(Self.resetOnThisPhoneFlag)
-        guard resetOnThisPhone || seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog else { return }
+        guard resetOnThisPhone || seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog else { return }
 
         do {
             let roots = try Self.roots(fileManager: fileManager)
             try Self.reset(roots: roots, fileManager: fileManager)
-            guard seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog else {
+            guard seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog else {
                 onThisPhoneUITestSeedLog.info("on-this-phone ui-test reset complete")
                 return
             }
@@ -79,6 +81,8 @@ enum OnThisPhoneUITestSeeder {
                     )
                     throw SeedError.largeBacklogCountMismatch(requested: requested, actual: summary.total)
                 }
+            } else if seedScreenBacklog {
+                try Self.seedScreenBacklog(transferRoot: roots.transfer, fileManager: fileManager)
             } else if seedAgedBacklog {
                 try Self.seedAgedBacklog(roots: roots, fileManager: fileManager)
             } else {
@@ -193,6 +197,46 @@ extension OnThisPhoneUITestSeeder {
         }
 
         return LargeBacklogSeedSummary(mobile: mobileCount, watch: watchCount, total: mobileCount + watchCount)
+    }
+
+    static func seedScreenBacklog(transferRoot: URL, fileManager: FileManager) throws {
+        let itemID = UUID(uuidString: "30000000-0000-0000-0000-000000000001")!
+        let segmentID = UUID(uuidString: "31000000-0000-0000-0000-000000000001")!
+        let startedAt = Date(timeIntervalSince1970: 1_780_500_000)
+        let endedAt = startedAt.addingTimeInterval(60)
+        let screen = Data("screen".utf8)
+        var mobileManifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.screencast],
+            activeSourceSetVersion: 1
+        )
+        mobileManifest.day = Self.dayString(for: startedAt)
+        mobileManifest.segment = ChunkSidecar.segmentString(for: startedAt, durationSeconds: 60)
+        mobileManifest.endedAt = endedAt
+        mobileManifest.durationS = 60
+        mobileManifest.upload = .pending
+        mobileManifest.screencast = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: "screen.mp4",
+            bytes: Int64(screen.count),
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationS: 60
+        )
+        let manifest = ObserverAudioTransferEnqueuer.makeMobileSegmentManifest(
+            itemID: itemID,
+            manifest: mobileManifest,
+            now: endedAt,
+            sources: [.screencast],
+            payloadParts: [ObserverAudioTransferEnqueuer.screencastPart()]
+        )
+        try Self.writeTransferItem(
+            root: transferRoot,
+            manifest: manifest,
+            payloads: ["screencast": screen],
+            fileManager: fileManager
+        )
     }
 
     private static func largeBacklogSessionID(prefix: String, index: Int) -> UUID {
