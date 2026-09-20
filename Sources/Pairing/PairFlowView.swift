@@ -104,6 +104,7 @@ struct PairFlowView: View {
     @State private var mode: EntryMode = .scan
     @State private var pastedURL = ""
     @State private var errorMessage: String?
+    @State private var linkAttemptInFlight = false
 
     var body: some View {
         OnboardingScaffold(
@@ -126,10 +127,12 @@ struct PairFlowView: View {
             if let pairURLError = self.handoff.pairURLError {
                 self.fallbackTimer.cancel()
                 self.errorMessage = PairFlowCoordinator.message(for: pairURLError, targetAddress: nil, interfaces: [])
+                self.mode = .paste
                 self.handoff.pairURLError = nil
             } else if let pairURL = self.handoff.pairURL {
                 self.fallbackTimer.cancel()
                 self.coordinator.hasAutoPaired = true
+                self.linkAttemptInFlight = true
                 self.handoff.pairURL = nil
                 self.startPairing(pairURL)
             } else {
@@ -143,6 +146,7 @@ struct PairFlowView: View {
         .onChange(of: self.handoff.pairURL) { _, pairURL in
             guard let pairURL else { return }
             self.fallbackTimer.cancel()
+            self.linkAttemptInFlight = true
             self.handoff.pairURL = nil
             self.startPairing(pairURL)
         }
@@ -176,20 +180,29 @@ struct PairFlowView: View {
         self.mode = newMode
     }
 
-    /// True when the flow already has a link in hand (universal link or a handed-off
-    /// pairing error) before the first `onAppear` runs. Guards the very first render so
-    /// `pairingContent`'s scanner never mounts for that frame: mounting it, even briefly,
-    /// fires the camera-permission prompt, and `onAppear` advancing `phase` a moment later
-    /// doesn't undo that request.
-    private var isLinkDriven: Bool {
-        self.handoff.pairURL != nil || self.handoff.pairURLError != nil
+    /// True from the first render until a link's pairing attempt ends: the link is waiting to be
+    /// consumed, or its attempt is running. `phase` stays `.pairing` for that whole attempt, and
+    /// the scan screen's scanner asks for camera access the moment it mounts, even briefly, and
+    /// unmounting it doesn't withdraw the request. Nothing here needs scanning, so it never shows.
+    private var isPairingFromLink: Bool {
+        self.linkAttemptInFlight || self.handoff.pairURL != nil || self.handoff.pairURLError != nil
+    }
+
+    private var displayedPhase: PairFlowPhase {
+        Self.displayedPhase(self.phase, linkInHand: self.isPairingFromLink)
+    }
+
+    /// `phase`, except that a link's attempt reads as connecting from its first frame.
+    nonisolated static func displayedPhase(_ phase: PairFlowPhase, linkInHand: Bool) -> PairFlowPhase {
+        if case .pairing = phase, linkInHand {
+            return .connecting
+        }
+        return phase
     }
 
     @ViewBuilder
     private var phaseContent: some View {
-        switch self.phase {
-        case .pairing where self.isLinkDriven:
-            self.connectingContent
+        switch self.displayedPhase {
         case .pairing:
             self.pairingContent
         case .connecting:
@@ -346,7 +359,7 @@ struct PairFlowView: View {
     }
 
     private var scaffoldTitle: String {
-        switch self.phase {
+        switch self.displayedPhase {
         case .pairing:
             return "scan your pairing code"
         case .connecting:
@@ -361,7 +374,7 @@ struct PairFlowView: View {
     }
 
     private var scaffoldSubtitle: String {
-        switch self.phase {
+        switch self.displayedPhase {
         case .pairing:
             return self.subtitleForMode
         case .connecting:
@@ -442,6 +455,7 @@ struct PairFlowView: View {
         self.errorMessage = nil
         self.pastedURL = ""
         self.coordinator.hasAutoPaired = false
+        self.linkAttemptInFlight = false
         self.phase = .pairing
         self.selectMode(.scan)
     }
@@ -497,10 +511,12 @@ struct PairFlowView: View {
     }
 
     private func handle(_ pairURL: PairURL) async {
+        let arrivedByLink = self.linkAttemptInFlight
         self.errorMessage = nil
         self.fallbackTimer.cancel()
         if pairURL.candidates.first.map({ isLoopbackHost($0.address) }) ?? false {
             self.errorMessage = PairFailureReason.loopbackAddress.message
+            self.endLinkAttempt(arrivedByLink: arrivedByLink)
             return
         }
         do {
@@ -531,13 +547,26 @@ struct PairFlowView: View {
             )
             applicator.apply(outcome)
             self.phase = applicator.phase
+            self.linkAttemptInFlight = false
         } catch {
             if case .failed(let message) = self.coordinator.state {
                 self.errorMessage = message
             } else {
                 self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
             }
+            self.endLinkAttempt(arrivedByLink: arrivedByLink)
             self.startFallbackTimerIfNeeded()
+        }
+    }
+
+    /// A pairing attempt that came in by link and failed leaves the owner on paste with the error,
+    /// not on the scanner: they didn't choose to scan, and "scan a code instead" is one tap away.
+    /// A cancelled attempt is left alone, because a newer attempt may own the flag by now.
+    private func endLinkAttempt(arrivedByLink: Bool) {
+        guard !Task.isCancelled else { return }
+        self.linkAttemptInFlight = false
+        if arrivedByLink {
+            self.mode = .paste
         }
     }
 

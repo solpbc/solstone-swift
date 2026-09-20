@@ -6,6 +6,14 @@ import XCTest
 import SPLTunnel
 
 nonisolated final class PairFlowViewTests: XCTestCase {
+    func testLinkInHandNeverDisplaysTheScanScreen() {
+        XCTAssertEqual(PairFlowView.displayedPhase(.pairing, linkInHand: true), .connecting)
+        XCTAssertEqual(PairFlowView.displayedPhase(.pairing, linkInHand: false), .pairing)
+        XCTAssertEqual(PairFlowView.displayedPhase(.connecting, linkInHand: true), .connecting)
+        XCTAssertEqual(PairFlowView.displayedPhase(.couldNotVerify, linkInHand: true), .couldNotVerify)
+        XCTAssertEqual(PairFlowView.displayedPhase(.mismatch, linkInHand: true), .mismatch)
+    }
+
     @MainActor
     func testFallbackTimerSurfacesPasteAffordanceAfterDelay() async {
         let timer = PairFlowFallbackTimer(delay: .milliseconds(20))
