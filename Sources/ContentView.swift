@@ -182,6 +182,11 @@ struct ContentView: View {
                     self.showGenericJournalMarkPreview = true
                 }
 
+                if let raw = arguments.first(where: { $0.hasPrefix("--ui-test-pair-link=") }),
+                   let url = URL(string: String(raw.dropFirst("--ui-test-pair-link=".count))) {
+                    self.pairingHandoff.applyUniversalLink(url)
+                }
+
                 if arguments.contains("--ui-test-mark-confirm") {
                     self.appConfig.seedUITestPairing(
                         journalRoot: journalRoot,
