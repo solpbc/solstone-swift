@@ -31,7 +31,7 @@ packages:
     from: "3.0.0"
   spl-swift:
     url: https://github.com/solpbc/spl-swift.git
-    exactVersion: "0.7.4"
+    exactVersion: "0.7.5"
 
 targets:
   solstone-swift:
