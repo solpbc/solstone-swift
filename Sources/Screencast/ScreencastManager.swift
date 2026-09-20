@@ -277,7 +277,7 @@ final class ScreencastDarwinNotificationCenter: ScreencastDarwinNotifying {
 @MainActor
 protocol ScreencastEngineDriving: AnyObject {
     var currentScreencastSources: Set<MobileSegmentSource> { get }
-    var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Void)? { get set }
+    var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Bool)? { get set }
     func startScreencast(at startedAt: Date, sessionID: UUID?) async throws -> MobileSegmentScreencastHandoffRecord
     func stopScreencast(at endedAt: Date) async throws
     func currentScreencastHandoff() -> MobileSegmentScreencastHandoffRecord?
@@ -409,7 +409,7 @@ final class ScreencastManager {
             self.persistEnrolled()
         }
         self.engine.screencastRolloverHandler = { [weak self] handoff in
-            self?.publishRolloverHandoff(handoff)
+            self?.publishRolloverHandoff(handoff) ?? false
         }
     }
 
@@ -500,7 +500,7 @@ final class ScreencastManager {
     }
 }
 
-private extension ScreencastManager {
+extension ScreencastManager {
     func restoreStartingState() {
         guard let deadline = self.defaults?.object(forKey: Key.startingDeadline) as? Date else { return }
         let now = self.clock.now()
@@ -720,7 +720,8 @@ private extension ScreencastManager {
         try MobileSegmentScreencastJSONStore.write(handoff, to: url)
     }
 
-    func publishRolloverHandoff(_ handoff: MobileSegmentScreencastHandoffRecord) {
+    @discardableResult
+    func publishRolloverHandoff(_ handoff: MobileSegmentScreencastHandoffRecord) -> Bool {
         do {
             let root = try self.rootURLProvider()
             let current = self.readHandoff(root: root)
@@ -739,11 +740,17 @@ private extension ScreencastManager {
                 now: self.clock.now()
             )
             try self.writeHandoff(published, root: root)
+            let onDisk = self.readHandoff(root: root)
+            guard let onDisk, onDisk.revision == published.revision else {
+                return false
+            }
             self.darwin.postChanged()
             self.persistEnrolled()
             self.state = .active(sessionID: sessionID, segmentID: published.segmentID, startedAt: published.startedAt)
+            return true
         } catch {
             screencastLog.error("screencast rollover handoff publish failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 

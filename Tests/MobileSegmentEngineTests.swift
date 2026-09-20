@@ -27,7 +27,7 @@ final class MobileSegmentEngineTests: XCTestCase {
 
     func testSourceSetChangeFinalizesOldWindowAndOpensOneMixedSegment() async throws {
         let harness = self.makeHarness()
-        await harness.engine.startLocation(tier: .balanced, accuracy: .full)
+        try await harness.engine.startLocation(tier: .balanced, accuracy: .full)
         harness.engine.recordLocationFix(Self.fix(at: self.clock.now()))
         self.clock.advance(by: 75)
 
@@ -77,7 +77,7 @@ final class MobileSegmentEngineTests: XCTestCase {
         await gate.waitUntilParked()
 
         self.clock.advance(by: 1)
-        await harness.engine.startLocation(tier: .balanced, accuracy: .full)
+        try await harness.engine.startLocation(tier: .balanced, accuracy: .full)
         harness.engine.recordLocationFix(Self.fix(at: self.clock.now()))
         gate.release()
         try await self.waitFor("coalesced follow-up boundary") {
@@ -112,7 +112,7 @@ final class MobileSegmentEngineTests: XCTestCase {
 
     func testStableSourceSetRollsEvery300SecondsWithAdjacentWindows() async throws {
         let harness = self.makeHarness()
-        await harness.engine.startLocation(tier: .light, accuracy: .full)
+        try await harness.engine.startLocation(tier: .light, accuracy: .full)
         harness.engine.recordLocationFix(Self.fix(at: self.clock.now()))
         await self.yieldToMainActor()
 
@@ -135,7 +135,7 @@ final class MobileSegmentEngineTests: XCTestCase {
 
     func testLocationMutatorsAppendLiveLogAndRefreshLiveness() async throws {
         let harness = self.makeHarness()
-        await harness.engine.startLocation(tier: .balanced, accuracy: .full)
+        try await harness.engine.startLocation(tier: .balanced, accuracy: .full)
         let activeDirectory = try XCTUnwrap(try harness.store.list(.active).first)
         let segmentID = try XCTUnwrap(UUID(uuidString: activeDirectory.lastPathComponent))
 
@@ -215,7 +215,7 @@ final class MobileSegmentEngineTests: XCTestCase {
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: activeRoot.path)
         }
 
-        await harness.engine.startLocation(tier: .balanced, accuracy: .full)
+        _ = try? await harness.engine.startLocation(tier: .balanced, accuracy: .full)
 
         guard case .open(let segmentID, let sources, _) = harness.engine.state else {
             XCTFail("expected old segment to remain open")
@@ -239,6 +239,69 @@ final class MobileSegmentEngineTests: XCTestCase {
         XCTAssertEqual(finalized.segmentID, oldSegmentID)
         XCTAssertEqual(finalized.audio.state, .finalizedArtifact)
         XCTAssertEqual(finalized.audio.durationS, 42)
+    }
+
+    func testCreateActiveThrowsManifestCollisionWhenManifestExists() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        let directory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: self.clock.now(),
+            openedWithSources: [.screencast],
+            activeSourceSetVersion: 1
+        )
+        try harness.store.writeManifest(manifest, in: directory)
+        let originalBytes = try Data(contentsOf: harness.store.manifestURL(in: directory))
+
+        let collidingManifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: self.clock.now(),
+            openedWithSources: [.audio],
+            activeSourceSetVersion: 2
+        )
+
+        do {
+            _ = try harness.store.createActive(manifest: collidingManifest)
+            XCTFail("expected manifest collision error")
+        } catch MobileSegmentStoreError.manifestCollision(let collidedID) {
+            XCTAssertEqual(collidedID, segmentID)
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        let postBytes = try Data(contentsOf: harness.store.manifestURL(in: directory))
+        XCTAssertEqual(postBytes, originalBytes)
+    }
+
+    func testCreateActiveSucceedsWhenDirectoryHasOnlyScreenPartAndSidecar() async throws {
+        let harness = self.makeHarness()
+        let segmentID = UUID()
+        let directory = harness.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let partURL = harness.store.screenPartURL(in: directory)
+        let partBytes = Data("screen-part-data".utf8)
+        try partBytes.write(to: partURL, options: .atomic)
+
+        let sidecarURL = MobileSegmentScreencastPaths.screenWindowURL(inSegmentDirectory: directory)
+        let sidecarBytes = Data("{\"windowIndex\":0}".utf8)
+        try sidecarBytes.write(to: sidecarURL, options: .atomic)
+
+        let manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: self.clock.now(),
+            openedWithSources: [.screencast],
+            activeSourceSetVersion: 1
+        )
+
+        let createdDir = try harness.store.createActive(manifest: manifest)
+        XCTAssertEqual(createdDir, directory)
+
+        XCTAssertEqual(try Data(contentsOf: partURL), partBytes)
+        XCTAssertEqual(try Data(contentsOf: sidecarURL), sidecarBytes)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.manifestURL(in: directory).path))
     }
 }
 

@@ -16,6 +16,7 @@ final class MobileSegmentStore {
     private let fileManager: FileManager
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    var testCreateActiveError: (any Error)?
 
     init(rootURL: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -125,8 +126,16 @@ final class MobileSegmentStore {
     }
 
     func createActive(manifest: MobileSegmentManifest) throws -> URL {
+        if let error = self.testCreateActiveError {
+            self.testCreateActiveError = nil
+            throw error
+        }
         try self.ensureRoot()
         let directory = self.segmentDirectoryURL(.active, segmentID: manifest.segmentID)
+        let manifestURL = self.manifestURL(in: directory)
+        if self.fileManager.fileExists(atPath: manifestURL.path) {
+            throw MobileSegmentStoreError.manifestCollision(segmentID: manifest.segmentID)
+        }
         try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try self.fileManager.createDirectory(at: self.outcomesDirectory(in: directory), withIntermediateDirectories: true)
         try self.writeManifest(manifest, in: directory)
@@ -458,4 +467,5 @@ final class MobileSegmentStore {
 
 enum MobileSegmentStoreError: Error, Equatable {
     case destinationCollision(segmentID: UUID, lifecycle: MobileSegmentLifecycle)
+    case manifestCollision(segmentID: UUID)
 }

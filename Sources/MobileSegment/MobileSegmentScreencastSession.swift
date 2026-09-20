@@ -103,7 +103,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
     func tick() {
         guard self.isBroadcastActive, !self.shouldDropSamples, let sessionID = self.sessionID else { return }
         let now = self.clock()
-        let nowMs = Int64(now.timeIntervalSince1970 * 1000)
+        let nowMs = MobileSegmentScreencastIdentity.nowMs(from: now)
 
         if self.isWaitingForHandoff {
             if let stored = self.readHandoff(), stored.sessionID == sessionID {
@@ -140,30 +140,84 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
            storedHandoff.sessionID == sessionID,
            let current = self.currentHandoff,
            storedHandoff.revision > current.revision {
-            self.closeCurrentSidecar(now: now)
-            _ = self.writer.finish(now: now)
+            if storedHandoff.scheduleAnchorMs != self.scheduleAnchorMs {
+                self.closeCurrentSidecar(now: now)
+                _ = self.writer.finish(now: now)
 
-            self.currentHandoff = storedHandoff
-            self.scheduleAnchorMs = storedHandoff.scheduleAnchorMs
-            self.schedulePeriodSeconds = storedHandoff.schedulePeriodSeconds
-            self.currentWindowIndex = 0
-
-            do {
-                try self.openWindow(index: 0, handoff: storedHandoff, now: now)
-                self.writeRuntime(state: .writerOpen, sessionID: sessionID, segmentID: storedHandoff.segmentID, revision: storedHandoff.revision, now: now)
-                self.postChangedHook()
-            } catch {
-                screencastSessionLog.error("failed to open superseding window: \(String(describing: error), privacy: .public)")
-                self.failWithDiagnostic(
-                    reason: .writerFailure,
-                    message: String(describing: error),
-                    sessionID: sessionID,
-                    segmentID: storedHandoff.segmentID,
-                    revision: storedHandoff.revision,
-                    now: now
+                self.scheduleAnchorMs = storedHandoff.scheduleAnchorMs
+                self.schedulePeriodSeconds = storedHandoff.schedulePeriodSeconds
+                let liveWindowIndex = MobileSegmentScreencastIdentity.windowIndex(
+                    nowMs: nowMs,
+                    scheduleAnchorMs: storedHandoff.scheduleAnchorMs,
+                    schedulePeriodSeconds: storedHandoff.schedulePeriodSeconds
                 )
+                let liveSegmentID = MobileSegmentScreencastIdentity.segmentID(
+                    sessionID: sessionID,
+                    scheduleAnchorMs: storedHandoff.scheduleAnchorMs,
+                    windowIndex: liveWindowIndex,
+                    schedulePeriodSeconds: storedHandoff.schedulePeriodSeconds
+                )
+                let liveWindowStart = MobileSegmentScreencastIdentity.windowStart(
+                    scheduleAnchorMs: storedHandoff.scheduleAnchorMs,
+                    windowIndex: liveWindowIndex,
+                    schedulePeriodSeconds: storedHandoff.schedulePeriodSeconds
+                )
+                let derivedHandoff = MobileSegmentScreencastHandoffRecord(
+                    schemaVersion: storedHandoff.schemaVersion,
+                    revision: storedHandoff.revision,
+                    eventID: storedHandoff.eventID,
+                    sessionID: sessionID,
+                    segmentID: liveSegmentID,
+                    sourceSetVersion: storedHandoff.sourceSetVersion,
+                    sourceSet: storedHandoff.sourceSet,
+                    startedAt: liveWindowStart,
+                    segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: liveSegmentID),
+                    screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: liveSegmentID),
+                    screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: liveSegmentID),
+                    desiredState: storedHandoff.desiredState,
+                    scheduleAnchorMs: storedHandoff.scheduleAnchorMs,
+                    schedulePeriodSeconds: storedHandoff.schedulePeriodSeconds,
+                    lastHostUpdateAt: storedHandoff.lastHostUpdateAt
+                )
+                self.currentWindowIndex = liveWindowIndex
+                self.currentHandoff = derivedHandoff
+
+                do {
+                    try self.openWindow(index: liveWindowIndex, handoff: derivedHandoff, now: now)
+                    self.writeRuntime(state: .writerOpen, sessionID: sessionID, segmentID: liveSegmentID, revision: storedHandoff.revision, now: now)
+                    self.postChangedHook()
+                } catch {
+                    screencastSessionLog.error("failed to open superseding window: \(String(describing: error), privacy: .public)")
+                    self.failWithDiagnostic(
+                        reason: .writerFailure,
+                        message: String(describing: error),
+                        sessionID: sessionID,
+                        segmentID: liveSegmentID,
+                        revision: storedHandoff.revision,
+                        now: now
+                    )
+                }
+                return
+            } else {
+                let updatedHandoff = MobileSegmentScreencastHandoffRecord(
+                    schemaVersion: current.schemaVersion,
+                    revision: storedHandoff.revision,
+                    eventID: storedHandoff.eventID,
+                    sessionID: current.sessionID,
+                    segmentID: current.segmentID,
+                    sourceSetVersion: storedHandoff.sourceSetVersion,
+                    sourceSet: storedHandoff.sourceSet,
+                    startedAt: current.startedAt,
+                    segmentDirectoryRelativePath: current.segmentDirectoryRelativePath,
+                    screenPartRelativePath: current.screenPartRelativePath,
+                    screenFinalRelativePath: current.screenFinalRelativePath,
+                    desiredState: storedHandoff.desiredState,
+                    scheduleAnchorMs: current.scheduleAnchorMs,
+                    schedulePeriodSeconds: current.schedulePeriodSeconds,
+                    lastHostUpdateAt: storedHandoff.lastHostUpdateAt
+                )
+                self.currentHandoff = updatedHandoff
             }
-            return
         }
 
         // 3. Check schedule rollover
@@ -228,14 +282,49 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
     }
 
     private func adoptInitialHandoff(_ handoff: MobileSegmentScreencastHandoffRecord, now: Date) {
-        self.currentHandoff = handoff
+        let nowMs = MobileSegmentScreencastIdentity.nowMs(from: now)
+        let liveWindowIndex = MobileSegmentScreencastIdentity.windowIndex(
+            nowMs: nowMs,
+            scheduleAnchorMs: handoff.scheduleAnchorMs,
+            schedulePeriodSeconds: handoff.schedulePeriodSeconds
+        )
+        let liveSegmentID = MobileSegmentScreencastIdentity.segmentID(
+            sessionID: handoff.sessionID,
+            scheduleAnchorMs: handoff.scheduleAnchorMs,
+            windowIndex: liveWindowIndex,
+            schedulePeriodSeconds: handoff.schedulePeriodSeconds
+        )
+        let liveWindowStart = MobileSegmentScreencastIdentity.windowStart(
+            scheduleAnchorMs: handoff.scheduleAnchorMs,
+            windowIndex: liveWindowIndex,
+            schedulePeriodSeconds: handoff.schedulePeriodSeconds
+        )
+        let derivedHandoff = MobileSegmentScreencastHandoffRecord(
+            schemaVersion: handoff.schemaVersion,
+            revision: handoff.revision,
+            eventID: handoff.eventID,
+            sessionID: handoff.sessionID,
+            segmentID: liveSegmentID,
+            sourceSetVersion: handoff.sourceSetVersion,
+            sourceSet: handoff.sourceSet,
+            startedAt: liveWindowStart,
+            segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: liveSegmentID),
+            screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: liveSegmentID),
+            screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: liveSegmentID),
+            desiredState: handoff.desiredState,
+            scheduleAnchorMs: handoff.scheduleAnchorMs,
+            schedulePeriodSeconds: handoff.schedulePeriodSeconds,
+            lastHostUpdateAt: handoff.lastHostUpdateAt
+        )
+
+        self.currentHandoff = derivedHandoff
         self.scheduleAnchorMs = handoff.scheduleAnchorMs
         self.schedulePeriodSeconds = handoff.schedulePeriodSeconds
-        self.currentWindowIndex = 0
+        self.currentWindowIndex = liveWindowIndex
 
         do {
-            try self.openWindow(index: 0, handoff: handoff, now: now)
-            self.writeRuntime(state: .writerOpen, sessionID: handoff.sessionID, segmentID: handoff.segmentID, revision: handoff.revision, now: now)
+            try self.openWindow(index: liveWindowIndex, handoff: derivedHandoff, now: now)
+            self.writeRuntime(state: .writerOpen, sessionID: handoff.sessionID, segmentID: liveSegmentID, revision: handoff.revision, now: now)
             self.postChangedHook()
         } catch {
             screencastSessionLog.error("failed to open initial window: \(String(describing: error), privacy: .public)")
@@ -243,7 +332,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
                 reason: .writerFailure,
                 message: String(describing: error),
                 sessionID: handoff.sessionID,
-                segmentID: handoff.segmentID,
+                segmentID: liveSegmentID,
                 revision: handoff.revision,
                 now: now
             )
@@ -373,7 +462,8 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
     }
 
     private func selfMintHandoff(sessionID: UUID, now: Date) -> MobileSegmentScreencastHandoffRecord {
-        let anchorMs = Int64(now.timeIntervalSince1970 * 1000)
+        let anchorMs = MobileSegmentScreencastIdentity.nowMs(from: now)
+        let window0Start = MobileSegmentScreencastIdentity.windowStart(scheduleAnchorMs: anchorMs, windowIndex: 0, schedulePeriodSeconds: 300)
         let segmentID = MobileSegmentScreencastIdentity.segmentID(
             sessionID: sessionID,
             scheduleAnchorMs: anchorMs,
@@ -387,7 +477,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
             segmentID: segmentID,
             sourceSetVersion: 1,
             sourceSet: [.screencast],
-            startedAt: now,
+            startedAt: window0Start,
             segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: segmentID),
             screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID),
             screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID),

@@ -177,11 +177,12 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         )
         try self.write(ScreencastFixtures.handoff(sourceSet: [.audio, .location, .screencast]), relativePath: MobileSegmentScreencastPaths.handoffRelativePath())
 
-        engine.screencastRolloverHandler?(ScreencastFixtures.handoff(
+        let result = engine.screencastRolloverHandler?(ScreencastFixtures.handoff(
             revision: 3,
             sourceSet: [.audio, .location, .screencast],
             segmentID: ScreencastFixtures.nextSegmentID
         ))
+        XCTAssertEqual(result, true)
 
         let handoff = try self.readHandoff()
         XCTAssertEqual(handoff.segmentID, ScreencastFixtures.nextSegmentID)
@@ -190,6 +191,45 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         XCTAssertEqual(darwin.postCallCount, 1)
         XCTAssertEqual(self.defaults.bool(forKey: "screencast.enrolled"), true)
         _ = manager
+    }
+
+    // MARK: - Acceptance Test K: Direct publishRolloverHandoff tests
+    @MainActor
+    func testPublishRolloverHandoffHealthyRootReturnsTrue() throws {
+        let manager = self.makeManager(rootURLProvider: { self.tempDirectory })
+        let record = ScreencastFixtures.handoff(
+            revision: 5,
+            sourceSet: [.audio, .location, .screencast],
+            segmentID: ScreencastFixtures.nextSegmentID
+        )
+
+        let success = manager.publishRolloverHandoff(record)
+        XCTAssertTrue(success)
+
+        let onDisk = try self.readHandoff()
+        XCTAssertGreaterThanOrEqual(onDisk.revision, 5)
+        XCTAssertEqual(onDisk.segmentID, ScreencastFixtures.nextSegmentID)
+    }
+
+    @MainActor
+    func testPublishRolloverHandoffFailureReturnsFalse() {
+        let manager = self.makeManager(rootURLProvider: {
+            throw AppGroupContainerError.unavailable(identifier: "unavailable.app.group")
+        })
+        let record = ScreencastFixtures.handoff(
+            revision: 5,
+            sourceSet: [.audio, .location, .screencast],
+            segmentID: ScreencastFixtures.nextSegmentID
+        )
+
+        let success = manager.publishRolloverHandoff(record)
+        XCTAssertFalse(success)
+
+        let handoffURL = MobileSegmentScreencastPaths.url(
+            root: self.tempDirectory,
+            relativePath: MobileSegmentScreencastPaths.handoffRelativePath()
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: handoffURL.path))
     }
 
     @MainActor

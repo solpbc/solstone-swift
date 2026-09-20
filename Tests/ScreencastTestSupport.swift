@@ -16,7 +16,7 @@ final class ScreencastCallLog {
 @MainActor
 final class FakeScreencastEngine: ScreencastEngineDriving {
     var currentScreencastSources: Set<MobileSegmentSource>
-    var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Void)?
+    var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Bool)?
     let callLog: ScreencastCallLog
     var nextHandoff: MobileSegmentScreencastHandoffRecord
     var stoppedAt: [Date] = []

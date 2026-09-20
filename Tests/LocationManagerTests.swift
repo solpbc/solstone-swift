@@ -830,6 +830,25 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testActivateSessionEngineFailureStopsProviderAndLeavesErrorState() async throws {
+        self.provider.capability = .always(accuracy: .full)
+        let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
+        store.testCreateActiveError = NSError(domain: "test", code: 99, userInfo: [NSLocalizedDescriptionKey: "simulated engine store error"])
+        self.mobileSegmentUploader = MobileSegmentUploader(store: store, clock: self.clock)
+        self.mobileSegmentEngine = MobileSegmentEngine(uploader: self.mobileSegmentUploader, clock: self.clock)
+        let failingManager = self.makeManager()
+
+        await failingManager.start(tier: .balanced)
+        await self.yieldToMainActor()
+
+        guard case .error = failingManager.state else {
+            return XCTFail("Expected error state on engine failure, got \(failingManager.state)")
+        }
+        XCTAssertEqual(self.provider.stopCallCount, 1)
+        XCTAssertFalse(self.defaults.bool(forKey: "location.enabled"))
+    }
+
+    @MainActor
     private func makeManager() -> LocationManager {
         LocationManager(
             provider: self.provider,

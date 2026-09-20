@@ -382,6 +382,13 @@ private extension LocationManager {
                 await self.provider.beginBackgroundSustain()
             }
             try await self.provider.startObservation(modes: self.tier.modes)
+        } catch {
+            self.state = .error(.unavailable(reason: String(describing: error)))
+            return
+        }
+
+        do {
+            try await self.mobileSegmentEngine.startLocation(tier: self.tier, accuracy: self.currentAccuracy())
             let sessionID = UUID()
             let startedAt = self.clock.now()
             self.currentSessionID = sessionID
@@ -395,8 +402,8 @@ private extension LocationManager {
             ))
             self.persistEnabled(true)
             self.persistPaused(false)
-            await self.mobileSegmentEngine.startLocation(tier: self.tier, accuracy: self.currentAccuracy())
         } catch {
+            await self.provider.stopObservation()
             self.state = .error(.unavailable(reason: String(describing: error)))
         }
     }

@@ -184,6 +184,10 @@ nonisolated enum MobileSegmentScreencastIdentity {
         ))
     }
 
+    static func nowMs(from date: Date) -> Int64 {
+        Int64(date.timeIntervalSince1970 * 1000)
+    }
+
     static func windowIndex(
         nowMs: Int64,
         scheduleAnchorMs: Int64,
@@ -263,7 +267,7 @@ nonisolated struct MobileSegmentScreencastHandoffRecord: Codable, Equatable, Sen
     }
 
     func derivedSegmentID(at now: Date) -> UUID {
-        let nowMs = Int64((now.timeIntervalSince1970 * 1000).rounded())
+        let nowMs = MobileSegmentScreencastIdentity.nowMs(from: now)
         let windowIndex = MobileSegmentScreencastIdentity.windowIndex(
             nowMs: nowMs,
             scheduleAnchorMs: self.scheduleAnchorMs,
