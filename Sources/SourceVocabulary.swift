@@ -554,6 +554,7 @@ nonisolated enum SourceVocabulary {
     static let pairingAlreadyConnected = "this journal is already connected"
     static let pairingReconnected = "journal connection updated"
     static let pairingReconnecting = "reconnecting…"
+    static let pairingStillTrying = "still trying to reach your journal."
     static let journalMarkConfirmQuestion = "does this match your journal?"
     static let journalMarkConfirmSubtext = "your journal shows this same mark in its network app. it should match, exactly."
     static let journalMarkConfirmButton = "yes, this is my journal"

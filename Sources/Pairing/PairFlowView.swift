@@ -5,6 +5,7 @@ import Foundation
 import Observation
 import SPLTunnel
 import SwiftUI
+import UIKit
 
 @MainActor
 @Observable
@@ -55,6 +56,49 @@ final class PairFlowFallbackTimer {
     }
 }
 
+/// Flips `showsStillTrying` once a connect has run long enough that a bare spinner reads as
+/// silence. It only ever adds a line to the screen. It never bounds the attempt: pairing is
+/// committed the moment its request is written, and abandoning one the journal already accepted
+/// would strand the owner, so any deadline on the attempt itself belongs to the library that can
+/// tell whether the request was sent.
+@MainActor
+@Observable
+final class PairFlowStillTryingTimer {
+    var showsStillTrying = false
+
+    private let delay: Duration
+    @ObservationIgnored
+    private var task: Task<Void, Never>?
+
+    init(delay: Duration = .seconds(8)) {
+        self.delay = delay
+    }
+
+    func start() {
+        guard task == nil, !showsStillTrying else {
+            return
+        }
+        task = Task { @MainActor in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else {
+                return
+            }
+            showsStillTrying = true
+            task = nil
+        }
+    }
+
+    func reset() {
+        task?.cancel()
+        task = nil
+        showsStillTrying = false
+    }
+}
+
 struct PairFlowView: View {
     enum EntryMode: String, CaseIterable, Identifiable {
         case scan
@@ -98,6 +142,7 @@ struct PairFlowView: View {
 
     @State private var coordinator = PairFlowCoordinator()
     @State private var fallbackTimer = PairFlowFallbackTimer()
+    @State private var stillTryingTimer = PairFlowStillTryingTimer()
     @State private var completionGate = PairFlowCompletionGate()
     @State private var phase: PairFlowPhase = .pairing
     @State private var flowTask: Task<Void, Never>?
@@ -109,7 +154,8 @@ struct PairFlowView: View {
     var body: some View {
         OnboardingScaffold(
             title: self.scaffoldTitle,
-            subtitle: self.scaffoldSubtitle
+            subtitle: self.scaffoldSubtitle,
+            titleAccessibilityIdentifier: Self.titleAccessibilityIdentifier
         ) {
             self.phaseContent
         }
@@ -142,6 +188,21 @@ struct PairFlowView: View {
         .onDisappear {
             self.cancelFlowTask()
             self.fallbackTimer.cancel()
+            self.stillTryingTimer.reset()
+        }
+        .onChange(of: self.isWaitingOnPairRequest, initial: true) { _, isWaiting in
+            if isWaiting {
+                self.stillTryingTimer.start()
+            } else {
+                self.stillTryingTimer.reset()
+            }
+        }
+        .onChange(of: self.stillTryingTimer.showsStillTrying) { _, showsStillTrying in
+            // The caption appears under a title that has not changed, and VoiceOver does not
+            // announce a label that changes in place.
+            if showsStillTrying {
+                UIAccessibility.post(notification: .announcement, argument: SourceVocabulary.pairingStillTrying)
+            }
         }
         .onChange(of: self.handoff.pairURL) { _, pairURL in
             guard let pairURL else { return }
@@ -190,6 +251,13 @@ struct PairFlowView: View {
 
     private var displayedPhase: PairFlowPhase {
         Self.displayedPhase(self.phase, linkInHand: self.isPairingFromLink)
+    }
+
+    /// The connecting screen while the pairing request is still out. It ends when the request
+    /// returns, so the caption never shows over the short wait for the journal's mark that follows
+    /// a pairing that already went through, when "still trying to reach" would be untrue.
+    private var isWaitingOnPairRequest: Bool {
+        self.displayedPhase == .connecting && self.coordinator.state.isPairingInputInProgress
     }
 
     /// `phase`, except that a link's attempt reads as connecting from its first frame.
@@ -358,10 +426,30 @@ struct PairFlowView: View {
         }
     }
 
+    /// The one marker every state of this screen carries, so a test can ask whether the pairing
+    /// screen is up without caring which tab it is on: the simulator has no camera, so the scan tab
+    /// hands over to paste on its own.
+    static let titleAccessibilityIdentifier = "pairFlow.title"
+
+    /// The title names the tab the owner is on, in the same order as the subtitle under it.
+    static func pairingTitle(for mode: EntryMode) -> String {
+        switch mode {
+        case .scan:
+            return "scan your pairing code"
+        case .paste:
+            return "paste your pairing link"
+        }
+    }
+
+    /// Nothing under `connecting…` until a connect has gone on long enough to read as silence.
+    static func connectingSubtitle(stillTrying: Bool) -> String {
+        stillTrying ? SourceVocabulary.pairingStillTrying : ""
+    }
+
     private var scaffoldTitle: String {
         switch self.displayedPhase {
         case .pairing:
-            return "scan your pairing code"
+            return Self.pairingTitle(for: self.mode)
         case .connecting:
             return SourceVocabulary.journalMarkConnecting
         case .confirm:
@@ -378,7 +466,7 @@ struct PairFlowView: View {
         case .pairing:
             return self.subtitleForMode
         case .connecting:
-            return ""
+            return Self.connectingSubtitle(stillTrying: self.stillTryingTimer.showsStillTrying)
         case .confirm:
             return SourceVocabulary.journalMarkConfirmSubtext
         case .couldNotVerify:

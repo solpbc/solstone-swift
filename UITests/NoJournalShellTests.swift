@@ -437,10 +437,12 @@ private extension NoJournalShellTests {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        let markerText = "scan your pairing code"
-        XCTAssertTrue(app.staticTexts[markerText].waitForExistence(timeout: 5), file: file, line: line)
+        // The identifier, not the words: the title follows the tab, and the simulator's scan tab
+        // hands over to paste on its own because it has no camera.
+        let marker = "pairFlow.title"
+        XCTAssertTrue(app.staticTexts[marker].waitForExistence(timeout: 5), file: file, line: line)
         XCTAssertEqual(
-            app.staticTexts.matching(NSPredicate(format: "label == %@", markerText)).count,
+            app.staticTexts.matching(NSPredicate(format: "identifier == %@", marker)).count,
             1,
             file: file,
             line: line

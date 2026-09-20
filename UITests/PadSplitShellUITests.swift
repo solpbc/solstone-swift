@@ -261,9 +261,9 @@ final class PadSplitShellUITests: XCTestCase {
         let ownJournal = app.buttons["journalLives.ownJournal"]
         XCTAssertTrue(ownJournal.waitForExistence(timeout: 10))
         ownJournal.tap()
-        let marker = app.staticTexts["scan your pairing code"]
+        let marker = app.staticTexts["pairFlow.title"]
         XCTAssertTrue(marker.waitForExistence(timeout: 10))
-        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "scan your pairing code")).count, 1)
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "identifier == %@", "pairFlow.title")).count, 1)
     }
 
     @MainActor
@@ -302,7 +302,7 @@ final class PadSplitShellUITests: XCTestCase {
         XCTAssertTrue(setup.descendants(matching: .any)["shell.pane.journalSetup.heading"].waitForExistence(timeout: 10))
         self.attach(setup, "l33-ipad-journal-setup")
         setup.buttons["journalLives.ownJournal"].tap()
-        XCTAssertTrue(setup.staticTexts["scan your pairing code"].waitForExistence(timeout: 10))
+        XCTAssertTrue(setup.staticTexts["pairFlow.title"].waitForExistence(timeout: 10))
         self.attach(setup, "l33-ipad-pair-flow")
         setup.terminate()
 

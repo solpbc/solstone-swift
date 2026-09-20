@@ -142,6 +142,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.pairingAlreadyConnected, "this journal is already connected")
         XCTAssertEqual(SourceVocabulary.pairingReconnected, "journal connection updated")
         XCTAssertEqual(SourceVocabulary.pairingReconnecting, "reconnecting…")
+        XCTAssertEqual(SourceVocabulary.pairingStillTrying, "still trying to reach your journal.")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneScope,
             "everything you've shared, on this device until you connect a journal."
@@ -1105,6 +1106,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.pairingAlreadyConnected,
             SourceVocabulary.pairingReconnected,
             SourceVocabulary.pairingReconnecting,
+            SourceVocabulary.pairingStillTrying,
             SourceVocabulary.drop,
             SourceVocabulary.cancel,
             SourceVocabulary.undo,

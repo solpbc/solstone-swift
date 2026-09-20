@@ -52,6 +52,70 @@ nonisolated final class PairFlowViewTests: XCTestCase {
     }
 
     @MainActor
+    func testStillTryingTimerSurfacesAfterDelay() async {
+        let timer = PairFlowStillTryingTimer(delay: .milliseconds(20))
+
+        timer.start()
+        XCTAssertFalse(timer.showsStillTrying)
+        let surfaced = await self.waitUntil { timer.showsStillTrying }
+
+        XCTAssertTrue(surfaced)
+    }
+
+    @MainActor
+    func testStillTryingTimerResetBeforeDelayNeverSurfaces() async {
+        let timer = PairFlowStillTryingTimer(delay: .milliseconds(40))
+
+        timer.start()
+        timer.reset()
+        try? await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertFalse(timer.showsStillTrying)
+    }
+
+    @MainActor
+    func testStillTryingTimerResetClearsTheLineAndAllowsRestart() async {
+        let timer = PairFlowStillTryingTimer(delay: .milliseconds(20))
+
+        timer.start()
+        let first = await self.waitUntil { timer.showsStillTrying }
+        XCTAssertTrue(first)
+
+        timer.reset()
+        XCTAssertFalse(timer.showsStillTrying)
+        timer.start()
+        let second = await self.waitUntil { timer.showsStillTrying }
+
+        XCTAssertTrue(second)
+    }
+
+    /// Polls with a deadline rather than sleeping a fixed beat, because CI hosts run loaded and a
+    /// starved timer task must not read as a failure.
+    @MainActor
+    private func waitUntil(_ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while ContinuousClock.now < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return condition()
+    }
+
+    @MainActor
+    func testTitleNamesTheTabTheOwnerIsOn() {
+        XCTAssertEqual(PairFlowView.pairingTitle(for: .scan), "scan your pairing code")
+        XCTAssertEqual(PairFlowView.pairingTitle(for: .paste), "paste your pairing link")
+    }
+
+    @MainActor
+    func testConnectingSubtitleIsEmptyUntilStillTrying() {
+        XCTAssertEqual(PairFlowView.connectingSubtitle(stillTrying: false), "")
+        XCTAssertEqual(PairFlowView.connectingSubtitle(stillTrying: true), SourceVocabulary.pairingStillTrying)
+    }
+
+    @MainActor
     func testPairingWindowClosedMessage() {
         XCTAssertEqual(
             PairFlowCoordinator.message(for: PairError.pairingWindowClosed, targetAddress: nil, interfaces: []),
