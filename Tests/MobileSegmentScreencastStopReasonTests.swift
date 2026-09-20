@@ -8,7 +8,7 @@ nonisolated final class MobileSegmentScreencastStopReasonTests: XCTestCase {
     func testStorageLowSentence() {
         XCTAssertEqual(
             MobileSegmentScreencastStopPolicy.ownerSentence(for: .storageLow),
-            "screen stopped. this iphone is low on storage."
+            "screen stopped. this device is low on storage."
         )
         XCTAssertEqual(
             MobileSegmentScreencastStopPolicy.ownerSentence(for: .storageLow),
@@ -29,7 +29,7 @@ nonisolated final class MobileSegmentScreencastStopReasonTests: XCTestCase {
         XCTAssertEqual(error.code, 100)
         XCTAssertEqual(
             error.userInfo[NSLocalizedDescriptionKey] as? String,
-            "screen stopped. this iphone is low on storage."
+            "screen stopped. this device is low on storage."
         )
     }
 

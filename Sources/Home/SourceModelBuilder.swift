@@ -40,12 +40,16 @@ nonisolated func makeLocationSource(
 nonisolated func makeScreencastSource(
     managerState: ScreencastManager.State,
     isJournalPaired: Bool,
-    enrolled: Bool
+    enrolled: Bool,
+    systemEndedAt: Date? = nil,
+    now: Date = Date()
 ) -> Source {
     screencastSourcePresentation(
         managerState: managerState,
         isJournalPaired: isJournalPaired,
-        enrolled: enrolled
+        enrolled: enrolled,
+        systemEndedAt: systemEndedAt,
+        now: now
     )
 }
 
@@ -109,7 +113,8 @@ func makeHomeSourceBundle(
         screencast: makeScreencastSource(
             managerState: screencastManager.state,
             isJournalPaired: isJournalPaired,
-            enrolled: screencastManager.isEnrolled
+            enrolled: screencastManager.isEnrolled,
+            systemEndedAt: screencastManager.systemEndedAt
         ),
         watch: watchSourceModel(from: watchLane, isJournalPaired: isJournalPaired)
     )

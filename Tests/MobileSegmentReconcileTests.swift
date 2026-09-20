@@ -660,7 +660,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
             sidecar,
             to: MobileSegmentScreencastPaths.screenWindowURL(inSegmentDirectory: directory)
         )
-        try self.writeFragmentedMovie(to: harness.store.screenPartURL(in: directory), frames: 3)
+        try writeFragmentedMovie(to: harness.store.screenPartURL(in: directory), frames: 3)
         try self.writeScreencastLiveness(
             segmentID: segmentID,
             store: harness.store,
@@ -1402,51 +1402,6 @@ private extension MobileSegmentReconcileTests {
             liveness,
             to: MobileSegmentScreencastPaths.screenLivenessURL(inSegmentDirectory: directory)
         )
-    }
-
-
-    func writeFragmentedMovie(to url: URL, frames: Int = 3) throws {
-        let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
-        writer.movieFragmentInterval = CMTime(seconds: 1.0, preferredTimescale: 600)
-        let outputSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: 320,
-            AVVideoHeightKey: 240,
-        ]
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
-        input.expectsMediaDataInRealTime = false
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: input,
-            sourcePixelBufferAttributes: [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-                kCVPixelBufferWidthKey as String: 320,
-                kCVPixelBufferHeightKey as String: 240,
-            ]
-        )
-        writer.add(input)
-        guard writer.startWriting() else {
-            throw NSError(domain: "test", code: -1, userInfo: [NSLocalizedDescriptionKey: writer.error?.localizedDescription ?? "cannot start writing"])
-        }
-        writer.startSession(atSourceTime: .zero)
-
-        for i in 0..<frames {
-            var pixelBuffer: CVPixelBuffer?
-            CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &pixelBuffer)
-            guard let pb = pixelBuffer else { continue }
-            let time = CMTime(seconds: Double(i), preferredTimescale: 600)
-            while !input.isReadyForMoreMediaData {
-                Thread.sleep(forTimeInterval: 0.01)
-            }
-            adaptor.append(pb, withPresentationTime: time)
-        }
-        input.markAsFinished()
-
-        let expectation = XCTestExpectation(description: "finishWriting")
-        writer.finishWriting {
-            expectation.fulfill()
-        }
-        let result = XCTWaiter().wait(for: [expectation], timeout: 5.0)
-        XCTAssertEqual(result, .completed)
     }
 
     func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @MainActor () -> Bool) async throws {

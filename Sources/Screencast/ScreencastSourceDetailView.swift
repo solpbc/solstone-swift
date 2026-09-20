@@ -46,8 +46,10 @@ private extension ScreencastSourceDetailView {
         let source = screencastSourcePresentation(
             managerState: self.screencastManager.state,
             isJournalPaired: self.appConfig.isPaired,
-            enrolled: self.screencastManager.isEnrolled
+            enrolled: self.screencastManager.isEnrolled,
+            systemEndedAt: self.screencastManager.systemEndedAt
         )
+        let buttonTitle = SourceVocabulary.screencastActionTitle(state: self.screencastManager.state)
 
         return VStack(alignment: .leading, spacing: 12) {
             SourceDetailVerdictLine(state: source.state)
@@ -57,7 +59,7 @@ private extension ScreencastSourceDetailView {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            Button(SourceVocabulary.screencastStartButton) {
+            Button(buttonTitle) {
                 self.showingScreencastPrimer = true
             }
             .buttonStyle(.bordered)
@@ -69,7 +71,7 @@ private extension ScreencastSourceDetailView {
 
     var deliveryBlock: some View {
         let summary = self.mobileSegmentTransferHolder.summary(for: .screencast)
-        let presentation = LocationDetailPresentation.deliverySummary(
+        let presentation = ScreencastDetailPresentation.deliverySummary(
             pending: summary.pendingCount,
             failed: summary.failedCount
         )
@@ -82,7 +84,12 @@ private extension ScreencastSourceDetailView {
     var statusText: String {
         switch self.screencastManager.state {
         case .off:
-            SourceVocabulary.screencastReadyText
+            if let systemEndedAt = self.screencastManager.systemEndedAt,
+               Date().timeIntervalSince(systemEndedAt) <= ScreencastManager.systemEndedVisibleWindowSeconds {
+                SourceVocabulary.screencastSystemEndedSubtext
+            } else {
+                SourceVocabulary.screencastReadyText
+            }
         case .starting:
             SourceVocabulary.screencastStartingText
         case .active:

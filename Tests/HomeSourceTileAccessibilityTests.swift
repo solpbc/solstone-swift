@@ -32,7 +32,7 @@ nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
         XCTAssertFalse(dayHomeText.contains("screencastIsOn"))
         XCTAssertFalse(dayHomeText.contains("set: { _ in }"))
         XCTAssertTrue(dayHomeText.contains("control: .button"))
-        XCTAssertTrue(dayHomeText.contains("buttonTitle: SourceVocabulary.screencastStartButton"))
+        XCTAssertTrue(dayHomeText.contains("buttonTitle: SourceVocabulary.screencastActionTitle(state:"))
         XCTAssertTrue(dayHomeText.contains("showingScreencastPrimer = true"))
     }
 
@@ -42,7 +42,7 @@ nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
         XCTAssertTrue(primerText.contains("screencast.primer.illustration"))
         XCTAssertTrue(primerText.contains("screencast.primer.action"))
         XCTAssertTrue(primerText.contains("LocationVocabulary.alwaysPrimerHeader"))
-        XCTAssertTrue(primerText.contains("SourceVocabulary.screencastPrimerBody"))
+        XCTAssertTrue(primerText.contains("SourceVocabulary.screencastPrimerBody(state:"))
         XCTAssertTrue(primerText.contains("SourceVocabulary.screencastOpenSystemSheet"))
         XCTAssertFalse(primerText.contains(".fill(Color.solOrange)"))
         XCTAssertFalse(primerText.contains("Color.deckSurfaceRaised"))

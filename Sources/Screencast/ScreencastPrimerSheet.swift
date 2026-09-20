@@ -8,13 +8,15 @@ struct ScreencastPrimerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        let primerBody = SourceVocabulary.screencastPrimerBody(state: self.screencastManager.state)
+
+        return NavigationStack {
             ScrollView {
                 VStack(spacing: ShellMetrics.sectionGap) {
-                    ScreencastPrimerIllustration()
+                    ScreencastPrimerIllustration(primerBody: primerBody)
                         .frame(maxWidth: .infinity)
 
-                    Text(SourceVocabulary.screencastPrimerBody)
+                    Text(primerBody)
                         .font(.body)
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
@@ -55,7 +57,7 @@ struct ScreencastPrimerSheet: View {
             .allowsHitTesting(false)
 
             ScreencastPickerView {
-                self.screencastManager.beginStarting()
+                self.screencastManager.notePickerWillOpen()
             }
             .opacity(0.015)
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -68,6 +70,7 @@ struct ScreencastPrimerSheet: View {
 }
 
 private struct ScreencastPrimerIllustration: View {
+    let primerBody: String
     @ScaledMetric(relativeTo: .body) private var titleHeight: CGFloat = 8
     @ScaledMetric(relativeTo: .body) private var destinationHeight: CGFloat = 28
     @ScaledMetric(relativeTo: .body) private var actionHeight: CGFloat = 36
@@ -109,6 +112,6 @@ private struct ScreencastPrimerIllustration: View {
                 .stroke(Color.deckHairline, lineWidth: 0.5)
         )
         .accessibilityIdentifier("screencast.primer.illustration")
-        .accessibilityLabel(SourceVocabulary.screencastPrimerBody)
+        .accessibilityLabel(self.primerBody)
     }
 }

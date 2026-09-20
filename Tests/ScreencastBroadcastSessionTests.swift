@@ -134,7 +134,7 @@ nonisolated final class ScreencastBroadcastSessionTests: XCTestCase {
         session.broadcastStarted(sessionID: sessionID)
         XCTAssertNotNil(state.finishedError)
         XCTAssertEqual(state.finishedError?.domain, "app.solstone.swift.screencast")
-        XCTAssertEqual(state.finishedError?.userInfo[NSLocalizedDescriptionKey] as? String, "screen stopped. this iphone is low on storage.")
+        XCTAssertEqual(state.finishedError?.userInfo[NSLocalizedDescriptionKey] as? String, "screen stopped. this device is low on storage.")
         XCTAssertFalse(writer.isOpen)
 
         let runtimeURL = MobileSegmentScreencastPaths.url(
@@ -185,7 +185,7 @@ nonisolated final class ScreencastBroadcastSessionTests: XCTestCase {
         session.tick()
 
         XCTAssertNotNil(state.finishedError)
-        XCTAssertEqual(state.finishedError?.userInfo[NSLocalizedDescriptionKey] as? String, "screen stopped. this iphone is low on storage.")
+        XCTAssertEqual(state.finishedError?.userInfo[NSLocalizedDescriptionKey] as? String, "screen stopped. this device is low on storage.")
         XCTAssertFalse(writer.isOpen)
     }
 

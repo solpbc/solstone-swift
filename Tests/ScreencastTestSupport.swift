@@ -2,7 +2,10 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import AVFoundation
+import CoreMedia
 import Foundation
+import XCTest
 
 @MainActor
 final class ScreencastCallLog {
@@ -224,4 +227,76 @@ nonisolated enum ScreencastFixtures {
             createdAt: Self.start.addingTimeInterval(8)
         )
     }
+}
+
+nonisolated func writeFragmentedMovie(to url: URL, frames: Int = 3) throws {
+    let writer = try AVAssetWriter(outputURL: url, fileType: .mp4)
+    writer.movieFragmentInterval = CMTime(seconds: 1.0, preferredTimescale: 600)
+    let outputSettings: [String: Any] = [
+        AVVideoCodecKey: AVVideoCodecType.h264,
+        AVVideoWidthKey: 320,
+        AVVideoHeightKey: 240,
+    ]
+    let input = AVAssetWriterInput(mediaType: .video, outputSettings: outputSettings)
+    input.expectsMediaDataInRealTime = false
+    let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+        assetWriterInput: input,
+        sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: 320,
+            kCVPixelBufferHeightKey as String: 240,
+        ]
+    )
+    writer.add(input)
+    guard writer.startWriting() else {
+        throw NSError(domain: "test", code: -1, userInfo: [NSLocalizedDescriptionKey: writer.error?.localizedDescription ?? "cannot start writing"])
+    }
+    writer.startSession(atSourceTime: .zero)
+
+    for i in 0..<frames {
+        var pixelBuffer: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &pixelBuffer)
+        guard let pb = pixelBuffer else { continue }
+        let time = CMTime(seconds: Double(i), preferredTimescale: 600)
+        while !input.isReadyForMoreMediaData {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        adaptor.append(pb, withPresentationTime: time)
+    }
+    input.markAsFinished()
+
+    let expectation = XCTestExpectation(description: "finishWriting")
+    writer.finishWriting {
+        expectation.fulfill()
+    }
+    let result = XCTWaiter().wait(for: [expectation], timeout: 5.0)
+    guard result == .completed else {
+        throw NSError(domain: "test", code: -2, userInfo: [NSLocalizedDescriptionKey: "timed out writing movie"])
+    }
+}
+
+nonisolated func writeLiveness(
+    root: URL,
+    sessionID: UUID,
+    segmentID: UUID,
+    handoffRevision: Int64 = 1,
+    lastSeenAt: Date,
+    acceptedFrameCount: Int = 1,
+    droppedFrameCount: Int = 0
+) throws {
+    let directory = root
+        .appendingPathComponent("MobileSegment", isDirectory: true)
+        .appendingPathComponent("active", isDirectory: true)
+        .appendingPathComponent(segmentID.uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let liveness = MobileSegmentScreencastSegmentLiveness(
+        sessionID: sessionID,
+        segmentID: segmentID,
+        handoffRevision: handoffRevision,
+        lastSeenAt: lastSeenAt,
+        acceptedFrameCount: acceptedFrameCount,
+        droppedFrameCount: droppedFrameCount
+    )
+    let liveURL = directory.appendingPathComponent(MobileSegmentScreencastPaths.screenLivenessFilename, isDirectory: false)
+    try MobileSegmentScreencastJSONStore.write(liveness, to: liveURL)
 }

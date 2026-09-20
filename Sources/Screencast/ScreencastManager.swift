@@ -13,6 +13,130 @@ nonisolated enum ScreencastReconcileReason: String, Equatable, Sendable {
     case darwinNotification
     case mobileSegmentResume
     case startingTimeout
+    case livenessWatchdog
+}
+
+nonisolated enum ScreencastScenePhase: String, Equatable, Sendable {
+    case active
+    case inactive
+    case background
+}
+
+nonisolated enum ScreencastLivenessScanResult: Equatable, Sendable {
+    case listingFailed
+    case observed(
+        newestLastSeenAt: Date?,
+        hasSessionUndecodableLiveness: Bool,
+        hasFreshLiveness: Bool
+    )
+}
+
+nonisolated func scanActiveLiveness(
+    root: URL,
+    sessionID: UUID,
+    candidateSegmentIDs: Set<UUID>,
+    now: Date
+) -> ScreencastLivenessScanResult {
+    let activeDirectory = root
+        .appendingPathComponent(MobileSegmentScreencastPaths.mobileSegmentDirectoryName, isDirectory: true)
+        .appendingPathComponent("active", isDirectory: true)
+
+    guard FileManager.default.fileExists(atPath: activeDirectory.path) else {
+        return .observed(newestLastSeenAt: nil, hasSessionUndecodableLiveness: false, hasFreshLiveness: false)
+    }
+
+    let contents: [URL]
+    do {
+        contents = try FileManager.default.contentsOfDirectory(
+            at: activeDirectory,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+    } catch {
+        return .listingFailed
+    }
+
+    var newestLastSeenAt: Date?
+    var hasSessionUndecodableLiveness = false
+    var hasFreshLiveness = false
+
+    for item in contents {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: item.path, isDirectory: &isDir), isDir.boolValue else {
+            continue
+        }
+        let segmentID = UUID(uuidString: item.lastPathComponent)
+        let liveURL = item.appendingPathComponent(MobileSegmentScreencastPaths.screenLivenessFilename, isDirectory: false)
+        guard FileManager.default.fileExists(atPath: liveURL.path) else {
+            continue
+        }
+        if let liveness = try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastSegmentLiveness.self, from: liveURL) {
+            if liveness.sessionID == sessionID {
+                if let currentNewest = newestLastSeenAt {
+                    newestLastSeenAt = max(currentNewest, liveness.lastSeenAt)
+                } else {
+                    newestLastSeenAt = liveness.lastSeenAt
+                }
+                if MobileSegmentScreencastLivenessPolicy.isFresh(lastSeenAt: liveness.lastSeenAt, now: now) {
+                    hasFreshLiveness = true
+                }
+            }
+        } else {
+            if let segmentID, candidateSegmentIDs.contains(segmentID) {
+                hasSessionUndecodableLiveness = true
+            }
+        }
+    }
+
+    return .observed(
+        newestLastSeenAt: newestLastSeenAt,
+        hasSessionUndecodableLiveness: hasSessionUndecodableLiveness,
+        hasFreshLiveness: hasFreshLiveness
+    )
+}
+
+nonisolated func isDeadShapedDisk(
+    runtime: MobileSegmentScreencastRuntimeRecord?,
+    diagnostic: MobileSegmentScreencastDiagnostic?,
+    scanResult: ScreencastLivenessScanResult,
+    now: Date
+) -> Bool {
+    guard let runtime else { return false }
+    switch runtime.state {
+    case .broadcastStarted, .writerOpen, .finishing:
+        break
+    case .finalized, .failed:
+        return false
+    }
+    if diagnostic != nil {
+        return false
+    }
+    let threshold = MobileSegmentScreencastLivenessPolicy.livenessRefreshIntervalSeconds + MobileSegmentScreencastLivenessPolicy.livenessStaleWindowSeconds
+    guard now.timeIntervalSince(runtime.lastSeenAt) >= threshold else {
+        return false
+    }
+    guard case .observed(_, let hasSessionUndecodableLiveness, let hasFreshLiveness) = scanResult else {
+        return false
+    }
+    return !hasSessionUndecodableLiveness && !hasFreshLiveness
+}
+
+nonisolated func isDeadScreencastSession(
+    runtime: MobileSegmentScreencastRuntimeRecord?,
+    diagnostic: MobileSegmentScreencastDiagnostic?,
+    scanResult: ScreencastLivenessScanResult,
+    engineSources: Set<MobileSegmentSource>,
+    managerState: ScreencastManager.State,
+    now: Date
+) -> Bool {
+    guard isDeadShapedDisk(runtime: runtime, diagnostic: diagnostic, scanResult: scanResult, now: now) else {
+        return false
+    }
+    let isActive = engineSources.contains(.screencast) || {
+        if case .active = managerState { return true }
+        return false
+    }()
+    return isActive
 }
 
 nonisolated enum ScreencastAttention: String, Codable, Equatable, Sendable {
@@ -351,6 +475,9 @@ final class ScreencastManager {
     @ObservationIgnored private let rootURLProvider: () throws -> URL
     @ObservationIgnored private let darwin: any ScreencastDarwinNotifying
     @ObservationIgnored private var startingTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var watchdogTask: Task<Void, Never>?
+    @ObservationIgnored private var scenePhase: ScreencastScenePhase = .inactive
+    @ObservationIgnored private let sessionLivenessScanner: (@MainActor @Sendable (URL, UUID, Set<UUID>, Date) -> ScreencastLivenessScanResult)?
 
     private enum Key {
         static let lastProcessedRuntimeRevision = "screencast.lastProcessedRuntimeRevision"
@@ -360,23 +487,38 @@ final class ScreencastManager {
         static let startingDeadline = "screencast.startingDeadline"
         static let lastAttentionReason = "screencast.lastAttentionReason"
         static let lastAttentionAt = "screencast.lastAttentionAt"
+        static let systemEndedAt = "screencast.systemEndedAt"
     }
 
     var isEnrolled: Bool {
         self.defaults?.bool(forKey: Key.enrolled) ?? false
     }
 
+    var systemEndedAt: Date? {
+        self.defaults?.object(forKey: Key.systemEndedAt) as? Date
+    }
+
     private func persistEnrolled() {
         self.defaults?.set(true, forKey: Key.enrolled)
     }
 
-    static let startingTimeoutSeconds: TimeInterval = 20
+    private func persistSystemEnded(at date: Date) {
+        self.defaults?.set(date, forKey: Key.systemEndedAt)
+    }
+
+    func clearSystemEnded() {
+        self.defaults?.removeObject(forKey: Key.systemEndedAt)
+    }
+
+    nonisolated static let startingTimeoutSeconds: TimeInterval = 20
+    nonisolated static let systemEndedVisibleWindowSeconds: TimeInterval = 12 * 3600
 
     convenience init(
         clock: any ObserverClock = SystemObserverClock(),
         defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier),
         rootURLProvider: @escaping () throws -> URL = { try AppGroupContainer.rootURL() },
-        darwin: any ScreencastDarwinNotifying = ScreencastDarwinNotificationCenter()
+        darwin: any ScreencastDarwinNotifying = ScreencastDarwinNotificationCenter(),
+        sessionLivenessScanner: (@MainActor @Sendable (URL, UUID, Set<UUID>, Date) -> ScreencastLivenessScanResult)? = nil
     ) {
         let uploader = MobileSegmentUploader(clock: clock)
         let engine = MobileSegmentEngine(uploader: uploader, clock: clock)
@@ -386,7 +528,8 @@ final class ScreencastManager {
             clock: clock,
             defaults: defaults,
             rootURLProvider: rootURLProvider,
-            darwin: darwin
+            darwin: darwin,
+            sessionLivenessScanner: sessionLivenessScanner
         )
     }
 
@@ -396,7 +539,8 @@ final class ScreencastManager {
         clock: any ObserverClock = SystemObserverClock(),
         defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier),
         rootURLProvider: @escaping () throws -> URL = { try AppGroupContainer.rootURL() },
-        darwin: any ScreencastDarwinNotifying = ScreencastDarwinNotificationCenter()
+        darwin: any ScreencastDarwinNotifying = ScreencastDarwinNotificationCenter(),
+        sessionLivenessScanner: (@MainActor @Sendable (URL, UUID, Set<UUID>, Date) -> ScreencastLivenessScanResult)? = nil
     ) {
         self.engine = engine
         self.segmentUploader = uploader
@@ -404,6 +548,7 @@ final class ScreencastManager {
         self.defaults = defaults
         self.rootURLProvider = rootURLProvider
         self.darwin = darwin
+        self.sessionLivenessScanner = sessionLivenessScanner
         self.restoreStartingState()
         if self.defaults?.object(forKey: Key.lastSessionID) != nil {
             self.persistEnrolled()
@@ -429,7 +574,93 @@ final class ScreencastManager {
         guard case .active = self.state else { return }
     }
 
+    func receiveScenePhase(_ phase: ScreencastScenePhase) {
+        self.scenePhase = phase
+        self.syncWatchdog()
+    }
+
+    func syncWatchdog() {
+        let shouldRun: Bool = {
+            guard self.scenePhase == .active else { return false }
+            if case .active = self.state { return true }
+            return false
+        }()
+
+        if shouldRun {
+            guard self.watchdogTask == nil else { return }
+            self.watchdogTask = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    guard let self else { return }
+                    do {
+                        try await self.clock.sleep(for: .seconds(MobileSegmentScreencastLivenessPolicy.livenessStaleWindowSeconds))
+                    } catch {
+                        return
+                    }
+                    guard !Task.isCancelled else { return }
+                    guard case .active = self.state, self.scenePhase == .active else { return }
+
+                    let isDead = self.evaluateDeadnessPredicate()
+                    if isDead {
+                        await self.reconcileScreencast(reason: .livenessWatchdog)
+                        return
+                    }
+                }
+            }
+        } else {
+            self.watchdogTask?.cancel()
+            self.watchdogTask = nil
+        }
+    }
+
+    func evaluateDeadnessPredicate() -> Bool {
+        guard let root = try? self.rootURLProvider() else { return false }
+        let runtime = self.readRuntime(root: root)
+        guard let runtime else { return false }
+        let handoff = self.readHandoff(root: root)
+        let diagnostic = self.readDiagnostic(root: root, runtime: runtime, handoff: handoff)
+
+        var candidateSegmentIDs: Set<UUID> = []
+        if let seg = runtime.currentSegmentID { candidateSegmentIDs.insert(seg) }
+        if let seg = handoff?.segmentID { candidateSegmentIDs.insert(seg) }
+        if let seg = diagnostic?.segmentID { candidateSegmentIDs.insert(seg) }
+
+        let scanResult = self.performScanActiveLiveness(
+            root: root,
+            sessionID: runtime.sessionID,
+            candidateSegmentIDs: candidateSegmentIDs
+        )
+
+        return isDeadScreencastSession(
+            runtime: runtime,
+            diagnostic: diagnostic,
+            scanResult: scanResult,
+            engineSources: self.engine.currentScreencastSources,
+            managerState: self.state,
+            now: self.clock.now()
+        )
+    }
+
+    func performScanActiveLiveness(
+        root: URL,
+        sessionID: UUID,
+        candidateSegmentIDs: Set<UUID>
+    ) -> ScreencastLivenessScanResult {
+        let now = self.clock.now()
+        if let custom = self.sessionLivenessScanner {
+            return custom(root, sessionID, candidateSegmentIDs, now)
+        }
+        return scanActiveLiveness(root: root, sessionID: sessionID, candidateSegmentIDs: candidateSegmentIDs, now: now)
+    }
+
+    func notePickerWillOpen() {
+        if case .active = self.state {
+            return
+        }
+        self.beginStarting()
+    }
+
     func beginStarting() {
+        self.clearSystemEnded()
         let startedAt = self.clock.now()
         let deadline = startedAt.addingTimeInterval(Self.startingTimeoutSeconds)
         self.state = .starting(startedAt: startedAt, deadline: deadline)
@@ -443,6 +674,38 @@ final class ScreencastManager {
         self.state = .off
     }
 
+    func concludeDeadScreencastSession(
+        sessionID: UUID,
+        runtime: MobileSegmentScreencastRuntimeRecord?,
+        handoff: MobileSegmentScreencastHandoffRecord?,
+        scanResult: ScreencastLivenessScanResult
+    ) async {
+        let now = self.clock.now()
+        do {
+            try await self.engine.stopScreencast(at: now)
+        } catch {
+            screencastLog.error("screencast dead session stop failed: \(String(describing: error), privacy: .public)")
+        }
+
+        switch self.state {
+        case .needsAttention, .unavailable:
+            break
+        case .starting:
+            break
+        case .off, .active:
+            self.state = .off
+            self.persistSystemEnded(at: now)
+        }
+
+        let newestLiveness = if case .observed(let newest, _, _) = scanResult { newest } else { nil as Date? }
+        let ageStr = newestLiveness.map { "\($0) age=\(now.timeIntervalSince($0))s" } ?? "none"
+        let lastSeenStr = runtime.map { "\($0.lastSeenAt)" } ?? "none"
+        screencastLog.info("screencast dead session concluded session=\(sessionID.uuidString, privacy: .public) newestLiveness=\(ageStr, privacy: .public) runtimeLastSeen=\(lastSeenStr, privacy: .public)")
+
+        self.persistProcessed(runtime: runtime, handoff: handoff)
+        self.syncWatchdog()
+    }
+
     func reconcileScreencast(reason: ScreencastReconcileReason) async {
         let root: URL
         do {
@@ -452,6 +715,7 @@ final class ScreencastManager {
             self.persistAttention(.appGroupUnavailable)
             self.clearStarting()
             self.state = .unavailable(.appGroupUnavailable)
+            self.syncWatchdog()
             return
         }
 
@@ -466,11 +730,46 @@ final class ScreencastManager {
            runtime == nil,
            case .starting = self.state {
             self.cancelStarting()
+            self.syncWatchdog()
             return
         }
 
         let handoff = self.readHandoff(root: root)
         let diagnostic = self.readDiagnostic(root: root, runtime: runtime, handoff: handoff)
+
+        let scanResult: ScreencastLivenessScanResult? = {
+            guard let currentSessionID = runtime?.sessionID ?? handoff?.sessionID else { return nil }
+            var candidateSegmentIDs: Set<UUID> = []
+            if let seg = runtime?.currentSegmentID { candidateSegmentIDs.insert(seg) }
+            if let seg = handoff?.segmentID { candidateSegmentIDs.insert(seg) }
+            if let seg = diagnostic?.segmentID { candidateSegmentIDs.insert(seg) }
+            return self.performScanActiveLiveness(
+                root: root,
+                sessionID: currentSessionID,
+                candidateSegmentIDs: candidateSegmentIDs
+            )
+        }()
+
+        if let currentSessionID = runtime?.sessionID ?? handoff?.sessionID,
+           let scanResult {
+            if isDeadScreencastSession(
+                runtime: runtime,
+                diagnostic: diagnostic,
+                scanResult: scanResult,
+                engineSources: self.engine.currentScreencastSources,
+                managerState: self.state,
+                now: self.clock.now()
+            ) {
+                await self.concludeDeadScreencastSession(
+                    sessionID: currentSessionID,
+                    runtime: runtime,
+                    handoff: handoff,
+                    scanResult: scanResult
+                )
+                return
+            }
+        }
+
         let filesystem = self.filesystemState(root: root, runtime: runtime, handoff: handoff, diagnostic: diagnostic)
         let manifestResolution = filesystem.segmentID.flatMap {
             self.segmentUploader.screencastResolution(segmentID: $0)
@@ -488,7 +787,21 @@ final class ScreencastManager {
             now: self.clock.now()
         )
 
-        let actions = deriveScreencastReconcileActions(input: input)
+        var actions = deriveScreencastReconcileActions(input: input)
+
+        if let scanResult,
+           isDeadShapedDisk(
+            runtime: runtime,
+            diagnostic: diagnostic,
+            scanResult: scanResult,
+            now: self.clock.now()
+        ) {
+            actions.removeAll { action in
+                if case .startBoundary = action { return true }
+                return false
+            }
+        }
+
         do {
             try await self.apply(actions: actions, root: root, runtime: runtime, handoff: handoff, diagnostic: diagnostic)
             self.persistProcessed(runtime: runtime, handoff: handoff)
@@ -497,6 +810,7 @@ final class ScreencastManager {
             self.persistAttention(.finalizeFailed)
             self.state = .needsAttention(.finalizeFailed)
         }
+        self.syncWatchdog()
     }
 }
 
@@ -656,6 +970,7 @@ extension ScreencastManager {
                 self.defaults?.set(sessionID.uuidString, forKey: Key.lastSessionID)
                 self.persistEnrolled()
                 self.clearStarting()
+                self.clearSystemEnded()
                 self.state = .active(sessionID: sessionID, segmentID: published.segmentID, startedAt: published.startedAt)
             case .recordFinalized(let segmentID):
                 let artifactURL = MobileSegmentScreencastPaths.url(
@@ -703,6 +1018,7 @@ extension ScreencastManager {
                 guard let runtime else { break }
                 self.persistEnrolled()
                 self.clearStarting()
+                self.clearSystemEnded()
                 self.state = .active(sessionID: runtime.sessionID, segmentID: segmentID, startedAt: runtime.startedAt)
             case .surfaceAttention(let reason):
                 let attention = screencastAttention(for: reason)
@@ -746,7 +1062,9 @@ extension ScreencastManager {
             }
             self.darwin.postChanged()
             self.persistEnrolled()
+            self.clearSystemEnded()
             self.state = .active(sessionID: sessionID, segmentID: published.segmentID, startedAt: published.startedAt)
+            self.syncWatchdog()
             return true
         } catch {
             screencastLog.error("screencast rollover handoff publish failed: \(String(describing: error), privacy: .public)")

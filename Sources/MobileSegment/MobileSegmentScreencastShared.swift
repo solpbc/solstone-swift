@@ -491,7 +491,7 @@ nonisolated enum MobileSegmentScreencastStopPolicy {
     static func ownerSentence(for reason: MobileSegmentScreencastDiagnosticReason) -> String {
         switch reason {
         case .storageLow:
-            "screen stopped. this iphone is low on storage."
+            "screen stopped. this device is low on storage."
         case .appGroupUnavailable:
             "screen is unavailable"
         case .noVideo:

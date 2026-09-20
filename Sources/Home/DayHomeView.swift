@@ -348,7 +348,7 @@ private extension DayHomeView {
                     source: self.bundle.screencast,
                     route: .screencast,
                     control: .button,
-                    buttonTitle: SourceVocabulary.screencastStartButton,
+                    buttonTitle: SourceVocabulary.screencastActionTitle(state: self.screencastManager.state),
                     onButton: { self.showingScreencastPrimer = true }
                 )
             }

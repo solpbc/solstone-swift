@@ -113,6 +113,19 @@ struct SolstoneSwiftApp: App {
         }
     }
 
+    private static func screencastScenePhase(_ phase: ScenePhase) -> ScreencastScenePhase {
+        switch phase {
+        case .active:
+            .active
+        case .background:
+            .background
+        case .inactive:
+            .inactive
+        @unknown default:
+            .inactive
+        }
+    }
+
     @MainActor
     static func revalidateThenRequestDrain(
         tunnelManager: TunnelManager,
@@ -636,6 +649,9 @@ struct SolstoneSwiftApp: App {
                     await self.locationManager.resumeIfEnabled()
                 }
                 .task {
+                    self.screencastManager.receiveScenePhase(Self.screencastScenePhase(self.scenePhase))
+                }
+                .task {
                     self.tunnelManager.receiveScenePhase(Self.tunnelScenePhase(self.scenePhase))
                 }
                 .task {
@@ -659,6 +675,7 @@ struct SolstoneSwiftApp: App {
                 }
         }
         .onChange(of: self.scenePhase) { _, newPhase in
+            self.screencastManager.receiveScenePhase(Self.screencastScenePhase(newPhase))
             self.tunnelManager.receiveScenePhase(Self.tunnelScenePhase(newPhase))
             switch newPhase {
             case .active:

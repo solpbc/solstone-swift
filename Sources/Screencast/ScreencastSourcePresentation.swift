@@ -6,7 +6,9 @@ import Foundation
 nonisolated func screencastSourcePresentation(
     managerState: ScreencastManager.State,
     isJournalPaired: Bool,
-    enrolled: Bool
+    enrolled: Bool,
+    systemEndedAt: Date? = nil,
+    now: Date = Date()
 ) -> Source {
     let state = screencastSourceState(for: managerState, enrolled: enrolled)
     let subtextOverride: String?
@@ -14,10 +16,15 @@ nonisolated func screencastSourcePresentation(
 
     switch managerState {
     case .off:
-        // Screen always supplies its own sub-line, so it never reaches the shared
-        // fall-through — which means a never-set-up source would read
-        // `ready to set up` over `off`. It gets no sub-line instead.
-        subtextOverride = enrolled ? SourceVocabulary.screencastOffSubtext : nil
+        if let systemEndedAt,
+           now.timeIntervalSince(systemEndedAt) <= ScreencastManager.systemEndedVisibleWindowSeconds {
+            subtextOverride = SourceVocabulary.screencastSystemEndedSubtext
+        } else {
+            // Screen always supplies its own sub-line, so it never reaches the shared
+            // fall-through — which means a never-set-up source would read
+            // `ready to set up` over `off`. It gets no sub-line instead.
+            subtextOverride = enrolled ? SourceVocabulary.screencastOffSubtext : nil
+        }
         attention = nil
     case .starting:
         subtextOverride = SourceVocabulary.screencastStartingSubtext
@@ -56,5 +63,25 @@ nonisolated func screencastAttentionMessage(_ attention: ScreencastAttention) ->
         SourceVocabulary.screencastFinalizeFailedText
     case .appGroupUnavailable:
         SourceVocabulary.screencastUnavailableText
+    }
+}
+
+extension SourceVocabulary {
+    static func screencastPrimerBody(state: ScreencastManager.State) -> String {
+        switch state {
+        case .active:
+            screencastPrimerBodyActive
+        default:
+            screencastPrimerBodyOff
+        }
+    }
+
+    static func screencastActionTitle(state: ScreencastManager.State) -> String {
+        switch state {
+        case .active:
+            screencastOpenSystemSheet
+        default:
+            screencastStartButton
+        }
     }
 }

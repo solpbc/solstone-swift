@@ -27,10 +27,74 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.screencastFinalizeFailedText, "screen video could not be saved")
         XCTAssertEqual(SourceVocabulary.screencastFinalizeTimeoutText, "screen video timed out while saving")
         XCTAssertEqual(SourceVocabulary.screencastFilesystemFailedText, "screen video could not be stored")
-        XCTAssertEqual(SourceVocabulary.screencastStorageLowText, "screen stopped. this iphone is low on storage.")
+        XCTAssertEqual(SourceVocabulary.screencastStorageLowText, "screen stopped. this device is low on storage.")
+        XCTAssertEqual(SourceVocabulary.screencastSystemEndedSubtext, "the system ended screen sharing")
         XCTAssertEqual(
             SourceVocabulary.screencastPrimerBody,
-            "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up."
+            "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.screencastPrimerBodyActive,
+            "to stop sharing your screen, tap \"Stop Broadcast\" in the sheet that comes up."
+        )
+        XCTAssertEqual(
+            SourceVocabulary.screencastPrimerBodyOff,
+            "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."
+        )
+    }
+
+    func testScreencastPrimerAndActionHelpers() {
+        XCTAssertEqual(
+            SourceVocabulary.screencastPrimerBody(state: .active(sessionID: UUID(), segmentID: UUID(), startedAt: Date())),
+            SourceVocabulary.screencastPrimerBodyActive
+        )
+        XCTAssertEqual(
+            SourceVocabulary.screencastPrimerBody(state: .off),
+            SourceVocabulary.screencastPrimerBodyOff
+        )
+        XCTAssertEqual(
+            SourceVocabulary.screencastPrimerBody(state: .starting(startedAt: Date(), deadline: Date())),
+            SourceVocabulary.screencastPrimerBodyOff
+        )
+
+        XCTAssertEqual(
+            SourceVocabulary.screencastActionTitle(state: .active(sessionID: UUID(), segmentID: UUID(), startedAt: Date())),
+            SourceVocabulary.screencastOpenSystemSheet
+        )
+        XCTAssertEqual(
+            SourceVocabulary.screencastActionTitle(state: .off),
+            SourceVocabulary.screencastStartButton
+        )
+        XCTAssertEqual(
+            SourceVocabulary.screencastActionTitle(state: .starting(startedAt: Date(), deadline: Date())),
+            SourceVocabulary.screencastStartButton
+        )
+    }
+
+    func testScreencastDeliverySummary() {
+        XCTAssertEqual(
+            ScreencastDetailPresentation.deliverySummary(pending: 0, failed: 0).line,
+            "nothing waiting right now."
+        )
+        XCTAssertEqual(
+            ScreencastDetailPresentation.deliverySummary(pending: 1, failed: 0).line,
+            "1 stretch of screen on the way to your journal."
+        )
+        XCTAssertEqual(
+            ScreencastDetailPresentation.deliverySummary(pending: 3, failed: 0).line,
+            "3 stretches of screen on the way to your journal."
+        )
+        XCTAssertEqual(
+            ScreencastDetailPresentation.deliverySummary(pending: 0, failed: 1).line,
+            "1 stretch of screen needs attention."
+        )
+        XCTAssertEqual(
+            ScreencastDetailPresentation.deliverySummary(pending: 0, failed: 4).line,
+            "4 stretches of screen need attention."
+        )
+        XCTAssertEqual(
+            ScreencastDetailPresentation.deliverySummary(pending: 5, failed: 2).line,
+            "2 stretches of screen need attention."
         )
     }
 
@@ -62,9 +126,6 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
             SourceVocabulary.onThisPhoneSourceName(for: .screencast),
             SourceVocabulary.onThisPhoneDropScreencastDescriptor,
         ] {
-            if string == SourceVocabulary.screencastStorageLowText {
-                continue
-            }
             XCTAssertFalse(string.contains("Phone"), string)
             XCTAssertFalse(string.contains("phone"), string)
         }
@@ -93,6 +154,9 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         SourceVocabulary.screencastFinalizeTimeoutText,
         SourceVocabulary.screencastFilesystemFailedText,
         SourceVocabulary.screencastStorageLowText,
+        SourceVocabulary.screencastSystemEndedSubtext,
         SourceVocabulary.screencastPrimerBody,
+        SourceVocabulary.screencastPrimerBodyActive,
+        SourceVocabulary.screencastPrimerBodyOff,
     ]
 }

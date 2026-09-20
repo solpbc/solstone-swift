@@ -85,6 +85,43 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
         XCTAssertEqual(faultSource.attention?.message, screencastAttentionMessage(.finalizeFailed))
     }
 
+    func testScreencastSystemEndedSubtextWindow() {
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let recentEnded = now.addingTimeInterval(-3600) // 1 hr ago
+        let oldEnded = now.addingTimeInterval(-(12 * 3600 + 1)) // 12 hrs and 1 sec ago
+
+        let recentSource = screencastSourcePresentation(
+            managerState: .off,
+            isJournalPaired: true,
+            enrolled: true,
+            systemEndedAt: recentEnded,
+            now: now
+        )
+        XCTAssertEqual(recentSource.subtext, SourceVocabulary.screencastSystemEndedSubtext)
+
+        let oldSource = screencastSourcePresentation(
+            managerState: .off,
+            isJournalPaired: true,
+            enrolled: true,
+            systemEndedAt: oldEnded,
+            now: now
+        )
+        XCTAssertEqual(oldSource.subtext, SourceVocabulary.screencastOffSubtext)
+
+        let activeSourceWithRecentEnded = screencastSourcePresentation(
+            managerState: .active(
+                sessionID: UUID(),
+                segmentID: UUID(),
+                startedAt: now.addingTimeInterval(-10)
+            ),
+            isJournalPaired: true,
+            enrolled: true,
+            systemEndedAt: recentEnded,
+            now: now
+        )
+        XCTAssertEqual(activeSourceWithRecentEnded.subtext, SourceVocabulary.screencastActiveSubtext)
+    }
+
     private static func source(id: String, kind: SourceKind) -> Source {
         Source(
             id: id,

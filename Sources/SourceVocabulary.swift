@@ -184,8 +184,11 @@ nonisolated enum SourceVocabulary {
     static let screencastFinalizeFailedText = "screen video could not be saved"
     static let screencastFinalizeTimeoutText = "screen video timed out while saving"
     static let screencastFilesystemFailedText = "screen video could not be stored"
-    static let screencastStorageLowText = "screen stopped. this iphone is low on storage."
-    static let screencastPrimerBody = "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up."
+    static let screencastStorageLowText = "screen stopped. this device is low on storage."
+    static let screencastSystemEndedSubtext = "the system ended screen sharing"
+    static let screencastPrimerBodyActive = "to stop sharing your screen, tap \"Stop Broadcast\" in the sheet that comes up."
+    static let screencastPrimerBodyOff = "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."
+    static let screencastPrimerBody = screencastPrimerBodyOff
 
     // The status pill resolves to one of five states and names it in one word or
     // phrase. `connected · syncing` was two of those states at once.
