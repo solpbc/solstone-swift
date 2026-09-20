@@ -224,6 +224,33 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
     var isEmptyResolved: Bool {
         self.isFullyResolved && !self.hasArtifact && !self.hasFinalizeFailure
     }
+
+    static let promotedScreenAudioReason = "screen_broadcast"
+
+    mutating func promoteScreenAudio(
+        bytes: Int64,
+        startedAt: Date,
+        endedAt: Date,
+        durationS: TimeInterval?,
+        now: Date
+    ) -> MobileSegmentSourceResolution {
+        var sources = Set(self.openedWithSources)
+        sources.insert(.audio)
+        self.openedWithSources = sources.sortedByStableName()
+        let resolution = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: "audio.m4a",
+            bytes: bytes,
+            startedAt: startedAt,
+            endedAt: endedAt,
+            durationS: durationS,
+            reason: Self.promotedScreenAudioReason,
+            mode: .meeting
+        )
+        self.audio = resolution
+        self.updatedAt = now
+        return resolution
+    }
 }
 
 nonisolated struct MobileSegmentOutcomeRecord: Codable, Sendable, Equatable {

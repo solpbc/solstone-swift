@@ -9,6 +9,8 @@ nonisolated enum MobileSegmentScreencastPaths {
     static let mobileSegmentDirectoryName = "MobileSegment"
     static let screenFilename = "screen.mp4"
     static let screenPartFilename = "screen.mp4.part"
+    static let screenAudioFilename = "screen-audio.m4a"
+    static let screenAudioPartFilename = "screen-audio.m4a.part"
     static let screenLivenessFilename = "screen.live.json"
     static let screenWindowFilename = "screen.window.json"
     static let screenDiagnosticFilename = "screen.failed.json"
@@ -23,6 +25,14 @@ nonisolated enum MobileSegmentScreencastPaths {
 
     static func screenPartRelativePath(segmentID: UUID) -> String {
         "\(Self.activeSegmentRelativeDirectory(segmentID: segmentID))/\(Self.screenPartFilename)"
+    }
+
+    static func screenAudioRelativePath(segmentID: UUID) -> String {
+        "\(Self.activeSegmentRelativeDirectory(segmentID: segmentID))/\(Self.screenAudioFilename)"
+    }
+
+    static func screenAudioPartRelativePath(segmentID: UUID) -> String {
+        "\(Self.activeSegmentRelativeDirectory(segmentID: segmentID))/\(Self.screenAudioPartFilename)"
     }
 
     static func screenLivenessRelativePath(segmentID: UUID) -> String {
@@ -59,6 +69,14 @@ nonisolated enum MobileSegmentScreencastPaths {
 
     static func screenPartURL(inSegmentDirectory directory: URL) -> URL {
         directory.appendingPathComponent(Self.screenPartFilename, isDirectory: false)
+    }
+
+    static func screenAudioURL(inSegmentDirectory directory: URL) -> URL {
+        directory.appendingPathComponent(Self.screenAudioFilename, isDirectory: false)
+    }
+
+    static func screenAudioPartURL(inSegmentDirectory directory: URL) -> URL {
+        directory.appendingPathComponent(Self.screenAudioPartFilename, isDirectory: false)
     }
 
     static func screenLivenessURL(inSegmentDirectory directory: URL) -> URL {
@@ -541,7 +559,7 @@ nonisolated enum MobileSegmentScreencastSampleKind: Sendable, Equatable {
 
 nonisolated enum MobileSegmentScreencastSamplePolicy {
     static func accepts(_ kind: MobileSegmentScreencastSampleKind) -> Bool {
-        kind == .video
+        kind == .video || kind == .audioMic
     }
 }
 

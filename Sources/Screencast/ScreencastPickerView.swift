@@ -20,14 +20,12 @@ struct ScreencastPickerView: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let picker = RPSystemBroadcastPickerView(frame: .zero)
         picker.preferredExtension = Self.preferredExtension
-        picker.showsMicrophoneButton = false
         context.coordinator.attach(to: picker)
         return picker
     }
 
     func updateUIView(_ uiView: RPSystemBroadcastPickerView, context: Context) {
         uiView.preferredExtension = Self.preferredExtension
-        uiView.showsMicrophoneButton = false
         context.coordinator.attach(to: uiView)
     }
 

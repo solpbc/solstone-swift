@@ -24,22 +24,35 @@ enum MobileSegmentDuration {
     }
 
     nonisolated static func probeContainerDuration(at url: URL) async -> TimeInterval? {
+        let probeURL: URL
+        let tempSymlink: URL?
+        if url.pathExtension == "part" {
+            let innerExt = url.deletingPathExtension().pathExtension
+            let symlinkExt = innerExt.isEmpty ? "mp4" : innerExt
+            let symlink = FileManager.default.temporaryDirectory
+                .appendingPathComponent("probe-\(UUID().uuidString).\(symlinkExt)", isDirectory: false)
+            if (try? FileManager.default.createSymbolicLink(at: symlink, withDestinationURL: url)) != nil {
+                tempSymlink = symlink
+                probeURL = symlink
+            } else {
+                tempSymlink = nil
+                probeURL = url
+            }
+        } else {
+            tempSymlink = nil
+            probeURL = url
+        }
+        defer {
+            if let tempSymlink {
+                try? FileManager.default.removeItem(at: tempSymlink)
+            }
+        }
+
         do {
-            let seconds = CMTimeGetSeconds(try await AVURLAsset(url: url).load(.duration))
+            let seconds = CMTimeGetSeconds(try await AVURLAsset(url: probeURL).load(.duration))
             guard seconds.isFinite, seconds > 0 else { return nil }
             return seconds
         } catch {
-            if url.pathExtension == "part" {
-                let tempSymlink = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("probe-\(UUID().uuidString).mp4", isDirectory: false)
-                if (try? FileManager.default.createSymbolicLink(at: tempSymlink, withDestinationURL: url)) != nil {
-                    defer { try? FileManager.default.removeItem(at: tempSymlink) }
-                    if let seconds = try? CMTimeGetSeconds(await AVURLAsset(url: tempSymlink).load(.duration)),
-                       seconds.isFinite, seconds > 0 {
-                        return seconds
-                    }
-                }
-            }
             mobileSegmentDurationLog.debug("container duration probe failed file=\(url.lastPathComponent, privacy: .public): \(String(describing: error), privacy: .public)")
             return nil
         }

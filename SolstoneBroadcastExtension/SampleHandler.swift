@@ -17,6 +17,7 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
     private let workQueue = DispatchQueue(label: "app.solstone.swift.broadcast.work")
     private let sessionID = UUID()
     private let writer = ScreencastBroadcastWriter()
+    private let audioWriter = ScreencastBroadcastAudioWriter()
     private var session: ScreencastBroadcastSession?
     private var timer: DispatchSourceTimer?
 
@@ -27,6 +28,7 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
                 let session = ScreencastBroadcastSession(
                     rootURL: rootURL,
                     writer: self.writer,
+                    audioWriter: self.audioWriter,
                     clock: { Date() },
                     availableBytes: { url in
                         let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -87,7 +89,7 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
         let kind = Self.sampleKind(from: sampleBufferType)
         guard MobileSegmentScreencastSamplePolicy.accepts(kind) else { return }
         self.workQueue.async {
-            self.session?.processSampleBuffer(sampleBuffer)
+            self.session?.processSampleBuffer(sampleBuffer, kind: kind)
         }
     }
 

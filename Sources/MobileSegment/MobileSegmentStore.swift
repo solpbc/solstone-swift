@@ -17,6 +17,8 @@ final class MobileSegmentStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     var testCreateActiveError: (any Error)?
+    var testMoveItemError: (any Error)?
+    var testWriteManifestError: (any Error)?
 
     init(rootURL: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -80,6 +82,14 @@ final class MobileSegmentStore {
 
     func screenPartURL(in directory: URL) -> URL {
         MobileSegmentScreencastPaths.screenPartURL(inSegmentDirectory: directory)
+    }
+
+    func screenAudioURL(in directory: URL) -> URL {
+        MobileSegmentScreencastPaths.screenAudioURL(inSegmentDirectory: directory)
+    }
+
+    func screenAudioPartURL(in directory: URL) -> URL {
+        MobileSegmentScreencastPaths.screenAudioPartURL(inSegmentDirectory: directory)
     }
 
     func artifactURL(in directory: URL, source: MobileSegmentSource) -> URL {
@@ -147,6 +157,10 @@ final class MobileSegmentStore {
     }
 
     func writeManifest(_ manifest: MobileSegmentManifest, in directory: URL) throws {
+        if let error = self.testWriteManifestError {
+            self.testWriteManifestError = nil
+            throw error
+        }
         try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try self.encoder.encode(manifest)
         try data.write(to: self.manifestURL(in: directory), options: .atomic)
@@ -263,6 +277,10 @@ final class MobileSegmentStore {
     }
 
     func moveOrReplaceItem(at source: URL, to destination: URL) throws {
+        if let error = self.testMoveItemError {
+            self.testMoveItemError = nil
+            throw error
+        }
         try self.fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
         if self.fileManager.fileExists(atPath: destination.path) {
             try self.fileManager.removeItem(at: destination)

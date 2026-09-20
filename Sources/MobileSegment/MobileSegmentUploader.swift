@@ -445,12 +445,44 @@ final class MobileSegmentUploader {
         let directory = self.activeDirectory(segmentID: segmentID)
         do {
             var manifest = try self.store.readManifest(in: directory)
-            manifest.endedAt = endedAt
-            let audioResolved = manifest.resolution(for: .audio).durationS
-            manifest.durationS = audioResolved ?? max(0, endedAt.timeIntervalSince(manifest.startedAt))
+            let windowURL = MobileSegmentScreencastPaths.screenWindowURL(inSegmentDirectory: directory)
+            let isPromotedAudio = manifest.audio.reason == MobileSegmentManifest.promotedScreenAudioReason
+            let appAudioDuration = (manifest.audio.durationS != nil && !isPromotedAudio) ? manifest.audio.durationS : nil
+
+            if self.store.fileExists(windowURL) {
+                let sidecar = try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastWindowSidecar.self, from: windowURL)
+                let windowEnd: Date
+                if let endedAt = sidecar?.endedAt {
+                    windowEnd = endedAt
+                } else {
+                    let screenURL = self.store.screenURL(in: directory)
+                    let screenPartURL = self.store.screenPartURL(in: directory)
+                    let probedDuration: TimeInterval?
+                    if self.store.fileExists(screenURL) {
+                        probedDuration = await MobileSegmentDuration.probeContainerDuration(at: screenURL)
+                    } else if self.store.fileExists(screenPartURL) {
+                        probedDuration = await MobileSegmentDuration.probeContainerDuration(at: screenPartURL)
+                    } else {
+                        probedDuration = nil
+                    }
+                    windowEnd = probedDuration != nil ? manifest.startedAt.addingTimeInterval(probedDuration!) : manifest.startedAt
+                }
+                let ceilingEnd = manifest.startedAt.addingTimeInterval(MobileSegmentDuration.rotationCeiling)
+                let cappedEnd = min(ceilingEnd, min(endedAt, windowEnd))
+                manifest.endedAt = cappedEnd
+                manifest.durationS = appAudioDuration ?? max(0, cappedEnd.timeIntervalSince(manifest.startedAt))
+            } else {
+                manifest.endedAt = endedAt
+                manifest.durationS = appAudioDuration ?? max(0, endedAt.timeIntervalSince(manifest.startedAt))
+            }
             manifest.day = Self.dayString(for: manifest.startedAt)
             manifest.segment = ChunkSidecar.segmentString(for: manifest.startedAt, durationSeconds: manifest.durationS ?? 0)
             manifest.updatedAt = endedAt
+
+            let carriedEndedAt = manifest.endedAt
+            let carriedDurationS = manifest.durationS
+            let carriedDay = manifest.day
+            let carriedSegment = manifest.segment
 
             var deferredLiveScreencast = false
             var deferredLiveLocation = false
@@ -472,6 +504,10 @@ final class MobileSegmentUploader {
                         )
                         try self.store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
                         manifest = try self.store.readManifest(in: directory)
+                        manifest.endedAt = carriedEndedAt
+                        manifest.durationS = carriedDurationS
+                        manifest.day = carriedDay
+                        manifest.segment = carriedSegment
                         continue
                     }
                     if self.hasFreshScreencastLiveness(segmentID: segmentID, directory: directory, now: endedAt) {
@@ -492,6 +528,10 @@ final class MobileSegmentUploader {
                             )
                             try self.store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
                             manifest = try self.store.readManifest(in: directory)
+                            manifest.endedAt = carriedEndedAt
+                            manifest.durationS = carriedDurationS
+                            manifest.day = carriedDay
+                            manifest.segment = carriedSegment
                             continue
                         } else {
                             try? FileManager.default.removeItem(at: screenPartURL)
@@ -503,6 +543,10 @@ final class MobileSegmentUploader {
                             )
                             try self.store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
                             manifest = try self.store.readManifest(in: directory)
+                            manifest.endedAt = carriedEndedAt
+                            manifest.durationS = carriedDurationS
+                            manifest.day = carriedDay
+                            manifest.segment = carriedSegment
                             continue
                         }
                     }
@@ -514,6 +558,10 @@ final class MobileSegmentUploader {
                     )
                     try self.store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
                     manifest = try self.store.readManifest(in: directory)
+                    manifest.endedAt = carriedEndedAt
+                    manifest.durationS = carriedDurationS
+                    manifest.day = carriedDay
+                    manifest.segment = carriedSegment
                     continue
                 }
                 if source == .location {
@@ -527,6 +575,10 @@ final class MobileSegmentUploader {
                             now: endedAt
                         )
                         manifest = try self.store.readManifest(in: directory)
+                        manifest.endedAt = carriedEndedAt
+                        manifest.durationS = carriedDurationS
+                        manifest.day = carriedDay
+                        manifest.segment = carriedSegment
                         continue
                     }
                     if self.store.fileExists(locationPartURL) {
@@ -541,6 +593,10 @@ final class MobileSegmentUploader {
                             now: endedAt
                         )
                         manifest = try self.store.readManifest(in: directory)
+                        manifest.endedAt = carriedEndedAt
+                        manifest.durationS = carriedDurationS
+                        manifest.day = carriedDay
+                        manifest.segment = carriedSegment
                         continue
                     }
                     try self.writeLocationRemoved(
@@ -551,6 +607,10 @@ final class MobileSegmentUploader {
                         reason: "location_live_missing"
                     )
                     manifest = try self.store.readManifest(in: directory)
+                    manifest.endedAt = carriedEndedAt
+                    manifest.durationS = carriedDurationS
+                    manifest.day = carriedDay
+                    manifest.segment = carriedSegment
                     continue
                 }
                 let resolution = MobileSegmentSourceResolution(
@@ -561,12 +621,71 @@ final class MobileSegmentUploader {
                 )
                 try self.store.writeOutcome(resolution, source: source, manifest: &manifest, in: directory, now: endedAt)
                 manifest = try self.store.readManifest(in: directory)
+                manifest.endedAt = carriedEndedAt
+                manifest.durationS = carriedDurationS
+                manifest.day = carriedDay
+                manifest.segment = carriedSegment
             }
 
             if deferredLiveScreencast || deferredLiveLocation {
                 try self.store.writeManifest(manifest, in: directory)
                 self.refreshCounts()
                 return
+            }
+
+            if manifest.declaredSources.contains(.screencast)
+                && manifest.resolution(for: .screencast).state.isTerminal
+                && manifest.resolution(for: .audio).state == .notDeclared {
+                let audioURL = self.store.audioURL(in: directory)
+                let screenAudioURL = self.store.screenAudioURL(in: directory)
+                let screenAudioPartURL = self.store.screenAudioPartURL(in: directory)
+
+                var candidateURL: URL?
+                if self.store.fileExists(audioURL) {
+                    candidateURL = audioURL
+                } else if self.store.fileExists(screenAudioURL) {
+                    try self.store.moveOrReplaceItem(at: screenAudioURL, to: audioURL)
+                    candidateURL = audioURL
+                } else if self.store.fileExists(screenAudioPartURL) {
+                    let probe = await MobileSegmentDuration.probeContainerDuration(at: screenAudioPartURL)
+                    if let probe, probe > 0 {
+                        try self.store.moveOrReplaceItem(at: screenAudioPartURL, to: audioURL)
+                        candidateURL = audioURL
+                    } else {
+                        self.store.removeIfExists(screenAudioPartURL)
+                        mobileSegmentUploadLog.info("screencast audio unplayable part discarded segment=\(segmentID.uuidString, privacy: .public)")
+                    }
+                }
+
+                if let promotedURL = candidateURL, self.store.fileExists(promotedURL) {
+                    let bytes = self.store.fileSize(at: promotedURL) ?? 0
+                    if bytes > 0 {
+                        let probed = await MobileSegmentDuration.probeContainerDuration(at: promotedURL)
+                        let audioDuration = probed ?? max(0, endedAt.timeIntervalSince(manifest.startedAt))
+
+                        manifest = try self.store.readManifest(in: directory)
+                        manifest.endedAt = carriedEndedAt
+                        manifest.durationS = carriedDurationS
+                        manifest.day = carriedDay
+                        manifest.segment = carriedSegment
+
+                        let resolution = manifest.promoteScreenAudio(
+                            bytes: bytes,
+                            startedAt: manifest.startedAt,
+                            endedAt: endedAt,
+                            durationS: audioDuration,
+                            now: endedAt
+                        )
+                        try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: endedAt)
+                        manifest = try self.store.readManifest(in: directory)
+                        manifest.endedAt = carriedEndedAt
+                        manifest.durationS = carriedDurationS
+                        manifest.day = carriedDay
+                        manifest.segment = carriedSegment
+                    } else {
+                        self.store.removeIfExists(promotedURL)
+                    }
+                }
             }
 
             if manifest.isEmptyResolved {

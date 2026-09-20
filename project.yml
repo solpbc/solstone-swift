@@ -205,6 +205,7 @@ targets:
       - path: Sources/Observer/ObserverMode.swift
       - path: Sources/MobileSegment/MobileSegmentScreencastShared.swift
       - path: Sources/MobileSegment/MobileSegmentScreencastSession.swift
+      - path: Sources/MobileSegment/ScreencastBroadcastAudioWriter.swift
     entitlements:
       path: SolstoneBroadcastExtension/SolstoneBroadcastExtension.entitlements
       properties:

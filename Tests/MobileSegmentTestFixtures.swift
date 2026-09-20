@@ -15,12 +15,23 @@ enum MobileSegmentTestFixtures {
             AVNumberOfChannelsKey: 1,
             AVEncoderBitRateKey: 32_000,
         ]
-        let file = try AVAudioFile(forWriting: url, settings: settings)
+        let writeURL: URL
+        let isPart = url.pathExtension == "part"
+        if isPart {
+            writeURL = url.deletingPathExtension()
+            try? FileManager.default.removeItem(at: writeURL)
+        } else {
+            writeURL = url
+        }
+        let file = try AVAudioFile(forWriting: writeURL, settings: settings)
         let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1)!
         let frameCount = AVAudioFrameCount((sampleRate * seconds).rounded())
         let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
         buffer.frameLength = frameCount
         try file.write(from: buffer)
+        if isPart {
+            try FileManager.default.moveItem(at: writeURL, to: url)
+        }
     }
 
     static func writeFtypOnlyAudio(at url: URL) throws {

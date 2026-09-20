@@ -16,17 +16,26 @@ nonisolated protocol ScreencastBroadcastWriting: AnyObject, Sendable {
     func writeLiveness(now: Date, force: Bool) throws
 }
 
+nonisolated protocol ScreencastBroadcastAudioWriting: AnyObject, Sendable {
+    func open(rootURL: URL, handoff: MobileSegmentScreencastHandoffRecord, now: Date) throws
+    func appendAudio(_ sampleBuffer: CMSampleBuffer, now: Date) throws
+    func finish(now: Date)
+}
+
 nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
     private let clock: @Sendable () -> Date
     private let availableBytes: @Sendable (URL) -> Int64?
     private let rootURL: URL
     private let writer: any ScreencastBroadcastWriting
+    private let audioWriter: any ScreencastBroadcastAudioWriting
     private let postChangedHook: @Sendable () -> Void
     private let finishWithErrorHook: @Sendable (NSError) -> Void
 
     private var sessionID: UUID?
     private var broadcastStartedAt: Date?
     private var isWaitingForHandoff: Bool = false
+    private var isAudioOpenForCurrentWindow: Bool = false
+    private var isAudioStoppedForWindow: Bool = false
     private(set) var currentHandoff: MobileSegmentScreencastHandoffRecord?
     private(set) var currentSidecar: MobileSegmentScreencastWindowSidecar?
     private(set) var currentWindowIndex: Int = 0
@@ -38,6 +47,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
     init(
         rootURL: URL,
         writer: any ScreencastBroadcastWriting,
+        audioWriter: any ScreencastBroadcastAudioWriting = ScreencastBroadcastAudioWriter(),
         clock: @escaping @Sendable () -> Date = { Date() },
         availableBytes: @escaping @Sendable (URL) -> Int64? = { url in
             let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
@@ -48,6 +58,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
     ) {
         self.rootURL = rootURL
         self.writer = writer
+        self.audioWriter = audioWriter
         self.clock = clock
         self.availableBytes = availableBytes
         self.postChangedHook = postChanged
@@ -57,6 +68,8 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
     func broadcastStarted(sessionID: UUID) {
         self.sessionID = sessionID
         self.shouldDropSamples = false
+        self.isAudioOpenForCurrentWindow = false
+        self.isAudioStoppedForWindow = false
         let now = self.clock()
         self.broadcastStartedAt = now
         self.isBroadcastActive = true
@@ -77,7 +90,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
         }
     }
 
-    func processSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
+    func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, kind: MobileSegmentScreencastSampleKind) {
         guard self.isBroadcastActive, !self.shouldDropSamples, let sessionID = self.sessionID else { return }
 
         if self.isWaitingForHandoff {
@@ -95,9 +108,32 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
         guard !self.shouldDropSamples else { return }
 
         let now = self.clock()
-        self.writer.appendVideo(sampleBuffer, now: now)
-        self.currentSidecar?.acceptedFrameCount = self.writer.acceptedFrameCount
-        self.currentSidecar?.droppedFrameCount = self.writer.droppedFrameCount
+        switch kind {
+        case .video:
+            self.writer.appendVideo(sampleBuffer, now: now)
+            self.currentSidecar?.acceptedFrameCount = self.writer.acceptedFrameCount
+            self.currentSidecar?.droppedFrameCount = self.writer.droppedFrameCount
+        case .audioMic:
+            guard !self.isAudioStoppedForWindow, let handoff = self.currentHandoff else { return }
+            if !self.isAudioOpenForCurrentWindow {
+                do {
+                    try self.audioWriter.open(rootURL: self.rootURL, handoff: handoff, now: now)
+                    self.isAudioOpenForCurrentWindow = true
+                } catch {
+                    screencastSessionLog.error("failed to open audio writer: \(String(describing: error), privacy: .public)")
+                    self.isAudioStoppedForWindow = true
+                    return
+                }
+            }
+            do {
+                try self.audioWriter.appendAudio(sampleBuffer, now: now)
+            } catch {
+                screencastSessionLog.error("failed to append audio sample: \(String(describing: error), privacy: .public)")
+                self.isAudioStoppedForWindow = true
+            }
+        case .audioApp, .unknown:
+            return
+        }
     }
 
     func tick() {
@@ -123,7 +159,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
         } catch {
             screencastSessionLog.error("heartbeat liveness write failed: \(String(describing: error), privacy: .public)")
             self.closeCurrentSidecar(now: now)
-            _ = self.writer.finish(now: now)
+            _ = self.finishAudioThenScreen(now: now)
             self.failWithDiagnostic(
                 reason: .appGroupUnavailable,
                 message: "heartbeat_liveness_write_failed",
@@ -142,7 +178,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
            storedHandoff.revision > current.revision {
             if storedHandoff.scheduleAnchorMs != self.scheduleAnchorMs {
                 self.closeCurrentSidecar(now: now)
-                _ = self.writer.finish(now: now)
+                _ = self.finishAudioThenScreen(now: now)
 
                 self.scheduleAnchorMs = storedHandoff.scheduleAnchorMs
                 self.schedulePeriodSeconds = storedHandoff.schedulePeriodSeconds
@@ -238,7 +274,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
         guard let sessionID = self.sessionID else { return }
 
         self.closeCurrentSidecar(now: now)
-        let outcome = self.writer.finish(now: now)
+        let outcome = self.finishAudioThenScreen(now: now)
 
         switch outcome {
         case .completed, .noVideo:
@@ -345,13 +381,13 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
         // Storage check at boundary before opening next window
         if let free = self.availableBytes(self.rootURL), free < MobileSegmentScreencastStoragePolicy.minimumFreeBytes {
             self.closeCurrentSidecar(now: now)
-            _ = self.writer.finish(now: now)
+            _ = self.finishAudioThenScreen(now: now)
             self.failWithStorageLow(sessionID: sessionID, now: now)
             return
         }
 
         self.closeCurrentSidecar(now: now)
-        let outcome = self.writer.finish(now: now)
+        let outcome = self.finishAudioThenScreen(now: now)
         switch outcome {
         case .completed, .noVideo:
             break
@@ -434,6 +470,8 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
     }
 
     private func openWindow(index: Int, handoff: MobileSegmentScreencastHandoffRecord, now: Date) throws {
+        self.isAudioOpenForCurrentWindow = false
+        self.isAudioStoppedForWindow = false
         let segmentDir = MobileSegmentScreencastPaths.url(root: self.rootURL, relativePath: handoff.segmentDirectoryRelativePath)
         try FileManager.default.createDirectory(at: segmentDir, withIntermediateDirectories: true)
 
@@ -448,6 +486,15 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
         self.currentSidecar = sidecar
 
         try self.writer.open(rootURL: self.rootURL, handoff: handoff, now: now)
+    }
+
+    private func finishAudioThenScreen(now: Date) -> ScreencastBroadcastWriterOutcome {
+        if self.isAudioOpenForCurrentWindow {
+            self.audioWriter.finish(now: now)
+            self.isAudioOpenForCurrentWindow = false
+        }
+        self.isAudioStoppedForWindow = false
+        return self.writer.finish(now: now)
     }
 
     private func closeCurrentSidecar(now: Date) {

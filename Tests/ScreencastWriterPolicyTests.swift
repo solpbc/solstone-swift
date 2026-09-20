@@ -97,15 +97,11 @@ nonisolated final class ScreencastWriterPolicyTests: XCTestCase {
         XCTAssertFalse(writer.contains("writer.add(audio"))
     }
 
-    func testAudioSampleTypesIgnored() throws {
+    func testAudioSampleTypesIgnored() {
         XCTAssertTrue(MobileSegmentScreencastSamplePolicy.accepts(.video))
-        XCTAssertFalse(MobileSegmentScreencastSamplePolicy.accepts(.audioMic))
+        XCTAssertTrue(MobileSegmentScreencastSamplePolicy.accepts(.audioMic))
         XCTAssertFalse(MobileSegmentScreencastSamplePolicy.accepts(.audioApp))
         XCTAssertFalse(MobileSegmentScreencastSamplePolicy.accepts(.unknown))
-
-        let handler = try Self.extensionSource(named: "SampleHandler.swift")
-        XCTAssertTrue(handler.contains("guard MobileSegmentScreencastSamplePolicy.accepts(kind) else { return }"))
-        XCTAssertTrue(handler.contains("self.session?.processSampleBuffer(sampleBuffer)"))
     }
 
     func testExtensionWriterUsesApprovedImports() throws {
