@@ -103,9 +103,12 @@ nonisolated func isDeadShapedDisk(
 ) -> Bool {
     guard let runtime else { return false }
     switch runtime.state {
-    case .broadcastStarted, .writerOpen, .finishing:
+    case .broadcastStarted, .writerOpen, .finishing, .finalized:
+        // A finalized runtime is an ended session. When the uploader's pre-pass has already
+        // resolved its last window, the derivation has nothing left to act on, so the hold
+        // on screencast must be dropped here or the app reads on forever.
         break
-    case .finalized, .failed:
+    case .failed:
         return false
     }
     if diagnostic != nil {
@@ -694,7 +697,11 @@ final class ScreencastManager {
             break
         case .off, .active:
             self.state = .off
-            self.persistSystemEnded(at: now)
+            // A session that finished on its own terms (an owner's stop, or the system's at lock)
+            // just reads off. The ended line is for a session that died without finishing.
+            if runtime?.state != .finalized {
+                self.persistSystemEnded(at: now)
+            }
         }
 
         let newestLiveness = if case .observed(let newest, _, _) = scanResult { newest } else { nil as Date? }

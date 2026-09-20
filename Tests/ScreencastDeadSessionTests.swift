@@ -153,9 +153,55 @@ final class ScreencastDeadSessionTests: XCTestCase {
         let youngRuntime = ScreencastFixtures.runtime(lastSeenAt: now.addingTimeInterval(-5))
         XCTAssertFalse(isDeadShapedDisk(runtime: youngRuntime, diagnostic: nil, scanResult: deadScan, now: now))
 
-        // Finalized runtime cancels
+        // A finalized runtime is an ended session: dead-shaped once it is old enough, never while young
         let finalizedRuntime = ScreencastFixtures.runtime(state: .finalized, lastSeenAt: now.addingTimeInterval(-20))
-        XCTAssertFalse(isDeadShapedDisk(runtime: finalizedRuntime, diagnostic: nil, scanResult: deadScan, now: now))
+        XCTAssertTrue(isDeadShapedDisk(runtime: finalizedRuntime, diagnostic: nil, scanResult: deadScan, now: now))
+        let youngFinalizedRuntime = ScreencastFixtures.runtime(state: .finalized, lastSeenAt: now.addingTimeInterval(-5))
+        XCTAssertFalse(isDeadShapedDisk(runtime: youngFinalizedRuntime, diagnostic: nil, scanResult: deadScan, now: now))
+
+        // A failed runtime belongs to the diagnostic path
+        let failedRuntime = ScreencastFixtures.runtime(state: .failed, lastSeenAt: now.addingTimeInterval(-20))
+        XCTAssertFalse(isDeadShapedDisk(runtime: failedRuntime, diagnostic: nil, scanResult: deadScan, now: now))
+    }
+
+    /// Measured on a device: at lock the extension finishes cleanly (runtime `finalized`), the
+    /// uploader's pre-pass resolves the last window, the derivation then has nothing to act on,
+    /// and the app read `on` forever because nothing dropped the engine's hold.
+    func testRealPairFinalizedSessionWithResolvedWindowDropsTheHoldAndSetsNoMarker() async throws {
+        let (root, engine, _, store, manager) = self.makeRealHarness()
+        let sessionID = UUID()
+
+        let handoff = try await engine.startScreencast(at: self.clock.now(), sessionID: sessionID)
+        let segmentID = handoff.segmentID
+        manager.state = .active(sessionID: sessionID, segmentID: segmentID, startedAt: self.clock.now())
+
+        // The extension finished this window cleanly: a final screen file, no part, no liveness refresh since.
+        let segDir = store.segmentDirectoryURL(.active, segmentID: segmentID)
+        let screenURL = store.screenURL(in: segDir)
+        try writeFragmentedMovie(to: screenURL, frames: 3)
+
+        self.clock.advance(by: 20)
+        let runtime = ScreencastFixtures.runtime(
+            sessionID: sessionID,
+            state: .finalized,
+            segmentID: segmentID,
+            lastSeenAt: self.clock.now().addingTimeInterval(-20)
+        )
+        let runtimeURL = MobileSegmentScreencastPaths.url(root: root, relativePath: MobileSegmentScreencastPaths.runtimeRelativePath())
+        try MobileSegmentScreencastJSONStore.write(runtime, to: runtimeURL)
+
+        await manager.reconcileScreencast(reason: .foreground)
+
+        XCTAssertEqual(manager.state, .off)
+        XCTAssertNil(manager.systemEndedAt, "a session that finished on its own terms just reads off")
+        XCTAssertFalse(engine.currentScreencastSources.contains(.screencast))
+        let pending = try store.list(.pending)
+        XCTAssertTrue(pending.contains { $0.lastPathComponent == segmentID.uuidString }, "the finished window still ships")
+
+        // Idempotent: a second reconcile concludes nothing new.
+        await manager.reconcileScreencast(reason: .foreground)
+        XCTAssertEqual(manager.state, .off)
+        XCTAssertNil(manager.systemEndedAt)
     }
 
     func testIsDeadScreencastSessionRequiresActiveStateOrEngine() {
