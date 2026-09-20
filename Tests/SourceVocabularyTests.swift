@@ -334,22 +334,22 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchPipelineUnknown, "—")
         XCTAssertEqual(
             SourceVocabulary.watchPipelineRelayStuckReason,
-            "your watch has segments saved, but this iphone has not received anything for a while."
+            "your watch has segments saved, but this device has not received anything for a while."
         )
         XCTAssertEqual(
             SourceVocabulary.watchPipelineHandoffStuckReason,
-            "segments are on this iphone and waiting to reach your journal."
+            "segments are on this device and waiting to reach your journal."
         )
         XCTAssertEqual(
             SourceVocabulary.watchPipelineOrphanStuckReason,
             "some segments stalled before they reached your journal."
         )
         XCTAssertEqual(SourceVocabulary.watchPipelineReportedGroupLabel, "reported by your watch")
-        XCTAssertEqual(SourceVocabulary.watchPipelineKnownGroupLabel, "known on this iphone")
+        XCTAssertEqual(SourceVocabulary.watchPipelineKnownGroupLabel, "known on this device")
         XCTAssertEqual(SourceVocabulary.watchStuckNoticeTitle, "sync needs attention")
         XCTAssertEqual(
             SourceVocabulary.watchPipelineRelayStuckNextStep,
-            "keep your watch near this iphone. open the solstone app on your watch if this does not move."
+            "keep your watch near this device. open the solstone app on your watch if this does not move."
         )
         XCTAssertEqual(
             SourceVocabulary.watchPipelineHandoffStuckNextStep,
@@ -357,10 +357,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceVocabulary.watchPipelineOrphanStuckNextStep,
-            "open the solstone app on your watch and keep it near this iphone so they can come over again."
+            "open the solstone app on your watch and keep it near this device so they can come over again."
         )
         XCTAssertEqual(SourceVocabulary.watchActivationFailedSubtext, "can't check your watch right now.")
-        XCTAssertEqual(SourceVocabulary.watchNoWatchPairedSubtext, "no watch paired with this iphone.")
+        XCTAssertEqual(SourceVocabulary.watchNoWatchPairedSubtext, "no watch paired with this device.")
         XCTAssertEqual(SourceVocabulary.watchReadyToSetUpSubtext, "the solstone app can be on your watch. tap to set it up.")
         XCTAssertEqual(SourceVocabulary.watchInstalledNeverOpenedSubtext, "installed. now open the solstone app on your watch.")
         XCTAssertEqual(SourceVocabulary.watchReceivingNowSubtext, "receiving from your watch")
@@ -383,7 +383,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchSteadyWatchWaitingSentence(2),
             "2 on your watch, waiting to come over. keep your watch nearby."
         )
-        XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingHeadline, "on this iphone")
+        XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingHeadline, "on this device")
         XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingSentence(1), "1 syncing to your journal…")
         XCTAssertEqual(SourceVocabulary.watchSteadyPhoneSyncingSentence(2), "2 syncing to your journal…")
         XCTAssertEqual(SourceVocabulary.watchSteadyCaughtUpSentence, "everything from your watch is in your journal.")
@@ -399,11 +399,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchSetupHeader, "the solstone app on your watch")
         XCTAssertEqual(
             SourceVocabulary.watchSetupValueLine,
-            "the solstone app on your watch takes in what you share from your wrist, hands it to this iphone, and it all syncs into your journal."
+            "the solstone app on your watch takes in what you share from your wrist, hands it to this device, and it all syncs into your journal."
         )
         XCTAssertEqual(
             SourceVocabulary.watchSetupNoWatchBody,
-            "pair an apple watch to this iphone and the solstone app can come along on your wrist. everything else in solstone works without one."
+            "pair an apple watch to this device and the solstone app can come along on your wrist. everything else in solstone works without one."
         )
         XCTAssertEqual(SourceVocabulary.watchCheckingLine, "checking your watch…")
         XCTAssertEqual(SourceVocabulary.watchSetupInstallTitle, "install the solstone app from the Watch app")
@@ -421,7 +421,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchSetupOpenTitle, "open the solstone app on your watch")
         XCTAssertEqual(
             SourceVocabulary.watchSetupOpenSubline,
-            "the solstone app checks in with this iphone the first time it opens."
+            "the solstone app checks in with this device the first time it opens."
         )
         XCTAssertEqual(SourceVocabulary.watchSetupFirstMomentTitle, "tap start for your first moment")
         XCTAssertEqual(SourceVocabulary.watchSetupCelebration, "your watch's first memory just landed on this device.")
@@ -437,7 +437,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.watchLastSyncLabel, "last sync")
         XCTAssertEqual(SourceVocabulary.watchLastSyncNever, "no sync yet")
         XCTAssertEqual(SourceVocabulary.watchActivationLabel, "activation")
-        XCTAssertEqual(SourceVocabulary.watchPairedWithPhoneLabel, "paired with this iphone")
+        XCTAssertEqual(SourceVocabulary.watchPairedWithPhoneLabel, "paired with this device")
         XCTAssertEqual(SourceVocabulary.watchInstalledLabel, "installed")
         XCTAssertEqual(SourceVocabulary.watchLastReceivedLabel, "last received")
         XCTAssertEqual(SourceVocabulary.watchLastReceivedNever, "nothing received yet")

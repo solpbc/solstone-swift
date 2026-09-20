@@ -20,7 +20,7 @@ nonisolated final class WatchSteadyVocabularyGrepTests: XCTestCase {
 
         // The handoff stuck reason is a deliberate, approved exception and must not be fixed by deleting it.
         XCTAssertEqual(literals, [
-            "segments are on this iphone and waiting to reach your journal."
+            "segments are on this device and waiting to reach your journal."
         ])
     }
 

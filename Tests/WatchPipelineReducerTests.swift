@@ -1223,7 +1223,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             watchDiagnostics: .available(payload, rawEnvelopeByteCount: nil),
             phoneSessionHistory: Self.phoneHistory(entries: [newer, older], retained: 2, dropped: 3, notReceived: .available(5))
         )).diagnosticsExportText
-        XCTAssertTrue(rendered.contains("watch session history\nsessions retained on this iphone: 2\nretention window: 7 days\nsessions dropped as older than the retention window: 3\nsessions this iphone has not received: 5"))
+        XCTAssertTrue(rendered.contains("watch session history\nsessions retained on this device: 2\nretention window: 7 days\nsessions dropped as older than the retention window: 3\nsessions this device has not received: 5"))
         XCTAssertTrue(rendered.contains("outcome: audio-recorder-stopped / detected-stopped-itself"))
         XCTAssertTrue(rendered.contains("outcome: audio-clock-stalled / detected-stopped-itself"))
         XCTAssertLessThan(try! XCTUnwrap(rendered.range(of: "session: 1 of 2")).lowerBound, try! XCTUnwrap(rendered.range(of: "session: 2 of 2")).lowerBound)
@@ -1240,8 +1240,8 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             watchDiagnostics: .available(unavailablePayload, rawEnvelopeByteCount: nil),
             phoneSessionHistory: .unavailable(reason: WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable)
         )).diagnosticsExportText
-        XCTAssertTrue(empty.contains("sessions retained on this iphone: 0"))
-        XCTAssertFalse(unavailable.contains("sessions retained on this iphone: 0"))
+        XCTAssertTrue(empty.contains("sessions retained on this device: 0"))
+        XCTAssertFalse(unavailable.contains("sessions retained on this device: 0"))
         XCTAssertTrue(unavailable.contains(WatchRelayDiagnosticsEnvelopeReason.sessionHistoryUnreadable))
     }
 

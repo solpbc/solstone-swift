@@ -28,7 +28,7 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.screencastFinalizeTimeoutText, "screen video timed out while saving")
         XCTAssertEqual(SourceVocabulary.screencastFilesystemFailedText, "screen video could not be stored")
         XCTAssertEqual(SourceVocabulary.screencastStorageLowText, "screen stopped. this device is low on storage.")
-        XCTAssertEqual(SourceVocabulary.screencastSystemEndedSubtext, "the system ended screen sharing")
+        XCTAssertEqual(SourceVocabulary.screencastSystemEndedSubtext, "screen sharing ended")
         XCTAssertEqual(
             SourceVocabulary.screencastPrimerBody,
             "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."

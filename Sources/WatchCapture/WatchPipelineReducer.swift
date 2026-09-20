@@ -682,10 +682,10 @@ extension WatchPipelineReducer {
 
     nonisolated static func sessionHistoryRows(input: WatchPipelineInput) -> [WatchDiagnosticsExportRow] {
         let labels = [
-            "sessions retained on this iphone",
+            "sessions retained on this device",
             "retention window",
             "sessions dropped as older than the retention window",
-            "sessions this iphone has not received",
+            "sessions this device has not received",
         ]
         let values: [String]
         let entries: [WatchCaptureSessionHistoryEntry]
