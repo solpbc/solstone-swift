@@ -250,7 +250,10 @@ struct PairFlowView: View {
     }
 
     private var displayedPhase: PairFlowPhase {
-        Self.displayedPhase(self.phase, linkInHand: self.isPairingFromLink)
+        Self.displayedPhase(
+            self.phase,
+            attemptInHand: self.isPairingFromLink || self.coordinator.state.isPairingInputInProgress
+        )
     }
 
     /// The connecting screen while the pairing request is still out. It ends when the request
@@ -260,9 +263,13 @@ struct PairFlowView: View {
         self.displayedPhase == .connecting && self.coordinator.state.isPairingInputInProgress
     }
 
-    /// `phase`, except that a link's attempt reads as connecting from its first frame.
-    nonisolated static func displayedPhase(_ phase: PairFlowPhase, linkInHand: Bool) -> PairFlowPhase {
-        if case .pairing = phase, linkInHand {
+    /// `phase`, except that a pairing attempt reads as connecting for as long as it is in hand: from
+    /// a link's first frame, and from the moment a scanned or pasted code's request goes out. The
+    /// pairing screen has nothing left to say to an owner who has already given a code: its
+    /// instruction is stale, its scanner would read the code again, and a disabled button can only
+    /// repeat what the spinner says.
+    nonisolated static func displayedPhase(_ phase: PairFlowPhase, attemptInHand: Bool) -> PairFlowPhase {
+        if case .pairing = phase, attemptInHand {
             return .connecting
         }
         return phase
@@ -318,11 +325,12 @@ struct PairFlowView: View {
                     .autocorrectionDisabled()
                     .padding(12)
                     .background(Color.deckSurface, in: ShellMetrics.cardShape)
-                Button(self.pairButtonTitle) {
+                    .accessibilityIdentifier("pairFlow.pasteField")
+                Button("pair this device") {
                     self.startPastedURL()
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(self.pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || self.coordinator.state.isPairingInputInProgress)
+                .disabled(self.pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 Button("scan a code instead") {
                     self.selectMode(.scan)
@@ -572,17 +580,6 @@ struct PairFlowView: View {
         }
     }
 
-    private var pairButtonTitle: String {
-        switch self.coordinator.state {
-        case .pairing:
-            return "pairing..."
-        case .reconnecting:
-            return SourceVocabulary.pairingReconnecting
-        case .idle, .scanning, .failed, .connected, .alreadyConnected, .reconnected:
-            return "pair this device"
-        }
-    }
-
     private func handle(_ url: URL) async {
         self.errorMessage = nil
         self.fallbackTimer.cancel()
@@ -604,7 +601,9 @@ struct PairFlowView: View {
         self.fallbackTimer.cancel()
         if pairURL.candidates.first.map({ isLoopbackHost($0.address) }) ?? false {
             self.errorMessage = PairFailureReason.loopbackAddress.message
-            self.endLinkAttempt(arrivedByLink: arrivedByLink)
+            if arrivedByLink {
+                self.endAttempt()
+            }
             return
         }
         do {
@@ -642,20 +641,21 @@ struct PairFlowView: View {
             } else {
                 self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
             }
-            self.endLinkAttempt(arrivedByLink: arrivedByLink)
+            self.endAttempt()
             self.startFallbackTimerIfNeeded()
         }
     }
 
-    /// A pairing attempt that came in by link and failed leaves the owner on paste with the error,
-    /// not on the scanner: they didn't choose to scan, and "scan a code instead" is one tap away.
-    /// A cancelled attempt is left alone, because a newer attempt may own the flag by now.
-    private func endLinkAttempt(arrivedByLink: Bool) {
+    /// A failed pairing attempt leaves the owner on paste with the error, whichever way it began. A
+    /// link's owner didn't choose to scan, and a scan's scanner was off the screen for the wait:
+    /// bringing it back while the code is still in frame would read the code again at once, and a
+    /// failure that came fast would loop with its error never readable. "scan a code instead" is
+    /// one tap away. A cancelled attempt is left alone, because a newer attempt may own the flag by
+    /// now.
+    private func endAttempt() {
         guard !Task.isCancelled else { return }
         self.linkAttemptInFlight = false
-        if arrivedByLink {
-            self.mode = .paste
-        }
+        self.mode = .paste
     }
 
     private func startFallbackTimerIfNeeded() {

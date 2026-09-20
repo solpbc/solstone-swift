@@ -15,6 +15,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 - pairing failures for a journal reachable from the internet no longer tell you to join the same wi-fi or blame your cellular connection. that advice only shows when a home network really is the reason pairing can't reach it.
 - the pairing screen's title said "scan your pairing code" even on its paste tab, which is where a pairing link that failed lands you. the paste tab's title now says "paste your pairing link".
 - opening a pairing link to a journal that couldn't be reached could leave the screen on "connecting…" and a spinner for about a minute. after about eight seconds it now adds "still trying to reach your journal."
+- scanning a pairing code or pasting a pairing link used to leave the scan screen up, or a greyed-out button, for as long as it took to reach your journal. both now show "connecting…". if the attempt then fails, a scan lands you on the paste tab with the reason.
 
 ## [2.0.4 (97)] - 2026-09-18
 

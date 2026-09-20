@@ -6,12 +6,24 @@ import XCTest
 import SPLTunnel
 
 nonisolated final class PairFlowViewTests: XCTestCase {
-    func testLinkInHandNeverDisplaysTheScanScreen() {
-        XCTAssertEqual(PairFlowView.displayedPhase(.pairing, linkInHand: true), .connecting)
-        XCTAssertEqual(PairFlowView.displayedPhase(.pairing, linkInHand: false), .pairing)
-        XCTAssertEqual(PairFlowView.displayedPhase(.connecting, linkInHand: true), .connecting)
-        XCTAssertEqual(PairFlowView.displayedPhase(.couldNotVerify, linkInHand: true), .couldNotVerify)
-        XCTAssertEqual(PairFlowView.displayedPhase(.mismatch, linkInHand: true), .mismatch)
+    func testAnAttemptInHandNeverDisplaysThePairingScreen() {
+        XCTAssertEqual(PairFlowView.displayedPhase(.pairing, attemptInHand: true), .connecting)
+        XCTAssertEqual(PairFlowView.displayedPhase(.pairing, attemptInHand: false), .pairing)
+        XCTAssertEqual(PairFlowView.displayedPhase(.connecting, attemptInHand: true), .connecting)
+        XCTAssertEqual(PairFlowView.displayedPhase(.couldNotVerify, attemptInHand: true), .couldNotVerify)
+        XCTAssertEqual(PairFlowView.displayedPhase(.mismatch, attemptInHand: true), .mismatch)
+    }
+
+    /// A scanned or pasted code has no link to latch on to: the screen reads that its request is out
+    /// from the coordinator's state, for a first pairing and a re-pairing alike, and it comes back
+    /// to the pairing screen on a failure only because `.failed` is not in progress.
+    @MainActor
+    func testTheCoordinatorSaysARequestIsOutFromAnyEntry() {
+        XCTAssertTrue(PairFlowState.pairing.isPairingInputInProgress)
+        XCTAssertTrue(PairFlowState.reconnecting.isPairingInputInProgress)
+        XCTAssertFalse(PairFlowState.idle.isPairingInputInProgress)
+        XCTAssertFalse(PairFlowState.failed(error: "x").isPairingInputInProgress)
+        XCTAssertFalse(PairFlowState.connected.isPairingInputInProgress)
     }
 
     @MainActor

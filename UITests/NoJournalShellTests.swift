@@ -101,6 +101,44 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         self.assertSinglePairFlowMarker(in: app)
     }
 
+    /// A pasted code's wait is the connecting screen a link's is, caption and all, not a disabled
+    /// button under a how-to line that no longer applies. The simulator has no camera, so its scan
+    /// tab hands over to paste on its own and paste is the entry it can drive; a scanned code takes
+    /// the same path once its request is out. The link is the unreachable one the link tests use.
+    @MainActor
+    func testPastedLinkAttemptShowsTheWaitingScreenAndItsStillTryingCaption() {
+        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
+        self.openStandaloneOnThisPhoneBrowse(in: app)
+        app.buttons["onThisPhone.connectJournalButton"].tap()
+        app.buttons["connectJournal.ownJournal"].tap()
+        self.assertSinglePairFlowMarker(in: app)
+
+        let field = app.descendants(matching: .any)["pairFlow.pasteField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the scan tab never handed over to paste")
+        field.tap()
+        field.typeText("https://go.solstone.app/p#0G0GM00258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")
+        app.buttons["pair this device"].tap()
+
+        let title = app.staticTexts["pairFlow.title"]
+        let connecting = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "label == %@", "connecting…"),
+            object: title
+        )
+        XCTAssertEqual(XCTWaiter().wait(for: [connecting], timeout: 5), .completed, "the request went out and the screen never read connecting")
+        self.attachShot(of: app, named: "1-paste-connecting")
+        XCTAssertFalse(app.buttons["pair this device"].exists, "the pasted-link controls stayed up while the request was out")
+        XCTAssertFalse(app.segmentedControls.buttons["paste"].exists, "the scan/paste chooser stayed up while the request was out")
+        XCTAssertFalse(field.exists, "the paste field stayed up while the request was out")
+        XCTAssertFalse(app.staticTexts["pairing..."].exists)
+        XCTAssertFalse(app.buttons["pairing..."].exists)
+
+        let stillTrying = app.staticTexts["still trying to reach your journal."]
+        XCTAssertTrue(stillTrying.waitForExistence(timeout: 20), "the caption never appeared past eight seconds")
+        self.attachShot(of: app, named: "2-paste-still-trying")
+
+        app.buttons["back"].tap()
+    }
+
     @MainActor
     func testStandaloneOnThisPhoneViewHasNoAskBar() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
@@ -430,6 +468,13 @@ private extension NoJournalShellTests {
                 return
             }
         }
+    }
+
+    func attachShot(of app: XCUIApplication, named name: String) {
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        self.add(shot)
     }
 
     func assertSinglePairFlowMarker(
