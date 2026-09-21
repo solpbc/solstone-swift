@@ -421,6 +421,10 @@ struct ThisDevicePane: View {
 
     var body: some View {
         List {
+            Section {
+                LabeledContent("device name", value: DeviceRegistrationDescriptor.currentDisplayName())
+            }
+
             Section("preferences") {
                 Toggle("haptics", isOn: Binding(
                     get: { UserSettings.haptics },
