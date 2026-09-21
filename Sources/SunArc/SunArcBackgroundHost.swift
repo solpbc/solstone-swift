@@ -12,10 +12,6 @@ nonisolated struct SunArcGroundPalette: Sendable, Equatable {
     init(dayGroundHex: String) {
         self.dayGroundHex = dayGroundHex
     }
-
-    var nightGroundHex: String {
-        SunArcGround.nightGround(dayGroundHex: self.dayGroundHex)
-    }
 }
 
 #if DEBUG

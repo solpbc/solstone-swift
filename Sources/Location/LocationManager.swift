@@ -227,6 +227,7 @@ final class LocationManager {
         if tier.isSatisfied(by: self.effectiveCapability()) {
             await self.restartObservationForCurrentTier()
         } else {
+            self.clearSunArcPresentationCoordinate()
             self.markGap()
         }
     }
