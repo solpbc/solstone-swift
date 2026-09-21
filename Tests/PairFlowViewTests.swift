@@ -178,6 +178,34 @@ nonisolated final class PairFlowViewTests: XCTestCase {
 
     private static let canonicalPairingLink = "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
 
+    /// The nil-router set is not only stray QR codes: it also holds a genuine pairing link minted
+    /// for the pre-`310b6f9` host (`link.solpbc.org`), which is why the retired host is asserted
+    /// here alongside an unrelated URL rather than only the latter.
+    nonisolated func testClassifyScannedURLRejectsUnrecognizedHosts() {
+        XCTAssertEqual(
+            PairFlowView.classifyScannedURL(URL(string: "https://link.solpbc.org/p#0G0W0")!),
+            .notRecognized
+        )
+        XCTAssertEqual(
+            PairFlowView.classifyScannedURL(URL(string: "https://example.com/")!),
+            .notRecognized
+        )
+    }
+
+    nonisolated func testClassifyScannedURLAcceptsCanonicalPairingLink() {
+        let outcome = PairFlowView.classifyScannedURL(URL(string: Self.canonicalPairingLink)!)
+        guard case .pair = outcome else {
+            return XCTFail("expected pair, got \(outcome)")
+        }
+    }
+
+    /// Pins the scan-shaped rejection string against the paste path's "enter a valid pairing
+    /// link." — a rejected scan must never tell the owner to enter something they just scanned.
+    func testScannedLinkNotRecognizedMessageIsScanShapedNotPasteShaped() {
+        XCTAssertEqual(PairFlowView.scannedLinkNotRecognizedMessage, "this doesn't look like a pairing link.")
+        XCTAssertNotEqual(PairFlowView.scannedLinkNotRecognizedMessage, "enter a valid pairing link.")
+    }
+
     func testPairFlowSubtitlesMatchLockedExactCopy() throws {
         let text = try Self.contents("Sources/Pairing/PairFlowView.swift")
         let scanSubtitle = "on your computer, open your journal's dashboard, go to the network app, and choose \\\"pair a device\\\"."

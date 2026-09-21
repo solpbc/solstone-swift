@@ -132,6 +132,32 @@ struct PairFlowView: View {
         }
     }
 
+    /// Same router call as `classifyPastedLink`, without the loopback pre-check: a scanned QR never
+    /// encodes the dashboard's own local address the way a mis-paste can, so there's no case for it.
+    nonisolated enum ScannedURLOutcome: Equatable {
+        case notRecognized
+        case pair(PairURL)
+        case routeFailure(PairURLError)
+    }
+
+    nonisolated static func classifyScannedURL(_ url: URL) -> ScannedURLOutcome {
+        switch UniversalLinkRouter.route(url) {
+        case nil:
+            return .notRecognized
+        case .success(let pairURL):
+            return .pair(pairURL)
+        case .failure(let error):
+            return .routeFailure(error)
+        }
+    }
+
+    /// The router's nil means "not a pairing link by host, scheme or path" — the same failure the
+    /// paste path's `wrongHost`/`wrongScheme`/`wrongPath` message already names. A rejected scan
+    /// reuses that string (CMO voice pass `req_d3zyiw6s`, 2026-05-20) rather than the paste path's
+    /// "enter a valid pairing link.", which tells the owner to enter something right after they
+    /// scanned. Decision: `records/decisions/260920-vpx-a-rejected-scan-shows-this-doesnt-look-like-a-pairing-link-not-enter-one.md`.
+    static let scannedLinkNotRecognizedMessage = "this doesn't look like a pairing link."
+
     @Environment(AppConfig.self) private var appConfig
     @Environment(PairingHandoffState.self) private var handoff
     @Environment(TunnelManager.self) private var tunnelManager
@@ -583,14 +609,12 @@ struct PairFlowView: View {
     private func handle(_ url: URL) async {
         self.errorMessage = nil
         self.fallbackTimer.cancel()
-        guard let result = UniversalLinkRouter.route(url) else {
-            self.errorMessage = "enter a valid pairing link."
-            return
-        }
-        switch result {
-        case .success(let pairURL):
+        switch Self.classifyScannedURL(url) {
+        case .notRecognized:
+            self.errorMessage = Self.scannedLinkNotRecognizedMessage
+        case .pair(let pairURL):
             await self.handle(pairURL)
-        case .failure(let error):
+        case .routeFailure(let error):
             self.errorMessage = PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: [])
         }
     }
