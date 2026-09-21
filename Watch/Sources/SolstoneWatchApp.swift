@@ -10,13 +10,24 @@ struct SolstoneWatchApp: App {
     @State private var captureModel: WatchCaptureModel
     @State private var backgroundTaskCoordinator: WatchBackgroundTaskCoordinator
 
+#if DEBUG && targetEnvironment(simulator)
+    private static var sunArcDebugOverride: SunArcBackgroundDebugOverride? {
+        SunArcBackgroundDebugScene.sceneOverride(for: ProcessInfo.processInfo.arguments)
+    }
+
+    private static var usesSimulatorPresentationSeed: Bool {
+        ProcessInfo.processInfo.arguments.contains("--app-store-screenshots")
+            || Self.sunArcDebugOverride != nil
+    }
+#endif
+
     init() {
         let bootstrap = WatchSignpost.begin(.bootstrap)
         defer {
             WatchSignpost.end(bootstrap, fields: WatchSignpostFields(result: .completed))
         }
 #if DEBUG && targetEnvironment(simulator)
-        if ProcessInfo.processInfo.arguments.contains("--app-store-screenshots") {
+        if Self.usesSimulatorPresentationSeed {
             let session = LiveWatchConnectivitySession(messageSend: { _, _ in })
             let model = WatchSessionModel(session: session, relaySender: nil)
             let saved = ProcessInfo.processInfo.arguments.contains("--screenshot-saved")
@@ -95,13 +106,36 @@ struct SolstoneWatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
-                .task {
-#if DEBUG && targetEnvironment(simulator)
-                    if ProcessInfo.processInfo.arguments.contains("--app-store-screenshots") { return }
-#endif
-                    self.sessionModel.activate()
-                }
+            self.sunArcWatchHome
         }
+    }
+
+    private var sunArcWatchHome: some View {
+#if DEBUG && targetEnvironment(simulator)
+        SunArcBackgroundHost(
+            palette: SunArcGroundPalette(dayGroundHex: SunArc.surfaceCreamHex),
+            presentationCoordinate: self.captureModel.sunArcPresentationCoordinate,
+            debugOverride: Self.sunArcDebugOverride
+        ) {
+            self.watchHome
+        }
+#else
+        SunArcBackgroundHost(
+            palette: SunArcGroundPalette(dayGroundHex: SunArc.surfaceCreamHex),
+            presentationCoordinate: self.captureModel.sunArcPresentationCoordinate
+        ) {
+            self.watchHome
+        }
+#endif
+    }
+
+    private var watchHome: some View {
+        WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
+            .task {
+#if DEBUG && targetEnvironment(simulator)
+                if Self.usesSimulatorPresentationSeed { return }
+#endif
+                self.sessionModel.activate()
+            }
     }
 }

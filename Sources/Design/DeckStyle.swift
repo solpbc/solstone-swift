@@ -3,6 +3,12 @@
 
 import SwiftUI
 
+/// The Day Home background follows the deck's established light ground, while its night
+/// counterpart remains the locked SunArc OKLab mix.
+nonisolated enum DeckSunArcPalette {
+    static let value = SunArcGroundPalette(dayGroundHex: "#FCF3E4")
+}
+
 /// The shell's usage tokens: the ground it sits on, the surfaces that sit on the
 /// ground, and the measurements both are laid out from.
 ///

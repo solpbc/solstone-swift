@@ -81,6 +81,7 @@ final class WatchCaptureEngine {
     private var audioArmed = false
     private var locationArmed = false
     private var lastKnownFix: WatchLocationFix?
+    private(set) var sunArcPresentationCoordinate: SunArcCoordinate?
     private var lastAudioCurrentTime: TimeInterval?
     private var status: WatchCaptureRuntimeStatus = .off
     private var statusSeq = 0
@@ -418,6 +419,7 @@ final class WatchCaptureEngine {
             do {
                 try self.locationProvider.start()
             } catch {
+                self.clearSunArcPresentationCoordinate()
                 self.locationArmed = false
                 self.locationAdvisory = .providerFailed
                 watchCaptureLog.error("watch location start failed: \(String(describing: error), privacy: .public)")
@@ -777,6 +779,7 @@ extension WatchCaptureEngine {
     }
 
     func clearTransientStateForStart() {
+        self.clearSunArcPresentationCoordinate()
         self.cancelAudioResumeRetry()
         self.interruptedAudioSource = nil
         self.audioResumeAttempt = 0
@@ -826,6 +829,7 @@ extension WatchCaptureEngine {
         error: ObserverError,
         settingsRoute: WatchCaptureSettingsRoute? = nil
     ) async {
+        self.clearSunArcPresentationCoordinate()
         let sessionID = self.currentSessionID
         let startedAt = self.sessionStartedAt
         self.startRefusalReason = reason
@@ -1004,6 +1008,7 @@ extension WatchCaptureEngine {
                 self.openingSegment = active
             } catch {
                 guard await self.continueOpeningLifecycleOperation(generation) else { return false }
+                self.clearSunArcPresentationCoordinate()
                 self.locationArmed = false
                 self.locationProvider.stop()
                 self.markPartial(&active, error: WatchCaptureFailureMapper.observerError(for: error))
@@ -1526,11 +1531,13 @@ extension WatchCaptureEngine {
             currentSegment.hasElapsedLocationCoverage = true
             self.activeSegment = currentSegment
             self.locationAdvisory = nil
+            self.sunArcPresentationCoordinate = SunArcCoordinate(latitude: fix.lat, longitude: fix.lon)
             self.notifyPresentationChanged()
         } catch {
             self.markPartial(&segment, error: WatchCaptureFailureMapper.observerError(for: error))
             self.activeSegment = segment
             self.locationAdvisory = .writeFailed
+            self.clearSunArcPresentationCoordinate()
             self.locationArmed = false
             self.locationProvider.stop()
             if self.audioArmed, segment.audioURL != nil {
@@ -1544,6 +1551,7 @@ extension WatchCaptureEngine {
 
     func handleAuthorizationChanged(_ authorization: WatchLocationAuthorization) {
         guard self.locationArmed, authorization != .authorized else { return }
+        self.clearSunArcPresentationCoordinate()
         self.locationArmed = false
         self.locationProvider.stop()
         self.locationAdvisory = .authorizationLost
@@ -1561,6 +1569,7 @@ extension WatchCaptureEngine {
 
     func handleLocationFailure(_ error: any Error) {
         guard self.locationArmed else { return }
+        self.clearSunArcPresentationCoordinate()
         self.locationAdvisory = .providerFailed
         if var segment = self.activeSegment {
             self.markPartial(&segment, error: WatchCaptureFailureMapper.observerError(for: error))
@@ -1573,6 +1582,10 @@ extension WatchCaptureEngine {
         segment.partialError = error
         segment.manifest.partial = true
         segment.manifest.failureReason = error.message
+    }
+
+    func clearSunArcPresentationCoordinate() {
+        self.sunArcPresentationCoordinate = nil
     }
 
     func statusForRunningSegment(_ segment: ActiveSegment) -> WatchCaptureRuntimeStatus {
@@ -2299,6 +2312,7 @@ extension WatchCaptureEngine {
 
         self.audioArmed = false
         self.locationArmed = false
+        self.clearSunArcPresentationCoordinate()
         self.lastAudioCurrentTime = nil
         self.zeroAudioCurrentTimeObservationCount = 0
         if self.audioSessionIsActive {

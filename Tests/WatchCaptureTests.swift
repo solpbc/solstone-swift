@@ -1204,6 +1204,36 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertTrue(entries.map(\.manifest).contains { $0.fixCount >= 1 && !$0.gap })
     }
 
+    func testSunArcPresentationCoordinateClearingDoesNotDisturbLastKnownFixCarryForward() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        let retainedFix = Self.fix(lat: 10, lon: 20)
+
+        harness.engine.start(); await harness.engine.settled()
+        harness.locationProvider.emitFix(retainedFix)
+        await self.drain(until: {
+            harness.engine.sunArcPresentationCoordinate == SunArcCoordinate(latitude: 10, longitude: 20)
+        })
+
+        harness.locationProvider.emitFailure(NSError(domain: "WatchCaptureTests.location", code: 1))
+        await self.drain(until: { harness.engine.sunArcPresentationCoordinate == nil })
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: {
+            (await self.catalogEntries(for: harness.storage).count) == 2
+        })
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let locationLines = try entries.flatMap {
+            try self.jsonLines(at: harness.storage.locationURL(directory: $0.directoryURL))
+        }
+        let carriedForward = locationLines.first { ($0["stationary"] as? Bool) == true }
+        XCTAssertEqual(carriedForward?["lat"] as? Double, retainedFix.lat)
+        XCTAssertEqual(carriedForward?["lon"] as? Double, retainedFix.lon)
+        XCTAssertEqual(carriedForward?["stationary"] as? Bool, true)
+        XCTAssertNil(harness.engine.sunArcPresentationCoordinate)
+    }
+
     func testPreFinalReadableAudioRecoversPartialQueued() async throws {
         let harness = try self.makeHarness()
         let startedAt = Date(timeIntervalSince1970: 1_713_624_000)

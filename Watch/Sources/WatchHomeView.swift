@@ -9,6 +9,7 @@ struct WatchHomeView: View {
     let captureModel: WatchCaptureModel
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let face = watchFaceModel(
@@ -68,7 +69,7 @@ struct WatchHomeView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
         }
-        .background(Color.black)
+        .background(Color.clear)
         .opacity(self.isLuminanceReduced ? 0.82 : 1)
         .saturation(self.isLuminanceReduced ? 0.45 : 1)
         .onChange(of: self.scenePhase) { _, newPhase in
@@ -85,7 +86,7 @@ private extension WatchHomeView {
     }
 
     var secondaryTextColor: Color {
-        Color(white: 0.56)
+        self.colorScheme == .dark ? Color(white: 0.56) : Color(white: 0.36)
     }
 
     var controlLabel: String {
@@ -202,13 +203,21 @@ private extension WatchHomeView {
     func color(for role: WatchFaceColorRole) -> Color {
         switch role {
         case .live:
-            Color(red: 0.910, green: 0.569, blue: 0.227)
+            self.colorScheme == .dark
+                ? Color(red: 0.910, green: 0.569, blue: 0.227)
+                : Color(red: 0.678, green: 0.365, blue: 0.070)
         case .flight:
-            Color(red: 0.961, green: 0.659, blue: 0.259)
+            self.colorScheme == .dark
+                ? Color(red: 0.961, green: 0.659, blue: 0.259)
+                : Color(red: 0.650, green: 0.420, blue: 0.060)
         case .calm:
-            Color(red: 0.604, green: 0.604, blue: 0.627)
+            self.colorScheme == .dark
+                ? Color(red: 0.604, green: 0.604, blue: 0.627)
+                : Color(red: 0.250, green: 0.250, blue: 0.280)
         case .alert:
-            Color(red: 1.000, green: 0.271, blue: 0.227)
+            self.colorScheme == .dark
+                ? Color(red: 1.000, green: 0.271, blue: 0.227)
+                : Color(red: 0.700, green: 0.120, blue: 0.100)
         }
     }
 

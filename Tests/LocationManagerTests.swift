@@ -105,6 +105,34 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testSunArcPresentationCoordinateTracksOnlyActiveFixesAndClearsAtLifecycleBoundaries() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        let fix = MockLocationProvider.fix()
+        let coordinate = SunArcCoordinate(latitude: fix.lat, longitude: fix.lon)
+
+        self.provider.emitFix(fix)
+        await self.yieldToMainActor()
+        XCTAssertNil(manager.sunArcPresentationCoordinate)
+
+        await manager.start(tier: .balanced)
+        self.provider.emitFix(fix)
+        await self.yieldToMainActor()
+        XCTAssertEqual(manager.sunArcPresentationCoordinate, coordinate)
+
+        self.provider.emitAuthorization(.whenInUse(accuracy: .full))
+        await self.yieldToMainActor()
+        XCTAssertNil(manager.sunArcPresentationCoordinate)
+
+        self.provider.emitFix(fix)
+        await self.yieldToMainActor()
+        XCTAssertEqual(manager.sunArcPresentationCoordinate, coordinate)
+
+        await manager.stop()
+        XCTAssertNil(manager.sunArcPresentationCoordinate)
+    }
+
+    @MainActor
     func testIsSustainingBackgroundFalseWhenAlwaysRevokedWhileActive() async {
         self.provider.capability = .always(accuracy: .reduced)
         let manager = self.makeManager()

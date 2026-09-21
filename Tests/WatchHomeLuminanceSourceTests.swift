@@ -16,15 +16,17 @@ nonisolated final class WatchHomeLuminanceSourceTests: XCTestCase {
         let rootModifierChain = String(body[scrollViewRange.upperBound...])
 
         XCTAssertTrue(source.contains("@Environment(\\.isLuminanceReduced) private var isLuminanceReduced"))
+        XCTAssertTrue(source.contains("@Environment(\\.colorScheme) private var colorScheme"))
         XCTAssertTrue(scrollView.contains("self.statusHeader(face)"))
         XCTAssertTrue(scrollView.contains("ForEach(face.detailRows, id: \\.label)"))
         XCTAssertFalse(scrollView.contains("isLuminanceReduced"))
         XCTAssertTrue(rootModifierChain.hasPrefix("""
 
-        .background(Color.black)
+        .background(Color.clear)
         .opacity(self.isLuminanceReduced ? 0.82 : 1)
         .saturation(self.isLuminanceReduced ? 0.45 : 1)
 """))
+        XCTAssertTrue(source.contains("self.colorScheme == .dark ? Color(white: 0.56) : Color(white: 0.36)"))
 
         XCTAssertEqual(
             source.structuralBranches,

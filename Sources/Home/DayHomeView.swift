@@ -222,7 +222,7 @@ struct DayHomeView: View {
                 }
             }
         }
-        .background(Color.deckGround.ignoresSafeArea())
+        .background(Color.clear.ignoresSafeArea())
         .task { await refreshNowPeriodically { self.now = Date() } }
         .task(id: self.appGroupSnapshotInputs) {
             _ = self.appGroupMirror.updateSessionAndSources(

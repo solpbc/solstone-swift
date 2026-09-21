@@ -48,6 +48,7 @@ final class LocationManager {
 
     var state: LocationState = .idle
     var tier: LocationTier
+    private(set) var sunArcPresentationCoordinate: SunArcCoordinate?
 
     @ObservationIgnored private let provider: any LocationProviding
     @ObservationIgnored private let mobileSegmentEngine: MobileSegmentEngine
@@ -135,6 +136,7 @@ final class LocationManager {
             return
         }
 
+        self.clearSunArcPresentationCoordinate()
         self.persistTier(tier)
         self.paused = false
         self.state = .starting
@@ -143,6 +145,7 @@ final class LocationManager {
     }
 
     func stop() async {
+        self.clearSunArcPresentationCoordinate()
         switch self.state {
         case .idle:
             return
@@ -192,12 +195,14 @@ final class LocationManager {
 
         guard Self.readEnabled(defaults: self.defaults) else {
             self.paused = false
+            self.clearSunArcPresentationCoordinate()
             self.state = .idle
             return
         }
 
         guard !Self.readPaused(defaults: self.defaults) else {
             self.paused = true
+            self.clearSunArcPresentationCoordinate()
             self.state = .idle
             return
         }
@@ -205,6 +210,7 @@ final class LocationManager {
         self.paused = false
         let capability = self.effectiveCapability()
         guard self.tier.isSatisfied(by: capability) else {
+            self.clearSunArcPresentationCoordinate()
             self.state = .error(.capabilityInsufficient)
             return
         }
@@ -317,6 +323,7 @@ private extension LocationManager {
 
         if case .active = self.state, !self.tier.isSatisfied(by: self.effectiveCapability()) {
             self.markGap()
+            self.clearSunArcPresentationCoordinate()
             // Deliberately asymmetric: a re-grant while active does not re-begin sustain in this pass.
             await self.provider.endBackgroundSustain()
         }
@@ -338,6 +345,7 @@ private extension LocationManager {
         case .notDetermined:
             self.provider.requestWhenInUseAuthorization()
         case .servicesDisabled, .denied, .restricted:
+            self.clearSunArcPresentationCoordinate()
             self.state = .error(.capabilityInsufficient)
         case .whenInUse:
             switch self.tier.requiredAuthorization {
@@ -345,6 +353,7 @@ private extension LocationManager {
                 await self.activateSessionIfAllowed(capability: capability)
             case .always:
                 if self.hasRequestedAlwaysForCurrentStart {
+                    self.clearSunArcPresentationCoordinate()
                     self.state = .error(.capabilityInsufficient)
                 } else {
                     self.hasRequestedAlwaysForCurrentStart = true
@@ -368,11 +377,13 @@ private extension LocationManager {
     func resolveAlwaysDeclineIfStillStranded() async {
         guard case .starting = self.state else { return }
         guard !self.tier.isSatisfied(by: self.effectiveCapability()) else { return }
+        self.clearSunArcPresentationCoordinate()
         self.state = .error(.capabilityInsufficient)
     }
 
     func activateSessionIfAllowed(capability: LocationCapability) async {
         guard self.tier.isSatisfied(by: capability) else {
+            self.clearSunArcPresentationCoordinate()
             self.state = .error(.capabilityInsufficient)
             return
         }
@@ -383,6 +394,7 @@ private extension LocationManager {
             }
             try await self.provider.startObservation(modes: self.tier.modes)
         } catch {
+            self.clearSunArcPresentationCoordinate()
             self.state = .error(.unavailable(reason: String(describing: error)))
             return
         }
@@ -404,6 +416,7 @@ private extension LocationManager {
             self.persistPaused(false)
         } catch {
             await self.provider.stopObservation()
+            self.clearSunArcPresentationCoordinate()
             self.state = .error(.unavailable(reason: String(describing: error)))
         }
     }
@@ -419,6 +432,7 @@ private extension LocationManager {
             try await self.provider.startObservation(modes: self.tier.modes)
             self.mobileSegmentEngine.updateLocation(tier: self.tier, accuracy: self.currentAccuracy())
         } catch {
+            self.clearSunArcPresentationCoordinate()
             self.state = .error(.unavailable(reason: String(describing: error)))
         }
     }
@@ -435,6 +449,7 @@ private extension LocationManager {
 
     func handleFix(_ fix: LocationFix) {
         guard case .active = self.state else { return }
+        self.sunArcPresentationCoordinate = SunArcCoordinate(latitude: fix.lat, longitude: fix.lon)
         self.mobileSegmentEngine.recordLocationFix(fix)
     }
 
@@ -484,7 +499,12 @@ private extension LocationManager {
         self.alwaysDeclineWait = nil
     }
 
+    func clearSunArcPresentationCoordinate() {
+        self.sunArcPresentationCoordinate = nil
+    }
+
     func resetRuntime() {
+        self.clearSunArcPresentationCoordinate()
         self.alwaysDeclineWait?.cancel()
         self.alwaysDeclineWait = nil
         self.currentSessionID = nil

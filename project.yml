@@ -276,6 +276,7 @@ targets:
       - Watch/Sources
       - Watch/PrivacyInfo.xcprivacy
       - Watch/Assets.xcassets
+      - path: Sources/SunArc
       - path: Sources/WatchCapture
         excludes:
           - WatchSegmentDrain.swift
@@ -363,9 +364,11 @@ targets:
     deploymentTarget: "26.0"
     sources:
       - WatchTests
+      - Tests/SunArcEngineTests.swift
       - SolstoneWatchComplication/ComplicationViews.swift
       - SolstoneWatchComplication/WatchComplicationPalette.swift
       - Sources/SourceVocabulary.swift
+      - path: Sources/SunArc
       - path: Sources/WatchCapture
         excludes:
           - WatchSegmentDrain.swift

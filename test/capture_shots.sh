@@ -31,7 +31,7 @@ OUT_DIR="${SHOTS_OUT:-build/shots}"
 APP_PATH="${SHOTS_APP:-}"
 SETTLE="${SHOTS_SETTLE:-4}"
 # pipe-separated sets of launch arguments; one capture pass per set
-IFS='|' read -r -a STATES <<< "${SHOTS_STATES:---ui-test}"
+IFS='|' read -r -a STATES <<< "${SHOTS_STATES:---ui-test|--ui-test --ui-test-sun-arc-denver-dawn|--ui-test --ui-test-sun-arc-denver-midday|--ui-test --ui-test-sun-arc-denver-night|--ui-test --ui-test-sun-arc-held-coordinate|--ui-test --ui-test-sun-arc-timezone-only|--ui-test --ui-test-sun-arc-unknown-zone}"
 
 AX5="accessibility-extra-extra-extra-large"
 

@@ -48,6 +48,7 @@ final class WatchCaptureModel {
             self.enqueueComplicationSnapshotPublication()
         }
     }
+    private(set) var sunArcPresentationCoordinate: SunArcCoordinate? = nil
 
     @ObservationIgnored private var engine: WatchCaptureEngine?
     @ObservationIgnored private var storageActor: WatchCaptureStorageActor?
@@ -111,8 +112,10 @@ final class WatchCaptureModel {
             environmentProvider: environmentProvider,
             signposter: signposter
         )
-        engine.onPresentationChanged = { [weak self] presentation in
-            guard let self, self.presentation != presentation else { return }
+        engine.onPresentationChanged = { [weak self, weak engine] presentation in
+            guard let self else { return }
+            self.sunArcPresentationCoordinate = engine?.sunArcPresentationCoordinate
+            guard self.presentation != presentation else { return }
             self.presentation = presentation
         }
         engine.onRelayDrainRequested = { [weak relaySender] trigger in
@@ -162,6 +165,7 @@ final class WatchCaptureModel {
         self.engine = engine
         engine.reconcileOnLaunch()
         self.presentation = engine.ownerPresentation
+        self.sunArcPresentationCoordinate = engine.sunArcPresentationCoordinate
         self.enqueueComplicationSnapshotPublication()
     }
 
@@ -215,6 +219,7 @@ final class WatchCaptureModel {
         self.engine?.start()
         if let engine = self.engine {
             self.presentation = engine.ownerPresentation
+            self.sunArcPresentationCoordinate = engine.sunArcPresentationCoordinate
         }
     }
 
@@ -222,6 +227,7 @@ final class WatchCaptureModel {
         self.engine?.stop()
         if let engine = self.engine {
             self.presentation = engine.ownerPresentation
+            self.sunArcPresentationCoordinate = engine.sunArcPresentationCoordinate
         }
     }
 

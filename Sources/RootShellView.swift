@@ -38,6 +38,9 @@ struct RootShellView: View {
     /// one disturbed layout and presentation across surfaces that have nothing to do
     /// with the shelf.
     @State private var shellWidth: CGFloat = 0
+#if DEBUG
+    @State private var sunArcDebugOverride: SunArcBackgroundDebugOverride?
+#endif
 
     private var prefersCrossFade: Bool { self.crossFadePreference.prefersCrossFadeTransitions }
 
@@ -138,8 +141,27 @@ struct RootShellView: View {
         }
     }
 
+    private var sunArcShell: some View {
+#if DEBUG
+        SunArcBackgroundHost(
+            palette: DeckSunArcPalette.value,
+            presentationCoordinate: self.locationManager.sunArcPresentationCoordinate,
+            debugOverride: self.sunArcDebugOverride
+        ) {
+            self.shellWithSheets
+        }
+#else
+        SunArcBackgroundHost(
+            palette: DeckSunArcPalette.value,
+            presentationCoordinate: self.locationManager.sunArcPresentationCoordinate
+        ) {
+            self.shellWithSheets
+        }
+#endif
+    }
+
     var body: some View {
-        self.shellWithSheets
+        self.sunArcShell
         .task(id: self.tunnelManager.activeConnection?.port) {
             await self.fetchJournalMark()
         }
@@ -508,6 +530,7 @@ struct RootShellView: View {
 #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         guard arguments.contains("--ui-test") else { return }
+        self.sunArcDebugOverride = SunArcBackgroundDebugScene.sceneOverride(for: arguments)
         if arguments.contains("--ui-test-journal-mark"),
            !arguments.contains("--ui-test-no-journal")
         {
