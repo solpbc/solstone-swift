@@ -423,6 +423,10 @@ private extension LocationManager {
     }
 
     func restartObservationForCurrentTier() async {
+        // The provider is about to be torn down and rebuilt for the new tier, so any
+        // fix presented under the old tier is stale the instant `stopObservation()`
+        // runs — clear before stop/start, not only on the error path below.
+        self.clearSunArcPresentationCoordinate()
         await self.provider.stopObservation()
         if self.tier.requiredAuthorization == .always {
             await self.provider.beginBackgroundSustain()

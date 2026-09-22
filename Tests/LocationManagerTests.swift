@@ -153,6 +153,29 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testSunArcPresentationCoordinateClearsOnSatisfiedTierChangeRestart() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        let fix = MockLocationProvider.fix()
+        let coordinate = SunArcCoordinate(latitude: fix.lat, longitude: fix.lon)
+
+        await manager.start(tier: .balanced)
+        self.provider.emitFix(fix)
+        await self.yieldToMainActor()
+        XCTAssertEqual(manager.sunArcPresentationCoordinate, coordinate)
+
+        // `.full` is satisfied by `.always(accuracy: .full)`, so this restarts the
+        // provider for the new tier rather than marking a gap — the stale fix from
+        // the old tier must not survive the restart.
+        await manager.changeTier(.full)
+
+        XCTAssertNil(manager.sunArcPresentationCoordinate)
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state")
+        }
+    }
+
+    @MainActor
     func testIsSustainingBackgroundFalseWhenAlwaysRevokedWhileActive() async {
         self.provider.capability = .always(accuracy: .reduced)
         let manager = self.makeManager()

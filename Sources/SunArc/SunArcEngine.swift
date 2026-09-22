@@ -259,7 +259,12 @@ public nonisolated struct SunArcTime: Sendable, Equatable {
         let nightLen = 1440 - (dusk - dawn)
         let q: Double
         if m2 >= dusk { q = (m2 - dusk) / nightLen }
-        else if m2 < dawn { q = (m2 + 1440 - dusk) / nightLen }
+        // `<=`, not `<`: at m2 == dawn exactly, `night` above is still 1 (full night —
+        // dawn is where night *reaches* zero at `rise`, not at `dawn` itself), so this
+        // must land on the pre-dawn branch's limit of q = 1 (glow at corner A) rather
+        // than falling through to the day branch's q = 0 (which would swap the glow to
+        // corner B for one frame at the exact boundary).
+        else if m2 <= dawn { q = (m2 + 1440 - dusk) / nightLen }
         else { q = 0 }
 
         return SunArcTime(t: t, night: night, q: q)

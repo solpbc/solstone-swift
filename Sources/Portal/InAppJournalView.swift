@@ -196,6 +196,10 @@ struct InAppJournalView: View {
 
     private var paneContent: some View {
         self.content
+            // Explicit and independent of `ShellSurface`: the journal is the one native
+            // pane that must stay opaque under the shared SunArc background, because the
+            // `WKWebView` beneath it has no ground of its own to fall back on.
+            .background(Color.deckGround.ignoresSafeArea())
             .navigationTitle(self.headingString)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

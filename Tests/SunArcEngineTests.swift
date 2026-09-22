@@ -104,6 +104,25 @@ struct SunArcEngineTests {
         #expect(abs(glowRadius - 654.4947484493325) / glowRadius < 0.01)
     }
 
+    @Test func qAtExactDawnMatchesThePreDawnLimitNotTheDayReset() {
+        // Boundary the fix-up audit caught: at m == dawn exactly, `night` is still 1 —
+        // night only reaches 0 at `rise`, not at `dawn` — so `q` must land on the
+        // pre-dawn branch's limit of 1 (glow at corner A) rather than resetting to the
+        // day branch's 0 (which would swap the glow to corner B for one frame right at
+        // the boundary).
+        let riseMinutes = 6.0 * 60 + 30, setMinutes = 19.0 * 60 + 30
+        let dawnMinutes = riseMinutes - SunArc.twilightMinutes
+        let atDawn = SunArcTime.compute(minutes: dawnMinutes, riseMinutes: riseMinutes, setMinutes: setMinutes)
+        #expect(atDawn.night == 1)
+        #expect(atDawn.q == 1)
+
+        let placement = SunArcPlacement(size: Self.size, tipRadius: Self.tipRadius)
+        let glow = SunArcGlow.compute(time: atDawn, sunPosition: placement.position(at: 0), envelope: 0, onVisible: false, placement: placement)
+        #expect(glow.position.x == placement.a.x)
+        #expect(glow.position.y == placement.a.y)
+        #expect(abs(glow.alpha - SunArc.glowNightAlpha) < 0.0001)
+    }
+
     @Test func positionUpdatesAtMostOnceAMinuteByConstruction() {
         // § 12: "Position updates at most once a minute; no timer under a minute." — the view
         // drives its Canvas from `TimelineView(.everyMinute)`, SwiftUI's own once-a-minute

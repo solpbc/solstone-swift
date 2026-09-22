@@ -106,12 +106,21 @@ nonisolated enum ShellMetrics {
     static let sectionGap: CGFloat = 24
 }
 
-/// Puts a surface on the shell's ground and accent.
+/// Puts a surface on the shell's accent, with a transparent ground.
 ///
 /// Applied once at the shell's destination container rather than per-view, so a pane
 /// cannot be added later and quietly arrive on `systemGroupedBackground` with a
 /// system-green switch — which is exactly how the five shelf panes had drifted from
 /// the deck they open from.
+///
+/// The ground is `.clear`, not `deckGround`: every native pane root sits above the
+/// shared `SunArcBackgroundHost` at the shell root, and an opaque ground here would
+/// paint over it on every pushed phone destination and regular-width iPad detail
+/// pane. Cards and tiles keep their own explicit `deckSurface`/`deckSurfaceRaised`
+/// backgrounds, so they read the same as before — only the ground behind them
+/// changed. The journal is the one exception: `InAppJournalView` sets its own opaque
+/// `deckGround` background directly, because a `WKWebView` needs an opaque backdrop
+/// underneath it.
 ///
 /// `scrollContentBackground(.hidden)` is what lets a `List` show the ground through;
 /// without it the List paints its own grouped grey over everything below.
@@ -119,7 +128,7 @@ struct ShellSurface: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
-            .background(Color.deckGround.ignoresSafeArea())
+            .background(Color.clear.ignoresSafeArea())
             .tint(.solOrange)
     }
 }
