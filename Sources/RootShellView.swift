@@ -285,6 +285,10 @@ struct RootShellView: View {
             self.paneColumn
         }
         .navigationSplitViewStyle(.balanced)
+        // See `phoneStack`'s `.containerBackground` for why this is necessary —
+        // `NavigationSplitView` has the same opaque system container background,
+        // independent of the sidebar/detail's own declared backgrounds.
+        .containerBackground(.clear, for: .navigationSplitView)
 #if DEBUG
         .overlay(alignment: .topLeading) {
             if self.showsColumnVisibilityProbe {
@@ -331,6 +335,13 @@ struct RootShellView: View {
                     ShellDestinationView(destination: destination, journalMark: self.journalMark)
                 }
         }
+        // `NavigationStack` paints its own opaque system container background behind
+        // whatever it hosts, entirely apart from anything that content declares — a
+        // `.background(Color.clear)` on the pushed content never reaches it. Clearing
+        // the container background itself is what lets the shared SunArc Canvas
+        // (`SunArcBackgroundHost`, behind this stack in RootShellView's ZStack) show
+        // through the deck and every pushed pane.
+        .containerBackground(.clear, for: .navigation)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -389,6 +400,10 @@ struct RootShellView: View {
                     ShellDestinationView(destination: destination, journalMark: self.journalMark)
                 }
         }
+        // The detail column's own nested stack — see `phoneStack`'s
+        // `.containerBackground` for why the outer split view's clearing alone does
+        // not also clear this stack's own container background.
+        .containerBackground(.clear, for: .navigation)
     }
 
     /// What the pane shows at its root: the deck's selection, or the computed

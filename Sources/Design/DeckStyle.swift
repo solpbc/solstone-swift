@@ -122,6 +122,15 @@ nonisolated enum ShellMetrics {
 /// `deckGround` background directly, because a `WKWebView` needs an opaque backdrop
 /// underneath it.
 ///
+/// This alone is not sufficient to reveal the shared Canvas: `NavigationStack` and
+/// `NavigationSplitView` paint their own opaque system container background behind
+/// whatever content they host, entirely separately from what that content declares.
+/// `RootShellView` clears that container background directly, with
+/// `.containerBackground(.clear, for: .navigation)` /
+/// `.containerBackground(.clear, for: .navigationSplitView)` on the navigation
+/// containers themselves — this ground here only has to stay out of the way once
+/// that container background is gone.
+///
 /// `scrollContentBackground(.hidden)` is what lets a `List` show the ground through;
 /// without it the List paints its own grouped grey over everything below.
 struct ShellSurface: ViewModifier {
