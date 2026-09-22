@@ -1,14 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
-nonisolated enum WatchFaceMark: Equatable, Sendable {
-    case active
-    case activeDimmed
-    case alert
-    case connecting
-    case paused
-}
-
 nonisolated enum WatchFaceColorRole: Equatable, Sendable, CaseIterable, Codable {
     case live
     case flight
@@ -28,7 +20,6 @@ nonisolated struct WatchFaceDetailRow: Equatable, Sendable {
 }
 
 nonisolated struct WatchFaceModel: Equatable, Sendable {
-    let markVariant: WatchFaceMark
     let stateWord: String
     let stateColorRole: WatchFaceColorRole
     let showsElapsed: Bool
@@ -43,19 +34,17 @@ nonisolated func watchFaceModel(
     for presentation: WatchCaptureOwnerPresentation,
     isReachable: Bool
 ) -> WatchFaceModel {
-    let state: (word: String, mark: WatchFaceMark, role: WatchFaceColorRole, showsElapsed: Bool)
+    let state: (word: String, role: WatchFaceColorRole, showsElapsed: Bool)
     switch presentation.status {
     case .active:
         state = (
             SourceVocabulary.watchHeadlineListening,
-            .active,
             .live,
             true
         )
     case .enrolling:
         state = (
             SourceVocabulary.watchHeadlineEnrolling,
-            .connecting,
             .live,
             false
         )
@@ -63,13 +52,11 @@ nonisolated func watchFaceModel(
         state = (
             error.message,
             .alert,
-            .alert,
             false
         )
     case .off:
         state = (
             SourceVocabulary.watchHeadlineOff,
-            .paused,
             .calm,
             false
         )
@@ -116,7 +103,6 @@ nonisolated func watchFaceModel(
     }
 
     return WatchFaceModel(
-        markVariant: state.mark,
         stateWord: state.word,
         stateColorRole: state.role,
         showsElapsed: state.showsElapsed,

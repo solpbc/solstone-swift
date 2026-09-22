@@ -3,7 +3,7 @@
 .PHONY: generate build-metadata-bootstrap build-metadata build build-generic release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test primer-shots integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
 			       release-distribution ipa-appstore ipa-device verify-ipa-parity deploy-ipa-device device-gate testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
-			       sim-shots launch-shots sim-widget-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
+			       sim-shots watch-shots launch-shots sim-widget-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
 
 SCHEME    ?= solstone-swift
 PROJECT   ?= solstone-swift.xcodeproj
@@ -900,6 +900,12 @@ sim-shots: sim
 		SHOTS_SIM="$(SIM)" \
 		$(if $(SHOTS_STATES),SHOTS_STATES="$(SHOTS_STATES)") \
 		bash test/capture_shots.sh
+
+watch-shots: watch-sim
+	SIM_WATCH="$(SIM_WATCH)" \
+	SHOTS_APP="$(DERIVED)/Build/Products/Debug-watchsimulator/SolstoneWatch.app" \
+	SHOTS_OUT="build/watch-shots" \
+	bash test/watch_shots.sh
 
 # The system owns the launch screen, so ordinary UI tests begin too late to see it.
 # A DEBUG-only launch hold keeps the storyboard visible long enough for these fresh,

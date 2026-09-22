@@ -362,6 +362,12 @@ targets:
     sources:
       - WatchTests
       - Tests/SunArcEngineTests.swift
+      - Tests/WatchSunArcDrawingTests.swift
+      - Tests/WatchElapsedDurationTests.swift
+      - Tests/WatchHomeHeroTests.swift
+      - Tests/WatchHomePaletteTests.swift
+      - Tests/WatchHomeControlStyleTests.swift
+      - Tests/WatchComplicationLiteralTests.swift
       - SolstoneWatchComplication/ComplicationViews.swift
       - SolstoneWatchComplication/WatchComplicationPalette.swift
       - Sources/SourceVocabulary.swift

@@ -6,20 +6,19 @@ import XCTest
 
 nonisolated final class WatchFacePresentationTests: XCTestCase {
     func testStatusTable() {
-        let cases: [(WatchCaptureRuntimeStatus, String, WatchFaceMark, WatchFaceColorRole, Bool)] = [
-            (.active, SourceVocabulary.watchHeadlineListening, .active, .live, true),
-            (.enrolling, SourceVocabulary.watchHeadlineEnrolling, .connecting, .live, false),
-            (.needsAttention(.diskFull), ObserverError.diskFull.message, .alert, .alert, false),
-            (.off, SourceVocabulary.watchHeadlineOff, .paused, .calm, false),
+        let cases: [(WatchCaptureRuntimeStatus, String, WatchFaceColorRole, Bool)] = [
+            (.active, SourceVocabulary.watchHeadlineListening, .live, true),
+            (.enrolling, SourceVocabulary.watchHeadlineEnrolling, .live, false),
+            (.needsAttention(.diskFull), ObserverError.diskFull.message, .alert, false),
+            (.off, SourceVocabulary.watchHeadlineOff, .calm, false),
         ]
 
-        for (status, stateWord, markVariant, stateColorRole, showsElapsed) in cases {
+        for (status, stateWord, stateColorRole, showsElapsed) in cases {
             let model = watchFaceModel(
                 for: WatchCaptureOwnerPresentation(status: status, queuedCount: 0),
                 isReachable: false
             )
             XCTAssertEqual(model.stateWord, stateWord)
-            XCTAssertEqual(model.markVariant, markVariant)
             XCTAssertEqual(model.stateColorRole, stateColorRole)
             XCTAssertEqual(model.showsElapsed, showsElapsed)
         }

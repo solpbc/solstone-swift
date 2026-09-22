@@ -6,6 +6,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Changed
+- the solstone app on your apple watch now has a dark background, so the clock in the corner no longer disappears into it during the day. the running time now reads like 1h 25m, or 10s in its first minute, instead of a clock-style 85:00.
+
 ### Fixed
 - screen waiting to sync could appear under audio in status. it now appears under screen.
 - if you turned the microphone on when ios asked about sharing your screen, that sound never reached your journal. it does now, alongside the screen.

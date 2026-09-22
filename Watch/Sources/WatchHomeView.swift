@@ -9,69 +9,75 @@ struct WatchHomeView: View {
     let captureModel: WatchCaptureModel
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let face = watchFaceModel(
             for: self.captureModel.presentation,
             isReachable: self.model.isReachable
         )
+        let hero = watchHomeHero(
+            model: face,
+            status: self.captureModel.presentation.status,
+            sessionStartedAt: self.captureModel.presentation.sessionStartedAt,
+            now: Date()
+        )
 
-        ScrollView {
-            VStack(alignment: .center, spacing: 14) {
-                self.statusHeader(face)
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .center, spacing: 14) {
+                    self.heroView(hero: hero, face: face)
 
-                self.controlButton
+                    Divider()
+                        .overlay(Color(watchHex: WatchHomePalette.calm).opacity(0.45))
+                        .padding(.vertical, 2)
 
-                Divider()
-                    .overlay(self.secondaryTextColor.opacity(0.45))
-                    .padding(.vertical, 2)
-
-                VStack(alignment: .leading, spacing: 9) {
-                    ForEach(face.detailRows, id: \.label) { row in
-                        HStack(spacing: 10) {
-                            Text(row.label)
-                            Spacer(minLength: 8)
-                            Text("\(row.value)")
-                                .monospacedDigit()
+                    VStack(alignment: .leading, spacing: 9) {
+                        ForEach(face.detailRows, id: \.label) { row in
+                            HStack(spacing: 10) {
+                                Text(row.label)
+                                    .minimumScaleFactor(0.7)
+                                Spacer(minLength: 8)
+                                Text("\(row.value)")
+                                    .monospacedDigit()
+                                    .minimumScaleFactor(0.7)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
                         }
-                        .font(.caption)
-                        .foregroundStyle(self.secondaryTextColor)
-                    }
 
-                    Text("journal version \(self.model.journalVersion.displayValue)")
-                        .font(.caption2)
-                        .foregroundStyle(self.secondaryTextColor)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if let trustLine = face.trustLine {
-                        Text(trustLine)
+                        Text("journal version \(self.model.journalVersion.displayValue)")
                             .font(.caption2)
-                            .foregroundStyle(self.secondaryTextColor)
+                            .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
+                            .minimumScaleFactor(0.7)
                             .fixedSize(horizontal: false, vertical: true)
-                    }
 
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(face.linkInRange ? Color.green : self.color(for: .calm))
-                            .frame(width: 7, height: 7)
+                        if let trustLine = face.trustLine {
+                            Text(trustLine)
+                                .font(.caption2)
+                                .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
+                                .minimumScaleFactor(0.7)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
                         Text(face.linkLine)
                             .font(.caption2)
-                            .foregroundStyle(self.secondaryTextColor)
+                            .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
+                            .minimumScaleFactor(0.7)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(face.linkLine)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .opacity(self.isLuminanceReduced ? WatchHomePalette.reducedContentOpacity : 1)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+
+            self.controlButton
+                .padding(.horizontal, 14)
+                .padding(.bottom, 6)
         }
         .background(Color.clear)
-        .opacity(self.isLuminanceReduced ? 0.82 : 1)
-        .saturation(self.isLuminanceReduced ? 0.45 : 1)
         .onChange(of: self.scenePhase) { _, newPhase in
             if newPhase == .active {
                 self.captureModel.handleOwnerVisibleRaise()
@@ -81,150 +87,69 @@ struct WatchHomeView: View {
 }
 
 private extension WatchHomeView {
-    var primaryTextColor: Color {
-        .white
-    }
-
-    var secondaryTextColor: Color {
-        self.colorScheme == .dark ? Color(white: 0.56) : Color(white: 0.36)
-    }
-
-    var controlLabel: String {
-        self.captureModel.isRunning ? "stop" : "start"
-    }
-
-    var controlHint: String {
-        self.captureModel.isRunning ? "turns the solstone app off" : "turns the solstone app on"
-    }
-
-    var controlFill: Color {
-        self.captureModel.isRunning ? Color(white: 0.16) : self.color(for: .live)
-    }
-
-    var controlButton: some View {
-        Button {
-            if self.captureModel.isRunning {
-                self.captureModel.stop()
-            } else {
-                self.captureModel.start()
-            }
-        } label: {
-            Text(self.controlLabel)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(self.primaryTextColor)
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .background(self.controlFill, in: Capsule())
-        .accessibilityLabel(self.controlLabel)
-        .accessibilityHint(self.controlHint)
-    }
-
-    func statusHeader(_ face: WatchFaceModel) -> some View {
-        VStack(spacing: 7) {
-            self.markView(face.markVariant)
-
-            Text(face.stateWord)
-                .font(.title3.weight(.bold))
-                .foregroundStyle(self.color(for: face.stateColorRole))
+    @ViewBuilder
+    func heroView(hero: WatchHomeHero, face: WatchFaceModel) -> some View {
+        VStack(spacing: 4) {
+            Text(hero.title)
+                .font(hero.titleIsLarge ? .title2.weight(.bold) : .headline.weight(.semibold))
+                .foregroundStyle(Color(watchHex: hero.titleHex))
                 .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.72)
-                .lineLimit(2)
+                .minimumScaleFactor(0.6)
+                .lineLimit(hero.titleLineLimit)
 
-            if face.showsElapsed, let start = self.captureModel.presentation.sessionStartedAt {
-                if !self.isLuminanceReduced && self.scenePhase == .active {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text(Self.elapsedText(from: start, now: context.date))
-                            .font(.footnote.monospacedDigit())
-                            .foregroundStyle(self.secondaryTextColor)
-                    }
-                } else {
-                    Text(Self.elapsedText(from: start, now: .now))
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(self.secondaryTextColor)
+            if hero.elapsedDisplay != nil, let start = self.captureModel.presentation.sessionStartedAt {
+                TimelineView(WatchHomeElapsedSchedule(
+                    sessionStart: start,
+                    sceneActive: self.scenePhase == .active,
+                    luminanceReduced: self.isLuminanceReduced
+                )) { context in
+                    let elapsed = max(0, Int(context.date.timeIntervalSince(start)))
+                    Text(watchElapsedDisplay(seconds: elapsed))
+                        .font(.largeTitle.monospacedDigit())
+                        .foregroundStyle(Color(watchHex: hero.elapsedHex))
+                        .minimumScaleFactor(0.6)
                 }
             }
 
-            if let handoff = face.compactHandoff {
-                VStack(spacing: 3) {
+            if let handoff = face.compactHandoff, let handoffLineHex = hero.handoffLineHex {
+                VStack(spacing: 2) {
                     Text(handoff.line)
                         .font(.footnote.weight(.semibold))
-                        .foregroundStyle(self.color(for: handoff.role))
+                        .foregroundStyle(Color(watchHex: handoffLineHex))
                         .multilineTextAlignment(.center)
                         .minimumScaleFactor(0.8)
                         .lineLimit(2)
+
                     if let subtext = handoff.subtext {
                         Text(subtext)
                             .font(.caption2)
-                            .foregroundStyle(self.secondaryTextColor)
+                            .foregroundStyle(Color(watchHex: hero.handoffSubtextHex))
                             .multilineTextAlignment(.center)
                             .minimumScaleFactor(0.8)
                             .lineLimit(2)
                     }
                 }
+                .padding(.top, 2)
             }
+
+            Text(hero.linkLine)
+                .font(.caption2)
+                .foregroundStyle(Color(watchHex: hero.linkHex))
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.7)
+                .lineLimit(1)
+                .padding(.top, 2)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(self.statusAccessibilityLabel(face))
+        .accessibilityLabel(self.heroAccessibilityLabel(hero: hero, face: face))
     }
 
-    @ViewBuilder
-    func markView(_ markVariant: WatchFaceMark) -> some View {
-        let image = Image(self.imageName(for: markVariant))
-            .resizable()
-            .scaledToFit()
-            .frame(width: 52, height: 52)
-            .accessibilityHidden(true)
-
-        if markVariant == .activeDimmed {
-            image
-                .opacity(0.32)
-                .grayscale(0.55)
-        } else {
-            image
-        }
-    }
-
-    func imageName(for markVariant: WatchFaceMark) -> String {
-        switch markVariant {
-        case .active, .activeDimmed:
-            "SolRingActive"
-        case .alert:
-            "SolRingAlert"
-        case .connecting:
-            "SolRingConnecting"
-        case .paused:
-            "SolRingPaused"
-        }
-    }
-
-    func color(for role: WatchFaceColorRole) -> Color {
-        switch role {
-        case .live:
-            self.colorScheme == .dark
-                ? Color(red: 0.910, green: 0.569, blue: 0.227)
-                : Color(red: 0.678, green: 0.365, blue: 0.070)
-        case .flight:
-            self.colorScheme == .dark
-                ? Color(red: 0.961, green: 0.659, blue: 0.259)
-                : Color(red: 0.650, green: 0.420, blue: 0.060)
-        case .calm:
-            self.colorScheme == .dark
-                ? Color(red: 0.604, green: 0.604, blue: 0.627)
-                : Color(red: 0.250, green: 0.250, blue: 0.280)
-        case .alert:
-            self.colorScheme == .dark
-                ? Color(red: 1.000, green: 0.271, blue: 0.227)
-                : Color(red: 0.700, green: 0.120, blue: 0.100)
-        }
-    }
-
-    func statusAccessibilityLabel(_ face: WatchFaceModel) -> String {
-        var parts = [face.stateWord]
-        if face.showsElapsed, let start = self.captureModel.presentation.sessionStartedAt {
-            parts.append(Self.elapsedText(from: start, now: Date()))
+    func heroAccessibilityLabel(hero: WatchHomeHero, face: WatchFaceModel) -> String {
+        var parts = [hero.title]
+        if hero.elapsedDisplay != nil, let start = self.captureModel.presentation.sessionStartedAt {
+            let elapsed = max(0, Int(Date().timeIntervalSince(start)))
+            parts.append(watchElapsedSpoken(seconds: elapsed))
         }
         if let handoff = face.compactHandoff {
             parts.append(handoff.line)
@@ -232,13 +157,92 @@ private extension WatchHomeView {
                 parts.append(subtext)
             }
         }
+        parts.append(hero.linkLine)
         return parts.joined(separator: ", ")
     }
 
-    static func elapsedText(from start: Date, now: Date) -> String {
-        let totalSeconds = max(0, Int(now.timeIntervalSince(start)))
-        let minutes = totalSeconds / 60
-        let seconds = totalSeconds % 60
-        return "\(minutes):\(String(format: "%02d", seconds))"
+    var controlHint: String {
+        self.captureModel.isRunning ? "turns the solstone app off" : "turns the solstone app on"
+    }
+
+    var controlButton: some View {
+        let style = watchHomeControlStyle(
+            isRunning: self.captureModel.isRunning,
+            luminanceReduced: self.isLuminanceReduced
+        )
+
+        return Button {
+            if self.captureModel.isRunning {
+                self.captureModel.stop()
+            } else {
+                self.captureModel.start()
+            }
+        } label: {
+            Text(style.label)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(Color(watchHex: style.labelHex).opacity(style.labelAlpha))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, minHeight: WatchHomeControlStyle.minHeight)
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .background {
+            if let fillHex = style.fillHex {
+                Capsule().fill(Color(watchHex: fillHex))
+            }
+        }
+        .overlay {
+            if let strokeHex = style.strokeHex {
+                Capsule()
+                    .strokeBorder(
+                        Color(watchHex: strokeHex).opacity(style.strokeAlpha),
+                        lineWidth: style.strokeLineWidth
+                    )
+            }
+        }
+        .accessibilityLabel(style.label)
+        .accessibilityHint(self.controlHint)
+    }
+}
+
+nonisolated struct WatchHomeElapsedSchedule: TimelineSchedule {
+    let sessionStart: Date
+    let sceneActive: Bool
+    let luminanceReduced: Bool
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> Entries {
+        Entries(
+            sessionStart: self.sessionStart,
+            sceneActive: self.sceneActive,
+            luminanceReduced: self.luminanceReduced,
+            current: startDate
+        )
+    }
+
+    struct Entries: Sequence, IteratorProtocol {
+        let sessionStart: Date
+        let sceneActive: Bool
+        let luminanceReduced: Bool
+        var current: Date?
+
+        mutating func next() -> Date? {
+            guard let now = self.current else { return nil }
+            let nextDate = watchHomeElapsedNextFire(
+                sessionStart: self.sessionStart,
+                now: now,
+                sceneActive: self.sceneActive,
+                luminanceReduced: self.luminanceReduced
+            )
+            self.current = nextDate
+            return now
+        }
+    }
+}
+
+private extension Color {
+    init(watchHex hex: String) {
+        let rgb = SunArcOKLab.rgb(fromHex: hex)
+        self.init(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b, opacity: 1)
     }
 }
