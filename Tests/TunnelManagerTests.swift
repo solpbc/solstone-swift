@@ -3088,7 +3088,15 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         }, timeout: .seconds(2))
 
         XCTAssertTrue(didForceReconnect)
-        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 2)
+        // At least the threshold, not exactly it. The regression guarded here is
+        // escalating too EARLY (one failed probe), so the lower bound is the
+        // invariant. The upper bound is not ours to assert: the 20ms probe timer
+        // keeps firing between the escalation and waitUntil observing it, so a
+        // third probe can land before this line runs. Failed 3-vs-2 in a full
+        // suite on 2026-09-21 and passed alone at the same revision. Whether
+        // probing stops after escalation is covered by its own test above, which
+        // snapshots the count and asserts it stops growing.
+        XCTAssertGreaterThanOrEqual(TunnelProbeURLProtocol.capturedRequests.count, 2)
         let escalation = try XCTUnwrap(diagnosticLog.events.last {
             $0.category == .tunnel && $0.message == "probe not reachable during active uploads"
         })
