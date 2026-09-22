@@ -185,10 +185,19 @@ extension View {
 /// `UIAppearance` proxy (which would mutate every instance app-wide rather than just
 /// this shell's own hosts).
 ///
-/// Re-clears on every `didMoveToWindow` and `updateUIView` — both event-driven, not a
-/// timer — because SwiftUI can reuse or recreate the underlying hosting controllers
-/// across navigation pushes/pops and size-class changes, each of which can hand back a
-/// freshly-opaque `view.backgroundColor`.
+/// Clears only on `didMoveToWindow` — not on every `updateUIView`. This probe is
+/// itself a descendant of the content it protects (installed via `.background()`), so
+/// if the host it targets is ever genuinely recreated (a navigation push/pop, say),
+/// this probe is recreated right along with it and receives its own fresh
+/// `didMoveToWindow`. `updateUIView` fires on nearly every SwiftUI state change
+/// anywhere in the tree, far more often than the host is ever actually recreated — a
+/// full screenshot matrix caught that repeatedly re-walking and re-mutating these
+/// specific private SwiftUI host views from `updateUIView` coincided with intermittent
+/// dropped tile/card content in several normal-appearance captures, with no evidence
+/// that anything past the first clear was ever required.
+///
+/// Each mutation is also conditional — skipped if the view is already `.clear` —
+/// rather than unconditionally reassigning the same value on every pass.
 struct TransparentNavigationHostProbe: UIViewRepresentable {
     final class ProbeView: UIView {
         override func didMoveToWindow() {
@@ -222,6 +231,7 @@ struct TransparentNavigationHostProbe: UIViewRepresentable {
         }
 
         private static func clearBackground(of view: UIView) {
+            guard view.backgroundColor != .clear else { return }
             view.backgroundColor = .clear
         }
 
@@ -305,7 +315,8 @@ struct TransparentNavigationHostProbe: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {
-        (uiView as? ProbeView)?.clearHostBackgroundsIfWindowed()
+        // Deliberately empty — see the type's own doc comment for why re-clearing
+        // here, on nearly every SwiftUI state change, is neither required nor safe.
     }
 }
 
