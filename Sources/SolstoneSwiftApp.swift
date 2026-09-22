@@ -205,6 +205,14 @@ struct SolstoneSwiftApp: App {
     }
 
     init() {
+#if DEBUG && targetEnvironment(simulator)
+        // Deterministic visual acceptance hook for the system-owned launch screen.
+        // The release binary has no hold; a fresh simulator launch with this flag
+        // keeps the static storyboard visible long enough for `make launch-shots`.
+        if ProcessInfo.processInfo.arguments.contains("--ui-test-hold-launch-screen") {
+            Thread.sleep(forTimeInterval: 3)
+        }
+#endif
         SPLLogging.configure(subsystem: "app.solstone.swift")
         ShellFont.applyNavigationBarAppearance()
         Self.purgeLegacyKeychainEntries()

@@ -86,10 +86,7 @@ targets:
           - CFBundleURLName: app.solstone.swift
             CFBundleURLSchemes:
               - solstone
-        UILaunchScreen:
-          UIImageName: SolWordmark
-          UIColorName: systemBackground
-          UIImageRespectsSafeAreaInsets: true
+        UILaunchStoryboardName: LaunchScreen
         UIBackgroundModes:
           - audio
           - fetch
