@@ -6,7 +6,6 @@ import SwiftUI
 nonisolated enum HomeSourceTileControl: Equatable {
     case none
     case toggle
-    case button
 }
 
 /// The deck tile.
@@ -25,8 +24,6 @@ struct HomeSourceTile: View {
     let route: SourceRoute
     let control: HomeSourceTileControl
     var isOn: Binding<Bool> = .constant(false)
-    var buttonTitle: String = ""
-    var onButton: @MainActor @Sendable () -> Void = {}
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -74,8 +71,6 @@ struct HomeSourceTile: View {
                     EmptyView()
                 case .toggle:
                     self.switchSlot
-                case .button:
-                    self.buttonSlot
                 }
             }
         } else {
@@ -87,8 +82,6 @@ struct HomeSourceTile: View {
                     EmptyView()
                 case .toggle:
                     self.switchSlot
-                case .button:
-                    self.buttonSlot
                 }
             }
             .frame(minHeight: 22)
@@ -147,16 +140,7 @@ struct HomeSourceTile: View {
             .accessibilityAddTraits(.isToggle)
             .accessibilityLabel(self.source.displayName)
             .accessibilityValue(self.source.state.label)
-    }
-
-    @ViewBuilder
-    private var buttonSlot: some View {
-        Button(self.buttonTitle, action: self.onButton)
-            .buttonStyle(.borderless)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Color.solOrangeAdaptive)
-            .frame(minWidth: 44, minHeight: 44)
-            .accessibilityIdentifier("dayHome.tile.\(self.source.id).action")
+            .accessibilityIdentifier("dayHome.tile.\(self.source.id).toggle")
     }
 
     /// The glyph carries the source's liveness: lit while it is taking something in,

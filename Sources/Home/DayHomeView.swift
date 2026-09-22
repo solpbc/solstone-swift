@@ -349,9 +349,8 @@ private extension DayHomeView {
                 HomeSourceTile(
                     source: self.bundle.screencast,
                     route: .screencast,
-                    control: .button,
-                    buttonTitle: SourceVocabulary.screencastActionTitle(state: self.screencastManager.state),
-                    onButton: { self.showingScreencastPrimer = true }
+                    control: .toggle,
+                    isOn: self.screencastIsOn
                 )
             }
             if let watch = self.bundle.watch, self.isOnHome(watch.id) {
@@ -420,6 +419,26 @@ private extension DayHomeView {
                 }
             }
         )
+    }
+
+    /// ReplayKit owns the actual start/stop decision. The switch mirrors the
+    /// confirmed broadcast state; asking to change it opens the existing primer
+    /// and system sheet instead of optimistically claiming the change happened.
+    var screencastIsOn: Binding<Bool> {
+        Binding(
+            get: { self.screencastIsActive },
+            set: { requestedOn in
+                guard requestedOn != self.screencastIsActive else { return }
+                self.showingScreencastPrimer = true
+            }
+        )
+    }
+
+    var screencastIsActive: Bool {
+        if case .active = self.screencastManager.state {
+            return true
+        }
+        return false
     }
 
     var backlogCount: WatchAwareBacklog {

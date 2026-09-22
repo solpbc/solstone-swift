@@ -137,11 +137,8 @@ final class ShellPaneShotTests: XCTestCase {
         let app = self.launchOwned(style: "Light", ax5: false)
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
-        // SwiftUI exposes the nested tile and its action with the same identifier.
-        // Either may receive the hit depending on AX tree ordering, so follow the
-        // parent tile through its equivalent detail-page start control when needed.
-        let screencastAction = app.buttons["dayHome.tile.screencast.action"].firstMatch
-        self.tapHittable(screencastAction, in: app, missing: "screencast action button missing")
+        let screencastToggle = app.switches["dayHome.tile.screencast.toggle"].firstMatch
+        self.tapHittable(screencastToggle, in: app, missing: "screencast toggle missing")
         let primerSheet = app.descendants(matching: .any)["screencast.primer.sheet"]
         if !primerSheet.waitForExistence(timeout: 3) {
             let detailStart = app.descendants(matching: .any)["source.screencast.start"].firstMatch
@@ -232,14 +229,12 @@ private extension ShellPaneShotTests {
             name: "21-location-\(suffix)"
         )
 
-        // Nested tile/action AX nodes make `buttons[id]` ambiguous. firstMatch.tap()
-        // uses the accessibility action (coordinate tap hits the parent tile).
-        let screencastAction = app.buttons["dayHome.tile.screencast.action"].firstMatch
+        let screencastToggle = app.switches["dayHome.tile.screencast.toggle"].firstMatch
         XCTAssertTrue(
-            screencastAction.waitForExistence(timeout: 10),
-            "screencast action button missing"
+            screencastToggle.waitForExistence(timeout: 10),
+            "screencast toggle missing"
         )
-        screencastAction.tap()
+        screencastToggle.tap()
         let primerSheet = app.descendants(matching: .any)["screencast.primer.sheet"]
         if !primerSheet.waitForExistence(timeout: 3) {
             // Parent tile ate the hit; detail presents the same primer sheet.
