@@ -147,10 +147,13 @@ struct RootShellView: View {
         }
     }
 
-    /// Installed as the active navigation container's own `.containerBackground(for:)`
-    /// content — see `SunArcBackgroundHost`'s doc comment for why that container's own
-    /// hosted background layer, not an outer `ZStack` sibling, is what actually paints on
-    /// iOS/iPadOS.
+    /// Diagnostic-only use now (`showsSunArcBackgroundOnlyDiagnostic`'s overlay): a
+    /// screenshot proved this surface's own drawing and geometry are healthy in a plain
+    /// full-screen context. It is deliberately NOT installed as production
+    /// `.containerBackground(for:)` content — a screenshot on that exact placement
+    /// proved it never composites into what's visible; `sunArcShell`'s outer
+    /// `SunArcBackgroundHost` plus `TransparentNavigationHostProbe` (`DeckStyle.swift`)
+    /// carry the shell's real background instead.
     @ViewBuilder
     private var sunArcSurface: some View {
 #if DEBUG
@@ -167,8 +170,27 @@ struct RootShellView: View {
 #endif
     }
 
+    private var sunArcShell: some View {
+#if DEBUG
+        SunArcBackgroundHost(
+            palette: DeckSunArcPalette.value,
+            presentationCoordinate: self.locationManager.sunArcPresentationCoordinate,
+            debugOverride: self.sunArcDebugOverride
+        ) {
+            self.shellWithSheets
+        }
+#else
+        SunArcBackgroundHost(
+            palette: DeckSunArcPalette.value,
+            presentationCoordinate: self.locationManager.sunArcPresentationCoordinate
+        ) {
+            self.shellWithSheets
+        }
+#endif
+    }
+
     var body: some View {
-        self.shellWithSheets
+        self.sunArcShell
         .task(id: self.tunnelManager.activeConnection?.port) {
             await self.fetchJournalMark()
         }
@@ -305,11 +327,6 @@ struct RootShellView: View {
             self.paneColumn
         }
         .navigationSplitViewStyle(.balanced)
-        // See `phoneStack`'s `.containerBackground` for why this installs the SunArc
-        // surface itself rather than clearing to reveal something behind it.
-        .containerBackground(for: .navigationSplitView) {
-            self.sunArcSurface
-        }
 #if DEBUG
         .overlay(alignment: .topLeading) {
             if self.showsColumnVisibilityProbe {
@@ -355,16 +372,6 @@ struct RootShellView: View {
                 .navigationDestination(for: ShellDestination.self) { destination in
                     ShellDestinationView(destination: destination, journalMark: self.journalMark)
                 }
-        }
-        // `NavigationStack` paints its own opaque system container background behind
-        // whatever it hosts, entirely apart from anything that content declares — a
-        // `.background(Color.clear)` on the pushed content never reaches it, and nor
-        // does clearing this container background to a plain colour, since that layer
-        // is its own separately hosted surface with nothing behind it for `.clear` to
-        // reveal. Installing the SunArc surface itself as this container's background
-        // is what actually paints there, on the deck and every pushed pane.
-        .containerBackground(for: .navigation) {
-            self.sunArcSurface
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -424,12 +431,6 @@ struct RootShellView: View {
                     ShellDestinationView(destination: destination, journalMark: self.journalMark)
                 }
         }
-        // The detail column's own nested stack has the same separate container
-        // background as `phoneStack`'s — but this one stays `.clear` rather than
-        // installing its own SunArc surface: it is nested inside `padSplit`'s
-        // `NavigationSplitView`, which already installs one, and a second, independent
-        // `TimelineView` here would be a redundant clock the review asked to avoid.
-        .containerBackground(.clear, for: .navigation)
     }
 
     /// What the pane shows at its root: the deck's selection, or the computed

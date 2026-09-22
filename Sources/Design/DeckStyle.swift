@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
+import UIKit
 
 /// The Day Home background follows the deck's established light ground, while its night
 /// counterpart remains the locked SunArc OKLab mix.
@@ -114,21 +115,23 @@ nonisolated enum ShellMetrics {
 /// the deck they open from.
 ///
 /// The ground is `.clear`, not `deckGround`: every native pane root sits above the
-/// shared SunArc surface, and an opaque ground here would paint over it on every
-/// pushed phone destination and regular-width iPad detail pane. Cards and tiles keep
-/// their own explicit `deckSurface`/`deckSurfaceRaised` backgrounds, so they read the
-/// same as before — only the ground behind them changed. The journal is the one
-/// exception: `InAppJournalView` sets its own opaque `deckGround` background
-/// directly, because a `WKWebView` needs an opaque backdrop underneath it.
+/// shared SunArc surface (`RootShellView.sunArcShell`'s outer `SunArcBackgroundHost`),
+/// and an opaque ground here would paint over it on every pushed phone destination and
+/// regular-width iPad detail pane. Cards and tiles keep their own explicit
+/// `deckSurface`/`deckSurfaceRaised` backgrounds, so they read the same as before —
+/// only the ground behind them changed. The journal is the one exception:
+/// `InAppJournalView` sets its own opaque `deckGround` background directly, because a
+/// `WKWebView` needs an opaque backdrop underneath it.
 ///
-/// This alone is not sufficient to reveal the shared surface: `NavigationStack` and
-/// `NavigationSplitView` paint their own opaque system container background behind
-/// whatever content they host, entirely separately from what that content declares —
-/// and that layer is its own separately hosted surface, with nothing behind it for a
-/// plain `.clear` to reveal. `RootShellView` installs `SunArcBackgroundSurface`
-/// itself as that container background (`.containerBackground(for: .navigation)` /
-/// `.containerBackground(for: .navigationSplitView)`), which is what actually paints
-/// there — this ground here only has to stay out of the way once it does.
+/// This alone is not sufficient to reveal that shared surface: `NavigationStack` and
+/// `NavigationSplitView` paint an opaque background on their own hosting
+/// `UINavigationController`/`UISplitViewController`, entirely apart from anything any
+/// SwiftUI content declares — proven twice over by direct screenshot: once showing a
+/// `.containerBackground(for:)`-installed copy of the SunArc surface never composited
+/// into what's visible at all, and once showing that exact same surface render
+/// correctly the moment it was a plain full-screen overlay outside any navigation
+/// container. `TransparentNavigationHostProbe` below is what actually clears the
+/// opaque UIKit layer — this ground only has to stay out of the way once it does.
 ///
 /// `scrollContentBackground(.hidden)` is what lets a `List` show the ground through;
 /// without it the List paints its own grouped grey over everything below.
@@ -137,6 +140,7 @@ struct ShellSurface: ViewModifier {
         content
             .scrollContentBackground(.hidden)
             .background(Color.clear.ignoresSafeArea())
+            .background(TransparentNavigationHostProbe())
             .tint(.solOrange)
     }
 }
@@ -144,6 +148,64 @@ struct ShellSurface: ViewModifier {
 extension View {
     func shellSurface() -> some View {
         self.modifier(ShellSurface())
+    }
+}
+
+/// Clears the opaque background UIKit paints on the `UINavigationController` /
+/// `UISplitViewController` / `UIHostingController` instances hosting this pane, so the
+/// shared SunArc surface behind the shell shows through.
+///
+/// Walks the RESPONDER chain (view-controller containment), not the view hierarchy —
+/// this reaches exactly the navigation/hosting controllers between this pane and the
+/// window, in view-controller-containment order, and nothing else: never a card's or
+/// tile's own `deckSurface` fill (those are plain views, not view controllers, so they
+/// are never matched), and never a `UIAppearance` proxy (which would mutate every
+/// instance app-wide rather than just this shell's own controllers).
+///
+/// Re-clears on every `didMoveToWindow` and `updateUIView` — both event-driven, not a
+/// timer — because SwiftUI can reuse or recreate the underlying hosting controllers
+/// across navigation pushes/pops and size-class changes, each of which can hand back a
+/// freshly-opaque `view.backgroundColor`.
+struct TransparentNavigationHostProbe: UIViewRepresentable {
+    final class ProbeView: UIView {
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            self.clearHostBackgroundsIfWindowed()
+        }
+
+        func clearHostBackgroundsIfWindowed() {
+            guard self.window != nil else { return }
+            var responder: UIResponder? = self
+            while let current = responder {
+                if let viewController = current as? UIViewController,
+                   Self.isRelevantHost(viewController)
+                {
+                    viewController.view.backgroundColor = .clear
+                }
+                responder = current.next
+            }
+        }
+
+        private static func isRelevantHost(_ viewController: UIViewController) -> Bool {
+            if viewController is UINavigationController { return true }
+            if viewController is UISplitViewController { return true }
+            // `UIHostingController<Content>` is generic over the SwiftUI content it
+            // hosts, which is unknown here, so a direct `is` check can never match —
+            // the class-name prefix is the only way to recognize it regardless of
+            // its generic parameter.
+            return String(describing: type(of: viewController)).hasPrefix("UIHostingController")
+        }
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = ProbeView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        (uiView as? ProbeView)?.clearHostBackgroundsIfWindowed()
     }
 }
 

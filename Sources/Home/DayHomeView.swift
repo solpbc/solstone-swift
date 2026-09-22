@@ -223,6 +223,11 @@ struct DayHomeView: View {
             }
         }
         .background(Color.clear.ignoresSafeArea())
+        // The deck is `NavigationSplitView`'s sidebar column on iPad, and the root of
+        // the phone `NavigationStack` — see `TransparentNavigationHostProbe` for why
+        // `Color.clear` alone does not reach the opaque UIKit layer those controllers
+        // paint behind it.
+        .background(TransparentNavigationHostProbe())
         .task { await refreshNowPeriodically { self.now = Date() } }
         .task(id: self.appGroupSnapshotInputs) {
             _ = self.appGroupMirror.updateSessionAndSources(
