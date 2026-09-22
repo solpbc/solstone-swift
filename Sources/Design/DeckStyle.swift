@@ -3,7 +3,6 @@
 
 import SwiftUI
 import UIKit
-import os
 
 /// The Day Home background follows the deck's established light ground, while its night
 /// counterpart remains the locked SunArc OKLab mix.
@@ -108,31 +107,18 @@ nonisolated enum ShellMetrics {
     static let sectionGap: CGFloat = 24
 }
 
-/// Puts a surface on the shell's accent, with a transparent ground.
+/// Puts a destination on the shell's accent and shared SunArc scene.
 ///
 /// Applied once at the shell's destination container rather than per-view, so a pane
 /// cannot be added later and quietly arrive on `systemGroupedBackground` with a
 /// system-green switch — which is exactly how the five shelf panes had drifted from
 /// the deck they open from.
 ///
-/// The ground is `.clear`, not `deckGround`: every native pane root sits above the
-/// shared SunArc surface (`RootShellView.sunArcShell`'s outer `SunArcBackgroundHost`),
-/// and an opaque ground here would paint over it on every pushed phone destination and
-/// regular-width iPad detail pane. Cards and tiles keep their own explicit
-/// `deckSurface`/`deckSurfaceRaised` backgrounds, so they read the same as before —
-/// only the ground behind them changed. The journal is the one exception:
-/// `InAppJournalView` sets its own opaque `deckGround` background directly, because a
-/// `WKWebView` needs an opaque backdrop underneath it.
-///
-/// This alone is not sufficient to reveal that shared surface: `NavigationStack` and
-/// `NavigationSplitView` paint an opaque background on their own hosting
-/// `UINavigationController`/`UISplitViewController`, entirely apart from anything any
-/// SwiftUI content declares — proven twice over by direct screenshot: once showing a
-/// `.containerBackground(for:)`-installed copy of the SunArc surface never composited
-/// into what's visible at all, and once showing that exact same surface render
-/// correctly the moment it was a plain full-screen overlay outside any navigation
-/// container. `TransparentNavigationHostProbe` below is what actually clears the
-/// opaque UIKit layer — this ground only has to stay out of the way once it does.
+/// The scene is drawn inside each native navigation content host, where it cannot be
+/// covered by that host's opaque system background. `SunArcContentBackground` reads
+/// the root host's shared moment and global viewport, so iPad's sidebar and detail are
+/// clipped windows onto one sun rather than two independent marks. Cards and tiles
+/// retain their explicit fills above it. The journal remains deliberately opaque.
 ///
 /// `scrollContentBackground(.hidden)` is what lets a `List` show the ground through;
 /// without it the List paints its own grouped grey over everything below.
@@ -140,8 +126,7 @@ struct ShellSurface: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
-            .background(Color.clear.ignoresSafeArea())
-            .background(TransparentNavigationHostProbe())
+            .background(SunArcContentBackground().ignoresSafeArea())
             .tint(.solOrange)
     }
 }
@@ -151,178 +136,6 @@ extension View {
         self.modifier(ShellSurface())
     }
 }
-
-/// Clears the opaque background UIKit paints on the specific views and view
-/// controllers hosting this pane, so the shared SunArc surface behind the shell shows
-/// through.
-///
-/// Which ones is not a guess: an on-device diagnostic walk (both the ancestor/superview
-/// chain and the `UIResponder` chain from a probe planted here) logged the exact type
-/// names and `backgroundColor`/`isOpaque` at every hop. Two were opaque:
-/// - `HostingView`, a private SwiftUI ancestor view a few superviews up — reached only
-///   by walking `superview`, since it is not itself a view controller's own root view
-///   reachable via the responder chain.
-/// - `NavigationStackHostingController<AnyView>`, a private SwiftUI view controller
-///   sitting *inside* the `UINavigationController` itself — reached via the responder
-///   chain, one hop before the navigation controller.
-/// The public `UINavigationController`/`UISplitViewController`/`UIHostingController`
-/// instances along the same walk were already clear from an earlier pass.
-///
-/// ⛔ `backgroundColor` only — never `isOpaque`. An earlier version of this probe also
-/// set `isOpaque = false` on every match, reasoning an opaque `CALayer` could still
-/// occlude a clear `UIColor` fill. A full screenshot matrix proved that reasoning
-/// wrong in practice: it intermittently dropped deck tile contents and collapsed the
-/// deck into unframed glyphs in several normal-appearance captures, while the very
-/// diagnostic that found these hosts had already logged every one of them —
-/// including the already-clear public hosts — as `isOpaque == true` and rendering
-/// their foreground content correctly. Clearing `backgroundColor` alone is what the
-/// evidence supports; flipping `isOpaque` is not.
-///
-/// Matches are deliberately narrow — private-type names actually observed on this
-/// walk, not a broad heuristic — and only ever touch views/controllers found by
-/// walking `superview` or `UIResponder.next` *from this probe*: never a card's or
-/// tile's own `deckSurface` fill (an unrelated branch of the tree), and never a
-/// `UIAppearance` proxy (which would mutate every instance app-wide rather than just
-/// this shell's own hosts).
-///
-/// Clears only on `didMoveToWindow` — not on every `updateUIView`. This probe is
-/// itself a descendant of the content it protects (installed via `.background()`), so
-/// if the host it targets is ever genuinely recreated (a navigation push/pop, say),
-/// this probe is recreated right along with it and receives its own fresh
-/// `didMoveToWindow`. `updateUIView` fires on nearly every SwiftUI state change
-/// anywhere in the tree, far more often than the host is ever actually recreated — a
-/// full screenshot matrix caught that repeatedly re-walking and re-mutating these
-/// specific private SwiftUI host views from `updateUIView` coincided with intermittent
-/// dropped tile/card content in several normal-appearance captures, with no evidence
-/// that anything past the first clear was ever required.
-///
-/// Each mutation is also conditional — skipped if the view is already `.clear` —
-/// rather than unconditionally reassigning the same value on every pass.
-struct TransparentNavigationHostProbe: UIViewRepresentable {
-    final class ProbeView: UIView {
-        override func didMoveToWindow() {
-            super.didMoveToWindow()
-            self.clearHostBackgroundsIfWindowed()
-#if DEBUG
-            self.logHostDiagnosticIfRequested()
-#endif
-        }
-
-        func clearHostBackgroundsIfWindowed() {
-            guard self.window != nil else { return }
-
-            var ancestor: UIView? = self.superview
-            while let view = ancestor {
-                if Self.isRelevantHostView(view) {
-                    Self.clearBackground(of: view)
-                }
-                ancestor = view.superview
-            }
-
-            var responder: UIResponder? = self
-            while let current = responder {
-                if let viewController = current as? UIViewController,
-                   Self.isRelevantHost(viewController)
-                {
-                    Self.clearBackground(of: viewController.view)
-                }
-                responder = current.next
-            }
-        }
-
-        private static func clearBackground(of view: UIView) {
-            guard view.backgroundColor != .clear else { return }
-            view.backgroundColor = .clear
-        }
-
-        /// `HostingView`: observed opaque on-device, one of the superviews between this
-        /// probe and its enclosing `NavigationStackHostingController` — not itself a
-        /// view controller's root view, so the responder walk below never reaches it.
-        private static func isRelevantHostView(_ view: UIView) -> Bool {
-            String(describing: type(of: view)).hasPrefix("HostingView")
-        }
-
-        private static func isRelevantHost(_ viewController: UIViewController) -> Bool {
-            if viewController is UINavigationController { return true }
-            if viewController is UISplitViewController { return true }
-            let typeName = String(describing: type(of: viewController))
-            // `UIHostingController<Content>` and `NavigationStackHostingController<Content>`
-            // are both generic over SwiftUI content unknown here, so a direct `is` check
-            // can never match — the class-name prefix is the only way to recognize
-            // either regardless of its generic parameter. `NavigationStackHostingController`
-            // was observed opaque on-device, sitting inside the navigation controller
-            // itself, one responder hop before it.
-            if typeName.hasPrefix("UIHostingController") { return true }
-            return typeName.hasPrefix("NavigationStackHostingController")
-        }
-
-#if DEBUG
-        /// One-shot, manually-triggered diagnostic: `--ui-test-sun-arc-host-diagnostic`
-        /// logs the actual responder chain (view-controller containment) from this probe
-        /// up to the window, and, at every view encountered, that view's own superview
-        /// chain too — so a single launch's unified log can show exactly which ancestor
-        /// is opaque, by name and background colour, rather than guessing. `.error` level,
-        /// deliberately: `.debug`/`.info` are not reliably captured by `log collect` /
-        /// `log show` without an attached session, and this is meant to be read
-        /// after a single launch. Compiled out of release builds.
-        private func logHostDiagnosticIfRequested() {
-            guard ProcessInfo.processInfo.arguments.contains("--ui-test-sun-arc-host-diagnostic") else { return }
-            guard self.window != nil else { return }
-            sunArcHostDiagnosticLog.error("sunArc host diagnostic: begin responder walk from ProbeView")
-            var responder: UIResponder? = self
-            var hop = 0
-            while let current = responder {
-                let typeName = String(describing: type(of: current))
-                if let viewController = current as? UIViewController {
-                    let view = viewController.viewIfLoaded
-                    sunArcHostDiagnosticLog.error(
-                        "hop \(hop, privacy: .public) VC \(typeName, privacy: .public) view.bg=\(String(describing: view?.backgroundColor), privacy: .public) view.alpha=\(view?.alpha ?? -1, privacy: .public) view.opaque=\(view?.isOpaque ?? false, privacy: .public)"
-                    )
-                } else if let window = current as? UIWindow {
-                    sunArcHostDiagnosticLog.error(
-                        "hop \(hop, privacy: .public) WINDOW \(typeName, privacy: .public) bg=\(String(describing: window.backgroundColor), privacy: .public) alpha=\(window.alpha, privacy: .public) opaque=\(window.isOpaque, privacy: .public)"
-                    )
-                } else if let view = current as? UIView {
-                    sunArcHostDiagnosticLog.error(
-                        "hop \(hop, privacy: .public) VIEW \(typeName, privacy: .public) bg=\(String(describing: view.backgroundColor), privacy: .public) alpha=\(view.alpha, privacy: .public) opaque=\(view.isOpaque, privacy: .public)"
-                    )
-                    var ancestor = view.superview
-                    var superHop = 0
-                    while let ancestorView = ancestor {
-                        let ancestorType = String(describing: type(of: ancestorView))
-                        sunArcHostDiagnosticLog.error(
-                            "hop \(hop, privacy: .public).super\(superHop, privacy: .public) \(ancestorType, privacy: .public) bg=\(String(describing: ancestorView.backgroundColor), privacy: .public) alpha=\(ancestorView.alpha, privacy: .public) opaque=\(ancestorView.isOpaque, privacy: .public)"
-                        )
-                        ancestor = ancestorView.superview
-                        superHop += 1
-                    }
-                } else {
-                    sunArcHostDiagnosticLog.error("hop \(hop, privacy: .public) RESPONDER \(typeName, privacy: .public)")
-                }
-                responder = current.next
-                hop += 1
-            }
-            sunArcHostDiagnosticLog.error("sunArc host diagnostic: end responder walk, hops=\(hop, privacy: .public)")
-        }
-#endif
-    }
-
-    func makeUIView(context: Context) -> UIView {
-        let view = ProbeView(frame: .zero)
-        view.isUserInteractionEnabled = false
-        view.backgroundColor = .clear
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        // Deliberately empty — see the type's own doc comment for why re-clearing
-        // here, on nearly every SwiftUI state change, is neither required nor safe.
-    }
-}
-
-#if DEBUG
-private let sunArcHostDiagnosticLog = Logger(subsystem: "app.solstone.swift", category: "sunarc-host-diagnostic")
-#endif
 
 /// The shelf drawer's measurements.
 ///

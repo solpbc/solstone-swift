@@ -72,7 +72,7 @@ nonisolated enum SunArcBackgroundDebugScene {
 }
 #endif
 
-private nonisolated struct SunArcBackgroundMoment: Sendable {
+nonisolated struct SunArcBackgroundMoment: Sendable {
     let time: SunArcTime
     let groundHex: String
     let isDark: Bool
@@ -112,16 +112,10 @@ private nonisolated struct SunArcBackgroundMoment: Sendable {
 /// The sun, all day — one Canvas behind a native surface and one minute clock shared by its
 /// ground, mark, and content appearance.
 ///
-/// Two callers share this one engine and drawing routine:
-/// - `SunArcBackgroundHost` wraps arbitrary content in a `ZStack`, for a root shell with no
-///   separate native container layer of its own — watchOS's `WindowGroup` root.
-/// - `SunArcBackgroundSurface` renders the ground/glow/mark alone, installed as a
-///   `NavigationStack`'s or `NavigationSplitView`'s own `.containerBackground(for:)` content
-///   on iOS/iPadOS. That container paints its background in its own separately hosted layer;
-///   an outer `ZStack` sibling — all `SunArcBackgroundHost` alone can offer there — never
-///   reaches it, and neither does clearing that layer to a plain colour: there is nothing
-///   behind it to reveal. Installing this view AS that layer's content is what actually
-///   paints there.
+/// The host resolves one moment for the whole surface. watchOS draws the root canvas
+/// directly. iOS/iPadOS navigation content reads the same moment and viewport through the
+/// environment and draws the clipped part of that one scene inside each native navigation
+/// host. That keeps one sun across an iPad split without reaching into private UIKit hosts.
 struct SunArcBackgroundHost<Content: View>: View {
     private let palette: SunArcGroundPalette
     private let presentationCoordinate: SunArcCoordinate?
@@ -129,6 +123,7 @@ struct SunArcBackgroundHost<Content: View>: View {
     private let debugOverride: SunArcBackgroundDebugOverride?
 #endif
     private let content: () -> Content
+    @State private var viewportFrame = CGRect.zero
 
     init(
         palette: SunArcGroundPalette,
@@ -167,7 +162,14 @@ struct SunArcBackgroundHost<Content: View>: View {
             ZStack {
                 SunArcGroundCanvas(moment: moment)
                 self.content()
+                    .environment(
+                        \.sunArcBackgroundContext,
+                        SunArcBackgroundContext(moment: moment, viewportFrame: self.viewportFrame)
+                    )
             }
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .global)
+            } action: { self.viewportFrame = $0 }
         }
 #else
         SunArcBackgroundTimeline(
@@ -177,72 +179,55 @@ struct SunArcBackgroundHost<Content: View>: View {
             ZStack {
                 SunArcGroundCanvas(moment: moment)
                 self.content()
+                    .environment(
+                        \.sunArcBackgroundContext,
+                        SunArcBackgroundContext(moment: moment, viewportFrame: self.viewportFrame)
+                    )
             }
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .global)
+            } action: { self.viewportFrame = $0 }
         }
 #endif
     }
 }
 
-/// The ground/glow/mark alone, with no content of its own — see `SunArcBackgroundHost`'s
-/// doc comment for why iOS/iPadOS installs this as a navigation container's own
-/// `.containerBackground(for:)` content instead of wrapping the shell in a
-/// `SunArcBackgroundHost`-style `ZStack`.
-struct SunArcBackgroundSurface: View {
-    private let palette: SunArcGroundPalette
-    private let presentationCoordinate: SunArcCoordinate?
-#if DEBUG
-    private let debugOverride: SunArcBackgroundDebugOverride?
-#endif
+/// The clipped portion of the root SunArc scene belonging behind one native navigation
+/// content host. Every instance uses the root host's moment and global viewport, so the two
+/// iPad columns meet as one drawing rather than each growing its own sun.
+struct SunArcContentBackground: View {
+    @Environment(\.sunArcBackgroundContext) private var context
 
-    init(
-        palette: SunArcGroundPalette,
-        presentationCoordinate: SunArcCoordinate?
-    ) {
-        self.palette = palette
-        self.presentationCoordinate = presentationCoordinate
-#if DEBUG
-        self.debugOverride = nil
-#endif
-    }
-
-#if DEBUG
-    init(
-        palette: SunArcGroundPalette,
-        presentationCoordinate: SunArcCoordinate?,
-        debugOverride: SunArcBackgroundDebugOverride?
-    ) {
-        self.palette = palette
-        self.presentationCoordinate = presentationCoordinate
-        self.debugOverride = debugOverride
-    }
-#endif
-
+    @ViewBuilder
     var body: some View {
-#if DEBUG
-        SunArcBackgroundTimeline(
-            palette: self.palette,
-            presentationCoordinate: self.presentationCoordinate,
-            debugOverride: self.debugOverride
-        ) { moment in
-            SunArcGroundCanvas(moment: moment)
+        if let context {
+            SunArcGroundCanvas(moment: context.moment, viewportFrame: context.viewportFrame)
+        } else {
+            Color.clear
         }
-#else
-        SunArcBackgroundTimeline(
-            palette: self.palette,
-            presentationCoordinate: self.presentationCoordinate
-        ) { moment in
-            SunArcGroundCanvas(moment: moment)
-        }
-#endif
+    }
+}
+
+struct SunArcBackgroundContext: Sendable {
+    let moment: SunArcBackgroundMoment
+    let viewportFrame: CGRect
+}
+
+private struct SunArcBackgroundContextKey: EnvironmentKey {
+    static let defaultValue: SunArcBackgroundContext? = nil
+}
+
+extension EnvironmentValues {
+    var sunArcBackgroundContext: SunArcBackgroundContext? {
+        get { self[SunArcBackgroundContextKey.self] }
+        set { self[SunArcBackgroundContextKey.self] = newValue }
     }
 }
 
 /// Shared per-minute clock: resolves the current `SunArcBackgroundMoment` once and hands it
-/// to `content`, so ground/glow/mark and appearance can never drift from each other or from
-/// whatever a caller draws with that same moment. `content` is rendered as part of whatever
-/// hosts this timeline — a `ZStack` sibling for `SunArcBackgroundHost`, a container's own
-/// background layer for `SunArcBackgroundSurface` — so `.preferredColorScheme` applied here
-/// follows that same placement rather than needing its own separate mechanism.
+/// to `content`, so ground/glow/mark and appearance can never drift from each other. The
+/// root host also passes that exact moment to native navigation content through the
+/// environment; `.preferredColorScheme` therefore follows the same clock.
 private struct SunArcBackgroundTimeline<ClockContent: View>: View {
     let palette: SunArcGroundPalette
     let presentationCoordinate: SunArcCoordinate?
@@ -306,28 +291,63 @@ private struct SunArcBackgroundTimeline<ClockContent: View>: View {
 
 private struct SunArcGroundCanvas: View {
     let moment: SunArcBackgroundMoment
+    var viewportFrame: CGRect?
+
+    init(moment: SunArcBackgroundMoment, viewportFrame: CGRect? = nil) {
+        self.moment = moment
+        self.viewportFrame = viewportFrame
+    }
 
     /// `GeometryReader`, with the `Canvas` explicitly framed to its measured
     /// `proxy.size`, rather than trusting `Canvas`'s own closure-provided size.
     ///
-    /// As a `NavigationStack`/`NavigationSplitView`'s own `.containerBackground(for:)`
-    /// content (`SunArcBackgroundSurface`), this view has no content-derived ideal
-    /// size to propose the way it did as a `ZStack` sibling next to real shell content
-    /// (`SunArcBackgroundHost`) — `.frame(maxWidth: .infinity, maxHeight: .infinity)`
-    /// alone left `Canvas` collapsed to a degenerate size there, drawing nothing and
-    /// showing the plain system container fill through it. `GeometryReader` forces a
-    /// real, measured size in both hosting contexts.
+    /// The root and every clipped navigation-content copy need their host's exact bounds;
+    /// `.frame(maxWidth: .infinity, maxHeight: .infinity)` alone leaves a background Canvas
+    /// with no content-derived ideal size. `GeometryReader` supplies those bounds without
+    /// changing the foreground proposal.
     var body: some View {
         GeometryReader { proxy in
-            Canvas { context, _ in
-                SunArcBackgroundDrawing.draw(moment: self.moment, in: &context, size: proxy.size)
+            let localFrame = proxy.frame(in: .global)
+            if let sceneFrame = SunArcSceneFrame.resolve(
+                viewportFrame: self.viewportFrame,
+                localFrame: localFrame
+            ) {
+                Canvas { context, _ in
+                    SunArcBackgroundDrawing.draw(
+                        moment: self.moment,
+                        in: &context,
+                        size: proxy.size,
+                        sceneSize: sceneFrame.size,
+                        sceneOffset: CGSize(
+                            width: localFrame.minX - sceneFrame.minX,
+                            height: localFrame.minY - sceneFrame.minY
+                        )
+                    )
+                }
+                .frame(width: proxy.size.width, height: proxy.size.height)
+            } else {
+                // The root viewport arrives from `onGeometryChange` before the next
+                // display pass. Until then, paint only the shared ground: drawing a
+                // local mark in each iPad column would briefly create two suns.
+                Color(sunArcHex: self.moment.groundHex)
             }
-            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+}
+
+nonisolated enum SunArcSceneFrame {
+    /// `nil` means the root canvas and therefore uses its own measured bounds. An
+    /// explicit but empty viewport means a navigation-content slice is awaiting the
+    /// root measurement and must draw ground only, never an independent local sun.
+    static func resolve(viewportFrame: CGRect?, localFrame: CGRect) -> CGRect? {
+        guard let viewportFrame else { return localFrame }
+        guard viewportFrame.width > 0, viewportFrame.height > 0 else { return nil }
+        return viewportFrame
     }
 }
 
@@ -335,14 +355,22 @@ private enum SunArcBackgroundDrawing {
     static func draw(
         moment: SunArcBackgroundMoment,
         in context: inout GraphicsContext,
-        size: CGSize
+        size: CGSize,
+        sceneSize: CGSize,
+        sceneOffset: CGSize
     ) {
-        guard size.width > 0, size.height > 0 else { return }
-        let diameter = SunArc.phi * Double(min(size.width, size.height))
+        guard size.width > 0, size.height > 0,
+              sceneSize.width > 0, sceneSize.height > 0
+        else { return }
+        let diameter = SunArc.phi * Double(min(sceneSize.width, sceneSize.height))
         let tipRadius = diameter / 2
-        let placement = SunArcPlacement(size: size, tipRadius: tipRadius)
+        let placement = SunArcPlacement(size: sceneSize, tipRadius: tipRadius)
         let clampedT = min(1, max(0, moment.time.t))
-        let position = placement.position(at: clampedT)
+        let scenePosition = placement.position(at: clampedT)
+        let position = CGPoint(
+            x: scenePosition.x - sceneOffset.width,
+            y: scenePosition.y - sceneOffset.height
+        )
         let onVisible = moment.time.t > -0.02 && moment.time.t < 1.02
         let opacity = onVisible
             ? SunArc.peakOpacity * moment.envelope * (1 - moment.time.night)
@@ -356,13 +384,17 @@ private enum SunArcBackgroundDrawing {
 
         let glow = SunArcGlow.compute(
             time: moment.time,
-            sunPosition: position,
+            sunPosition: scenePosition,
             envelope: moment.envelope,
             onVisible: onVisible,
             placement: placement
         )
         if glow.alpha > 0.002 {
             let glowRadius = SunArc.phi * tipRadius
+            let glowPosition = CGPoint(
+                x: glow.position.x - sceneOffset.width,
+                y: glow.position.y - sceneOffset.height
+            )
             let glowColor = Color(sunArcHex: SunArc.goldHex)
             let gradient = Gradient(stops: [
                 .init(color: glowColor.opacity(glow.alpha), location: 0),
@@ -374,14 +406,14 @@ private enum SunArcBackgroundDrawing {
             ])
             context.fill(
                 Path(ellipseIn: CGRect(
-                    x: glow.position.x - glowRadius,
-                    y: glow.position.y - glowRadius,
+                    x: glowPosition.x - glowRadius,
+                    y: glowPosition.y - glowRadius,
                     width: glowRadius * 2,
                     height: glowRadius * 2
                 )),
                 with: .radialGradient(
                     gradient,
-                    center: glow.position,
+                    center: glowPosition,
                     startRadius: 0,
                     endRadius: glowRadius
                 )

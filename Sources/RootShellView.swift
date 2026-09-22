@@ -40,12 +40,6 @@ struct RootShellView: View {
     @State private var shellWidth: CGFloat = 0
 #if DEBUG
     @State private var sunArcDebugOverride: SunArcBackgroundDebugOverride?
-    /// Diagnostic-only: renders `sunArcSurface` as a full-screen overlay above the
-    /// shell, entirely independent of any `NavigationStack`/`NavigationSplitView`
-    /// container. Proves whether the drawing surface itself renders correctly when
-    /// given ordinary full-screen geometry, isolated from the container-integration
-    /// question `.containerBackground(for:)` raises. Compiled out of release builds.
-    @State private var showsSunArcBackgroundOnlyDiagnostic = false
 #endif
 
     private var prefersCrossFade: Bool { self.crossFadePreference.prefersCrossFadeTransitions }
@@ -147,29 +141,6 @@ struct RootShellView: View {
         }
     }
 
-    /// Diagnostic-only use now (`showsSunArcBackgroundOnlyDiagnostic`'s overlay): a
-    /// screenshot proved this surface's own drawing and geometry are healthy in a plain
-    /// full-screen context. It is deliberately NOT installed as production
-    /// `.containerBackground(for:)` content — a screenshot on that exact placement
-    /// proved it never composites into what's visible; `sunArcShell`'s outer
-    /// `SunArcBackgroundHost` plus `TransparentNavigationHostProbe` (`DeckStyle.swift`)
-    /// carry the shell's real background instead.
-    @ViewBuilder
-    private var sunArcSurface: some View {
-#if DEBUG
-        SunArcBackgroundSurface(
-            palette: DeckSunArcPalette.value,
-            presentationCoordinate: self.locationManager.sunArcPresentationCoordinate,
-            debugOverride: self.sunArcDebugOverride
-        )
-#else
-        SunArcBackgroundSurface(
-            palette: DeckSunArcPalette.value,
-            presentationCoordinate: self.locationManager.sunArcPresentationCoordinate
-        )
-#endif
-    }
-
     private var sunArcShell: some View {
 #if DEBUG
         SunArcBackgroundHost(
@@ -231,19 +202,6 @@ struct RootShellView: View {
                 self.statusDetent = .medium
             }
         }
-#if DEBUG
-        .overlay {
-            // Diagnostic only, see `showsSunArcBackgroundOnlyDiagnostic`: a plain
-            // full-screen overlay, entirely outside any navigation container, so a
-            // screenshot here isolates whether the drawing surface itself renders
-            // given ordinary geometry from the container-integration question.
-            if self.showsSunArcBackgroundOnlyDiagnostic {
-                self.sunArcSurface
-                    .ignoresSafeArea()
-                    .accessibilityIdentifier("sunArc.backgroundOnlyDiagnostic")
-            }
-        }
-#endif
     }
 
     /// The shell, with the deck taken out of the accessibility tree while the
@@ -573,7 +531,6 @@ struct RootShellView: View {
         let arguments = ProcessInfo.processInfo.arguments
         guard arguments.contains("--ui-test") else { return }
         self.sunArcDebugOverride = SunArcBackgroundDebugScene.sceneOverride(for: arguments)
-        self.showsSunArcBackgroundOnlyDiagnostic = arguments.contains("--ui-test-sun-arc-background-only")
         if arguments.contains("--ui-test-journal-mark"),
            !arguments.contains("--ui-test-no-journal")
         {

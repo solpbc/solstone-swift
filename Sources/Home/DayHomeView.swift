@@ -222,12 +222,9 @@ struct DayHomeView: View {
                 }
             }
         }
-        .background(Color.clear.ignoresSafeArea())
-        // The deck is `NavigationSplitView`'s sidebar column on iPad, and the root of
-        // the phone `NavigationStack` — see `TransparentNavigationHostProbe` for why
-        // `Color.clear` alone does not reach the opaque UIKit layer those controllers
-        // paint behind it.
-        .background(TransparentNavigationHostProbe())
+        // Draw inside this native navigation content host. On iPad the deck and detail
+        // each receive a clipped piece of the root host's one global SunArc scene.
+        .background(SunArcContentBackground().ignoresSafeArea())
         .task { await refreshNowPeriodically { self.now = Date() } }
         .task(id: self.appGroupSnapshotInputs) {
             _ = self.appGroupMirror.updateSessionAndSources(

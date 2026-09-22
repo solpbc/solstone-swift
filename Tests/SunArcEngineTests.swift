@@ -134,6 +134,24 @@ struct SunArcEngineTests {
     }
 }
 
+@Suite("SunArc content slices — one root scene")
+struct SunArcSceneFrameTests {
+    private let localFrame = CGRect(x: 320, y: 0, width: 704, height: 768)
+    private let rootFrame = CGRect(x: 0, y: 0, width: 1024, height: 768)
+
+    @Test func rootCanvasUsesItsOwnMeasuredFrame() {
+        #expect(SunArcSceneFrame.resolve(viewportFrame: nil, localFrame: self.localFrame) == self.localFrame)
+    }
+
+    @Test func contentSliceDrawsGroundOnlyUntilRootViewportExists() {
+        #expect(SunArcSceneFrame.resolve(viewportFrame: .zero, localFrame: self.localFrame) == nil)
+    }
+
+    @Test func everyContentSliceUsesTheMeasuredRootViewport() {
+        #expect(SunArcSceneFrame.resolve(viewportFrame: self.rootFrame, localFrame: self.localFrame) == self.rootFrame)
+    }
+}
+
 /// § 5's fallback chain and § 12's ninth acceptance item — *"With location denied or absent,
 /// the times come from the system timezone's tzdb point, not from a fixed default."* The
 /// reference day is the spec's own worked example (§ 4: Denver, 2026-09-19, rise 06:44,
