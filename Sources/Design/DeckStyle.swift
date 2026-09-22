@@ -166,9 +166,17 @@ extension View {
 ///   sitting *inside* the `UINavigationController` itself — reached via the responder
 ///   chain, one hop before the navigation controller.
 /// The public `UINavigationController`/`UISplitViewController`/`UIHostingController`
-/// instances along the same walk were already clear from an earlier pass; both
-/// `backgroundColor` and `isOpaque` are set on all of them here regardless, since an
-/// opaque `CALayer` can still occlude a clear `UIColor` fill.
+/// instances along the same walk were already clear from an earlier pass.
+///
+/// ⛔ `backgroundColor` only — never `isOpaque`. An earlier version of this probe also
+/// set `isOpaque = false` on every match, reasoning an opaque `CALayer` could still
+/// occlude a clear `UIColor` fill. A full screenshot matrix proved that reasoning
+/// wrong in practice: it intermittently dropped deck tile contents and collapsed the
+/// deck into unframed glyphs in several normal-appearance captures, while the very
+/// diagnostic that found these hosts had already logged every one of them —
+/// including the already-clear public hosts — as `isOpaque == true` and rendering
+/// their foreground content correctly. Clearing `backgroundColor` alone is what the
+/// evidence supports; flipping `isOpaque` is not.
 ///
 /// Matches are deliberately narrow — private-type names actually observed on this
 /// walk, not a broad heuristic — and only ever touch views/controllers found by
@@ -215,7 +223,6 @@ struct TransparentNavigationHostProbe: UIViewRepresentable {
 
         private static func clearBackground(of view: UIView) {
             view.backgroundColor = .clear
-            view.isOpaque = false
         }
 
         /// `HostingView`: observed opaque on-device, one of the superviews between this
@@ -294,7 +301,6 @@ struct TransparentNavigationHostProbe: UIViewRepresentable {
         let view = ProbeView(frame: .zero)
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
-        view.isOpaque = false
         return view
     }
 
