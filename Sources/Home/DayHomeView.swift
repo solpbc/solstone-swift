@@ -512,6 +512,9 @@ private extension DayHomeView {
         .controlSize(.regular)
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .accessibilityShowsLargeContentViewer()
+        // Same side margin as the deck's own tiles — a full-bleed glass bar read as
+        // a rendering defect against everything else that keeps this inset.
+        .padding(.horizontal, ShellMetrics.screenMargin)
         .accessibilityIdentifier(
             self.journalState == .linkedOnline ? "dayHome.openInJournal" : "dayHome.journalSetup"
         )
