@@ -152,16 +152,30 @@ extension View {
     }
 }
 
-/// Clears the opaque background UIKit paints on the `UINavigationController` /
-/// `UISplitViewController` / `UIHostingController` instances hosting this pane, so the
-/// shared SunArc surface behind the shell shows through.
+/// Clears the opaque background UIKit paints on the specific views and view
+/// controllers hosting this pane, so the shared SunArc surface behind the shell shows
+/// through.
 ///
-/// Walks the RESPONDER chain (view-controller containment), not the view hierarchy —
-/// this reaches exactly the navigation/hosting controllers between this pane and the
-/// window, in view-controller-containment order, and nothing else: never a card's or
-/// tile's own `deckSurface` fill (those are plain views, not view controllers, so they
-/// are never matched), and never a `UIAppearance` proxy (which would mutate every
-/// instance app-wide rather than just this shell's own controllers).
+/// Which ones is not a guess: an on-device diagnostic walk (both the ancestor/superview
+/// chain and the `UIResponder` chain from a probe planted here) logged the exact type
+/// names and `backgroundColor`/`isOpaque` at every hop. Two were opaque:
+/// - `HostingView`, a private SwiftUI ancestor view a few superviews up — reached only
+///   by walking `superview`, since it is not itself a view controller's own root view
+///   reachable via the responder chain.
+/// - `NavigationStackHostingController<AnyView>`, a private SwiftUI view controller
+///   sitting *inside* the `UINavigationController` itself — reached via the responder
+///   chain, one hop before the navigation controller.
+/// The public `UINavigationController`/`UISplitViewController`/`UIHostingController`
+/// instances along the same walk were already clear from an earlier pass; both
+/// `backgroundColor` and `isOpaque` are set on all of them here regardless, since an
+/// opaque `CALayer` can still occlude a clear `UIColor` fill.
+///
+/// Matches are deliberately narrow — private-type names actually observed on this
+/// walk, not a broad heuristic — and only ever touch views/controllers found by
+/// walking `superview` or `UIResponder.next` *from this probe*: never a card's or
+/// tile's own `deckSurface` fill (an unrelated branch of the tree), and never a
+/// `UIAppearance` proxy (which would mutate every instance app-wide rather than just
+/// this shell's own hosts).
 ///
 /// Re-clears on every `didMoveToWindow` and `updateUIView` — both event-driven, not a
 /// timer — because SwiftUI can reuse or recreate the underlying hosting controllers
@@ -179,25 +193,50 @@ struct TransparentNavigationHostProbe: UIViewRepresentable {
 
         func clearHostBackgroundsIfWindowed() {
             guard self.window != nil else { return }
+
+            var ancestor: UIView? = self.superview
+            while let view = ancestor {
+                if Self.isRelevantHostView(view) {
+                    Self.clearBackground(of: view)
+                }
+                ancestor = view.superview
+            }
+
             var responder: UIResponder? = self
             while let current = responder {
                 if let viewController = current as? UIViewController,
                    Self.isRelevantHost(viewController)
                 {
-                    viewController.view.backgroundColor = .clear
+                    Self.clearBackground(of: viewController.view)
                 }
                 responder = current.next
             }
         }
 
+        private static func clearBackground(of view: UIView) {
+            view.backgroundColor = .clear
+            view.isOpaque = false
+        }
+
+        /// `HostingView`: observed opaque on-device, one of the superviews between this
+        /// probe and its enclosing `NavigationStackHostingController` — not itself a
+        /// view controller's root view, so the responder walk below never reaches it.
+        private static func isRelevantHostView(_ view: UIView) -> Bool {
+            String(describing: type(of: view)).hasPrefix("HostingView")
+        }
+
         private static func isRelevantHost(_ viewController: UIViewController) -> Bool {
             if viewController is UINavigationController { return true }
             if viewController is UISplitViewController { return true }
-            // `UIHostingController<Content>` is generic over the SwiftUI content it
-            // hosts, which is unknown here, so a direct `is` check can never match —
-            // the class-name prefix is the only way to recognize it regardless of
-            // its generic parameter.
-            return String(describing: type(of: viewController)).hasPrefix("UIHostingController")
+            let typeName = String(describing: type(of: viewController))
+            // `UIHostingController<Content>` and `NavigationStackHostingController<Content>`
+            // are both generic over SwiftUI content unknown here, so a direct `is` check
+            // can never match — the class-name prefix is the only way to recognize
+            // either regardless of its generic parameter. `NavigationStackHostingController`
+            // was observed opaque on-device, sitting inside the navigation controller
+            // itself, one responder hop before it.
+            if typeName.hasPrefix("UIHostingController") { return true }
+            return typeName.hasPrefix("NavigationStackHostingController")
         }
 
 #if DEBUG
@@ -255,6 +294,7 @@ struct TransparentNavigationHostProbe: UIViewRepresentable {
         let view = ProbeView(frame: .zero)
         view.isUserInteractionEnabled = false
         view.backgroundColor = .clear
+        view.isOpaque = false
         return view
     }
 
