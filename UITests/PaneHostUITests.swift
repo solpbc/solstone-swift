@@ -261,8 +261,16 @@ nonisolated final class PaneHostUITests: XCTestCase {
         XCTAssertTrue(app.buttons["done"].waitForExistence(timeout: 5))
     }
 
+    /// Renamed from `testJournalPaneRestsAboveDeck`: the pane used to rest at
+    /// `.fraction(0.93)`, deliberately leaving a sliver of the deck readable above
+    /// it. It now presents at `.large`, reaching the top of the screen — an owner
+    /// could still read "good afternoon" through the old gap, which is the defect
+    /// this fixed. What still matters, and what this asserts: the pane opens below
+    /// the status bar (never literally at y=0) and the deck underneath survives in
+    /// the render tree rather than being torn out (`RootShellView.shellBehindShelf`
+    /// history) — not that a visible sliver of it remains.
     @MainActor
-    func testJournalPaneRestsAboveDeck() throws {
+    func testJournalPaneOpensBelowStatusBarWithDeckIntact() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]
         app.launch()
@@ -293,6 +301,10 @@ nonisolated final class PaneHostUITests: XCTestCase {
         ) { _ in }
 
         XCTAssertGreaterThanOrEqual(margin, 24, "journal minY margin \(margin)")
+        // The regression this test now guards: `.large` keeps the margin to
+        // status-bar scale. The retired `.fraction(0.93)` gap ran to ~60pt+ on top
+        // of that same status-bar inset — comfortably past this bound.
+        XCTAssertLessThan(margin, 100, "journal pane left a deck-revealing gap: minY margin \(margin)")
         XCTAssertTrue(
             app.descendants(matching: .any)["dayHome.surface"].exists
                 || pill.exists

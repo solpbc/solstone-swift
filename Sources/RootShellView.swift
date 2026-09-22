@@ -124,8 +124,9 @@ struct RootShellView: View {
         self.shellLayers
         .sheet(isPresented: self.isJournalPresented) {
             InAppJournalView(mark: self.journalMark, presentation: .phoneModal)
-                // Nearly full height — a thin sliver of the deck stays visible above the pane.
-                .presentationDetents([.fraction(0.93)])
+                // Full height — the largest system detent, so the pane's top reaches
+                // the top of the screen instead of leaving the deck readable above it.
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }

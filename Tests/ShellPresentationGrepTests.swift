@@ -128,14 +128,19 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertTrue(text.contains("webView.allowsBackForwardNavigationGestures = false"))
     }
 
-    func testJournalPaneRestsAboveDeck() throws {
+    /// The pane used to rest at `.fraction(0.93)`, deliberately leaving a sliver of
+    /// the deck visible above it — an owner-reported defect: the pill that opens it
+    /// runs edge to edge, and `.large` is the one detent that also renders that way,
+    /// so the two widths match. `.large` reaches the top of the screen instead.
+    func testJournalPaneReachesTopOfScreen() throws {
         let text = try Self.sourceText("Sources/RootShellView.swift")
         let sheet = try Self.slice(
             in: text,
             from: ".sheet(isPresented: self.isJournalPresented)",
             to: ".sheet(isPresented: self.$showingSources)"
         )
-        XCTAssertTrue(sheet.contains(".presentationDetents([.fraction(0.93)])"))
+        XCTAssertTrue(sheet.contains(".presentationDetents([.large])"))
+        XCTAssertFalse(sheet.contains(".fraction("))
     }
 
     func testDayHomeStatusPillIsButtonNotNavigationLink() throws {
