@@ -3,6 +3,7 @@
 
 import SwiftUI
 import UIKit
+import os
 
 /// The Day Home background follows the deck's established light ground, while its night
 /// counterpart remains the locked SunArc OKLab mix.
@@ -171,6 +172,9 @@ struct TransparentNavigationHostProbe: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             self.clearHostBackgroundsIfWindowed()
+#if DEBUG
+            self.logHostDiagnosticIfRequested()
+#endif
         }
 
         func clearHostBackgroundsIfWindowed() {
@@ -195,6 +199,56 @@ struct TransparentNavigationHostProbe: UIViewRepresentable {
             // its generic parameter.
             return String(describing: type(of: viewController)).hasPrefix("UIHostingController")
         }
+
+#if DEBUG
+        /// One-shot, manually-triggered diagnostic: `--ui-test-sun-arc-host-diagnostic`
+        /// logs the actual responder chain (view-controller containment) from this probe
+        /// up to the window, and, at every view encountered, that view's own superview
+        /// chain too — so a single launch's unified log can show exactly which ancestor
+        /// is opaque, by name and background colour, rather than guessing. `.error` level,
+        /// deliberately: `.debug`/`.info` are not reliably captured by `log collect` /
+        /// `log show` without an attached session, and this is meant to be read
+        /// after a single launch. Compiled out of release builds.
+        private func logHostDiagnosticIfRequested() {
+            guard ProcessInfo.processInfo.arguments.contains("--ui-test-sun-arc-host-diagnostic") else { return }
+            guard self.window != nil else { return }
+            sunArcHostDiagnosticLog.error("sunArc host diagnostic: begin responder walk from ProbeView")
+            var responder: UIResponder? = self
+            var hop = 0
+            while let current = responder {
+                let typeName = String(describing: type(of: current))
+                if let viewController = current as? UIViewController {
+                    let view = viewController.viewIfLoaded
+                    sunArcHostDiagnosticLog.error(
+                        "hop \(hop, privacy: .public) VC \(typeName, privacy: .public) view.bg=\(String(describing: view?.backgroundColor), privacy: .public) view.alpha=\(view?.alpha ?? -1, privacy: .public) view.opaque=\(view?.isOpaque ?? false, privacy: .public)"
+                    )
+                } else if let window = current as? UIWindow {
+                    sunArcHostDiagnosticLog.error(
+                        "hop \(hop, privacy: .public) WINDOW \(typeName, privacy: .public) bg=\(String(describing: window.backgroundColor), privacy: .public) alpha=\(window.alpha, privacy: .public) opaque=\(window.isOpaque, privacy: .public)"
+                    )
+                } else if let view = current as? UIView {
+                    sunArcHostDiagnosticLog.error(
+                        "hop \(hop, privacy: .public) VIEW \(typeName, privacy: .public) bg=\(String(describing: view.backgroundColor), privacy: .public) alpha=\(view.alpha, privacy: .public) opaque=\(view.isOpaque, privacy: .public)"
+                    )
+                    var ancestor = view.superview
+                    var superHop = 0
+                    while let ancestorView = ancestor {
+                        let ancestorType = String(describing: type(of: ancestorView))
+                        sunArcHostDiagnosticLog.error(
+                            "hop \(hop, privacy: .public).super\(superHop, privacy: .public) \(ancestorType, privacy: .public) bg=\(String(describing: ancestorView.backgroundColor), privacy: .public) alpha=\(ancestorView.alpha, privacy: .public) opaque=\(ancestorView.isOpaque, privacy: .public)"
+                        )
+                        ancestor = ancestorView.superview
+                        superHop += 1
+                    }
+                } else {
+                    sunArcHostDiagnosticLog.error("hop \(hop, privacy: .public) RESPONDER \(typeName, privacy: .public)")
+                }
+                responder = current.next
+                hop += 1
+            }
+            sunArcHostDiagnosticLog.error("sunArc host diagnostic: end responder walk, hops=\(hop, privacy: .public)")
+        }
+#endif
     }
 
     func makeUIView(context: Context) -> UIView {
@@ -208,6 +262,10 @@ struct TransparentNavigationHostProbe: UIViewRepresentable {
         (uiView as? ProbeView)?.clearHostBackgroundsIfWindowed()
     }
 }
+
+#if DEBUG
+private let sunArcHostDiagnosticLog = Logger(subsystem: "app.solstone.swift", category: "sunarc-host-diagnostic")
+#endif
 
 /// The shelf drawer's measurements.
 ///
