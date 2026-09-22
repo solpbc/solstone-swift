@@ -318,7 +318,7 @@ private struct SunArcGroundCanvas: View {
     }
 }
 
-private nonisolated enum SunArcBackgroundDrawing {
+private enum SunArcBackgroundDrawing {
     static func draw(
         moment: SunArcBackgroundMoment,
         in context: inout GraphicsContext,
