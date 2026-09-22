@@ -1214,18 +1214,30 @@ final class WatchCaptureTests: XCTestCase {
             harness.engine.sunArcPresentationCoordinate == SunArcCoordinate(latitude: 10, longitude: 20)
         })
 
-        harness.locationProvider.emitFailure(NSError(domain: "WatchCaptureTests.location", code: 1))
-        await self.drain(until: { harness.engine.sunArcPresentationCoordinate == nil })
+        // Stop, then a fresh start, is a real lifecycle boundary that clears the
+        // presentation coordinate (`clearTransientStateForStart` on start, and the
+        // terminalize path on stop) — but `lastKnownFix` is never reset by either, so
+        // it legitimately carries forward into the new session's first segment. A
+        // provider failure alone would not fit here: it clears the coordinate but
+        // leaves location armed on the *current* segment without opening a successor,
+        // so there would be no second location.jsonl for the carry-forward to land in.
+        harness.engine.stop(); await harness.engine.settled()
+        XCTAssertNil(harness.engine.sunArcPresentationCoordinate)
 
-        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
-        harness.clock.advance(by: 300)
-        await self.drain(until: {
-            (await self.catalogEntries(for: harness.storage).count) == 2
-        })
+        // Segment directory keys are second-granular on the started-at clock; without
+        // advancing, the second start would collide with the first session's segment
+        // directory instead of opening a genuinely new one.
+        harness.clock.advance(by: 60)
+        harness.engine.start(); await harness.engine.settled()
+        XCTAssertNil(harness.engine.sunArcPresentationCoordinate)
 
         let entries = await self.catalogEntries(for: harness.storage)
-        let locationLines = try entries.flatMap {
-            try self.jsonLines(at: harness.storage.locationURL(directory: $0.directoryURL))
+        XCTAssertEqual(entries.count, 2)
+        var locationLines: [[String: Any]] = []
+        for entry in entries {
+            let locationURL = harness.storage.locationURL(directory: entry.directoryURL)
+            guard await harness.storage.fileWriter.fileExists(at: locationURL) else { continue }
+            locationLines += try self.jsonLines(at: locationURL)
         }
         let carriedForward = locationLines.first { ($0["stationary"] as? Bool) == true }
         XCTAssertEqual(carriedForward?["lat"] as? Double, retainedFix.lat)
