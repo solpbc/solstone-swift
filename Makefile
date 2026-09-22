@@ -2,7 +2,7 @@
 
 .PHONY: generate build-metadata-bootstrap build-metadata build build-generic release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test primer-shots integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
 			       release-distribution ipa-appstore ipa-device verify-ipa-parity deploy-ipa-device device-gate testflight-upload testflight-release testflight check-asc-config \
-			       install hopper-install deploy launch cycle run unlock \
+			       install deploy launch cycle run unlock \
 			       sim-shots sim-widget-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
 
 SCHEME    ?= solstone-swift
@@ -102,15 +102,6 @@ generate: check-versions build-metadata-bootstrap
 	xcodegen generate
 
 install: deps
-
-# Hopper runs its source-edit stages on Linux, while every authoritative Apple
-# build and test remains Make-driven on the registered macOS host. Keep setup
-# here to the portable tools those stages actually use; `make install` is the
-# Apple-host setup and intentionally requires XcodeGen and Xcode.
-hopper-install:
-	@command -v git >/dev/null || { echo "error: git is required"; exit 1; }
-	@command -v python3 >/dev/null || { echo "error: python3 is required"; exit 1; }
-	@echo "hopper setup: portable source-edit tools ready; run Apple build gates on macOS"
 
 deps: generate
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
