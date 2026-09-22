@@ -1,7 +1,7 @@
 # solstone-swift build targets
 
 .PHONY: generate build-metadata-bootstrap build-metadata build build-generic release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test primer-shots integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
-			       release-distribution ipa-appstore testflight-upload testflight-release testflight check-asc-config \
+			       release-distribution ipa-appstore ipa-device verify-ipa-parity deploy-ipa-device device-gate testflight-upload testflight-release testflight check-asc-config \
 			       install hopper-install deploy launch cycle run unlock \
 			       sim-shots sim-widget-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
 
@@ -799,6 +799,61 @@ ipa-appstore: release-distribution
 		-authenticationKeyPath $(ASC_KEY_PATH) \
 		-authenticationKeyID $(ASC_KEY_ID) \
 		-authenticationKeyIssuerID $(ASC_ISSUER)
+
+# Export the SAME distribution archive a second time, signed for development, so
+# the build can be installed on a registered physical device.
+#
+# This deliberately does NOT depend on release-distribution: re-archiving would
+# produce a second set of bytes, and the whole point is that the device export and
+# the App Store export carry one compiled binary. Run `make ipa-appstore` first,
+# then this; `make verify-ipa-parity` proves they match.
+ipa-device: check-asc-config unlock
+	@test -d "$(ARCHIVE_DISTRIBUTION)" || { \
+		echo "error: archive not found: $(ARCHIVE_DISTRIBUTION)"; \
+		echo "       run 'make ipa-appstore' first. ipa-device does not re-archive,"; \
+		echo "       so that both exports come from one archive."; \
+		exit 1; }
+	rm -rf build/ipa-device
+	@mkdir -p build
+	@{ \
+		echo '<?xml version="1.0" encoding="UTF-8"?>'; \
+		echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'; \
+		echo '<plist version="1.0">'; \
+		echo '<dict>'; \
+		echo '  <key>method</key><string>development</string>'; \
+		echo '  <key>teamID</key><string>$(TEAM_ID)</string>'; \
+		echo '  <key>signingStyle</key><string>automatic</string>'; \
+		echo '  <key>compileBitcode</key><false/>'; \
+		echo '  <key>stripSwiftSymbols</key><true/>'; \
+		echo '  <key>thinning</key><string>&lt;none&gt;</string>'; \
+		echo '  <key>destination</key><string>export</string>'; \
+		echo '  <key>manageAppVersionAndBuildNumber</key><false/>'; \
+		echo '</dict>'; \
+		echo '</plist>'; \
+	} > build/exportOptions-Device.plist
+	xcodebuild -exportArchive \
+		-archivePath $(ARCHIVE_DISTRIBUTION) \
+		-exportPath build/ipa-device \
+		-exportOptionsPlist build/exportOptions-Device.plist \
+		-allowProvisioningUpdates \
+		-authenticationKeyPath $(ASC_KEY_PATH) \
+		-authenticationKeyID $(ASC_KEY_ID) \
+		-authenticationKeyIssuerID $(ASC_ISSUER)
+
+# Hard proof that the device IPA and the App Store IPA share one compiled binary.
+# A device run means nothing about the shipping build unless this passes.
+verify-ipa-parity:
+	@scripts/verify-ipa-parity.sh
+
+# Install the device-signed release IPA on the wired device. Unlike `deploy`,
+# which installs the Debug build, this installs the exact bytes that ship.
+deploy-ipa-device: verify-ipa-parity
+	xcrun devicectl device install app --device $(DEVICE) build/ipa-device/solstone-swift.ipa
+
+# One command for the whole device-gate artifact path: export, prove parity,
+# install on the wired device, launch it.
+device-gate: ipa-device verify-ipa-parity deploy-ipa-device
+	xcrun devicectl device process launch --device $(DEVICE) $(BUNDLE_ID)
 
 # Upload the exported IPA to App Store Connect for TestFlight processing.
 testflight-upload: ipa-appstore
