@@ -56,6 +56,7 @@ def main():
                 "com.apple.CoreSimulator.SimDeviceType." + kind,
                 "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
             )
+            failure = None
             try:
                 sim("boot", device)
                 sim("bootstatus", device, "-b")
@@ -69,18 +70,24 @@ def main():
                 if actual != expected:
                     raise ValueError(f"{path}: expected {expected}, got {actual}")
                 print(f"captured {path.name} ({actual[0]}x{actual[1]})", flush=True)
-            except Exception:
+            except Exception as error:
+                failure = error
                 diagnostic = output / f"{family}-{appearance}-failed.png"
                 try:
                     sim("io", device, "screenshot", str(diagnostic))
-                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                except (OSError, subprocess.SubprocessError):
                     pass
                 raise
             finally:
                 try:
                     sim("shutdown", device)
-                finally:
+                except (OSError, subprocess.SubprocessError):
+                    pass
+                try:
                     sim("delete", device)
+                except (OSError, subprocess.SubprocessError):
+                    if failure is None:
+                        raise
 
 
 if __name__ == "__main__":
