@@ -114,22 +114,21 @@ nonisolated enum ShellMetrics {
 /// the deck they open from.
 ///
 /// The ground is `.clear`, not `deckGround`: every native pane root sits above the
-/// shared `SunArcBackgroundHost` at the shell root, and an opaque ground here would
-/// paint over it on every pushed phone destination and regular-width iPad detail
-/// pane. Cards and tiles keep their own explicit `deckSurface`/`deckSurfaceRaised`
-/// backgrounds, so they read the same as before — only the ground behind them
-/// changed. The journal is the one exception: `InAppJournalView` sets its own opaque
-/// `deckGround` background directly, because a `WKWebView` needs an opaque backdrop
-/// underneath it.
+/// shared SunArc surface, and an opaque ground here would paint over it on every
+/// pushed phone destination and regular-width iPad detail pane. Cards and tiles keep
+/// their own explicit `deckSurface`/`deckSurfaceRaised` backgrounds, so they read the
+/// same as before — only the ground behind them changed. The journal is the one
+/// exception: `InAppJournalView` sets its own opaque `deckGround` background
+/// directly, because a `WKWebView` needs an opaque backdrop underneath it.
 ///
-/// This alone is not sufficient to reveal the shared Canvas: `NavigationStack` and
+/// This alone is not sufficient to reveal the shared surface: `NavigationStack` and
 /// `NavigationSplitView` paint their own opaque system container background behind
-/// whatever content they host, entirely separately from what that content declares.
-/// `RootShellView` clears that container background directly, with
-/// `.containerBackground(.clear, for: .navigation)` /
-/// `.containerBackground(.clear, for: .navigationSplitView)` on the navigation
-/// containers themselves — this ground here only has to stay out of the way once
-/// that container background is gone.
+/// whatever content they host, entirely separately from what that content declares —
+/// and that layer is its own separately hosted surface, with nothing behind it for a
+/// plain `.clear` to reveal. `RootShellView` installs `SunArcBackgroundSurface`
+/// itself as that container background (`.containerBackground(for: .navigation)` /
+/// `.containerBackground(for: .navigationSplitView)`), which is what actually paints
+/// there — this ground here only has to stay out of the way once it does.
 ///
 /// `scrollContentBackground(.hidden)` is what lets a `List` show the ground through;
 /// without it the List paints its own grouped grey over everything below.

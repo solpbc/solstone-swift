@@ -111,6 +111,17 @@ private nonisolated struct SunArcBackgroundMoment: Sendable {
 
 /// The sun, all day — one Canvas behind a native surface and one minute clock shared by its
 /// ground, mark, and content appearance.
+///
+/// Two callers share this one engine and drawing routine:
+/// - `SunArcBackgroundHost` wraps arbitrary content in a `ZStack`, for a root shell with no
+///   separate native container layer of its own — watchOS's `WindowGroup` root.
+/// - `SunArcBackgroundSurface` renders the ground/glow/mark alone, installed as a
+///   `NavigationStack`'s or `NavigationSplitView`'s own `.containerBackground(for:)` content
+///   on iOS/iPadOS. That container paints its background in its own separately hosted layer;
+///   an outer `ZStack` sibling — all `SunArcBackgroundHost` alone can offer there — never
+///   reaches it, and neither does clearing that layer to a plain colour: there is nothing
+///   behind it to reveal. Installing this view AS that layer's content is what actually
+///   paints there.
 struct SunArcBackgroundHost<Content: View>: View {
     private let palette: SunArcGroundPalette
     private let presentationCoordinate: SunArcCoordinate?
@@ -147,6 +158,127 @@ struct SunArcBackgroundHost<Content: View>: View {
 #endif
 
     var body: some View {
+#if DEBUG
+        SunArcBackgroundTimeline(
+            palette: self.palette,
+            presentationCoordinate: self.presentationCoordinate,
+            debugOverride: self.debugOverride
+        ) { moment in
+            ZStack {
+                SunArcGroundCanvas(moment: moment)
+                self.content()
+            }
+        }
+#else
+        SunArcBackgroundTimeline(
+            palette: self.palette,
+            presentationCoordinate: self.presentationCoordinate
+        ) { moment in
+            ZStack {
+                SunArcGroundCanvas(moment: moment)
+                self.content()
+            }
+        }
+#endif
+    }
+}
+
+/// The ground/glow/mark alone, with no content of its own — see `SunArcBackgroundHost`'s
+/// doc comment for why iOS/iPadOS installs this as a navigation container's own
+/// `.containerBackground(for:)` content instead of wrapping the shell in a
+/// `SunArcBackgroundHost`-style `ZStack`.
+struct SunArcBackgroundSurface: View {
+    private let palette: SunArcGroundPalette
+    private let presentationCoordinate: SunArcCoordinate?
+#if DEBUG
+    private let debugOverride: SunArcBackgroundDebugOverride?
+#endif
+
+    init(
+        palette: SunArcGroundPalette,
+        presentationCoordinate: SunArcCoordinate?
+    ) {
+        self.palette = palette
+        self.presentationCoordinate = presentationCoordinate
+#if DEBUG
+        self.debugOverride = nil
+#endif
+    }
+
+#if DEBUG
+    init(
+        palette: SunArcGroundPalette,
+        presentationCoordinate: SunArcCoordinate?,
+        debugOverride: SunArcBackgroundDebugOverride?
+    ) {
+        self.palette = palette
+        self.presentationCoordinate = presentationCoordinate
+        self.debugOverride = debugOverride
+    }
+#endif
+
+    var body: some View {
+#if DEBUG
+        SunArcBackgroundTimeline(
+            palette: self.palette,
+            presentationCoordinate: self.presentationCoordinate,
+            debugOverride: self.debugOverride
+        ) { moment in
+            SunArcGroundCanvas(moment: moment)
+        }
+#else
+        SunArcBackgroundTimeline(
+            palette: self.palette,
+            presentationCoordinate: self.presentationCoordinate
+        ) { moment in
+            SunArcGroundCanvas(moment: moment)
+        }
+#endif
+    }
+}
+
+/// Shared per-minute clock: resolves the current `SunArcBackgroundMoment` once and hands it
+/// to `content`, so ground/glow/mark and appearance can never drift from each other or from
+/// whatever a caller draws with that same moment. `content` is rendered as part of whatever
+/// hosts this timeline — a `ZStack` sibling for `SunArcBackgroundHost`, a container's own
+/// background layer for `SunArcBackgroundSurface` — so `.preferredColorScheme` applied here
+/// follows that same placement rather than needing its own separate mechanism.
+private struct SunArcBackgroundTimeline<ClockContent: View>: View {
+    let palette: SunArcGroundPalette
+    let presentationCoordinate: SunArcCoordinate?
+#if DEBUG
+    let debugOverride: SunArcBackgroundDebugOverride?
+#endif
+    let content: (SunArcBackgroundMoment) -> ClockContent
+
+    init(
+        palette: SunArcGroundPalette,
+        presentationCoordinate: SunArcCoordinate?,
+        @ViewBuilder content: @escaping (SunArcBackgroundMoment) -> ClockContent
+    ) {
+        self.palette = palette
+        self.presentationCoordinate = presentationCoordinate
+#if DEBUG
+        self.debugOverride = nil
+#endif
+        self.content = content
+    }
+
+#if DEBUG
+    init(
+        palette: SunArcGroundPalette,
+        presentationCoordinate: SunArcCoordinate?,
+        debugOverride: SunArcBackgroundDebugOverride?,
+        @ViewBuilder content: @escaping (SunArcBackgroundMoment) -> ClockContent
+    ) {
+        self.palette = palette
+        self.presentationCoordinate = presentationCoordinate
+        self.debugOverride = debugOverride
+        self.content = content
+    }
+#endif
+
+    var body: some View {
         TimelineView(.everyMinute) { context in
 #if DEBUG
             let date = self.debugOverride?.date ?? context.date
@@ -166,25 +298,28 @@ struct SunArcBackgroundHost<Content: View>: View {
                 presentationCoordinate: coordinate
             )
 
-            ZStack {
-                self.backgroundCanvas(moment: moment)
-                self.content()
-            }
-            .preferredColorScheme(moment.isDark ? .dark : .light)
+            self.content(moment)
+                .preferredColorScheme(moment.isDark ? .dark : .light)
         }
     }
+}
 
-    private func backgroundCanvas(moment: SunArcBackgroundMoment) -> some View {
+private struct SunArcGroundCanvas: View {
+    let moment: SunArcBackgroundMoment
+
+    var body: some View {
         Canvas { context, size in
-            Self.draw(moment: moment, in: &context, size: size)
+            SunArcBackgroundDrawing.draw(moment: self.moment, in: &context, size: size)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
+}
 
-    private static func draw(
+private nonisolated enum SunArcBackgroundDrawing {
+    static func draw(
         moment: SunArcBackgroundMoment,
         in context: inout GraphicsContext,
         size: CGSize

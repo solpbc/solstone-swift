@@ -141,27 +141,28 @@ struct RootShellView: View {
         }
     }
 
-    private var sunArcShell: some View {
+    /// Installed as the active navigation container's own `.containerBackground(for:)`
+    /// content — see `SunArcBackgroundHost`'s doc comment for why that container's own
+    /// hosted background layer, not an outer `ZStack` sibling, is what actually paints on
+    /// iOS/iPadOS.
+    @ViewBuilder
+    private var sunArcSurface: some View {
 #if DEBUG
-        SunArcBackgroundHost(
+        SunArcBackgroundSurface(
             palette: DeckSunArcPalette.value,
             presentationCoordinate: self.locationManager.sunArcPresentationCoordinate,
             debugOverride: self.sunArcDebugOverride
-        ) {
-            self.shellWithSheets
-        }
+        )
 #else
-        SunArcBackgroundHost(
+        SunArcBackgroundSurface(
             palette: DeckSunArcPalette.value,
             presentationCoordinate: self.locationManager.sunArcPresentationCoordinate
-        ) {
-            self.shellWithSheets
-        }
+        )
 #endif
     }
 
     var body: some View {
-        self.sunArcShell
+        self.shellWithSheets
         .task(id: self.tunnelManager.activeConnection?.port) {
             await self.fetchJournalMark()
         }
@@ -285,10 +286,11 @@ struct RootShellView: View {
             self.paneColumn
         }
         .navigationSplitViewStyle(.balanced)
-        // See `phoneStack`'s `.containerBackground` for why this is necessary —
-        // `NavigationSplitView` has the same opaque system container background,
-        // independent of the sidebar/detail's own declared backgrounds.
-        .containerBackground(.clear, for: .navigationSplitView)
+        // See `phoneStack`'s `.containerBackground` for why this installs the SunArc
+        // surface itself rather than clearing to reveal something behind it.
+        .containerBackground(for: .navigationSplitView) {
+            self.sunArcSurface
+        }
 #if DEBUG
         .overlay(alignment: .topLeading) {
             if self.showsColumnVisibilityProbe {
@@ -337,11 +339,14 @@ struct RootShellView: View {
         }
         // `NavigationStack` paints its own opaque system container background behind
         // whatever it hosts, entirely apart from anything that content declares — a
-        // `.background(Color.clear)` on the pushed content never reaches it. Clearing
-        // the container background itself is what lets the shared SunArc Canvas
-        // (`SunArcBackgroundHost`, behind this stack in RootShellView's ZStack) show
-        // through the deck and every pushed pane.
-        .containerBackground(.clear, for: .navigation)
+        // `.background(Color.clear)` on the pushed content never reaches it, and nor
+        // does clearing this container background to a plain colour, since that layer
+        // is its own separately hosted surface with nothing behind it for `.clear` to
+        // reveal. Installing the SunArc surface itself as this container's background
+        // is what actually paints there, on the deck and every pushed pane.
+        .containerBackground(for: .navigation) {
+            self.sunArcSurface
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -400,9 +405,11 @@ struct RootShellView: View {
                     ShellDestinationView(destination: destination, journalMark: self.journalMark)
                 }
         }
-        // The detail column's own nested stack — see `phoneStack`'s
-        // `.containerBackground` for why the outer split view's clearing alone does
-        // not also clear this stack's own container background.
+        // The detail column's own nested stack has the same separate container
+        // background as `phoneStack`'s — but this one stays `.clear` rather than
+        // installing its own SunArc surface: it is nested inside `padSplit`'s
+        // `NavigationSplitView`, which already installs one, and a second, independent
+        // `TimelineView` here would be a redundant clock the review asked to avoid.
         .containerBackground(.clear, for: .navigation)
     }
 
