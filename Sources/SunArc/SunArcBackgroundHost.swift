@@ -307,9 +307,22 @@ private struct SunArcBackgroundTimeline<ClockContent: View>: View {
 private struct SunArcGroundCanvas: View {
     let moment: SunArcBackgroundMoment
 
+    /// `GeometryReader`, with the `Canvas` explicitly framed to its measured
+    /// `proxy.size`, rather than trusting `Canvas`'s own closure-provided size.
+    ///
+    /// As a `NavigationStack`/`NavigationSplitView`'s own `.containerBackground(for:)`
+    /// content (`SunArcBackgroundSurface`), this view has no content-derived ideal
+    /// size to propose the way it did as a `ZStack` sibling next to real shell content
+    /// (`SunArcBackgroundHost`) — `.frame(maxWidth: .infinity, maxHeight: .infinity)`
+    /// alone left `Canvas` collapsed to a degenerate size there, drawing nothing and
+    /// showing the plain system container fill through it. `GeometryReader` forces a
+    /// real, measured size in both hosting contexts.
     var body: some View {
-        Canvas { context, size in
-            SunArcBackgroundDrawing.draw(moment: self.moment, in: &context, size: size)
+        GeometryReader { proxy in
+            Canvas { context, _ in
+                SunArcBackgroundDrawing.draw(moment: self.moment, in: &context, size: proxy.size)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
