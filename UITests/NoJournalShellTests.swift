@@ -104,7 +104,9 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     /// A pasted code's wait is the connecting screen a link's is, caption and all, not a disabled
     /// button under a how-to line that no longer applies. The simulator has no camera, so its scan
     /// tab hands over to paste on its own and paste is the entry it can drive; a scanned code takes
-    /// the same path once its request is out. The link is the unreachable one the link tests use.
+    /// the same path once its request is out. The link names four unreachable private addresses:
+    /// each candidate's dial is bounded at 5 s, so the attempt stays out for about 20 s, past the
+    /// eight seconds the caption waits for. A single-candidate link now fails at about 5 s.
     @MainActor
     func testPastedLinkAttemptShowsTheWaitingScreenAndItsStillTryingCaption() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
@@ -116,7 +118,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let field = app.descendants(matching: .any)["pairFlow.pasteField"]
         XCTAssertTrue(field.waitForExistence(timeout: 10), "the scan tab never handed over to paste")
         field.tap()
-        field.typeText("https://go.solstone.app/p#0G0GM00258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")
+        field.typeText("https://go.solstone.app/p#0M0G86WY18004AGA0012P2G008P0M0025PGV5GYMWQV0E60H48SM8NB6EY4DXBDYXZ5FXENY04HMASW9NF6YY")
         app.buttons["pair this device"].tap()
 
         let title = app.staticTexts["pairFlow.title"]
