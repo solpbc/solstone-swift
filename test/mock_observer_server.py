@@ -3,6 +3,7 @@
 # Copyright (c) 2026 sol pbc
 
 import argparse
+import hashlib
 import json
 import re
 import signal
@@ -66,12 +67,15 @@ class Handler(BaseHTTPRequestHandler):
         boundary = ("--" + match.group(1)).encode()
         parts = []
         for raw_part in body.split(boundary):
-            part = raw_part.strip()
-            if not part or part == b"--":
-                continue
+            part = raw_part
+            if part.startswith(b"\r\n"):
+                part = part[2:]
             if part.endswith(b"--"):
                 part = part[:-2]
-            part = part.strip(b"\r\n")
+            if part.endswith(b"\r\n"):
+                part = part[:-2]
+            if not part or part == b"--":
+                continue
             headers, separator, content = part.partition(b"\r\n\r\n")
             if not separator:
                 continue
@@ -83,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "name": disposition_match.group(1),
                     "filename": disposition_match.group(2),
-                    "content": content.rstrip(b"\r\n"),
+                    "content": content,
                 }
             )
         return parts
@@ -92,17 +96,6 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/api/observer/status":
             self._send_json(200, Handler._state_payload())
-            return
-        if path == "/app/devices/ingest/manifest":
-            if not self._require_ingest_protocol():
-                return
-            self._send_json(200, {"days": {}})
-            return
-        if path.startswith("/app/devices/ingest/manifest/"):
-            if not self._require_ingest_protocol():
-                return
-            day = path.rsplit("/", 1)[-1]
-            self._send_json(200, {"version": 1, "day": day, "segments": {}})
             return
         if path.startswith("/app/devices/ingest/segments/"):
             if not self._require_ingest_protocol():
@@ -148,7 +141,19 @@ class Handler(BaseHTTPRequestHandler):
                 Handler._write_state_file()
                 upload_count = len(Handler.uploads)
             print(f"OBSERVER_UPLOAD:{upload_count}:{upload['filename']}", flush=True)
-            self._send_json(200, {"status": "ok"})
+            file_descriptors = [
+                {
+                    "submitted": part["filename"],
+                    "size": len(part["content"]),
+                    "sha256": hashlib.sha256(part["content"]).hexdigest(),
+                    "disposition": "written",
+                }
+                for part in files
+            ]
+            self._send_json(200, {
+                "status": "ok",
+                "file_descriptors": file_descriptors,
+            })
             return
 
         self._send_json(404, {"error": "not found"})

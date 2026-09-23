@@ -30,9 +30,9 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
         let maxSeenInFlight = OSAllocatedUnfairLock<Int>(initialState: 0)
         let maxConcurrent = 3
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             Thread.sleep(forTimeInterval: 0.003)
-            return (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+            return (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let harness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("mobile-transfer", isDirectory: true),
@@ -206,8 +206,8 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
         let currentEndpoint = TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)
         let resolver = TransferEndpointResolverStub(.available(oldEndpoint))
         let bodyGate = TransferCutoverBodyGate()
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let harness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("endpoint-reresolve-transfer", isDirectory: true),
@@ -239,8 +239,8 @@ nonisolated final class TransferCutoverDispatchTests: XCTestCase {
     @MainActor
     func testLinkedDeviceIngestSetsProtocolAndNoAuthorization() async throws {
         let watchID = Self.uuid(901)
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let harness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("auth-transfer", isDirectory: true),

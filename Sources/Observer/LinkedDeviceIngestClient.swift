@@ -30,54 +30,14 @@ nonisolated struct LinkedDeviceIngestFile: Decodable, Equatable, Sendable {
 
 nonisolated struct LinkedDeviceIngestSegment: Decodable, Equatable, Sendable {
     let key: String
-    let observed: Bool
     let files: [LinkedDeviceIngestFile]
     let originalKey: String?
 
     enum CodingKeys: String, CodingKey {
         case key
-        case observed
         case files
         case originalKey = "original_key"
     }
-}
-
-nonisolated struct LinkedDeviceIngestDaysResponse: Decodable, Equatable, Sendable {
-    let days: [String: LinkedDeviceIngestDaySummary]
-}
-
-nonisolated struct LinkedDeviceIngestDaySummary: Decodable, Equatable, Sendable {
-    let segments: Int?
-    let error: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case segments
-        case error
-    }
-
-    init(segments: Int?, error: String?) {
-        self.segments = segments
-        self.error = error
-    }
-
-    init(from decoder: any Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.segments = try container.decodeIfPresent(Int.self, forKey: .segments)
-        self.error = try container.decodeIfPresent(String.self, forKey: .error)
-        guard (self.segments == nil) != (self.error == nil) else {
-            throw DecodingError.dataCorruptedError(forKey: .segments, in: container, debugDescription: "expected segments or error")
-        }
-    }
-}
-
-nonisolated struct LinkedDeviceIngestManifestDayResponse: Decodable, Equatable, Sendable {
-    let version: Int
-    let day: String
-    let segments: [String: LinkedDeviceIngestManifestSegment]
-}
-
-nonisolated struct LinkedDeviceIngestManifestSegment: Decodable, Equatable, Sendable {
-    let files: [LinkedDeviceIngestFile]
 }
 
 nonisolated struct LinkedDeviceIngestSegmentsResponse: Decodable, Equatable, Sendable {
@@ -96,7 +56,6 @@ nonisolated enum LinkedDeviceIngestClientError: Error, Equatable, Sendable {
     case invalidURL
     case httpStatus(Int)
     case malformedResponse
-    case dayError(day: String, reason: String)
     case missingCustody
 }
 
@@ -105,34 +64,6 @@ nonisolated struct LinkedDeviceIngestClient: Sendable {
 
     init(session: URLSession = .shared) {
         self.session = session
-    }
-
-    func listDays(localPort: Int, source: String) async -> Result<LinkedDeviceIngestDaysResponse, LinkedDeviceIngestClientError> {
-        guard let url = ObserverServerURL.manifestURL(localPort: localPort, source: source) else {
-            return .failure(.invalidURL)
-        }
-        let result: Result<LinkedDeviceIngestDaysResponse, LinkedDeviceIngestClientError> = await self.fetch(url: url)
-        guard case .success(let response) = result else { return result }
-        if let failure = response.days.first(where: { $0.value.error != nil }) {
-            return .failure(.dayError(day: failure.key, reason: failure.value.error!))
-        }
-        return .success(response)
-    }
-
-    func fetchManifestDay(
-        localPort: Int,
-        source: String,
-        day: String
-    ) async -> Result<LinkedDeviceIngestManifestDayResponse, LinkedDeviceIngestClientError> {
-        guard let url = ObserverServerURL.manifestDayURL(localPort: localPort, source: source, day: day) else {
-            return .failure(.invalidURL)
-        }
-        let result: Result<LinkedDeviceIngestManifestDayResponse, LinkedDeviceIngestClientError> = await self.fetch(url: url)
-        guard case .success(let response) = result else { return result }
-        guard response.version == 1, response.day == day else {
-            return .failure(.malformedResponse)
-        }
-        return self.validatingCustody(response)
     }
 
     func fetchSegments(
@@ -219,17 +150,6 @@ nonisolated struct LinkedDeviceIngestClient: Sendable {
             ingestReadLog.debug("ingest read failed: \(String(describing: error), privacy: .public)")
             return .failure(.malformedResponse)
         }
-    }
-
-    private func validatingCustody(
-        _ response: LinkedDeviceIngestManifestDayResponse
-    ) -> Result<LinkedDeviceIngestManifestDayResponse, LinkedDeviceIngestClientError> {
-        guard !response.segments.values.contains(where: { segment in
-            segment.files.contains { $0.status == .missing }
-        }) else {
-            return .failure(.missingCustody)
-        }
-        return .success(response)
     }
 }
 

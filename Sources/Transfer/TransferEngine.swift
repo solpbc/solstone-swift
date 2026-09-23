@@ -570,11 +570,38 @@ actor TransferEngine {
     }
 
     func retryAttention(source: String? = nil) throws {
+        let now = self.clock.wallNow()
         let items = self.attentionItems.values
             .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
             .filter { source == nil || $0.manifest.sourceKey == source }
+            .filter { self.isAttentionItemEligibleForBulkRetry($0, now: now) }
             .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
         try self.moveAttentionItemsToQueued(items)
+    }
+
+    private func isAttentionItemEligibleForBulkRetry(_ item: TransferStoredItem, now: Date) -> Bool {
+        guard let reason = item.manifest.attention?.reason else { return true }
+        if reason == "removed_in_journal" {
+            return false
+        }
+        let receiptTokens: Set<String> = [
+            "receipt_sha256",
+            "receipt_size",
+            "receipt_disposition",
+            "receipt_missing_part",
+            "receipt_extra_part",
+            "receipt_duplicate_part",
+            "receipt_absent",
+            "payload_unreadable",
+        ]
+        if receiptTokens.contains(reason) {
+            guard let lastRetriedAt = item.manifest.lastRetriedAt else { return true }
+            if lastRetriedAt <= now.addingTimeInterval(-86400) || lastRetriedAt > now.addingTimeInterval(86400) {
+                return true
+            }
+            return false
+        }
+        return true
     }
 
     /// Moves one attention item back to queued, resets its in-memory attempts,
@@ -921,6 +948,39 @@ actor TransferEngine {
         let outcome = TransferHTTPClassifier.classify(result: result, endpointPhase: phase)
         switch outcome {
         case .terminalSuccess(let successKind):
+            if phase == .observerIngest {
+                let receiptOutcome = await self.verifyObserverIngestReceipt(item: item, data: result.data)
+                // The item stays in flight so a drop or a new connection can run during the hash.
+                guard let currentItem = self.queuedItems[itemID] else {
+                    self.droppedItemIDs.remove(itemID)
+                    if let sourceKey = self.inFlightSourceKeys[itemID] {
+                        self.clearInFlight(itemID: itemID, sourceKey: sourceKey)
+                    } else {
+                        self.counters.inFlightCount = self.inFlight.count
+                    }
+                    return
+                }
+                if self.droppedItemIDs.remove(itemID) != nil {
+                    self.clearInFlight(itemID: itemID, sourceKey: currentItem.manifest.sourceKey)
+                    self.scheduleStatusUpdate(summary: "dropped")
+                    self.scheduleWork()
+                    return
+                }
+                if let mismatchToken = receiptOutcome {
+                    self.spool.removeBodyCache(for: currentItem)
+                    let detail = self.receiptShortDetail(for: mismatchToken)
+                    self.transitionQueuedToAttentionThrowing(
+                        item: currentItem,
+                        reason: mismatchToken,
+                        detail: detail,
+                        transientOutcome: .httpServerError(statusCode: result.statusCode ?? 200)
+                    )
+                    self.scheduleStatusUpdate(summary: self.lastEventSummary)
+                    self.scheduleWork()
+                    return
+                }
+            }
+
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             self.queuedItems.removeValue(forKey: itemID)
             self.counters.queuedCount -= 1
@@ -949,11 +1009,20 @@ actor TransferEngine {
                 attempt: self.attemptCountByItemID[itemID, default: 0]
             )
         case .terminalAttention(let reason):
-            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
-            let detail = self.shortDetail(for: reason)
-            self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
-            self.moveToAttention(item: item, reason: reason, detail: detail)
-            transferLog.notice("transfer item needs attention \(itemID.uuidString, privacy: .public)")
+            if reason == .removedInJournal {
+                self.transitionQueuedToAttentionThrowing(
+                    item: item,
+                    reason: "removed_in_journal",
+                    detail: reason.ownerSafeDetail,
+                    transientOutcome: .httpServerError(statusCode: result.statusCode ?? 500)
+                )
+            } else {
+                self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+                let detail = self.shortDetail(for: reason)
+                self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
+                self.moveToAttention(item: item, reason: reason, detail: detail)
+                transferLog.notice("transfer item needs attention \(itemID.uuidString, privacy: .public)")
+            }
         case .transientRetry(let reason):
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             let attempt = self.attemptCountByItemID[itemID, default: 1]
@@ -1006,6 +1075,194 @@ actor TransferEngine {
         }
         self.scheduleStatusUpdate(summary: self.lastEventSummary)
         self.scheduleWork()
+    }
+
+    private struct ExpectedPayloadIdentity {
+        var filename: String
+        var size: Int
+        var sha256Hex: String
+    }
+
+    private func verifyObserverIngestReceipt(item: TransferStoredItem, data: Data) async -> String? {
+        var expectedParts: [ExpectedPayloadIdentity] = []
+        var unreadable = false
+
+        for part in item.manifest.payloadParts {
+            let payloadURL: URL
+            do {
+                guard let existingURL = try self.spool.existingPayloadURL(for: part, in: item) else {
+                    if part.requiredForDispatch {
+                        unreadable = true
+                    }
+                    continue
+                }
+                payloadURL = existingURL
+            } catch {
+                unreadable = true
+                continue
+            }
+
+            do {
+                let sha256Hex = try await self.spool.sha256Hex(at: payloadURL)
+                let byteCount = try self.spool.byteCount(at: payloadURL)
+                expectedParts.append(ExpectedPayloadIdentity(
+                    filename: part.filename,
+                    size: byteCount,
+                    sha256Hex: sha256Hex
+                ))
+            } catch {
+                unreadable = true
+            }
+        }
+
+        if self.queuedItems[item.manifest.itemID] == nil || self.droppedItemIDs.contains(item.manifest.itemID) {
+            return nil
+        }
+
+        if unreadable {
+            return "payload_unreadable"
+        }
+
+        guard !data.isEmpty,
+              let response = try? JSONDecoder().decode(ObserverIngestReceiptResponse.self, from: data),
+              let descriptors = response.fileDescriptors
+        else {
+            return "receipt_absent"
+        }
+
+        var submittedCounts: [String: Int] = [:]
+        for descriptor in descriptors {
+            submittedCounts[descriptor.submitted, default: 0] += 1
+        }
+        var expectedCounts: [String: Int] = [:]
+        for part in expectedParts {
+            expectedCounts[part.filename, default: 0] += 1
+        }
+
+        if submittedCounts.values.contains(where: { $0 > 1 }) || expectedCounts.values.contains(where: { $0 > 1 }) {
+            return "receipt_duplicate_part"
+        }
+
+        for descriptor in descriptors {
+            if expectedCounts[descriptor.submitted] == nil {
+                return "receipt_extra_part"
+            }
+        }
+
+        for part in expectedParts {
+            if submittedCounts[part.filename] == nil {
+                return "receipt_missing_part"
+            }
+        }
+
+        for part in expectedParts {
+            guard let descriptor = descriptors.first(where: { $0.submitted == part.filename }) else {
+                return "receipt_missing_part"
+            }
+            if descriptor.size != part.size {
+                return "receipt_size"
+            }
+            if descriptor.sha256 != part.sha256Hex {
+                return "receipt_sha256"
+            }
+            if descriptor.disposition != "written" && descriptor.disposition != "already_held" {
+                return "receipt_disposition"
+            }
+        }
+
+        return nil
+    }
+
+    private func transitionQueuedToAttentionThrowing(
+        item: TransferStoredItem,
+        reason: String,
+        detail: String,
+        transientOutcome: TransferTransientReason
+    ) {
+        self.clearInFlight(itemID: item.manifest.itemID, sourceKey: item.manifest.sourceKey)
+        self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
+        let itemID = item.manifest.itemID
+        guard self.queuedItems[itemID] != nil else { return }
+        do {
+            let moved = try self.spool.moveQueuedItemToAttention(
+                item,
+                reason: reason,
+                detail: detail,
+                now: self.clock.wallNow()
+            )
+            self.queuedItems.removeValue(forKey: itemID)
+            self.attentionItems[moved.manifest.itemID] = moved
+            self.counters.queuedCount -= 1
+            self.counters.attentionCount += 1
+            self.updateSourceState(moved.manifest.sourceKey) { state in
+                state.counters.queuedCount -= 1
+                state.counters.attentionCount += 1
+            }
+            self.emit(
+                item: moved,
+                previousState: .queued,
+                nextState: .attention,
+                outcome: .needsAttention,
+                attempt: self.attemptCountByItemID[moved.manifest.itemID, default: 0],
+                detail: detail
+            )
+            self.firstAttemptAtByItemID.removeValue(forKey: moved.manifest.itemID)
+            transferLog.notice("transfer item needs attention \(itemID.uuidString, privacy: .public)")
+        } catch {
+            let attempt = self.attemptCountByItemID[itemID, default: 1]
+            let decision = self.pacer.delay(for: TransferPacerInput(
+                itemID: itemID,
+                source: item.manifest.sourceKey,
+                attemptCount: attempt,
+                lastOutcome: transientOutcome
+            ))
+            let nextAttemptAt = self.clock.wallNow().addingTimeInterval(decision.delay)
+            let updatedManifest = item.manifest.replacingNextAttemptAt(nextAttemptAt)
+            var retryItem = item
+            var retryDetail = "retry persistence failed"
+            do {
+                let updated = try self.spool.updateQueuedManifest(updatedManifest, directoryURL: item.directoryURL)
+                self.queuedItems[itemID] = updated
+                retryItem = updated
+                retryDetail = transientOutcome.retryDetail
+            } catch {
+                retryItem = TransferStoredItem(manifest: updatedManifest, directoryURL: item.directoryURL)
+                self.queuedItems[itemID] = retryItem
+                transferLog.notice("transfer retry persistence failed \(itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)")
+            }
+            self.emit(
+                item: retryItem,
+                previousState: .dispatching,
+                nextState: .queued,
+                outcome: .retrying,
+                attempt: attempt,
+                detail: retryDetail
+            )
+            transferLog.notice("transfer item retrying after attention write failure \(itemID.uuidString, privacy: .public)")
+        }
+    }
+
+    private func receiptShortDetail(for token: String) -> String {
+        switch token {
+        case "receipt_sha256":
+            "a file in this recording doesn't match what your journal has. it's still on your phone."
+        case "receipt_size":
+            "a file in this recording is a different size than what your journal has. it's still on your phone."
+        case "receipt_disposition":
+            "your journal has this recording but hasn't kept the file. it's still on your phone."
+        case "receipt_missing_part":
+            "your journal's receipt is missing a file from this recording. it's still on your phone."
+        case "receipt_extra_part":
+            "your journal's receipt names a file this recording didn't send. it's still on your phone."
+        case "receipt_duplicate_part":
+            "your journal's receipt names the same file more than once. it's still on your phone."
+        case "receipt_absent":
+            "your journal didn't confirm the files in this recording. it's still on your phone."
+        case "payload_unreadable":
+            "a file in this recording couldn't be read. it's still on your phone."
+        default:
+            "this recording needs attention. it's still on your phone."
+        }
     }
 
     private func moveToAttention(item: TransferStoredItem, reason: TransferAttentionReason, detail: String) {
@@ -1461,6 +1718,8 @@ private extension TransferEngine {
             return "missing_payload"
         case .malformedManifest:
             return "malformed_manifest"
+        case .removedInJournal:
+            return "removed_in_journal"
         }
     }
 

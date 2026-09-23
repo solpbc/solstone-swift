@@ -10,8 +10,8 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
     func testAC8DriveUploadDrainEnqueuesMobilePendingSegmentAndKicksEngine() async throws {
         TransferURLProtocol.reset()
         defer { TransferURLProtocol.reset() }
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("BackgroundDrainCoordinatorTests-\(UUID().uuidString)", isDirectory: true)

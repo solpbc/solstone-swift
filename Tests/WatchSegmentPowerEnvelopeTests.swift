@@ -45,8 +45,8 @@ final class WatchSegmentPowerEnvelopeTests: XCTestCase {
 
     private func dispatchAndExtractMeta(for watchManifest: WatchSegmentManifest) async throws -> [String: Any]? {
         TransferURLProtocol.reset()
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
 
         let stagingRoot = self.tempDirectory.appendingPathComponent("staging-\(UUID().uuidString)", isDirectory: true)

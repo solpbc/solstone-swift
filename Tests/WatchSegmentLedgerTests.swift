@@ -264,8 +264,8 @@ final class WatchSegmentLedgerTests: XCTestCase {
             receiverStagingRootURL: self.tempDirectory.appendingPathComponent("delivered-hook-receiver", isDirectory: true)
         )
         try await Task.sleep(for: .milliseconds(50))
-        TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         try await harness.engine.start()
 

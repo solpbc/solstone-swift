@@ -18,10 +18,6 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         LinkedDeviceIngestURLProtocol.handler = { request in
             let response = Self.response(for: request)
             switch request.url?.path {
-            case "/app/devices/ingest/manifest":
-                return (response, Data(#"{"days":{"20260603":{"segments":1}}}"#.utf8))
-            case "/app/devices/ingest/manifest/20260603":
-                return (response, Data(#"{"version":1,"day":"20260603","segments":{"meeting":{"files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"present"}]}}}"#.utf8))
             case "/app/devices/ingest/segments/20260603":
                 return (response, Self.validSegmentsData)
             default:
@@ -30,24 +26,6 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
             }
         }
 
-        let days = await client.listDays(localPort: 7071, source: "mobile-segment")
-        XCTAssertEqual(
-            days,
-            .success(LinkedDeviceIngestDaysResponse(days: [
-                day: LinkedDeviceIngestDaySummary(segments: 1, error: nil),
-            ]))
-        )
-        let manifestDay = await client.fetchManifestDay(localPort: 7071, source: "mobile-segment", day: day)
-        XCTAssertEqual(
-            manifestDay,
-            .success(LinkedDeviceIngestManifestDayResponse(
-                version: 1,
-                day: day,
-                segments: ["meeting": LinkedDeviceIngestManifestSegment(files: [
-                    LinkedDeviceIngestFile(name: "audio.m4a", size: 42, sha256: "abc", status: .present, submittedName: nil),
-                ])]
-            ))
-        )
         let validSegments = await client.fetchSegments(localPort: 7071, source: "mobile-segment", day: day)
         XCTAssertEqual(validSegments, .success(Self.validSegments))
 
@@ -58,7 +36,7 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         XCTAssertEqual(bareArray, .failure(.malformedResponse))
 
         LinkedDeviceIngestURLProtocol.handler = { request in
-            (Self.response(for: request), Data(#"{"protocol_version":3,"total":1,"items":[{"key":"x","observed":true,"files":[{"name":"audio.m4a","size":1,"status":"present"}]}]}"#.utf8))
+            (Self.response(for: request), Data(#"{"protocol_version":3,"total":1,"items":[{"key":"x","files":[{"name":"audio.m4a","size":1,"status":"present"}]}]}"#.utf8))
         }
         let incomplete = await client.fetchSegments(localPort: 7071, source: "mobile-segment", day: day)
         XCTAssertEqual(incomplete, .failure(.malformedResponse))
@@ -70,13 +48,7 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         XCTAssertEqual(malformed, .failure(.malformedResponse))
 
         LinkedDeviceIngestURLProtocol.handler = { request in
-            (Self.response(for: request), Data(#"{"days":{"20260603":{"error":"journal_read_failed"}}}"#.utf8))
-        }
-        let dayError = await client.listDays(localPort: 7071, source: "mobile-segment")
-        XCTAssertEqual(dayError, .failure(.dayError(day: day, reason: "journal_read_failed")))
-
-        LinkedDeviceIngestURLProtocol.handler = { request in
-            (Self.response(for: request), Data(#"{"protocol_version":3,"total":1,"items":[{"key":"x","observed":true,"files":[{"name":"audio.m4a","size":1,"sha256":"a","status":"missing"}]}]}"#.utf8))
+            (Self.response(for: request), Data(#"{"protocol_version":3,"total":1,"items":[{"key":"x","files":[{"name":"audio.m4a","size":1,"sha256":"a","status":"missing"}]}]}"#.utf8))
         }
         let missing = await client.fetchSegments(localPort: 7071, source: "mobile-segment", day: day)
         XCTAssertEqual(missing, .failure(.missingCustody))
@@ -87,10 +59,6 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         let day = "20260603"
         LinkedDeviceIngestURLProtocol.handler = { request in
             switch request.url?.path {
-            case "/app/devices/ingest/manifest":
-                return (Self.response(for: request), Data(#"{"days":{}}"#.utf8))
-            case "/app/devices/ingest/manifest/20260603":
-                return (Self.response(for: request), Data(#"{"version":1,"day":"20260603","segments":{}}"#.utf8))
             case "/app/devices/ingest/segments/20260603":
                 if request.url?.query?.contains("source=mobile-segment") == true {
                     return (Self.response(for: request), Self.validSegmentsData)
@@ -102,8 +70,6 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
             }
         }
 
-        _ = await client.listDays(localPort: 7071, source: "mobile-segment")
-        _ = await client.fetchManifestDay(localPort: 7071, source: "mobile-segment", day: day)
         let sourceA = await client.fetchSegments(localPort: 7071, source: "mobile-segment", day: day)
         let sourceB = await client.fetchSegments(localPort: 7071, source: "watch-audio", day: day)
 
@@ -115,6 +81,32 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
                 && $0.value(forHTTPHeaderField: "Authorization") == nil
                 && $0.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName) == "3"
         })
+    }
+
+    func testSegmentsResponseWithoutObservedDecodesAndClassifiesFiles() async {
+        let client = self.client
+        let day = "20260603"
+        let jsonWithoutObserved = Data(#"{"protocol_version":3,"total":1,"items":[{"key":"20260603-150000_300","files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"present","submitted_name":"audio-original.m4a"},{"name":"location.jsonl","size":12,"sha256":"def","status":"processed"}]}]}"#.utf8)
+
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            (Self.response(for: request), jsonWithoutObserved)
+        }
+
+        let result = await client.fetchSegments(localPort: 7071, source: "mobile-segment", day: day)
+        guard case .success(let response) = result else {
+            XCTFail("expected successful segments response")
+            return
+        }
+        XCTAssertEqual(response.total, 1)
+        XCTAssertEqual(response.items.first?.key, "20260603-150000_300")
+        XCTAssertEqual(response.items.first?.files.count, 2)
+        let manifestResult = LinkedDeviceIngestViewMapper.observerManifestResult(result)
+        guard case .loaded(let items) = manifestResult else {
+            XCTFail("expected loaded manifest result")
+            return
+        }
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items.first?.id, "20260603-150000_300")
     }
 
     func testDeleteSourceUsesCertificateOnlyDeleteContract() async {
@@ -172,7 +164,6 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         total: 1,
         items: [LinkedDeviceIngestSegment(
             key: "20260603-150000_300",
-            observed: true,
             files: [
                 LinkedDeviceIngestFile(name: "audio.m4a", size: 42, sha256: "abc", status: .present, submittedName: "audio-original.m4a"),
                 LinkedDeviceIngestFile(name: "location.jsonl", size: 12, sha256: "def", status: .processed, submittedName: nil),
@@ -182,7 +173,7 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
     )
 
     private static let validSegmentsData = Data(
-        #"{"protocol_version":3,"total":1,"items":[{"key":"20260603-150000_300","observed":true,"files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"present","submitted_name":"audio-original.m4a"},{"name":"location.jsonl","size":12,"sha256":"def","status":"processed"}]}]}"#.utf8
+        #"{"protocol_version":3,"total":1,"items":[{"key":"20260603-150000_300","files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"present","submitted_name":"audio-original.m4a"},{"name":"location.jsonl","size":12,"sha256":"def","status":"processed"}]}]}"#.utf8
     )
 
     private static let deleteReceipt = DeleteSourceReceipt(

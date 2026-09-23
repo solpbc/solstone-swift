@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import Crypto
 import Foundation
 import os
 import XCTest
@@ -187,8 +188,8 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertTrue(snapshot.queued.contains { $0.manifest.itemID == healthyItemID })
         XCTAssertTrue(snapshot.recoveryDiagnostics.contains { $0.itemID == failingItemID })
 
-        TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let engine = self.makeEngine(spool: TransferSpool(rootURL: root))
         try await engine.start()
@@ -323,8 +324,8 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testAttentionPredecessorObserverItemNormalizesBeforeRequeueDispatch() async throws {
-        TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("attention-v3", isDirectory: true))
         let manifest = self.makeManifest(itemID: Self.uuid(21))
@@ -476,7 +477,7 @@ nonisolated final class TransferTests: XCTestCase {
                 return .urlIssue(.cancelled)
             }
         })
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             guard let step = steps.withLock({ values -> TransferTransientStep? in
                 values.isEmpty ? nil : values.removeFirst()
             }) else {
@@ -484,7 +485,7 @@ nonisolated final class TransferTests: XCTestCase {
             }
             switch step {
             case .status(let statusCode):
-                let data = statusCode == 200 ? Data(#"{"status":"ok"}"#.utf8) : Data()
+                let data = statusCode == 200 ? transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")) : Data()
                 return (Self.response(for: request, statusCode: statusCode), data)
             case .urlIssue(let code):
                 throw URLError(code)
@@ -638,11 +639,11 @@ nonisolated final class TransferTests: XCTestCase {
         let clock = FakeTransferClock(wall: Self.baseDate)
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
         let itemID = Self.uuid(91)
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             if Self.boundaryItemID(from: request) == itemID {
                 return (Self.response(for: request, statusCode: 503), Data())
             }
-            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let engine = self.makeEngine(
             spool: spool,
@@ -670,13 +671,13 @@ nonisolated final class TransferTests: XCTestCase {
         let clock = FakeTransferClock(wall: Self.baseDate)
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
         let itemID = Self.uuid(89)
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             // Scoped by item: an in-flight request from a prior test's engine can outlive teardown.
             if Self.boundaryItemID(from: request) == itemID {
                 fileSystem.failManifestWrites = true
                 return (Self.response(for: request, statusCode: 503), Data())
             }
-            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let engine = self.makeEngine(
             spool: spool,
@@ -704,11 +705,11 @@ nonisolated final class TransferTests: XCTestCase {
 
     func testElapsedSinceFirstAttemptMatchesScriptedClockDelta() async throws {
         let itemID = Self.uuid(91)
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             if Self.boundaryItemID(from: request) == itemID {
                 return (Self.response(for: request, statusCode: 503), Data())
             }
-            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let clock = FakeTransferClock(wall: Self.baseDate)
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
@@ -829,8 +830,8 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testOptionalUnusedPayloadDoesNotBlockObserverDelivery() async throws {
-        TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         var manifest = self.makeManifest(itemID: Self.uuid(83))
         manifest.payloadParts.append(TransferPayloadPartDescriptor(
@@ -1078,8 +1079,8 @@ nonisolated final class TransferTests: XCTestCase {
     func testCriticalPolicyPauseIsNotTerminalAndDoesNotConsumeAttempts() async throws {
         let conditions = MutableTransferConditionsProvider(thermalState: .critical)
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
-        TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let engine = self.makeEngine(
             diagnosticsSink: { event in events.withLock { $0.append(event) } },
@@ -1222,9 +1223,9 @@ nonisolated final class TransferTests: XCTestCase {
 
     func testDropInFlightAndAlreadyGoneAreNoOps() async throws {
         let gate = DispatchSemaphore(value: 0)
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             _ = gate.wait(timeout: .now() + .seconds(5))
-            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let engine = self.makeEngine()
         try await engine.start()
@@ -1290,15 +1291,15 @@ nonisolated final class TransferTests: XCTestCase {
     func testBodyUploadBuiltOnceReusedAcrossRetriesAndRemovedAfterDelivery() async throws {
         let callCount = OSAllocatedUnfairLock<Int>(initialState: 0)
         let statusCodes = OSAllocatedUnfairLock<[Int]>(initialState: [500, 500, 200])
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             let status = statusCodes.withLock { values in values.removeFirst() }
-            let data = status == 200 ? Data(#"{"status":"ok"}"#.utf8) : Data()
+            let data = status == 200 ? transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")) : Data()
             return (Self.response(for: request, statusCode: status), data)
         }
         let pacer = TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300, jitterSalt: 1))
-        let engine = self.makeEngine(pacer: pacer, bodyBuilder: { _, _ in
+        let engine = self.makeEngine(pacer: pacer, bodyBuilder: { item, spool in
             callCount.withLock { $0 += 1 }
-            return .inMemory(Data("body-once".utf8))
+            return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
         })
         try await engine.start()
         _ = try await engine.enqueue(manifest: self.makeManifest(), payloads: self.audioPayloads())
@@ -1384,12 +1385,12 @@ nonisolated final class TransferTests: XCTestCase {
         let engine = self.makeEngine(
             spool: TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("b", isDirectory: true)),
             pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
-            bodyBuilder: { _, _ in
+            bodyBuilder: { item, spool in
                 buildCount.withLock { $0 += 1 }
-                return .inMemory(Data("body".utf8))
+                return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             }
         )
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
+        TransferURLProtocol.handler = { request, body in (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))) }
         try await engine.start()
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(32)), payloads: self.audioPayloads())
         try await self.waitFor("one delivered") {
@@ -1415,8 +1416,8 @@ nonisolated final class TransferTests: XCTestCase {
     func testHotPathCountersDoNotEnumerateDirectories() async throws {
         let fileSystem = CountingTransferFileSystem()
         let spool = TransferSpool(rootURL: self.tempDirectory, fileSystem: fileSystem)
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
-        let engine = self.makeEngine(spool: spool, bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
+        TransferURLProtocol.handler = { request, body in (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))) }
+        let engine = self.makeEngine(spool: spool)
         try await engine.start()
         fileSystem.resetEnumerationCount()
 
@@ -1749,11 +1750,11 @@ nonisolated final class TransferTests: XCTestCase {
         let betaID = Self.uuid(311)
         let deliveredID = Self.uuid(312)
         let droppedID = Self.uuid(313)
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             if Self.boundaryItemID(from: request) == betaID {
                 return (Self.response(for: request, statusCode: 404), Data("missing".utf8))
             }
-            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let resolverA = PathEndpointResolver(availablePaths: ["/attention", "/delivered"])
         let engineA = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolverA)
@@ -1850,7 +1851,7 @@ nonisolated final class TransferTests: XCTestCase {
         let undeclaredURL = await engine.payloadFileURL(itemID: itemID, partID: "location")
         XCTAssertNil(undeclaredURL)
 
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
+        TransferURLProtocol.handler = { request, body in (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))) }
         resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
         await engine.endpointAvailabilityChanged()
         try await self.waitFor("payload file removed after delivery") {
@@ -1888,8 +1889,8 @@ nonisolated final class TransferTests: XCTestCase {
 
     func testThroughputWindowAggregatesPerSourceAndDecaysAfterWindow() async throws {
         let clock = FakeTransferClock(wall: Self.baseDate)
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
-        let engine = self.makeEngine(clock: clock, bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
+        TransferURLProtocol.handler = { request, body in (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))) }
+        let engine = self.makeEngine(clock: clock)
         try await engine.start()
 
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(330), source: "alpha"), payloads: self.audioPayloads())
@@ -1950,7 +1951,7 @@ nonisolated final class TransferTests: XCTestCase {
         }
         await engineA.pause()
 
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
+        TransferURLProtocol.handler = { request, body in (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))) }
         let delivered = OSAllocatedUnfairLock<[TransferManifest]>(initialState: [])
         let engineB = self.makeEngine(spool: TransferSpool(rootURL: root))
         await engineB.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
@@ -1965,10 +1966,10 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testDeliveredHookFiresOncePerDeliveryWithDeliveredManifest() async throws {
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
+        TransferURLProtocol.handler = { request, body in (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))) }
         let delivered = OSAllocatedUnfairLock<[TransferManifest]>(initialState: [])
         let itemID = Self.uuid(351)
-        let engine = self.makeEngine(bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
+        let engine = self.makeEngine()
         await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
             delivered.withLock { $0.append(manifest) }
         }
@@ -1989,7 +1990,7 @@ nonisolated final class TransferTests: XCTestCase {
         let deliveredID = Self.uuid(352)
         let alreadyID = Self.uuid(353)
         let completeID = Self.uuid(354)
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             if request.url?.path == "/imports/start" {
                 return (
                     Self.response(for: request, statusCode: 400),
@@ -2002,10 +2003,10 @@ nonisolated final class TransferTests: XCTestCase {
             if itemID == alreadyID {
                 return (
                     Self.response(for: request, statusCode: 200),
-                    Data(#"{"status":"duplicate"}"#.utf8)
+                    transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"), status: "duplicate")
                 )
             }
-            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"), status: "ok"))
         }
         let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
         let engine = self.makeEngine(bodyBuilder: DefaultTransferBodyBuilder.build)
@@ -2037,12 +2038,11 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testThrowingDeliveredHookLeavesEngineStateAndCountersUntouched() async throws {
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
+        TransferURLProtocol.handler = { request, body in (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))) }
         let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
         let itemID = Self.uuid(355)
         let engine = self.makeEngine(
-            diagnosticsSink: { event in events.withLock { $0.append(event) } },
-            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
+            diagnosticsSink: { event in events.withLock { $0.append(event) } }
         )
         await engine.registerDeliveredHook(sourceKey: "alpha") { _, _ in
             throw DeliveredHookTestError.failed
@@ -2102,8 +2102,8 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testDeliverySucceedsForSourceWithNoRegisteredHook() async throws {
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
-        let engine = self.makeEngine(bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
+        TransferURLProtocol.handler = { request, body in (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))) }
+        let engine = self.makeEngine()
         try await engine.start()
 
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(358), source: "alpha"), payloads: self.audioPayloads())
@@ -2117,12 +2117,12 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testDeliveredHooksAreDetachedFromDeliveryDrain() async throws {
-        TransferURLProtocol.handler = { request, _ in (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8)) }
+        TransferURLProtocol.handler = { request, body in (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))) }
         let gate = HookGate()
         let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
         let firstID = Self.uuid(360)
         let secondID = Self.uuid(361)
-        let engine = self.makeEngine(bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) })
+        let engine = self.makeEngine()
         await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
             if manifest.itemID == firstID {
                 await gate.wait()
@@ -2204,14 +2204,14 @@ nonisolated final class TransferTests: XCTestCase {
 
     @MainActor
     func testLinkedDeviceIngestAndReconciliationSetNoAuthorization() async throws {
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             if request.httpMethod == "GET" {
                 return (
                     Self.response(for: request, statusCode: 200),
                     Data(#"{"protocol_version":3,"total":0,"items":[]}"#.utf8)
                 )
             }
-            return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TransferURLProtocol.self]
@@ -2220,8 +2220,7 @@ nonisolated final class TransferTests: XCTestCase {
             spool: TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("auth", isDirectory: true)),
             transport: transport,
             endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
-            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
-            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300))
         )
         try await engine.start()
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(380)), payloads: self.audioPayloads())
@@ -2312,11 +2311,10 @@ nonisolated final class TransferTests: XCTestCase {
         let resolver = TransferEndpointResolverStub(.unavailable("held"))
         let engine = self.makeEngine(
             spool: TransferSpool(rootURL: root, fileSystem: fileSystem),
-            resolver: resolver,
-            bodyBuilder: { _, _ in .inMemory(Data("body".utf8)) }
+            resolver: resolver
         )
-        TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         try await engine.start()
         try await self.waitFor("legacy held") {
@@ -2462,8 +2460,8 @@ nonisolated final class TransferTests: XCTestCase {
         let spool = TransferSpool(rootURL: root)
         let itemID = Self.uuid(704)
         _ = try self.seedAttentionItem(spool: spool, itemID: itemID)
-        TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let resolver = TransferEndpointResolverStub(.unavailable("held"))
         let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
@@ -2486,9 +2484,9 @@ nonisolated final class TransferTests: XCTestCase {
         let attentionID = Self.uuid(705)
         let queuedID = Self.uuid(706)
         _ = try self.seedAttentionItem(spool: spool, itemID: attentionID)
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             guard Self.boundaryItemID(from: request) == queuedID else {
-                return (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+                return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
             }
             return TransferURLProtocol.hold(request)
         }
@@ -2524,8 +2522,8 @@ nonisolated final class TransferTests: XCTestCase {
         let spool = TransferSpool(rootURL: root)
         let itemID = Self.uuid(707)
         _ = try self.seedAttentionItem(spool: spool, itemID: itemID)
-        TransferURLProtocol.handler = { request, _ in
-            (Self.response(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let engine = self.makeEngine(spool: TransferSpool(rootURL: root))
         try await engine.start()
@@ -2680,6 +2678,1021 @@ nonisolated final class TransferTests: XCTestCase {
             included,
             "  watch stuck: http_client_error, reason_code=envelope_invalid (42s ago, 2 item(s)), retried 2x, last retry 10s ago"
         )
+    }
+
+    func testObserverIngestMatchingReceiptDeletesSpoolAndCallsDeliveredHook() async throws {
+        let root = self.tempDirectory.appendingPathComponent("matching-receipt", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(801)
+        let payload = Data("abc".utf8)
+        let expectedSha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+
+        let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
+        let engine = self.makeEngine(spool: spool)
+        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
+            delivered.withLock { $0.append(manifest.itemID) }
+        }
+        try await engine.start()
+
+        TransferURLProtocol.handler = { request, _ in
+            let receiptJSON = """
+            {
+                "status": "ok",
+                "file_descriptors": [
+                    {
+                        "submitted": "audio.m4a",
+                        "size": 3,
+                        "sha256": "\(expectedSha256)",
+                        "disposition": "written"
+                    }
+                ]
+            }
+            """
+            return (Self.response(for: request, statusCode: 200), Data(receiptJSON.utf8))
+        }
+
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: itemID), payloads: ["audio": payload])
+        try await self.waitFor("delivered hook and spool deleted") {
+            delivered.withLock { $0.contains(itemID) }
+        }
+
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.deliveredCount, 1)
+        let queuedDir = root.appendingPathComponent("queued/\(itemID.uuidString)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: queuedDir.path))
+
+        // Uppercase SHA-256 must fail receipt match and move to attention
+        let uppercaseID = Self.uuid(802)
+        TransferURLProtocol.handler = { request, _ in
+            let receiptJSON = """
+            {
+                "status": "ok",
+                "file_descriptors": [
+                    {
+                        "submitted": "audio.m4a",
+                        "size": 3,
+                        "sha256": "\(expectedSha256.uppercased())",
+                        "disposition": "written"
+                    }
+                ]
+            }
+            """
+            return (Self.response(for: request, statusCode: 200), Data(receiptJSON.utf8))
+        }
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: uppercaseID), payloads: ["audio": payload])
+        try await self.waitFor("uppercase sha256 to attention") {
+            guard let item = await engine.itemSnapshot(itemID: uppercaseID) else { return false }
+            return item.state == .attention
+        }
+        let uppercaseSnapshotVal = await engine.itemSnapshot(itemID: uppercaseID)
+        let uppercaseSnapshot = try XCTUnwrap(uppercaseSnapshotVal)
+        XCTAssertEqual(uppercaseSnapshot.manifest.attention?.reason, "receipt_sha256")
+        XCTAssertFalse(delivered.withLock { $0.contains(uppercaseID) })
+
+        // Status "collision" with matching receipt deletes spool item and fires hook
+        let collisionID = Self.uuid(803)
+        TransferURLProtocol.handler = { request, _ in
+            let receiptJSON = """
+            {
+                "status": "collision",
+                "file_descriptors": [
+                    {
+                        "submitted": "audio.m4a",
+                        "written": "stored.m4a",
+                        "size": 3,
+                        "sha256": "\(expectedSha256)",
+                        "disposition": "written"
+                    }
+                ]
+            }
+            """
+            return (Self.response(for: request, statusCode: 200), Data(receiptJSON.utf8))
+        }
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: collisionID), payloads: ["audio": payload])
+        try await self.waitFor("collision delivered hook and spool deleted") {
+            delivered.withLock { $0.contains(collisionID) }
+        }
+        let collisionQueuedDir = root.appendingPathComponent("queued/\(collisionID.uuidString)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: collisionQueuedDir.path))
+    }
+
+    func testObserverIngestReceiptMismatchMatrixMovesToAttention() async throws {
+        struct MismatchCase: Sendable {
+            var name: String
+            var reason: String
+            var responseData: @Sendable (String, Int, String) -> Data
+            var corruptDisk: (@Sendable (URL, UUID) throws -> Void)?
+        }
+
+        let cases: [MismatchCase] = [
+            MismatchCase(
+                name: "receipt_sha256",
+                reason: "receipt_sha256",
+                responseData: { _, size, _ in
+                    Data("""
+                    {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":\(size),"sha256":"0000000000000000000000000000000000000000000000000000000000000000","disposition":"written"}]}
+                    """.utf8)
+                },
+                corruptDisk: nil
+            ),
+            MismatchCase(
+                name: "receipt_size",
+                reason: "receipt_size",
+                responseData: { _, _, sha256 in
+                    Data("""
+                    {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":9999,"sha256":"\(sha256)","disposition":"written"}]}
+                    """.utf8)
+                },
+                corruptDisk: nil
+            ),
+            MismatchCase(
+                name: "receipt_disposition_not_written",
+                reason: "receipt_disposition",
+                responseData: { _, size, sha256 in
+                    Data("""
+                    {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":\(size),"sha256":"\(sha256)","disposition":"received_not_written"}]}
+                    """.utf8)
+                },
+                corruptDisk: nil
+            ),
+            MismatchCase(
+                name: "receipt_disposition_unknown",
+                reason: "receipt_disposition",
+                responseData: { _, size, sha256 in
+                    Data("""
+                    {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":\(size),"sha256":"\(sha256)","disposition":"kept"}]}
+                    """.utf8)
+                },
+                corruptDisk: nil
+            ),
+            MismatchCase(
+                name: "receipt_missing_part",
+                reason: "receipt_missing_part",
+                responseData: { _, _, _ in
+                    Data("""
+                    {"status":"ok","file_descriptors":[]}
+                    """.utf8)
+                },
+                corruptDisk: nil
+            ),
+            MismatchCase(
+                name: "receipt_extra_part",
+                reason: "receipt_extra_part",
+                responseData: { _, size, sha256 in
+                    Data("""
+                    {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":\(size),"sha256":"\(sha256)","disposition":"written"},{"submitted":"extra.bin","size":1,"sha256":"a","disposition":"written"}]}
+                    """.utf8)
+                },
+                corruptDisk: nil
+            ),
+            MismatchCase(
+                name: "receipt_duplicate_part",
+                reason: "receipt_duplicate_part",
+                responseData: { _, size, sha256 in
+                    Data("""
+                    {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":\(size),"sha256":"\(sha256)","disposition":"written"},{"submitted":"audio.m4a","size":\(size),"sha256":"0000000000000000000000000000000000000000000000000000000000000000","disposition":"written"}]}
+                    """.utf8)
+                },
+                corruptDisk: nil
+            ),
+            MismatchCase(
+                name: "receipt_absent",
+                reason: "receipt_absent",
+                responseData: { _, _, _ in
+                    Data("""
+                    {"status":"ok"}
+                    """.utf8)
+                },
+                corruptDisk: nil
+            ),
+            MismatchCase(
+                name: "receipt_absent_wrong_type",
+                reason: "receipt_absent",
+                responseData: { _, _, _ in
+                    Data("""
+                    {"status":"ok","file_descriptors":"not_an_array"}
+                    """.utf8)
+                },
+                corruptDisk: nil
+            ),
+            MismatchCase(
+                name: "payload_unreadable",
+                reason: "payload_unreadable",
+                responseData: { _, size, sha256 in
+                    Data("""
+                    {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":\(size),"sha256":"\(sha256)","disposition":"written"}]}
+                    """.utf8)
+                },
+                corruptDisk: { root, itemID in
+                    let payloadURL = root
+                        .appendingPathComponent("queued", isDirectory: true)
+                        .appendingPathComponent(itemID.uuidString, isDirectory: true)
+                        .appendingPathComponent("audio.m4a", isDirectory: false)
+                    try? FileManager.default.removeItem(at: payloadURL)
+                }
+            ),
+        ]
+
+        var testIndex = 810
+        for testCase in cases {
+            testIndex += 1
+            let itemID = Self.uuid(testIndex)
+            let root = self.tempDirectory.appendingPathComponent("mismatch-\(testCase.name)", isDirectory: true)
+            let spool = TransferSpool(rootURL: root)
+            let payload = Data("audio-payload-\(testCase.name)".utf8)
+            let realSha256 = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+
+            let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
+            let diagnostics = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
+            let engine = self.makeEngine(
+                spool: spool,
+                diagnosticsSink: { event in diagnostics.withLock { $0.append(event) } }
+            )
+            await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
+                delivered.withLock { $0.append(manifest.itemID) }
+            }
+            try await engine.start()
+
+            let corrupt = testCase.corruptDisk
+            let responseData = testCase.responseData
+            TransferURLProtocol.handler = { request, _ in
+                if let corrupt {
+                    try corrupt(root, itemID)
+                }
+                let data = responseData("audio.m4a", payload.count, realSha256)
+                return (Self.response(for: request, statusCode: 200), data)
+            }
+
+            _ = try await engine.enqueue(manifest: self.makeManifest(itemID: itemID), payloads: ["audio": payload])
+            try await self.waitFor("\(testCase.name) moved to attention") {
+                guard let item = await engine.itemSnapshot(itemID: itemID) else { return false }
+                return item.state == .attention
+            }
+
+            let snapshot = await engine.snapshot()
+            XCTAssertEqual(snapshot.counters.deliveredCount, 0, "\(testCase.name) deliveredCount")
+            XCTAssertEqual(snapshot.sources["alpha"]?.deliveredCount ?? 0, 0, "\(testCase.name) per-source deliveredCount")
+            XCTAssertFalse(delivered.withLock { $0.contains(itemID) }, "\(testCase.name) delivered hook called")
+            XCTAssertFalse(diagnostics.withLock { $0.contains { $0.itemID == itemID && $0.outcome == .delivered } }, "\(testCase.name) diagnostic delivered")
+            let itemSnapshotValue = await engine.itemSnapshot(itemID: itemID)
+            let itemSnapshot = try XCTUnwrap(itemSnapshotValue)
+            XCTAssertEqual(itemSnapshot.manifest.attention?.reason, testCase.reason, "\(testCase.name) attention reason")
+
+            await engine.pause()
+
+            // Verify attention state is preserved across new engine start
+            let newEngine = self.makeEngine(
+                spool: TransferSpool(rootURL: root),
+                resolver: TransferEndpointResolverStub(.unavailable("held"))
+            )
+            try await newEngine.start()
+            let rawSnapshot = await newEngine.itemSnapshot(itemID: itemID)
+            let newSnapshot = try XCTUnwrap(rawSnapshot)
+            XCTAssertEqual(newSnapshot.state, .attention, "\(testCase.name) new engine state")
+            XCTAssertEqual(newSnapshot.manifest.attention?.reason, testCase.reason, "\(testCase.name) new engine attention reason")
+        }
+    }
+
+    func testAttentionAutoRetryHonors24HourBoundOnReceiptTokens() async throws {
+        let root = self.tempDirectory.appendingPathComponent("24h-retry-bound", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let clock = FakeTransferClock(wall: Self.baseDate)
+
+        let recentItemID = Self.uuid(830)
+        let agedItemID = Self.uuid(831)
+        let nilRetryItemID = Self.uuid(832)
+
+        _ = try self.seedAttentionItem(
+            spool: spool,
+            itemID: recentItemID,
+            createdAt: Self.baseDate,
+            now: Self.baseDate,
+            retryCount: 1,
+            lastRetriedAt: Self.baseDate.addingTimeInterval(-3600) // 1 hour ago
+        )
+        // Set attention reason to receipt_sha256
+        let recentStored = try spool.initialize(now: Self.baseDate).attention.first { $0.manifest.itemID == recentItemID }!
+        _ = try spool.moveQueuedItemToAttention(
+            spool.moveAttentionItemToQueued(recentStored, now: Self.baseDate),
+            reason: "receipt_sha256",
+            detail: "mismatch",
+            now: Self.baseDate
+        )
+        // Reset lastRetriedAt on recent item to 1 hour ago
+        var recentManifest = try spool.readManifest(in: root.appendingPathComponent("attention/\(recentItemID.uuidString)"))
+        recentManifest.lastRetriedAt = Self.baseDate.addingTimeInterval(-3600)
+        recentManifest.retryCount = 1
+        try spool.writeManifestAtomically(recentManifest, in: root.appendingPathComponent("attention/\(recentItemID.uuidString)"))
+
+        _ = try self.seedAttentionItem(
+            spool: spool,
+            itemID: agedItemID,
+            createdAt: Self.baseDate,
+            now: Self.baseDate,
+            retryCount: 1,
+            lastRetriedAt: Self.baseDate.addingTimeInterval(-90000) // 25 hours ago
+        )
+        let agedStored = try spool.initialize(now: Self.baseDate).attention.first { $0.manifest.itemID == agedItemID }!
+        _ = try spool.moveQueuedItemToAttention(
+            spool.moveAttentionItemToQueued(agedStored, now: Self.baseDate),
+            reason: "receipt_sha256",
+            detail: "mismatch",
+            now: Self.baseDate
+        )
+        var agedManifest = try spool.readManifest(in: root.appendingPathComponent("attention/\(agedItemID.uuidString)"))
+        agedManifest.lastRetriedAt = Self.baseDate.addingTimeInterval(-90000)
+        agedManifest.retryCount = 1
+        try spool.writeManifestAtomically(agedManifest, in: root.appendingPathComponent("attention/\(agedItemID.uuidString)"))
+
+        _ = try self.seedAttentionItem(
+            spool: spool,
+            itemID: nilRetryItemID,
+            createdAt: Self.baseDate,
+            now: Self.baseDate,
+            retryCount: 0,
+            lastRetriedAt: nil
+        )
+        let nilStored = try spool.initialize(now: Self.baseDate).attention.first { $0.manifest.itemID == nilRetryItemID }!
+        _ = try spool.moveQueuedItemToAttention(
+            spool.moveAttentionItemToQueued(nilStored, now: Self.baseDate),
+            reason: "receipt_sha256",
+            detail: "mismatch",
+            now: Self.baseDate
+        )
+        var nilManifest = try spool.readManifest(in: root.appendingPathComponent("attention/\(nilRetryItemID.uuidString)"))
+        nilManifest.lastRetriedAt = nil
+        nilManifest.retryCount = 0
+        try spool.writeManifestAtomically(nilManifest, in: root.appendingPathComponent("attention/\(nilRetryItemID.uuidString)"))
+
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), clock: clock, resolver: resolver)
+        try await engine.start()
+
+        let initialSnapshot = await engine.snapshot()
+        XCTAssertEqual(initialSnapshot.counters.attentionCount, 3)
+
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+
+        try await self.waitFor("aged and nil items delivered") {
+            (await engine.snapshot()).counters.deliveredCount == 2
+        }
+
+        let finalSnapshot = await engine.snapshot()
+        XCTAssertEqual(finalSnapshot.counters.deliveredCount, 2)
+        XCTAssertEqual(finalSnapshot.counters.attentionCount, 1)
+
+        let recentSnapshotValue = await engine.itemSnapshot(itemID: recentItemID)
+        let recentSnapshot = try XCTUnwrap(recentSnapshotValue)
+        XCTAssertEqual(recentSnapshot.state, .attention)
+        XCTAssertEqual(recentSnapshot.manifest.retryCount, 1)
+    }
+
+    func testReceiptMismatchDiscardsBodyCacheAndRebuildsOnRetry() async throws {
+        let root = self.tempDirectory.appendingPathComponent("discard-body-cache", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(840)
+        let payload = Data("cache-test-payload".utf8)
+        let staleCache = Data("stale-cache".utf8)
+        let staleSha = SHA256.hash(data: staleCache).map { String(format: "%02x", $0) }.joined()
+
+        let staged = try spool.stage(manifest: self.makeManifest(itemID: itemID), payloads: ["audio": payload])
+        _ = try spool.writeBodyCache(staleCache, for: staged.item)
+        _ = try spool.commitStagedItem(itemID: itemID)
+
+        let callCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+        TransferURLProtocol.handler = { request, body in
+            let count = callCount.withLock { c in
+                c += 1
+                return c
+            }
+            if count == 1 {
+                // Receipt matches the uploaded body (stale cache), not the on-disk file
+                let data = Data("""
+                {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":\(staleCache.count),"sha256":"\(staleSha)","disposition":"written"}]}
+                """.utf8)
+                return (Self.response(for: request, statusCode: 200), data)
+            }
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+
+        let engine = self.makeEngine(spool: spool)
+        try await engine.start()
+
+        try await self.waitFor("item moved to attention") {
+            guard let item = await engine.itemSnapshot(itemID: itemID) else { return false }
+            return item.state == .attention
+        }
+
+        // Verify body cache was removed
+        let attentionItem = try spool.initialize(now: Self.baseDate).attention.first { $0.manifest.itemID == itemID }!
+        XCTAssertFalse(spool.bodyCacheExists(for: attentionItem))
+
+        // On retry, body cache is rebuilt and delivery succeeds
+        try await engine.retryAttention(itemID: itemID)
+        try await self.waitFor("retry delivered") {
+            (await engine.snapshot()).counters.deliveredCount == 1
+        }
+
+        let secondBody = try XCTUnwrap(TransferURLProtocol.bodies.last)
+        let secondBodyString = String(decoding: secondBody, as: UTF8.self)
+        XCTAssertTrue(secondBodyString.contains("cache-test-payload"))
+        XCTAssertFalse(secondBodyString.contains("stale-cache"))
+    }
+
+    func testReconnectLifecycleRetriesMobileAndWatchOnceThenHonors24HourBound() async throws {
+        let root = self.tempDirectory.appendingPathComponent("reconnect-lifecycle", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let clock = FakeTransferClock(wall: Self.baseDate)
+
+        let mobileID = Self.uuid(835)
+        let watchID = Self.uuid(836)
+
+        var mobileManifest = self.makeManifest(itemID: mobileID, source: ObserverAudioTransferSource.mobileSegment)
+        mobileManifest.observerIngest?.sources = [ObserverAudioTransferSource.mobileSegment]
+        var watchManifest = self.makeManifest(itemID: watchID, source: ObserverAudioTransferSource.watch)
+        watchManifest.observerIngest?.sources = [ObserverAudioTransferSource.watch]
+
+        let returnMismatch = OSAllocatedUnfairLock<Bool>(initialState: true)
+        TransferURLProtocol.handler = { request, body in
+            let mismatch = returnMismatch.withLock { $0 }
+            if mismatch {
+                return (Self.response(for: request, statusCode: 200), Data("""
+                {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":9999,"sha256":"wrong","disposition":"written"}]}
+                """.utf8))
+            }
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+
+        let engine1 = self.makeEngine(spool: spool, clock: clock)
+        try await engine1.start()
+
+        _ = try await engine1.enqueue(manifest: mobileManifest, payloads: self.audioPayloads())
+        _ = try await engine1.enqueue(manifest: watchManifest, payloads: self.audioPayloads())
+
+        try await self.waitFor("both in attention initially") {
+            (await engine1.snapshot()).counters.attentionCount == 2
+        }
+
+        // noteNewConnectionEstablished re-sends each exactly once
+        await engine1.noteNewConnectionEstablished()
+        await engine1.endpointAvailabilityChanged()
+
+        try await self.waitFor("both retried and back in attention") {
+            guard let m = await engine1.itemSnapshot(itemID: mobileID),
+                  let w = await engine1.itemSnapshot(itemID: watchID) else { return false }
+            return m.state == .attention && m.manifest.retryCount == 1
+                && w.state == .attention && w.manifest.retryCount == 1
+        }
+        await engine1.pause()
+
+        let initialRequestsCount = TransferURLProtocol.requests.count
+
+        // New engine on same spool root
+        returnMismatch.withLock { $0 = false }
+        let engine2 = self.makeEngine(spool: TransferSpool(rootURL: root), clock: clock)
+        try await engine2.start()
+
+        // Reconnect inside 24h adds no requests
+        await engine2.noteNewConnectionEstablished()
+        await engine2.endpointAvailabilityChanged()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(TransferURLProtocol.requests.count, initialRequestsCount)
+
+        // Manual retry on mobileID sends immediately
+        try await engine2.retryAttention(itemID: mobileID)
+        try await self.waitFor("mobile item delivered on manual retry") {
+            (await engine2.snapshot()).counters.deliveredCount == 1
+        }
+    }
+
+    func testAttentionMoveThrowsOnCompletionAppliesPacerBackoff() async throws {
+        let root = self.tempDirectory.appendingPathComponent("attention-move-throws", isDirectory: true)
+        let fileSystem = FailingManifestWriteFileSystem()
+        let spool = TransferSpool(rootURL: root, fileSystem: fileSystem)
+        let itemID = Self.uuid(850)
+        let clock = FakeTransferClock(wall: Self.baseDate)
+
+        TransferURLProtocol.handler = { request, _ in
+            TransferURLProtocol.hold(request)
+        }
+
+        let engine = self.makeEngine(
+            spool: spool,
+            clock: clock,
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [60], maxDelay: 300, jitterSalt: 1))
+        )
+        try await engine.start()
+
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: itemID), payloads: self.audioPayloads())
+
+        try await self.waitFor("request is in flight") {
+            TransferURLProtocol.requests.count == 1
+        }
+
+        fileSystem.failingManifestItemID = itemID
+        fileSystem.failManifestWrites = true
+
+        TransferURLProtocol.completeHeld(1, statusCode: 200, data: Data(#"{"status":"ok","file_descriptors":[]}"#.utf8))
+
+        try await self.waitFor("item receives backoff after attention throw") {
+            guard let item = await engine.itemSnapshot(itemID: itemID) else { return false }
+            return item.nextAttemptAt != nil
+        }
+
+        let itemSnapshotValue = await engine.itemSnapshot(itemID: itemID)
+        let itemSnapshot = try XCTUnwrap(itemSnapshotValue)
+        XCTAssertEqual(itemSnapshot.state, .queued)
+        XCTAssertGreaterThan(itemSnapshot.nextAttemptAt!, clock.wallNow())
+
+        await engine.kick()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(TransferURLProtocol.requests.count, 1)
+
+        clock.advanceWall(by: 61)
+        await engine.kick()
+        try await self.waitFor("second request after backoff deadline") {
+            TransferURLProtocol.requests.count == 2
+        }
+    }
+
+    func testObserverIngest500SegmentRemovedMovesToAttention() async throws {
+        let root = self.tempDirectory.appendingPathComponent("segment-removed", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(860)
+
+        TransferURLProtocol.handler = { request, _ in
+            (
+                Self.response(for: request, statusCode: 500),
+                Data(#"{"status":"failed","error":"Ingest request failed","reason_code":"segment_removed","detail":"the owner removed this segment"}"#.utf8)
+            )
+        }
+
+        let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
+        let engine = self.makeEngine(spool: spool)
+        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
+            delivered.withLock { $0.append(manifest.itemID) }
+        }
+        try await engine.start()
+
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: itemID), payloads: self.audioPayloads())
+        try await self.waitFor("moved to attention on segment_removed") {
+            guard let item = await engine.itemSnapshot(itemID: itemID) else { return false }
+            return item.state == .attention
+        }
+
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.deliveredCount, 0)
+        XCTAssertFalse(delivered.withLock { $0.contains(itemID) })
+
+        let itemSnapshotValue = await engine.itemSnapshot(itemID: itemID)
+        let itemSnapshot = try XCTUnwrap(itemSnapshotValue)
+        XCTAssertEqual(itemSnapshot.manifest.attention?.reason, "removed_in_journal")
+        XCTAssertEqual(itemSnapshot.manifest.attention?.shortDetail, "the part of your journal this recording belongs to was removed. it's still on your phone.")
+        let payloadURL = root.appendingPathComponent("attention/\(itemID.uuidString)/audio.m4a")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: payloadURL.path))
+
+        // HTTP 200 {"status":"conflict","reason_code":"segment_removed"} stays http_client_error with detail reason_code=segment_removed
+        let conflict200ID = Self.uuid(861)
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data(#"{"status":"conflict","reason_code":"segment_removed"}"#.utf8))
+        }
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: conflict200ID), payloads: self.audioPayloads())
+        try await self.waitFor("conflict 200 moved to attention") {
+            guard let item = await engine.itemSnapshot(itemID: conflict200ID) else { return false }
+            return item.state == .attention
+        }
+        let rawConflict200Snapshot = await engine.itemSnapshot(itemID: conflict200ID)
+        let conflict200Snapshot = try XCTUnwrap(rawConflict200Snapshot)
+        XCTAssertEqual(conflict200Snapshot.manifest.attention?.reason, "http_client_error")
+        XCTAssertEqual(conflict200Snapshot.manifest.attention?.shortDetail, "reason_code=segment_removed")
+
+        // HTTP 409 content_conflict client error stays http_client_error
+        let conflict409ID = Self.uuid(862)
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 409), Data(#"{"status":"failed","reason_code":"content_conflict"}"#.utf8))
+        }
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: conflict409ID), payloads: self.audioPayloads())
+        try await self.waitFor("conflict 409 moved to attention") {
+            guard let item = await engine.itemSnapshot(itemID: conflict409ID) else { return false }
+            return item.state == .attention
+        }
+        let rawConflict409Snapshot = await engine.itemSnapshot(itemID: conflict409ID)
+        let conflict409Snapshot = try XCTUnwrap(rawConflict409Snapshot)
+        XCTAssertEqual(conflict409Snapshot.manifest.attention?.reason, "http_client_error")
+    }
+
+    func testObserverIngestNonRequiredPartOmittedFromReceiptMovesToAttention() async throws {
+        let root = self.tempDirectory.appendingPathComponent("optional-part-omitted", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(870)
+
+        var manifest = self.makeManifest(itemID: itemID)
+        manifest.payloadParts.append(TransferPayloadPartDescriptor(
+            partID: "location",
+            kind: .location,
+            relativePath: "location.jsonl",
+            filename: "location.jsonl",
+            contentType: "application/x-ndjson",
+            requiredForDispatch: false
+        ))
+
+        let audioSha = SHA256.hash(data: Data("audio".utf8)).map { String(format: "%02x", $0) }.joined()
+        TransferURLProtocol.handler = { request, _ in
+            // Return receipt covering only audio.m4a, omitting location.jsonl
+            (Self.response(for: request, statusCode: 200), Data("""
+            {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":5,"sha256":"\(audioSha)","disposition":"written"}]}
+            """.utf8))
+        }
+
+        let engine = self.makeEngine(spool: spool)
+        try await engine.start()
+
+        _ = try await engine.enqueue(
+            manifest: manifest,
+            payloads: ["audio": Data("audio".utf8), "location": Data("{\"event\":\"loc\"}\n".utf8)]
+        )
+
+        try await self.waitFor("omitted optional part moved to attention") {
+            guard let item = await engine.itemSnapshot(itemID: itemID) else { return false }
+            return item.state == .attention
+        }
+
+        let itemSnapshotValue = await engine.itemSnapshot(itemID: itemID)
+        let itemSnapshot = try XCTUnwrap(itemSnapshotValue)
+        XCTAssertEqual(itemSnapshot.manifest.attention?.reason, "receipt_missing_part")
+
+        let locationURL = root.appendingPathComponent("attention/\(itemID.uuidString)/location.jsonl")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: locationURL.path))
+    }
+
+    func testObserverIngestBlockedHashComputationPreventsConcurrentDispatch() async throws {
+        let root = self.tempDirectory.appendingPathComponent("blocked-hash-dispatch", isDirectory: true)
+        let fileSystem = BlockingHashFileSystem()
+        let spool = TransferSpool(rootURL: root, fileSystem: fileSystem)
+        let itemID = Self.uuid(880)
+
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+
+        let engine = self.makeEngine(spool: spool)
+        try await engine.start()
+
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: itemID), payloads: self.audioPayloads())
+        try await self.waitFor("entered hash computation") {
+            fileSystem.isEntered
+        }
+
+        // Trigger concurrent kicks / reconnects
+        await engine.kick()
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+
+        let requests = TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:)).filter { $0 == itemID }
+        XCTAssertEqual(requests.count, 1)
+
+        fileSystem.unblock()
+        try await self.waitFor("delivery finishes after hash unblock") {
+            (await engine.snapshot()).counters.deliveredCount == 1
+        }
+    }
+
+    func testObserverIngestDropDuringBlockedHashClearsInFlight() async throws {
+        let root = self.tempDirectory.appendingPathComponent("drop-blocked-hash", isDirectory: true)
+        let fileSystem = BlockingHashFileSystem()
+        let spool = TransferSpool(rootURL: root, fileSystem: fileSystem)
+        let item1ID = Self.uuid(890)
+        let item2ID = Self.uuid(891)
+
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+
+        let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
+        let engine = self.makeEngine(spool: spool, maxConcurrent: 1)
+        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
+            delivered.withLock { $0.append(manifest.itemID) }
+        }
+        try await engine.start()
+
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: item1ID), payloads: self.audioPayloads())
+        try await self.waitFor("item 1 entered hash") {
+            fileSystem.isEntered
+        }
+
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: item2ID), payloads: self.audioPayloads())
+
+        await engine.drop(itemID: item1ID)
+
+        try await self.waitFor("item 2 request sent before hash unblock") {
+            let requests = TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:))
+            return requests.contains(item2ID)
+        }
+
+        XCTAssertFalse(delivered.withLock { $0.contains(item1ID) })
+        let item1Snapshot = await engine.itemSnapshot(itemID: item1ID)
+        XCTAssertNil(item1Snapshot)
+
+        fileSystem.unblock()
+
+        try await self.waitFor("item 2 delivered") {
+            (await engine.snapshot()).counters.deliveredCount == 1
+        }
+
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.droppedCount, 1)
+        XCTAssertEqual(snapshot.counters.deliveredCount, 1)
+        XCTAssertEqual(snapshot.counters.inFlightCount, 0)
+    }
+
+    func testObserverIngest500JournalWriteFailedRetriesWithBackoff() async throws {
+        let root = self.tempDirectory.appendingPathComponent("500-write-failed", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(900)
+        let clock = FakeTransferClock(wall: Self.baseDate)
+
+        TransferURLProtocol.handler = { request, _ in
+            (
+                Self.response(for: request, statusCode: 500),
+                Data(#"{"status":"failed","error":"Ingest request failed","reason_code":"journal_write_failed","detail":"cannot resolve or write journal content"}"#.utf8)
+            )
+        }
+
+        let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
+        let engine = self.makeEngine(
+            spool: spool,
+            clock: clock,
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [60], maxDelay: 300, jitterSalt: 1))
+        )
+        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
+            delivered.withLock { $0.append(manifest.itemID) }
+        }
+        try await engine.start()
+
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: itemID), payloads: self.audioPayloads())
+        try await self.waitFor("item enters retry backoff") {
+            guard let item = await engine.itemSnapshot(itemID: itemID) else { return false }
+            return item.nextAttemptAt != nil
+        }
+
+        let itemSnapshotValue = await engine.itemSnapshot(itemID: itemID)
+        let itemSnapshot = try XCTUnwrap(itemSnapshotValue)
+        XCTAssertEqual(itemSnapshot.state, .queued)
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.attentionCount, 0)
+        XCTAssertFalse(delivered.withLock { $0.contains(itemID) })
+    }
+
+    func testObserverIngestRemovedInJournalManualRetryDispatches() async throws {
+        let root = self.tempDirectory.appendingPathComponent("removed-manual-retry", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(910)
+
+        _ = try self.seedAttentionItem(
+            spool: spool,
+            itemID: itemID,
+            createdAt: Self.baseDate,
+            now: Self.baseDate
+        )
+        // Set attention reason to removed_in_journal
+        let stored = try spool.initialize(now: Self.baseDate).attention.first { $0.manifest.itemID == itemID }!
+        _ = try spool.moveQueuedItemToAttention(
+            spool.moveAttentionItemToQueued(stored, now: Self.baseDate),
+            reason: "removed_in_journal",
+            detail: "the part of your journal this recording belongs to was removed. it's still on your phone.",
+            now: Self.baseDate
+        )
+
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
+        try await engine.start()
+
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.attentionCount, 1)
+
+        try await engine.retryAttention(itemID: itemID)
+        try await self.waitFor("manual retry delivered") {
+            (await engine.snapshot()).counters.deliveredCount == 1
+        }
+    }
+
+    func testAttentionAutoRetryEligibleWhenLastRetriedAtOver24HoursInPastOrFuture() async throws {
+        let root = self.tempDirectory.appendingPathComponent("past-future-auto-retry", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let pastID = Self.uuid(920)
+        let futureID = Self.uuid(921)
+
+        _ = try self.seedAttentionItem(spool: spool, itemID: pastID, lastRetriedAt: Self.baseDate.addingTimeInterval(-90000))
+        let pastStored = try spool.initialize(now: Self.baseDate).attention.first { $0.manifest.itemID == pastID }!
+        _ = try spool.moveQueuedItemToAttention(
+            spool.moveAttentionItemToQueued(pastStored, now: Self.baseDate),
+            reason: "receipt_sha256",
+            detail: "mismatch",
+            now: Self.baseDate
+        )
+        var pastManifest = try spool.readManifest(in: root.appendingPathComponent("attention/\(pastID.uuidString)"))
+        pastManifest.lastRetriedAt = Self.baseDate.addingTimeInterval(-90000)
+        try spool.writeManifestAtomically(pastManifest, in: root.appendingPathComponent("attention/\(pastID.uuidString)"))
+
+        _ = try self.seedAttentionItem(spool: spool, itemID: futureID, lastRetriedAt: Self.baseDate.addingTimeInterval(90000))
+        let futureStored = try spool.initialize(now: Self.baseDate).attention.first { $0.manifest.itemID == futureID }!
+        _ = try spool.moveQueuedItemToAttention(
+            spool.moveAttentionItemToQueued(futureStored, now: Self.baseDate),
+            reason: "receipt_sha256",
+            detail: "mismatch",
+            now: Self.baseDate
+        )
+        var futureManifest = try spool.readManifest(in: root.appendingPathComponent("attention/\(futureID.uuidString)"))
+        futureManifest.lastRetriedAt = Self.baseDate.addingTimeInterval(90000)
+        try spool.writeManifestAtomically(futureManifest, in: root.appendingPathComponent("attention/\(futureID.uuidString)"))
+
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
+        try await engine.start()
+
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.noteNewConnectionEstablished()
+        await engine.endpointAvailabilityChanged()
+
+        try await self.waitFor("both past and future items delivered") {
+            (await engine.snapshot()).counters.deliveredCount == 2
+        }
+    }
+
+    func testOwnershipVerdictIgnoresRetryHistory() async throws {
+        let root = self.tempDirectory.appendingPathComponent("ownership-verdict-retry", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let itemID = Self.uuid(930)
+
+        var committedManifest = self.makeManifest(itemID: itemID)
+        committedManifest.retryCount = 3
+        committedManifest.lastRetriedAt = Self.baseDate
+
+        let audioURL = self.tempDirectory.appendingPathComponent("owner-audio-\(itemID.uuidString).m4a")
+        try Data("audio".utf8).write(to: audioURL)
+
+        let staged = try spool.stage(manifest: committedManifest, payloadFileURLs: ["audio": audioURL])
+        let queued = try spool.commitStagedItem(itemID: staged.item.manifest.itemID)
+
+        var producerManifest = self.makeManifest(itemID: itemID)
+        producerManifest.retryCount = 0
+        producerManifest.lastRetriedAt = nil
+
+        let engine = self.makeEngine(spool: spool)
+        try await engine.start()
+
+        let queuedVerdict = try await engine.verifyEquivalentOwnership(
+            expectedManifest: producerManifest,
+            equivalentObserverSegmentID: nil,
+            expectedPayloadSourceURLs: [:]
+        )
+        XCTAssertEqual(queuedVerdict, .ownedInQueued)
+
+        let attention = try spool.moveQueuedItemToAttention(
+            queued,
+            reason: "receipt_sha256",
+            detail: "mismatch",
+            now: Self.baseDate
+        )
+        XCTAssertEqual(attention.manifest.retryCount, 3)
+        XCTAssertEqual(attention.manifest.lastRetriedAt, Self.baseDate)
+
+        let attentionVerdict = try await engine.verifyEquivalentOwnership(
+            expectedManifest: producerManifest,
+            equivalentObserverSegmentID: nil,
+            expectedPayloadSourceURLs: [:]
+        )
+        XCTAssertEqual(attentionVerdict, .ownedInAttention)
+    }
+
+    @MainActor
+    func testWatchRelayedReceiptMismatchPreservesStagedDirectory() async throws {
+        let stagingRoot = self.tempDirectory.appendingPathComponent("watch-staging", isDirectory: true)
+        let segmentID = Self.uuid(940)
+        let segmentDirectory = stagingRoot.appendingPathComponent(segmentID.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: segmentDirectory, withIntermediateDirectories: true)
+        let jsonLiteral = """
+        {"day":"20260420","duration":300,"fix_count":1,"gap":false,"id":"\(segmentID.uuidString)","lost":false,"partial":false,"segment":"120001_300","sensors":["audio"],"started_at":"2026-04-20T12:00:00Z","state":"queued"}
+        """
+        try Data(jsonLiteral.utf8).write(to: segmentDirectory.appendingPathComponent("manifest.json"), options: .atomic)
+        try Data("audio".utf8).write(to: segmentDirectory.appendingPathComponent("audio.m4a"), options: .atomic)
+
+        let transferRoot = self.tempDirectory.appendingPathComponent("watch-transfer", isDirectory: true)
+        let ledgerURL = self.tempDirectory.appendingPathComponent("watch-ledger.json")
+        let ledger = WatchSegmentLedger(fileURL: ledgerURL)
+
+        TransferURLProtocol.handler = { request, _ in
+            (Self.response(for: request, statusCode: 200), Data("""
+            {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":999,"sha256":"wrong","disposition":"written"}]}
+            """.utf8))
+        }
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TransferURLProtocol.self]
+        let transport = TransferTransport(sessionConfiguration: configuration)
+        let spool = TransferSpool(rootURL: transferRoot)
+        let engine = TransferEngine(
+            spool: spool,
+            transport: transport,
+            endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300))
+        )
+        try await engine.start()
+
+        let enqueuer = ObserverAudioTransferEnqueuer(engine: engine)
+        let drain = try WatchSegmentDrain(
+            stagingRootURL: stagingRoot,
+            ledger: ledger,
+            transferEnqueuer: enqueuer,
+            transferEngine: engine
+        )
+
+        await drain.drain()
+
+        try await self.waitFor("watch transfer item moved to attention") {
+            let snapshots = await engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+            return snapshots.contains { $0.state == .attention && $0.manifest.observerIngest?.sessionID == segmentID }
+        }
+
+        XCTAssertFalse(ledger.isTerminal(id: segmentID))
+
+        await drain.drain()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: segmentDirectory.path))
+
+        let watchSnapshots = await engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        let attentionSnapshot = try XCTUnwrap(watchSnapshots.first { $0.manifest.observerIngest?.sessionID == segmentID })
+        XCTAssertEqual(attentionSnapshot.state, .attention)
+        XCTAssertEqual(attentionSnapshot.manifest.attention?.reason, "receipt_size")
+    }
+
+    func testPredecessorManifestWithMatchingReceiptDeliversAndMismatchReachesAttention() async throws {
+        let root = self.tempDirectory.appendingPathComponent("predecessor-receipt", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let deliverID = Self.uuid(950)
+        let mismatchID = Self.uuid(951)
+        let payload = Data("predecessor-data".utf8)
+
+        let stagedDeliver = try self.stagePredecessor(
+            spool: spool,
+            itemID: deliverID,
+            durableBytes: payload,
+            cachedBytes: payload
+        )
+        _ = try spool.commitStagedItem(itemID: stagedDeliver.manifest.itemID)
+
+        let stagedMismatch = try self.stagePredecessor(
+            spool: spool,
+            itemID: mismatchID,
+            durableBytes: payload,
+            cachedBytes: payload
+        )
+        _ = try spool.commitStagedItem(itemID: stagedMismatch.manifest.itemID)
+
+        TransferURLProtocol.handler = { request, body in
+            guard let itemID = Self.boundaryItemID(from: request) else {
+                return (Self.response(for: request, statusCode: 500), Data())
+            }
+            if itemID == deliverID {
+                return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+            } else {
+                return (Self.response(for: request, statusCode: 200), Data("""
+                {"status":"ok","file_descriptors":[{"submitted":"audio.m4a","size":999,"sha256":"wrong","disposition":"written"}]}
+                """.utf8))
+            }
+        }
+
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root))
+        try await engine.start()
+
+        try await self.waitFor("predecessor deliver succeeds and mismatch to attention") {
+            let snapshot = await engine.snapshot()
+            return snapshot.counters.deliveredCount == 1 && snapshot.counters.attentionCount == 1
+        }
+
+        let mismatchSnapshotValue = await engine.itemSnapshot(itemID: mismatchID)
+        let mismatchSnapshot = try XCTUnwrap(mismatchSnapshotValue)
+        XCTAssertEqual(mismatchSnapshot.state, .attention)
+        XCTAssertEqual(mismatchSnapshot.manifest.attention?.reason, "receipt_size")
     }
 }
 
@@ -3377,6 +4390,82 @@ private final class FailingMoveTransferFileSystem: TransferFileSystem, @unchecke
     }
 }
 
+final class BlockingHashFileSystem: TransferFileSystem, @unchecked Sendable {
+    private let underlying = FoundationTransferFileSystem()
+    private let continuationBox = OSAllocatedUnfairLock<CheckedContinuation<Void, Never>?>(initialState: nil)
+    private let enteredBox = OSAllocatedUnfairLock<Bool>(initialState: false)
+    private let blockedBox = OSAllocatedUnfairLock<Bool>(initialState: true)
+
+    var isEntered: Bool {
+        self.enteredBox.withLock { $0 }
+    }
+
+    func unblock() {
+        self.blockedBox.withLock { $0 = false }
+        let cont = self.continuationBox.withLock { continuation -> CheckedContinuation<Void, Never>? in
+            let c = continuation
+            continuation = nil
+            return c
+        }
+        cont?.resume()
+    }
+
+    func fileExists(atPath path: String) -> Bool {
+        self.underlying.fileExists(atPath: path)
+    }
+
+    func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {
+        try self.underlying.createDirectory(at: url, withIntermediateDirectories: withIntermediateDirectories)
+    }
+
+    func contentsOfDirectory(at url: URL) throws -> [URL] {
+        try self.underlying.contentsOfDirectory(at: url)
+    }
+
+    func removeItem(at url: URL) throws {
+        try self.underlying.removeItem(at: url)
+    }
+
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        try self.underlying.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    func replaceItem(at originalURL: URL, withItemAt newURL: URL) throws {
+        try self.underlying.replaceItem(at: originalURL, withItemAt: newURL)
+    }
+
+    func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
+        try self.underlying.write(data, to: url, options: options)
+    }
+
+    func data(contentsOf url: URL) throws -> Data {
+        try self.underlying.data(contentsOf: url)
+    }
+
+    func byteCount(at url: URL) throws -> Int {
+        try self.underlying.byteCount(at: url)
+    }
+
+    func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
+        try self.underlying.readChunks(at: url, chunkSize: chunkSize, consume)
+    }
+
+    func readForHash(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) async throws {
+        let isBlocked = self.blockedBox.withLock { $0 }
+        if isBlocked {
+            self.enteredBox.withLock { $0 = true }
+            await withCheckedContinuation { continuation in
+                self.continuationBox.withLock { $0 = continuation }
+            }
+        }
+        try self.underlying.readChunks(at: url, chunkSize: chunkSize, consume)
+    }
+
+    func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int {
+        try self.underlying.writeStream(to: url, body)
+    }
+}
+
 final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest, Data) throws -> (HTTPURLResponse, Data)?
 
@@ -3412,7 +4501,7 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
     static func completeHeld(
         _ count: Int = 1,
         statusCode: Int = 200,
-        data: Data = Data(#"{"status":"ok"}"#.utf8)
+        data: Data? = nil
     ) {
         let held = self.heldBox.withLock { protocols -> [TransferURLProtocol] in
             let completeCount = min(count, protocols.count)
@@ -3421,7 +4510,18 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
             return completed
         }
         for urlProtocol in held {
-            urlProtocol.complete(statusCode: statusCode, data: data)
+            let responseData: Data
+            if let data {
+                responseData = data
+            } else {
+                let body = Self.bodyData(from: urlProtocol.request)
+                responseData = transferTestMatchingReceipt(
+                    body: body,
+                    contentType: urlProtocol.request.value(forHTTPHeaderField: "Content-Type"),
+                    status: statusCode == 200 ? "ok" : "failed"
+                )
+            }
+            urlProtocol.complete(statusCode: statusCode, data: responseData)
         }
     }
 

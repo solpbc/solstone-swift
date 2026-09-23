@@ -103,8 +103,8 @@ final class TransferLaunchBarrierTests: XCTestCase {
                 _ = try spool.moveQueuedItemToAttention(queued, reason: "held", detail: "held", now: Date())
             }
         }
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let harness = makeTransferCutoverHarness(
             rootURL: self.rootURL,

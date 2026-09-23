@@ -3,9 +3,95 @@
 
 @testable import solstone_swift
 import AVFoundation
+import Crypto
 import Foundation
 import os
 import XCTest
+
+nonisolated func transferTestMatchingReceipt(
+    body: Data,
+    contentType: String? = nil,
+    status: String = "ok"
+) -> Data {
+    guard let contentType else {
+        return Data(#"{"status":"\#(status)"}"#.utf8)
+    }
+    guard let boundaryMatch = contentType.range(of: "boundary=") else {
+        return Data(#"{"status":"\#(status)"}"#.utf8)
+    }
+    var boundaryStr = String(contentType[boundaryMatch.upperBound...])
+    if boundaryStr.hasPrefix("\"") && boundaryStr.hasSuffix("\"") {
+        boundaryStr = String(boundaryStr.dropFirst().dropLast())
+    }
+    if let semi = boundaryStr.firstIndex(of: ";") {
+        boundaryStr = String(boundaryStr[..<semi])
+    }
+    let boundary = Data(("--" + boundaryStr).utf8)
+    let crlf = Data("\r\n".utf8)
+    let headerSep = Data("\r\n\r\n".utf8)
+
+    var fileDescriptors: [[String: Any]] = []
+
+    var cursor = body.startIndex
+    var parts: [Data] = []
+    while let range = body[cursor...].range(of: boundary) {
+        if cursor != range.lowerBound {
+            parts.append(body[cursor..<range.lowerBound])
+        }
+        cursor = range.upperBound
+    }
+
+    for rawPart in parts {
+        var part = rawPart
+        if part.starts(with: crlf) {
+            part = part.dropFirst(crlf.count)
+        }
+        let dashCrlf = Data("--\r\n".utf8)
+        let dashes = Data("--".utf8)
+        if part.count >= dashCrlf.count, part.suffix(dashCrlf.count) == dashCrlf {
+            part = part.dropLast(dashCrlf.count)
+        } else if part.count >= dashes.count, part.suffix(dashes.count) == dashes {
+            part = part.dropLast(dashes.count)
+        }
+        if part.count >= crlf.count, part.suffix(crlf.count) == crlf {
+            part = part.dropLast(crlf.count)
+        }
+        guard !part.isEmpty, part != dashes else { continue }
+        guard let sepRange = part.range(of: headerSep) else { continue }
+        let headerData = part[..<sepRange.lowerBound]
+        var content = part[sepRange.upperBound...]
+        if content.count >= crlf.count, content.suffix(crlf.count) == crlf {
+            content = content.dropLast(crlf.count)
+        }
+        let headerStr = String(decoding: headerData, as: UTF8.self)
+        guard headerStr.contains("name=\"files\"") || headerStr.contains("name=\"\(ObserverServerURL.filesFieldName)\"") else {
+            continue
+        }
+        guard let fnMatch = headerStr.range(of: #"filename="([^"]+)""#, options: .regularExpression) else {
+            continue
+        }
+        let fnFull = String(headerStr[fnMatch])
+        let filename = fnFull.replacingOccurrences(of: "filename=\"", with: "").replacingOccurrences(of: "\"", with: "")
+
+        let size = content.count
+        var hasher = Crypto.SHA256()
+        hasher.update(data: content)
+        let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+
+        fileDescriptors.append([
+            "submitted": filename,
+            "size": size,
+            "sha256": digest,
+            "disposition": "written",
+        ])
+    }
+
+    let payload: [String: Any] = [
+        "status": status,
+        "file_descriptors": fileDescriptors,
+    ]
+    return (try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])) ?? Data(#"{"status":"\#(status)"}"#.utf8)
+}
 
 nonisolated struct TransferCutoverEndpointResolver: TransferEndpointResolver {
     func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {

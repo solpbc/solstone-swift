@@ -48,6 +48,33 @@ nonisolated enum TransferAttentionReason: Equatable, Sendable {
     case decodeFailed(String)
     case missingPayload(String)
     case malformedManifest(String)
+    case removedInJournal
+}
+
+nonisolated struct ObserverIngestReceiptDescriptor: Decodable, Sendable {
+    var submitted: String
+    var size: Int
+    var sha256: String
+    var disposition: String
+
+    enum CodingKeys: String, CodingKey {
+        case submitted
+        case size
+        case sha256
+        case disposition
+    }
+}
+
+nonisolated struct ObserverIngestReceiptResponse: Decodable, Sendable {
+    var status: String
+    var reasonCode: String?
+    var fileDescriptors: [ObserverIngestReceiptDescriptor]?
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case reasonCode = "reason_code"
+        case fileDescriptors = "file_descriptors"
+    }
 }
 
 nonisolated enum TransferTransientReason: Equatable, Sendable {
@@ -102,6 +129,8 @@ nonisolated extension TransferAttentionReason {
             Self.boundedRuntimeDetail(detail, fallback: "missing source details")
         case .malformedManifest(let detail):
             detail
+        case .removedInJournal:
+            "the part of your journal this recording belongs to was removed. it's still on your phone."
         }
     }
 
@@ -200,6 +229,12 @@ nonisolated enum TransferHTTPClassifier {
         }
 
         if 500..<600 ~= statusCode {
+            if endpointPhase == .observerIngest,
+               let response = try? JSONDecoder().decode(ObserverIngestResponse.self, from: result.data),
+               response.reasonCode == "segment_removed"
+            {
+                return .terminalAttention(.removedInJournal)
+            }
             return .transientRetry(.httpServerError(statusCode: statusCode))
         }
 

@@ -6,6 +6,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+- the solstone app on your iphone or ipad now removes a recording only after every file has landed in your journal exactly as your device had it. if something doesn't match, the recording stays on your device and shows as needing attention.
+
 ## [2.0.4 (105)] - 2026-09-23
 
 ### Fixed

@@ -47,13 +47,19 @@ final class TransferConsumerSurfaceTests: XCTestCase {
     func testAC8RealEngineStateFeedsWatchConsumerSurfaces() async throws {
         let clock = FakeTransferClock(wall: Date(timeIntervalSince1970: 1_780_480_800))
         let responses = OSAllocatedUnfairLock<[UUID: RoutedTransferResponse]>(initialState: [:])
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             guard let itemID = transferTestBoundaryItemID(from: request) else {
-                return (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+                return (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
             }
             switch responses.withLock({ $0[itemID] ?? .hold }) {
-            case .status(let statusCode, let body):
-                return (transferTestResponse(for: request, statusCode: statusCode), body)
+            case .status(let statusCode, let respBody):
+                let bodyToReturn: Data
+                if statusCode == 200 && respBody == Data(#"{"status":"ok"}"#.utf8) {
+                    bodyToReturn = transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))
+                } else {
+                    bodyToReturn = respBody
+                }
+                return (transferTestResponse(for: request, statusCode: statusCode), bodyToReturn)
             case .hold:
                 return nil
             }
@@ -245,13 +251,19 @@ final class TransferConsumerSurfaceTests: XCTestCase {
     func testAC8RealMobileEngineStateFeedsConsumerSurfaces() async throws {
         let clock = FakeTransferClock(wall: Date(timeIntervalSince1970: 1_780_480_800))
         let responses = OSAllocatedUnfairLock<[UUID: RoutedTransferResponse]>(initialState: [:])
-        TransferURLProtocol.handler = { request, _ in
+        TransferURLProtocol.handler = { request, body in
             guard let itemID = transferTestBoundaryItemID(from: request) else {
-                return (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+                return (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
             }
             switch responses.withLock({ $0[itemID] ?? .hold }) {
-            case .status(let statusCode, let body):
-                return (transferTestResponse(for: request, statusCode: statusCode), body)
+            case .status(let statusCode, let respBody):
+                let bodyToReturn: Data
+                if statusCode == 200 && respBody == Data(#"{"status":"ok"}"#.utf8) {
+                    bodyToReturn = transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type"))
+                } else {
+                    bodyToReturn = respBody
+                }
+                return (transferTestResponse(for: request, statusCode: statusCode), bodyToReturn)
             case .hold:
                 return nil
             }

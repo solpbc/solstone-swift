@@ -1453,13 +1453,20 @@ private final class MobileSegmentReconcileURLProtocol: URLProtocol, @unchecked S
 
     override func startLoading() {
         Self.callCountBox.withLock { $0 += 1 }
-        Self.bodiesBox.withLock { $0.append(Self.bodyData(from: self.request)) }
+        let body = Self.bodyData(from: self.request)
+        Self.bodiesBox.withLock { $0.append(body) }
         guard let handler = Self.handler else {
             XCTFail("MobileSegmentReconcileURLProtocol handler not set")
             return
         }
         do {
-            let (response, data) = try handler(self.request)
+            var (response, data) = try handler(self.request)
+            if response.statusCode == 200 && data == Data(#"{"status":"ok"}"#.utf8) {
+                data = transferTestMatchingReceipt(
+                    body: body,
+                    contentType: self.request.value(forHTTPHeaderField: "Content-Type")
+                )
+            }
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             self.client?.urlProtocol(self, didLoad: data)
             self.client?.urlProtocolDidFinishLoading(self)

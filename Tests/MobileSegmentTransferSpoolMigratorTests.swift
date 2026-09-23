@@ -269,8 +269,8 @@ nonisolated final class MobileSegmentTransferSpoolMigratorTests: XCTestCase {
 
     @MainActor
     func testAC9QueuedMobileTransferSurvivesFreshEngineBeforeDelivery() async throws {
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let harness = try self.makeHarness(name: "crash-resume")
         let segmentID = UUID()

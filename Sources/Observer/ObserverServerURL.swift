@@ -8,22 +8,6 @@ nonisolated enum ObserverServerURL {
     static let ingestProtocolVersion = "3"
     static let filesFieldName = "files"
 
-    static func manifestURL(localPort: Int, source: String) -> URL? {
-        self.url(
-            localPort: localPort,
-            path: "/app/devices/ingest/manifest",
-            queryItems: [URLQueryItem(name: "source", value: source)]
-        )
-    }
-
-    static func manifestDayURL(localPort: Int, source: String, day: String) -> URL? {
-        self.url(
-            localPort: localPort,
-            path: "/app/devices/ingest/manifest/\(day)",
-            queryItems: [URLQueryItem(name: "source", value: source)]
-        )
-    }
-
     static func segmentsURL(localPort: Int, source: String, day: String) -> URL? {
         self.url(
             localPort: localPort,

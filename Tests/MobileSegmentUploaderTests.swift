@@ -29,8 +29,8 @@ final class MobileSegmentUploaderTests: XCTestCase {
     }
 
     func testMultiFacetEnqueueProducesOneTransferItemWithThreePartsAndMobileMetadata() async throws {
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let harness = self.makeHarness(endpointAvailable: true)
         let segmentID = UUID()
@@ -284,8 +284,8 @@ final class MobileSegmentUploaderTests: XCTestCase {
     }
 
     func testLegacyPayloadMismatchNeverRetiresIntactProducerCopy() async throws {
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 200), Data(#"{"status":"ok"}"#.utf8))
+        TransferURLProtocol.handler = { request, body in
+            (transferTestResponse(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let harness = self.makeHarness(endpointAvailable: true)
         try await harness.engine.initialize()

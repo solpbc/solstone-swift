@@ -666,7 +666,7 @@ private extension MobileSegmentFinalizeResolverTests {
         }
     }
 
-    func waitFor(_ label: String, timeout: Duration = .seconds(2), condition: @escaping @MainActor () -> Bool) async throws {
+    func waitFor(_ label: String, timeout: Duration = .seconds(5), condition: @escaping @MainActor () -> Bool) async throws {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if condition() {
@@ -749,13 +749,20 @@ private final class MobileSegmentFinalizeResolverURLProtocol: URLProtocol, @unch
             ObserverServerURL.ingestProtocolVersion
         )
         Self.callCountBox.withLock { $0 += 1 }
-        Self.bodiesBox.withLock { $0.append(Self.bodyData(from: self.request)) }
+        let body = Self.bodyData(from: self.request)
+        Self.bodiesBox.withLock { $0.append(body) }
         guard let handler = Self.handler else {
             XCTFail("MobileSegmentFinalizeResolverURLProtocol handler not set")
             return
         }
         do {
-            let (response, data) = try handler(self.request)
+            var (response, data) = try handler(self.request)
+            if response.statusCode == 200 && data == Data(#"{"status":"ok"}"#.utf8) {
+                data = transferTestMatchingReceipt(
+                    body: body,
+                    contentType: self.request.value(forHTTPHeaderField: "Content-Type")
+                )
+            }
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             self.client?.urlProtocol(self, didLoad: data)
             self.client?.urlProtocolDidFinishLoading(self)

@@ -23,7 +23,14 @@ nonisolated protocol TransferFileSystem: Sendable {
     func data(contentsOf url: URL) throws -> Data
     func byteCount(at url: URL) throws -> Int
     func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws
+    func readForHash(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) async throws
     func writeStream(to url: URL, _ body: (any TransferByteSink) throws -> Void) throws -> Int
+}
+
+nonisolated extension TransferFileSystem {
+    func readForHash(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) async throws {
+        try self.readChunks(at: url, chunkSize: chunkSize, consume)
+    }
 }
 
 nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unchecked Sendable {
@@ -936,19 +943,29 @@ nonisolated struct TransferSpool: Sendable {
         }
     }
 
-    private func normalizedForOwnershipComparison(_ manifest: TransferManifest) -> TransferManifest {
+    func normalizedForOwnershipComparison(_ manifest: TransferManifest) -> TransferManifest {
         var normalized = manifest
         normalized.diskState = .queued
         normalized.nextAttemptAt = nil
         normalized.attention = nil
         normalized.saveThenStart = nil
         normalized.appVersion = nil
+        normalized.retryCount = 0
+        normalized.lastRetriedAt = nil
         normalized.payloadParts = normalized.payloadParts.map { part in
             var part = part
             part.byteCount = nil
             return part
         }
         return normalized
+    }
+
+    func sha256Hex(at url: URL) async throws -> String {
+        var hasher = SHA256()
+        try await self.fileSystem.readForHash(at: url, chunkSize: 64 * 1024) { data in
+            hasher.update(data: data)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     private func digest(at url: URL) throws -> SHA256.Digest {
@@ -985,7 +1002,7 @@ nonisolated struct TransferSpool: Sendable {
         return normalized
     }
 
-    private func readManifest(in directoryURL: URL) throws -> TransferManifest {
+    func readManifest(in directoryURL: URL) throws -> TransferManifest {
         try Self.decoder().decode(
             TransferManifest.self,
             from: self.fileSystem.data(contentsOf: self.manifestURL(in: directoryURL))
