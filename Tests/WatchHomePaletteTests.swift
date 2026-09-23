@@ -12,38 +12,44 @@ nonisolated final class WatchHomePaletteTests: XCTestCase {
     func testPaletteHexConstants() {
         XCTAssertEqual(WatchHomePalette.cream, "#F4EEE4")
         XCTAssertEqual(WatchHomePalette.calm, "#D9D9E1")
-        XCTAssertEqual(WatchHomePalette.liveText, "#F2A457")
-        XCTAssertEqual(WatchHomePalette.inFlight, "#F5A842")
-        XCTAssertEqual(WatchHomePalette.alert, "#FF6B5E")
+        XCTAssertEqual(WatchHomePalette.liveText, "#FED0A7")
+        XCTAssertEqual(WatchHomePalette.inFlight, "#FFD19E")
+        XCTAssertEqual(WatchHomePalette.alert, "#FECEC7")
         XCTAssertEqual(WatchHomePalette.reducedContentOpacity, 0.60)
     }
 
     func testHexForRoleMapping() {
-        XCTAssertEqual(WatchHomePalette.hex(for: .live), "#F2A457")
-        XCTAssertEqual(WatchHomePalette.hex(for: .flight), "#F5A842")
+        XCTAssertEqual(WatchHomePalette.hex(for: .live), "#FED0A7")
+        XCTAssertEqual(WatchHomePalette.hex(for: .flight), "#FFD19E")
         XCTAssertEqual(WatchHomePalette.hex(for: .calm), "#D9D9E1")
-        XCTAssertEqual(WatchHomePalette.hex(for: .alert), "#FF6B5E")
+        XCTAssertEqual(WatchHomePalette.hex(for: .alert), "#FECEC7")
     }
 
     /// The brightest background the sun arc's dark row puts under watch text, measured
     /// 2026-09-23 by drawing `SUNARC.both()` with the real mark (headless Chrome, 208 × 248 pt,
     /// every minute of Denver 2026-09-23, x 14–194 / y 0–165 pt, the area text can scroll
-    /// through): with capture on, a 0.20 gold beam over the halo near the dawn corner; with
-    /// capture off, the sun over the twilight glow.
-    static let worstPatternBackgroundCaptureOn = "#725B2B"
-    static let worstPatternBackgroundCaptureOff = "#6B542A"
+    /// through, the day halo always on): a 0.20 gold beam over the halo near the dawn corner.
+    /// The hero band alone (y 55–165) peaks at `#6F5A2A`.
+    static let worstPatternBackground = "#725B2B"
+    static let worstHeroBandBackground = "#6F5A2A"
 
-    func testCalmAndCreamClearTheWorstPatternBackground() {
-        for fg in [WatchHomePalette.cream, WatchHomePalette.calm] {
-            for bg in [Self.worstPatternBackgroundCaptureOn, Self.worstPatternBackgroundCaptureOff] {
+    func testEveryTextRoleClearsTheWorstPatternBackground() {
+        // Founder, 2026-09-23: every watch text role clears 4.5:1 everywhere in the text area,
+        // over the midday sun and halo included.
+        let foregrounds = [
+            WatchHomePalette.cream,
+            WatchHomePalette.calm,
+            WatchHomePalette.liveText,
+            WatchHomePalette.inFlight,
+            WatchHomePalette.alert,
+        ]
+        for fg in foregrounds {
+            for bg in [Self.worstPatternBackground, Self.worstHeroBandBackground] {
                 let ratio = Self.contrastRatio(hex1: fg, hex2: bg)
                 XCTAssertGreaterThanOrEqual(ratio, 4.5, "\(fg) over \(bg) is \(ratio)")
             }
         }
-        // ⚠ Open, 2026-09-23 (a founder question, not a build call): live text, in-flight and
-        // alert measure 3.2–3.3, 3.3 and 2.4:1 over the same backgrounds. Clearing 4.5 would
-        // turn live and in-flight into one pale peach and alert into pale pink, so they are
-        // held at their 09-22 values until he rules. They clear 4.5 over every ground (below).
+        XCTAssertNotEqual(WatchHomePalette.liveText, WatchHomePalette.inFlight)
     }
 
     func testEveryTextRoleClearsTheDarkRowsGrounds() {

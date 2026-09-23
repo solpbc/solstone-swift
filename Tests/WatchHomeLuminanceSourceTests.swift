@@ -17,24 +17,20 @@ nonisolated final class WatchHomeLuminanceSourceTests: XCTestCase {
         let time = SunArcTime.compute(minutes: 780, riseMinutes: 408.26, setMinutes: 1135.65)
         let twilight = SunArcTwilight.compute(time: time, envelope: 1)
 
-        for captureIsActive in [true, false] {
-            let drawing = sunArcCanvasDrawing(
-                time: time,
-                envelope: 1.0,
-                twilight: twilight,
-                placement: placement,
-                grounds: .dark,
-                appearance: .dark,
-                gateDayGlow: true,
-                captureIsActive: captureIsActive,
-                luminanceReduced: true
-            )
-            XCTAssertEqual(drawing.groundHex, "#000000")
-            XCTAssertFalse(drawing.drawSun)
-            XCTAssertEqual(drawing.sunOpacity, 0)
-            XCTAssertNil(drawing.glow(.twilight))
-            // Active: the 0.22 halo is held to 0.12. Idle: no halo at all.
-            XCTAssertEqual(drawing.glow(.halo)?.alpha ?? 0, captureIsActive ? 0.12 : 0, accuracy: 1e-6)
-        }
+        let drawing = sunArcCanvasDrawing(
+            time: time,
+            envelope: 1.0,
+            twilight: twilight,
+            placement: placement,
+            grounds: .dark,
+            appearance: .dark,
+            luminanceReduced: true
+        )
+        XCTAssertEqual(drawing.groundHex, "#000000")
+        XCTAssertFalse(drawing.drawSun)
+        XCTAssertEqual(drawing.sunOpacity, 0)
+        XCTAssertNil(drawing.glow(.twilight))
+        // The 0.22 halo is held to 0.12.
+        XCTAssertEqual(drawing.glow(.halo)?.alpha ?? 0, 0.12, accuracy: 1e-6)
     }
 }

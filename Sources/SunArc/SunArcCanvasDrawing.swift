@@ -36,10 +36,10 @@ nonisolated struct SunArcCanvasDrawing: Equatable, Sendable {
     }
 }
 
-/// `SUNARC.both()` for one frame (spec §§ 4a, 6, 7, 8a), plus the watch's two standing 09-22
-/// rules: `gateDayGlow` drops the day halo unless capture is on (the twilight glow is the time
-/// of day, not status, and is never gated), and `luminanceReduced` (wrist down) draws black
-/// with the sun off and every glow capped at `SunArc.wristDownGlowCap`.
+/// `SUNARC.both()` for one frame (spec §§ 4a, 6, 7, 8a), plus the watch's standing 09-22 power
+/// rule: `luminanceReduced` (wrist down) draws black with the sun off and every glow capped at
+/// `SunArc.wristDownGlowCap`. The day halo follows the time on every surface, the watch
+/// included (founder, 2026-09-23: the capture gate is dropped; the hero carries the state).
 nonisolated func sunArcCanvasDrawing(
     time: SunArcTime,
     envelope: Double,
@@ -47,8 +47,6 @@ nonisolated func sunArcCanvasDrawing(
     placement: SunArcPlacement,
     grounds: SunArcGrounds,
     appearance: SunArcAppearance,
-    gateDayGlow: Bool = false,
-    captureIsActive: Bool = false,
     luminanceReduced: Bool = false
 ) -> SunArcCanvasDrawing {
     let isDark = appearance == .dark
@@ -57,8 +55,7 @@ nonisolated func sunArcCanvasDrawing(
     let ground = SunArcGround.current(grounds: grounds, night: time.night, twilightWeight: twilight.w)
 
     var glows: [SunArcGlowLayer] = []
-    let showHalo = !gateDayGlow || captureIsActive
-    if time.night < 1, onVisible, showHalo {
+    if time.night < 1, onVisible {
         glows.append(SunArcGlowLayer(
             kind: .halo,
             center: sunPosition,

@@ -190,8 +190,6 @@ struct SunArcBackgroundHost<Content: View>: View {
     private let debugOverride: SunArcBackgroundDebugOverride?
 #endif
     private let content: () -> Content
-    private let gateDayGlow: Bool
-    private let captureIsActive: Bool
     private let luminanceReduced: Bool
     @State private var viewportFrame = CGRect.zero
 
@@ -199,16 +197,12 @@ struct SunArcBackgroundHost<Content: View>: View {
         palette: SunArcGroundPalette,
         presentationCoordinate: SunArcCoordinate?,
         fixedAppearance: SunArcAppearance? = nil,
-        gateDayGlow: Bool = false,
-        captureIsActive: Bool = false,
         luminanceReduced: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.palette = palette
         self.presentationCoordinate = presentationCoordinate
         self.fixedAppearance = fixedAppearance
-        self.gateDayGlow = gateDayGlow
-        self.captureIsActive = captureIsActive
         self.luminanceReduced = luminanceReduced
 #if DEBUG
         self.debugOverride = nil
@@ -222,8 +216,6 @@ struct SunArcBackgroundHost<Content: View>: View {
         presentationCoordinate: SunArcCoordinate?,
         debugOverride: SunArcBackgroundDebugOverride?,
         fixedAppearance: SunArcAppearance? = nil,
-        gateDayGlow: Bool = false,
-        captureIsActive: Bool = false,
         luminanceReduced: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
@@ -231,8 +223,6 @@ struct SunArcBackgroundHost<Content: View>: View {
         self.presentationCoordinate = presentationCoordinate
         self.debugOverride = debugOverride
         self.fixedAppearance = fixedAppearance
-        self.gateDayGlow = gateDayGlow
-        self.captureIsActive = captureIsActive
         self.luminanceReduced = luminanceReduced
         self.content = content
     }
@@ -252,8 +242,6 @@ struct SunArcBackgroundHost<Content: View>: View {
             ZStack {
                 SunArcGroundCanvas(
                     moment: moment,
-                    gateDayGlow: self.gateDayGlow,
-                    captureIsActive: self.captureIsActive,
                     luminanceReduced: self.luminanceReduced
                 )
                 self.content()
@@ -348,21 +336,15 @@ private struct SunArcBackgroundTimeline<ClockContent: View>: View {
 private struct SunArcGroundCanvas: View {
     let moment: SunArcBackgroundMoment
     var viewportFrame: CGRect?
-    var gateDayGlow: Bool
-    var captureIsActive: Bool
     var luminanceReduced: Bool
 
     init(
         moment: SunArcBackgroundMoment,
         viewportFrame: CGRect? = nil,
-        gateDayGlow: Bool = false,
-        captureIsActive: Bool = false,
         luminanceReduced: Bool = false
     ) {
         self.moment = moment
         self.viewportFrame = viewportFrame
-        self.gateDayGlow = gateDayGlow
-        self.captureIsActive = captureIsActive
         self.luminanceReduced = luminanceReduced
     }
 
@@ -390,8 +372,6 @@ private struct SunArcGroundCanvas: View {
                             width: localFrame.minX - sceneFrame.minX,
                             height: localFrame.minY - sceneFrame.minY
                         ),
-                        gateDayGlow: self.gateDayGlow,
-                        captureIsActive: self.captureIsActive,
                         luminanceReduced: self.luminanceReduced
                     )
                 }
@@ -426,8 +406,6 @@ extension SunArcBackgroundMoment {
     /// tests share.
     func drawing(
         sceneSize: CGSize,
-        gateDayGlow: Bool = false,
-        captureIsActive: Bool = false,
         luminanceReduced: Bool = false
     ) -> (placement: SunArcPlacement, drawing: SunArcCanvasDrawing) {
         let diameter = SunArc.phi * Double(min(sceneSize.width, sceneSize.height))
@@ -439,8 +417,6 @@ extension SunArcBackgroundMoment {
             placement: placement,
             grounds: self.grounds,
             appearance: self.appearance,
-            gateDayGlow: gateDayGlow,
-            captureIsActive: captureIsActive,
             luminanceReduced: luminanceReduced
         ))
     }
@@ -453,8 +429,6 @@ private enum SunArcBackgroundDrawing {
         size: CGSize,
         sceneSize: CGSize,
         sceneOffset: CGSize,
-        gateDayGlow: Bool,
-        captureIsActive: Bool,
         luminanceReduced: Bool
     ) {
         guard size.width > 0, size.height > 0,
@@ -462,8 +436,6 @@ private enum SunArcBackgroundDrawing {
         else { return }
         let (placement, drawing) = moment.drawing(
             sceneSize: sceneSize,
-            gateDayGlow: gateDayGlow,
-            captureIsActive: captureIsActive,
             luminanceReduced: luminanceReduced
         )
         let diameter = 2 * placement.tipRadius

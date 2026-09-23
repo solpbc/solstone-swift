@@ -130,8 +130,9 @@ struct SolstoneWatchApp: App {
 }
 
 /// The watch draws the sun arc's dark appearance at every hour (founder, 2026-09-23: watchOS
-/// has no light mode). The day halo shows only while capture is on, and wrist-down is black
-/// with the sun off: the 09-22 status and power rules, which stand.
+/// has no light mode). The day halo follows the time, as on every dark surface; the centred
+/// hero carries the state (founder, 2026-09-23). Wrist-down is black with the sun off: the
+/// 09-22 power rule, which stands.
 private struct WatchSunArcRoot: View {
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     let sessionModel: WatchSessionModel
@@ -162,8 +163,6 @@ private struct WatchSunArcRoot: View {
             presentationCoordinate: self.captureModel.sunArcPresentationCoordinate,
             debugOverride: Self.sunArcDebugOverride,
             fixedAppearance: .dark,
-            gateDayGlow: true,
-            captureIsActive: self.captureModel.presentation.status == .active,
             luminanceReduced: self.effectiveLuminanceReduced
         ) {
             WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
@@ -183,8 +182,6 @@ private struct WatchSunArcRoot: View {
             palette: SunArcGroundPalette(),
             presentationCoordinate: self.captureModel.sunArcPresentationCoordinate,
             fixedAppearance: .dark,
-            gateDayGlow: true,
-            captureIsActive: self.captureModel.presentation.status == .active,
             luminanceReduced: self.effectiveLuminanceReduced
         ) {
             WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
