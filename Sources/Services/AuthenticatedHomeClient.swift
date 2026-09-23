@@ -213,6 +213,8 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
     }
 
     private static func fetchCappedData(for request: URLRequest, in session: URLSession) async throws -> (Data, HTTPURLResponse) {
+        var request = request
+        request.attachLoopbackCapability()
         let (asyncBytes, response) = try await session.bytes(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             asyncBytes.task.cancel()

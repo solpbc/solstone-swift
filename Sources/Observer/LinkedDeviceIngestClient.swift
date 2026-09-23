@@ -167,6 +167,7 @@ nonisolated struct LinkedDeviceIngestClient: Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = "DELETE"
         request.timeoutInterval = 10
+        request.attachLoopbackCapability()
 
         do {
             let (data, response) = try await self.session.data(for: request)
@@ -195,6 +196,7 @@ nonisolated struct LinkedDeviceIngestClient: Sendable {
             forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName
         )
         request.timeoutInterval = 5
+        request.attachLoopbackCapability()
 
         do {
             let (data, response) = try await self.session.data(for: request)

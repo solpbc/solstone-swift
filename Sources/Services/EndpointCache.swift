@@ -62,7 +62,9 @@ public actor EndpointCache {
     public func refresh(viaLoopbackPort port: Int) async throws {
         try loadIfNeeded()
         let url = URL(string: "http://127.0.0.1:\(port)/app/network/local-endpoints")!
-        let (data, response) = try await session.data(from: url)
+        var request = URLRequest(url: url)
+        request.attachLoopbackCapability()
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
             throw URLError(.badServerResponse)
         }

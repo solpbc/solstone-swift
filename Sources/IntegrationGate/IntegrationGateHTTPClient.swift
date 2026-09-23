@@ -554,11 +554,13 @@ final class IntegrationGateHTTPClient {
         guard let url = components.url else {
             throw IntegrationGateValidationError(.malformedRouteInput)
         }
-        return URLRequest(
+        var request = URLRequest(
             url: url,
             cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
             timeoutInterval: TimeInterval(timeoutMilliseconds) / 1_000
         )
+        request.attachLoopbackCapability()
+        return request
     }
 
     nonisolated static func durationMillis(from start: Date, to end: Date) -> UInt64 {

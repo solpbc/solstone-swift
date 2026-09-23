@@ -1288,6 +1288,7 @@ final class TunnelManager {
             // false-positive "dead" read; this budget just keeps a single busy tick from
             // needlessly retrying sooner than the watchdog would even act on it.
             request.timeoutInterval = 6
+            request.attachLoopbackCapability()
             do {
                 let (data, response) = try await self.probeSession.data(for: request)
                 if let http = response as? HTTPURLResponse {

@@ -113,6 +113,11 @@ final class JournalWebNavigationSession {
             self.retire(self.currentNavigation)
             self.retire(self.expectedNavigation)
             self.issueProgrammaticLoad(JournalWebNavigationPolicy.replacementRequest(from: request, rewrittenURL: rewrittenURL))
+        case .openExternally:
+            self.emit(
+                "policy_open_externally",
+                detail: "schemeClass=\(schemeClass) generation=\(self.generation)"
+            )
         }
 
         return decision

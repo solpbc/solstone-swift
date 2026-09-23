@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import SPLTunnel
 import SwiftUI
 import WebKit
 
@@ -25,6 +26,7 @@ struct JournalWebView: UIViewRepresentable {
         let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
         webView.navigationDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
+        context.coordinator.observeForeground(of: webView)
         context.coordinator.requestLoad(url: self.url, reloadToken: self.reloadToken, webView: webView)
         return webView
     }
@@ -43,6 +45,9 @@ struct JournalWebView: UIViewRepresentable {
         private let setState: @MainActor (JournalWebPresentation.LoadState) -> Void
         private let diagnosticLog: DiagnosticLog
         @MainActor private var session: JournalWebNavigationSession?
+        @MainActor private var latestLoad: (url: URL, reloadToken: Int)?
+        @MainActor private var isTornDown = false
+        @MainActor private var foregroundObserver: (any NSObjectProtocol)?
 
         init(
             diagnosticLog: DiagnosticLog,
@@ -52,13 +57,57 @@ struct JournalWebView: UIViewRepresentable {
             self.setState = setState
         }
 
+        /// Every programmatic load first sets the loopback capability cookie in
+        /// this web view's store and waits for it, so the load and every request
+        /// its page makes carry it. Re-setting per load, not once, recovers a
+        /// cookie lost with the WebKit network process on the next reload.
         @MainActor
         func requestLoad(url: URL, reloadToken: Int, webView: WKWebView) {
-            self.creatingSession(for: webView).requestLoad(url: url, reloadToken: reloadToken)
+            guard !self.isTornDown,
+                  self.latestLoad?.url != url || self.latestLoad?.reloadToken != reloadToken
+            else { return }
+            self.latestLoad = (url, reloadToken)
+            let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+            Task { @MainActor [weak self, weak webView] in
+                if url.host == "127.0.0.1", let cookie = LoopbackCapability.process.httpCookie() {
+                    await cookieStore.setCookie(cookie)
+                }
+                // A newer load or a teardown may have arrived while the cookie
+                // was being set; only the latest request proceeds.
+                guard let self, let webView, !self.isTornDown,
+                      self.latestLoad?.url == url, self.latestLoad?.reloadToken == reloadToken
+                else { return }
+                self.creatingSession(for: webView).requestLoad(url: url, reloadToken: reloadToken)
+            }
+        }
+
+        /// Re-sets the capability cookie when the app returns to the foreground.
+        /// iOS may reclaim the WebKit network process while the app is
+        /// suspended, taking the session cookie with it; the page on screen
+        /// would then be refused on its next fetch or live-update reconnect.
+        @MainActor
+        func observeForeground(of webView: WKWebView) {
+            let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+            self.foregroundObserver = NotificationCenter.default.addObserver(
+                forName: UIApplication.willEnterForegroundNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                Task { @MainActor in
+                    if let cookie = LoopbackCapability.process.httpCookie() {
+                        await cookieStore.setCookie(cookie)
+                    }
+                }
+            }
         }
 
         @MainActor
         func teardown() {
+            if let foregroundObserver = self.foregroundObserver {
+                NotificationCenter.default.removeObserver(foregroundObserver)
+                self.foregroundObserver = nil
+            }
+            self.isTornDown = true
             self.session?.teardown()
             self.session = nil
         }
@@ -101,6 +150,9 @@ struct JournalWebView: UIViewRepresentable {
                     decisionHandler(.allow)
                 case .rewrite:
                     decisionHandler(.cancel)
+                case .openExternally(let url):
+                    decisionHandler(.cancel)
+                    UIApplication.shared.open(url)
                 }
             }
         }

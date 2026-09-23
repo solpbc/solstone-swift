@@ -51,6 +51,7 @@ nonisolated final class TransferTransport: @unchecked Sendable {
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             }
 
+            request.attachLoopbackCapability()
             let (data, response) = try await self.session.upload(for: request, fromFile: bodyURL)
             let statusCode = (response as? HTTPURLResponse)?.statusCode
             return TransferHTTPResult(statusCode: statusCode, data: data)

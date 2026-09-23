@@ -215,6 +215,7 @@ final class PushNotificationManager {
         request.httpMethod = "POST"
 
         do {
+            request.attachLoopbackCapability()
             let (_, response) = try await self.session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 log.error("push test failed: invalid response")
@@ -249,6 +250,7 @@ final class PushNotificationManager {
         request.httpBody = self.registrationBody(token: token)
 
         do {
+            request.attachLoopbackCapability()
             let (_, response) = try await self.session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 log.error("push deregistration failed: invalid response")
@@ -378,6 +380,7 @@ private extension PushNotificationManager {
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.httpBody = self.registrationBody(token: token)
 
+                request.attachLoopbackCapability()
                 let (_, response) = try await self.session.data(for: request)
                 guard let http = response as? HTTPURLResponse else {
                     lastFailure = "invalid response"

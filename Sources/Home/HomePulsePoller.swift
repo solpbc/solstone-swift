@@ -26,6 +26,7 @@ nonisolated struct HomePulsePoller {
 
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
+        request.attachLoopbackCapability()
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)

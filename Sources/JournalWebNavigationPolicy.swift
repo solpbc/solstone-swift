@@ -13,6 +13,10 @@ nonisolated enum JournalWebNavigationPolicy {
     enum Decision: Equatable, Sendable {
         case allow
         case rewrite(to: URL)
+        /// A main-frame navigation to another site. It opens outside the
+        /// journal view, so no third-party page runs in the web view that holds
+        /// the loopback capability and its admitted connections.
+        case openExternally(URL)
     }
 
     enum SchemeClass: String, Equatable, Sendable {
@@ -39,6 +43,15 @@ nonisolated enum JournalWebNavigationPolicy {
         isMainFrame: Bool,
         liveAuthority: Authority?
     ) -> Decision {
+        if isMainFrame,
+           liveAuthority != nil,
+           let requestURL,
+           [.http, .https].contains(self.schemeClass(for: requestURL)),
+           let host = self.normalizedHost(requestURL.host),
+           !self.isLoopbackHost(host),
+           !self.hostPortMatches(requestURL: requestURL, liveAuthority: liveAuthority) {
+            return .openExternally(requestURL)
+        }
         guard isMainFrame,
               let liveAuthority,
               liveAuthority.scheme == "http",
@@ -106,6 +119,12 @@ nonisolated enum JournalWebNavigationPolicy {
         } ?? specifier.endIndex
 
         return specifier[authorityStart..<authorityEnd].contains("@")
+    }
+
+    /// A loopback navigation that is not the live authority is a stale journal
+    /// port left over from a rotation, not another site; it stays in place.
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        host == "127.0.0.1" || host == "localhost" || host == "::1"
     }
 
     private static func isRewritableMethod(_ method: String?) -> Bool {
