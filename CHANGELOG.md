@@ -6,6 +6,13 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.4 (105)] - 2026-09-23
+
+### Fixed
+- this is a security fix. other apps and web pages on your iphone or ipad could reach your journal through the solstone app's connection to it, with the same access you have. now that connection only opens for requests carrying a key the solstone app makes each time it starts. if you haven't updated in a while, this is worth doing now.
+- a link to an outside website inside your journal now opens in your browser instead of inside the app.
+- pairing no longer waits about a minute on an address where your journal can't be reached before it tries the next one. it moves on after a few seconds.
+
 ## [2.0.4 (104)] - 2026-09-22
 
 ### Changed
