@@ -6,26 +6,29 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.4 (104)] - 2026-09-22
+
 ### Changed
-- the solstone app on your apple watch now has a dark background, so the clock in the corner no longer disappears into it during the day. the running time now reads like 1h 25m, or 10s in its first minute, instead of a clock-style 85:00.
+- the solstone app now has a sun arc in its background that follows the time of day, on your iphone and ipad and on your apple watch. on your iphone and ipad the app now turns light by day and dark at night with it, instead of following your light or dark setting.
+- on your apple watch, the running time now reads like 1h 25m, or 10s in its first minute, instead of a clock-style 85:00.
+- the screen source on home is now a switch, like your other sources. it only shows on once your screen is actually being shared, and turning it on or off still goes through the ios screen-sharing sheet.
+- the solstone app on your iphone and ipad now opens on a larger solstone mark.
+- the "this device" page now shows the name this device uses when it pairs with your journal.
 
 ### Fixed
-- screen waiting to sync could appear under audio in status. it now appears under screen.
+- if the app could not finish checking your journal's mark in time while connecting, it no longer completes pairing silently. it now lets you choose whether to continue or cancel.
 - if you turned the microphone on when ios asked about sharing your screen, that sound never reached your journal. it does now, alongside the screen.
 - the system ends screen sharing when your device locks, and the app kept saying screen was on. it now shows screen as off, and what you shared up to that moment still reaches your journal.
 - screen on your iphone or ipad used to stop about ten minutes after you left the app, and the last stretch of screen before it stopped was thrown away. screen no longer stops on its own just because you left the app, and a cut-off stretch now reaches your journal up to its last second.
+- audio on your apple watch now starts again after another app temporarily interrupts it. before, that interruption could end the moment even though you hadn't turned audio off.
+- screen waiting to sync could appear under audio in status. it now appears under screen.
 - pairing from a link no longer asks for camera access. that prompt only shows now when you actually choose to scan a code.
 - pairing failures for a journal reachable from the internet no longer tell you to join the same wi-fi or blame your cellular connection. that advice only shows when a home network really is the reason pairing can't reach it.
 - the pairing screen's title said "scan your pairing code" even on its paste tab, which is where a pairing link that failed lands you. the paste tab's title now says "paste your pairing link".
 - opening a pairing link to a journal that couldn't be reached could leave the screen on "connecting…" and a spinner for about a minute. after about eight seconds it now adds "still trying to reach your journal."
 - scanning a pairing code or pasting a pairing link used to leave the scan screen up, or a greyed-out button, for as long as it took to reach your journal. both now show "connecting…". if the attempt then fails, a scan lands you on the paste tab with the reason.
 - scanning a code that wasn't a pairing link told you to "enter a valid pairing link", as if you had typed it in yourself. it now says "this doesn't look like a pairing link".
-
-## [2.0.4 (97)] - 2026-09-18
-
-### Fixed
-- if the app could not finish checking your journal's mark in time while connecting, it no longer completes pairing silently. it now lets you choose whether to continue or cancel.
-- audio on your apple watch now starts again after another app temporarily interrupts it. before, that interruption could end the moment even though you hadn't turned audio off.
+- opening your journal left the top of home showing above it. your journal now opens to the top of the screen, and the bar you tap to open it now lines up with the cards above it.
 - your journal's fingerprint no longer shows as a plain row in journal settings. it's now under "technical details".
 
 ### Removed
