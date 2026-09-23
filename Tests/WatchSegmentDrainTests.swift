@@ -577,10 +577,13 @@ private final class WatchDrainURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func startLoading() {
-        Self.callCountBox.withLock { $0 += 1 }
+        // Record the request and its body BEFORE counting it: tests wait on `callCount`, and a count that
+        // runs ahead of the recorded body lets the main actor read an empty body list in the gap (the race
+        // 11ce918 fixed in MobileSegmentFinalizeResolverTests; same ordering here).
         Self.capturedRequestsBox.withLock { $0.append(self.request) }
         let body = Self.bodyData(from: self.request)
         Self.bodiesBox.withLock { $0.append(body) }
+        Self.callCountBox.withLock { $0 += 1 }
         guard let handler = Self.handler else {
             XCTFail("WatchDrainURLProtocol handler not set")
             return

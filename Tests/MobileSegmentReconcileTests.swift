@@ -1452,9 +1452,12 @@ private final class MobileSegmentReconcileURLProtocol: URLProtocol, @unchecked S
     }
 
     override func startLoading() {
-        Self.callCountBox.withLock { $0 += 1 }
+        // Record the request and its body BEFORE counting it: tests wait on `callCount`, and a count that
+        // runs ahead of the recorded body lets the main actor read an empty body list in the gap (the race
+        // 11ce918 fixed in MobileSegmentFinalizeResolverTests; same ordering here).
         let body = Self.bodyData(from: self.request)
         Self.bodiesBox.withLock { $0.append(body) }
+        Self.callCountBox.withLock { $0 += 1 }
         guard let handler = Self.handler else {
             XCTFail("MobileSegmentReconcileURLProtocol handler not set")
             return
