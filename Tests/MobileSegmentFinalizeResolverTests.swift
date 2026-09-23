@@ -748,9 +748,9 @@ private final class MobileSegmentFinalizeResolverURLProtocol: URLProtocol, @unch
             self.request.value(forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName),
             ObserverServerURL.ingestProtocolVersion
         )
-        Self.callCountBox.withLock { $0 += 1 }
         let body = Self.bodyData(from: self.request)
         Self.bodiesBox.withLock { $0.append(body) }
+        Self.callCountBox.withLock { $0 += 1 }
         guard let handler = Self.handler else {
             XCTFail("MobileSegmentFinalizeResolverURLProtocol handler not set")
             return
