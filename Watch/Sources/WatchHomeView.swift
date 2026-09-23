@@ -72,6 +72,15 @@ struct WatchHomeView: View {
                 .padding(.vertical, 12)
                 .opacity(self.isLuminanceReduced ? WatchHomePalette.reducedContentOpacity : 1)
             }
+            // Fade the scroll out above the pinned control, so a line cut by the viewport reads as
+            // "more below" rather than as a broken line.
+            .mask {
+                VStack(spacing: 0) {
+                    Rectangle()
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 18)
+                }
+            }
 
             self.controlButton
                 .padding(.horizontal, 14)

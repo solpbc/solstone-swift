@@ -48,10 +48,18 @@ nonisolated final class WatchHomeControlStyleTests: XCTestCase {
         let style = watchHomeControlStyle(isRunning: false, luminanceReduced: true)
         XCTAssertEqual(style.label, "start")
         XCTAssertNil(style.fillHex)
-        XCTAssertEqual(style.labelHex, SunArc.inkHex)
+        XCTAssertEqual(style.labelHex, SunArc.orangeHex)
         XCTAssertEqual(style.labelAlpha, WatchHomePalette.reducedContentOpacity)
         XCTAssertEqual(style.strokeHex, SunArc.orangeHex)
         XCTAssertEqual(style.strokeAlpha, WatchHomePalette.reducedContentOpacity)
         XCTAssertEqual(style.strokeLineWidth, 3.0)
+    }
+
+    func testAnUnfilledControlNeverDrawsAnInkLabel() {
+        for isRunning in [false, true] {
+            let style = watchHomeControlStyle(isRunning: isRunning, luminanceReduced: true)
+            XCTAssertNil(style.fillHex)
+            XCTAssertNotEqual(style.labelHex, SunArc.inkHex, "an ink label on the black wrist-down ground is invisible")
+        }
     }
 }

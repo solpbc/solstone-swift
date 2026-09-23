@@ -20,10 +20,12 @@ nonisolated func watchHomeControlStyle(isRunning: Bool, luminanceReduced: Bool) 
     let labelHex = isRunning ? WatchHomePalette.cream : SunArc.inkHex
 
     if luminanceReduced {
+        // An outline has no fill behind its label, so the label takes the stroke colour when the
+        // resting label would be ink: ink on the black wrist-down ground is invisible.
         return WatchHomeControlStyle(
             label: label,
             fillHex: nil,
-            labelHex: labelHex,
+            labelHex: isRunning ? WatchHomePalette.cream : SunArc.orangeHex,
             labelAlpha: WatchHomePalette.reducedContentOpacity,
             strokeHex: SunArc.orangeHex,
             strokeAlpha: WatchHomePalette.reducedContentOpacity,
