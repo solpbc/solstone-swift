@@ -12,42 +12,29 @@ nonisolated final class WatchHomeLuminanceSourceTests: XCTestCase {
     }
 
     func testLuminanceReducedDrawingResult() {
-        let placement = SunArcPlacement(size: CGSize(width: 200, height: 200), tipRadius: 40)
-        let sunPosition = CGPoint(x: 100, y: 100)
-        let dayTime = SunArcTime(t: 0.5, night: 0, q: 0.5)
+        let placement = SunArcPlacement(size: CGSize(width: 208, height: 248), tipRadius: SunArc.phi * 104)
+        // Midday on the dark row: the sun is up, the twilight glow is out.
+        let time = SunArcTime.compute(minutes: 780, riseMinutes: 408.26, setMinutes: 1135.65)
+        let twilight = SunArcTwilight.compute(time: time, envelope: 1)
 
-        // Active day with reduced luminance
-        let activeDrawing = sunArcCanvasDrawing(
-            time: dayTime,
-            envelope: 1.0,
-            sunPosition: sunPosition,
-            placement: placement,
-            dayGroundHex: SunArc.inkHex,
-            tonalSun: true,
-            gateDayGlow: true,
-            captureIsActive: true,
-            luminanceReduced: true
-        )
-        XCTAssertEqual(activeDrawing.groundHex, "#000000")
-        XCTAssertFalse(activeDrawing.drawSun)
-        XCTAssertEqual(activeDrawing.sunOpacity, 0)
-        XCTAssertEqual(activeDrawing.glowAlpha, 0.12, accuracy: 1e-6)
-
-        // Not-active day with reduced luminance
-        let idleDrawing = sunArcCanvasDrawing(
-            time: dayTime,
-            envelope: 1.0,
-            sunPosition: sunPosition,
-            placement: placement,
-            dayGroundHex: SunArc.inkHex,
-            tonalSun: true,
-            gateDayGlow: true,
-            captureIsActive: false,
-            luminanceReduced: true
-        )
-        XCTAssertEqual(idleDrawing.groundHex, "#000000")
-        XCTAssertFalse(idleDrawing.drawSun)
-        XCTAssertEqual(idleDrawing.sunOpacity, 0)
-        XCTAssertEqual(idleDrawing.glowAlpha, 0, accuracy: 1e-6)
+        for captureIsActive in [true, false] {
+            let drawing = sunArcCanvasDrawing(
+                time: time,
+                envelope: 1.0,
+                twilight: twilight,
+                placement: placement,
+                grounds: .dark,
+                appearance: .dark,
+                gateDayGlow: true,
+                captureIsActive: captureIsActive,
+                luminanceReduced: true
+            )
+            XCTAssertEqual(drawing.groundHex, "#000000")
+            XCTAssertFalse(drawing.drawSun)
+            XCTAssertEqual(drawing.sunOpacity, 0)
+            XCTAssertNil(drawing.glow(.twilight))
+            // Active: the 0.22 halo is held to 0.12. Idle: no halo at all.
+            XCTAssertEqual(drawing.glow(.halo)?.alpha ?? 0, captureIsActive ? 0.12 : 0, accuracy: 1e-6)
+        }
     }
 }

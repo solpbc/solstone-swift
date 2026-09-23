@@ -7,33 +7,68 @@ import Foundation
 /// The sun, all day — time-of-day background pattern.
 ///
 /// Ported from `cmo/brand/sbis/patterns/sun-arc/{index.md,sunarc.js}` in the extro repo
-/// (founder lock 2026-09-19). Vendor the reference math; do not re-derive it from the token
-/// constants alone. Section numbers below (§3, §4, §6, §7) refer to that spec.
+/// (founder lock 2026-09-19, amended 2026-09-23: the day in both appearances). Vendor the
+/// reference math; do not re-derive it from the token constants alone. Section numbers below
+/// (§3, §4, §4a, §6, §7, §8a) refer to that spec; the 09-23 model is `SUNARC.both()`.
 public nonisolated enum SunArc {
     public static let phi: Double = 1.618_033_988_7
     public static let bow: Double = 0.079_19               // sagitta ÷ chord, §3
-    public static let peakOpacity: Double = 0.55
+    public static let peakOpacityLight: Double = 0.55       // §2 on a light ground
+    public static let peakOpacityDark: Double = 0.20        // §8a on a dark ground — the same OKLab step
     public static let envelopeEdge: Double = 0.22           // §4 rise·hold·set
     public static let twilightMinutes: Double = 30
-    public static let nightMixInk: Double = 0.90            // §6 ground → ink
-    public static let nightMixWarm: Double = 0.45           // §6 ink-mixed-ground → warm-dark (effective)
-    public static let glowDayAlpha: Double = 0.22
-    public static let glowNightAlpha: Double = 0.40
-    public static let glowNightFloor: Double = 0.12         // §7 effective floor (dial 0.40 × 0.30)
+    public static let glowDayAlpha: Double = 0.22           // §7 the day halo, × env × (1 − night)
+    public static let twilightRadiusRatio: Double = phi * phi // §7 the twilight glow's radius, × R
+    public static let twilightAlphaDark: Double = 0.62      // §7 × w
+    public static let twilightAlphaLight: Double = 0.95     // §7 × w
+    public static let twilightSink: Double = 0.10           // §4a the hidden sun runs to t ∈ [−0.10, 1.10]
+    public static let trueDarkMinutes: Double = 180         // §4a centred on solar midnight
     public static let gradientMidStop: Double = 0.38
     public static let gradientMidRatio: Double = 0.45
-    public static let appearanceFlipL: Double = 0.5         // §6 OKLab lightness threshold
+    /// The watch's wrist-down power rule (09-22, standing under 09-23): every glow is capped here.
+    public static let wristDownGlowCap: Double = 0.12
 
     public static let inkHex = "#1A1A1A"
-    public static let warmDarkHex = "#2E1906"
     public static let goldHex = "#FFCC33"
     public static let orangeHex = "#E8913A"
     public static let surfaceCreamHex = "#FEFCF8"
+    /// The sunrise gradient's cream-gold (ruled 2026-07-03) — the light twilight glow's cool end.
+    public static let sunriseCreamHex = "#FFF3CF"
 
     /// §5 rung 3, last resort — only for a zone identifier the bundled tzdb table does not
     /// know. Rungs 1 and 2 are `SunArcSolar.pair(for:)`.
     public static let fallbackRiseMinutes: Double = 6 * 60 + 30
     public static let fallbackSetMinutes: Double = 19 * 60 + 30
+}
+
+/// The owner's light or dark setting — §6. The pattern reads it; ⛔ it never sets it.
+public nonisolated enum SunArcAppearance: Sendable, Equatable {
+    case light
+    case dark
+}
+
+/// One appearance's three grounds — §6.
+public nonisolated struct SunArcGrounds: Sendable, Equatable {
+    public let day: String
+    public let night: String
+    public let deep: String
+
+    public init(day: String, night: String, deep: String) {
+        self.day = day
+        self.night = night
+        self.deep = deep
+    }
+
+    /// Light: surface cream · cream toward tone · tone toward the warm dark.
+    public static let light = SunArcGrounds(day: "#FEFCF8", night: "#E9DECC", deep: "#D7C9B0")
+    /// Dark: the lifted warm dark · the 09-19 night ground · true dark. The watch always uses these.
+    public static let dark = SunArcGrounds(day: "#392E26", night: "#2E241C", deep: "#281E17")
+
+    /// §6: "A surface whose own ground is another F3 ground (tile cream, white) uses it as its
+    /// light day ground and keeps the table's night and true dark."
+    public static func light(day: String) -> SunArcGrounds {
+        SunArcGrounds(day: day, night: Self.light.night, deep: Self.light.deep)
+    }
 }
 
 /// A location a host already holds for its own purpose — §5 rung 1.
@@ -175,11 +210,14 @@ public nonisolated struct SunArcPlacement: Sendable {
     public let sagitta: Double
     public let arcRadius: Double
     public let center: CGPoint
+    /// R, the sun's tip radius — the unit of both glow radii (φR, φ²R).
+    public let tipRadius: Double
     private let thetaA: Double
     private let delta: Double
 
     public init(size: CGSize, tipRadius: Double) {
         let w = Double(size.width), h = Double(size.height)
+        self.tipRadius = tipRadius
         let k = tipRadius / 2.0.squareRoot()
         let a = CGPoint(x: -k, y: -k)
         let b = CGPoint(x: w + k, y: h + k)
@@ -212,18 +250,31 @@ public nonisolated struct SunArcPlacement: Sendable {
         self.delta = d
     }
 
-    /// The sun's centre at time `t` (unclamped — the caller decides visibility at t < 0 / t > 1).
+    /// The sun's centre at time `t` (unclamped — the caller decides visibility at t < 0 / t > 1;
+    /// §4a's hidden sun reads it at t ∈ [−0.10, 1.10]).
     public func position(at t: Double) -> CGPoint {
         let theta = thetaA + delta * t
         return CGPoint(x: center.x + arcRadius * cos(theta), y: center.y + arcRadius * sin(theta))
     }
 }
 
-/// §4 — the day's own clock: dawn/dusk, the arc parameter `t`, night (0…1), and night progress `q`.
+/// §4 — the day's own clock: dawn/dusk, the arc parameter `t`, and night (0…1).
 public nonisolated struct SunArcTime: Sendable, Equatable {
     public let t: Double
     public let night: Double
-    public let q: Double
+    /// The minute on the day's own axis: this calendar day's minutes, carried past 1440 when
+    /// the sunset itself was (see `compute`). `SunArcTwilight` reads the same axis.
+    public let minutes: Double
+    public let riseMinutes: Double
+    public let setMinutes: Double
+
+    public init(t: Double, night: Double, minutes: Double, riseMinutes: Double, setMinutes: Double) {
+        self.t = t
+        self.night = night
+        self.minutes = minutes
+        self.riseMinutes = riseMinutes
+        self.setMinutes = setMinutes
+    }
 
     /// Local minute quantization used by the once-per-minute rendering host.
     public static func minutesSinceMidnight(_ date: Date, calendar: Calendar = .autoupdatingCurrent) -> Double {
@@ -234,9 +285,13 @@ public nonisolated struct SunArcTime: Sendable, Equatable {
     public static func compute(
         minutes m: Double,
         riseMinutes rise: Double,
-        setMinutes set: Double,
+        setMinutes rawSet: Double,
         twilightMinutes tw: Double = SunArc.twilightMinutes
     ) -> SunArcTime {
+        // One extended minute axis (spec §4a, 2026-09-23): a sunset after local midnight that
+        // arrives wrapped below sunrise is carried past 1440. `SunArcSolar.times` already
+        // carries it; this keeps any other caller on the same axis.
+        let set = rawSet < rise ? rawSet + 1440 : rawSet
         let dawn = rise - tw, dusk = set + tw
 
         // `set` (and so `dusk`) may already have been carried past 1440 by `SunArcSolar.times`
@@ -245,7 +300,13 @@ public nonisolated struct SunArcTime: Sendable, Equatable {
         // is really the tail of tonight's dusk, not tomorrow's pre-dawn night — read it on the
         // same extended axis dusk is already on, so day progress keeps moving forward through
         // midnight instead of resetting to "before dawn".
-        let m2 = (dusk > 1440 && m < dusk - 1440) ? m + 1440 : m
+        //
+        // The mirror: a sunrise before 00:30 puts dawn before midnight, so the last clock
+        // minutes of the day are tomorrow's dawn, read on the same axis (canon, extro 5ed645e420).
+        let m2: Double
+        if dusk > 1440 && m < dusk - 1440 { m2 = m + 1440 }
+        else if dawn < 0 && m >= dawn + 1440 { m2 = m - 1440 }
+        else { m2 = m }
 
         let t = (m2 - dawn) / (dusk - dawn)
 
@@ -256,18 +317,7 @@ public nonisolated struct SunArcTime: Sendable, Equatable {
         else if m2 < dusk { night = (m2 - set) / tw }
         else { night = 1 }
 
-        let nightLen = 1440 - (dusk - dawn)
-        let q: Double
-        if m2 >= dusk { q = (m2 - dusk) / nightLen }
-        // `<=`, not `<`: at m2 == dawn exactly, `night` above is still 1 (full night —
-        // dawn is where night *reaches* zero at `rise`, not at `dawn` itself), so this
-        // must land on the pre-dawn branch's limit of q = 1 (glow at corner A) rather
-        // than falling through to the day branch's q = 0 (which would swap the glow to
-        // corner B for one frame at the exact boundary).
-        else if m2 <= dawn { q = (m2 + 1440 - dusk) / nightLen }
-        else { q = 0 }
-
-        return SunArcTime(t: t, night: night, q: q)
+        return SunArcTime(t: t, night: night, minutes: m2, riseMinutes: rise, setMinutes: set)
     }
 }
 
@@ -339,52 +389,105 @@ public nonisolated enum SunArcOKLab {
         return hex(fromRGB: fromOKLab(lab))
     }
 
-    /// OKLab lightness of a hex colour — the appearance-flip threshold test (§6, L ≥ 0.5).
+    /// OKLab lightness of a hex colour. §6: every light ground sits above L 0.5 and every dark
+    /// ground below it, which is why content never flips.
     public static func lightness(ofHex hex: String) -> Double {
         toOKLab(rgb(fromHex: hex)).l
     }
 }
 
-/// §6 — the ground for a given day ground and night fraction, and whether content should
-/// appear light-on-dark or dark-on-light for it.
+/// §6 — the ground showing right now, in the owner's appearance.
 public nonisolated enum SunArcGround {
-    /// The night ground for a given day ground, per §6's mix.
-    public static func nightGround(dayGroundHex: String) -> String {
-        let inkMixed = SunArcOKLab.mix(dayGroundHex, SunArc.inkHex, SunArc.nightMixInk)
-        return SunArcOKLab.mix(inkMixed, SunArc.warmDarkHex, SunArc.nightMixWarm)
-    }
-
-    /// The ground actually showing right now, cross-faded by `night` (0 = day, 1 = night).
-    public static func currentGround(dayGroundHex: String, night: Double) -> String {
-        SunArcOKLab.mix(dayGroundHex, nightGround(dayGroundHex: dayGroundHex), night)
-    }
-
-    /// §6 appearance flip: dark content-scheme once the showing ground's OKLab L drops below 0.5.
-    public static func isDark(groundHex: String) -> Bool {
-        SunArcOKLab.lightness(ofHex: groundHex) < SunArc.appearanceFlipL
+    /// Day → night across each twilight window by `night`; night → true dark by `1 − w`, so
+    /// the ground deepens exactly as the corner's light goes out (§4a). Both mixes in OKLab.
+    public static func current(grounds: SunArcGrounds, night: Double, twilightWeight w: Double) -> String {
+        let dayToNight = SunArcOKLab.mix(grounds.day, grounds.night, night)
+        return SunArcOKLab.mix(dayToNight, grounds.deep, night * (1 - w))
     }
 }
 
-/// §7 — the glow: a halo on the sun by day, a fading/rising corner glow by night. Never fully
-/// disappears (`glowNightFloor`).
-public nonisolated struct SunArcGlow: Sendable {
-    public let position: CGPoint
-    public let alpha: Double
+/// §4a — the twilight weight `w`, the hidden sun's extended parameter `te`, and how far into
+/// the evening (or before the dawn) we are, `x`. A line-for-line port of `A.twilight` and
+/// `A.deepWindow` in `sunarc.js`.
+public nonisolated struct SunArcTwilight: Sendable, Equatable {
+    public enum Phase: Sendable, Equatable {
+        case day
+        case evening
+        case trueDark
+        case beforeDawn
+    }
+
+    public let w: Double
+    public let te: Double
+    public let x: Double
+    public let phase: Phase
+
+    public init(w: Double, te: Double, x: Double, phase: Phase) {
+        self.w = w
+        self.te = te
+        self.x = x
+        self.phase = phase
+    }
+
+    /// Holds, then eases to 0 at the edge of the true-dark window.
+    static func ease(_ x: Double) -> Double {
+        let c = max(0, min(1, x))
+        return pow(1 - c * c, 1.5)
+    }
 
     public static func compute(
         time: SunArcTime,
-        sunPosition: CGPoint,
         envelope: Double,
-        onVisible: Bool,
-        placement: SunArcPlacement
-    ) -> SunArcGlow {
-        if time.night < 1, onVisible {
-            let alpha = SunArc.glowDayAlpha * envelope * (1 - time.night)
-            return SunArcGlow(position: sunPosition, alpha: alpha)
+        trueDarkMinutes: Double = SunArc.trueDarkMinutes,
+        sink: Double = SunArc.twilightSink,
+        twilightMinutes tw: Double = SunArc.twilightMinutes
+    ) -> SunArcTwilight {
+        let dawn = time.riseMinutes - tw, dusk = time.setMinutes + tw
+        let m = time.minutes
+        if m >= dawn && m <= dusk {
+            return SunArcTwilight(w: 1 - envelope, te: time.t, x: 0, phase: .day)
         }
-        let atB = time.q < 0.5
-        let k = atB ? (1 - 2 * time.q) : (2 * time.q - 1)
-        let alpha = SunArc.glowNightFloor + (SunArc.glowNightAlpha - SunArc.glowNightFloor) * pow(k, 1.6)
-        return SunArcGlow(position: atB ? placement.b : placement.a, alpha: alpha)
+        let span = wrap(dawn - dusk)
+        let ms = wrap(m - dusk)
+        let mid = span / 2
+        let half = Self.trueDarkHalf(nightSpan: span, trueDarkMinutes: trueDarkMinutes)
+        let deepStart = mid - half, deepEnd = mid + half
+        if ms <= deepStart && deepStart > 0 {
+            let x = ms / deepStart
+            return SunArcTwilight(w: ease(x), te: 1 + sink * x, x: x, phase: .evening)
+        }
+        if ms >= deepEnd && span > deepEnd {
+            let x = (span - ms) / (span - deepEnd)
+            return SunArcTwilight(w: ease(x), te: -sink * x, x: x, phase: .beforeDawn)
+        }
+        return SunArcTwilight(w: 0, te: ms < mid ? 1 + sink : -sink, x: 1, phase: .trueDark)
+    }
+
+    /// Half the true-dark window for a night of `nightSpan` minutes (dusk to the next dawn):
+    /// up to `trueDarkMinutes`, but the glow always keeps at least an hour to ease out and an
+    /// hour to ease in, so a short night gets a shorter true dark and a white night none
+    /// (`A.deepHalf`).
+    static func trueDarkHalf(nightSpan: Double, trueDarkMinutes: Double) -> Double {
+        max(0, min(trueDarkMinutes, nightSpan - 120)) / 2
+    }
+
+    /// §4a — the true-dark window, in local minutes (each wrapped into 0..<1440).
+    public static func trueDarkWindow(
+        riseMinutes: Double,
+        setMinutes: Double,
+        trueDarkMinutes: Double = SunArc.trueDarkMinutes,
+        twilightMinutes tw: Double = SunArc.twilightMinutes
+    ) -> (from: Double, mid: Double, to: Double) {
+        let set = setMinutes < riseMinutes ? setMinutes + 1440 : setMinutes
+        let dusk = set + tw, dawn = riseMinutes - tw
+        let span = wrap(dawn - dusk)
+        let mid = dusk + span / 2
+        let half = Self.trueDarkHalf(nightSpan: span, trueDarkMinutes: trueDarkMinutes)
+        return (wrap(mid - half), wrap(mid), wrap(mid + half))
+    }
+
+    private static func wrap(_ v: Double) -> Double {
+        let r = v.truncatingRemainder(dividingBy: 1440)
+        return r < 0 ? r + 1440 : r
     }
 }

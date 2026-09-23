@@ -4,10 +4,11 @@
 import SwiftUI
 import UIKit
 
-/// The Day Home background follows the deck's established light ground, while its night
-/// counterpart remains the locked SunArc OKLab mix.
+/// The Day Home background's light day ground is the deck's tile cream (sun-arc §6 lets a
+/// surface use another F3 ground there). The light night and true dark, and the whole dark
+/// row, are the pattern's own; which row shows is the owner's light or dark setting.
 nonisolated enum DeckSunArcPalette {
-    static let value = SunArcGroundPalette(dayGroundHex: "#FCF3E4")
+    static let value = SunArcGroundPalette(lightDayHex: "#FCF3E4")
 }
 
 /// The shell's usage tokens: the ground it sits on, the surfaces that sit on the

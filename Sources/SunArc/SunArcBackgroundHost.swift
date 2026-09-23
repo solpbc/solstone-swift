@@ -4,13 +4,28 @@
 import Foundation
 import SwiftUI
 
-/// The host surface's day ground. Its night counterpart is always the canonical SunArc mix;
-/// callers cannot provide a mismatched dark token.
+/// The one per-surface choice §6 allows: the light appearance's day ground (another F3 ground,
+/// such as the deck's tile cream). The light night and true dark, and the whole dark row, are
+/// the table's; callers cannot provide a mismatched token.
 nonisolated struct SunArcGroundPalette: Sendable, Equatable {
-    let dayGroundHex: String
+    let lightDayHex: String
 
-    init(dayGroundHex: String) {
-        self.dayGroundHex = dayGroundHex
+    init(lightDayHex: String = SunArc.surfaceCreamHex) {
+        self.lightDayHex = lightDayHex
+    }
+
+    func grounds(for appearance: SunArcAppearance) -> SunArcGrounds {
+        switch appearance {
+        case .light: SunArcGrounds.light(day: self.lightDayHex)
+        case .dark: SunArcGrounds.dark
+        }
+    }
+}
+
+extension SunArcAppearance {
+    /// The owner's system appearance, as SwiftUI reports it. §6 / §10: read it, never set it.
+    init(_ colorScheme: ColorScheme) {
+        self = colorScheme == .dark ? .dark : .light
     }
 }
 
@@ -24,7 +39,28 @@ nonisolated struct SunArcBackgroundDebugOverride: Sendable {
 }
 
 nonisolated enum SunArcBackgroundDebugScene {
+    /// `--ui-test-sun-arc-denver-0923=HH:MM`: that wall-clock minute on 2026-09-23 in Denver,
+    /// the day of the spec's §4a worked numbers.
+    static let denver0923Prefix = "--ui-test-sun-arc-denver-0923="
+
+    static func denver0923(_ value: String) -> Date? {
+        let parts = value.split(separator: ":")
+        guard parts.count == 2, let hour = Int(parts[0]), let minute = Int(parts[1]),
+              (0..<24).contains(hour), (0..<60).contains(minute) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/Denver")!
+        return calendar.date(from: DateComponents(year: 2026, month: 9, day: 23, hour: hour, minute: minute))
+    }
+
     static func sceneOverride(for arguments: [String]) -> SunArcBackgroundDebugOverride? {
+        if let raw = arguments.first(where: { $0.hasPrefix(Self.denver0923Prefix) }),
+           let date = Self.denver0923(String(raw.dropFirst(Self.denver0923Prefix.count))) {
+            return SunArcBackgroundDebugOverride(
+                date: date,
+                timeZone: TimeZone(identifier: "America/Denver")!,
+                presentationCoordinate: nil
+            )
+        }
         if arguments.contains("--ui-test-sun-arc-denver-dawn") {
             return SunArcBackgroundDebugOverride(
                 date: Date(timeIntervalSince1970: 1_789_820_040),
@@ -72,16 +108,27 @@ nonisolated enum SunArcBackgroundDebugScene {
 }
 #endif
 
+/// A fixed instant and zone the timeline draws instead of the clock. Only the DEBUG
+/// screenshot scenes ever build one.
+nonisolated struct SunArcBackgroundScene: Sendable {
+    let date: Date
+    let timeZone: TimeZone
+    let presentationCoordinate: SunArcCoordinate?
+}
+
 nonisolated struct SunArcBackgroundMoment: Sendable {
     let time: SunArcTime
-    let groundHex: String
-    let isDark: Bool
     let envelope: Double
+    let twilight: SunArcTwilight
+    let appearance: SunArcAppearance
+    let grounds: SunArcGrounds
+    let groundHex: String
 
     static func resolve(
         date: Date,
         timeZone: TimeZone,
         palette: SunArcGroundPalette,
+        appearance: SunArcAppearance,
         presentationCoordinate: SunArcCoordinate?
     ) -> SunArcBackgroundMoment {
         var calendar = Calendar.autoupdatingCurrent
@@ -91,39 +138,58 @@ nonisolated struct SunArcBackgroundMoment: Sendable {
             heldLocation: presentationCoordinate,
             timeZone: timeZone
         )
-        let time = SunArcTime.compute(
+        return Self.at(
             minutes: SunArcTime.minutesSinceMidnight(date, calendar: calendar),
             riseMinutes: solar.riseMinutes,
-            setMinutes: solar.setMinutes
+            setMinutes: solar.setMinutes,
+            grounds: palette.grounds(for: appearance),
+            appearance: appearance
         )
-        let groundHex = SunArcGround.currentGround(
-            dayGroundHex: palette.dayGroundHex,
-            night: time.night
-        )
+    }
+
+    /// The pure core of `resolve`: one clock minute, the day's sunrise and sunset, and the
+    /// owner's appearance → everything a frame needs. `SUNARC.both()`'s inputs, less the size
+    /// (which `sunArcCanvasDrawing` takes). The worked-numbers tests call this same function.
+    static func at(
+        minutes: Double,
+        riseMinutes: Double,
+        setMinutes: Double,
+        grounds: SunArcGrounds,
+        appearance: SunArcAppearance
+    ) -> SunArcBackgroundMoment {
+        let time = SunArcTime.compute(minutes: minutes, riseMinutes: riseMinutes, setMinutes: setMinutes)
+        let envelope = SunArcEnvelope.value(at: time.t)
+        let twilight = SunArcTwilight.compute(time: time, envelope: envelope)
         return SunArcBackgroundMoment(
             time: time,
-            groundHex: groundHex,
-            isDark: SunArcGround.isDark(groundHex: groundHex),
-            envelope: SunArcEnvelope.value(at: time.t)
+            envelope: envelope,
+            twilight: twilight,
+            appearance: appearance,
+            grounds: grounds,
+            groundHex: SunArcGround.current(grounds: grounds, night: time.night, twilightWeight: twilight.w)
         )
     }
 }
 
 /// The sun, all day — one Canvas behind a native surface and one minute clock shared by its
-/// ground, mark, and content appearance.
+/// ground, glows and mark.
 ///
 /// The host resolves one moment for the whole surface. watchOS draws the root canvas
 /// directly. iOS/iPadOS navigation content reads the same moment and viewport through the
 /// environment and draws the clipped part of that one scene inside each native navigation
 /// host. That keeps one sun across an iPad split without reaching into private UIKit hosts.
+///
+/// 🔒 The appearance is the owner's (2026-09-23): the host reads `\.colorScheme` and never
+/// sets it. The watch, which has no light mode, passes `fixedAppearance: .dark`.
 struct SunArcBackgroundHost<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
     private let palette: SunArcGroundPalette
     private let presentationCoordinate: SunArcCoordinate?
+    private let fixedAppearance: SunArcAppearance?
 #if DEBUG
     private let debugOverride: SunArcBackgroundDebugOverride?
 #endif
     private let content: () -> Content
-    private let tonalSun: Bool
     private let gateDayGlow: Bool
     private let captureIsActive: Bool
     private let luminanceReduced: Bool
@@ -132,7 +198,7 @@ struct SunArcBackgroundHost<Content: View>: View {
     init(
         palette: SunArcGroundPalette,
         presentationCoordinate: SunArcCoordinate?,
-        tonalSun: Bool = false,
+        fixedAppearance: SunArcAppearance? = nil,
         gateDayGlow: Bool = false,
         captureIsActive: Bool = false,
         luminanceReduced: Bool = false,
@@ -140,7 +206,7 @@ struct SunArcBackgroundHost<Content: View>: View {
     ) {
         self.palette = palette
         self.presentationCoordinate = presentationCoordinate
-        self.tonalSun = tonalSun
+        self.fixedAppearance = fixedAppearance
         self.gateDayGlow = gateDayGlow
         self.captureIsActive = captureIsActive
         self.luminanceReduced = luminanceReduced
@@ -155,7 +221,7 @@ struct SunArcBackgroundHost<Content: View>: View {
         palette: SunArcGroundPalette,
         presentationCoordinate: SunArcCoordinate?,
         debugOverride: SunArcBackgroundDebugOverride?,
-        tonalSun: Bool = false,
+        fixedAppearance: SunArcAppearance? = nil,
         gateDayGlow: Bool = false,
         captureIsActive: Bool = false,
         luminanceReduced: Bool = false,
@@ -164,7 +230,7 @@ struct SunArcBackgroundHost<Content: View>: View {
         self.palette = palette
         self.presentationCoordinate = presentationCoordinate
         self.debugOverride = debugOverride
-        self.tonalSun = tonalSun
+        self.fixedAppearance = fixedAppearance
         self.gateDayGlow = gateDayGlow
         self.captureIsActive = captureIsActive
         self.luminanceReduced = luminanceReduced
@@ -172,18 +238,20 @@ struct SunArcBackgroundHost<Content: View>: View {
     }
 #endif
 
+    private var appearance: SunArcAppearance {
+        self.fixedAppearance ?? SunArcAppearance(self.colorScheme)
+    }
+
     var body: some View {
-#if DEBUG
         SunArcBackgroundTimeline(
             palette: self.palette,
+            appearance: self.appearance,
             presentationCoordinate: self.presentationCoordinate,
-            debugOverride: self.debugOverride
+            scene: self.debugScene
         ) { moment in
             ZStack {
                 SunArcGroundCanvas(
                     moment: moment,
-                    palette: self.palette,
-                    tonalSun: self.tonalSun,
                     gateDayGlow: self.gateDayGlow,
                     captureIsActive: self.captureIsActive,
                     luminanceReduced: self.luminanceReduced
@@ -197,31 +265,21 @@ struct SunArcBackgroundHost<Content: View>: View {
             .onGeometryChange(for: CGRect.self) { proxy in
                 proxy.frame(in: .global)
             } action: { self.viewportFrame = $0 }
+        }
+    }
+
+    /// A fixed presentation scene for simulator screenshots; always `nil` in release builds.
+    private var debugScene: SunArcBackgroundScene? {
+#if DEBUG
+        self.debugOverride.map {
+            SunArcBackgroundScene(
+                date: $0.date,
+                timeZone: $0.timeZone,
+                presentationCoordinate: $0.presentationCoordinate
+            )
         }
 #else
-        SunArcBackgroundTimeline(
-            palette: self.palette,
-            presentationCoordinate: self.presentationCoordinate
-        ) { moment in
-            ZStack {
-                SunArcGroundCanvas(
-                    moment: moment,
-                    palette: self.palette,
-                    tonalSun: self.tonalSun,
-                    gateDayGlow: self.gateDayGlow,
-                    captureIsActive: self.captureIsActive,
-                    luminanceReduced: self.luminanceReduced
-                )
-                self.content()
-                    .environment(
-                        \.sunArcBackgroundContext,
-                        SunArcBackgroundContext(moment: moment, viewportFrame: self.viewportFrame)
-                    )
-            }
-            .onGeometryChange(for: CGRect.self) { proxy in
-                proxy.frame(in: .global)
-            } action: { self.viewportFrame = $0 }
-        }
+        nil
 #endif
     }
 }
@@ -259,66 +317,30 @@ extension EnvironmentValues {
 }
 
 /// Shared per-minute clock: resolves the current `SunArcBackgroundMoment` once and hands it
-/// to `content`, so ground/glow/mark and appearance can never drift from each other. The
-/// root host also passes that exact moment to native navigation content through the
-/// environment; `.preferredColorScheme` therefore follows the same clock.
+/// to `content`, so ground, glows and mark can never drift from each other. The root host
+/// also passes that exact moment to native navigation content through the environment. The
+/// clock picks the time of day only; ⛔ it never picks the appearance.
 private struct SunArcBackgroundTimeline<ClockContent: View>: View {
     let palette: SunArcGroundPalette
+    let appearance: SunArcAppearance
     let presentationCoordinate: SunArcCoordinate?
-#if DEBUG
-    let debugOverride: SunArcBackgroundDebugOverride?
-#endif
-    let content: (SunArcBackgroundMoment) -> ClockContent
-
-    init(
-        palette: SunArcGroundPalette,
-        presentationCoordinate: SunArcCoordinate?,
-        @ViewBuilder content: @escaping (SunArcBackgroundMoment) -> ClockContent
-    ) {
-        self.palette = palette
-        self.presentationCoordinate = presentationCoordinate
-#if DEBUG
-        self.debugOverride = nil
-#endif
-        self.content = content
-    }
-
-#if DEBUG
-    init(
-        palette: SunArcGroundPalette,
-        presentationCoordinate: SunArcCoordinate?,
-        debugOverride: SunArcBackgroundDebugOverride?,
-        @ViewBuilder content: @escaping (SunArcBackgroundMoment) -> ClockContent
-    ) {
-        self.palette = palette
-        self.presentationCoordinate = presentationCoordinate
-        self.debugOverride = debugOverride
-        self.content = content
-    }
-#endif
+    let scene: SunArcBackgroundScene?
+    @ViewBuilder let content: (SunArcBackgroundMoment) -> ClockContent
 
     var body: some View {
         TimelineView(.everyMinute) { context in
-#if DEBUG
-            let date = self.debugOverride?.date ?? context.date
-            let timeZone = self.debugOverride?.timeZone ?? .autoupdatingCurrent
-            let coordinate = self.debugOverride != nil
-                ? self.debugOverride?.presentationCoordinate
+            let date = self.scene?.date ?? context.date
+            let timeZone = self.scene?.timeZone ?? .autoupdatingCurrent
+            let coordinate = self.scene != nil
+                ? self.scene?.presentationCoordinate
                 : self.presentationCoordinate
-#else
-            let date = context.date
-            let timeZone = TimeZone.autoupdatingCurrent
-            let coordinate = self.presentationCoordinate
-#endif
-            let moment = SunArcBackgroundMoment.resolve(
+            self.content(SunArcBackgroundMoment.resolve(
                 date: date,
                 timeZone: timeZone,
                 palette: self.palette,
+                appearance: self.appearance,
                 presentationCoordinate: coordinate
-            )
-
-            self.content(moment)
-                .preferredColorScheme(moment.isDark ? .dark : .light)
+            ))
         }
     }
 }
@@ -326,8 +348,6 @@ private struct SunArcBackgroundTimeline<ClockContent: View>: View {
 private struct SunArcGroundCanvas: View {
     let moment: SunArcBackgroundMoment
     var viewportFrame: CGRect?
-    var palette: SunArcGroundPalette?
-    var tonalSun: Bool
     var gateDayGlow: Bool
     var captureIsActive: Bool
     var luminanceReduced: Bool
@@ -335,16 +355,12 @@ private struct SunArcGroundCanvas: View {
     init(
         moment: SunArcBackgroundMoment,
         viewportFrame: CGRect? = nil,
-        palette: SunArcGroundPalette? = nil,
-        tonalSun: Bool = false,
         gateDayGlow: Bool = false,
         captureIsActive: Bool = false,
         luminanceReduced: Bool = false
     ) {
         self.moment = moment
         self.viewportFrame = viewportFrame
-        self.palette = palette
-        self.tonalSun = tonalSun
         self.gateDayGlow = gateDayGlow
         self.captureIsActive = captureIsActive
         self.luminanceReduced = luminanceReduced
@@ -360,7 +376,6 @@ private struct SunArcGroundCanvas: View {
     var body: some View {
         GeometryReader { proxy in
             let localFrame = proxy.frame(in: .global)
-            let dayGroundHex = self.palette?.dayGroundHex ?? self.moment.groundHex
             if let sceneFrame = SunArcSceneFrame.resolve(
                 viewportFrame: self.viewportFrame,
                 localFrame: localFrame
@@ -375,8 +390,6 @@ private struct SunArcGroundCanvas: View {
                             width: localFrame.minX - sceneFrame.minX,
                             height: localFrame.minY - sceneFrame.minY
                         ),
-                        dayGroundHex: dayGroundHex,
-                        tonalSun: self.tonalSun,
                         gateDayGlow: self.gateDayGlow,
                         captureIsActive: self.captureIsActive,
                         luminanceReduced: self.luminanceReduced
@@ -387,18 +400,7 @@ private struct SunArcGroundCanvas: View {
                 // The root viewport arrives from `onGeometryChange` before the next
                 // display pass. Until then, paint only the shared ground: drawing a
                 // local mark in each iPad column would briefly create two suns.
-                let fallbackDrawing = sunArcCanvasDrawing(
-                    time: self.moment.time,
-                    envelope: self.moment.envelope,
-                    sunPosition: .zero,
-                    placement: SunArcPlacement(size: CGSize(width: 1, height: 1), tipRadius: 0.5),
-                    dayGroundHex: dayGroundHex,
-                    tonalSun: self.tonalSun,
-                    gateDayGlow: self.gateDayGlow,
-                    captureIsActive: self.captureIsActive,
-                    luminanceReduced: self.luminanceReduced
-                )
-                Color(sunArcHex: fallbackDrawing.groundHex)
+                Color(sunArcHex: self.luminanceReduced ? "#000000" : self.moment.groundHex)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -419,6 +421,31 @@ nonisolated enum SunArcSceneFrame {
     }
 }
 
+extension SunArcBackgroundMoment {
+    /// This moment drawn on a scene of `sceneSize`: the one frame function the Canvas and the
+    /// tests share.
+    func drawing(
+        sceneSize: CGSize,
+        gateDayGlow: Bool = false,
+        captureIsActive: Bool = false,
+        luminanceReduced: Bool = false
+    ) -> (placement: SunArcPlacement, drawing: SunArcCanvasDrawing) {
+        let diameter = SunArc.phi * Double(min(sceneSize.width, sceneSize.height))
+        let placement = SunArcPlacement(size: sceneSize, tipRadius: diameter / 2)
+        return (placement, sunArcCanvasDrawing(
+            time: self.time,
+            envelope: self.envelope,
+            twilight: self.twilight,
+            placement: placement,
+            grounds: self.grounds,
+            appearance: self.appearance,
+            gateDayGlow: gateDayGlow,
+            captureIsActive: captureIsActive,
+            luminanceReduced: luminanceReduced
+        ))
+    }
+}
+
 private enum SunArcBackgroundDrawing {
     static func draw(
         moment: SunArcBackgroundMoment,
@@ -426,8 +453,6 @@ private enum SunArcBackgroundDrawing {
         size: CGSize,
         sceneSize: CGSize,
         sceneOffset: CGSize,
-        dayGroundHex: String,
-        tonalSun: Bool,
         gateDayGlow: Bool,
         captureIsActive: Bool,
         luminanceReduced: Bool
@@ -435,66 +460,56 @@ private enum SunArcBackgroundDrawing {
         guard size.width > 0, size.height > 0,
               sceneSize.width > 0, sceneSize.height > 0
         else { return }
-        let diameter = SunArc.phi * Double(min(sceneSize.width, sceneSize.height))
-        let tipRadius = diameter / 2
-        let placement = SunArcPlacement(size: sceneSize, tipRadius: tipRadius)
-        let clampedT = min(1, max(0, moment.time.t))
-        let scenePosition = placement.position(at: clampedT)
-        let position = CGPoint(
-            x: scenePosition.x - sceneOffset.width,
-            y: scenePosition.y - sceneOffset.height
-        )
-
-        let drawing = sunArcCanvasDrawing(
-            time: moment.time,
-            envelope: moment.envelope,
-            sunPosition: scenePosition,
-            placement: placement,
-            dayGroundHex: dayGroundHex,
-            tonalSun: tonalSun,
+        let (placement, drawing) = moment.drawing(
+            sceneSize: sceneSize,
             gateDayGlow: gateDayGlow,
             captureIsActive: captureIsActive,
             luminanceReduced: luminanceReduced
         )
+        let diameter = 2 * placement.tipRadius
 
-        // Ground → glow → mark is the locked visual layer order.
+        // Ground → glows → mark is the locked visual layer order.
         context.fill(
             Path(CGRect(origin: .zero, size: size)),
             with: .color(Color(sunArcHex: drawing.groundHex))
         )
 
-        if drawing.glowAlpha > 0.002 {
-            let glowRadius = SunArc.phi * tipRadius
-            let glowPosition = CGPoint(
-                x: drawing.glowPosition.x - sceneOffset.width,
-                y: drawing.glowPosition.y - sceneOffset.height
+        for glow in drawing.glows where glow.alpha > 0.002 {
+            let center = CGPoint(
+                x: glow.center.x - sceneOffset.width,
+                y: glow.center.y - sceneOffset.height
             )
-            let glowColor = Color(sunArcHex: SunArc.goldHex)
+            let color = Color(sunArcHex: glow.colorHex)
             let gradient = Gradient(stops: [
-                .init(color: glowColor.opacity(drawing.glowAlpha), location: 0),
+                .init(color: color.opacity(glow.alpha), location: 0),
                 .init(
-                    color: glowColor.opacity(drawing.glowAlpha * SunArc.gradientMidRatio),
+                    color: color.opacity(glow.alpha * SunArc.gradientMidRatio),
                     location: SunArc.gradientMidStop
                 ),
-                .init(color: glowColor.opacity(0), location: 1),
+                .init(color: color.opacity(0), location: 1),
             ])
             context.fill(
                 Path(ellipseIn: CGRect(
-                    x: glowPosition.x - glowRadius,
-                    y: glowPosition.y - glowRadius,
-                    width: glowRadius * 2,
-                    height: glowRadius * 2
+                    x: center.x - glow.radius,
+                    y: center.y - glow.radius,
+                    width: glow.radius * 2,
+                    height: glow.radius * 2
                 )),
                 with: .radialGradient(
                     gradient,
-                    center: glowPosition,
+                    center: center,
                     startRadius: 0,
-                    endRadius: glowRadius
+                    endRadius: glow.radius
                 )
             )
         }
 
         guard drawing.drawSun else { return }
+        let scenePosition = placement.position(at: min(1, max(0, moment.time.t)))
+        let position = CGPoint(
+            x: scenePosition.x - sceneOffset.width,
+            y: scenePosition.y - sceneOffset.height
+        )
         context.drawLayer { layer in
             layer.opacity = drawing.sunOpacity
             layer.translateBy(x: position.x, y: position.y)

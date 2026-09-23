@@ -3,6 +3,11 @@
 # Copyright (c) 2026 sol pbc
 #
 # Capture simulator screenshots of the Apple Watch app across watch face states.
+#
+#   SHOTS_PINS='off on-1h12m'          only these face states (default: all six)
+#   SHOTS_SCENES='1300:--ui-test-sun-arc-denver-0923=13:00|1941-wrist-down:--ui-test-sun-arc-denver-0923=19:41 --watch-face-wrist-down'
+#                                       '|'-separated "stem:launch args" scenes per state
+#                                       (default: midday, night, midday wrist-down)
 
 set -uo pipefail
 
@@ -61,13 +66,20 @@ PINS=(
   "needs-attention:--watch-face-needs-attention"
 )
 
+IFS='|' read -r -a SCENES <<< "${SHOTS_SCENES:-midday:--ui-test-sun-arc-denver-midday|night:--ui-test-sun-arc-denver-night|midday-wrist-down:--ui-test-sun-arc-denver-midday --watch-face-wrist-down}"
+
 for pin_entry in "${PINS[@]}"; do
   stem_prefix="${pin_entry%%:*}"
   pin_arg="${pin_entry#*:}"
+  if [[ -n "${SHOTS_PINS:-}" && " ${SHOTS_PINS} " != *" ${stem_prefix} "* ]]; then
+    continue
+  fi
 
-  capture "${stem_prefix}-midday" "$pin_arg" "--ui-test-sun-arc-denver-midday"
-  capture "${stem_prefix}-night" "$pin_arg" "--ui-test-sun-arc-denver-night"
-  capture "${stem_prefix}-midday-wrist-down" "$pin_arg" "--ui-test-sun-arc-denver-midday" "--watch-face-wrist-down"
+  for scene in "${SCENES[@]}"; do
+    # shellcheck disable=SC2206
+    scene_args=( ${scene#*:} )
+    capture "${stem_prefix}-${scene%%:*}" "$pin_arg" "${scene_args[@]}"
+  done
 done
 
 xcrun simctl terminate "$SIM_UDID" "$BUNDLE_ID" >/dev/null 2>&1
