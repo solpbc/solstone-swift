@@ -795,7 +795,8 @@ final class ScreencastDeadSessionTests: XCTestCase {
         for i in 1...3 {
             await self.drainUntil { self.clock.pendingSleeperCount == 1 }
             self.clock.advance(by: 10)
-            await Task.yield()
+            // advance wakes the watchdog; its scan runs when that task is scheduled
+            await self.drainUntil { scanCount == i }
             XCTAssertEqual(scanCount, i)
         }
 
@@ -809,7 +810,7 @@ final class ScreencastDeadSessionTests: XCTestCase {
 
         await self.drainUntil { self.clock.pendingSleeperCount == 1 }
         self.clock.advance(by: 10)
-        await Task.yield()
+        await self.drainUntil { scanCount == 4 }
         XCTAssertEqual(scanCount, 4)
         XCTAssertEqual(uploader.callLog.entries.filter { $0 == "reconcileActiveSegments" }.count, 0)
 
@@ -817,7 +818,7 @@ final class ScreencastDeadSessionTests: XCTestCase {
         returnDeadScan = true
         await self.drainUntil { self.clock.pendingSleeperCount == 1 }
         self.clock.advance(by: 10)
-        await Task.yield()
+        await self.drainUntil { manager.state == .off }
 
         XCTAssertEqual(uploader.callLog.entries.filter { $0 == "reconcileActiveSegments" }.count, 1)
         XCTAssertEqual(manager.state, .off)
