@@ -606,10 +606,13 @@ final class IntegrationGateG2RangeHashTests: XCTestCase {
     }
 
     private static func drainUntil(
-        timeoutIterations: Int = 200,
+        timeout: Duration = .seconds(5),
         _ condition: @MainActor () -> Bool
     ) async {
-        for _ in 0..<timeoutIterations {
+        // Bounded by time, not by yields: the request starts on URLSession's own
+        // queue, which a count of main-actor yields cannot wait for under load.
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
             if condition() { return }
             await Task.yield()
         }
