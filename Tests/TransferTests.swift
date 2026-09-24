@@ -3558,8 +3558,10 @@ nonisolated final class TransferTests: XCTestCase {
         producerManifest.retryCount = 0
         producerManifest.lastRetriedAt = nil
 
+        // Initialized but not dispatching: the test moves the item on disk itself,
+        // and a live drain would retry it into the directory it just left.
         let engine = self.makeEngine(spool: spool)
-        try await engine.start()
+        try await engine.initialize()
 
         let queuedVerdict = try await engine.verifyEquivalentOwnership(
             expectedManifest: producerManifest,
