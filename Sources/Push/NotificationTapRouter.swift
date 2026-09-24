@@ -16,9 +16,14 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
         let userInfo: [AnyHashable: Any]
     }
 
+    private let isPaired: @Sendable () -> Bool
     private let onRoute: @MainActor @Sendable (NotificationRoute) -> Void
 
-    init(onRoute: @escaping @MainActor @Sendable (NotificationRoute) -> Void) {
+    init(
+        isPaired: @escaping @Sendable () -> Bool = { false },
+        onRoute: @escaping @MainActor @Sendable (NotificationRoute) -> Void
+    ) {
+        self.isPaired = isPaired
         self.onRoute = onRoute
     }
 
@@ -30,7 +35,8 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
         let content = response.notification.request.content
         let route = Self.route(
             categoryId: content.categoryIdentifier,
-            userInfo: content.userInfo
+            userInfo: content.userInfo,
+            isPaired: self.isPaired()
         )
         let onRoute = self.onRoute
 
@@ -50,22 +56,35 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
         completionHandler([.banner, .list, .sound])
     }
 
-    nonisolated static func route(from response: UNNotificationResponse) -> NotificationRoute {
+    nonisolated static func route(from response: UNNotificationResponse, isPaired: Bool = false) -> NotificationRoute {
         let content = response.notification.request.content
         return self.route(
             categoryId: content.categoryIdentifier,
-            userInfo: content.userInfo
+            userInfo: content.userInfo,
+            isPaired: isPaired
         )
     }
 
-    nonisolated static func route(from payload: TapPayload) -> NotificationRoute {
+    nonisolated static func route(from payload: TapPayload, isPaired: Bool = false) -> NotificationRoute {
         self.route(
             categoryId: payload.categoryIdentifier,
-            userInfo: payload.userInfo
+            userInfo: payload.userInfo,
+            isPaired: isPaired
         )
     }
 
-    nonisolated static func route(categoryId: String, userInfo: [AnyHashable: Any]) -> NotificationRoute {
+    nonisolated static func route(
+        categoryId: String,
+        userInfo: [AnyHashable: Any],
+        isPaired: Bool = false
+    ) -> NotificationRoute {
+        if let openPath = userInfo["solstone.open"] as? String,
+           !openPath.isEmpty,
+           isValidOpenPath(openPath),
+           isPaired {
+            return .journal(path: openPath)
+        }
+
         let data = userInfo["data"] as? [String: Any]
         if let action = data?["action"] as? String {
             log.info("resolving tap category=\(categoryId, privacy: .public) action=\(action, privacy: .public)")
@@ -91,7 +110,7 @@ final class NotificationTapRouter: NSObject, UNUserNotificationCenterDelegate, @
         case "observer-activity-rearm": Self.observerActivityRearmCategoryIdentifier
         default: kind
         }
-        let route = Self.route(categoryId: categoryId, userInfo: [:])
+        let route = Self.route(categoryId: categoryId, userInfo: [:], isPaired: self.isPaired())
         log.info("routed to \(route.logLabel, privacy: .public)")
         self.onRoute(route)
     }

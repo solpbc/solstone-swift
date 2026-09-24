@@ -53,15 +53,18 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     private let loadPairingClosure: @Sendable () throws -> StoredPairing?
     private let savePairingClosure: @Sendable (StoredPairing) throws -> Void
     private let deletePairingClosure: @Sendable () throws -> Void
+    private let deletePushKeyClosure: @Sendable () throws -> Void
 
     init(
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
-        deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() }
+        deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
+        deletePushKey: @escaping @Sendable () throws -> Void = {}
     ) {
         self.loadPairingClosure = loadPairing
         self.savePairingClosure = savePairing
         self.deletePairingClosure = deletePairing
+        self.deletePushKeyClosure = deletePushKey
 
         if let existing = try? loadPairing() {
             self.state.pairing = existing
@@ -73,7 +76,8 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
         self.init(
             loadPairing: { try store.load() },
             savePairing: { try store.save($0) },
-            deletePairing: { try store.delete() }
+            deletePairing: { try store.delete() },
+            deletePushKey: { try PushKeyStore.production().delete() }
         )
     }
 
@@ -140,6 +144,15 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
 
     func applyPairing(_ pairing: StoredPairing) throws {
         try self.keychainQueue.sync {
+            let previousFingerprint = self.lock.withLock { self.state.pairing?.fingerprint }
+            let shouldDeletePushKey = previousFingerprint == nil || previousFingerprint != pairing.fingerprint
+            if shouldDeletePushKey {
+                do {
+                    try self.deletePushKeyClosure()
+                } catch {
+                    storeLog.error("push key deletion failed on applyPairing")
+                }
+            }
             try self.savePairingClosure(pairing)
             self.lock.withLock {
                 self.state.pairing = pairing
@@ -301,6 +314,11 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     }
 
     private func publishClearedPairing() {
+        do {
+            try self.deletePushKeyClosure()
+        } catch {
+            storeLog.error("push key deletion failed on publishClearedPairing")
+        }
         self.lock.withLock {
             self.state.pairing = nil
             self.state.pairingGeneration &+= 1

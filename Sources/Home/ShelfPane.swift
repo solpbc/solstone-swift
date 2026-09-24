@@ -281,6 +281,7 @@ struct JournalSettingsPane: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(JournalUnpairNoticeStore.self) private var noticeStore
 
     @State private var showingForgetConfirm = false
     @State private var showingPairNewConfirm = false
@@ -402,14 +403,20 @@ struct JournalSettingsPane: View {
     }
 
     private func clearPairingAndReturnToOnboarding() async {
-        self.appConfig.clearPairing()
-        self.onboardingFlow.reset()
-        await self.tunnelManager.disconnect()
+        await unpairAndReturnToOnboarding(
+            appConfig: self.appConfig,
+            onboardingFlow: self.onboardingFlow,
+            tunnelManager: self.tunnelManager,
+            noticeStore: self.noticeStore
+        )
     }
 
     private func clearPairingForNewPair() async {
-        self.appConfig.clearPairing()
-        await self.tunnelManager.disconnect()
+        await unpairForNewPair(
+            appConfig: self.appConfig,
+            tunnelManager: self.tunnelManager,
+            noticeStore: self.noticeStore
+        )
         self.showingPairFlow = true
     }
 }
@@ -475,6 +482,7 @@ private struct UnpairThisDeviceAlert: ViewModifier {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(JournalUnpairNoticeStore.self) private var noticeStore
 
     func body(content: Content) -> some View {
         content.alert("unpair this device?", isPresented: self.$isPresented) {
@@ -490,10 +498,12 @@ private struct UnpairThisDeviceAlert: ViewModifier {
     }
 
     private func unpair() async {
-        shelfLog.info("unpair clearing local SPL pairing")
-        self.appConfig.clearPairing()
-        self.onboardingFlow.reset()
-        await self.tunnelManager.disconnect()
+        await unpairThisDevice(
+            appConfig: self.appConfig,
+            onboardingFlow: self.onboardingFlow,
+            tunnelManager: self.tunnelManager,
+            noticeStore: self.noticeStore
+        )
     }
 }
 

@@ -327,7 +327,7 @@ final class TunnelManager {
         self.pathMonitor = pathMonitor
         self.loadPairing = { try effectiveStore.load() }
         self.savePairing = savePairing
-        self.deletePairing = { try effectiveStore.clearPairing() }
+        self.deletePairing = deletePairing
         self.deviceTokenRefresher = deviceTokenRefresher
         self.probeSession = probeSession
         self.probeURLBuilder = probeURLBuilder

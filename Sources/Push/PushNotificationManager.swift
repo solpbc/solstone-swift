@@ -29,7 +29,7 @@ final class PushNotificationManager {
     private enum DefaultsKey {
         static let pendingRegistrationToken = "push.pendingRegistrationToken"
         static let lastRegisteredToken = "push.lastRegisteredToken"
-        static let lastRegisteredEnvironment = "push.lastRegisteredEnvironment"
+        static let registeredEnvironment = "push.registeredEnvironment"
     }
 
     private(set) var permissionState: PermissionState = .notDetermined
@@ -39,6 +39,7 @@ final class PushNotificationManager {
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let session: URLSession
+    @ObservationIgnored private let keyStore: PushKeyStore
     @ObservationIgnored private let retryDelays: [UInt64]
     @ObservationIgnored private let sleep: @Sendable (UInt64) async -> Void
     @ObservationIgnored private let bundleIdentifierOverride: String?
@@ -48,10 +49,15 @@ final class PushNotificationManager {
     @ObservationIgnored private let profileBytes: @Sendable () -> Data?
     @ObservationIgnored private var tokenContinuations: [UUID: AsyncStream<String>.Continuation] = [:]
 
-    convenience init(defaults: UserDefaults = .standard, session: URLSession = .shared) {
+    convenience init(
+        defaults: UserDefaults = .standard,
+        session: URLSession = .shared,
+        keyStore: PushKeyStore = .production()
+    ) {
         self.init(
             defaults: defaults,
             session: session,
+            keyStore: keyStore,
             retryDelays: [
                 2_000_000_000,
                 4_000_000_000,
@@ -66,6 +72,7 @@ final class PushNotificationManager {
     init(
         defaults: UserDefaults,
         session: URLSession,
+        keyStore: PushKeyStore = .production(),
         retryDelays: [UInt64],
         sleep: @escaping @Sendable (UInt64) async -> Void,
         bundleIdentifierOverride: String? = nil,
@@ -85,6 +92,7 @@ final class PushNotificationManager {
     ) {
         self.defaults = defaults
         self.session = session
+        self.keyStore = keyStore
         self.retryDelays = retryDelays
         self.sleep = sleep
         self.bundleIdentifierOverride = bundleIdentifierOverride
@@ -169,13 +177,6 @@ final class PushNotificationManager {
             return
         }
 
-        if self.shouldSkipRegistration(for: hexToken) {
-            self.defaults.removeObject(forKey: DefaultsKey.pendingRegistrationToken)
-            self.registrationState = .registered(token: hexToken)
-            log.debug("push registration skipped: token unchanged")
-            return
-        }
-
         guard let localPort = self.activeLocalPort else {
             self.defaults.set(hexToken, forKey: DefaultsKey.pendingRegistrationToken)
             self.registrationState = .idle
@@ -192,14 +193,13 @@ final class PushNotificationManager {
         if let pendingToken = self.defaults.string(forKey: DefaultsKey.pendingRegistrationToken),
            !pendingToken.isEmpty
         {
-            if self.shouldSkipRegistration(for: pendingToken) {
-                self.defaults.removeObject(forKey: DefaultsKey.pendingRegistrationToken)
-                self.registrationState = .registered(token: pendingToken)
-                log.debug("push registration replay skipped: token unchanged")
-                return
-            }
-
             await self.register(token: pendingToken, localPort: localPort)
+        } else if let token = self.deviceToken, !token.isEmpty {
+            await self.register(token: token, localPort: localPort)
+        } else if let lastToken = self.defaults.string(forKey: DefaultsKey.lastRegisteredToken),
+                  !lastToken.isEmpty
+        {
+            await self.register(token: lastToken, localPort: localPort)
         }
     }
 
@@ -233,44 +233,6 @@ final class PushNotificationManager {
         }
     }
 
-    func deregister() async {
-        guard let token = self.deviceToken ?? self.defaults.string(forKey: DefaultsKey.lastRegisteredToken) else {
-            return
-        }
-        guard let localPort = self.activeLocalPort,
-              let url = PushServerURL.url(path: "/api/push/register", localPort: localPort)
-        else {
-            log.error("push deregistration failed: missing active local port")
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "DELETE"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = self.registrationBody(token: token)
-
-        do {
-            request.attachLoopbackCapability()
-            let (_, response) = try await self.session.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                log.error("push deregistration failed: invalid response")
-                return
-            }
-            guard 200..<300 ~= http.statusCode else {
-                log.error("push deregistration failed: HTTP \(http.statusCode)")
-                return
-            }
-
-            self.defaults.removeObject(forKey: DefaultsKey.pendingRegistrationToken)
-            self.defaults.removeObject(forKey: DefaultsKey.lastRegisteredToken)
-            self.defaults.removeObject(forKey: DefaultsKey.lastRegisteredEnvironment)
-            self.registrationState = .idle
-            log.info("push deregistered on port \(localPort)")
-        } catch {
-            log.error("push deregistration failed: \(error.localizedDescription, privacy: .public)")
-        }
-    }
-
     func handleRemoteRegistrationFailure(_ error: any Error) {
         let detail = error.localizedDescription
         self.registrationState = .failed(reason: detail)
@@ -301,10 +263,10 @@ final class PushNotificationManager {
         let plistData = Data(profile[start..<closeRange.upperBound])
         let entitlementsKey = "entitlements".capitalized
         guard let plist = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil),
-              let dict = plist as? [String: Any],
-              let entitlements = dict[entitlementsKey] as? [String: Any],
-              let environment = entitlements["aps-environment"] as? String,
-              !environment.isEmpty
+               let dict = plist as? [String: Any],
+               let entitlements = dict[entitlementsKey] as? [String: Any],
+               let environment = entitlements["aps-environment"] as? String,
+               !environment.isEmpty
         else {
             return nil
         }
@@ -350,19 +312,37 @@ private extension PushNotificationManager {
         }
 
         if let lastToken = self.defaults.string(forKey: DefaultsKey.lastRegisteredToken),
-           self.defaults.string(forKey: DefaultsKey.lastRegisteredEnvironment) == self.environmentName
+           !lastToken.isEmpty
         {
-            self.deviceToken = lastToken
-            self.registrationState = .registered(token: lastToken)
+            let registeredEnvironment = self.defaults.string(forKey: DefaultsKey.registeredEnvironment)
+            if registeredEnvironment == self.environmentName {
+                self.deviceToken = lastToken
+                self.registrationState = .registered(token: lastToken)
+            }
         }
     }
 
-    func shouldSkipRegistration(for token: String) -> Bool {
-        self.defaults.string(forKey: DefaultsKey.lastRegisteredToken) == token
-            && self.defaults.string(forKey: DefaultsKey.lastRegisteredEnvironment) == self.environmentName
-    }
-
     func register(token: String, localPort: Int) async {
+        let pushKey: Data
+        do {
+            pushKey = try self.keyStore.loadOrCreate()
+        } catch PushKeyStoreError.badPrefix {
+            self.defaults.set(token, forKey: DefaultsKey.pendingRegistrationToken)
+            self.registrationState = .failed(reason: "no_key")
+            log.error("push registration failed: bad prefix (no_key)")
+            return
+        } catch PushKeyStoreError.interactionNotAllowed {
+            self.defaults.set(token, forKey: DefaultsKey.pendingRegistrationToken)
+            self.registrationState = .failed(reason: "key_unavailable")
+            log.error("push registration failed: keychain locked (key_unavailable)")
+            return
+        } catch {
+            self.defaults.set(token, forKey: DefaultsKey.pendingRegistrationToken)
+            self.registrationState = .failed(reason: "push_key_failed")
+            log.error("push registration failed: push key error (\(error.localizedDescription, privacy: .public))")
+            return
+        }
+
         guard let url = PushServerURL.url(path: "/api/push/register", localPort: localPort) else {
             self.defaults.set(token, forKey: DefaultsKey.pendingRegistrationToken)
             self.registrationState = .failed(reason: "invalid registration url")
@@ -378,7 +358,7 @@ private extension PushNotificationManager {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.httpBody = self.registrationBody(token: token)
+                request.httpBody = self.registrationBody(token: token, pushKey: pushKey)
 
                 request.attachLoopbackCapability()
                 let (_, response) = try await self.session.data(for: request)
@@ -394,7 +374,7 @@ private extension PushNotificationManager {
 
                 self.defaults.removeObject(forKey: DefaultsKey.pendingRegistrationToken)
                 self.defaults.set(token, forKey: DefaultsKey.lastRegisteredToken)
-                self.defaults.set(self.environmentName, forKey: DefaultsKey.lastRegisteredEnvironment)
+                self.defaults.set(self.environmentName, forKey: DefaultsKey.registeredEnvironment)
                 self.deviceToken = token
                 self.registrationState = .registered(token: token)
                 log.info("push registered on port \(localPort)")
@@ -413,12 +393,13 @@ private extension PushNotificationManager {
         log.error("push registration failed on port \(localPort): \(lastFailure, privacy: .public)")
     }
 
-    func registrationBody(token: String) -> Data? {
+    func registrationBody(token: String, pushKey: Data) -> Data? {
         let payload: [String: String] = [
             "device_token": token,
             "bundle_id": self.bundleIdentifier,
             "environment": self.environmentName,
             "platform": "ios",
+            "push_key": pushKey.base64URLEncodedString(),
         ]
         return try? JSONSerialization.data(withJSONObject: payload)
     }

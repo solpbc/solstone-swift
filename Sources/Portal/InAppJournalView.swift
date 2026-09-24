@@ -215,6 +215,7 @@ struct JournalWebView: UIViewRepresentable {
 struct InAppJournalView: View {
     var mark: JournalMark? = nil
     var presentation: ShellPanePresentation = .phoneModal
+    var path: String = "/"
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(\.dismiss) private var dismiss
@@ -223,7 +224,10 @@ struct InAppJournalView: View {
     @State private var reloadToken = 0
 
     private var resolvedURL: URL? {
-        JournalWebPresentation.resolvedURL(activeLocalPort: self.tunnelManager.activeConnection?.port)
+        JournalWebPresentation.resolvedURL(
+            activeLocalPort: self.tunnelManager.activeConnection?.port,
+            path: self.path
+        )
     }
 
     private var headingString: String {

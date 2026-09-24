@@ -19,9 +19,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     let pushManager = PushNotificationManager()
     let pendingRoute = PendingNotificationRouteState()
-    lazy var tapRouter = NotificationTapRouter { [weak self] route in
-        self?.pendingRoute.route = route
-    }
+    lazy var tapRouter = NotificationTapRouter(
+        isPaired: { (try? SPLRuntime.pairingStore.load()) != nil },
+        onRoute: { [weak self] route in
+            self?.pendingRoute.route = route
+        }
+    )
 
     nonisolated func application(
         _ application: UIApplication,

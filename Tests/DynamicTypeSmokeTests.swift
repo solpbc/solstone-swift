@@ -156,6 +156,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(PushNotificationManager())
             .environment(problemReportsManager)
             .environment(ShellNavModel())
+            .environment(JournalUnpairNoticeStore())
 
         let sourcesView = NavigationStack {
             SourcesView()
@@ -284,6 +285,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
 
         try self.assertHosted(
             WelcomeScreen(onGetStarted: {})
+                .environment(JournalUnpairNoticeStore())
                 .environment(\.dynamicTypeSize, .accessibility3)
         )
         let statusPane = NavigationStack {

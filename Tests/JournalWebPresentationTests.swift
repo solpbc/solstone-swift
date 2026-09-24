@@ -12,6 +12,16 @@ nonisolated final class JournalWebPresentationTests: XCTestCase {
 
         XCTAssertNotEqual(firstURL, secondURL)
         XCTAssertNil(JournalWebPresentation.resolvedURL(activeLocalPort: nil))
+        XCTAssertEqual(firstURL.path, "/")
+        XCTAssertEqual(firstURL.absoluteString, "http://127.0.0.1:8080/")
+    }
+
+    func testResolvedURLWithPath() throws {
+        let healthURL = try XCTUnwrap(JournalWebPresentation.resolvedURL(activeLocalPort: 8080, path: "/app/health"))
+        XCTAssertEqual(healthURL.absoluteString, "http://127.0.0.1:8080/app/health")
+
+        let defaultURL = try XCTUnwrap(JournalWebPresentation.resolvedURL(activeLocalPort: 8080))
+        XCTAssertEqual(defaultURL.absoluteString, "http://127.0.0.1:8080/")
     }
 
     func testLoadStateMapsStartedToLoading() {

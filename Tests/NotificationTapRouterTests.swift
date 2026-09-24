@@ -42,6 +42,55 @@ nonisolated final class NotificationTapRouterTests: XCTestCase {
     }
 
     @MainActor
+    func testValidOpenPathWhenPairedRoutesToJournal() {
+        let route = NotificationTapRouter.route(
+            categoryId: "",
+            userInfo: ["solstone.open": "/app/health"],
+            isPaired: true
+        )
+
+        XCTAssertEqual(route, .journal(path: "/app/health"))
+        XCTAssertEqual(route.logLabel, "journal")
+        XCTAssertEqual(NotificationRoute.journal(path: "/secret").logLabel, "journal")
+    }
+
+    @MainActor
+    func testValidOpenPathWhenUnpairedRoutesToToday() {
+        let route = NotificationTapRouter.route(
+            categoryId: "",
+            userInfo: ["solstone.open": "/app/health"],
+            isPaired: false
+        )
+
+        XCTAssertEqual(route, .today)
+    }
+
+    @MainActor
+    func testInvalidOpenPathRoutesToTodayEvenWhenPaired() {
+        let invalidPaths = [
+            "/api/push/register",
+            "app/x",
+            "//evil",
+            "/app/../b",
+            "/app/./b",
+            "/app/a?x",
+            "/app/a#b",
+            "/app/a%20b",
+            "/app/a\\b",
+            "/app/a b",
+        ]
+
+        for path in invalidPaths {
+            let route = NotificationTapRouter.route(
+                categoryId: "",
+                userInfo: ["solstone.open": path],
+                isPaired: true
+            )
+            XCTAssertEqual(route, .today, "expected fallback for path: \(path)")
+        }
+    }
+
+    @MainActor
     func testRetiredChatTokensRouteToToday() {
         XCTAssertEqual(
             NotificationTapRouter.route(categoryId: "SOLSTONE_SOL_CHAT_REQUEST", userInfo: [:]),

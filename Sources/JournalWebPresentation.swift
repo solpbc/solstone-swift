@@ -18,9 +18,10 @@ nonisolated enum JournalWebPresentation {
     }
 
     /// Resolves the live loopback journal URL at present time. Thin wrapper over
-    /// ConveyURL.rootURL so the in-app view has a single presentation-layer entry.
-    static func resolvedURL(activeLocalPort: Int?) -> URL? {
-        ConveyURL.rootURL(activeLocalPort: activeLocalPort)
+    /// ConveyURL so the in-app view has a single presentation-layer entry.
+    static func resolvedURL(activeLocalPort: Int?, path: String = "/") -> URL? {
+        guard let port = activeLocalPort else { return nil }
+        return ConveyURL.url(localPort: port, path: path)
     }
 
     static func loadState(for outcome: NavigationOutcome) -> LoadState {

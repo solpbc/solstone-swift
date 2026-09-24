@@ -105,6 +105,7 @@ nonisolated enum ShellPanePresentation: Sendable {
 struct ShellDestinationView: View {
     let destination: ShellDestination
     var journalMark: JournalMark? = nil
+    var journalPath: String = "/"
     var onOpenJournal: (() -> Void)? = nil
 
     @Environment(ShellNavModel.self) private var nav
@@ -129,7 +130,7 @@ struct ShellDestinationView: View {
         case .status:
             StatusPane(presentation: .detail)
         case .journal:
-            InAppJournalView(mark: self.journalMark, presentation: .detail)
+            InAppJournalView(mark: self.journalMark, presentation: .detail, path: self.journalPath)
         case .journalSetup:
             JournalLivesPane()
         case .addMore:

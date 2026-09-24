@@ -25,6 +25,7 @@ struct RootShellView: View {
     @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
     @State private var showingJournalLives = false
     @State private var presentedPane: PresentedShellPane?
+    @State private var journalInitialPath: String = "/"
     /// Seeded from the store so the owner's own mark is on screen in the **first frame**,
     /// before any tunnel exists. See `JournalMarkStore` for why this is an absolute.
     @State private var journalMark: JournalMark? = RootShellView.storedJournalMark()
@@ -123,7 +124,7 @@ struct RootShellView: View {
     private var shellWithSheets: some View {
         self.shellLayers
         .sheet(isPresented: self.isJournalPresented) {
-            InAppJournalView(mark: self.journalMark, presentation: .phoneModal)
+            InAppJournalView(mark: self.journalMark, presentation: .phoneModal, path: self.journalInitialPath)
                 // Full height — the largest system detent, so the pane's top reaches
                 // the top of the screen instead of leaving the deck readable above it.
                 .presentationDetents([.large])
@@ -329,7 +330,11 @@ struct RootShellView: View {
                 // stopped the shell rendering. Applied to the content it simply works.
                 .accessibilityHidden(self.presentedPane == .shelf)
                 .navigationDestination(for: ShellDestination.self) { destination in
-                    ShellDestinationView(destination: destination, journalMark: self.journalMark)
+                    ShellDestinationView(
+                        destination: destination,
+                        journalMark: self.journalMark,
+                        journalPath: self.journalInitialPath
+                    )
                 }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -384,10 +389,15 @@ struct RootShellView: View {
         return NavigationStack(path: $nav.paneStack) {
             ShellDestinationView(
                 destination: self.paneRootDestination,
-                journalMark: self.journalMark
+                journalMark: self.journalMark,
+                journalPath: self.journalInitialPath
             )
                 .navigationDestination(for: ShellDestination.self) { destination in
-                    ShellDestinationView(destination: destination, journalMark: self.journalMark)
+                    ShellDestinationView(
+                        destination: destination,
+                        journalMark: self.journalMark,
+                        journalPath: self.journalInitialPath
+                    )
                 }
         }
     }
@@ -411,7 +421,8 @@ struct RootShellView: View {
     /// replaces the pane root; collapsed, each one keeps the phone shell's own
     /// presentation. `applyDebugSeeds()` routes through these same methods so the
     /// seed and the real opener cannot drift.
-    private func openJournal() {
+    private func openJournal(path: String = "/") {
+        self.journalInitialPath = path
         if self.isPhoneShell {
             self.presentedPane = .journal
         } else {
@@ -483,7 +494,11 @@ struct RootShellView: View {
                 }
             }
             .navigationDestination(for: ShellDestination.self) { destination in
-                ShellDestinationView(destination: destination, journalMark: self.journalMark)
+                ShellDestinationView(
+                    destination: destination,
+                    journalMark: self.journalMark,
+                    journalPath: self.journalInitialPath
+                )
             }
         }
         .presentationDetents([.medium, .large], selection: self.$statusDetent)
@@ -617,6 +632,8 @@ struct RootShellView: View {
             Task { @MainActor in
                 await self.observerManager.rearmLiveActivity()
             }
+        case .journal(let path):
+            self.openJournal(path: path)
         }
         self.pendingRoute.route = nil
     }

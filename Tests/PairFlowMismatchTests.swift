@@ -28,6 +28,10 @@ private final class PairFlowMismatchPairingStore: @unchecked Sendable {
     }
 }
 
+private final class BoolBox: @unchecked Sendable {
+    var value = false
+}
+
 nonisolated final class PairFlowMismatchTests: XCTestCase {
     @MainActor
     func testMismatchTeardownClearsAppPairingAndDisconnectsTunnel() async throws {
@@ -64,12 +68,19 @@ nonisolated final class PairFlowMismatchTests: XCTestCase {
             pairOperation: { _, _, _, _ in pairing }
         )
 
+        let transportAsked = BoolBox()
         await tearDownMismatchedPairing(
             appConfig: appConfig,
             tunnelManager: tunnel,
-            coordinator: coordinator
+            coordinator: coordinator,
+            transport: { request in
+                transportAsked.value = true
+                let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+                return (Data(), response)
+            }
         )
 
+        XCTAssertTrue(transportAsked.value)
         XCTAssertFalse(appConfig.isPaired)
         XCTAssertNil(store.load())
         XCTAssertEqual(tunnel.state, .disconnected)
@@ -88,9 +99,9 @@ nonisolated final class PairFlowMismatchTests: XCTestCase {
             homeLabel: "sol",
             relayEndpoint: "wss://relay.example.com",
             fingerprint: "sha256:\(String(repeating: "a", count: 64))",
-            clientCertPEM: "cert",
+            clientCertPEM: CertlessTrustFixtures.leafPEM,
             clientKeyPEM: "key",
-            caChainPEM: "ca",
+            caChainPEM: CertlessTrustFixtures.caPEM,
             relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
             localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 7071, scope: "")],
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)

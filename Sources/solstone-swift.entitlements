@@ -12,5 +12,10 @@
 	<array>
 		<string>group.app.solstone.swift</string>
 	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)app.solstone.swift</string>
+		<string>$(AppIdentifierPrefix)app.solstone.push</string>
+	</array>
 </dict>
 </plist>

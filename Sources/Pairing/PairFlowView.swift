@@ -320,6 +320,8 @@ struct PairFlowView: View {
     @ViewBuilder
     private var pairingContent: some View {
         VStack(alignment: .leading, spacing: 16) {
+            JournalUnpairNoticeBanner()
+
             Picker(
                 "pairing method",
                 selection: Binding(

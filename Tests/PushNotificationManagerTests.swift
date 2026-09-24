@@ -58,27 +58,49 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
 
     @MainActor
     func testRegisterBodyMatchesContract() async throws {
+        let recordedBodies = OSAllocatedUnfairLock<[[String: String]]>(initialState: [])
         PushManagerURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/api/push/register")
             let body = try XCTUnwrap(requestBody(from: request))
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
-            XCTAssertEqual(json["device_token"], "deadbeef")
-            XCTAssertEqual(json["bundle_id"], "app.solstone.swift")
-            XCTAssertEqual(json["environment"], "development")
-            XCTAssertEqual(json["platform"], "ios")
+            recordedBodies.withLock { $0.append(json) }
             return (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data()
             )
         }
 
-        let manager = self.makeManager()
+        let keyStore = PushKeyStore.memory()
+        let manager = self.makeManager(keyStore: keyStore)
         await MainActor.run {
             manager.activeLocalPort = 8474
         }
 
         await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
+        let bodies1 = recordedBodies.withLock { $0 }
+        XCTAssertEqual(bodies1.count, 1)
+        let firstBody = bodies1[0]
+        let expectedKeys = Set(["bundle_id", "device_token", "environment", "platform", "push_key"])
+        XCTAssertEqual(Set(firstBody.keys), expectedKeys)
+        XCTAssertEqual(firstBody["device_token"], "deadbeef")
+        XCTAssertEqual(firstBody["bundle_id"], "app.solstone.swift")
+        XCTAssertEqual(firstBody["environment"], "development")
+        XCTAssertEqual(firstBody["platform"], "ios")
+        let firstPushKey = try XCTUnwrap(firstBody["push_key"])
+
+        // Second registration yields same push_key
+        await manager.handleTunnelConnected(localPort: 8474)
+        let bodies2 = recordedBodies.withLock { $0 }
+        XCTAssertEqual(bodies2.count, 2)
+        XCTAssertEqual(bodies2[1]["push_key"], firstPushKey)
+
+        // After delete, next body has different push_key
+        try keyStore.delete()
+        await manager.handleTunnelConnected(localPort: 8474)
+        let bodies3 = recordedBodies.withLock { $0 }
+        XCTAssertEqual(bodies3.count, 3)
+        XCTAssertNotEqual(bodies3[2]["push_key"], firstPushKey)
     }
 
     @MainActor
@@ -127,12 +149,9 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testSameTokenSkipsNetworkRegistration() async {
-        self.defaults.set("deadbeef", forKey: "push.lastRegisteredToken")
-        self.defaults.set("development", forKey: "push.lastRegisteredEnvironment")
+    func testTunnelConnectedReregisters() async {
         PushManagerURLProtocol.handler = { request in
-            XCTFail("expected skip without network request")
-            return (
+            (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
                 Data()
             )
@@ -144,9 +163,101 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         }
 
         await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
+        XCTAssertEqual(PushManagerURLProtocol.callCount, 1)
 
-        XCTAssertEqual(PushManagerURLProtocol.callCount, 0)
+        await manager.handleTunnelConnected(localPort: 8474)
+        XCTAssertEqual(PushManagerURLProtocol.callCount, 2)
         XCTAssertEqual(manager.registrationState, .registered(token: "deadbeef"))
+    }
+
+    @MainActor
+    func testHandleTunnelConnectedTokenSources() async {
+        PushManagerURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+
+        // 1. No pending token and known deviceToken -> sends 1
+        PushManagerURLProtocol.callCount = 0
+        let manager1 = self.makeManager()
+        await manager1.submitToken(Data([0x11, 0x22, 0x33, 0x44]))
+        XCTAssertEqual(PushManagerURLProtocol.callCount, 0) // not connected yet
+        XCTAssertEqual(self.defaults.string(forKey: "push.pendingRegistrationToken"), "11223344")
+        self.defaults.removeObject(forKey: "push.pendingRegistrationToken")
+        XCTAssertEqual(manager1.deviceToken, "11223344")
+        await manager1.handleTunnelConnected(localPort: 8474)
+        XCTAssertEqual(PushManagerURLProtocol.callCount, 1)
+
+        // 2. Only push.lastRegisteredToken (env mismatch so restore does not copy it to deviceToken) -> sends 1
+        PushManagerURLProtocol.callCount = 0
+        let manager2Defaults = UserDefaults(suiteName: "T2.\(UUID().uuidString)")!
+        manager2Defaults.set("55667788", forKey: "push.lastRegisteredToken")
+        manager2Defaults.set("production", forKey: "push.registeredEnvironment") // mismatch with override "development"
+        let manager2 = PushNotificationManager(
+            defaults: manager2Defaults,
+            session: self.session,
+            keyStore: .memory(),
+            retryDelays: [1],
+            sleep: { _ in },
+            bundleIdentifierOverride: "app.solstone.swift",
+            environmentOverride: "development",
+            register: {},
+            isSimulator: false,
+            profileBytes: { nil }
+        )
+        XCTAssertNil(manager2.deviceToken)
+        await manager2.handleTunnelConnected(localPort: 8474)
+        XCTAssertEqual(PushManagerURLProtocol.callCount, 1)
+
+        // 3. None of the three -> sends none
+        PushManagerURLProtocol.callCount = 0
+        let manager3Defaults = UserDefaults(suiteName: "T3.\(UUID().uuidString)")!
+        let manager3 = PushNotificationManager(
+            defaults: manager3Defaults,
+            session: self.session,
+            keyStore: .memory(),
+            retryDelays: [1],
+            sleep: { _ in },
+            bundleIdentifierOverride: "app.solstone.swift",
+            environmentOverride: "development",
+            register: {},
+            isSimulator: false,
+            profileBytes: { nil }
+        )
+        XCTAssertNil(manager3.deviceToken)
+        await manager3.handleTunnelConnected(localPort: 8474)
+        XCTAssertEqual(PushManagerURLProtocol.callCount, 0)
+    }
+
+    @MainActor
+    func testBadPrefixFailsWithNoKeyReason() async {
+        let badStore = PushKeyStore.memory(prefix: "INVALID")
+        let manager = self.makeManager(keyStore: badStore)
+        await MainActor.run {
+            manager.activeLocalPort = 8474
+        }
+
+        await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
+        XCTAssertEqual(manager.registrationState, .failed(reason: "no_key"))
+    }
+
+    @MainActor
+    func testKeychainLockedFailsWithKeyUnavailableReason() async {
+        let seam = PushKeyStore.SecItemSeam(
+            copy: { _ in (errSecInteractionNotAllowed, nil) },
+            add: { _ in errSecInteractionNotAllowed },
+            delete: { _ in errSecInteractionNotAllowed }
+        )
+        let lockedStore = PushKeyStore(seam: seam, prefix: "7QCG8V4M6H.")
+        let manager = self.makeManager(keyStore: lockedStore)
+        await MainActor.run {
+            manager.activeLocalPort = 8474
+        }
+
+        await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
+        XCTAssertEqual(manager.registrationState, .failed(reason: "key_unavailable"))
     }
 
     @MainActor
@@ -208,6 +319,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
     }
 
     @MainActor private func makeManager(
+        keyStore: PushKeyStore = .memory(),
         retryDelays: [UInt64] = [1, 2, 3],
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
         environmentOverride: String? = "development",
@@ -218,6 +330,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         PushNotificationManager(
             defaults: self.defaults,
             session: self.session,
+            keyStore: keyStore,
             retryDelays: retryDelays,
             sleep: sleep,
             bundleIdentifierOverride: "app.solstone.swift",

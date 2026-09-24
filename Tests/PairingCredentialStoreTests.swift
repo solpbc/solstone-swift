@@ -432,6 +432,92 @@ final class PairingCredentialStoreTests: XCTestCase {
         XCTAssertEqual(try keychain.load(), updated)
     }
 
+    func testDeletePushKeyCalledOnClearPairing() throws {
+        let holder = StoredHolder(makeSamplePairing())
+        let deletePushKeyCount = StoreTestCounter()
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil },
+            deletePushKey: { _ = deletePushKeyCount.next() }
+        )
+
+        try store.clearPairing()
+        XCTAssertEqual(deletePushKeyCount.value, 1)
+        XCTAssertNil(holder.stored)
+    }
+
+    func testDeletePushKeyCalledOnFingerprintChange() throws {
+        let holder = StoredHolder(makeSamplePairing(instanceID: "inst-1"))
+        let deletePushKeyCount = StoreTestCounter()
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil },
+            deletePushKey: { _ = deletePushKeyCount.next() }
+        )
+
+        var pairing2 = makeSamplePairing(instanceID: "inst-2")
+        pairing2 = StoredPairing(
+            instanceID: pairing2.instanceID,
+            homeLabel: pairing2.homeLabel,
+            relayEndpoint: pairing2.relayEndpoint,
+            fingerprint: "different-fingerprint",
+            clientCertPEM: pairing2.clientCertPEM,
+            clientKeyPEM: pairing2.clientKeyPEM,
+            caChainPEM: pairing2.caChainPEM,
+            relayEnrollment: pairing2.relayEnrollment,
+            localEndpoints: pairing2.localEndpoints,
+            pairedAt: pairing2.pairedAt
+        )
+
+        try store.applyPairing(pairing2)
+        XCTAssertEqual(deletePushKeyCount.value, 1)
+    }
+
+    func testDeletePushKeyNotCalledOnSameFingerprint() throws {
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        let holder = StoredHolder(pairing)
+        let deletePushKeyCount = StoreTestCounter()
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil },
+            deletePushKey: { _ = deletePushKeyCount.next() }
+        )
+
+        try store.applyPairing(pairing)
+        XCTAssertEqual(deletePushKeyCount.value, 0)
+    }
+
+    func testApplyPairingWithNoStoredPairingCallsDeletePushKey() throws {
+        let holder = StoredHolder(nil)
+        let deletePushKeyCount = StoreTestCounter()
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil },
+            deletePushKey: { _ = deletePushKeyCount.next() }
+        )
+
+        let pairing = makeSamplePairing(instanceID: "inst-1")
+        try store.applyPairing(pairing)
+        XCTAssertEqual(deletePushKeyCount.value, 1)
+    }
+
+    func testThrownDeletePushKeyStillClearsPairing() throws {
+        let holder = StoredHolder(makeSamplePairing())
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil },
+            deletePushKey: { throw NSError(domain: "TestError", code: -1) }
+        )
+
+        try store.clearPairing()
+        XCTAssertNil(holder.stored)
+        XCTAssertNil(store.snapshot().pairing)
+    }
 }
 
 

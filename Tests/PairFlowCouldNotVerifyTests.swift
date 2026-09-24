@@ -28,6 +28,10 @@ private final class PairFlowCouldNotVerifyPairingStore: @unchecked Sendable {
     }
 }
 
+private final class BoolBox: @unchecked Sendable {
+    var value = false
+}
+
 nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
     // AC1: timeout outcome transitions phase to .couldNotVerify without completing gate or tearing down
     @MainActor
@@ -156,6 +160,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
             pairOperation: { _, _, _, _ in pairing }
         )
 
+        let transportAsked1 = BoolBox()
         let applicator = PairFlowConfirmationApplicator(
             initialPhase: .couldNotVerify,
             completionGate: PairFlowCompletionGate(),
@@ -163,13 +168,19 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
                 await tearDownMismatchedPairing(
                     appConfig: appConfig,
                     tunnelManager: tunnel,
-                    coordinator: coordinator
+                    coordinator: coordinator,
+                    transport: { request in
+                        transportAsked1.value = true
+                        let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+                        return (Data(), response)
+                    }
                 )
             }
         )
 
         await applicator.cancelPairing()
 
+        XCTAssertTrue(transportAsked1.value)
         XCTAssertFalse(appConfig.isPaired)
         XCTAssertNil(store.load())
         XCTAssertEqual(tunnel.state, .disconnected)
@@ -211,6 +222,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
         )
 
         var teardownInvoked = false
+        let transportAsked2 = BoolBox()
         let applicator = PairFlowConfirmationApplicator(
             initialPhase: .connecting,
             completionGate: PairFlowCompletionGate(),
@@ -219,7 +231,12 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
                 await tearDownMismatchedPairing(
                     appConfig: appConfig,
                     tunnelManager: tunnel,
-                    coordinator: coordinator
+                    coordinator: coordinator,
+                    transport: { request in
+                        transportAsked2.value = true
+                        let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+                        return (Data(), response)
+                    }
                 )
             }
         )
@@ -228,6 +245,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
 
         XCTAssertEqual(applicator.phase, .couldNotVerify)
         XCTAssertFalse(teardownInvoked)
+        XCTAssertFalse(transportAsked2.value)
         XCTAssertTrue(appConfig.isPaired)
         XCTAssertNotNil(store.load())
         XCTAssertEqual(tunnel.state, .connected(localPort: 7071, via: .lan))
@@ -267,6 +285,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
         )
 
         var teardownCalled = false
+        let transportAsked3 = BoolBox()
         let gate = PairFlowCompletionGate()
         let applicator = PairFlowConfirmationApplicator(
             initialPhase: .couldNotVerify,
@@ -276,7 +295,12 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
                 await tearDownMismatchedPairing(
                     appConfig: appConfig,
                     tunnelManager: tunnel,
-                    coordinator: coordinator
+                    coordinator: coordinator,
+                    transport: { request in
+                        transportAsked3.value = true
+                        let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+                        return (Data(), response)
+                    }
                 )
             }
         )
@@ -294,6 +318,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
         XCTAssertEqual(applicator.phase, .couldNotVerify)
 
         XCTAssertFalse(teardownCalled)
+        XCTAssertFalse(transportAsked3.value)
         XCTAssertTrue(appConfig.isPaired)
         XCTAssertNotNil(store.load())
         XCTAssertEqual(tunnel.state, .connected(localPort: 7071, via: .lan))
@@ -339,6 +364,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
             pairOperation: { _, _, _, _ in pairing }
         )
 
+        let transportAsked4 = BoolBox()
         let applicator = PairFlowConfirmationApplicator(
             initialPhase: .couldNotVerify,
             completionGate: PairFlowCompletionGate(),
@@ -346,13 +372,19 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
                 await tearDownMismatchedPairing(
                     appConfig: appConfig,
                     tunnelManager: tunnel,
-                    coordinator: coordinator
+                    coordinator: coordinator,
+                    transport: { request in
+                        transportAsked4.value = true
+                        let response = HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!
+                        return (Data(), response)
+                    }
                 )
             }
         )
 
         await applicator.cancelPairing()
 
+        XCTAssertTrue(transportAsked4.value)
         XCTAssertEqual(applicator.phase, .pairing)
         XCTAssertNotEqual(applicator.phase, .mismatch)
         XCTAssertEqual(coordinator.state, .idle)
@@ -379,9 +411,9 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
             homeLabel: "sol",
             relayEndpoint: "wss://relay.example.com",
             fingerprint: "sha256:\(String(repeating: "a", count: 64))",
-            clientCertPEM: "cert",
+            clientCertPEM: CertlessTrustFixtures.leafPEM,
             clientKeyPEM: "key",
-            caChainPEM: "ca",
+            caChainPEM: CertlessTrustFixtures.caPEM,
             relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
             localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 7071, scope: "")],
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)

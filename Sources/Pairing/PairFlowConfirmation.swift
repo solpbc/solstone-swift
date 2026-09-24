@@ -126,9 +126,18 @@ func resolveConfirmation(
 func tearDownMismatchedPairing(
     appConfig: AppConfig,
     tunnelManager: TunnelManager,
-    coordinator: PairFlowCoordinator
+    coordinator: PairFlowCoordinator,
+    notice: JournalUnpairNoticeStore = JournalUnpairNoticeStore(),
+    transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
+    timeout: Duration = .seconds(10)
 ) async {
-    appConfig.clearPairing()
+    await ownerUnpair(
+        appConfig: appConfig,
+        tunnelManager: tunnelManager,
+        notice: notice,
+        transport: transport,
+        timeout: timeout
+    )
     await tunnelManager.disconnect()
     await coordinator.unpair()
 }

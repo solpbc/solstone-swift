@@ -50,6 +50,9 @@ targets:
         aps-environment: development
         com.apple.developer.associated-domains:
           - applinks:go.solstone.app
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)app.solstone.swift
+          - $(AppIdentifierPrefix)app.solstone.push
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -73,6 +76,7 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        solstoneTeamPrefix: "$(AppIdentifierPrefix)"
         # The brand face is registered HERE, and only here. It was previously declared
         # as an INFOPLIST_KEY_UIAppFonts build setting, but INFOPLIST_KEY_* settings are
         # only merged into a *generated* Info.plist and this target ships an explicit
@@ -105,6 +109,8 @@ targets:
       - package: SwiftCrypto
         product: Crypto
       - target: SolstoneNotificationContent
+        embed: true
+      - target: SolstoneNotificationService
         embed: true
       - target: SolstoneShareExtension
         embed: true
@@ -148,6 +154,40 @@ targets:
             UNNotificationExtensionCategory: []
             UNNotificationExtensionInitialContentSizeRatio: 1.0
             UNNotificationExtensionDefaultContentHidden: false
+  SolstoneNotificationService:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - SolstoneNotificationService
+      - Sources/Push/PushEnvelope.swift
+      - Sources/Push/PushKeyStore.swift
+    entitlements:
+      path: SolstoneNotificationService/SolstoneNotificationService.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)app.solstone.push
+    dependencies:
+      - package: SwiftCrypto
+        product: Crypto
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.service
+        INFOPLIST_KEY_CFBundleDisplayName: SolstoneNotificationService
+        CODE_SIGN_ENTITLEMENTS: SolstoneNotificationService/SolstoneNotificationService.entitlements
+        DEVELOPMENT_TEAM: 7QCG8V4M6H
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_STRICT_CONCURRENCY: complete
+        SWIFT_VERSION: "6.0"
+    info:
+      path: SolstoneNotificationService/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        solstoneTeamPrefix: "$(AppIdentifierPrefix)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
   SolstoneShareExtension:
     type: app-extension
     platform: iOS
@@ -411,6 +451,7 @@ targets:
       - Tests/Fixtures/ShareImportBodies
       - Tests/Fixtures/IntegrationGate
       - Tests/Fixtures/WatchCaptureStoragePreActor
+      - Tests/Fixtures/PushEnvelope
     dependencies:
       - target: solstone-swift
       - package: spl-swift

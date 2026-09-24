@@ -103,6 +103,10 @@ final class PairFlowCoordinator {
                 pairFlowLog.info("pairing completed against existing journal")
                 return
             }
+            // Replacing a pairing in place does not tell the previous journal. A changed
+            // certificate fingerprint rotates the push key, so the new journal receives a
+            // fresh key. The previous journal can keep sending the fixed fallback line
+            // until the owner removes this phone there.
             try self.store.applyPairing(pairing)
             await endpointCache.bootstrap(from: pairing)
             state = priorInstance == nil ? .connected : .reconnected
