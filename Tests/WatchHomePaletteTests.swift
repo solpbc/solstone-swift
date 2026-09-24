@@ -11,60 +11,33 @@ import XCTest
 nonisolated final class WatchHomePaletteTests: XCTestCase {
     func testPaletteHexConstants() {
         XCTAssertEqual(WatchHomePalette.cream, "#F4EEE4")
-        XCTAssertEqual(WatchHomePalette.calm, "#D9D9E1")
-        XCTAssertEqual(WatchHomePalette.liveText, "#FED0A7")
-        XCTAssertEqual(WatchHomePalette.inFlight, "#FFD19E")
-        XCTAssertEqual(WatchHomePalette.alert, "#FECEC7")
-        XCTAssertEqual(WatchHomePalette.reducedContentOpacity, 0.60)
+        XCTAssertEqual(WatchHomePalette.calm, "#B8B8C0")
+        XCTAssertEqual(WatchHomePalette.liveText, "#F2A457")
+        XCTAssertEqual(WatchHomePalette.inFlight, "#F5A842")
+        XCTAssertEqual(WatchHomePalette.alert, "#FF6B5E")
+        XCTAssertEqual(WatchHomePalette.ground, "#1A1A1A")
     }
 
     func testHexForRoleMapping() {
-        XCTAssertEqual(WatchHomePalette.hex(for: .live), "#FED0A7")
-        XCTAssertEqual(WatchHomePalette.hex(for: .flight), "#FFD19E")
-        XCTAssertEqual(WatchHomePalette.hex(for: .calm), "#D9D9E1")
-        XCTAssertEqual(WatchHomePalette.hex(for: .alert), "#FECEC7")
+        XCTAssertEqual(WatchHomePalette.hex(for: .live), "#F2A457")
+        XCTAssertEqual(WatchHomePalette.hex(for: .flight), "#F5A842")
+        XCTAssertEqual(WatchHomePalette.hex(for: .calm), "#B8B8C0")
+        XCTAssertEqual(WatchHomePalette.hex(for: .alert), "#FF6B5E")
     }
 
-    /// The brightest background the sun arc's dark row puts under watch text, measured
-    /// 2026-09-23 by drawing `SUNARC.both()` with the real mark (headless Chrome, 208 × 248 pt,
-    /// every minute of Denver 2026-09-23, x 14–194 / y 0–165 pt, the area text can scroll
-    /// through, the day halo always on): a 0.20 gold beam over the halo near the dawn corner.
-    /// The hero band alone (y 55–165) peaks at `#6F5A2A`.
-    static let worstPatternBackground = "#725B2B"
-    static let worstHeroBandBackground = "#6F5A2A"
-
-    func testEveryTextRoleClearsTheWorstPatternBackground() {
-        // Founder, 2026-09-23: every watch text role clears 4.5:1 everywhere in the text area,
-        // over the midday sun and halo included.
-        let foregrounds = [
-            WatchHomePalette.cream,
-            WatchHomePalette.calm,
-            WatchHomePalette.liveText,
-            WatchHomePalette.inFlight,
-            WatchHomePalette.alert,
+    func testEveryTextRoleClearsTheInkGround() {
+        // The active face is brand ink with no sun arc (founder, 2026-09-23, the bi-modal
+        // watch). Measured: cream 15.08, calm 8.83, live 8.47, in flight 8.75, alert 6.23.
+        let expected: [(String, Double)] = [
+            (WatchHomePalette.cream, 15.08),
+            (WatchHomePalette.calm, 8.83),
+            (WatchHomePalette.liveText, 8.47),
+            (WatchHomePalette.inFlight, 8.75),
+            (WatchHomePalette.alert, 6.23),
         ]
-        for fg in foregrounds {
-            for bg in [Self.worstPatternBackground, Self.worstHeroBandBackground] {
-                let ratio = Self.contrastRatio(hex1: fg, hex2: bg)
-                XCTAssertGreaterThanOrEqual(ratio, 4.5, "\(fg) over \(bg) is \(ratio)")
-            }
-        }
-        XCTAssertNotEqual(WatchHomePalette.liveText, WatchHomePalette.inFlight)
-    }
-
-    func testEveryTextRoleClearsTheDarkRowsGrounds() {
-        let foregrounds = [
-            WatchHomePalette.cream,
-            WatchHomePalette.calm,
-            WatchHomePalette.liveText,
-            WatchHomePalette.inFlight,
-            WatchHomePalette.alert,
-        ]
-        for fg in foregrounds {
-            for bg in [SunArcGrounds.dark.day, SunArcGrounds.dark.night, SunArcGrounds.dark.deep] {
-                let ratio = Self.contrastRatio(hex1: fg, hex2: bg)
-                XCTAssertGreaterThanOrEqual(ratio, 4.5, "\(fg) on \(bg) is \(ratio)")
-            }
+        for (fg, _) in expected {
+            let ratio = Self.contrastRatio(hex1: fg, hex2: WatchHomePalette.ground)
+            XCTAssertGreaterThanOrEqual(ratio, 4.5, "\(fg) on ink is \(ratio)")
         }
     }
 

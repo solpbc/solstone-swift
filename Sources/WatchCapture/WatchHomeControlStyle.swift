@@ -15,23 +15,11 @@ nonisolated struct WatchHomeControlStyle: Equatable, Sendable {
     var strokeLineWidth: CGFloat
 }
 
-nonisolated func watchHomeControlStyle(isRunning: Bool, luminanceReduced: Bool) -> WatchHomeControlStyle {
+/// The single pinned control. It only draws on the active face (on ink); the wrist-down face
+/// shows the sun arc alone.
+nonisolated func watchHomeControlStyle(isRunning: Bool) -> WatchHomeControlStyle {
     let label = isRunning ? "stop" : "start"
     let labelHex = isRunning ? WatchHomePalette.cream : SunArc.inkHex
-
-    if luminanceReduced {
-        // An outline has no fill behind its label, so the label takes the stroke colour when the
-        // resting label would be ink: ink on the black wrist-down ground is invisible.
-        return WatchHomeControlStyle(
-            label: label,
-            fillHex: nil,
-            labelHex: isRunning ? WatchHomePalette.cream : SunArc.orangeHex,
-            labelAlpha: WatchHomePalette.reducedContentOpacity,
-            strokeHex: SunArc.orangeHex,
-            strokeAlpha: WatchHomePalette.reducedContentOpacity,
-            strokeLineWidth: 3
-        )
-    }
 
     if isRunning {
         return WatchHomeControlStyle(

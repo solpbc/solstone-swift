@@ -7,7 +7,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ## [Unreleased]
 
 ### Changed
-- the solstone app on your iphone and ipad follows your light or dark setting again, and its background sun has a version for each. after sunset a warm glow stays in the corner, goes out in the middle of the night, and comes back before sunrise. your apple watch shows the dark version, with the sun in gold and orange.
+- the solstone app on your iphone and ipad follows your light or dark setting again, and its background sun has a version for each. after sunset a warm glow stays in the corner, goes out in the middle of the night, and comes back before sunrise. on your apple watch, the sun now shows only while your wrist is down and the screen is dimmed, and raising your wrist or tapping the screen swaps it for the status and the start and stop button.
 
 ### Fixed
 - the solstone app on your iphone or ipad now removes a recording only after every file has landed in your journal exactly as your device had it. if something doesn't match, the recording stays on your device and shows as needing attention.

@@ -70,7 +70,6 @@ struct WatchHomeView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
-                .opacity(self.isLuminanceReduced ? WatchHomePalette.reducedContentOpacity : 1)
             }
             // Fade the scroll out above the pinned control, so a line cut by the viewport reads as
             // "more below" rather than as a broken line.
@@ -175,10 +174,7 @@ private extension WatchHomeView {
     }
 
     var controlButton: some View {
-        let style = watchHomeControlStyle(
-            isRunning: self.captureModel.isRunning,
-            luminanceReduced: self.isLuminanceReduced
-        )
+        let style = watchHomeControlStyle(isRunning: self.captureModel.isRunning)
 
         return Button {
             if self.captureModel.isRunning {

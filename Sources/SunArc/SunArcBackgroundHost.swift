@@ -190,20 +190,20 @@ struct SunArcBackgroundHost<Content: View>: View {
     private let debugOverride: SunArcBackgroundDebugOverride?
 #endif
     private let content: () -> Content
-    private let luminanceReduced: Bool
+    private let blackGround: Bool
     @State private var viewportFrame = CGRect.zero
 
     init(
         palette: SunArcGroundPalette,
         presentationCoordinate: SunArcCoordinate?,
         fixedAppearance: SunArcAppearance? = nil,
-        luminanceReduced: Bool = false,
+        blackGround: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.palette = palette
         self.presentationCoordinate = presentationCoordinate
         self.fixedAppearance = fixedAppearance
-        self.luminanceReduced = luminanceReduced
+        self.blackGround = blackGround
 #if DEBUG
         self.debugOverride = nil
 #endif
@@ -216,14 +216,14 @@ struct SunArcBackgroundHost<Content: View>: View {
         presentationCoordinate: SunArcCoordinate?,
         debugOverride: SunArcBackgroundDebugOverride?,
         fixedAppearance: SunArcAppearance? = nil,
-        luminanceReduced: Bool = false,
+        blackGround: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) {
         self.palette = palette
         self.presentationCoordinate = presentationCoordinate
         self.debugOverride = debugOverride
         self.fixedAppearance = fixedAppearance
-        self.luminanceReduced = luminanceReduced
+        self.blackGround = blackGround
         self.content = content
     }
 #endif
@@ -242,7 +242,7 @@ struct SunArcBackgroundHost<Content: View>: View {
             ZStack {
                 SunArcGroundCanvas(
                     moment: moment,
-                    luminanceReduced: self.luminanceReduced
+                    blackGround: self.blackGround
                 )
                 self.content()
                     .environment(
@@ -336,16 +336,16 @@ private struct SunArcBackgroundTimeline<ClockContent: View>: View {
 private struct SunArcGroundCanvas: View {
     let moment: SunArcBackgroundMoment
     var viewportFrame: CGRect?
-    var luminanceReduced: Bool
+    var blackGround: Bool
 
     init(
         moment: SunArcBackgroundMoment,
         viewportFrame: CGRect? = nil,
-        luminanceReduced: Bool = false
+        blackGround: Bool = false
     ) {
         self.moment = moment
         self.viewportFrame = viewportFrame
-        self.luminanceReduced = luminanceReduced
+        self.blackGround = blackGround
     }
 
     /// `GeometryReader`, with the `Canvas` explicitly framed to its measured
@@ -372,7 +372,7 @@ private struct SunArcGroundCanvas: View {
                             width: localFrame.minX - sceneFrame.minX,
                             height: localFrame.minY - sceneFrame.minY
                         ),
-                        luminanceReduced: self.luminanceReduced
+                        blackGround: self.blackGround
                     )
                 }
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -380,7 +380,7 @@ private struct SunArcGroundCanvas: View {
                 // The root viewport arrives from `onGeometryChange` before the next
                 // display pass. Until then, paint only the shared ground: drawing a
                 // local mark in each iPad column would briefly create two suns.
-                Color(sunArcHex: self.luminanceReduced ? "#000000" : self.moment.groundHex)
+                Color(sunArcHex: self.blackGround ? "#000000" : self.moment.groundHex)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -406,7 +406,7 @@ extension SunArcBackgroundMoment {
     /// tests share.
     func drawing(
         sceneSize: CGSize,
-        luminanceReduced: Bool = false
+        blackGround: Bool = false
     ) -> (placement: SunArcPlacement, drawing: SunArcCanvasDrawing) {
         let diameter = SunArc.phi * Double(min(sceneSize.width, sceneSize.height))
         let placement = SunArcPlacement(size: sceneSize, tipRadius: diameter / 2)
@@ -417,7 +417,7 @@ extension SunArcBackgroundMoment {
             placement: placement,
             grounds: self.grounds,
             appearance: self.appearance,
-            luminanceReduced: luminanceReduced
+            blackGround: blackGround
         ))
     }
 }
@@ -429,14 +429,14 @@ private enum SunArcBackgroundDrawing {
         size: CGSize,
         sceneSize: CGSize,
         sceneOffset: CGSize,
-        luminanceReduced: Bool
+        blackGround: Bool
     ) {
         guard size.width > 0, size.height > 0,
               sceneSize.width > 0, sceneSize.height > 0
         else { return }
         let (placement, drawing) = moment.drawing(
             sceneSize: sceneSize,
-            luminanceReduced: luminanceReduced
+            blackGround: blackGround
         )
         let diameter = 2 * placement.tipRadius
 

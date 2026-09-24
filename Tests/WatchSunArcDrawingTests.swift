@@ -6,9 +6,9 @@
 #endif
 import XCTest
 
-/// The watch draws the sun arc's dark appearance at every hour (founder, 2026-09-23): the day
-/// halo follows the time as on every dark surface (the capture gate is dropped), and wrist-down
-/// stays black with the sun off and every glow capped at 0.12.
+/// The watch's wrist-down face (founder, 2026-09-23, the bi-modal watch): only the sun arc's
+/// dark row, over black. The day halo follows the time; the sun is the colour mark at 0.20;
+/// the twilight glow and true dark are the dark row's, uncapped.
 nonisolated final class WatchSunArcDrawingTests: XCTestCase {
     // The watch's face, Series 11 46 mm, in points.
     private let placement = SunArcPlacement(size: CGSize(width: 208, height: 248), tipRadius: SunArc.phi * 208 / 2)
@@ -18,7 +18,7 @@ nonisolated final class WatchSunArcDrawingTests: XCTestCase {
 
     private func drawing(
         minutes: Double,
-        luminanceReduced: Bool = false
+        blackGround: Bool = true
     ) -> (SunArcTime, SunArcCanvasDrawing) {
         let moment = SunArcBackgroundMoment.at(
             minutes: minutes,
@@ -29,7 +29,7 @@ nonisolated final class WatchSunArcDrawingTests: XCTestCase {
         )
         return (moment.time, moment.drawing(
             sceneSize: CGSize(width: 208, height: 248),
-            luminanceReduced: luminanceReduced
+            blackGround: blackGround
         ).drawing)
     }
 
@@ -57,15 +57,14 @@ nonisolated final class WatchSunArcDrawingTests: XCTestCase {
         XCTAssertEqual(glow?.colorHex, "#F8B836")
     }
 
-    func testTheWatchDrawsTheDarkRowAtEveryHour() {
-        XCTAssertEqual(self.drawing(minutes: 780).1.groundHex, "#392E26")
-        XCTAssertEqual(self.drawing(minutes: 1181).1.groundHex, "#2E241C")
-        XCTAssertEqual(self.drawing(minutes: 60).1.groundHex, "#281E17")
-        XCTAssertTrue(self.drawing(minutes: 60).1.glows.isEmpty, "true dark has no glow")
+    func testTheWristDownFaceIsBlackAtEveryHour() {
         for minutes in stride(from: 0.0, to: 1440, by: 15) {
-            let ground = self.drawing(minutes: minutes).1.groundHex
-            XCTAssertLessThan(SunArcOKLab.lightness(ofHex: ground), 0.5, "\(ground) at \(minutes)")
+            XCTAssertEqual(self.drawing(minutes: minutes).1.groundHex, "#000000", "at \(minutes)")
         }
+        // True dark: black and nothing else.
+        let deep = self.drawing(minutes: 60).1
+        XCTAssertTrue(deep.glows.isEmpty)
+        XCTAssertFalse(deep.drawSun)
     }
 
     func testTheSunIsTheColourMarkAtPointTwoAndNeverTonal() {
@@ -80,24 +79,27 @@ nonisolated final class WatchSunArcDrawingTests: XCTestCase {
         XCTAssertEqual(night.sunOpacity, 0)
     }
 
-    func testWristDownIsBlackWithTheSunOffAndEveryGlowCapped() {
-        // 23:10 is late enough that 0.62 × w is under the cap and must be left alone.
-        XCTAssertLessThan(self.drawing(minutes: 1390).1.glow(.twilight)?.alpha ?? 1, SunArc.wristDownGlowCap)
-        for minutes in [780.0, 1136, 1181, 330, 1390] {
-            let (_, full) = self.drawing(minutes: minutes)
-            let (_, reduced) = self.drawing(minutes: minutes, luminanceReduced: true)
-            XCTAssertEqual(reduced.groundHex, "#000000")
-            XCTAssertFalse(reduced.drawSun)
-            XCTAssertEqual(reduced.sunOpacity, 0)
-            XCTAssertEqual(reduced.glows.map(\.kind), full.glows.map(\.kind))
-            for (capped, uncapped) in zip(reduced.glows, full.glows) {
-                XCTAssertEqual(capped.alpha, min(uncapped.alpha, SunArc.wristDownGlowCap), accuracy: 1e-9)
-            }
+    func testBlackGroundChangesOnlyTheGround() {
+        // The retired 09-22 rule drew the sun off and capped every glow at 0.12. Now the sun
+        // and both glows are exactly the dark row's; only the ground is black.
+        for minutes in [780.0, 1136, 1181, 1320, 60, 330] {
+            let (_, lit) = self.drawing(minutes: minutes, blackGround: false)
+            let (_, black) = self.drawing(minutes: minutes)
+            XCTAssertEqual(black.glows, lit.glows, "at \(minutes)")
+            XCTAssertEqual(black.sunOpacity, lit.sunOpacity, accuracy: 1e-12)
+            XCTAssertEqual(black.drawSun, lit.drawSun)
         }
-        // Dusk + 15: the twilight glow is capped, not removed.
-        XCTAssertEqual(self.drawing(minutes: 1181, luminanceReduced: true).1.glow(.twilight)?.alpha ?? 0, 0.12, accuracy: 1e-9)
-        // Midday: the 0.22 halo is held to 0.12.
-        XCTAssertEqual(self.drawing(minutes: 780, luminanceReduced: true).1.glow(.halo)?.alpha ?? 0, 0.12, accuracy: 1e-9)
+        // Midday: the sun is up at 0.20 and the halo is its full 0.22.
+        let midday = self.drawing(minutes: 780).1
+        XCTAssertTrue(midday.drawSun)
+        XCTAssertEqual(midday.sunOpacity, SunArc.peakOpacityDark, accuracy: 1e-9)
+        XCTAssertEqual(midday.glow(.halo)?.alpha ?? 0, 0.22, accuracy: 1e-9)
+        // Dusk + 15: the twilight glow at its full 0.62 × w, not capped.
+        XCTAssertEqual(self.drawing(minutes: 1181).1.glow(.twilight)?.alpha ?? 0, 0.62 * 0.993676, accuracy: 0.001)
+        // 22:00: no sun, the evening glow still on.
+        let late = self.drawing(minutes: 1320).1
+        XCTAssertFalse(late.drawSun)
+        XCTAssertNotNil(late.glow(.twilight))
     }
 
     func testIOSDrawsTheOwnersAppearance() {

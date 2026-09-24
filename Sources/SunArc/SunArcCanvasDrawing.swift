@@ -36,10 +36,9 @@ nonisolated struct SunArcCanvasDrawing: Equatable, Sendable {
     }
 }
 
-/// `SUNARC.both()` for one frame (spec §§ 4a, 6, 7, 8a), plus the watch's standing 09-22 power
-/// rule: `luminanceReduced` (wrist down) draws black with the sun off and every glow capped at
-/// `SunArc.wristDownGlowCap`. The day halo follows the time on every surface, the watch
-/// included (founder, 2026-09-23: the capture gate is dropped; the hero carries the state).
+/// `SUNARC.both()` for one frame (spec §§ 4a, 6, 7, 8a). `blackGround` paints `#000000` under
+/// the unchanged sun and glows: the watch's wrist-down face, where the sun arc is the only thing
+/// on screen (founder, 2026-09-23, the bi-modal watch).
 nonisolated func sunArcCanvasDrawing(
     time: SunArcTime,
     envelope: Double,
@@ -47,7 +46,7 @@ nonisolated func sunArcCanvasDrawing(
     placement: SunArcPlacement,
     grounds: SunArcGrounds,
     appearance: SunArcAppearance,
-    luminanceReduced: Bool = false
+    blackGround: Bool = false
 ) -> SunArcCanvasDrawing {
     let isDark = appearance == .dark
     let onVisible = time.t > -0.02 && time.t < 1.02
@@ -84,19 +83,12 @@ nonisolated func sunArcCanvasDrawing(
         if time.t <= 0 || time.t >= 1 { sunOpacity *= (1 - time.night) }
     }
 
-    if luminanceReduced {
-        for index in glows.indices {
-            glows[index].alpha = min(glows[index].alpha, SunArc.wristDownGlowCap)
-        }
-        sunOpacity = 0
-    }
-
     return SunArcCanvasDrawing(
-        groundHex: luminanceReduced ? "#000000" : ground,
+        groundHex: blackGround ? "#000000" : ground,
         glows: glows,
         beamHex: SunArc.goldHex,
         ringHex: SunArc.orangeHex,
         sunOpacity: sunOpacity,
-        drawSun: !luminanceReduced && sunOpacity > 0.001
+        drawSun: sunOpacity > 0.001
     )
 }

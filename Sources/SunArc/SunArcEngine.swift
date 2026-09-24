@@ -25,8 +25,6 @@ public nonisolated enum SunArc {
     public static let trueDarkMinutes: Double = 180         // §4a centred on solar midnight
     public static let gradientMidStop: Double = 0.38
     public static let gradientMidRatio: Double = 0.45
-    /// The watch's wrist-down power rule (09-22, standing under 09-23): every glow is capped here.
-    public static let wristDownGlowCap: Double = 0.12
 
     public static let inkHex = "#1A1A1A"
     public static let goldHex = "#FFCC33"

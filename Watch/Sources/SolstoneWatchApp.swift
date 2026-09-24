@@ -129,10 +129,11 @@ struct SolstoneWatchApp: App {
     }
 }
 
-/// The watch draws the sun arc's dark appearance at every hour (founder, 2026-09-23: watchOS
-/// has no light mode). The day halo follows the time, as on every dark surface; the centred
-/// hero carries the state (founder, 2026-09-23). Wrist-down is black with the sun off: the
-/// 09-22 power rule, which stands.
+/// The bi-modal watch face (founder, 2026-09-23). Wrist up: the hero, the details and the
+/// control on brand ink, with no sun arc. Wrist down (`isLuminanceReduced`): only the sun arc's
+/// dark row over black, and nothing else. `WatchHomeView` holds one unconditional position, so
+/// its `.task`, its `scenePhase` raise handler and its elapsed timeline keep their identity
+/// across the switch; only the layer beneath it changes.
 private struct WatchSunArcRoot: View {
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     let sessionModel: WatchSessionModel
@@ -157,38 +158,63 @@ private struct WatchSunArcRoot: View {
 #endif
 
     var body: some View {
+        let mode = WatchFaceMode(luminanceReduced: self.effectiveLuminanceReduced)
+        let face = ZStack {
+            if mode.showsSunArc {
+                self.sunArc
+            } else {
+                Color(watchFaceHex: mode.groundHex).ignoresSafeArea()
+            }
+            WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
+                .opacity(mode.showsContent ? 1 : 0)
+                .accessibilityHidden(!mode.showsContent)
+                .allowsHitTesting(mode.showsContent)
+                .task {
 #if DEBUG && targetEnvironment(simulator)
-        let host = SunArcBackgroundHost(
+                    if SolstoneWatchApp.usesSimulatorSyntheticSession { return }
+#endif
+                    self.sessionModel.activate()
+                }
+        }
+#if DEBUG && targetEnvironment(simulator)
+        if self.isWristDown {
+            face.environment(\.isLuminanceReduced, true)
+        } else {
+            face
+        }
+#else
+        face
+#endif
+    }
+
+    /// The wrist-down face: the sun arc's dark row over black, with nothing on top of it.
+    private var sunArc: some View {
+#if DEBUG && targetEnvironment(simulator)
+        SunArcBackgroundHost(
             palette: SunArcGroundPalette(),
             presentationCoordinate: self.captureModel.sunArcPresentationCoordinate,
             debugOverride: Self.sunArcDebugOverride,
             fixedAppearance: .dark,
-            luminanceReduced: self.effectiveLuminanceReduced
+            blackGround: true
         ) {
-            WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
-                .task {
-                    if SolstoneWatchApp.usesSimulatorSyntheticSession { return }
-                    self.sessionModel.activate()
-                }
-        }
-
-        if self.isWristDown {
-            host.environment(\.isLuminanceReduced, true)
-        } else {
-            host
+            EmptyView()
         }
 #else
         SunArcBackgroundHost(
             palette: SunArcGroundPalette(),
             presentationCoordinate: self.captureModel.sunArcPresentationCoordinate,
             fixedAppearance: .dark,
-            luminanceReduced: self.effectiveLuminanceReduced
+            blackGround: true
         ) {
-            WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
-                .task {
-                    self.sessionModel.activate()
-                }
+            EmptyView()
         }
 #endif
+    }
+}
+
+private extension Color {
+    init(watchFaceHex hex: String) {
+        let rgb = SunArcOKLab.rgb(fromHex: hex)
+        self.init(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b, opacity: 1)
     }
 }

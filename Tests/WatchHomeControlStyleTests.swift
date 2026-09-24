@@ -12,7 +12,7 @@ nonisolated final class WatchHomeControlStyleTests: XCTestCase {
     }
 
     func testRunningNotReduced() {
-        let style = watchHomeControlStyle(isRunning: true, luminanceReduced: false)
+        let style = watchHomeControlStyle(isRunning: true)
         XCTAssertEqual(style.label, "stop")
         XCTAssertEqual(style.fillHex, "#3A3632")
         XCTAssertEqual(style.labelHex, WatchHomePalette.cream)
@@ -23,7 +23,7 @@ nonisolated final class WatchHomeControlStyleTests: XCTestCase {
     }
 
     func testNotRunningNotReduced() {
-        let style = watchHomeControlStyle(isRunning: false, luminanceReduced: false)
+        let style = watchHomeControlStyle(isRunning: false)
         XCTAssertEqual(style.label, "start")
         XCTAssertEqual(style.fillHex, SunArc.orangeHex)
         XCTAssertEqual(style.labelHex, SunArc.inkHex)
@@ -33,33 +33,21 @@ nonisolated final class WatchHomeControlStyleTests: XCTestCase {
         XCTAssertEqual(style.strokeLineWidth, 0.0)
     }
 
-    func testRunningReduced() {
-        let style = watchHomeControlStyle(isRunning: true, luminanceReduced: true)
-        XCTAssertEqual(style.label, "stop")
-        XCTAssertNil(style.fillHex)
-        XCTAssertEqual(style.labelHex, WatchHomePalette.cream)
-        XCTAssertEqual(style.labelAlpha, WatchHomePalette.reducedContentOpacity)
-        XCTAssertEqual(style.strokeHex, SunArc.orangeHex)
-        XCTAssertEqual(style.strokeAlpha, WatchHomePalette.reducedContentOpacity)
-        XCTAssertEqual(style.strokeLineWidth, 3.0)
+    func testTheControlsLabelsClearTheirFills() {
+        // The control only draws on the active face; its labels sit on their own fills.
+        let start = watchHomeControlStyle(isRunning: false)
+        let stop = watchHomeControlStyle(isRunning: true)
+        XCTAssertGreaterThanOrEqual(Self.contrast(start.labelHex, start.fillHex!), 4.5)
+        XCTAssertGreaterThanOrEqual(Self.contrast(stop.labelHex, stop.fillHex!), 4.5)
     }
 
-    func testNotRunningReduced() {
-        let style = watchHomeControlStyle(isRunning: false, luminanceReduced: true)
-        XCTAssertEqual(style.label, "start")
-        XCTAssertNil(style.fillHex)
-        XCTAssertEqual(style.labelHex, SunArc.orangeHex)
-        XCTAssertEqual(style.labelAlpha, WatchHomePalette.reducedContentOpacity)
-        XCTAssertEqual(style.strokeHex, SunArc.orangeHex)
-        XCTAssertEqual(style.strokeAlpha, WatchHomePalette.reducedContentOpacity)
-        XCTAssertEqual(style.strokeLineWidth, 3.0)
-    }
-
-    func testAnUnfilledControlNeverDrawsAnInkLabel() {
-        for isRunning in [false, true] {
-            let style = watchHomeControlStyle(isRunning: isRunning, luminanceReduced: true)
-            XCTAssertNil(style.fillHex)
-            XCTAssertNotEqual(style.labelHex, SunArc.inkHex, "an ink label on the black wrist-down ground is invisible")
+    private static func contrast(_ a: String, _ b: String) -> Double {
+        func lum(_ hex: String) -> Double {
+            let c = SunArcOKLab.rgb(fromHex: hex)
+            func l(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+            return 0.2126 * l(c.r) + 0.7152 * l(c.g) + 0.0722 * l(c.b)
         }
+        let x = lum(a), y = lum(b)
+        return (max(x, y) + 0.05) / (min(x, y) + 0.05)
     }
 }
