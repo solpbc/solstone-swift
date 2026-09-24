@@ -1,18 +1,18 @@
 # solstone-swift
 
-Native iOS app for [solstone](https://solpbc.org), an open source, local-first journal of what you see and hear, for the agents you use. On your machine, always private, only yours.
+The solstone app for iphone and ipad, and its apple watch app. [solstone](https://solstone.app) is a personal memory platform: the solstone app takes in what you share with it, and all of it goes into your journal (an open source, local-first memory the agents you use can work from). Your journal is always private, only yours.
 
-Native SwiftUI app that observes what you see and hear — audio, location, screen, and paired sensors — bundles it into 5-minute segments, and syncs to your solstone journal over a private tunnel. Owner-directed imports arrive through the system share sheet.
+Built in SwiftUI. You choose what the app takes in (audio, location and screen, and audio from your apple watch). What it takes in goes into the journal you paired it with, in segments of up to 5 minutes. You can also import files into your journal from the system share sheet.
 
 ## Status
 
-Pre-alpha. Bootstrapped 2026-04-19. MVP under active development.
+Open beta. Anyone can join through TestFlight at [solstone.app/beta](https://solstone.app/beta).
 
 ## Install
 
-iOS development runs on macOS. On Linux you can read code and write hop scopes; builds go through the Mac build host.
+iOS development runs on macOS. On linux you can read and edit code; builds need a mac.
 
-Prerequisites on the Mac:
+Prerequisites on the mac:
 - Xcode 26+ with iOS 26+ SDK
 - `brew install xcsift xcodegen`
 - `pipx install pymobiledevice3`
