@@ -32,8 +32,6 @@ final class WatchRelaySender {
     // One constant, no config.
     private static let deliveredDeadline: TimeInterval = 900
     private static let livenessStallThreshold: TimeInterval = 1800
-    private static let maxDeliveryAttempts = 8
-    private static let maxDeliveryEffort: TimeInterval = 43200 // 12h
     private static let abandonedRetention: TimeInterval = 7 * 24 * 60 * 60 // 7 days
 
     var onStateChanged: (@MainActor () -> Void)?
@@ -326,18 +324,8 @@ final class WatchRelaySender {
                     case .queued, .transferring:
                         var currentEntry = entry
                         let now = self.clock()
-                        let attempts = currentEntry.manifest.relayDeliveryAttemptCount ?? 0
-                        let effort = currentEntry.manifest.relayDeliveryEffortSeconds ?? 0
-                        if attempts >= Self.maxDeliveryAttempts && effort >= Self.maxDeliveryEffort {
-                            let abandoned = try await self.storageActor.abandonRelaySegment(currentEntry, at: now)
-                            self.cancelAll(group)
-                            if abandoned.didChange {
-                                self.notifyStateChanged()
-                            }
-                            self.signposter.end(transition, fields: WatchSignpostFields(result: .completed))
-                            continue
-                        }
-
+                        // A segment is offered to the phone until the phone confirms it has it:
+                        // no attempt count or elapsed effort ends delivery or deletes its audio.
                         let uncancelledGroup = group.filter { !$0.snapshot.progress.isCancelled }
 
                         if currentEntry.manifest.state == .transferring,

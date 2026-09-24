@@ -848,42 +848,6 @@ actor WatchCaptureStorageActor {
         }
     }
 
-    func abandonRelaySegment(
-        _ entry: WatchCaptureCatalogEntry,
-        at now: Date,
-        reason: String = "relayDeliveryCeiling"
-    ) async throws -> WatchRelayStorageTransition {
-        try await self.withTransaction(transactionClass: .maintenance) {
-            let current = try await self.currentRelayEntry(entry, boundary: .relaySegmentTransition)
-            let transition = try self.withSynchronousActorWork(.relaySegmentTransition) { () -> WatchSegmentManifest in
-                try self.verifyRelayWitness(current, against: entry)
-                var manifest = current.manifest
-                manifest.state = .abandoned
-                manifest.failureReason = reason
-                manifest.abandonedAt = now
-                return manifest
-            }
-            let updatedEntry = try await self.writeRelayManifest(
-                transition,
-                replacing: current,
-                boundary: .relaySegmentTransition
-            )
-
-            let audioURL = self.paths.audioURL(directory: updatedEntry.directoryURL)
-            let locationURL = self.paths.locationURL(directory: updatedEntry.directoryURL)
-            let bundleURL = self.paths.rootURL.appendingPathComponent(".relay-bundles/\(updatedEntry.manifest.id.uuidString).watchrelay")
-            let receiptURL = self.paths.relayReceiptURL(directory: updatedEntry.directoryURL)
-
-            try? await self.fileWriter.removeItem(at: audioURL)
-            try? await self.fileWriter.removeItem(at: locationURL)
-            try? await self.fileWriter.removeItem(at: bundleURL)
-            try? await self.fileWriter.removeItem(at: receiptURL)
-            self.bumpRelevantMutationGeneration()
-
-            return WatchRelayStorageTransition(entry: updatedEntry, didChange: true)
-        }
-    }
-
     func prepareRelayTransfer(
         _ entry: WatchCaptureCatalogEntry,
         bundleURL: URL,

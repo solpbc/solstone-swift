@@ -1806,23 +1806,16 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(sender3.hearBackWindowStart, now)
     }
 
-    func testRelayDeliveryCeilingConjunctionAbandonsAndPrunesAfterSevenDays() async throws {
-        let storage = try self.makeStorage("ceiling-abandon-prune")
+    func testSegmentWithManyAttemptsAndLongEffortIsStillOfferedToThePhone() async throws {
+        let storage = try self.makeStorage("many-attempts-still-offered")
         let id = UUID()
-        var now = Date(timeIntervalSince1970: 4_000_000)
-        let directory = try await self.writeSegment(storage: storage, id: id, index: 0, state: .queued)
+        let now = Date(timeIntervalSince1970: 4_000_000)
         let storageActor = self.storageActor(for: storage)
-
-        // Set manifest attempt count = 8 and effort = 43200 (12 hours)
-        var initialManifest = await storageActor.scanCatalog(transactionClass: .captureSafety).entries.first!.manifest
-        initialManifest.relayDeliveryAttemptCount = 8
-        initialManifest.relayDeliveryEffortSeconds = 43200
-        _ = try await storageActor.writeManifest(initialManifest, ensuringDirectory: false, transactionClass: .captureSafety)
+        let directory = try await self.writeLongUndeliveredSegment(storage: storage, storageActor: storageActor, id: id)
 
         let watchSession = MockWatchConnectivitySession()
         watchSession.isReachable = true
         watchSession.activate()
-
         let sender = WatchRelaySender(
             paths: storage.paths,
             storageActor: storageActor,
@@ -1832,25 +1825,85 @@ final class WatchRelayTests: XCTestCase {
 
         await sender.requestDrain(trigger: .testDirect)
 
-        var entries = await self.catalogEntries(for: storage)
-        let abandonedManifest = try XCTUnwrap(entries.first?.manifest)
-        XCTAssertEqual(abandonedManifest.state, WatchSegmentState.abandoned)
-        XCTAssertEqual(abandonedManifest.failureReason, "relayDeliveryCeiling")
-        XCTAssertEqual(abandonedManifest.abandonedAt, now)
+        let state = try await self.manifestState(storage: storage, id: id)
+        XCTAssertTrue(state == .queued || state == .transferring, "unexpected state \(state)")
+        try await self.assertSegmentPayloadPresent(storage: storage, directory: directory)
+        XCTAssertEqual(self.transferFileCount(in: watchSession, id: id), 1)
+    }
 
-        // Payload files should be deleted, manifest preserved
-        let audioExists = await storage.fileWriter.fileExists(at: storage.audioURL(directory: directory))
-        let manifestExists = await storage.fileWriter.fileExists(at: storage.manifestURL(directory: directory))
-        XCTAssertFalse(audioExists)
-        XCTAssertTrue(manifestExists)
+    func testSegmentStaysOnWatchThroughRepeatedPassesUntilThePhoneAcknowledgesIt() async throws {
+        let storage = try self.makeStorage("kept-until-ack")
+        let id = UUID()
+        var now = Date(timeIntervalSince1970: 4_000_000)
+        let storageActor = self.storageActor(for: storage)
+        let directory = try await self.writeLongUndeliveredSegment(storage: storage, storageActor: storageActor, id: id)
 
-        // Advance 6 days -> still kept
+        let watchSession = MockWatchConnectivitySession()
+        watchSession.isReachable = true
+        watchSession.activate()
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: watchSession,
+            clock: { now }
+        )
+
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(self.transferFileCount(in: watchSession, id: id), 1)
+
+        for pass in 1...20 {
+            now = now.addingTimeInterval(3600)
+            await sender.requestDrain(trigger: .testDirect)
+            await self.settleConnectivityCallback()
+            let directoryExists = await storage.fileWriter.fileExists(at: directory)
+            XCTAssertTrue(directoryExists, "segment directory missing after pass \(pass)")
+            try await self.assertSegmentPayloadPresent(storage: storage, directory: directory)
+            let state = try await self.manifestState(storage: storage, id: id)
+            XCTAssertTrue(state == .queued || state == .transferring, "unexpected state \(state) after pass \(pass)")
+        }
+        XCTAssertGreaterThan(self.transferFileCount(in: watchSession, id: id), 1)
+
+        watchSession.deliverUserInfo(WatchRelayACK.userInfo(id: id))
+        await self.settleConnectivityCallback()
+        await self.drain(until: {
+            let directoryExists = await storage.fileWriter.fileExists(at: directory)
+            return !directoryExists
+        })
+        let directoryExists = await storage.fileWriter.fileExists(at: directory)
+        XCTAssertFalse(directoryExists)
+        let entries = await self.catalogEntries(for: storage)
+        XCTAssertTrue(entries.isEmpty)
+    }
+
+    func testAbandonedSegmentFolderIsPrunedSevenDaysAfterItWasAbandoned() async throws {
+        let storage = try self.makeStorage("abandoned-prune")
+        let id = UUID()
+        var now = Date(timeIntervalSince1970: 4_000_000)
+        let storageActor = self.storageActor(for: storage)
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .abandoned)
+        let storedManifest = try await self.manifest(storage: storage, id: id)
+        var manifest = try XCTUnwrap(storedManifest)
+        manifest.abandonedAt = now
+        _ = try await storageActor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
+
+        let watchSession = MockWatchConnectivitySession()
+        watchSession.isReachable = true
+        watchSession.activate()
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: watchSession,
+            clock: { now }
+        )
+
+        // Six days later -> still kept, and never offered to the phone
         now = now.addingTimeInterval(6 * 86400)
         await sender.requestDrain(trigger: .testDirect)
-        entries = await self.catalogEntries(for: storage)
+        var entries = await self.catalogEntries(for: storage)
         XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(self.transferFileCount(in: watchSession, id: id), 0)
 
-        // Advance past 7 days -> pruned completely
+        // Past seven days -> pruned completely
         now = now.addingTimeInterval(2 * 86400)
         await sender.requestDrain(trigger: .testDirect)
         entries = await self.catalogEntries(for: storage)
@@ -2072,17 +2125,17 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertNotNil(UUID(uuidString: metadata?["attempt_id"] as? String ?? ""))
     }
 
-    func testRelayDeliveryCeilingTwinsAndConjunctions() async throws {
-        let storage = try self.makeStorage("ceiling-twins")
+    func testOldAndUnreachableSegmentsStayQueuedAndAreReofferedWhileDeliveredWaitsForACK() async throws {
+        let storage = try self.makeStorage("kept-and-reoffered")
         let storageActor = self.storageActor(for: storage)
         let session = MockWatchConnectivitySession()
         session.isReachable = true
         session.activate()
 
-        // Twin 1: Age twin (started 3 days ago, but only attempt #1 today -> NOT abandoned)
+        // Started 3 days ago, first attempt today -> stays on the watch and is offered to the phone
         let idAge = UUID()
         let now = Date(timeIntervalSince1970: 5_000_000)
-        _ = try await self.writeSegment(storage: storage, id: idAge, index: 0, state: .queued, startedAt: now.addingTimeInterval(-3 * 86400))
+        let directoryAge = try await self.writeSegment(storage: storage, id: idAge, index: 0, state: .queued, startedAt: now.addingTimeInterval(-3 * 86400))
         var manifestAge = (await storageActor.scanCatalog(transactionClass: .captureSafety)).entries.first { $0.manifest.id == idAge }!.manifest
         manifestAge.relayDeliveryAttemptCount = 1
         manifestAge.relayDeliveryEffortSeconds = 300
@@ -2091,11 +2144,14 @@ final class WatchRelayTests: XCTestCase {
         let sender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session, clock: { now })
         await sender.requestDrain(trigger: .testDirect)
         let stateAge = try await self.manifestState(storage: storage, id: idAge)
-        XCTAssertNotEqual(stateAge, .abandoned)
+        XCTAssertEqual(stateAge, .transferring)
+        XCTAssertEqual(self.transferFileCount(in: session, id: idAge), 1)
+        let ageAudioExists = await storage.fileWriter.fileExists(at: storage.audioURL(directory: directoryAge))
+        XCTAssertTrue(ageAudioExists)
 
-        // Twin 2: Unreachability twin (many drain passes while unreachable -> NOT abandoned)
+        // Many drain passes while the phone is out of reach -> stays on the watch and is offered
         let idUnreachable = UUID()
-        _ = try await self.writeSegment(storage: storage, id: idUnreachable, index: 1, state: .queued)
+        let directoryUnreachable = try await self.writeSegment(storage: storage, id: idUnreachable, index: 1, state: .queued)
         let unreachableSession = MockWatchConnectivitySession()
         unreachableSession.isReachable = false
         unreachableSession.activate()
@@ -2104,13 +2160,19 @@ final class WatchRelayTests: XCTestCase {
             await unreachableSender.requestDrain(trigger: .testDirect)
         }
         let stateUnreachable = try await self.manifestState(storage: storage, id: idUnreachable)
-        XCTAssertNotEqual(stateUnreachable, .abandoned)
+        XCTAssertTrue(
+            stateUnreachable == .queued || stateUnreachable == .transferring,
+            "unexpected state \(stateUnreachable)"
+        )
+        XCTAssertGreaterThanOrEqual(self.transferFileCount(in: unreachableSession, id: idUnreachable), 1)
+        let unreachableAudioExists = await storage.fileWriter.fileExists(at: storage.audioURL(directory: directoryUnreachable))
+        XCTAssertTrue(unreachableAudioExists)
 
         // Redrives do not reset manifest attempt count
         let redriveManifest = (await storageActor.scanCatalog(transactionClass: .captureSafety)).entries.first { $0.manifest.id == idAge }!.manifest
         XCTAssertGreaterThanOrEqual(redriveManifest.relayDeliveryAttemptCount ?? 0, 1)
 
-        // Delivered segments are NEVER abandoned even if attempts and effort are high
+        // Delivered segments wait for the phone's ACK even if attempts and effort are high
         let idDelivered = UUID()
         _ = try await self.writeSegment(storage: storage, id: idDelivered, index: 2, state: .delivered, deliveredAt: now)
         var manifestDelivered = (await storageActor.scanCatalog(transactionClass: .captureSafety)).entries.first { $0.manifest.id == idDelivered }!.manifest
@@ -2394,6 +2456,44 @@ private extension WatchRelayTests {
         try Data("audio-\(index)".utf8).write(to: storage.audioURL(directory: directory), options: .atomic)
         try await storageActor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
         return directory
+    }
+
+    /// A queued segment carrying audio and location that has already been offered eight
+    /// times over twelve hours of recorded delivery effort without reaching the phone.
+    func writeLongUndeliveredSegment(
+        storage: WatchCaptureTestStorage,
+        storageActor: WatchCaptureStorageActor,
+        id: UUID
+    ) async throws -> URL {
+        let directory = try await self.writeSegment(storage: storage, id: id, index: 0, state: .queued)
+        try Data(#"{"schema":"solstone.location.segment/1","fix_count":1}"#.utf8)
+            .write(to: storage.locationURL(directory: directory), options: .atomic)
+        let storedManifest = try await self.manifest(storage: storage, id: id)
+        var manifest = try XCTUnwrap(storedManifest)
+        manifest.relayDeliveryAttemptCount = 8
+        manifest.relayDeliveryEffortSeconds = 43200
+        _ = try await storageActor.writeManifest(manifest, ensuringDirectory: false, transactionClass: .captureSafety)
+        return directory
+    }
+
+    func assertSegmentPayloadPresent(
+        storage: WatchCaptureTestStorage,
+        directory: URL,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        let audioExists = await storage.fileWriter.fileExists(at: storage.audioURL(directory: directory))
+        let locationExists = await storage.fileWriter.fileExists(at: storage.locationURL(directory: directory))
+        XCTAssertTrue(audioExists, "audio missing", file: file, line: line)
+        XCTAssertTrue(locationExists, "location missing", file: file, line: line)
+    }
+
+    func transferFileCount(in session: MockWatchConnectivitySession, id: UUID) -> Int {
+        session.callLedger.reduce(into: 0) { count, call in
+            if case let .transferFile(_, callID) = call, callID == id {
+                count += 1
+            }
+        }
     }
 
     func deliverTransfer(
