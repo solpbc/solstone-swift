@@ -36,9 +36,10 @@ nonisolated struct SunArcCanvasDrawing: Equatable, Sendable {
     }
 }
 
-/// `SUNARC.both()` for one frame (spec §§ 4a, 6, 7, 8a). `blackGround` paints `#000000` under
-/// the unchanged sun and glows: the watch's wrist-down face, where the sun arc is the only thing
-/// on screen (founder, 2026-09-23, the bi-modal watch).
+/// `SUNARC.both()` for one frame (spec §§ 4a, 6, 7, 8a). `blackGround` is the watch's wrist-down
+/// face, where the sun arc is the only thing on screen (founder, 2026-09-23, the bi-modal
+/// watch): it paints `#000000` and peaks the sun at `SunArc.wristDownSunPeak`; the glows and
+/// true dark are unchanged.
 nonisolated func sunArcCanvasDrawing(
     time: SunArcTime,
     envelope: Double,
@@ -78,7 +79,8 @@ nonisolated func sunArcCanvasDrawing(
 
     var sunOpacity = 0.0
     if onVisible {
-        let peak = isDark ? SunArc.peakOpacityDark : SunArc.peakOpacityLight
+        let peak = blackGround ? SunArc.wristDownSunPeak
+            : isDark ? SunArc.peakOpacityDark : SunArc.peakOpacityLight
         sunOpacity = peak * envelope * (1 - time.night)
         if time.t <= 0 || time.t >= 1 { sunOpacity *= (1 - time.night) }
     }
