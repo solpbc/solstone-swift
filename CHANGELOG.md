@@ -4,7 +4,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.5 (107)] - 2026-09-23
 
 ### Changed
 - the solstone app on your iphone and ipad follows your light or dark setting again, and its background sun has a version for each. after sunset a warm glow stays in the corner, goes out in the middle of the night, and comes back before sunrise. on your apple watch, the sun now shows only while your wrist is down and the screen is dimmed, and raising your wrist or tapping the screen swaps it for the status and the start and stop button.
