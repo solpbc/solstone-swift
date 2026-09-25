@@ -1,4 +1,4 @@
-# Lode L3 Watch Relay Design
+# Watch Relay Design
 
 ## Scope
 
