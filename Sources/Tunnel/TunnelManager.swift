@@ -240,6 +240,16 @@ nonisolated struct TriedAddresses: Equatable, Sendable {
     let entries: [Entry]
     /// Mirrors the snapshot's "candidate outcomes omitted" count.
     let omittedCount: Int
+
+    /// The lines the status screen lists under "addresses tried": one per
+    /// address, then "and N more" when some outcomes were omitted.
+    var ownerLines: [String] {
+        var lines = self.entries.map { "\($0.address) · \($0.outcome.ownerText)" }
+        if self.omittedCount > 0 {
+            lines.append("and \(self.omittedCount) more")
+        }
+        return lines
+    }
 }
 
 @Observable

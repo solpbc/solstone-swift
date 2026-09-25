@@ -322,8 +322,8 @@ struct StatusPane: View {
                 } else if let tried = self.triedAddresses {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("addresses tried")
-                        ForEach(Array(tried.entries.enumerated()), id: \.offset) { _, entry in
-                            Text(verbatim: "\(entry.address) · \(entry.outcome.ownerText)")
+                        ForEach(Array(tried.ownerLines.enumerated()), id: \.offset) { _, line in
+                            Text(verbatim: line)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                         }

@@ -37,6 +37,50 @@ nonisolated final class StatusPaneTests: XCTestCase {
         XCTAssertEqual(presentation.rows.map(\.count), [1, 1, 1])
     }
 
+    func testAddressesTriedListsEachAddressWithoutAMoreLineWhenNothingOmitted() {
+        let tried = TriedAddresses(
+            entries: [
+                TriedAddresses.Entry(address: "192.168.1.20:7657", outcome: .couldNotProveJournal),
+                TriedAddresses.Entry(address: "192.168.1.21:7657", outcome: .noAnswer),
+            ],
+            omittedCount: 0
+        )
+
+        XCTAssertEqual(tried.ownerLines, [
+            "192.168.1.20:7657 · answered, but couldn't prove it's your journal",
+            "192.168.1.21:7657 · no answer",
+        ])
+        XCTAssertFalse(tried.ownerLines.contains { $0.hasSuffix(" more") })
+    }
+
+    func testAddressesTriedEndsWithAndNMoreWhenOutcomesWereOmitted() {
+        let entry = TriedAddresses.Entry(address: "journal-1.example:7657", outcome: .noAnswer)
+
+        XCTAssertEqual(
+            TriedAddresses(entries: [entry], omittedCount: 2).ownerLines,
+            ["journal-1.example:7657 · no answer", "and 2 more"]
+        )
+        XCTAssertEqual(
+            TriedAddresses(entries: [entry], omittedCount: 1).ownerLines.last,
+            "and 1 more"
+        )
+    }
+
+    func testAddressesTriedRowRendersTheOwnerLines() throws {
+        let text = try String(
+            contentsOf: StringLiteralGrepSupport.worktreeRoot()
+                .appendingPathComponent("Sources/Home/StatusPane.swift"),
+            encoding: .utf8
+        )
+        let row = try Self.slice(
+            in: text,
+            from: "Text(\"addresses tried\")",
+            to: "shell.pane.status.addressesTried"
+        )
+
+        XCTAssertTrue(row.contains("tried.ownerLines"))
+    }
+
     func testConnectionDetailsRequireAnActiveTunnelDespitePairedStaleContext() throws {
         let text = try String(
             contentsOf: StringLiteralGrepSupport.worktreeRoot()
