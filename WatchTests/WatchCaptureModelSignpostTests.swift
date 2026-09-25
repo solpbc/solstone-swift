@@ -611,7 +611,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertNil(model.presentation.locationAdvisory)
     }
 
-    func testComplicationTimelineReloadsOnlyOnLifecycleChanges() async throws {
+    func testComplicationTimelineReloadsOnLifecycleAndAudioVerificationChanges() async throws {
         let storage = try WatchModelTestStorage(rootURL: self.temporaryDirectory.appendingPathComponent("comp-reload"))
         let storageActor = self.storageActor(for: storage)
         let session = WatchModelConnectivitySession()
@@ -659,10 +659,29 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         await model.settled()
         XCTAssertEqual(reloadCount, initialReloads + 1, "Capture start must reload timeline")
 
+        // Verified audio moves the unknown entry and the relevance window: DOES reload
+        let verifiedAt = Date()
+        model.presentation = WatchCaptureOwnerPresentation(
+            status: .active,
+            queuedCount: 2,
+            lastVerifiedAudioAt: verifiedAt
+        )
+        await model.settled()
+        XCTAssertEqual(reloadCount, initialReloads + 2, "Verified audio must reload timeline")
+
+        // In-session count update while capturing: does NOT trigger timeline reload
+        model.presentation = WatchCaptureOwnerPresentation(
+            status: .active,
+            queuedCount: 3,
+            lastVerifiedAudioAt: verifiedAt
+        )
+        await model.settled()
+        XCTAssertEqual(reloadCount, initialReloads + 2, "In-session queued count change must not reload timeline")
+
         // In-session status change (stop: active -> off): DOES trigger timeline reload
         model.presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 2)
         await model.settled()
-        XCTAssertEqual(reloadCount, initialReloads + 2, "Capture stop must reload timeline")
+        XCTAssertEqual(reloadCount, initialReloads + 3, "Capture stop must reload timeline")
     }
 
     func testReconnectPublishesCachedStatusBeforeDiagnosticsRefreshCompletes() async throws {

@@ -108,6 +108,13 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
         self.lastVerifiedAudioAt = try container.decodeIfPresent(Date.self, forKey: .lastVerifiedAudioAt)
     }
 
+    /// Whether this snapshot changes what the published timeline shows.
+    ///
+    /// Relay counts alone do not reload. Verified audio does: the timeline schedules its unknown
+    /// entry from `lastVerifiedAudioAt`, so a capture that stops reloading on verification shows
+    /// the card as unknown two segments after the last reload, and its Smart Stack relevance
+    /// window lapses at the same moment. These reloads happen while the app holds an active
+    /// audio session, which WidgetKit does not count against the widget's reload budget.
     func requiresTimelineReload(comparedTo prior: WatchComplicationSnapshot?) -> Bool {
         guard let prior else { return true }
         return self.stateWord != prior.stateWord
@@ -116,6 +123,7 @@ nonisolated struct WatchComplicationSnapshot: Codable, Equatable, Sendable {
             || self.showsElapsed != prior.showsElapsed
             || self.sessionStartedAt != prior.sessionStartedAt
             || self.trustLine != prior.trustLine
+            || self.lastVerifiedAudioAt != prior.lastVerifiedAudioAt
     }
 }
 

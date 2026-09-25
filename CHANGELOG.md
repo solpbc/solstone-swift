@@ -9,6 +9,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Added
 - you can now turn on notifications from your journal on your iphone or ipad, and send a test one, under notifications. your journal encrypts each one to that device's own key, and turning them off tells your journal to stop sending them.
 
+### Fixed
+- on your apple watch, while audio was on, the solstone card and complication switched to "the solstone app hasn't checked in" about ten minutes in, and stayed that way for most of every half hour. they now keep showing "on" for as long as audio is on.
+
 ## [2.0.5 (107)] - 2026-09-23
 
 ### Changed
