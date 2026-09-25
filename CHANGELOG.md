@@ -4,10 +4,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.5 (108)] - 2026-09-25
 
 ### Added
 - you can now turn on notifications from your journal on your iphone or ipad, and send a test one, under notifications. your journal encrypts each one to that device's own key, and turning them off tells your journal to stop sending them.
+- when your iphone or ipad can't reach your journal, the status screen now shows which addresses it tried and what happened with each one, saying how many more were tried if not all are shown. journal settings also lists your journal's addresses, whether it's using a relay, and which address you're connected through, under technical details.
 
 ### Fixed
 - on your apple watch, while audio was on, the solstone card and complication switched to "the solstone app hasn't checked in" about ten minutes in, and stayed that way for most of every half hour. they now keep showing "on" for as long as audio is on.
