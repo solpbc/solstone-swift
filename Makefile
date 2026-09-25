@@ -657,6 +657,7 @@ ci: check-versions deps
 		CI_SIM_NAME='$(CI_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_SIM_DEVICETYPE)' \
 		CI_SIM_RUNTIME='$(CI_SIM_RUNTIME)' CI_ATTEMPT_TIMEOUT='$(CI_ATTEMPT_TIMEOUT)' \
 		CI_MAX_ATTEMPTS='$(CI_MAX_ATTEMPTS)' bash test/run_ci_tests.sh
+	DERIVED='$(DERIVED)' bash test/assert_no_boot_time_api.sh
 	$(MAKE) ci-watch
 
 ci-watch: deps
