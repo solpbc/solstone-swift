@@ -4,6 +4,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- you can now turn on notifications from your journal on your iphone or ipad, and send a test one, under notifications. your journal encrypts each one to that device's own key, and turning them off tells your journal to stop sending them.
+
 ## [2.0.5 (107)] - 2026-09-23
 
 ### Changed

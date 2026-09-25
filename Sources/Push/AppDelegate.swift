@@ -48,6 +48,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
 #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--integration-test-push-register") {
+                self.pushManager.setOwnerEnabledForTesting(true)
                 try? await Task.sleep(for: .seconds(1))
                 let syntheticToken = Self.integrationTestToken()
                 await self.pushManager.submitToken(syntheticToken)

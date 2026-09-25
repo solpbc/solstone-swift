@@ -184,6 +184,18 @@ nonisolated enum PushEnvelope {
         )
     }
 
+    static let fallbackTitle = "solstone"
+    static let fallbackBody = "you have a new notification."
+
+    /// What the phone shows when a notification can't be opened. Built here, never taken from the delivered alert.
+    static func fallbackContent() -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = self.fallbackTitle
+        content.body = self.fallbackBody
+        content.sound = .default
+        return content
+    }
+
     static func mutateContent(
         request: UNNotificationRequest,
         keyStore: PushKeyStore
@@ -211,6 +223,10 @@ nonisolated enum PushEnvelope {
             throw PushEnvelopeError.badPlaintext
         }
 
+        // Routing reads only what was decrypted: drop any routing keys the delivered alert carried.
+        mutableContent.userInfo.removeValue(forKey: "solstone.open")
+        mutableContent.userInfo.removeValue(forKey: "data")
+        mutableContent.categoryIdentifier = ""
         mutableContent.title = payload.title
         mutableContent.body = payload.body
         mutableContent.threadIdentifier = payload.kind

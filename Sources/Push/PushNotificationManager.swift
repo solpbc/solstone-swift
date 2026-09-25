@@ -30,11 +30,15 @@ final class PushNotificationManager {
         static let pendingRegistrationToken = "push.pendingRegistrationToken"
         static let lastRegisteredToken = "push.lastRegisteredToken"
         static let registeredEnvironment = "push.registeredEnvironment"
+        static let ownerEnabled = "push.ownerEnabled"
+        static let pendingUnregisterToken = "push.pendingUnregisterToken"
     }
 
     private(set) var permissionState: PermissionState = .notDetermined
     private(set) var registrationState: RegistrationState = .idle
     private(set) var deviceToken: String?
+    /// The owner's own turn-on, per device. Off until they turn it on; nothing registers while off.
+    private(set) var ownerEnabled = false
     var activeLocalPort: Int?
 
     @ObservationIgnored private let defaults: UserDefaults
@@ -120,11 +124,40 @@ final class PushNotificationManager {
     }
 
     func reregisterIfAuthorized() {
+        guard self.ownerEnabled else { return }
         switch self.permissionState {
         case .authorized, .provisional:
             self.register()
         case .denied, .notDetermined:
             break
+        }
+    }
+
+    func turnOn() async {
+        self.setOwnerEnabled(true)
+        self.defaults.removeObject(forKey: DefaultsKey.pendingUnregisterToken)
+        log.info("push turned on by owner")
+        switch self.permissionState {
+        case .notDetermined:
+            await self.requestAuthorization()
+        case .authorized, .provisional:
+            self.register()
+        case .denied:
+            break
+        }
+    }
+
+    func turnOff() async {
+        self.setOwnerEnabled(false)
+        self.defaults.removeObject(forKey: DefaultsKey.pendingRegistrationToken)
+        let held = self.defaults.string(forKey: DefaultsKey.lastRegisteredToken) ?? self.deviceToken
+        if let held, !held.isEmpty {
+            self.defaults.set(held, forKey: DefaultsKey.pendingUnregisterToken)
+        }
+        self.registrationState = .idle
+        log.info("push turned off by owner")
+        if let localPort = self.activeLocalPort {
+            await self.unregisterPending(localPort: localPort)
         }
     }
 
@@ -171,6 +204,11 @@ final class PushNotificationManager {
             self.yieldDeviceToken(hexToken)
         }
 
+        guard self.ownerEnabled else {
+            log.debug("push token received; not registering, owner has not turned push on")
+            return
+        }
+
         guard !hexToken.isEmpty else {
             self.registrationState = .failed(reason: "empty device token")
             log.error("push registration failed: empty device token")
@@ -189,6 +227,18 @@ final class PushNotificationManager {
 
     func handleTunnelConnected(localPort: Int) async {
         self.activeLocalPort = localPort
+
+        guard self.ownerEnabled else {
+            // An install that registered before the owner turn-on existed is removed from the journal here, once.
+            if self.defaults.string(forKey: DefaultsKey.pendingUnregisterToken) == nil,
+               let lastToken = self.defaults.string(forKey: DefaultsKey.lastRegisteredToken),
+               !lastToken.isEmpty
+            {
+                self.defaults.set(lastToken, forKey: DefaultsKey.pendingUnregisterToken)
+            }
+            await self.unregisterPending(localPort: localPort)
+            return
+        }
 
         if let pendingToken = self.defaults.string(forKey: DefaultsKey.pendingRegistrationToken),
            !pendingToken.isEmpty
@@ -277,6 +327,10 @@ final class PushNotificationManager {
     func setPermissionStateForTesting(_ permissionState: PermissionState) {
         self.permissionState = permissionState
     }
+
+    func setOwnerEnabledForTesting(_ enabled: Bool) {
+        self.setOwnerEnabled(enabled)
+    }
 #endif
 }
 
@@ -302,7 +356,18 @@ private extension PushNotificationManager {
         return "production"
     }
 
+    func setOwnerEnabled(_ enabled: Bool) {
+        self.ownerEnabled = enabled
+        self.defaults.set(enabled, forKey: DefaultsKey.ownerEnabled)
+    }
+
     func restorePersistedState() {
+        self.ownerEnabled = self.defaults.bool(forKey: DefaultsKey.ownerEnabled)
+        guard self.ownerEnabled else {
+            self.registrationState = .idle
+            return
+        }
+
         if let pendingToken = self.defaults.string(forKey: DefaultsKey.pendingRegistrationToken),
            !pendingToken.isEmpty
         {
@@ -352,6 +417,10 @@ private extension PushNotificationManager {
 
         var lastFailure = "push registration failed"
         for (index, delay) in self.retryDelays.enumerated() {
+            guard self.ownerEnabled else {
+                self.registrationState = .idle
+                return
+            }
             self.registrationState = .registering
 
             do {
@@ -372,6 +441,13 @@ private extension PushNotificationManager {
                     throw PushRegistrationError.http(http.statusCode)
                 }
 
+                guard self.ownerEnabled else {
+                    // Turned off while this registration was in flight: the journal now holds the row, so remove it.
+                    self.defaults.set(token, forKey: DefaultsKey.pendingUnregisterToken)
+                    self.registrationState = .idle
+                    await self.unregisterPending(localPort: localPort)
+                    return
+                }
                 self.defaults.removeObject(forKey: DefaultsKey.pendingRegistrationToken)
                 self.defaults.set(token, forKey: DefaultsKey.lastRegisteredToken)
                 self.defaults.set(self.environmentName, forKey: DefaultsKey.registeredEnvironment)
@@ -388,9 +464,55 @@ private extension PushNotificationManager {
             }
         }
 
+        guard self.ownerEnabled else {
+            self.registrationState = .idle
+            return
+        }
         self.defaults.set(token, forKey: DefaultsKey.pendingRegistrationToken)
         self.registrationState = .failed(reason: lastFailure)
         log.error("push registration failed on port \(localPort): \(lastFailure, privacy: .public)")
+    }
+
+    func unregisterPending(localPort: Int) async {
+        guard let token = self.defaults.string(forKey: DefaultsKey.pendingUnregisterToken),
+              !token.isEmpty,
+              let url = PushServerURL.url(path: "/api/push/register", localPort: localPort)
+        else {
+            return
+        }
+
+        for (index, delay) in self.retryDelays.enumerated() {
+            guard !self.ownerEnabled else { return }
+            do {
+                var request = URLRequest(url: url)
+                request.httpMethod = "DELETE"
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = try? JSONSerialization.data(withJSONObject: [
+                    "platform": "ios",
+                    "device_token": token,
+                ])
+
+                request.attachLoopbackCapability()
+                let (_, response) = try await self.session.data(for: request)
+                guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
+                    throw PushRegistrationError.invalidResponse
+                }
+                guard !self.ownerEnabled else { return }
+                self.defaults.removeObject(forKey: DefaultsKey.pendingUnregisterToken)
+                if self.defaults.string(forKey: DefaultsKey.lastRegisteredToken) == token {
+                    self.defaults.removeObject(forKey: DefaultsKey.lastRegisteredToken)
+                    self.defaults.removeObject(forKey: DefaultsKey.registeredEnvironment)
+                }
+                log.info("push unregistered on port \(localPort)")
+                return
+            } catch {
+                if index == self.retryDelays.count - 1 {
+                    break
+                }
+                await self.sleep(delay)
+            }
+        }
+        log.error("push unregister failed on port \(localPort); will retry on the next connection")
     }
 
     func registrationBody(token: String, pushKey: Data) -> Data? {

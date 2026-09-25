@@ -45,8 +45,8 @@ private extension OnboardingAccessibilityTests {
         let notifications = app.descendants(matching: .any)["shell.pane.shelf.notifications"]
         XCTAssertTrue(notifications.waitForExistence(timeout: 5))
         notifications.tap()
-        self.scrollToElement(app.buttons["enable notifications"], in: app)
-        self.assertMetadata(for: app.buttons["enable notifications"], in: app)
+        self.scrollToElement(app.switches["shell.notifications.journalToggle"], in: app)
+        self.assertMetadata(for: app.switches["shell.notifications.journalToggle"], in: app)
         // ⚠ Scoped to the shelf's own bar. `app.navigationBars.buttons.firstMatch` used
         // to be unambiguous only because the shell behind the drawer was not rendering
         // at all; now that it is, the first navigation bar in the tree is the DECK's and

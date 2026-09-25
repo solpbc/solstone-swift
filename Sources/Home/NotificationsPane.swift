@@ -2,62 +2,92 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
+import UIKit
 
 struct NotificationsPane: View {
     @Environment(PushNotificationManager.self) private var pushManager
     @AccessibilityFocusState private var headingFocused: Bool
+    @Environment(\.scenePhase) private var scenePhase
 
-    private var permissionStatusText: String {
-        switch self.pushManager.permissionState {
-        case .notDetermined:
-            "system: not requested"
-        case .authorized:
-            "system: authorized"
-        case .denied:
-            "system: denied"
-        case .provisional:
-            "system: provisional"
+    private var ownerSwitch: Binding<Bool> {
+        Binding(
+            get: { self.pushManager.ownerEnabled },
+            set: { on in
+                Task {
+                    if on {
+                        await self.pushManager.turnOn()
+                    } else {
+                        await self.pushManager.turnOff()
+                    }
+                }
+            }
+        )
+    }
+
+    private var statusText: String {
+        switch self.pushManager.registrationState {
+        case .registered:
+            "on"
+        case .registering:
+            "turning on…"
+        case .failed:
+            "couldn't turn on. try again in a moment."
+        case .idle:
+            "waiting for your journal"
         }
     }
 
-    private var registrationStatusText: String {
-        switch self.pushManager.registrationState {
-        case .idle:
-            "registration: idle"
-        case .registering:
-            "registration: registering"
-        case .registered:
-            "registration: registered"
-        case .failed(let reason):
-            "registration: failed — \(reason)"
-        }
+    private var isRegistered: Bool {
+        if case .registered = self.pushManager.registrationState { return true }
+        return false
     }
 
     var body: some View {
         List {
-            LabeledContent("permission", value: self.permissionStatusText)
-                .accessibilityLabel(self.permissionStatusText)
+            Section {
+                Toggle("notifications from your journal", isOn: self.ownerSwitch)
+                    .accessibilityIdentifier("shell.notifications.journalToggle")
 
-            LabeledContent("registration", value: self.registrationStatusText)
-                .accessibilityLabel(self.registrationStatusText)
+                if self.pushManager.ownerEnabled {
+                    if self.pushManager.permissionState == .denied {
+                        Text("ios has notifications turned off for solstone.")
+                            .foregroundStyle(.secondary)
+                        Button("open settings") {
+                            if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        .hoverEffect(.highlight)
+                    } else {
+                        Text(self.statusText)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("shell.notifications.journalStatus")
+                    }
 
-            Button("enable notifications") {
-                Task {
-                    await self.pushManager.requestAuthorization()
+                    if self.isRegistered {
+                        Button("send a test notification") {
+                            Task {
+                                _ = await self.pushManager.sendTestNotification()
+                            }
+                        }
+                        .disabled(self.pushManager.activeLocalPort == nil)
+                        .hoverEffect(.highlight)
+                    }
                 }
+            } footer: {
+                Text("off until you turn it on. your journal encrypts each notification to this device's own key.")
             }
-            .disabled(self.pushManager.permissionState == .authorized || self.pushManager.permissionState == .provisional)
-            .accessibilityLabel("enable notifications")
-            .hoverEffect(.highlight)
-
-            Button("send test notification") {
-                Task {
-                    _ = await self.pushManager.sendTestNotification()
-                }
+        }
+        .task {
+            await self.pushManager.refreshPermissionState()
+        }
+        .onChange(of: self.scenePhase) { _, phase in
+            // Coming back from iOS Settings: pick up a permission the owner just granted.
+            guard phase == .active else { return }
+            Task {
+                await self.pushManager.refreshPermissionState()
+                self.pushManager.reregisterIfAuthorized()
             }
-            .disabled(self.pushManager.activeLocalPort == nil)
-            .accessibilityLabel("send test notification")
-            .hoverEffect(.highlight)
         }
         .navigationTitle(ShellDestination.shelfNotifications.shelfTitle)
         .navigationBarTitleDisplayMode(.inline)

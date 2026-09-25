@@ -10,7 +10,7 @@ nonisolated private let log = Logger(subsystem: "app.solstone.swift", category: 
 nonisolated final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
     private struct State {
         var contentHandler: ((UNNotificationContent) -> Void)?
-        var originalContent: UNNotificationContent?
+        var hasPending = false
     }
 
     private let lock = NSLock()
@@ -22,7 +22,7 @@ nonisolated final class NotificationService: UNNotificationServiceExtension, @un
     ) {
         self.lock.withLock {
             self.state.contentHandler = contentHandler
-            self.state.originalContent = request.content
+            self.state.hasPending = true
         }
 
         let store = PushKeyStore.production()
@@ -31,19 +31,19 @@ nonisolated final class NotificationService: UNNotificationServiceExtension, @un
             self.finish(with: mutated)
         } catch let error as PushEnvelopeError {
             log.error("notification unseal failed: \(error.reasonCode, privacy: .public)")
-            self.finish(with: request.content)
+            self.finish(with: PushEnvelope.fallbackContent())
         } catch {
             log.error("notification unseal failed: unexpected")
-            self.finish(with: request.content)
+            self.finish(with: PushEnvelope.fallbackContent())
         }
     }
 
     override func serviceExtensionTimeWillExpire() {
         self.lock.withLock {
-            if let original = self.state.originalContent, let handler = self.state.contentHandler {
+            if self.state.hasPending, let handler = self.state.contentHandler {
                 self.state.contentHandler = nil
-                self.state.originalContent = nil
-                handler(original)
+                self.state.hasPending = false
+                handler(PushEnvelope.fallbackContent())
             }
         }
     }
@@ -52,7 +52,7 @@ nonisolated final class NotificationService: UNNotificationServiceExtension, @un
         self.lock.withLock {
             if let handler = self.state.contentHandler {
                 self.state.contentHandler = nil
-                self.state.originalContent = nil
+                self.state.hasPending = false
                 handler(content)
             }
         }

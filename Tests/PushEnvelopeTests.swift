@@ -222,7 +222,8 @@ nonisolated final class PushEnvelopeTests: XCTestCase {
         originalContent.userInfo = [
             "aps": ["alert": "test"],
             "e": "AQABAgMEBQYHCAkKCzwgoDn_1O457DW1sZPbSF-1-7cN3UlrKAhX37UtUzCCWzKC3sSofPxWnl2Z7fRcGsJ7FOQuusb4BbVZdnSQgYGeWeRW8bNJBWV2kEyb6n2cGOSmFh8FOgucifejFtDf_6SVeZ_LNLo69HNLwCYUTVGYGuKr48Ulmk3_V82C5m4Ou1IAxrTXy1MI4UihPdpMwjb04zU1EZNKjF_od_rS6e6Tl54V6f_Mfqdj3frfgIa7nc7KIourc7xl38DHccW38xNMivoN3dbJN1bT5rpB2YThfvh2PQC68XGRmsdBSI_6QyPUr-YgAyVSR7gItRF8UaiTuXWdMImlF2tnc4ucQoEU0fKQndpIPnffcge3LToK2rTKzYCLga9xL21RCvS6SwED3ki6xc4Xkjw6WgqVoNOYylteSZTPF5gxHRaXPUXpyZV_KotgeOmj4HsgXdMdYpMa14ScFIUISaN4Zo2xSP9ZL_nZhVRyyyCvpCOXtWIohP0fee7xAMGf5TTc3FdZMqWDwNmHB9PcoXD-fz5AEofiC2y7nyBS1D0Q3kZN5rtWGXpXa8PRUXKguNxS__iwpV1rRBIcgyDl57nj7YarH3h6eq7drle_fesa4FfxlNVRaYprUsOaHjxDxbqwEf-GtBnvKQGXk9_OUaoEjeis7YCQrNGaPa7hILcCkV3H6FMcoWzq-L8x3FdBu-F9OhJhuIeyOzpue9K0j2VAN7dUHrBsDzaH7EewCzDUV6bKb1vtRq-XP63FdGUK5yrAiiCKUXPtyg40ADdM0KC2g4SYTYcHlp60FYnx77YPuqUj2Cvdt0CXKtp3tJY1m9yDEGbWVXmTRC00vLnfGxIJEt3Wpyol0Y1AtsMY0RfObSbyPw2Ubn2JsRopkOxA2r_k0OWYzYOVRy0YS35ctyXIuxlBMoRvQcW9d8fK98XgNyvDcBARWKfeUwZgzTlmA0e4yvYlh3lLPlWoStjiyv-QjrmA0MauUj3L7MctzhfOhwbx0B2sQxFwWOEBr_e24LmBx2eaj-vrAV3OANH3nIRC5mtemuKM21EjvYD1hnfz5FOAvZaYsNNbB3fAHd8fob2apzYjjfYKRqh3moHQNnfErzZNoaA38ll4vL7Di8D7_4LWCLugF9N1VUQF8n4qIPHppVD4ogdz7lvoxJ1Oj6e0X8N-VqzY0L1c4nLbkIGe5nbE3le2AcSgz8e3Ljt_OoDOTz2HJ2rXXsN3o8a0GOLKLcPDWNeu9iw4Zr-TrVNvZSTBRSom5vUYjUgvsbDZZ_l_DVVgqjIYmBqmBfHJLNG2HcsJV4JQKTHG-wpHQFKx1iyssa5N7PKiXkO5dCXRrkf1SfQbTITj9acKMSs4iO9dkptWTq_Xjj59SFOxPrU7hIt1FJEz",
-            "data": ["key": "value"]
+            "data": ["key": "value"],
+            "solstone.open": "/app/injected"
         ]
 
         let key = Data(0..<32)
@@ -243,17 +244,26 @@ nonisolated final class PushEnvelopeTests: XCTestCase {
         XCTAssertEqual(mutated.body, "test notification from your journal.")
         XCTAssertEqual(mutated.threadIdentifier, "test")
 
-        // Mutated content preserves sound, categoryIdentifier, badge, aps, e, data
+        // Mutated content preserves sound, badge, aps and e, and drops routing the delivered alert carried
         XCTAssertEqual(mutated.sound, originalContent.sound)
-        XCTAssertEqual(mutated.categoryIdentifier, originalContent.categoryIdentifier)
+        XCTAssertEqual(mutated.categoryIdentifier, "")
         XCTAssertEqual(mutated.badge, originalContent.badge)
         XCTAssertEqual(mutated.userInfo["aps"] as? [String: String], ["alert": "test"])
         XCTAssertEqual(mutated.userInfo["e"] as? String, originalContent.userInfo["e"] as? String)
-        XCTAssertEqual(mutated.userInfo["data"] as? [String: String], ["key": "value"])
+        XCTAssertNil(mutated.userInfo["data"])
+        XCTAssertNil(mutated.userInfo["solstone.open"])
 
         // Original content object is unchanged
         XCTAssertEqual(originalContent.title, "original title")
         XCTAssertEqual(originalContent.body, "original body")
+    }
+
+    func testFallbackContentIsBuiltFromConstants() {
+        let fallback = PushEnvelope.fallbackContent()
+        XCTAssertEqual(fallback.title, "solstone")
+        XCTAssertEqual(fallback.body, "you have a new notification.")
+        XCTAssertTrue(fallback.userInfo.isEmpty)
+        XCTAssertEqual(fallback.categoryIdentifier, "")
     }
 
     func testOpenPathValidation() {
