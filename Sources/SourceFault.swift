@@ -26,12 +26,17 @@ nonisolated enum SourceFaultAction: Equatable, Sendable {
     case routeToInstallOrOpen
     case openSettings
     case matchToAllowed
+    case requestPermission
 }
 
 nonisolated func sourceFaultAction(_ fault: SourceFault) -> SourceFaultAction {
     switch fault {
-    case .locationDenied, .locationServicesDisabled, .locationNotDetermined, .microphoneDenied:
+    case .locationDenied, .locationServicesDisabled, .microphoneDenied:
         .openSettings
+    // why: ios lists no location row for an app that has never asked, so "open ios settings" would
+    // strand an owner who has not decided yet; the start flow is what shows the system prompt.
+    case .locationNotDetermined:
+        .requestPermission
     case .watchUnsupported, .watchChecking, .watchActivationFailed, .watchNoWatchPaired, .watchStuck:
         .none
     case .watchReadyToInstall, .watchInstalledNeverOpened:

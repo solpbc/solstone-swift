@@ -21,6 +21,13 @@ nonisolated final class LocationDetailPresentationTests: XCTestCase {
         )
     }
 
+    func testNotYetDecidedAsksInsteadOfOpeningSettings() {
+        // ios has no location row for an app that has never asked, so this control must ask.
+        XCTAssertEqual(LocationDetailPresentation.faultActionTitle(.requestPermission), LocationVocabulary.turnOnLocation)
+        XCTAssertEqual(LocationDetailPresentation.faultActionTitle(.openSettings), LocationVocabulary.openSettingsAction)
+        XCTAssertEqual(LocationDetailPresentation.faultActionTitle(.matchToAllowed), LocationVocabulary.matchToAllowedAction)
+    }
+
     func testRecoveryButtonLabelsUseLocationVocabulary() {
         XCTAssertEqual(
             LocationDetailPresentation.recoveryButtonLabel(for: .openSettings),

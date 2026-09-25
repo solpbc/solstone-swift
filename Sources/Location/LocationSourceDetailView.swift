@@ -55,6 +55,17 @@ struct LocationSourceDetailView: View {
 }
 
 private extension LocationSourceDetailView {
+    static func faultActionHint(_ action: SourceFaultAction) -> String {
+        switch action {
+        case .matchToAllowed:
+            "Changes the detail level to what ios allows."
+        case .requestPermission:
+            "Asks ios for location access."
+        case .openSettings, .routeToInstallOrOpen, .none:
+            "Opens ios settings for location access."
+        }
+    }
+
     @ViewBuilder
     var stateContent: some View {
         SourceDetailBlock(title: LocationVocabulary.stateBlockTitle) {
@@ -93,16 +104,17 @@ private extension LocationSourceDetailView {
             SourceDetailReasonLine(message: self.locationManager.sourceAttention?.message)
             SourceFaultActionControl(
                 action: action,
-                title: action == .matchToAllowed
-                    ? LocationVocabulary.matchToAllowedAction
-                    : LocationVocabulary.openSettingsAction,
-                hint: action == .openSettings
-                    ? "Opens ios settings for location access."
-                    : "Changes the detail level to what ios allows.",
+                title: LocationDetailPresentation.faultActionTitle(action),
+                hint: Self.faultActionHint(action),
                 perform: {
-                    if action == .matchToAllowed {
+                    switch action {
+                    case .matchToAllowed:
                         self.handleRecovery(.matchToAllowed(suggestedTier: self.locationManager.tier))
-                    } else {
+                    case .requestPermission:
+                        Task {
+                            await self.locationManager.start(tier: self.locationManager.tier)
+                        }
+                    case .openSettings, .routeToInstallOrOpen, .none:
                         self.handleRecovery(.openSettings)
                     }
                 }

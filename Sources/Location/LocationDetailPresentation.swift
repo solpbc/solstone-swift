@@ -8,6 +8,17 @@ nonisolated struct LocationDeliverySummary: Equatable, Sendable {
 }
 
 nonisolated enum LocationDetailPresentation {
+    static func faultActionTitle(_ action: SourceFaultAction) -> String {
+        switch action {
+        case .matchToAllowed:
+            LocationVocabulary.matchToAllowedAction
+        case .requestPermission:
+            LocationVocabulary.turnOnLocation
+        case .openSettings, .routeToInstallOrOpen, .none:
+            LocationVocabulary.openSettingsAction
+        }
+    }
+
     static func deliverySummary(
         pending: Int,
         failed: Int

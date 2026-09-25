@@ -11,6 +11,7 @@ required_hints=(
   'Sources/Onboarding/WelcomeScreen.swift:finishes setup and opens your day'
   'Sources/Location/LocationSourceDetailView.swift:Opens ios settings for location access.'
   'Sources/Location/LocationSourceDetailView.swift:Changes the detail level to what ios allows.'
+  'Sources/Location/LocationSourceDetailView.swift:Asks ios for location access.'
   'Sources/Location/LocationSourceDetailView.swift:Resumes location updates to your journal.'
   'Sources/Location/LocationSourceDetailView.swift:Pauses location updates to your journal.'
   "Sources/Location/LocationSourceDetailView.swift:Removes location's contributions from your journal."

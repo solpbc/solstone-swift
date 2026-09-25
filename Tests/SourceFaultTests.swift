@@ -16,7 +16,7 @@ nonisolated final class SourceFaultTests: XCTestCase {
         XCTAssertEqual(sourceFaultAction(.locationRestricted), .none)
         XCTAssertEqual(sourceFaultAction(.locationDenied), .openSettings)
         XCTAssertEqual(sourceFaultAction(.locationServicesDisabled), .openSettings)
-        XCTAssertEqual(sourceFaultAction(.locationNotDetermined), .openSettings)
+        XCTAssertEqual(sourceFaultAction(.locationNotDetermined), .requestPermission)
         XCTAssertEqual(sourceFaultAction(.locationGrantBelowTier), .matchToAllowed)
         XCTAssertEqual(sourceFaultAction(.microphoneDenied), .openSettings)
         XCTAssertEqual(sourceFaultAction(.screencastNeedsAttention), .none)
@@ -64,7 +64,9 @@ nonisolated final class SourceFaultTests: XCTestCase {
     func testLocationNotDeterminedIsOpenSettingsNotMatchToAllowed() throws {
         let fault = locationSourceFault(effective: .notDetermined, tier: .balanced, paused: false)
         XCTAssertEqual(fault, .locationNotDetermined)
-        XCTAssertEqual(sourceFaultAction(try XCTUnwrap(fault)), .openSettings)
+        // An app that has never asked has no location row in ios settings; the owner is asked instead.
+        XCTAssertEqual(sourceFaultAction(try XCTUnwrap(fault)), .requestPermission)
+        XCTAssertNotEqual(sourceFaultAction(try XCTUnwrap(fault)), .openSettings)
         XCTAssertNotEqual(sourceFaultAction(try XCTUnwrap(fault)), .matchToAllowed)
     }
 
