@@ -294,7 +294,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         let snapshot = manager.diagnosticSnapshotLines()
         XCTAssertTrue(snapshot.contains("candidate telemetry: unavailable"))
-        XCTAssertTrue(snapshot.contains { $0 == "candidate 1: relay unfinished (ended) 7ms" })
+        XCTAssertTrue(snapshot.contains { $0 == "candidate 1: relay unfinished (ended) 7ms → relay.example.com" })
         XCTAssertTrue(diagnostics.events.contains { $0.message == "candidate telemetry: unavailable" })
         await manager.disconnect()
         await connectTask.value
@@ -321,7 +321,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         let snapshot = manager.diagnosticSnapshotLines()
         XCTAssertTrue(snapshot.contains("candidate telemetry: complete"))
-        XCTAssertTrue(snapshot.contains { $0 == "candidate 1: relay selected 9ms" })
+        XCTAssertTrue(snapshot.contains { $0 == "candidate 1: relay selected 9ms → relay.example.com" })
         await manager.disconnect()
         await connectTask.value
     }
@@ -354,6 +354,299 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let snapshot = manager.diagnosticSnapshotLines()
         XCTAssertTrue(snapshot.contains("candidate telemetry: unavailable"))
         XCTAssertTrue(snapshot.contains("candidate outcomes omitted: 1"))
+        await manager.disconnect()
+        await connectTask.value
+    }
+
+    @MainActor
+    func testFailedRaceNamesEachDirectAddressWithItsOutcome() async {
+        let transport = MockCFTunnelTransport()
+        transport.suspendConnectUntilDisconnect = true
+        let diagnostics = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            pairing: Self.fixturePairing(localEndpoints: [
+                LocalEndpoint(host: "192.168.1.20", port: 7657, scope: "lan"),
+                LocalEndpoint(host: "192.168.1.21", port: 7657, scope: "lan"),
+            ]),
+            jitterRandom: { _ in 1.0 },
+            diagnosticLog: diagnostics
+        )
+        let connectTask = Task { @MainActor in await manager.connect() }
+        let started = await Self.waitUntil { transport.connectCallCount == 1 }
+        XCTAssertTrue(started)
+
+        // Sorted map: 0 A pinned, 1 B pinned, 2 A unpinned, 3 B unpinned, 4 relay.
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .tls, milliseconds: 5)
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 1, failure: .unreachable, milliseconds: 6)
+        Self.emitFailedCandidate(transport, route: .directUnpinned, ordinal: 2, failure: .unreachable, milliseconds: 7)
+        Self.emitFailedCandidate(transport, route: .directUnpinned, ordinal: 3, failure: .transport, milliseconds: 8)
+        Self.emitFailedCandidate(transport, route: .relay, ordinal: 4, failure: .transport, milliseconds: 9)
+        transport.emitStage(.attemptUpdatesFinished, attempt: 1)
+        await Self.settle()
+        transport.failSuspendedConnect(error: SessionError.unreachable)
+        await connectTask.value
+
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        let expectedLines = [
+            "candidate 0: direct pinned failed tls 5ms → 192.168.1.20:7657",
+            "candidate 1: direct pinned failed unreachable 6ms → 192.168.1.21:7657",
+            "candidate 2: direct unpinned failed unreachable 7ms → 192.168.1.20:7657",
+            "candidate 3: direct unpinned failed transport 8ms → 192.168.1.21:7657",
+            "candidate 4: relay failed transport 9ms → relay.example.com",
+        ]
+        let messages = diagnostics.events.map(\.message)
+        let snapshot = manager.diagnosticSnapshotLines()
+        for line in expectedLines {
+            XCTAssertTrue(messages.contains(line), "log missing \(line)")
+            XCTAssertTrue(snapshot.contains(line), "snapshot missing \(line)")
+        }
+        XCTAssertTrue(snapshot.contains("journal addresses:"))
+        XCTAssertTrue(snapshot.contains("  192.168.1.20:7657 (lan)"))
+        XCTAssertTrue(snapshot.contains("  192.168.1.21:7657 (lan)"))
+        XCTAssertTrue(snapshot.contains("relay: relay.example.com"))
+        XCTAssertFalse(snapshot.contains { $0.hasPrefix("connected through:") })
+        XCTAssertEqual(manager.lastFailedDial, TriedAddresses(
+            entries: [
+                TriedAddresses.Entry(address: "192.168.1.20:7657", outcome: .couldNotProveJournal),
+                TriedAddresses.Entry(address: "192.168.1.21:7657", outcome: .noAnswer),
+            ],
+            omittedCount: 0
+        ))
+        XCTAssertEqual(
+            manager.lastFailedDial?.entries.map { "\($0.address) · \($0.outcome.ownerText)" },
+            [
+                "192.168.1.20:7657 · answered, but couldn't prove it's your journal",
+                "192.168.1.21:7657 · no answer",
+            ]
+        )
+        await manager.disconnect()
+        XCTAssertNil(manager.lastFailedDial)
+    }
+
+    @MainActor
+    func testAuthRefreshRedialDropsFirstRaceEventsAndReportsSecondRaceOnly() async throws {
+        let addressA = LocalEndpoint(host: "journal-a.example", port: 7657, scope: "lan")
+        let addressB = LocalEndpoint(host: "journal-b.example", port: 7658, scope: "lan")
+        let second = Self.fixturePairing(localEndpoints: [addressB], deviceToken: Self.validFutureDeviceToken)
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(
+            initialState: Self.fixturePairing(localEndpoints: [addressA, addressB], deviceToken: Self.validFutureDeviceToken)
+        )
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        let transport = MockCFTunnelTransport()
+        transport.suspendConnectUntilDisconnect = true
+        // The first race's teardown drops address A from the pairing, so the re-dial races one fewer candidate.
+        transport.onDisconnectInvoked = {
+            transport.onDisconnectInvoked = nil
+            try? store.applyPairing(second)
+        }
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(
+                responseData: Self.tokenRefreshSuccessData(deviceToken: Self.makeDeviceToken(jti: "redial-jti"))
+            ),
+            clientInfo: SPLRuntime.clientInfo
+        )
+        let diagnostics = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            store: store,
+            deviceTokenRefresher: refresher,
+            jitterRandom: { _ in 1.0 },
+            diagnosticLog: diagnostics
+        )
+        let connectTask = Task { @MainActor in await manager.connect() }
+        let firstRace = await Self.waitUntil { transport.connectCallCount == 1 }
+        XCTAssertTrue(firstRace)
+
+        // Race 1 map: 0 A, 1 B, 2 relay.
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .unreachable, milliseconds: 5, attempt: 1)
+        await Self.settle()
+        transport.failSuspendedConnect(attempt: 1, error: SessionError.authRefreshRequired)
+        let secondRace = await Self.waitUntil { transport.connectCallCount == 2 }
+        XCTAssertTrue(secondRace)
+
+        // Race 2 map: 0 B, 1 relay. A late race-1 event on ordinal 0 must not be labelled B.
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .tls, milliseconds: 111, attempt: 1)
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .unreachable, milliseconds: 6, attempt: 2)
+        Self.emitFailedCandidate(transport, route: .relay, ordinal: 1, failure: .transport, milliseconds: 7, attempt: 2)
+        transport.emitStage(.attemptUpdatesFinished, attempt: 2)
+        await Self.settle()
+        transport.failSuspendedConnect(attempt: 2, error: SessionError.unreachable)
+        await connectTask.value
+
+        let messages = diagnostics.events.map(\.message)
+        XCTAssertTrue(messages.contains("candidate 0: direct pinned failed unreachable 5ms → journal-a.example:7657"))
+        XCTAssertTrue(messages.contains("candidate 0: direct pinned failed unreachable 6ms → journal-b.example:7658"))
+        XCTAssertTrue(messages.contains("candidate 1: relay failed transport 7ms → relay.example.com"))
+        XCTAssertFalse(messages.contains { $0.contains("111ms") })
+        let snapshot = manager.diagnosticSnapshotLines()
+        XCTAssertFalse(snapshot.contains { $0.contains("111ms") || $0.contains("journal-a.example") })
+        XCTAssertTrue(snapshot.contains("candidate 0: direct pinned failed unreachable 6ms → journal-b.example:7658"))
+        XCTAssertEqual(manager.lastFailedDial, TriedAddresses(
+            entries: [TriedAddresses.Entry(address: "journal-b.example:7658", outcome: .noAnswer)],
+            omittedCount: 0
+        ))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testPinnedEventOnUnpinnedCandidateAppendsNoAddress() async {
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let diagnostics = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            pairing: Self.fixturePairing(localEndpoints: [LocalEndpoint(host: "192.168.1.20", port: 7657, scope: "lan")]),
+            diagnosticLog: diagnostics
+        )
+        let connectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        // Sorted map: 0 pinned, 1 unpinned, 2 relay.
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 1, failure: .unreachable, milliseconds: 3)
+        await Self.settle()
+        let messages = diagnostics.events.map(\.message)
+        XCTAssertTrue(messages.contains("candidate 1: direct pinned failed unreachable 3ms"))
+        XCTAssertFalse(messages.contains { $0.hasPrefix("candidate 1:") && $0.contains("→") })
+        XCTAssertNil(manager.lastFailedDial)
+
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .unreachable, milliseconds: 4)
+        await Self.settle()
+        XCTAssertTrue(diagnostics.events.contains { $0.message == "candidate 0: direct pinned failed unreachable 4ms → 192.168.1.20:7657" })
+        XCTAssertEqual(manager.state, .waitingForHome)
+        XCTAssertEqual(manager.lastFailedDial, TriedAddresses(
+            entries: [TriedAddresses.Entry(address: "192.168.1.20:7657", outcome: .noAnswer)],
+            omittedCount: 0
+        ))
+        await manager.disconnect()
+        await connectTask.value
+    }
+
+    @MainActor
+    func testSuccessfulRaceRecordsWinningAddressAndNoTriedAddresses() async {
+        let transport = MockCFTunnelTransport()
+        transport.suspendConnectUntilDisconnect = true
+        let manager = makeManager(
+            transport: transport,
+            pairing: Self.fixturePairing(localEndpoints: [
+                LocalEndpoint(host: "192.168.1.20", port: 7657, scope: "lan"),
+                LocalEndpoint(host: "192.168.1.21", port: 7657, scope: "lan"),
+            ])
+        )
+        let connectTask = Task { @MainActor in await manager.connect() }
+        let started = await Self.waitUntil { transport.connectCallCount == 1 }
+        XCTAssertTrue(started)
+
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .tls, milliseconds: 5)
+        transport.emitStage(.attemptEvent(TunnelAttemptEvent(route: .directPinned, ordinal: 1, phase: .started)), attempt: 1)
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(route: .directPinned, ordinal: 1, phase: .selected(elapsedMilliseconds: 6))),
+            attempt: 1
+        )
+        transport.emitStage(.attemptUpdatesFinished, attempt: 1)
+        await Self.settle()
+        transport.completeSuspendedConnect(port: 6060)
+        await connectTask.value
+
+        XCTAssertEqual(manager.state, .connected(localPort: 6060, via: .remote))
+        XCTAssertNil(manager.lastFailedDial)
+        XCTAssertEqual(manager.connectedAddress, "192.168.1.21:7657")
+        XCTAssertEqual(manager.connectedDirectAddress, "192.168.1.21:7657")
+        XCTAssertTrue(manager.diagnosticSnapshotLines().contains("connected through: 192.168.1.21:7657"))
+        await manager.disconnect()
+        XCTAssertNil(manager.connectedAddress)
+    }
+
+    @MainActor
+    func testCandidateListFailureLeavesNoTriedAddresses() async throws {
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(
+            initialState: Self.fixturePairing(localEndpoints: [LocalEndpoint(host: "192.168.1.20", port: 7657, scope: "lan")])
+        )
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        let transport = MockCFTunnelTransport()
+        transport.suspendConnectUntilDisconnect = true
+        let manager = makeManager(transport: transport, store: store, jitterRandom: { _ in 1.0 })
+        let connectTask = Task { @MainActor in await manager.connect() }
+        let started = await Self.waitUntil { transport.connectCallCount == 1 }
+        XCTAssertTrue(started)
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .unreachable, milliseconds: 5)
+        transport.emitStage(.attemptUpdatesFinished, attempt: 1)
+        await Self.settle()
+        transport.failSuspendedConnect(error: SessionError.unreachable)
+        await connectTask.value
+        XCTAssertNotNil(manager.lastFailedDial)
+
+        // No direct endpoints and no relay: the candidate list throws before any race.
+        try store.applyPairing(Self.fixturePairing(localEndpoints: [], relayEnrollment: .unavailable))
+        await manager.connect()
+
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertEqual(manager.state, .error(.unreachable))
+        XCTAssertNil(manager.lastFailedDial)
+        XCTAssertTrue(manager.diagnosticSnapshotLines().contains("relay: off"))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testTriedAddressesOmittedCountMatchesSnapshot() async {
+        let endpoints = (1...7).map { LocalEndpoint(host: "journal-\($0).example", port: 7657, scope: "lan") }
+        let transport = MockCFTunnelTransport()
+        transport.suspendConnectUntilDisconnect = true
+        let manager = makeManager(transport: transport, pairing: Self.fixturePairing(localEndpoints: endpoints))
+        let connectTask = Task { @MainActor in await manager.connect() }
+        let started = await Self.waitUntil { transport.connectCallCount == 1 }
+        XCTAssertTrue(started)
+
+        // Sorted map: 0-6 the seven hostnames in order, 7 relay.
+        for ordinal in 0...6 {
+            Self.emitFailedCandidate(transport, route: .directPinned, ordinal: ordinal, failure: .unreachable, milliseconds: ordinal + 1)
+        }
+        Self.emitFailedCandidate(transport, route: .relay, ordinal: 7, failure: .transport, milliseconds: 8)
+        transport.emitStage(.attemptUpdatesFinished, attempt: 1)
+        await Self.settle()
+
+        let snapshot = manager.diagnosticSnapshotLines()
+        XCTAssertTrue(snapshot.contains("candidate outcomes omitted: 2"))
+        XCTAssertEqual(manager.lastFailedDial?.omittedCount, 2)
+        XCTAssertEqual(
+            manager.lastFailedDial?.entries.map(\.address),
+            (1...6).map { "journal-\($0).example:7657" }
+        )
+        await manager.disconnect()
+        await connectTask.value
+    }
+
+    @MainActor
+    func testIPv6AddressIsBracketedInLogSnapshotAndTriedAddresses() async {
+        XCTAssertEqual(JournalAddress.display(host: "fd00::1", port: 7657), "[fd00::1]:7657")
+        XCTAssertEqual(JournalAddress.display(host: "fe80::1%en0", port: 7657), "[fe80::1%en0]:7657")
+        XCTAssertEqual(JournalAddress.display(host: "192.168.1.20", port: 7657), "192.168.1.20:7657")
+
+        let transport = MockCFTunnelTransport()
+        transport.emitAwaitingBrokerBeforeResult = true
+        transport.suspendAfterAwaitingBroker = true
+        let diagnostics = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            pairing: Self.fixturePairing(localEndpoints: [LocalEndpoint(host: "fd00::1", port: 7657, scope: "ula")]),
+            diagnosticLog: diagnostics
+        )
+        let connectTask = await Self.startAwaitingBrokerConnect(manager: manager, transport: transport)
+
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .unreachable, milliseconds: 4)
+        await Self.settle()
+
+        XCTAssertTrue(diagnostics.events.contains { $0.message == "candidate 0: direct pinned failed unreachable 4ms → [fd00::1]:7657" })
+        XCTAssertTrue(manager.diagnosticSnapshotLines().contains("  [fd00::1]:7657 (ula)"))
+        XCTAssertEqual(manager.lastFailedDial?.entries.map(\.address), ["[fd00::1]:7657"])
         await manager.disconnect()
         await connectTask.value
     }
@@ -488,10 +781,14 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         }
         let snapshot = diagnosticLog.snapshot(tunnel: manager)
         let valuesToCheck = rawEventValues + rawEventValues.map(DiagnosticLog.redact) + [snapshot, DiagnosticLog.redact(snapshot)]
+        // The journal's own address and the relay's host are diagnostics the owner needs;
+        // the relay path, identity and credentials stay out.
+        for value in [snapshot, DiagnosticLog.redact(snapshot)] {
+            XCTAssertTrue(value.contains("\(lanHost):\(lanPort)"), "snapshot should name the journal address")
+            XCTAssertTrue(value.contains("relay: privacy-relay.example"), "snapshot should name the relay host")
+        }
         let forbidden = [
             instanceID,
-            lanHost,
-            String(lanPort),
             relayURL,
             deviceToken,
             authorizationValue,
@@ -3573,6 +3870,22 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await manager.connect()
 
         XCTAssertEqual(manager.state, .connected(localPort: 2222, via: .remote))
+    }
+
+    @MainActor
+    private static func emitFailedCandidate(
+        _ transport: MockCFTunnelTransport,
+        route: TunnelAttemptRoute,
+        ordinal: Int,
+        failure: TunnelAttemptFailureClass,
+        milliseconds: Int,
+        attempt: Int = 1
+    ) {
+        transport.emitStage(.attemptEvent(TunnelAttemptEvent(route: route, ordinal: ordinal, phase: .started)), attempt: attempt)
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(route: route, ordinal: ordinal, phase: .failed(failure, elapsedMilliseconds: milliseconds))),
+            attempt: attempt
+        )
     }
 
     private static func settle() async {

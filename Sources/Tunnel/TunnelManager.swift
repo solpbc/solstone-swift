@@ -201,6 +201,47 @@ private struct NetworkStatusPayload: Decodable, Sendable {
     }
 }
 
+/// A journal address as it appears in logs, the snapshot and the owner's screens:
+/// `host:port`, with an IPv6 literal (and any `%zone`) inside brackets.
+nonisolated enum JournalAddress {
+    static func display(host: String, port: Int) -> String {
+        if host.contains(":"), !host.hasPrefix("[") {
+            return "[\(host)]:\(port)"
+        }
+        return "\(host):\(port)"
+    }
+}
+
+/// How a direct address fared in the last dial that reached no candidate.
+nonisolated enum TriedAddressOutcome: Equatable, Sendable {
+    case noAnswer
+    case couldNotProveJournal
+    case couldNotConnect
+
+    var ownerText: String {
+        switch self {
+        case .noAnswer:
+            return "no answer"
+        case .couldNotProveJournal:
+            return "answered, but couldn't prove it's your journal"
+        case .couldNotConnect:
+            return "couldn't connect"
+        }
+    }
+}
+
+/// The direct addresses the last failed dial tried, one row per `host:port`.
+nonisolated struct TriedAddresses: Equatable, Sendable {
+    struct Entry: Equatable, Sendable {
+        let address: String
+        let outcome: TriedAddressOutcome
+    }
+
+    let entries: [Entry]
+    /// Mirrors the snapshot's "candidate outcomes omitted" count.
+    let omittedCount: Int
+}
+
 @Observable
 final class TunnelManager {
     var state: TunnelState = .disconnected {
@@ -214,8 +255,24 @@ final class TunnelManager {
             } else {
                 homeJobs?.disconnected()
                 journalVersion?.disconnected()
+                self.connectedAddress = nil
+            }
+            switch state {
+            case .error, .waitingForHome:
+                self.publishTriedAddressesIfUnselected()
+            case .connected, .connecting, .disconnected:
+                self.lastFailedDial = nil
             }
         }
+    }
+    /// The direct addresses the last dial tried when it reached none of them.
+    private(set) var lastFailedDial: TriedAddresses?
+    /// The address the current connection won through, or "the relay".
+    private(set) var connectedAddress: String?
+    static let connectedThroughRelay = "the relay"
+    /// The winning direct address; nil when the relay won or the winner is unknown.
+    var connectedDirectAddress: String? {
+        self.connectedAddress == Self.connectedThroughRelay ? nil : self.connectedAddress
     }
     @ObservationIgnored let store: PairingCredentialStore
     @ObservationIgnored private let homeJobs: HomeAuthenticatedJobs?
@@ -271,6 +328,7 @@ final class TunnelManager {
     @ObservationIgnored private var candidateTelemetry: [Int: CandidateAttemptTelemetry] = [:]
     @ObservationIgnored private var candidateEndpointByOrdinal: [Int: TransportEndpoint] = [:]
     @ObservationIgnored private var candidateTelemetryTotal = 0
+    @ObservationIgnored private var currentDialGeneration: UInt64 = 0
     @ObservationIgnored private var currentTelemetryEpoch: UInt64?
     @ObservationIgnored private var journalFingerprint: String?
     @ObservationIgnored private var latestListenerObservation: HomeListenerObservation?
@@ -517,7 +575,71 @@ final class TunnelManager {
                 milliseconds = value
             }
         }
-        return "candidate \(ordinal): \(route) \(phase) \(milliseconds)ms"
+        let address = self.candidateAddress(ordinal: ordinal, route: candidate.route).map { " → \($0)" } ?? ""
+        return "candidate \(ordinal): \(route) \(phase) \(milliseconds)ms\(address)"
+    }
+
+    /// The dialed endpoint behind an attempt ordinal, only when its kind matches the event's route.
+    private func candidateEndpoint(ordinal: Int, route: TunnelAttemptRoute) -> TransportEndpoint? {
+        guard let endpoint = self.candidateEndpointByOrdinal[ordinal] else { return nil }
+        switch (route, endpoint) {
+        case (.relay, .relay), (.directPinned, .lan(_, _, _, false)), (.directUnpinned, .lan(_, _, _, true)):
+            return endpoint
+        default:
+            return nil
+        }
+    }
+
+    /// A direct candidate's `host:port`, or the relay's host alone. Never a relay path or token.
+    private func candidateAddress(ordinal: Int, route: TunnelAttemptRoute) -> String? {
+        switch self.candidateEndpoint(ordinal: ordinal, route: route) {
+        case .lan(let host, let port, _, _):
+            return JournalAddress.display(host: host, port: port)
+        case .relay(let endpoint, _, _):
+            return endpoint.host
+        case nil:
+            return nil
+        }
+    }
+
+    private func triedAddressesFromTelemetry() -> TriedAddresses? {
+        var order: [String] = []
+        var outcomes: [String: TriedAddressOutcome] = [:]
+        for candidate in self.candidateTelemetry.values.sorted(by: { $0.ordinal < $1.ordinal }) {
+            guard case .failed(let failureClass, _) = candidate.phase,
+                  case .lan(let host, let port, _, _) = self.candidateEndpoint(ordinal: candidate.ordinal, route: candidate.route)
+            else { continue }
+            let address = JournalAddress.display(host: host, port: port)
+            let outcome: TriedAddressOutcome
+            switch failureClass {
+            case .tls: outcome = .couldNotProveJournal
+            case .unreachable: outcome = .noAnswer
+            default: outcome = .couldNotConnect
+            }
+            if let prior = outcomes[address] {
+                if prior == .couldNotProveJournal || outcome == .couldNotProveJournal {
+                    outcomes[address] = .couldNotProveJournal
+                } else if prior == .noAnswer || outcome == .noAnswer {
+                    outcomes[address] = .noAnswer
+                }
+            } else {
+                order.append(address)
+                outcomes[address] = outcome
+            }
+        }
+        guard !order.isEmpty else { return nil }
+        return TriedAddresses(
+            entries: order.compactMap { address in outcomes[address].map { TriedAddresses.Entry(address: address, outcome: $0) } },
+            omittedCount: max(self.candidateTelemetryTotal - self.candidateTelemetry.count, 0)
+        )
+    }
+
+    private func publishTriedAddressesIfUnselected() {
+        let selected = self.candidateTelemetry.values.contains {
+            if case .selected = $0.phase { return true }
+            return false
+        }
+        self.lastFailedDial = selected ? nil : self.triedAddressesFromTelemetry()
     }
 
     private func handleAttemptEvent(_ event: TunnelAttemptEvent, epoch: UInt64) {
@@ -565,6 +687,24 @@ final class TunnelManager {
         }
         if case .selected = event.phase {
             self.completeStage(.raceCandidates)
+            if self.candidateTelemetry[event.ordinal] != nil {
+                switch self.candidateEndpoint(ordinal: event.ordinal, route: event.route) {
+                case .lan(let host, let port, _, _):
+                    self.connectedAddress = JournalAddress.display(host: host, port: port)
+                case .relay:
+                    self.connectedAddress = Self.connectedThroughRelay
+                case nil:
+                    self.connectedAddress = nil
+                }
+            }
+            self.lastFailedDial = nil
+        } else if case .failed = event.phase {
+            switch self.state {
+            case .error, .waitingForHome:
+                self.publishTriedAddressesIfUnselected()
+            case .connected, .connecting, .disconnected:
+                break
+            }
         }
     }
 
@@ -578,6 +718,7 @@ final class TunnelManager {
             category: .tunnel,
             message: "candidate telemetry: \(self.telemetryCompleteness.rawValue)"
         )
+        self.publishTriedAddressesIfUnselected()
     }
 
     nonisolated static func candidateCountDetail(_ count: Int) -> String {
@@ -826,6 +967,16 @@ final class TunnelManager {
         permit: PairingMutationPermit,
         onPrepared: (PairingCredentialSnapshot) -> Void
     ) async throws -> Int {
+        // why: the auth-refresh re-dial runs a second race in the same attempt epoch; a fresh
+        // dial generation keeps a late event from the first race off the second race's map.
+        self.currentDialGeneration &+= 1
+        let dialGeneration = self.currentDialGeneration
+        self.candidateTelemetry = [:]
+        self.candidateTelemetryTotal = 0
+        self.candidateEndpointByOrdinal = [:]
+        self.telemetryCompleteness = .unavailable
+        self.lastFailedDial = nil
+        self.connectedAddress = nil
         self.appendStage(.prepareCandidates)
         let pairingForIdentity: StoredPairing
         if let pairingOverride {
@@ -878,7 +1029,7 @@ final class TunnelManager {
             onStageChange: { [weak self] event in
                 Task { @MainActor [weak self] in
                     guard let self, self.isCurrentAttempt(epoch) else { return }
-                    self.handleStageChange(event, epoch: epoch)
+                    self.handleStageChange(event, epoch: epoch, dialGeneration: dialGeneration)
                 }
             }
         )
@@ -960,6 +1111,8 @@ final class TunnelManager {
         self.integrationGateLastTransportStage = nil
 #endif
         self.connectionStages = []
+        self.lastFailedDial = nil
+        self.connectedAddress = nil
         self.connectTask?.cancel()
         self.connectTask = nil
         self.retireAttempt()
@@ -1372,7 +1525,31 @@ final class TunnelManager {
         if omitted > 0 {
             lines.append("candidate outcomes omitted: \(omitted)")
         }
+        let paired = self.pairedJournalAddresses()
+        lines.append("journal addresses:")
+        for endpoint in paired.endpoints {
+            let scope = endpoint.scope.isEmpty ? "" : " (\(endpoint.scope))"
+            lines.append("  \(JournalAddress.display(host: endpoint.host, port: endpoint.port))\(scope)")
+        }
+        lines.append("relay: \(paired.relayHost ?? "off")")
+        if self.state.isConnected, let connectedAddress = self.connectedAddress {
+            lines.append("connected through: \(connectedAddress)")
+        }
         return lines
+    }
+
+    /// The paired journal's direct endpoints, and the relay host only when the next dial
+    /// would include the relay (the same rule `candidateList` applies). No instance ID, no token.
+    func pairedJournalAddresses() -> (endpoints: [LocalEndpoint], relayHost: String?) {
+        let snap = self.store.snapshot()
+        guard let pairing = snap.pairing else { return ([], nil) }
+        var relayHost: String?
+        if !snap.isLiveRelayDisabled {
+            for case .relay(let endpoint, _, _) in TransportEndpoint.candidates(for: pairing) {
+                relayHost = endpoint.host
+            }
+        }
+        return (pairing.localEndpoints, relayHost)
     }
 
     func reconnectCountLastFiveMinutes(now: Date = Date()) -> Int {
@@ -1582,7 +1759,7 @@ final class TunnelManager {
         return "\(host)|\(port)|\(scope)|unpinned=\(unpinnedInterface)"
     }
 
-    private func handleStageChange(_ event: TransportStage, epoch: UInt64) {
+    private func handleStageChange(_ event: TransportStage, epoch: UInt64, dialGeneration: UInt64) {
 #if DEBUG && targetEnvironment(simulator)
         self.integrationGateLastTransportStage = event
 #endif
@@ -1614,10 +1791,13 @@ final class TunnelManager {
             _ = message
             self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "couldn't reach your journal")
         case .attemptEvent(let event):
+            guard dialGeneration == self.currentDialGeneration else { return }
             self.handleAttemptEvent(event, epoch: epoch)
         case .attemptUpdatesFinished:
+            guard dialGeneration == self.currentDialGeneration else { return }
             self.handleAttemptUpdatesFinished(epoch: epoch)
         case .attemptUpdatesUnavailable:
+            guard dialGeneration == self.currentDialGeneration else { return }
             self.telemetryCompleteness = .unavailable
             self.completeStage(.raceCandidates)
         }

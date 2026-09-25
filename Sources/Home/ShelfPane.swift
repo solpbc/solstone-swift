@@ -324,6 +324,21 @@ struct JournalSettingsPane: View {
 
                 DisclosureGroup("technical details") {
                     LabeledContent("fingerprint", value: self.shortFingerprint)
+                    if self.appConfig.isPaired {
+                        let paired = self.tunnelManager.pairedJournalAddresses()
+                        if !paired.endpoints.isEmpty {
+                            LabeledContent("addresses") {
+                                Text(verbatim: paired.endpoints
+                                    .map { JournalAddress.display(host: $0.host, port: $0.port) }
+                                    .joined(separator: "\n"))
+                                    .multilineTextAlignment(.trailing)
+                            }
+                        }
+                        LabeledContent("relay", value: paired.relayHost.map { "on · \($0)" } ?? "off")
+                        if self.tunnelManager.state.isConnected, let connectedAddress = self.tunnelManager.connectedAddress {
+                            LabeledContent("connected through", value: connectedAddress)
+                        }
+                    }
                 }
 
                 Button("forget this journal", role: .destructive) {

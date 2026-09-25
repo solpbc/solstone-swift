@@ -170,8 +170,8 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
         }
         XCTAssertTrue(didDrainTelemetry)
         let snapshot = diagnostics.snapshot(tunnel: manager)
-        XCTAssertTrue(snapshot.contains("candidate 0: direct pinned unfinished (ended) 4ms"))
-        XCTAssertTrue(snapshot.contains("candidate 1: relay failed transport 7ms"))
+        XCTAssertTrue(snapshot.contains("candidate 0: direct pinned unfinished (ended) 4ms → 127.0.0.1:8676"))
+        XCTAssertTrue(snapshot.contains("candidate 1: relay failed transport 7ms → relay.example.com"))
         XCTAssertTrue(snapshot.contains("candidate 2: direct unpinned selected 11ms"))
         XCTAssertTrue(snapshot.contains("candidate 3: relay cancelled 13ms"))
         await manager.disconnect()

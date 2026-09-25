@@ -459,8 +459,10 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
             ])
         )
 
+        let pairURL = try PairURL.parse(Self.differentNetworkDirectURL())
+        let port = try XCTUnwrap(pairURL.candidates.first?.port)
         do {
-            try await coordinator.handlePairURL(try PairURL.parse(Self.differentNetworkDirectURL()))
+            try await coordinator.handlePairURL(pairURL)
             XCTFail("expected direct pairing to fail")
         } catch {}
 
@@ -468,8 +470,39 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
             coordinator.state,
             .failed(error: PairFailureReason.differentNetwork(
                 phoneAddress: "192.168.1.20",
-                targetAddress: "10.0.2.42"
+                targetAddress: "10.0.2.42:\(port)"
             ).message)
+        )
+    }
+
+    @MainActor
+    func testPairFailureAddressesCarryThePairingLinkPort() {
+        let candidates = [
+            PairCandidate(address: "192.168.1.99", port: 7657),
+            PairCandidate(address: "198.51.100.10", port: 8443),
+        ]
+        XCTAssertEqual(
+            PairFailureReason.hostUnreachable(targetAddress: "192.168.1.99").showingPorts(of: candidates).message,
+            "couldn't reach your journal at 192.168.1.99:7657. make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. turning on private network on your journal lets your devices reach it from anywhere."
+        )
+        XCTAssertEqual(
+            PairFailureReason.publicJournalUnreachable(targetAddress: "198.51.100.10").showingPorts(of: candidates),
+            .publicJournalUnreachable(targetAddress: "198.51.100.10:8443")
+        )
+        XCTAssertEqual(
+            PairFailureReason.differentNetwork(phoneAddress: "10.0.0.2", targetAddress: "192.168.1.99").showingPorts(of: candidates),
+            .differentNetwork(phoneAddress: "10.0.0.2", targetAddress: "192.168.1.99:7657")
+        )
+        XCTAssertEqual(PairFailureReason.hostUnreachable(targetAddress: nil).showingPorts(of: candidates), .hostUnreachable(targetAddress: nil))
+        XCTAssertEqual(PairFailureReason.codeExpired.showingPorts(of: candidates), .codeExpired)
+        XCTAssertEqual(
+            PairFlowCoordinator.message(
+                for: PairError.lanRequestFailed(underlying: DummyError()),
+                targetAddress: "192.168.1.99",
+                targetPort: 7657,
+                interfaces: [IPv4Interface(address: "192.168.1.20", netmask: "255.255.255.0")]
+            ),
+            PairFailureReason.hostUnreachable(targetAddress: "192.168.1.99:7657").message
         )
     }
 

@@ -118,11 +118,12 @@ final class PairFlowCoordinator {
                     sawCAFingerprintMismatch: sawCAFingerprintMismatch,
                     candidateAddresses: pairURL.candidates.map(\.address),
                     interfaces: interfaces
-                ).message
+                ).showingPorts(of: pairURL.candidates).message
             } else {
                 message = Self.message(
                     for: error,
                     targetAddress: pairURL.candidates.first?.address ?? "",
+                    targetPort: pairURL.candidates.first?.port,
                     interfaces: interfaces
                 )
             }
@@ -152,7 +153,12 @@ final class PairFlowCoordinator {
         lhs?.caseInsensitiveCompare(rhs) == .orderedSame
     }
 
-    internal static func message(for error: Error, targetAddress: String?, interfaces: [IPv4Interface]) -> String {
+    internal static func message(
+        for error: Error,
+        targetAddress: String?,
+        targetPort: UInt16? = nil,
+        interfaces: [IPv4Interface]
+    ) -> String {
         switch error {
         // PairURLError surface cases — router pre-validation makes these unreachable
         // via UniversalLinkRouter; reachable only if PairURL.parse is called directly.
@@ -178,7 +184,11 @@ final class PairFlowCoordinator {
             "this pairing link is damaged."
 
         default:
-            PairFailureReason.classify(error: error, targetAddress: targetAddress, interfaces: interfaces).message
+            PairFailureReason.classify(error: error, targetAddress: targetAddress, interfaces: interfaces)
+                .showingPorts(of: targetAddress.flatMap { address in
+                    targetPort.map { [PairCandidate(address: address, port: $0)] }
+                } ?? [])
+                .message
         }
     }
 }

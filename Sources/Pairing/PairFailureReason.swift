@@ -86,6 +86,31 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         )
     }
 
+    /// The same reason with each journal address shown as `address:port`, taken from the
+    /// pairing link's candidates. Classification itself stays on the bare address.
+    func showingPorts(of candidates: [PairCandidate]) -> PairFailureReason {
+        func withPort(_ address: String) -> String {
+            let octets = parseIPv4(address)
+            guard let candidate = candidates.first(where: {
+                $0.address == address || (octets != nil && parseIPv4($0.address) == octets)
+            }) else {
+                return address
+            }
+            return JournalAddress.display(host: address, port: Int(candidate.port))
+        }
+        switch self {
+        case .publicJournalUnreachable(let targetAddress):
+            return .publicJournalUnreachable(targetAddress: targetAddress.map(withPort))
+        case .differentNetwork(let phoneAddress, let targetAddress):
+            return .differentNetwork(phoneAddress: phoneAddress, targetAddress: withPort(targetAddress))
+        case .hostUnreachable(let targetAddress):
+            return .hostUnreachable(targetAddress: targetAddress.map(withPort))
+        case .loopbackAddress, .journalUnreachableOffLAN, .directAddressNotLocal, .connectionDropped,
+             .codeExpired, .wrongSolstone, .relayInstanceMismatch, .generic:
+            return self
+        }
+    }
+
     var message: String {
         switch self {
         case .publicJournalUnreachable(let targetAddress):

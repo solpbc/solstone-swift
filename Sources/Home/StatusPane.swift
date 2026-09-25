@@ -96,8 +96,20 @@ struct StatusPane: View {
 
     private var headingString: String { SourceVocabulary.statusTitle }
 
+    /// The address the connection actually won through, else the first paired address.
     private var serverHost: String {
-        self.appConfig.host
+        self.tunnelManager.connectedDirectAddress ?? self.appConfig.host
+    }
+
+    /// Shown while not connected: the direct addresses the last dial tried, and how each went.
+    private var triedAddresses: TriedAddresses? {
+        guard self.appConfig.isPaired, let tried = self.tunnelManager.lastFailedDial else { return nil }
+        switch self.tunnelManager.state {
+        case .error, .waitingForHome:
+            return tried
+        case .connected, .connecting, .disconnected:
+            return nil
+        }
     }
 
     private var showsConnectionDetails: Bool {
@@ -307,6 +319,17 @@ struct StatusPane: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("shell.pane.status.syncFootnote")
+                } else if let tried = self.triedAddresses {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("addresses tried")
+                        ForEach(Array(tried.entries.enumerated()), id: \.offset) { _, entry in
+                            Text(verbatim: "\(entry.address) · \(entry.outcome.ownerText)")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("shell.pane.status.addressesTried")
                 }
             } header: {
                 Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)
