@@ -7,8 +7,11 @@ struct ScreencastSourceDetailView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
+    @Environment(TunnelManager.self) private var tunnelManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var showingScreencastPrimer = false
+    @State private var recentResult: ObserverManifestResult?
+    @State private var recentPort: Int?
 
     var body: some View {
         ScrollView {
@@ -18,9 +21,7 @@ struct ScreencastSourceDetailView: View {
                 }
 
                 SourceDetailBlock(title: SourceVocabulary.screencastRecentTitle) {
-                    Text(SourceVocabulary.recentEmpty)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    ObserverManifestRecentList(result: self.recentResult, isJournalPaired: self.appConfig.isPaired)
                 }
 
                 SourceDetailBlock(title: SourceVocabulary.screencastDeliveryTitle) {
@@ -38,6 +39,9 @@ struct ScreencastSourceDetailView: View {
         }
         .navigationTitle(SourceVocabulary.screencastDetailTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .task(id: self.recentKey) {
+            await self.loadRecent()
+        }
     }
 }
 
@@ -67,6 +71,32 @@ private extension ScreencastSourceDetailView {
             .frame(minHeight: 44)
             .accessibilityIdentifier("source.screencast.start")
         }
+    }
+
+    var recentKey: LinkedDeviceIngestRecentKey {
+        LinkedDeviceIngestRecentKey(
+            port: self.tunnelManager.activeConnection?.port,
+            deliveredCount: self.mobileSegmentTransferHolder.deliveredCount
+        )
+    }
+
+    func loadRecent() async {
+        // A delivery refreshes the list in place; only a new connection starts over with a spinner.
+        let port = self.tunnelManager.activeConnection?.port
+        if port != self.recentPort {
+            self.recentResult = nil
+        }
+        self.recentPort = port
+        let tunnelManager = self.tunnelManager
+        let reconciler = LinkedDeviceIngestReconciler(activeLocalPort: { tunnelManager.activeConnection?.port })
+        let result = await reconciler.reconcileObserverManifest(
+            day: LinkedDeviceIngestViewMapper.dayString(for: Date()),
+            fileName: ObserverAudioTransferEnqueuer.screencastPart().filename
+        )
+        // A newer read (a delivery, or a connection change) cancelled this one: its answer is
+        // stale, and writing it would show a failure the newer read doesn't have.
+        guard !Task.isCancelled else { return }
+        self.recentResult = result
     }
 
     var deliveryBlock: some View {

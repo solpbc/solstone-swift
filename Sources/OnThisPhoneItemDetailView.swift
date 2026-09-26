@@ -145,7 +145,7 @@ private extension OnThisPhoneItemDetailView {
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
                 .accessibilityHint("opens your journal inside the solstone app.")
                 .sheet(isPresented: self.$showingJournal) {
-                    InAppJournalView()
+                    InAppJournalView(mark: RootShellView.storedJournalMark())
                 }
             }
         }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import AVFoundation
 import Foundation
 import Observation
 import SPLTunnel
@@ -158,6 +159,19 @@ struct PairFlowView: View {
     /// scanned. Decision: `records/decisions/260920-vpx-a-rejected-scan-shows-this-doesnt-look-like-a-pairing-link-not-enter-one.md`.
     static let scannedLinkNotRecognizedMessage = "this doesn't look like a pairing link."
 
+    /// Why the scanner can't run. A denial is the owner's own setting, so it says where to change
+    /// it; only a device that truly can't scan is told the camera is unavailable.
+    nonisolated static func cameraUnavailableMessage(for status: AVAuthorizationStatus) -> String {
+        switch status {
+        case .denied:
+            "camera access is off for solstone. turn it on in settings, or paste a pairing link instead."
+        case .restricted:
+            "camera access isn't allowed on this device. paste a pairing link instead."
+        default:
+            "the camera isn't available on this device. paste a pairing link instead."
+        }
+    }
+
     @Environment(AppConfig.self) private var appConfig
     @Environment(PairingHandoffState.self) private var handoff
     @Environment(TunnelManager.self) private var tunnelManager
@@ -175,6 +189,7 @@ struct PairFlowView: View {
     @State private var mode: EntryMode = .scan
     @State private var pastedURL = ""
     @State private var errorMessage: String?
+    @State private var cameraDenied = false
     @State private var linkAttemptInFlight = false
 
     var body: some View {
@@ -264,6 +279,7 @@ struct PairFlowView: View {
 
     private func selectMode(_ newMode: EntryMode) {
         self.errorMessage = nil
+        self.cameraDenied = false
         self.mode = newMode
     }
 
@@ -341,7 +357,9 @@ struct PairFlowView: View {
                         self.startPairing(url)
                     },
                     onUnavailable: {
-                        self.errorMessage = "camera access is unavailable on this device. paste a pairing link instead."
+                        let status = AVCaptureDevice.authorizationStatus(for: .video)
+                        self.errorMessage = Self.cameraUnavailableMessage(for: status)
+                        self.cameraDenied = status == .denied
                         self.fallbackTimer.cancel()
                         self.mode = .paste
                     }
@@ -383,6 +401,14 @@ struct PairFlowView: View {
                     .accessibilityLabel("Pairing error: \(errorMessage)")
             }
 
+            if self.cameraDenied {
+                Button("open settings") {
+                    UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
+                }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity, minHeight: 44)
+            }
+
             Button("back") {
                 self.cancelFlowTask()
                 self.fallbackTimer.cancel()
@@ -412,6 +438,9 @@ struct PairFlowView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
 
             Button(SourceVocabulary.journalMarkConfirmButton) {
+                // The owner just confirmed this is their journal's mark: keep it, so the shell
+                // shows it from the first frame instead of waiting on a fetch.
+                JournalMarkStore().save(mark)
                 self.completeOnce()
             }
             .buttonStyle(.borderedProminent)

@@ -362,9 +362,7 @@ nonisolated enum ObserverAudioTransferSnapshotMapper {
                 rawURL = nil
             }
             let attention = manifest.attention
-            let failureReason = attention.map { info in
-                info.reason == info.shortDetail ? info.reason : "\(info.reason): \(info.shortDetail)"
-            }
+            let failureReason = attention.map(\.ownerFailureReason)
             items.append(OnThisPhoneItem(
                 id: OnThisPhoneItemID.transferIDString(itemID: snapshot.itemID, source: source),
                 sourceKind: .audio,
@@ -401,9 +399,7 @@ nonisolated enum ObserverAudioTransferSnapshotMapper {
             let manifest = snapshot.manifest
             let ingest = manifest.observerIngest
             let attention = manifest.attention
-            let failureReason = attention.map { info in
-                info.reason == info.shortDetail ? info.reason : "\(info.reason): \(info.shortDetail)"
-            }
+            let failureReason = attention.map(\.ownerFailureReason)
             for part in manifest.payloadParts {
                 guard let source = MobileSegmentSource(payloadKind: part.kind),
                       let facet = OnThisPhoneMobileSegmentFacet(rawValue: source.rawValue)

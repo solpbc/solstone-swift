@@ -317,6 +317,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneFileDetail(filename: "item.pdf", size: "2 KB"),
             "item.pdf · 2 KB"
         )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneFileDetail(filename: "screen.mp4", size: nil), "screen.mp4")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFixCount(count: 1), "1 fix")
         XCTAssertEqual(SourceVocabulary.onThisPhoneFixCount(count: 3), "3 fixes")
         XCTAssertEqual(SourceVocabulary.cancel, "cancel")
@@ -825,6 +826,14 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     private var emDashCheckedOwnerVisibleStrings: [String] {
         [
+            SourceVocabulary.audioEnrollmentValuePaired,
+            SourceVocabulary.magicMomentShownBodyPaired,
+            SourceVocabulary.recentUnavailable(isJournalPaired: true),
+            SourceVocabulary.recentUnavailable(isJournalPaired: false),
+            SourceVocabulary.reinstallNoticeTitle,
+            SourceVocabulary.reinstallNoticeBody,
+            SourceVocabulary.reinstallNoticeKeep,
+            SourceVocabulary.reinstallNoticeForget,
             SourceVocabulary.dayLocalityNoJournal,
             SourceVocabulary.connectJournalIntro,
             SourceVocabulary.connectDoorOnYourPhoneTitle,
@@ -939,6 +948,14 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     private var allOwnerVisibleStrings: [String] {
         [
+            SourceVocabulary.audioEnrollmentValuePaired,
+            SourceVocabulary.magicMomentShownBodyPaired,
+            SourceVocabulary.recentUnavailable(isJournalPaired: true),
+            SourceVocabulary.recentUnavailable(isJournalPaired: false),
+            SourceVocabulary.reinstallNoticeTitle,
+            SourceVocabulary.reinstallNoticeBody,
+            SourceVocabulary.reinstallNoticeKeep,
+            SourceVocabulary.reinstallNoticeForget,
             SourceState.off.label,
             SourceState.enrolling.label,
             SourceState.readyToSetUp.label,

@@ -115,9 +115,7 @@ nonisolated enum ShareTransferSnapshotMapper {
             }
             let rawURL = await engine.payloadFileURL(itemID: snapshot.itemID, partID: part.partID)
             let attention = manifest.attention
-            let failureReason = attention.map { info in
-                info.reason == info.shortDetail ? info.reason : "\(info.reason): \(info.shortDetail)"
-            }
+            let failureReason = attention.map(\.ownerFailureReason)
             let itemTime: Date?
             if let value = fields.itemTime {
                 itemTime = ShareImportStore.parseItemTime(value)

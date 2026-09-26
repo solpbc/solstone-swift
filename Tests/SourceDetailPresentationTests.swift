@@ -9,20 +9,24 @@ nonisolated final class SourceDetailPresentationTests: XCTestCase {
     func testModeExplanationUsesSourceVocabulary() {
         XCTAssertEqual(
             SourceDetailPresentation.modeExplanation,
-            "Meeting keeps going until you stop it. Voice memo stops on its own when you go quiet for a few seconds."
+            "meeting keeps going until you stop it. voice memo stops on its own when you go quiet for a few seconds."
         )
         XCTAssertEqual(SourceDetailPresentation.modeExplanation, SourceVocabulary.modeExplanation)
     }
 
-    func testListeningIndicatorUsesSourceVocabulary() {
-        XCTAssertEqual(SourceDetailPresentation.listeningIndicatorWord, SourceVocabulary.observerActiveSubtext)
-        XCTAssertEqual(SourceDetailPresentation.listeningIndicatorWord, "on")
-    }
-
-    func testElapsedLinePrefixesFormattedTime() {
+    func testElapsedLineIsTheTimeAloneBecauseTheVerdictAlreadySaysOn() {
         let formatted = String(format: "%02d:%02d", 134 / 60, 134 % 60)
 
-        XCTAssertEqual(SourceDetailPresentation.elapsedLine(formatted: formatted), "on · 02:14")
+        XCTAssertEqual(SourceDetailPresentation.elapsedLine(formatted: formatted), "02:14")
+        XCTAssertEqual(SourceDetailPresentation.elapsedAccessibilityLabel(formatted: formatted), "on for 02:14")
+    }
+
+    func testAudioDeliverySummaryNamesRecordingsNotLocationUpdates() {
+        XCTAssertEqual(AudioDetailPresentation.deliverySummary(pending: 1, failed: 0).line, "1 recording on the way to your journal.")
+        XCTAssertEqual(AudioDetailPresentation.deliverySummary(pending: 3, failed: 0).line, "3 recordings on the way to your journal.")
+        XCTAssertEqual(AudioDetailPresentation.deliverySummary(pending: 2, failed: 1).line, "1 recording needs attention.")
+        XCTAssertEqual(AudioDetailPresentation.deliverySummary(pending: 0, failed: 2).line, "2 recordings need attention.")
+        XCTAssertEqual(AudioDetailPresentation.deliverySummary(pending: 0, failed: 0).line, "nothing waiting right now.")
     }
 
     func testActiveSourceStateLabelStaysOn() {

@@ -77,7 +77,15 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         if case .readyToSetUp = self {
             return nil
         }
-        return self.universalSubtext(isJournalPaired: isJournalPaired) ?? activeSubtext
+        if let universal = self.universalSubtext(isJournalPaired: isJournalPaired) {
+            return universal
+        }
+        return self.saysMoreThanTheStateWord(activeSubtext) ? activeSubtext : nil
+    }
+
+    /// A sub-line never repeats the state word: audio's running line is "on", under "on".
+    private func saysMoreThanTheStateWord(_ line: String) -> Bool {
+        line != self.label
     }
 
     /// The deck tile's sub-line.
@@ -104,7 +112,7 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         case .checking, .readyToSetUp:
             nil
         case .active:
-            activeSubtext
+            self.saysMoreThanTheStateWord(activeSubtext) ? activeSubtext : nil
         }
     }
 
@@ -119,7 +127,7 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         case .checking:
             "checking."
         case .active:
-            "on. \(Self.sentence(activeSubtext))"
+            self.saysMoreThanTheStateWord(activeSubtext) ? "on. \(Self.sentence(activeSubtext))" : "on."
         case .paused:
             "paused. \(SourceVocabulary.pausedSubtext)"
         case .needsAttention:
@@ -149,7 +157,7 @@ nonisolated enum SourceVocabulary {
     static let needsAttention = "needs attention"
 
     static let observerActiveSubtext = "on"
-    static let modeExplanation = "Meeting keeps going until you stop it. Voice memo stops on its own when you go quiet for a few seconds."
+    static let modeExplanation = "meeting keeps going until you stop it. voice memo stops on its own when you go quiet for a few seconds."
     private static let shareAlwaysOnExplainerUnpaired = "share is on. anything you send from another app is on this device until you connect a journal."
     private static let shareAlwaysOnExplainerPaired = "share is on. anything you send from the share sheet comes into your journal here."
     static let shareSheetDisplayName = "share sheet"
@@ -459,8 +467,20 @@ nonisolated enum SourceVocabulary {
         "details · watch \(watchWaiting) · iphone \(phoneWaiting) waiting"
     }
 
+    static let reinstallNoticeTitle = "this device is still connected to your journal"
+    static let reinstallNoticeBody = "deleting the solstone app doesn't disconnect this device. to disconnect, forget this journal."
+    static let reinstallNoticeKeep = "stay connected"
+    static let reinstallNoticeForget = "forget this journal"
+
     static let recentEmpty = "nothing recent yet"
     static let recentFailed = "couldn't load recent"
+    private static let recentUnavailablePaired = "shows up here when your journal reconnects."
+    private static let recentUnavailableUnpaired = "shows up here once you connect a journal."
+
+    /// The recent list is read from the journal, so without a connection there is nothing to read.
+    static func recentUnavailable(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.recentUnavailablePaired : Self.recentUnavailableUnpaired
+    }
     private static let notConnectedRowAffordancePaired = "opens when your journal reconnects."
     private static let notConnectedRowAffordanceUnpaired = "connect a journal first."
 
@@ -471,6 +491,11 @@ nonisolated enum SourceVocabulary {
     static let pendingSeam = "nothing pending right now."
     static let removeSeam = "removing audio is coming later."
     static let audioEnrollmentValue = "what you say and the sound around you, on this device until you connect a journal. turn it on only when you want to share audio."
+    static let audioEnrollmentValuePaired = "what you say and the sound around you, kept in your journal. turn it on only when you want to share audio."
+
+    static func audioEnrollmentValue(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.audioEnrollmentValuePaired : Self.audioEnrollmentValue
+    }
     static let turnOnAudio = "turn on audio"
     static let importerWhatItAdds = "adds PDFs, audio, and images you send from the share sheet."
     static let onThisPhone = "on this device"
@@ -488,6 +513,12 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneScope = "everything you've shared, on this device until you connect a journal."
     static let onThisPhoneScopeConnected = "everything you've shared, moving into your journal."
     static let onThisPhoneScopeOfflinePaired = "everything you've shared, ready for your journal when it reconnects."
+
+    /// The import pane's line about what's on this device, true to whether a journal is paired.
+    static func onThisPhoneScope(isJournalPaired: Bool, isConnected: Bool) -> String {
+        guard isJournalPaired else { return Self.onThisPhoneScope }
+        return isConnected ? Self.onThisPhoneScopeConnected : Self.onThisPhoneScopeOfflinePaired
+    }
     static let onThisPhoneEmpty = "nothing here yet. turn on a source and the solstone app takes in what you share with it, and it goes into your journal."
     static let onThisPhoneTruthLine = "your memories are on this device and not processed until you connect a journal."
     static let onThisPhoneConnectJournalButton = "connect journal"
@@ -505,6 +536,11 @@ nonisolated enum SourceVocabulary {
     static let offlineSafeLine = "on this device"
     static let magicMomentShownHeadline = "it's on this device now"
     static let magicMomentShownBody = "the solstone app just took in your first memory. it's on this device until you connect a journal."
+    static let magicMomentShownBodyPaired = "the solstone app just took in your first memory. it goes into your journal from here."
+
+    static func magicMomentShownBody(isJournalPaired: Bool) -> String {
+        isJournalPaired ? Self.magicMomentShownBodyPaired : Self.magicMomentShownBody
+    }
     static let magicMomentShownSecondary = "connect a journal whenever →"
     static let magicMomentPendingHeadline = "your first audio memory is getting ready"
     static let magicMomentPendingBody = "when you stop, it will be on this device."
@@ -675,8 +711,10 @@ nonisolated enum SourceVocabulary {
         }
     }
 
-    static func onThisPhoneFileDetail(filename: String, size: String) -> String {
-        "\(filename) · \(size)"
+    /// The file row. An unknown size is left out rather than spelled "not provided".
+    static func onThisPhoneFileDetail(filename: String, size: String?) -> String {
+        guard let size else { return filename }
+        return "\(filename) · \(size)"
     }
 
     static func onThisPhoneFailureAttemptStatus(count: Int) -> String {

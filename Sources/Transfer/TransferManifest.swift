@@ -352,3 +352,28 @@ nonisolated struct TransferAttentionInfo: Codable, Equatable, Sendable {
         self.movedAt = movedAt
     }
 }
+
+nonisolated extension TransferAttentionInfo {
+    /// The "why" an owner reads. A journal refusal reads as the journal's own words, without the
+    /// internal reason token in front of it; an item stored before refusals were parsed can still
+    /// carry the journal's JSON envelope, so its `error` sentence is shown instead of the JSON.
+    var ownerFailureReason: String {
+        guard self.reason != self.shortDetail else { return self.reason }
+        guard self.reason == TransferAttentionReason.httpClientErrorCode else {
+            return "\(self.reason): \(self.shortDetail)"
+        }
+        let detail = self.shortDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !detail.isEmpty else { return self.reason }
+        if detail.hasPrefix("reason_code=") || detail.range(of: #"^http \d{3}$"#, options: .regularExpression) != nil {
+            return SourceVocabulary.onThisPhoneFailureReasonServer
+        }
+        if detail.hasPrefix("{"),
+           let object = try? JSONSerialization.jsonObject(with: Data(detail.utf8)) as? [String: Any],
+           let sentence = object["error"] as? String,
+           !sentence.isEmpty
+        {
+            return sentence
+        }
+        return detail
+    }
+}

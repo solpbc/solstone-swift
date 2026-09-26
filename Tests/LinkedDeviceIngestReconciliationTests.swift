@@ -11,14 +11,16 @@ nonisolated final class LinkedDeviceIngestReconciliationTests: XCTestCase {
         super.tearDown()
     }
 
+    /// No connection is not a failed read: nothing was asked, and an unpaired phone has nothing
+    /// to load. It must still never read as an empty list.
     @MainActor
-    func testNilPortFailsBothResultsWithoutRequest() async {
-        let observerResult = await self.reconciler(ports: [nil]).reconcileObserverManifest(day: Self.day)
+    func testNilPortIsUnavailableForBothResultsWithoutRequest() async {
+        let observerResult = await self.reconciler(ports: [nil]).reconcileObserverManifest(day: Self.day, fileName: "audio.m4a")
         let locationResult = await self.reconciler(ports: [nil]).reconcileLocationRecent(day: Self.day)
 
-        XCTAssertEqual(observerResult, .failed)
+        XCTAssertEqual(observerResult, .unavailable)
         XCTAssertNotEqual(observerResult, .loadedEmpty)
-        XCTAssertEqual(locationResult, .failed)
+        XCTAssertEqual(locationResult, .unavailable)
         XCTAssertNotEqual(locationResult, .loadedEmpty)
         XCTAssertTrue(LinkedDeviceIngestURLProtocol.requests.isEmpty)
         self.assertNoAuthorizationHeader()
@@ -31,7 +33,7 @@ nonisolated final class LinkedDeviceIngestReconciliationTests: XCTestCase {
         }
 
         let observerResult = await self.reconciler(ports: [7001, 7001])
-            .reconcileObserverManifest(day: Self.day)
+            .reconcileObserverManifest(day: Self.day, fileName: "audio.m4a")
         XCTAssertEqual(observerResult, .loadedEmpty)
 
         LinkedDeviceIngestURLProtocol.reset()
@@ -71,7 +73,7 @@ nonisolated final class LinkedDeviceIngestReconciliationTests: XCTestCase {
         }
 
         let result = await self.reconciler(ports: [7001, nil])
-            .reconcileObserverManifest(day: Self.day)
+            .reconcileObserverManifest(day: Self.day, fileName: "audio.m4a")
 
         XCTAssertEqual(result, .failed)
         XCTAssertNotEqual(result, .loadedEmpty)
@@ -100,16 +102,16 @@ private extension LinkedDeviceIngestReconciliationTests {
 
     static let emptySegmentsData = Data(#"{"protocol_version":3,"total":0,"items":[]}"#.utf8)
     static let audioOnlySegmentsData = Data(
-        #"{"protocol_version":3,"total":1,"items":[{"key":"20260603-150000_300","observed":true,"files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"present"}]}]}"#.utf8
+        #"{"protocol_version":3,"total":1,"items":[{"key":"150000_300","observed":true,"files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"present"}]}]}"#.utf8
     )
     static let locationSegmentsData = Data(
-        #"{"protocol_version":3,"total":1,"items":[{"key":"20260603-150000_300","observed":true,"files":[{"name":"location.jsonl","size":12,"sha256":"def","status":"processed"}]}]}"#.utf8
+        #"{"protocol_version":3,"total":1,"items":[{"key":"150000_300","observed":true,"files":[{"name":"location.jsonl","size":12,"sha256":"def","status":"processed"}]}]}"#.utf8
     )
     static let totalMismatchSegmentsData = Data(
-        #"{"protocol_version":3,"total":2,"items":[{"key":"20260603-150000_300","observed":true,"files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"present"}]}]}"#.utf8
+        #"{"protocol_version":3,"total":2,"items":[{"key":"150000_300","observed":true,"files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"present"}]}]}"#.utf8
     )
     static let missingCustodySegmentsData = Data(
-        #"{"protocol_version":3,"total":1,"items":[{"key":"20260603-150000_300","observed":true,"files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"missing"}]}]}"#.utf8
+        #"{"protocol_version":3,"total":1,"items":[{"key":"150000_300","observed":true,"files":[{"name":"audio.m4a","size":42,"sha256":"abc","status":"missing"}]}]}"#.utf8
     )
 
     @MainActor
@@ -130,7 +132,7 @@ private extension LinkedDeviceIngestReconciliationTests {
         LinkedDeviceIngestURLProtocol.handler = handler
 
         let observerResult = await self.reconciler(ports: [7001, 7001])
-            .reconcileObserverManifest(day: Self.day)
+            .reconcileObserverManifest(day: Self.day, fileName: "audio.m4a")
         let locationResult = await self.reconciler(ports: [7001, 7001])
             .reconcileLocationRecent(day: Self.day)
 

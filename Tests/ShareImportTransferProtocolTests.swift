@@ -167,6 +167,51 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
     }
 
     @MainActor
+    func testSave400ContentAlreadyImportedIsDeliveredNotAttention() async throws {
+        let itemID = Self.uuid(90)
+        let payload = Data("shared-twice-bytes".utf8)
+        let store = ShareImportStore(
+            cacheRootURL: self.tempDirectory.appendingPathComponent("ImportQueue", isDirectory: true)
+        )
+        TransferURLProtocol.handler = { request, _ in
+            (
+                Self.response(for: request, statusCode: 400),
+                Data(#"{"error":"that action isn't available in the current state.","reason_code":"invalid_operation_for_state","detail":"content already imported"}"#.utf8)
+            )
+        }
+        let engine = self.makeEngine(bodyBuilder: { item, spool in
+            if item.manifest.saveThenStart?.phase == .savePending {
+                return try ShareImportSaveBody.build(item: item, spool: spool)
+            }
+            return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
+        })
+        await engine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { manifest, successKind in
+            try await MainActor.run {
+                try store.recordDelivered(manifest: manifest, successKind: successKind)
+            }
+        }
+        try await engine.start()
+
+        _ = try await engine.enqueue(
+            manifest: self.shareManifest(itemID: itemID, kind: .file),
+            payloads: ["file": payload]
+        )
+
+        try await transferTestWaitFor("share duplicate delivered") {
+            await MainActor.run {
+                (try? store.loadLedger()[itemID.uuidString.lowercased()]) != nil
+            }
+        }
+
+        let counters = await engine.snapshot().counters
+        XCTAssertEqual(counters.deliveredCount, 1)
+        XCTAssertEqual(counters.attentionCount, 0)
+        let attentionRaw = self.tempDirectory
+            .appendingPathComponent("Transfers/\(TransferSpool.attentionDirectoryName)/\(itemID.uuidString)/raw.bin")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: attentionRaw.path))
+    }
+
+    @MainActor
     func testSave200DoNotStartRemovesPayloadAndWritesLedger() async throws {
         let itemID = Self.uuid(34)
         let payload = Data("delivered-bytes".utf8)

@@ -6,6 +6,7 @@ import SwiftUI
 struct ImportView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
+    @Environment(TunnelManager.self) private var tunnelManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
@@ -34,7 +35,10 @@ struct ImportView: View {
 
                 SourceDetailBlock(title: SourceVocabulary.onThisPhone) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(SourceVocabulary.onThisPhoneScope)
+                        Text(SourceVocabulary.onThisPhoneScope(
+                            isJournalPaired: self.appConfig.isPaired,
+                            isConnected: self.tunnelManager.state.isConnected
+                        ))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 

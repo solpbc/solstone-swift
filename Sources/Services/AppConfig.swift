@@ -33,7 +33,7 @@ final class AppConfig {
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
         store: PairingCredentialStore? = nil,
-        endpointCache: EndpointCache = EndpointCache(),
+        endpointCache: EndpointCache = .shared,
         appGroupMirror: AppGroupMirror = AppGroupMirror(),
         journalMarkStore: JournalMarkStore = JournalMarkStore(),
         journalVersion: JournalVersionMetadata = JournalVersionMetadata()

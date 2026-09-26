@@ -8,6 +8,23 @@ struct NotificationsPane: View {
     @Environment(PushNotificationManager.self) private var pushManager
     @AccessibilityFocusState private var headingFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
+    @State private var testSend: TestSend = .idle
+
+    enum TestSend: Equatable {
+        case idle
+        case sending
+        case sent
+        case failed
+
+        var message: String? {
+            switch self {
+            case .idle: nil
+            case .sending: "sending…"
+            case .sent: "sent. it should show up on this device in a moment."
+            case .failed: "couldn't send a test notification. try again in a moment."
+            }
+        }
+    }
 
     private var ownerSwitch: Binding<Bool> {
         Binding(
@@ -66,12 +83,23 @@ struct NotificationsPane: View {
 
                     if self.isRegistered {
                         Button("send a test notification") {
+                            self.testSend = .sending
                             Task {
-                                _ = await self.pushManager.sendTestNotification()
+                                let sent = await self.pushManager.sendTestNotification()
+                                self.testSend = sent ? .sent : .failed
+                                if let message = self.testSend.message {
+                                    UIAccessibility.post(notification: .announcement, argument: message)
+                                }
                             }
                         }
-                        .disabled(self.pushManager.activeLocalPort == nil)
+                        .disabled(self.pushManager.activeLocalPort == nil || self.testSend == .sending)
                         .hoverEffect(.highlight)
+
+                        if let message = self.testSend.message {
+                            Text(message)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("shell.notifications.testResult")
+                        }
                     }
                 }
             } footer: {
@@ -80,6 +108,9 @@ struct NotificationsPane: View {
         }
         .task {
             await self.pushManager.refreshPermissionState()
+        }
+        .onChange(of: self.pushManager.ownerEnabled) {
+            self.testSend = .idle
         }
         .onChange(of: self.scenePhase) { _, phase in
             // Coming back from iOS Settings: pick up a permission the owner just granted.

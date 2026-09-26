@@ -147,6 +147,23 @@ final class PushNotificationManager {
         }
     }
 
+    /// The paired journal is gone: forgotten, or replaced by a different one. The owner's turn-on
+    /// belonged to that journal, so it ends here, and the next journal starts off until the owner
+    /// turns it on there. No journal call: forgetting a device removes its push rows journal-side.
+    func forgetJournal() {
+        self.setOwnerEnabled(false)
+        for key in [
+            DefaultsKey.pendingRegistrationToken,
+            DefaultsKey.lastRegisteredToken,
+            DefaultsKey.registeredEnvironment,
+            DefaultsKey.pendingUnregisterToken,
+        ] {
+            self.defaults.removeObject(forKey: key)
+        }
+        self.registrationState = .idle
+        log.info("push reset: the paired journal changed")
+    }
+
     func turnOff() async {
         self.setOwnerEnabled(false)
         self.defaults.removeObject(forKey: DefaultsKey.pendingRegistrationToken)
@@ -266,21 +283,44 @@ final class PushNotificationManager {
 
         do {
             request.attachLoopbackCapability()
-            let (_, response) = try await self.session.data(for: request)
+            let (data, response) = try await self.session.data(for: request)
             guard let http = response as? HTTPURLResponse else {
                 log.error("push test failed: invalid response")
                 return false
             }
-            if 200..<300 ~= http.statusCode {
-                log.info("push test notification queued on port \(localPort)")
-                return true
+            guard 200..<300 ~= http.statusCode else {
+                log.error("push test failed: HTTP \(http.statusCode)")
+                return false
             }
-            log.error("push test failed: HTTP \(http.statusCode)")
-            return false
+            // The journal answers 200 once any device is registered, listing an outcome per
+            // device. Only this device's own "sent" means the owner should expect it here.
+            let ownToken = self.defaults.string(forKey: DefaultsKey.lastRegisteredToken) ?? self.deviceToken
+            let sentHere = Self.testWasSentToThisDevice(data, token: ownToken)
+            log.info("push test answered on port \(localPort): sent to this device \(sentHere)")
+            return sentHere
         } catch {
             log.error("push test failed: \(error.localizedDescription, privacy: .public)")
             return false
         }
+    }
+
+    nonisolated private struct TestResponse: Decodable {
+        struct Item: Decodable {
+            let platform: String
+            let target: String
+            let outcome: String
+        }
+
+        let items: [Item]
+    }
+
+    /// The journal masks each token to its last four characters (`...abcd`).
+    nonisolated static func testWasSentToThisDevice(_ data: Data, token: String?) -> Bool {
+        guard let token, token.count >= 4,
+              let response = try? JSONDecoder().decode(TestResponse.self, from: data)
+        else { return false }
+        let target = "..." + token.suffix(4)
+        return response.items.contains { $0.platform == "ios" && $0.target == target && $0.outcome == "sent" }
     }
 
     func handleRemoteRegistrationFailure(_ error: any Error) {

@@ -10,9 +10,9 @@ enum ObserverMode: String, CaseIterable, Codable, Sendable {
     var label: String {
         switch self {
         case .meeting:
-            "Meeting"
+            "meeting"
         case .voiceMemo:
-            "Voice memo"
+            "voice memo"
         }
     }
 }

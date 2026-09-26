@@ -162,6 +162,20 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertEqual(checkingSource.voiceOverText, SourceVocabulary.sourceStateCheckingLabel)
     }
 
+    func testAnActiveSubLineNeverRepeatsTheStateWord() {
+        XCTAssertNil(SourceState.active.compactSubtext(activeSubtext: SourceVocabulary.observerActiveSubtext))
+        XCTAssertNil(SourceState.active.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true))
+        XCTAssertEqual(SourceState.active.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true), "on.")
+        XCTAssertEqual(
+            SourceState.active.compactSubtext(activeSubtext: SourceVocabulary.screencastActiveSubtext),
+            SourceVocabulary.screencastActiveSubtext
+        )
+        XCTAssertEqual(
+            SourceState.active.voiceOverText(activeSubtext: SourceVocabulary.screencastActiveSubtext, isJournalPaired: true),
+            "on. sharing your screen."
+        )
+    }
+
     func testOnThisPhoneVoiceOverTextIncludesSendStateLabels() {
         let deliveredItem = Self.onThisPhoneItem(sendState: .inYourJournal)
         let failedItem = Self.onThisPhoneItem(sendState: .needsAttention)

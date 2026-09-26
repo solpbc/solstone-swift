@@ -12,6 +12,7 @@ struct LocationSourceDetailView: View {
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var recentResult: LocationRecentResult?
+    @State private var recentPort: Int?
     @State private var showingDeleteConfirm = false
     @State private var showingJournal = false
     @State private var isDeleting = false
@@ -38,7 +39,7 @@ struct LocationSourceDetailView: View {
         }
         .navigationTitle(LocationVocabulary.sourceDisplayName)
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: self.tunnelManager.activeConnection?.port) {
+        .task(id: self.recentKey) {
             await self.loadRecent()
         }
         .alert(LocationVocabulary.deleteConfirmButton, isPresented: self.$showingDeleteConfirm) {
@@ -190,6 +191,9 @@ private extension LocationSourceDetailView {
                 Text(SourceVocabulary.recentEmpty)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+            case .unavailable:
+                // The open-journal row below already says why there's nothing to show.
+                EmptyView()
             case .failed:
                 Text(SourceVocabulary.recentFailed)
                     .font(.subheadline)
@@ -267,7 +271,7 @@ private extension LocationSourceDetailView {
             .accessibilityLabel(SourceVocabulary.openJournalLink)
             .accessibilityHint("opens your journal inside the solstone app.")
             .sheet(isPresented: self.$showingJournal) {
-                InAppJournalView()
+                InAppJournalView(mark: RootShellView.storedJournalMark())
             }
 
             if self.journalURL == nil {
@@ -355,13 +359,29 @@ private extension LocationSourceDetailView {
         }
     }
 
+    var recentKey: LinkedDeviceIngestRecentKey {
+        LinkedDeviceIngestRecentKey(
+            port: self.tunnelManager.activeConnection?.port,
+            deliveredCount: self.mobileSegmentTransferHolder.deliveredCount
+        )
+    }
+
     func loadRecent() async {
-        self.recentResult = nil
+        // A delivery refreshes the list in place; only a new connection starts over with a spinner.
+        let port = self.tunnelManager.activeConnection?.port
+        if port != self.recentPort {
+            self.recentResult = nil
+        }
+        self.recentPort = port
         let tunnelManager = self.tunnelManager
         let reconciler = LinkedDeviceIngestReconciler(activeLocalPort: { tunnelManager.activeConnection?.port })
-        self.recentResult = await reconciler.reconcileLocationRecent(
+        let result = await reconciler.reconcileLocationRecent(
             day: LinkedDeviceIngestViewMapper.dayString(for: Date())
         )
+        // A newer read (a delivery, or a connection change) cancelled this one: its answer is
+        // stale, and writing it would show a failure the newer read doesn't have.
+        guard !Task.isCancelled else { return }
+        self.recentResult = result
     }
 }
 

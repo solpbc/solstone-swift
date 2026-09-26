@@ -227,6 +227,31 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(TransferURLProtocol.requests.count, 0)
     }
 
+    func testOwnerFailureReasonReadsAJournalRefusalInItsOwnWords() {
+        let now = Date(timeIntervalSince1970: 1_780_480_800)
+        let legacy = TransferAttentionInfo(
+            reason: "http_client_error",
+            shortDetail: #"{"error":"that action isn't available in the current state.","reason_code":"invalid_operation_for_state","detail":"content already imported"}"#,
+            movedAt: now
+        )
+        XCTAssertEqual(legacy.ownerFailureReason, "that action isn't available in the current state.")
+
+        let sentence = TransferAttentionInfo(reason: "http_client_error", shortDetail: "that file is too large to bring in.", movedAt: now)
+        XCTAssertEqual(sentence.ownerFailureReason, "that file is too large to bring in.")
+
+        let coded = TransferAttentionInfo(reason: "http_client_error", shortDetail: "reason_code=protocol_version_legacy", movedAt: now)
+        XCTAssertEqual(coded.ownerFailureReason, "your journal couldn't accept it")
+
+        let status = TransferAttentionInfo(reason: "http_client_error", shortDetail: "http 413", movedAt: now)
+        XCTAssertEqual(status.ownerFailureReason, "your journal couldn't accept it")
+
+        let other = TransferAttentionInfo(reason: "missing_payload", shortDetail: "source file", movedAt: now)
+        XCTAssertEqual(other.ownerFailureReason, "missing_payload: source file")
+
+        let bare = TransferAttentionInfo(reason: "removed_in_journal", shortDetail: "removed_in_journal", movedAt: now)
+        XCTAssertEqual(bare.ownerFailureReason, "removed_in_journal")
+    }
+
     func testOutcomeClassifierTable() {
         let saveResult = TransferSaveThenStartState(
             phase: .startPending,
@@ -294,7 +319,27 @@ nonisolated final class TransferTests: XCTestCase {
             (
                 TransferHTTPResult(statusCode: 426, data: Data(#"{"status":"failed","reason_code":"protocol_version_legacy"}"#.utf8)),
                 .observerIngest,
-                .terminalAttention(.httpClientError(statusCode: 426, detail: #"{"status":"failed","reason_code":"protocol_version_legacy"}"#))
+                .terminalAttention(.httpClientError(statusCode: 426, detail: "reason_code=protocol_version_legacy"))
+            ),
+            (
+                TransferHTTPResult(statusCode: 409, data: Data(#"{"error":"Ingest request failed","reason_code":"segment_conflict"}"#.utf8)),
+                .observerIngest,
+                .terminalAttention(.httpClientError(statusCode: 409, detail: "reason_code=segment_conflict"))
+            ),
+            (
+                TransferHTTPResult(statusCode: 400, data: Data(#"{"error":"that action isn't available in the current state.","reason_code":"invalid_operation_for_state","detail":"content already imported"}"#.utf8)),
+                .save,
+                .terminalSuccess(.alreadyStartedOrComplete(serverPath: nil, serverTimestamp: nil))
+            ),
+            (
+                TransferHTTPResult(statusCode: 400, data: Data(#"{"error":"that action isn't available in the current state.","reason_code":"invalid_operation_for_state","detail":"client_item_id already staged for different content; use a new client_item_id"}"#.utf8)),
+                .save,
+                .terminalAttention(.httpClientError(statusCode: 400, detail: "that action isn't available in the current state."))
+            ),
+            (
+                TransferHTTPResult(statusCode: 413, data: Data(#"{"error":"that file is too large to bring in.","reason_code":"multipart_part_too_large"}"#.utf8)),
+                .save,
+                .terminalAttention(.httpClientError(statusCode: 413, detail: "that file is too large to bring in."))
             ),
             (
                 TransferHTTPResult(statusCode: 503),

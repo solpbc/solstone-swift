@@ -159,9 +159,12 @@ nonisolated struct ObserverManifestItem: Identifiable, Equatable, Sendable {
     let subtitle: String
 }
 
+/// `unavailable` means no journal connection was up, so nothing was asked. It is not a failure:
+/// an unpaired phone, or one whose journal is out of reach, has nothing to load.
 nonisolated enum ObserverManifestResult: Equatable, Sendable {
     case loaded([ObserverManifestItem])
     case loadedEmpty
+    case unavailable
     case failed
 }
 
@@ -173,26 +176,39 @@ nonisolated struct LocationRecentItem: Identifiable, Equatable, Sendable {
 nonisolated enum LocationRecentResult: Equatable, Sendable {
     case loaded([LocationRecentItem])
     case loadedEmpty
+    case unavailable
     case failed
 }
 
 nonisolated enum LinkedDeviceIngestViewMapper {
+    /// One source's segments from the shared `mobile-segment` stream, newest first. A segment
+    /// belongs to the source whose file it carries, so audio never lists a location-only segment.
     static func observerManifestResult(
-        _ result: Result<LinkedDeviceIngestSegmentsResponse, LinkedDeviceIngestClientError>
+        _ result: Result<LinkedDeviceIngestSegmentsResponse, LinkedDeviceIngestClientError>,
+        day: String,
+        fileName: String,
+        locale: Locale = .current,
+        timeZone: TimeZone = .current
     ) -> ObserverManifestResult {
         guard case .success(let response) = result else { return .failed }
-        let items = response.items.map { segment in
-            ObserverManifestItem(
-                id: segment.key,
-                title: segment.key,
-                subtitle: "\(segment.files.count) file\(segment.files.count == 1 ? "" : "s")"
-            )
-        }
+        let items = response.items
+            .filter { segment in
+                segment.files.contains(where: { $0.name == fileName || $0.submittedName == fileName })
+            }
+            .sorted { $0.key > $1.key }
+            .map { segment in
+                ObserverManifestItem(
+                    id: segment.key,
+                    title: self.timeLabel(forSegmentKey: segment.key, day: day, locale: locale, timeZone: timeZone),
+                    subtitle: self.durationLabel(forSegmentKey: segment.key) ?? ""
+                )
+            }
         return items.isEmpty ? .loadedEmpty : .loaded(items)
     }
 
     static func locationRecentResult(
         _ result: Result<LinkedDeviceIngestSegmentsResponse, LinkedDeviceIngestClientError>,
+        day: String,
         locale: Locale = .current,
         timeZone: TimeZone = .current
     ) -> LocationRecentResult {
@@ -203,7 +219,7 @@ nonisolated enum LinkedDeviceIngestViewMapper {
                 segment.key,
                 LocationRecentItem(
                     id: segment.key,
-                    timeLabel: self.timeLabel(forSegmentKey: segment.key, locale: locale, timeZone: timeZone)
+                    timeLabel: self.timeLabel(forSegmentKey: segment.key, day: day, locale: locale, timeZone: timeZone)
                 )
             )
         }
@@ -219,25 +235,33 @@ nonisolated enum LinkedDeviceIngestViewMapper {
         return formatter.string(from: date)
     }
 
-    static func timeLabel(
-        forSegmentKey segmentKey: String,
-        locale: Locale = .current,
-        timeZone: TimeZone = .current
-    ) -> String {
-        guard let separator = segmentKey.firstIndex(of: "_") else { return segmentKey }
+    /// A segment key is `HHmmss_<seconds>` within its `yyyyMMdd` day, for example `140535_3`.
+    static func segmentStart(forSegmentKey segmentKey: String, day: String, timeZone: TimeZone = .current) -> Date? {
+        guard let separator = segmentKey.firstIndex(of: "_") else { return nil }
         let parser = DateFormatter()
         parser.calendar = Calendar(identifier: .gregorian)
         parser.locale = Locale(identifier: "en_US_POSIX")
         parser.timeZone = timeZone
-        parser.dateFormat = "yyyyMMdd-HHmmss"
-        guard let date = parser.date(from: String(segmentKey[..<separator])) else { return segmentKey }
+        parser.dateFormat = "yyyyMMddHHmmss"
+        return parser.date(from: day + segmentKey[..<separator])
+    }
 
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = locale
-        formatter.timeZone = timeZone
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+    static func durationLabel(forSegmentKey segmentKey: String) -> String? {
+        guard let separator = segmentKey.firstIndex(of: "_"),
+              let seconds = Int(segmentKey[segmentKey.index(after: separator)...])
+        else { return nil }
+        return OnThisPhoneItem.formattedDuration(TimeInterval(seconds))
+    }
+
+    static func timeLabel(
+        forSegmentKey segmentKey: String,
+        day: String,
+        locale: Locale = .current,
+        timeZone: TimeZone = .current
+    ) -> String {
+        guard let date = self.segmentStart(forSegmentKey: segmentKey, day: day, timeZone: timeZone) else {
+            return segmentKey
+        }
+        return OnThisPhoneItemDetailPresentation.shortTimeLabel(for: date, locale: locale, timeZone: timeZone)
     }
 }

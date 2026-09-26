@@ -5,6 +5,7 @@ import SwiftUI
 import UIKit
 
 struct SourceDetailView: View {
+    @Environment(AppConfig.self) private var appConfig
     @Environment(ObserverManager.self) private var observerManager
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(TunnelManager.self) private var tunnelManager
@@ -13,6 +14,7 @@ struct SourceDetailView: View {
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var manifestResult: ObserverManifestResult?
+    @State private var manifestPort: Int?
     @State private var isPulsing = false
     @ScaledMetric(relativeTo: .headline) private var listenButtonSize: CGFloat = 120
 
@@ -33,7 +35,7 @@ struct SourceDetailView: View {
         .background(Color.deckGround.ignoresSafeArea())
         .navigationTitle("audio")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: self.tunnelManager.activeConnection?.port) {
+        .task(id: self.recentKey) {
             await self.loadManifest()
         }
         .onAppear {
@@ -113,20 +115,7 @@ private extension SourceDetailView {
     @ViewBuilder
     var stateBlock: some View {
         VStack(spacing: 16) {
-            if self.isActiveState {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(Color("Listening/Dot"))
-                        .frame(width: 10, height: 10)
-                    Text(SourceDetailPresentation.listeningIndicatorWord)
-                }
-                .font(.headline)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(SourceDetailPresentation.listeningIndicatorWord)
-                .accessibilityIdentifier("source.listening")
-            }
-
+            // The verdict line above already says "on"; the timer below carries the live dot.
             Picker("mode", selection: self.selectedModeBinding) {
                 ForEach(ObserverMode.allCases, id: \.self) { mode in
                     Text(mode.label).tag(mode)
@@ -184,7 +173,8 @@ private extension SourceDetailView {
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel(SourceDetailPresentation.elapsedLine(formatted: elapsedText))
+                .accessibilityLabel(SourceDetailPresentation.elapsedAccessibilityLabel(formatted: elapsedText))
+                .accessibilityIdentifier("source.listening")
             }
 
 
@@ -200,38 +190,13 @@ private extension SourceDetailView {
         .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
     var recentBlock: some View {
-        switch self.manifestResult {
-        case .none:
-            ProgressView()
-        case .loaded(let items):
-            ForEach(items) { item in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(item.title)
-                        .font(.headline)
-                    Text(item.subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .background(Color.deckSurface, in: ShellMetrics.cardShape)
-            }
-        case .loadedEmpty:
-            Text(SourceVocabulary.recentEmpty)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        case .failed:
-            Text(SourceVocabulary.recentFailed)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
+        ObserverManifestRecentList(result: self.manifestResult, isJournalPaired: self.appConfig.isPaired)
     }
 
     var deliveryBlock: some View {
         let summary = self.mobileSegmentTransferHolder.summary(for: .audio)
-        let presentation = LocationDetailPresentation.deliverySummary(
+        let presentation = AudioDetailPresentation.deliverySummary(
             pending: summary.pendingCount,
             failed: summary.failedCount
         )
@@ -358,23 +323,43 @@ private extension SourceDetailView {
         }
     }
 
+    var recentKey: LinkedDeviceIngestRecentKey {
+        LinkedDeviceIngestRecentKey(
+            port: self.tunnelManager.activeConnection?.port,
+            deliveredCount: self.mobileSegmentTransferHolder.deliveredCount
+        )
+    }
+
     func loadManifest() async {
-        self.manifestResult = nil
+        // A delivery refreshes the list in place; only a new connection starts over with a spinner.
+        let port = self.tunnelManager.activeConnection?.port
+        if port != self.manifestPort {
+            self.manifestResult = nil
+        }
+        self.manifestPort = port
         let tunnelManager = self.tunnelManager
         let reconciler = LinkedDeviceIngestReconciler(activeLocalPort: { tunnelManager.activeConnection?.port })
-        self.manifestResult = await reconciler.reconcileObserverManifest(
-            day: LinkedDeviceIngestViewMapper.dayString(for: Date())
+        let result = await reconciler.reconcileObserverManifest(
+            day: LinkedDeviceIngestViewMapper.dayString(for: Date()),
+            fileName: ObserverAudioTransferEnqueuer.audioPart().filename
         )
+        // A newer read (a delivery, or a connection change) cancelled this one: its answer is
+        // stale, and writing it would show a failure the newer read doesn't have.
+        guard !Task.isCancelled else { return }
+        self.manifestResult = result
     }
 }
 
 private struct AudioEnrollmentContent: View {
+    @Environment(AppConfig.self) private var appConfig
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @State private var isStarting = false
 
     private let mode: ObserverMode
-    private let presentation = AudioEnrollmentPresentation.current
+    private var presentation: AudioEnrollmentPresentation {
+        AudioEnrollmentPresentation.current(isJournalPaired: self.appConfig.isPaired)
+    }
 
     init(mode: ObserverMode) {
         self.mode = mode
@@ -448,5 +433,46 @@ private extension AudioEnrollmentContent {
 
         self.observerSourcePauseState.isPaused = false
         _ = await self.observerManager.startSession(mode: self.mode)
+    }
+}
+
+/// A capture source's recent list, read from the journal: audio and screen share it.
+struct ObserverManifestRecentList: View {
+    let result: ObserverManifestResult?
+    let isJournalPaired: Bool
+
+    var body: some View {
+        switch self.result {
+        case .none:
+            ProgressView()
+        case .loaded(let items):
+            ForEach(items) { item in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.title)
+                        .font(.headline)
+                    if !item.subtitle.isEmpty {
+                        Text(item.subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(Color.deckSurface, in: ShellMetrics.cardShape)
+                .accessibilityElement(children: .combine)
+            }
+        case .loadedEmpty:
+            Text(SourceVocabulary.recentEmpty)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        case .unavailable:
+            Text(SourceVocabulary.recentUnavailable(isJournalPaired: self.isJournalPaired))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        case .failed:
+            Text(SourceVocabulary.recentFailed)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
     }
 }

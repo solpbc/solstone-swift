@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import AVFoundation
 import XCTest
 import SPLTunnel
 
@@ -212,6 +213,23 @@ nonisolated final class PairFlowViewTests: XCTestCase {
         let pasteSubtitle = "on your computer, open your journal's dashboard, go to the network app, choose \\\"pair a device\\\", then copy the link."
         XCTAssertTrue(text.contains(scanSubtitle), "scan subtitle missing or modified in PairFlowView.swift")
         XCTAssertTrue(text.contains(pasteSubtitle), "paste subtitle missing or modified in PairFlowView.swift")
+    }
+
+    func testCameraUnavailableMessageNamesADenialAsTheOwnersSetting() {
+        XCTAssertEqual(
+            PairFlowView.cameraUnavailableMessage(for: .denied),
+            "camera access is off for solstone. turn it on in settings, or paste a pairing link instead."
+        )
+        XCTAssertEqual(
+            PairFlowView.cameraUnavailableMessage(for: .restricted),
+            "camera access isn't allowed on this device. paste a pairing link instead."
+        )
+        for status: AVAuthorizationStatus in [.authorized, .notDetermined] {
+            XCTAssertEqual(
+                PairFlowView.cameraUnavailableMessage(for: status),
+                "the camera isn't available on this device. paste a pairing link instead."
+            )
+        }
     }
 
     func testQRScannerViewHandlesUnavailableAndErrors() throws {

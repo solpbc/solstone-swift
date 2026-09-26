@@ -167,6 +167,9 @@ struct RootShellView: View {
         .task(id: self.tunnelManager.activeConnection?.port) {
             await self.fetchJournalMark()
         }
+        .onChange(of: self.appConfig.deviceID) { priorInstanceID, currentInstanceID in
+            self.journalChanged(from: priorInstanceID, to: currentInstanceID)
+        }
         .onAppear {
             if let route = self.pendingRoute.route {
                 self.apply(route)
@@ -537,9 +540,38 @@ struct RootShellView: View {
             self.journalMark = Self.storedJournalMark()
         }
         guard let port = self.tunnelManager.activeConnection?.port else { return }
-        guard let fetched = await JournalIdentityFetcher().fetch(localPort: port) else { return }
-        self.journalMark = fetched
-        self.journalMarkStore.save(fetched)
+        // With no mark known (a reinstall keeps the pairing but not the mark), ask a few more
+        // times over the first ~45 seconds of this connection: one short read at connect time is
+        // easy to miss. The task is keyed on the port, so a new connection starts over. Until
+        // then a reinstall shows the generic mark, the one case the first-frame rule can't meet.
+        for delay in [0, 2, 5, 10, 30] as [UInt64] {
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+            }
+            guard !Task.isCancelled else { return }
+            if let fetched = await JournalIdentityFetcher().fetch(localPort: port) {
+                guard !Task.isCancelled else { return }
+                self.journalMark = fetched
+                self.journalMarkStore.save(fetched)
+                return
+            }
+            if self.journalMark != nil { return }
+        }
+    }
+
+    /// Pairing a different journal in place of this one ends the old pairing without an unpair,
+    /// so the old journal's mark goes with it here; forgetting has already cleared the store.
+    /// A first pairing (from no journal) changes nothing here: there was no old mark to drop.
+    private func journalChanged(from priorInstanceID: String, to currentInstanceID: String) {
+#if DEBUG
+        // UI-test seeding rewrites the device id on every launch; it is not a new journal.
+        if ProcessInfo.processInfo.arguments.contains("--ui-test") { return }
+#endif
+        guard !priorInstanceID.isEmpty, priorInstanceID != currentInstanceID else { return }
+        if !currentInstanceID.isEmpty {
+            self.journalMarkStore.clear()
+        }
+        self.journalMark = Self.storedJournalMark()
     }
 
     private func applyDebugSeeds() {

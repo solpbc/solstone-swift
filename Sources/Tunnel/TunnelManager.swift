@@ -353,7 +353,7 @@ final class TunnelManager {
 
     init(
         transport: (any Transporting)? = nil,
-        endpointCache: EndpointCache = EndpointCache(),
+        endpointCache: EndpointCache = .shared,
         pathMonitor: PathMonitor = PathMonitor(),
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },

@@ -14,7 +14,7 @@ import os
 /// is," which is both false and exactly the wrong thing to say about identity.
 ///
 /// ⛔ Never blank a stored mark on a connection failure. The only thing that clears it is
-/// unpairing, because that is the only event that actually ends the relationship it records.
+/// the pairing ending: unpairing, or a different journal paired in its place.
 ///
 /// This is the owner's own data, on the owner's own device, used solely to render their own
 /// journal's identity to them. It is never transmitted anywhere.
@@ -65,7 +65,7 @@ nonisolated struct JournalMarkStore: Sendable {
         self.defaults.set(data, forKey: Self.key)
     }
 
-    /// ⛔ Only ever called from unpairing. See the type's invariant.
+    /// ⛔ Only ever called when the pairing ends. See the type's invariant.
     func clear() {
         self.defaults.removeObject(forKey: Self.key)
     }

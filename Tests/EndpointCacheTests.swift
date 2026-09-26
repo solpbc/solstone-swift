@@ -38,7 +38,39 @@ private final class EndpointURLProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+/// Answers only after a delay, so a test can change the pairing while a refresh is awaiting.
+private final class SlowEndpointURLProtocol: URLProtocol, @unchecked Sendable {
+    static let body = Data(#"{"local_endpoints":[{"ip":"3.19.73.183","port":7657,"scope":"public"}]}"#.utf8)
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 1.5) { [self] in
+            let response = HTTPURLResponse(url: self.request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            self.client?.urlProtocol(self, didLoad: Self.body)
+            self.client?.urlProtocolDidFinishLoading(self)
+        }
+    }
+    override func stopLoading() {}
+}
+
 nonisolated final class EndpointCacheTests: XCTestCase {
+    /// Forgetting a journal must reach the copy the tunnel dials from: every owner of the cache
+    /// defaults to the one shared instance, never a fresh one over the same file.
+    func testEveryDefaultOwnerUsesTheSharedCache() throws {
+        for relativePath in [
+            "Sources/Services/AppConfig.swift",
+            "Sources/Tunnel/TunnelManager.swift",
+            "Sources/Pairing/PairFlowCoordinator.swift",
+        ] {
+            let url = StringLiteralGrepSupport.worktreeRoot().appendingPathComponent(relativePath)
+            let text = try String(contentsOf: url, encoding: .utf8)
+            XCTAssertTrue(text.contains("endpointCache: EndpointCache = .shared"), relativePath)
+            XCTAssertFalse(text.contains("EndpointCache()"), relativePath)
+        }
+    }
+
     func testBootstrapWritesJSONAndReturnsEndpoints() async throws {
         let fileURL = Self.tempFileURL()
         let cache = EndpointCache(fileURL: fileURL)
@@ -82,6 +114,27 @@ nonisolated final class EndpointCacheTests: XCTestCase {
         XCTAssertTrue(endpoints.contains(.lan(host: "10.0.0.2", port: 9443, scope: "wifi")))
         XCTAssertTrue(endpoints.contains(.lan(host: "fd00::1", port: 9443, scope: "ula")))
         XCTAssertEqual(endpoints.count, 2)
+    }
+
+    /// Forgetting a journal while a refresh of its addresses is still out must not let that
+    /// refresh write the old journal's addresses back.
+    func testARefreshThatStartedBeforeAWipeDoesNotWriteBack() async throws {
+        let fileURL = Self.tempFileURL()
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [SlowEndpointURLProtocol.self]
+        let cache = EndpointCache(fileURL: fileURL, session: URLSession(configuration: config))
+        await cache.bootstrap(from: Self.pairing(endpoints: []))
+
+        let refresh = Task { try await cache.refresh(viaLoopbackPort: 54321) }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        await cache.wipe()
+        try await refresh.value
+
+        let endpoints = await cache.endpoints()
+        XCTAssertEqual(endpoints, [])
+        let reopened = EndpointCache(fileURL: fileURL)
+        let persisted = await reopened.endpoints()
+        XCTAssertEqual(persisted, [])
     }
 
     func testEvictRemovesMatchingEntryAndPersists() async {

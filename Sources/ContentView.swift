@@ -27,7 +27,9 @@ struct ContentView: View {
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(PairingHandoffState.self) private var pairingHandoff
+    @Environment(JournalUnpairNoticeStore.self) private var noticeStore
     @State private var shellStatusContext = ShellStatusContext()
+    @State private var showingReinstallNotice = false
     @State private var showPairing = false
     @State private var lastPort: Int = 0
 #if DEBUG
@@ -128,6 +130,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: self.pairingIdentity) { priorPairing, currentPairing in
+            // Turning on notifications was consent for the journal it was given to. Forgetting that
+            // journal, or pairing a different one in its place, ends it before anything reconnects.
+            if let priorPairing, priorPairing.instanceID != currentPairing?.instanceID, !Self.isTestSeededLaunch {
+                self.pushManager.forgetJournal()
+            }
             self.startTunnelIfPaired(
                 replacingExistingPairing: priorPairing != nil && currentPairing != nil
             )
@@ -280,8 +287,30 @@ struct ContentView: View {
                 return
             }
 #endif
+            self.checkForReinstall()
             self.completeOnboardingIfPaired()
             self.startTunnelIfPaired()
+        }
+        .alert(SourceVocabulary.reinstallNoticeTitle, isPresented: self.$showingReinstallNotice) {
+            Button(SourceVocabulary.reinstallNoticeKeep, role: .cancel) {}
+            Button(SourceVocabulary.reinstallNoticeForget, role: .destructive) {
+                Task {
+                    // The alert shows on the first frame, before the tunnel is up. Forgetting has to
+                    // reach the journal to disconnect this device there, so give the connection a
+                    // moment first; if it never comes up, the not-told notice says what's left.
+                    for _ in 0..<40 where !self.tunnelManager.state.isConnected {
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                    }
+                    await unpairAndReturnToOnboarding(
+                        appConfig: self.appConfig,
+                        onboardingFlow: self.onboardingFlow,
+                        tunnelManager: self.tunnelManager,
+                        noticeStore: self.noticeStore
+                    )
+                }
+            }
+        } message: {
+            Text(SourceVocabulary.reinstallNoticeBody)
         }
 #if DEBUG
         .overlay {
@@ -314,6 +343,26 @@ private extension ContentView {
             pairURLError: self.pairingHandoff.pairURLError
         ) {
             self.showPairing = true
+        }
+    }
+
+    /// Runs before `completeOnboardingIfPaired`, which is what turns a reinstall's leftover
+    /// pairing into a finished onboarding.
+    /// UI and integration tests seed their own pairing on launch; none of it is an owner's act.
+    static var isTestSeededLaunch: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        return arguments.contains("--ui-test")
+            || arguments.contains("--integration-test")
+            || arguments.contains("--integration-test-live")
+    }
+
+    func checkForReinstall() {
+        guard !Self.isTestSeededLaunch else { return }
+        if ReinstallNotice.isFirstLaunchAfterReinstall(
+            isPaired: self.appConfig.isPaired,
+            isOnboardingCompleted: self.onboardingFlow.isCompleted
+        ) {
+            self.showingReinstallNotice = true
         }
     }
 

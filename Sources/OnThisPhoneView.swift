@@ -393,7 +393,7 @@ private extension OnThisPhoneMomentsView {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(SourceVocabulary.magicMomentShownHeadline)
                         .font(.headline)
-                    Text(SourceVocabulary.magicMomentShownBody)
+                    Text(SourceVocabulary.magicMomentShownBody(isJournalPaired: self.appConfig.isPaired))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -906,7 +906,12 @@ private extension SwipeToDropRow {
         .buttonStyle(.plain)
         .frame(width: self.actionWidth)
         .frame(minHeight: 44)
-        .background(Color.red, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.red, in: ShellMetrics.cardShape)
+        // Drawn only while the row is pulled open: at rest the card sits exactly over it, and its
+        // edge shows through as a red sliver. The row's own accessibility action covers drop.
+        .opacity(self.offset < 0 ? 1 : 0)
+        .allowsHitTesting(self.offset < 0)
+        .accessibilityHidden(self.offset == 0)
         .accessibilityIdentifier("onThisPhone.swipe.drop.\(self.item.id)")
     }
 

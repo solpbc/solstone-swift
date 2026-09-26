@@ -3,6 +3,13 @@
 
 import Foundation
 
+/// What a source detail screen's recent list is loaded for: the journal connection, and how many
+/// items have been delivered since launch, so a delivery shows up without leaving the screen.
+nonisolated struct LinkedDeviceIngestRecentKey: Hashable, Sendable {
+    let port: Int?
+    let deliveredCount: Int
+}
+
 nonisolated struct LinkedDeviceIngestReconciler: Sendable {
     private let client: LinkedDeviceIngestClient
     private let activeLocalPort: @MainActor @Sendable () -> Int?
@@ -15,20 +22,38 @@ nonisolated struct LinkedDeviceIngestReconciler: Sendable {
         self.activeLocalPort = activeLocalPort
     }
 
-    func reconcileObserverManifest(day: String) async -> ObserverManifestResult {
-        guard let result = await self.currentSegments(day: day) else { return .failed }
-        return LinkedDeviceIngestViewMapper.observerManifestResult(result)
+    func reconcileObserverManifest(day: String, fileName: String) async -> ObserverManifestResult {
+        switch await self.currentSegments(day: day) {
+        case .noConnection:
+            return .unavailable
+        case .connectionChanged:
+            return .failed
+        case .fetched(let result):
+            return LinkedDeviceIngestViewMapper.observerManifestResult(result, day: day, fileName: fileName)
+        }
     }
 
     func reconcileLocationRecent(day: String) async -> LocationRecentResult {
-        guard let result = await self.currentSegments(day: day) else { return .failed }
-        return LinkedDeviceIngestViewMapper.locationRecentResult(result)
+        switch await self.currentSegments(day: day) {
+        case .noConnection:
+            return .unavailable
+        case .connectionChanged:
+            return .failed
+        case .fetched(let result):
+            return LinkedDeviceIngestViewMapper.locationRecentResult(result, day: day)
+        }
     }
 
-    private func currentSegments(
-        day: String
-    ) async -> Result<LinkedDeviceIngestSegmentsResponse, LinkedDeviceIngestClientError>? {
-        guard let issuedPort = await self.activeLocalPort() else { return nil }
+    private enum SegmentsRead {
+        /// No journal connection was up, so no request went out.
+        case noConnection
+        /// The connection changed while the request was out; its answer can't be trusted.
+        case connectionChanged
+        case fetched(Result<LinkedDeviceIngestSegmentsResponse, LinkedDeviceIngestClientError>)
+    }
+
+    private func currentSegments(day: String) async -> SegmentsRead {
+        guard let issuedPort = await self.activeLocalPort() else { return .noConnection }
 
         let result = await self.client.fetchSegments(
             localPort: issuedPort,
@@ -37,8 +62,8 @@ nonisolated struct LinkedDeviceIngestReconciler: Sendable {
         )
 
         guard let currentPort = await self.activeLocalPort(), currentPort == issuedPort else {
-            return nil
+            return .connectionChanged
         }
-        return result
+        return .fetched(result)
     }
 }

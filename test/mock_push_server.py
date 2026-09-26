@@ -79,7 +79,17 @@ class Handler(BaseHTTPRequestHandler):
             with Handler.lock:
                 Handler.requests.append(("POST", self.path, {}))
             print("TEST_PUSH:queued", flush=True)
-            self._send_json(200, {"queued": True})
+            with Handler.lock:
+                tokens = [
+                    str(body.get("device_token", ""))
+                    for method, path, body in Handler.requests
+                    if method == "POST" and path == "/api/push/register" and body.get("device_token")
+                ]
+            items = [
+                {"platform": "ios", "target": "..." + token[-4:], "outcome": "sent"}
+                for token in dict.fromkeys(tokens)
+            ]
+            self._send_json(200, {"items": items, "total": len(items), "cursor": None})
             return
 
         self._send_json(404, {"error": "not found"})

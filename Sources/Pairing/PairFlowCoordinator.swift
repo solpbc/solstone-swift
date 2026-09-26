@@ -62,7 +62,7 @@ final class PairFlowCoordinator {
     init(
         store: PairingCredentialStore = SPLRuntime.pairingStore,
         pairClient: PairClient = PairClient(clientInfo: SPLRuntime.clientInfo),
-        endpointCache: EndpointCache = EndpointCache(),
+        endpointCache: EndpointCache = .shared,
         networkReader: any OwnNetworkReading = GetifaddrsNetworkReader(),
         pairOperation: PairOperation? = nil
     ) {

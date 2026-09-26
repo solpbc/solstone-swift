@@ -376,9 +376,9 @@ private extension OnThisPhoneItemDetailPresentation {
         }
     }
 
-    nonisolated static func sizeText(bytes: Int64?) -> String {
+    nonisolated static func sizeText(bytes: Int64?) -> String? {
         guard let bytes else {
-            return SourceVocabulary.notProvided
+            return nil
         }
         return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
     }

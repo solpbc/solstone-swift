@@ -114,6 +114,9 @@ nonisolated extension TransferTransientReason {
 }
 
 nonisolated extension TransferAttentionReason {
+    /// The stored reason token for a journal refusal (a 4xx).
+    static let httpClientErrorCode = "http_client_error"
+
     /// Detail retained for a terminal attention state.
     ///
     /// Runtime-provided text is bounded before storage because the detail fans out
@@ -166,13 +169,24 @@ nonisolated enum TransferHTTPClassifier {
         }
     }
 
+    /// The journal's refusal envelope: `error` is its own owner-safe sentence, `reason_code` and
+    /// `detail` are for machines.
     private struct StartErrorResponse: Decodable {
+        let error: String?
         let reasonCode: String?
+        let detail: String?
 
         enum CodingKeys: String, CodingKey {
+            case error
             case reasonCode = "reason_code"
+            case detail
         }
     }
+
+    /// The journal refuses a second save of content it already imported. That content is in the
+    /// journal, so the item is delivered. The same reason code also covers a client item id
+    /// reused for *different* content, which is a real conflict, so the detail decides.
+    private static let contentAlreadyImportedDetail = "content already imported"
 
     private struct ObserverIngestResponse: Decodable {
         let status: String
@@ -223,8 +237,24 @@ nonisolated enum TransferHTTPClassifier {
             ))
         }
 
+        let refusal = try? JSONDecoder().decode(StartErrorResponse.self, from: result.data)
+
+        if statusCode == 400,
+           endpointPhase == .save,
+           refusal?.reasonCode == TransferReasonCodes.invalidOperationForState,
+           refusal?.detail?.hasPrefix(Self.contentAlreadyImportedDetail) == true
+        {
+            return .terminalSuccess(.alreadyStartedOrComplete(serverPath: nil, serverTimestamp: nil))
+        }
+
         if 400..<500 ~= statusCode {
-            let detail = String(data: result.data, encoding: .utf8)
+            // Never store the JSON. An import refusal's `error` is a sentence written for the
+            // owner; an ingest refusal's is a generic one, so its reason code is kept for the
+            // sync-state export and turned into owner words only where it is shown.
+            let reasonCode = refusal?.reasonCode.map { "reason_code=\($0)" }
+            let detail = endpointPhase == .observerIngest
+                ? reasonCode ?? refusal?.error ?? String(data: result.data, encoding: .utf8)
+                : refusal?.error ?? reasonCode ?? String(data: result.data, encoding: .utf8)
             return .terminalAttention(.httpClientError(statusCode: statusCode, detail: detail))
         }
 

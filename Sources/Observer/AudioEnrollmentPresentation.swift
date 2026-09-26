@@ -7,8 +7,10 @@ nonisolated struct AudioEnrollmentPresentation: Equatable, Sendable {
     let preEnrollmentValue: String
     let turnOnAudio: String
 
-    static let current = AudioEnrollmentPresentation(
-        preEnrollmentValue: SourceVocabulary.audioEnrollmentValue,
-        turnOnAudio: SourceVocabulary.turnOnAudio
-    )
+    static func current(isJournalPaired: Bool) -> AudioEnrollmentPresentation {
+        AudioEnrollmentPresentation(
+            preEnrollmentValue: SourceVocabulary.audioEnrollmentValue(isJournalPaired: isJournalPaired),
+            turnOnAudio: SourceVocabulary.turnOnAudio
+        )
+    }
 }

@@ -1711,7 +1711,7 @@ private extension TransferEngine {
     func reasonCode(for reason: TransferAttentionReason) -> String {
         switch reason {
         case .httpClientError:
-            return "http_client_error"
+            return TransferAttentionReason.httpClientErrorCode
         case .decodeFailed:
             return "decode_failed"
         case .missingPayload:

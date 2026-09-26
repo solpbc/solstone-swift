@@ -245,7 +245,7 @@ final class TransferConsumerSurfaceTests: XCTestCase {
         XCTAssertEqual(retried.sendState, .savedOnThisPhone)
         XCTAssertNil(retried.failureReason)
         XCTAssertEqual(stillAttention.sendState, .needsAttention)
-        XCTAssertEqual(stillAttention.failureReason, "http_client_error: watch-B")
+        XCTAssertEqual(stillAttention.failureReason, "watch-B")
     }
 
     func testAC8RealMobileEngineStateFeedsConsumerSurfaces() async throws {

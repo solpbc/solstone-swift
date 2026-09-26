@@ -31,6 +31,11 @@ public actor EndpointCache {
         }
     }
 
+    /// The app's one cache. The pairing, the tunnel and the pair flow all read and write the same
+    /// file; separate instances each kept their own copy in memory, so forgetting a journal
+    /// wiped one copy while another kept dialing, and re-saving, the old journal's addresses.
+    public static let shared = EndpointCache()
+
     public static var defaultFileURL: URL {
         FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -43,6 +48,10 @@ public actor EndpointCache {
     private let session: URLSession
     private var entries: [Entry] = []
     private var loaded = false
+    /// Bumped whenever the cache is reset for a pairing (bootstrap or wipe). A refresh awaits the
+    /// network inside the actor, so another call can run meanwhile; a refresh that started under
+    /// an older generation belongs to a journal this device may no longer be paired with.
+    private var generation = 0
 
     public init(fileURL: URL = EndpointCache.defaultFileURL, ttl: TimeInterval = 24 * 60 * 60, session: URLSession = .shared) {
         self.fileURL = fileURL
@@ -51,6 +60,7 @@ public actor EndpointCache {
     }
 
     public func bootstrap(from pairing: StoredPairing) async {
+        generation += 1
         let now = Date()
         entries = pairing.localEndpoints.map {
             Entry(host: $0.host, port: $0.port, scope: $0.scope, lastSeen: now)
@@ -61,6 +71,7 @@ public actor EndpointCache {
 
     public func refresh(viaLoopbackPort port: Int) async throws {
         try loadIfNeeded()
+        let startedGeneration = generation
         let url = URL(string: "http://127.0.0.1:\(port)/app/network/local-endpoints")!
         var request = URLRequest(url: url)
         request.attachLoopbackCapability()
@@ -69,6 +80,10 @@ public actor EndpointCache {
             throw URLError(.badServerResponse)
         }
         let decoded = try JSONDecoder().decode(RefreshResponse.self, from: data)
+        guard generation == startedGeneration else {
+            log.info("dropped a LAN endpoint refresh that started before the pairing changed")
+            return
+        }
         merge(decoded.localEndpoints, seenAt: Date())
         try persist()
     }
@@ -83,6 +98,7 @@ public actor EndpointCache {
     }
 
     public func wipe() async {
+        generation += 1
         entries = []
         loaded = true
         try? FileManager.default.removeItem(at: fileURL)

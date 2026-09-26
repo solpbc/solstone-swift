@@ -338,6 +338,56 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         XCTAssertEqual(manager.registrationState, .idle)
     }
 
+    func testTestNotificationCountsAsSentOnlyWhenThisDeviceWasSentTo() {
+        let token = "deadbeefcafe1234"
+        func body(_ items: String) -> Data { Data(#"{"items":[\#(items)],"total":1,"cursor":null}"#.utf8) }
+
+        XCTAssertTrue(PushNotificationManager.testWasSentToThisDevice(
+            body(#"{"platform":"ios","target":"...1234","outcome":"sent"}"#), token: token
+        ))
+        XCTAssertFalse(PushNotificationManager.testWasSentToThisDevice(
+            body(#"{"platform":"ios","target":"...1234","outcome":"failed"}"#), token: token
+        ))
+        XCTAssertFalse(PushNotificationManager.testWasSentToThisDevice(
+            body(#"{"platform":"ios","target":"...9999","outcome":"sent"}"#), token: token
+        ), "another device's delivery is not this one's")
+        XCTAssertFalse(PushNotificationManager.testWasSentToThisDevice(
+            body(#"{"platform":"ios","target":"...1234","outcome":"revoked"}"#), token: token
+        ))
+        XCTAssertFalse(PushNotificationManager.testWasSentToThisDevice(Data(#"{"queued":true}"#.utf8), token: token))
+        XCTAssertFalse(PushNotificationManager.testWasSentToThisDevice(
+            body(#"{"platform":"ios","target":"...1234","outcome":"sent"}"#), token: nil
+        ))
+    }
+
+    @MainActor
+    func testForgettingTheJournalEndsTheTurnOnSoTheNextJournalIsNotRegistered() async {
+        PushManagerURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data())
+        }
+        let manager = self.makeManager(ownerEnabled: true)
+        manager.setPermissionStateForTesting(.authorized)
+        manager.activeLocalPort = 8474
+        await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
+        XCTAssertEqual(PushManagerURLProtocol.callCount, 1)
+
+        manager.forgetJournal()
+        manager.activeLocalPort = nil
+
+        XCTAssertFalse(manager.ownerEnabled)
+        XCTAssertEqual(manager.registrationState, .idle)
+        XCTAssertFalse(self.defaults.bool(forKey: "push.ownerEnabled"))
+        XCTAssertNil(self.defaults.string(forKey: "push.lastRegisteredToken"))
+        XCTAssertNil(self.defaults.string(forKey: "push.pendingRegistrationToken"))
+
+        await manager.handleTunnelConnected(localPort: 9001)
+        manager.reregisterIfAuthorized()
+        XCTAssertEqual(PushManagerURLProtocol.callCount, 1, "the next journal must not be registered until the owner turns it on")
+
+        let relaunched = self.makeManager(ownerEnabled: nil)
+        XCTAssertFalse(relaunched.ownerEnabled)
+    }
+
     @MainActor
     func testTurnOffSendsOneDeleteAndStopsRegistering() async throws {
         let methods = OSAllocatedUnfairLock<[String]>(initialState: [])

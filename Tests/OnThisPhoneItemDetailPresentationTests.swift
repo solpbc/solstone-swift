@@ -455,7 +455,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 label: SourceVocabulary.onThisPhoneFileLabel,
                 value: SourceVocabulary.onThisPhoneFileDetail(
                     filename: SourceVocabulary.notProvided,
-                    size: SourceVocabulary.notProvided
+                    size: nil
                 )
             ),
             OnThisPhoneDetailRow(label: SourceVocabulary.onThisPhoneWhenLabel, value: SourceVocabulary.notProvided),
