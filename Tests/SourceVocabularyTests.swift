@@ -588,16 +588,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
     }
 
-    func testLockedDeleteCopyDoesNotMentionSegments() {
-        let strings = [
-            SourceVocabulary.deleteJournalUnreachableLine,
-        ]
-
-        for string in strings {
-            XCTAssertFalse(string.contains("segment"))
-        }
-    }
-
     func testLockedShareImportCopy() {
         XCTAssertEqual(ShareImportCopy.dismiss, "dismiss")
         XCTAssertEqual(ShareImportCopy.savedAccessibilityLabel, "saved")
@@ -1022,7 +1012,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchSetupStepComplete,
             SourceVocabulary.whatItAdds,
             SourceVocabulary.pendingSeam,
-            SourceVocabulary.removeSeam,
             SourceVocabulary.importerWhatItAdds,
             SourceVocabulary.onThisPhone,
             SourceVocabulary.dayLocalityNoJournal,
@@ -1128,8 +1117,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.turnOn,
             SourceVocabulary.pause,
             SourceVocabulary.resume,
-            SourceVocabulary.delete,
-            SourceVocabulary.deleteJournalUnreachableLine,
             SourceVocabulary.journalTunnel,
             SourceVocabulary.probeNotReachable,
             ShareImportCopy.dismiss,

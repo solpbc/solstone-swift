@@ -16,10 +16,6 @@ nonisolated enum ObserverServerURL {
         )
     }
 
-    static func deleteSourceURL(localPort: Int, source: String) -> URL? {
-        self.url(localPort: localPort, path: "/app/devices/source/\(source)")
-    }
-
     static func url(localPort: Int, path: String, queryItems: [URLQueryItem] = []) -> URL? {
         guard var components = URLComponents(url: self.baseURL(localPort: localPort), resolvingAgainstBaseURL: false) else {
             return nil

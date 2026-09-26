@@ -608,12 +608,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.defaults.bool(forKey: "location.enabled"), true)
         XCTAssertEqual(self.defaults.bool(forKey: "location.paused"), false)
         XCTAssertEqual(manager.sourceState, .active)
-
-        await manager.stopForDelete()
-        XCTAssertEqual(self.defaults.bool(forKey: "location.enabled"), false)
-        XCTAssertEqual(self.defaults.bool(forKey: "location.paused"), false)
-        // Deleting withdraws the wish, so the source honestly reads as one that can be set up.
-        XCTAssertEqual(manager.sourceState, .readyToSetUp)
     }
 
     @MainActor
@@ -885,19 +879,6 @@ nonisolated final class LocationManagerTests: XCTestCase {
 
         XCTAssertEqual(self.provider.endBackgroundSustainCallCount, 1)
         XCTAssertEqual(manager.state, .idle)
-    }
-
-    @MainActor
-    func testStopForDeleteClearsPausedState() async {
-        self.provider.capability = .always(accuracy: .full)
-        let manager = self.makeManager()
-        await manager.start(tier: .balanced)
-        await manager.pause()
-        XCTAssertEqual(manager.sourceState, .paused)
-
-        await manager.stopForDelete()
-
-        XCTAssertEqual(manager.sourceState, .readyToSetUp)
     }
 
     @MainActor

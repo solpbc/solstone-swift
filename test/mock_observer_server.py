@@ -158,14 +158,6 @@ class Handler(BaseHTTPRequestHandler):
 
         self._send_json(404, {"error": "not found"})
 
-    def do_DELETE(self):
-        if self.path.startswith("/app/devices/source/"):
-            source = self.path.removeprefix("/app/devices/source/")
-            self._send_json(200, {"ok": True, "source": source})
-            return
-
-        self._send_json(404, {"error": "not found"})
-
 
 def handle_signal(_signum, _frame):
     STOP.set()

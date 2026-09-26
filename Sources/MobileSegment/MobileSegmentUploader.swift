@@ -1004,42 +1004,6 @@ final class MobileSegmentUploader {
         self.refreshCounts()
     }
 
-    func redactLocationFacet(segmentID: UUID) async {
-        guard self.guardStorageAvailable() else { return }
-        guard let found = self.store.findDirectory(segmentID: segmentID) else { return }
-        do {
-            var manifest = try self.store.readManifest(in: found.url)
-            guard manifest.location.state.isLocalFacet else { return }
-            let now = self.clock.now()
-            try self.writeLocationRemoved(
-                segmentID: segmentID,
-                directory: found.url,
-                manifest: &manifest,
-                now: now,
-                reason: "location_removed"
-            )
-            if manifest.audio.state == .finalizedArtifact || manifest.screencast.state == .finalizedArtifact {
-                manifest.upload = .pending
-                try self.store.writeManifest(manifest, in: found.url)
-                if found.lifecycle == .failed {
-                    _ = try self.store.move(segmentID: segmentID, from: .failed, to: .pending)
-                }
-                await self.enqueuePendingSegmentIntoTransfer(segmentID: segmentID)
-            } else {
-                if manifest.audio.reason == "audio_undecodable_container" {
-                    try self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: "audio_undecodable_container", now: now)
-                    self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
-                }
-                try self.store.remove(found.url)
-            }
-        } catch {
-            let diagnostic = "mobile segment location redaction failed segment=\(segmentID.uuidString) source=location"
-            self.lastError = diagnostic
-            mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
-        }
-        self.refreshCounts()
-    }
-
     func redactScreencastFacet(segmentID: UUID) async {
         guard self.guardStorageAvailable() else { return }
         guard let found = self.store.findDirectory(segmentID: segmentID) else { return }
@@ -1075,24 +1039,6 @@ final class MobileSegmentUploader {
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
         }
         self.refreshCounts()
-    }
-
-    func deleteLocationLocalState() async {
-        guard self.guardStorageAvailable() else { return }
-        for lifecycle in [MobileSegmentLifecycle.pending, .failed] {
-            guard let directories = try? self.store.list(lifecycle) else { continue }
-            for directory in directories {
-                guard let segmentID = UUID(uuidString: directory.lastPathComponent),
-                      let manifest = try? self.store.readManifest(in: directory),
-                      manifest.location.state.isLocalFacet
-                else { continue }
-                if manifest.audio.state == .finalizedArtifact || manifest.screencast.state == .finalizedArtifact {
-                    await self.redactLocationFacet(segmentID: segmentID)
-                } else {
-                    self.dropSegment(segmentID: segmentID)
-                }
-            }
-        }
     }
 
     func onThisPhoneSnapshot(for source: MobileSegmentSource) -> OnThisPhoneSourceResult {

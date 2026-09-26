@@ -489,7 +489,6 @@ nonisolated enum SourceVocabulary {
     }
     static let whatItAdds = "adds what you say and nearby sound while this is on."
     static let pendingSeam = "nothing pending right now."
-    static let removeSeam = "removing audio is coming later."
     static let audioEnrollmentValue = "what you say and the sound around you, on this device until you connect a journal. turn it on only when you want to share audio."
     static let audioEnrollmentValuePaired = "what you say and the sound around you, kept in your journal. turn it on only when you want to share audio."
 
@@ -636,8 +635,6 @@ nonisolated enum SourceVocabulary {
     static let turnOn = "turn on"
     static let pause = "pause"
     static let resume = "resume"
-    static let delete = "delete"
-    static let deleteJournalUnreachableLine = "couldn't reach your journal — nothing was deleted."
 
     static func offSubtext(isJournalPaired: Bool) -> String {
         isJournalPaired ? Self.offSubtextPaired : Self.offSubtextUnpaired

@@ -163,13 +163,6 @@ final class LocationManager {
         self.state = .idle
     }
 
-    func stopForDelete() async {
-        self.paused = false
-        self.persistEnabled(false)
-        self.persistPaused(false)
-        await self.stop()
-    }
-
     func pause() async {
         self.paused = true
         self.persistPaused(true)

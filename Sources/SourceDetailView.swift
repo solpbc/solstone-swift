@@ -80,17 +80,6 @@ private extension SourceDetailView {
             self.deliveryBlock
         }
 
-        SourceDetailBlock(title: "remove") {
-            VStack(alignment: .leading, spacing: 8) {
-                Button("remove") {}
-                    .buttonStyle(.bordered)
-                    .disabled(true)
-
-                Text(SourceVocabulary.removeSeam)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
     }
 
     var selectedModeBinding: Binding<ObserverMode> {

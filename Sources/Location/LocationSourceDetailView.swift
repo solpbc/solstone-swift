@@ -7,16 +7,12 @@ import UIKit
 struct LocationSourceDetailView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(LocationManager.self) private var locationManager
-    @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var recentResult: LocationRecentResult?
     @State private var recentPort: Int?
-    @State private var showingDeleteConfirm = false
     @State private var showingJournal = false
-    @State private var isDeleting = false
-    @State private var deleteResult: DeleteShareSourceResult?
 
     var body: some View {
         ScrollView {
@@ -31,7 +27,6 @@ struct LocationSourceDetailView: View {
                 }
 
                 SourceHomeTileControl(sourceID: "location")
-                self.deleteResultBlock
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
@@ -41,16 +36,6 @@ struct LocationSourceDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: self.recentKey) {
             await self.loadRecent()
-        }
-        .alert(LocationVocabulary.deleteConfirmButton, isPresented: self.$showingDeleteConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button(LocationVocabulary.deleteConfirmButton, role: .destructive) {
-                Task {
-                    await self.runDelete()
-                }
-            }
-        } message: {
-            Text(LocationVocabulary.deleteConfirmBody)
         }
     }
 }
@@ -83,10 +68,6 @@ private extension LocationSourceDetailView {
 
         SourceDetailBlock(title: LocationVocabulary.deliveryBlockTitle) {
             self.deliveryBlock
-        }
-
-        SourceDetailBlock(title: SourceVocabulary.delete) {
-            self.deleteBlock
         }
     }
 
@@ -216,50 +197,6 @@ private extension LocationSourceDetailView {
             .foregroundStyle(.secondary)
     }
 
-    var deleteBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(LocationVocabulary.deleteConfirmButton, role: .destructive) {
-                self.showingDeleteConfirm = true
-            }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .disabled(self.isDeleting)
-                .accessibilityHint("Removes location's contributions from your journal.")
-        }
-    }
-
-    @ViewBuilder
-    var deleteResultBlock: some View {
-        if let deleteResult {
-            switch deleteResult {
-            case .confirmed(let receipt, _):
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(LocationVocabulary.deleteReceiptHeadline(days: receipt.removed.days ?? 0))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-
-                    ForEach(deleteResult.notRemovedIssues, id: \.self) { issue in
-                        Text(issue.plainReason)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    ForEach(deleteResult.notConfirmedIssues, id: \.self) { issue in
-                        Text(issue.plainReason)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-            case .notConfirmed, .unreachable:
-                Text(SourceVocabulary.deleteJournalUnreachableLine)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .accessibilityElement(children: .combine)
-            }
-        }
-    }
-
     var openJournalBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button(SourceVocabulary.openJournalLink) {
@@ -320,31 +257,6 @@ private extension LocationSourceDetailView {
             await self.locationManager.resume()
         } else {
             await self.locationManager.pause()
-        }
-    }
-
-    func runDelete() async {
-        self.isDeleting = true
-        let result = await self.deleteLocationSource()
-        if result.shouldFlipOff {
-            await self.mobileSegmentUploader.deleteLocationLocalState()
-            await self.locationManager.stopForDelete()
-        }
-        self.deleteResult = result
-        self.isDeleting = false
-    }
-
-    func deleteLocationSource() async -> DeleteShareSourceResult {
-        guard let localPort = self.tunnelManager.activeConnection?.port else {
-            return .unreachable(reason: "location source delete unavailable: missing local port")
-        }
-        switch await LinkedDeviceIngestClient().deleteSource(localPort: localPort, source: "location") {
-        case .success(let receipt?):
-            return .confirmed(receipt: receipt, localNotRemoved: [])
-        case .success(nil):
-            return .notConfirmed
-        case .failure(let error):
-            return .unreachable(reason: String(describing: error))
         }
     }
 

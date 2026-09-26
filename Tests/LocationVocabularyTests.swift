@@ -51,9 +51,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.matchToAllowedAction, "match it to what's allowed")
         XCTAssertEqual(LocationVocabulary.restrictedBody, "location is turned off for the solstone app by a restriction on this device. the solstone app can't take in location until that's lifted.")
         XCTAssertEqual(LocationVocabulary.honestGap, "gap here — location wasn't available.")
-        XCTAssertEqual(LocationVocabulary.deleteConfirmBody, "delete everything location added to your journal? this removes where your day happened. other things in your journal stay. this can't be undone.")
-        XCTAssertEqual(LocationVocabulary.deleteConfirmButton, "delete location's contributions")
-        XCTAssertEqual(LocationVocabulary.deleteReceiptHeadlineTemplate, "deleted. removed from your journal: where your day happened, across {N} days.")
     }
 
     func testDowngradeBodySubstitutesTierLabel() {
@@ -67,13 +64,6 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         for (capability, expected) in Self.sharingStatusExpectations {
             XCTAssertEqual(LocationVocabulary.sharingStatus(for: capability), expected, "\(capability)")
         }
-    }
-
-    func testDeleteReceiptHeadlineSubstitutesDayCount() {
-        XCTAssertEqual(
-            LocationVocabulary.deleteReceiptHeadline(days: 4),
-            "deleted. removed from your journal: where your day happened, across 4 days."
-        )
     }
 
     func testDeliverySummaryCopySubstitutesValues() {
@@ -154,11 +144,7 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
             LocationVocabulary.matchToAllowedAction,
             LocationVocabulary.restrictedBody,
             LocationVocabulary.honestGap,
-            LocationVocabulary.deleteConfirmBody,
-            LocationVocabulary.deleteConfirmButton,
-            LocationVocabulary.deleteReceiptHeadlineTemplate,
             LocationVocabulary.downgradeBody(tierLabel: LocationTier.balanced.label),
-            LocationVocabulary.deleteReceiptHeadline(days: 4),
             LocationVocabulary.deliveryNeedsAttention(count: 1),
             LocationVocabulary.deliveryNeedsAttention(count: 2),
             LocationVocabulary.deliverySending(count: 1),

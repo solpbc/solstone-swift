@@ -36,9 +36,6 @@ nonisolated enum LocationVocabulary {
     static let matchToAllowedAction = "match it to what's allowed"
     static let restrictedBody = "location is turned off for the solstone app by a restriction on this device. the solstone app can't take in location until that's lifted."
     static let honestGap = "gap here — location wasn't available."
-    static let deleteConfirmBody = "delete everything location added to your journal? this removes where your day happened. other things in your journal stay. this can't be undone."
-    static let deleteConfirmButton = "delete location's contributions"
-    static let deleteReceiptHeadlineTemplate = "deleted. removed from your journal: where your day happened, across {N} days."
 
     static func activeSubtext(isJournalPaired: Bool) -> String {
         isJournalPaired ? Self.activeSubtextPaired : Self.activeSubtextUnpaired
@@ -71,10 +68,6 @@ nonisolated enum LocationVocabulary {
 
     static func downgradeBody(tierLabel: String) -> String {
         self.downgradeBodyTemplate.replacingOccurrences(of: "{tier}", with: tierLabel)
-    }
-
-    static func deleteReceiptHeadline(days: Int) -> String {
-        self.deleteReceiptHeadlineTemplate.replacingOccurrences(of: "{N}", with: String(days))
     }
 
     static func deliveryNeedsAttention(count: Int) -> String {
