@@ -4,17 +4,19 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.5 (110)] - 2026-09-25
 
 ### Fixed
+- pairing with a journal at a public address now works from a network that only uses IPv6. before, pairing there stopped at "couldn't reach your journal".
+- the location page now asks ios for permission when ios hasn't asked yet. before, it sent you to ios settings, where there was nothing to turn on yet.
 - after you forget a journal, the solstone app no longer tries that journal's addresses when it connects to the next one, and notifications stay off until you turn them on again.
 - sharing something that's already in your journal no longer shows up as needing attention with a block of code. it's marked as in your journal. when your journal turns something away, the item now says why in plain words instead of a block of code.
 - the recent list on audio now updates when a recording reaches your journal, and shows each one by when it started and how long it ran instead of a code. screen now lists its recent recordings the same way. before you connect a journal, both say recordings will show up there once you do, instead of "couldn't load recent".
 - your journal's mark now shows everywhere the app opens your journal, including from location and from an item on this device, and it comes back on its own after you reinstall the app.
 - after you delete and reinstall the solstone app, it now tells you once that this device is still connected to your journal, and lets you stay connected or forget the journal.
 - sending a test notification now tells you whether it went out to this device.
-- when camera access is off for the solstone app, pairing now says so and offers a way to settings, instead of saying the camera is unavailable.
-- wording and polish: the audio page calls a waiting recording a recording, not a location update, and the audio page and its home tile no longer repeat "on" while recording. once a journal is connected, the import and audio pages no longer say things stay on this device until you connect one. a file whose size isn't known no longer says "not provided", and rows in the list of what's on this device no longer show a red edge when you aren't swiping them.
+- when camera access is off for the solstone app, pairing now says so and offers a way to ios settings, instead of saying the camera is unavailable.
+- wording and polish: the audio page calls a waiting recording a recording, not a location update, and the audio page and its home tile no longer repeat "on" while audio is on. once a journal is connected, the import and audio pages no longer say things stay on this device until you connect one. a file whose size isn't known no longer says "not provided", and rows in the list of what's on this device no longer show a red edge when you aren't swiping them.
 
 ## [2.0.5 (108)] - 2026-09-25
 
