@@ -16,6 +16,7 @@ struct SolstoneSwiftApp: App {
     @State private var watchBacklogSnapshotWriter: WatchBacklogSnapshotWriter
     @State private var onboardingFlow: OnboardingFlow
     @State private var tunnelManager: TunnelManager
+    @State private var connectionStallMonitor: ConnectionStallMonitor
     @State private var connectionSyncModel: ConnectionSyncModel
     @State private var diagnosticLog: DiagnosticLog
     @State private var problemReportsManager: ProblemReportsManager
@@ -99,19 +100,6 @@ struct SolstoneSwiftApp: App {
     static func shouldRunLaunchMaintenance(scenePhase: ScenePhase) -> Bool {
         guard scenePhase == .active else { return false }
         return !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest
-    }
-
-    private static func tunnelScenePhase(_ phase: ScenePhase) -> TunnelScenePhase {
-        switch phase {
-        case .active:
-            .active
-        case .background:
-            .background
-        case .inactive:
-            .inactive
-        @unknown default:
-            .inactive
-        }
     }
 
     private static func screencastScenePhase(_ phase: ScenePhase) -> ScreencastScenePhase {
@@ -291,6 +279,7 @@ struct SolstoneSwiftApp: App {
                     .appendingPathComponent("transfer-unavailable", isDirectory: true)
             )
         }
+        let connectionHeardReporter = ConnectionHeardReporter()
         let transferEngine = TransferEngine(
             spool: transferSpool,
             transport: TransferTransport(),
@@ -305,7 +294,8 @@ struct SolstoneSwiftApp: App {
                     return try ShareImportSaveBody.build(item: item, spool: spool)
                 }
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
-            }
+            },
+            heardReporter: connectionHeardReporter
         )
         let transferEnqueuer = ObserverAudioTransferEnqueuer(engine: transferEngine)
         let mobileSegmentUploader = MobileSegmentUploader(
@@ -382,6 +372,24 @@ struct SolstoneSwiftApp: App {
             journalVersion: appConfig.journalVersion,
             homeJobs: homeJobs
         )
+        let connectionStallMonitor = ConnectionStallMonitor(
+            store: ConnectionStallStoreFactory.make(),
+            clock: SystemConnectionStallClock(),
+            credentials: appConfig.store
+        )
+        connectionHeardReporter.bind(
+            dialedIdentity: { [weak tunnel] in
+                await MainActor.run { tunnel?.dialedPairingIdentity }
+            },
+            sink: { [weak connectionStallMonitor] event in
+                await MainActor.run {
+                    connectionStallMonitor?.noteHeard(identity: event.pairingIdentity)
+                }
+            }
+        )
+        tunnel.connectionHeardSink = { [weak connectionStallMonitor] event in
+            connectionStallMonitor?.noteHeard(identity: event.pairingIdentity)
+        }
         let connectionSyncModel = ConnectionSyncModel(clock: observerClock) {
             let totals = uploadTotals(
                 mobileSegment: mobileSegmentTransferHolder,
@@ -535,6 +543,7 @@ struct SolstoneSwiftApp: App {
         self._diagnosticLog = State(initialValue: log)
         self._problemReportsManager = State(initialValue: problemReports)
         self._tunnelManager = State(initialValue: tunnel)
+        self._connectionStallMonitor = State(initialValue: connectionStallMonitor)
         self._connectionSyncModel = State(initialValue: connectionSyncModel)
         self._mobileSegmentTransferHolder = State(initialValue: mobileSegmentTransferHolder)
         self._watchUploaderHolder = State(initialValue: watchUploaderHolder)
@@ -596,6 +605,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.onboardingFlow)
                 .environment(self.shellNav)
                 .environment(self.tunnelManager)
+                .environment(self.connectionStallMonitor)
                 .environment(self.connectionSyncModel)
                 .environment(self.finishSyncingCoordinator)
                 .environment(self.foregroundDrainGate)
@@ -664,7 +674,23 @@ struct SolstoneSwiftApp: App {
                     self.screencastManager.receiveScenePhase(Self.screencastScenePhase(self.scenePhase))
                 }
                 .task {
-                    self.tunnelManager.receiveScenePhase(Self.tunnelScenePhase(self.scenePhase))
+                    ConnectionScenePhaseFanout.deliver(
+                        self.scenePhase,
+                        tunnel: self.tunnelManager,
+                        monitor: self.connectionStallMonitor
+                    )
+                }
+                .task {
+                    self.connectionStallMonitor.setNetworkPathSatisfied(self.tunnelManager.isNetworkSatisfied)
+                }
+                .onChange(of: self.tunnelManager.isNetworkSatisfied) { _, newValue in
+                    self.connectionStallMonitor.setNetworkPathSatisfied(newValue)
+                }
+                .onChange(of: self.appConfig.isPaired) { _, _ in
+                    self.connectionStallMonitor.evaluate()
+                }
+                .onChange(of: self.appConfig.pairedAt) { _, _ in
+                    self.connectionStallMonitor.evaluate()
                 }
                 .task {
                     // cold-launch-into-connected: .onChange doesn't fire for the initial tunnel value.
@@ -688,7 +714,11 @@ struct SolstoneSwiftApp: App {
         }
         .onChange(of: self.scenePhase) { _, newPhase in
             self.screencastManager.receiveScenePhase(Self.screencastScenePhase(newPhase))
-            self.tunnelManager.receiveScenePhase(Self.tunnelScenePhase(newPhase))
+            ConnectionScenePhaseFanout.deliver(
+                newPhase,
+                tunnel: self.tunnelManager,
+                monitor: self.connectionStallMonitor
+            )
             switch newPhase {
             case .active:
                 self.backgroundDrainTask?.cancel()

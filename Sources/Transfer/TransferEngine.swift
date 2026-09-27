@@ -224,6 +224,7 @@ actor TransferEngine {
     /// the dispatch policy owns the effective cap and this value is ignored.
     private let maxConcurrent: Int
     private let bodyBuilder: TransferBodyBuilder
+    private let heardReporter: ConnectionHeardReporter
 
     private var queuedItems: [UUID: TransferStoredItem] = [:]
     private var attentionItems: [UUID: TransferStoredItem] = [:]
@@ -264,7 +265,8 @@ actor TransferEngine {
         conditions: (any TransferConditionsProviding)? = nil,
         dispatchPolicy: TransferDispatchPolicy = TransferDispatchPolicy(),
         maxConcurrent: Int = 3,
-        bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build
+        bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build,
+        heardReporter: ConnectionHeardReporter = ConnectionHeardReporter()
     ) {
         self.spool = spool
         self.transport = transport
@@ -277,6 +279,7 @@ actor TransferEngine {
         self.dispatchPolicy = dispatchPolicy
         self.maxConcurrent = max(1, maxConcurrent)
         self.bodyBuilder = bodyBuilder
+        self.heardReporter = heardReporter
     }
 
     func initialize() throws {
@@ -923,13 +926,19 @@ actor TransferEngine {
             return
         }
 
+        let heardIdentity = phase == .observerIngest ? await self.heardReporter.currentIdentity() : nil
         Task {
             let result = await self.transport.send(item: item, bodyURL: bodyURL, endpoint: endpoint, phase: phase)
-            await self.handleCompletion(itemID: itemID, result: result, phase: phase)
+            await self.handleCompletion(itemID: itemID, result: result, phase: phase, heardIdentity: heardIdentity)
         }
     }
 
-    private func handleCompletion(itemID: UUID, result: TransferHTTPResult, phase: TransferEndpointPhase) async {
+    private func handleCompletion(
+        itemID: UUID,
+        result: TransferHTTPResult,
+        phase: TransferEndpointPhase,
+        heardIdentity: String? = nil
+    ) async {
         guard let item = self.queuedItems[itemID] else {
             if let sourceKey = self.inFlightSourceKeys[itemID] {
                 self.clearInFlight(itemID: itemID, sourceKey: sourceKey)
@@ -979,6 +988,10 @@ actor TransferEngine {
                     self.scheduleWork()
                     return
                 }
+            }
+
+            if phase == .observerIngest {
+                await self.heardReporter.report(ConnectionHeardEvent(pairingIdentity: heardIdentity))
             }
 
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)

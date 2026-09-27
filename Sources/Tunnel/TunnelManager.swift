@@ -317,6 +317,8 @@ final class TunnelManager {
     var isNetworkSatisfied: Bool?
     var currentInterfaceIsWiFi: Bool?
     var lastProbeAlive: Bool?
+    var connectionHeardSink: ConnectionHeardSink?
+    private(set) var dialedPairingIdentity: String?
     @ObservationIgnored private var lastEmittedPathSignature: PathMeaningfulSignature?
     @ObservationIgnored private var redriveBaselineSignature: PathMeaningfulSignature?
     var consecutiveKeepaliveFailures: Int = 0
@@ -997,6 +999,7 @@ final class TunnelManager {
             throw TunnelError.revoked
         }
         self.updateJournalFingerprint(from: pairingForIdentity)
+        self.dialedPairingIdentity = journalVersionMetadataIdentity(for: pairingForIdentity)
         let (candidates, prepared) = try await self.candidateList(pairingOverride: pairingOverride, permit: permit)
         guard permit.isValid, !Task.isCancelled, self.isCurrentAttempt(epoch) else { throw CancellationError() }
         onPrepared(prepared)
@@ -1114,6 +1117,7 @@ final class TunnelManager {
         self.reconnectOccurredAt = []
         self.pendingReconnectReason = nil
         self.journalFingerprint = nil
+        self.dialedPairingIdentity = nil
         self.latestListenerObservation = nil
         self.latestStartedProbeSequenceByEpoch = [:]
 #if DEBUG && targetEnvironment(simulator)
@@ -1478,6 +1482,9 @@ final class TunnelManager {
         let elapsed = clock.now - start
         guard self.isCurrentAttempt(attemptEpoch), self.journalFingerprint == fingerprint else { return nil }
         self.lastProbeAlive = alive
+        if alive {
+            self.connectionHeardSink?(ConnectionHeardEvent(pairingIdentity: self.dialedPairingIdentity))
+        }
         if let listenerGeneration,
            let fingerprint,
            self.latestStartedProbeSequenceByEpoch[attemptEpoch] == probeSequence,
