@@ -3,10 +3,10 @@
 
 import Foundation
 
-/// VPX handoff artifact for owner-facing connection/sync state and default copy.
+/// Owner-facing connection/sync state and its functional lowercase-first default copy.
 ///
-/// VPX owns final strings and visuals. The string table below is the functional
-/// lowercase-first default used until that pass lands.
+/// The string table below is that functional lowercase-first default, until a product
+/// voice and visuals pass lands.
 nonisolated enum ConnectionSyncStatus: Equatable, Sendable {
     case offline
     case connecting

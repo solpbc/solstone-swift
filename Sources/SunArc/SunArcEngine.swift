@@ -6,10 +6,10 @@ import Foundation
 
 /// The sun, all day — time-of-day background pattern.
 ///
-/// Ported from `cmo/brand/sbis/patterns/sun-arc/{index.md,sunarc.js}` in the extro repo
-/// (founder lock 2026-09-19, amended 2026-09-23: the day in both appearances). Vendor the
-/// reference math; do not re-derive it from the token constants alone. Section numbers below
-/// (§3, §4, §4a, §6, §7, §8a) refer to that spec; the 09-23 model is `SUNARC.both()`.
+/// Ported from the sun-arc reference implementation (sunarc.js). Founder lock 2026-09-19,
+/// amended 2026-09-23: the day in both appearances. Vendor the reference math; do not re-derive
+/// it from the token constants alone. Section numbers below (§3, §4, §4a, §6, §7, §8a) refer to
+/// that spec; the 09-23 model is `SUNARC.both()`.
 public nonisolated enum SunArc {
     public static let phi: Double = 1.618_033_988_7
     public static let bow: Double = 0.079_19               // sagitta ÷ chord, §3
@@ -304,7 +304,7 @@ public nonisolated struct SunArcTime: Sendable, Equatable {
         // midnight instead of resetting to "before dawn".
         //
         // The mirror: a sunrise before 00:30 puts dawn before midnight, so the last clock
-        // minutes of the day are tomorrow's dawn, read on the same axis (canon, extro 5ed645e420).
+        // minutes of the day are tomorrow's dawn, read on the same axis.
         let m2: Double
         if dusk > 1440 && m < dusk - 1440 { m2 = m + 1440 }
         else if dawn < 0 && m >= dawn + 1440 { m2 = m - 1440 }

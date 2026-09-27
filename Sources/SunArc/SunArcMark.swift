@@ -3,11 +3,10 @@
 
 import SwiftUI
 
-/// The solstone mark's geometry — beams + ring — vendored from
-/// `cmo/projects/sol-mark-rollout/staging/sol-mark.py` in the extro repo (the parametric source;
-/// locked 2026-08-19). Ten inward-bowed beams at 36°, a ring at r=6.5. This is the mark used as
-/// the sun-arc background's one graphic — NOT the journal identity mark (`JournalMarkKit`),
-/// which is the two-chip owner mark and a different construction entirely.
+/// The solstone mark's geometry — beams + ring — vendored from the parametric sol-mark source
+/// (`sol-mark.py`), locked 2026-08-19. Ten inward-bowed beams at 36°, a ring at r=6.5. This is
+/// the mark used as the sun-arc background's one graphic — NOT the journal identity mark
+/// (`JournalMarkKit`), which is the two-chip owner mark and a different construction entirely.
 nonisolated enum SunArcMark {
     /// Mark-space centre. viewBox is "2.5 2.5 27 27": the tips terminate on it.
     static let center = CGPoint(x: 16, y: 16)

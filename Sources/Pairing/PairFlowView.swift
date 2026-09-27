@@ -154,9 +154,9 @@ struct PairFlowView: View {
 
     /// The router's nil means "not a pairing link by host, scheme or path" — the same failure the
     /// paste path's `wrongHost`/`wrongScheme`/`wrongPath` message already names. A rejected scan
-    /// reuses that string (CMO voice pass `req_d3zyiw6s`, 2026-05-20) rather than the paste path's
-    /// "enter a valid pairing link.", which tells the owner to enter something right after they
-    /// scanned. Decision: `records/decisions/260920-vpx-a-rejected-scan-shows-this-doesnt-look-like-a-pairing-link-not-enter-one.md`.
+    /// reuses that string rather than the paste path's "enter a valid pairing link.", which tells
+    /// the owner to enter something right after they scanned. A rejected scan shows "this doesn't
+    /// look like a pairing link.", not a prompt to enter one.
     static let scannedLinkNotRecognizedMessage = "this doesn't look like a pairing link."
 
     /// Why the scanner can't run. A denial is the owner's own setting, so it says where to change
