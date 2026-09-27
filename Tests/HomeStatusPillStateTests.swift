@@ -25,7 +25,8 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
                         HomeStatusPillState.resolve(
                             isPaired: isPaired,
                             status: status,
-                            hasBacklog: hasBacklog
+                            hasBacklog: hasBacklog,
+                            isStalled: false
                         ),
                         Self.expectedState(
                             isPaired: isPaired,
@@ -39,28 +40,70 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
         }
     }
 
+    func testResolveWhenStalled() {
+        let statuses: [ConnectionSyncStatus] = [
+            .offline,
+            .connecting,
+            .waitingForHome,
+            .reconnecting,
+            .unreachable,
+            .connectedIdle,
+            .connectedWaiting,
+            .connectedTransferring,
+        ]
+
+        for hasBacklog in [false, true] {
+            for status in statuses {
+                let state = HomeStatusPillState.resolve(
+                    isPaired: true,
+                    status: status,
+                    hasBacklog: hasBacklog,
+                    isStalled: true
+                )
+                XCTAssertEqual(state, .stalled)
+                XCTAssertEqual(
+                    state.label(hasBacklog: hasBacklog),
+                    hasBacklog ? SourceVocabulary.stallWaitingLabel : SourceVocabulary.stallNotConnectedLabel
+                )
+
+                let unpairedState = HomeStatusPillState.resolve(
+                    isPaired: false,
+                    status: status,
+                    hasBacklog: hasBacklog,
+                    isStalled: true
+                )
+                XCTAssertEqual(unpairedState, .notPaired)
+                XCTAssertEqual(unpairedState.label(hasBacklog: hasBacklog), SourceVocabulary.dayLocalityNoJournal)
+            }
+        }
+    }
+
     func testCollapsedLabelsDoNotLeakRawConnectingOrUnreachableStatusLines() {
         for status in [ConnectionSyncStatus.waitingForHome, .reconnecting, .unreachable] {
-            let state = HomeStatusPillState.resolve(isPaired: true, status: status, hasBacklog: false)
+            let state = HomeStatusPillState.resolve(isPaired: true, status: status, hasBacklog: false, isStalled: false)
             XCTAssertEqual(state.label, SourceVocabulary.statusConnectingLabel)
             XCTAssertNotEqual(state.label, status.statusLine)
         }
     }
 
-    func testConnectingDotStaysCalmAndSecondary() throws {
-        let text = try String(
-            contentsOf: StringLiteralGrepSupport.worktreeRoot()
-                .appendingPathComponent("Sources/Home/HomeStatusPill.swift"),
-            encoding: .utf8
-        )
-        let pulseStart = try XCTUnwrap(text.range(of: "private var shouldPulse: Bool {"))
-        let tintStart = try XCTUnwrap(text.range(of: "private var tint: Color {", range: pulseStart.upperBound..<text.endIndex))
-        let pulse = text[pulseStart.lowerBound..<tintStart.lowerBound]
-        let tint = text[tintStart.lowerBound...]
+    func testShouldPulseBehavior() {
+        let allStates: [HomeStatusPillState] = [
+            .caughtUp,
+            .syncing,
+            .connecting,
+            .offline,
+            .notPaired,
+            .stalled,
+        ]
 
-        XCTAssertTrue(pulse.contains("if case .syncing = self.state { return true }"))
-        XCTAssertFalse(pulse.contains(".connecting"))
-        XCTAssertTrue(tint.contains("case .connecting, .offline, .notPaired: .secondary"))
+        for state in allStates {
+            XCTAssertFalse(state.shouldPulse(reduceMotion: true), "state=\(state) must not pulse when reduceMotion is true")
+            if case .syncing = state {
+                XCTAssertTrue(state.shouldPulse(reduceMotion: false), "syncing state must pulse when reduceMotion is false")
+            } else {
+                XCTAssertFalse(state.shouldPulse(reduceMotion: false), "state=\(state) must not pulse when reduceMotion is false")
+            }
+        }
     }
 
     func testHomeAndStatusPaneResolvePillStateFromSharedConnectionInputs() throws {

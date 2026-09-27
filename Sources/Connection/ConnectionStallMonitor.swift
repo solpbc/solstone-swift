@@ -240,4 +240,26 @@ final class ConnectionStallMonitor {
             }
         }
     }
+
+#if DEBUG
+    func seedUITestStall(lastHeardAt: Date, stallClockSeededAt: Date, carriedStall: Bool) {
+        let snapshot = self.credentials.snapshot()
+        self.inMemoryLastHeardAt = lastHeardAt
+        self.inMemoryLastHeardIdentity = snapshot.pairingIdentity
+        self.inMemorySeededAt = stallClockSeededAt
+        self.inMemoryCarriedStall = carriedStall
+        if let identity = snapshot.pairingIdentity {
+            self.store.setLastHeard(at: lastHeardAt, pairingIdentity: identity)
+        }
+        self.store.setStallClockSeededAt(stallClockSeededAt)
+        self.store.setCarriedStall(carriedStall)
+        self.isLoaded = true
+        // This evaluation is not a pairing change.
+        self.hasSeenPairing = true
+        self.lastSeenPaired = snapshot.pairing != nil
+        self.lastSeenPairedAt = snapshot.pairing?.pairedAt
+        self.lastSeenPairingIdentity = snapshot.pairingIdentity
+        self.evaluate()
+    }
+#endif
 }

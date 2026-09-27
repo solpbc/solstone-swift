@@ -609,4 +609,50 @@ nonisolated final class ConnectionStallMonitorTests: XCTestCase {
         let generationAfter = credentials.pairingGeneration
         XCTAssertEqual(generationBefore, generationAfter)
     }
+
+    @MainActor
+    func testSeedUITestStallPreservesCarriedStallAndSurvivesReevaluation() throws {
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+        let clock = ManualConnectionStallClock(now: t0)
+        let store = InMemoryConnectionStallStore()
+        let credentials = self.makeCredentials(pairing: nil)
+        let monitor = ConnectionStallMonitor(store: store, clock: clock, credentials: credentials)
+
+        monitor.setNetworkPathSatisfied(true)
+        monitor.evaluate()
+        XCTAssertFalse(monitor.isStalled)
+
+        let threeDaysAgo = t0.addingTimeInterval(-3 * 24 * 60 * 60)
+        let pairing = self.makePairing(pairedAt: threeDaysAgo)
+        try credentials.applyPairing(pairing)
+
+        monitor.seedUITestStall(
+            lastHeardAt: threeDaysAgo,
+            stallClockSeededAt: threeDaysAgo,
+            carriedStall: true
+        )
+
+        XCTAssertTrue(monitor.isStalled)
+        XCTAssertEqual(monitor.displayableLastHeardAt, threeDaysAgo)
+        let snapshot = store.load()
+        XCTAssertTrue(snapshot.carriedStall)
+        XCTAssertEqual(snapshot.stallClockSeededAt, threeDaysAgo)
+        if let identity = credentials.snapshot().pairingIdentity {
+            XCTAssertEqual(snapshot.lastHeardPairingIdentity, identity)
+        }
+
+        monitor.evaluate()
+        XCTAssertTrue(monitor.isStalled)
+
+        // Fresh seed is not stalled
+        let freshStore = InMemoryConnectionStallStore()
+        let freshMonitor = ConnectionStallMonitor(store: freshStore, clock: clock, credentials: credentials)
+        freshMonitor.setNetworkPathSatisfied(true)
+        freshMonitor.seedUITestStall(
+            lastHeardAt: clock.now,
+            stallClockSeededAt: clock.now,
+            carriedStall: false
+        )
+        XCTAssertFalse(freshMonitor.isStalled)
+    }
 }

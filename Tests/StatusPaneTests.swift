@@ -105,6 +105,77 @@ nonisolated final class StatusPaneTests: XCTestCase {
         XCTAssertTrue(pane.contains("shell.pane.status.transferRate"))
     }
 
+    func testStallTryAgainResolution() {
+        XCTAssertEqual(StatusPaneStallTryAgain.resolve(.connecting), .trying)
+        XCTAssertEqual(StatusPaneStallTryAgain.resolve(.connected(localPort: 1, via: .lan)), .trying)
+        XCTAssertEqual(StatusPaneStallTryAgain.resolve(.waitingForHome), .ready)
+        XCTAssertEqual(StatusPaneStallTryAgain.resolve(.disconnected), .ready)
+        XCTAssertEqual(StatusPaneStallTryAgain.resolve(.error(.unreachable)), .ready)
+        XCTAssertEqual(StatusPaneStallTryAgain.resolve(.error(.muxTeardown)), .ready)
+        XCTAssertEqual(StatusPaneStallTryAgain.resolve(.error(.revoked)), .hidden)
+    }
+
+    func testStallTryAgainPerform() {
+        var readyCount = 0
+        StatusPaneStallTryAgain.ready.perform { readyCount += 1 }
+        XCTAssertEqual(readyCount, 1)
+
+        var tryingCount = 0
+        StatusPaneStallTryAgain.trying.perform { tryingCount += 1 }
+        XCTAssertEqual(tryingCount, 0)
+
+        var hiddenCount = 0
+        StatusPaneStallTryAgain.hidden.perform { hiddenCount += 1 }
+        XCTAssertEqual(hiddenCount, 0)
+    }
+
+    func testStallJournalRowsCompositionAndOrder() {
+        let states: [TunnelState] = [
+            .connecting,
+            .connected(localPort: 1, via: .lan),
+            .error(.unreachable),
+            .waitingForHome,
+            .disconnected,
+            .error(.revoked),
+        ]
+
+        for state in states {
+            for displayable in [false, true] {
+                for hasAddresses in [false, true] {
+                    let tryAgain = StatusPaneStallTryAgain.resolve(state)
+                    let rows = StatusPaneStallJournal.rows(
+                        tryAgain: tryAgain,
+                        hasDisplayableLastHeard: displayable,
+                        hasTriedAddresses: hasAddresses
+                    )
+
+                    var expected: [StatusPaneStallJournalRow] = []
+                    if displayable {
+                        expected.append(.reason)
+                    }
+                    if case .hidden = tryAgain {} else {
+                        expected.append(.tryAgain(tryAgain))
+                    }
+                    expected.append(.pairAgain)
+                    if hasAddresses {
+                        expected.append(.addresses)
+                    }
+
+                    XCTAssertEqual(rows, expected)
+
+                    let first = try? XCTUnwrap(rows.first)
+                    if displayable {
+                        XCTAssertEqual(first, .reason)
+                    } else if case .hidden = tryAgain {
+                        XCTAssertEqual(first, .pairAgain)
+                    } else {
+                        XCTAssertEqual(first, .tryAgain(tryAgain))
+                    }
+                }
+            }
+        }
+    }
+
     private static func slice(in text: String, from startToken: String, to endToken: String) throws -> Substring {
         let start = try XCTUnwrap(text.range(of: startToken))
         let remaining = text[start.lowerBound...]

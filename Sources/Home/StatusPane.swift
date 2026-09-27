@@ -71,12 +71,65 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
     }
 }
 
+nonisolated enum StatusPaneStallTryAgain: Equatable, Sendable {
+    case hidden
+    case trying
+    case ready
+
+    nonisolated static func resolve(_ state: TunnelState) -> StatusPaneStallTryAgain {
+        switch state {
+        case .connecting, .connected:
+            .trying
+        case .waitingForHome, .disconnected:
+            .ready
+        case .error(let error):
+            error.isRetryable ? .ready : .hidden
+        }
+    }
+
+    func perform(_ action: () -> Void) {
+        if case .ready = self { action() }
+    }
+}
+
+nonisolated enum StatusPaneStallJournalRow: Equatable, Sendable {
+    case reason
+    case tryAgain(StatusPaneStallTryAgain)
+    case pairAgain
+    case addresses
+
+    var accessibilityIdentifier: String {
+        switch self {
+        case .reason: "shell.pane.status.stall.reason"
+        case .tryAgain: "shell.pane.status.stall.tryAgain"
+        case .pairAgain: "shell.pane.status.stall.pairAgain"
+        case .addresses: "shell.pane.status.addressesTried"
+        }
+    }
+}
+
+nonisolated enum StatusPaneStallJournal {
+    static func rows(
+        tryAgain: StatusPaneStallTryAgain,
+        hasDisplayableLastHeard: Bool,
+        hasTriedAddresses: Bool
+    ) -> [StatusPaneStallJournalRow] {
+        var rows: [StatusPaneStallJournalRow] = []
+        if hasDisplayableLastHeard { rows.append(.reason) }
+        if case .hidden = tryAgain {} else { rows.append(.tryAgain(tryAgain)) }
+        rows.append(.pairAgain)
+        if hasTriedAddresses { rows.append(.addresses) }
+        return rows
+    }
+}
+
 struct StatusPane: View {
     let presentation: ShellPanePresentation
 
     @Environment(AppConfig.self) private var appConfig
     @Environment(ShellStatusContext.self) private var shellStatusContext
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(ProblemReportsManager.self) private var problemReportsManager
@@ -210,7 +263,8 @@ struct StatusPane: View {
         HomeStatusPillState.resolve(
             isPaired: self.appConfig.isPaired,
             status: self.connectionSyncModel.status,
-            hasBacklog: self.waitingTotal > 0
+            hasBacklog: self.waitingTotal > 0,
+            isStalled: self.connectionStallMonitor.isStalled
         )
     }
 
@@ -218,7 +272,7 @@ struct StatusPane: View {
         switch self.pillState {
         case .caughtUp, .syncing:
             "shell.pane.status.connected"
-        case .connecting, .offline, .notPaired:
+        case .connecting, .offline, .notPaired, .stalled:
             "shell.pane.status.degraded"
         }
     }
@@ -233,6 +287,7 @@ struct StatusPane: View {
         case .connecting: SourceVocabulary.statusConnectingLabel
         case .offline: SourceVocabulary.heldOnThisDevice
         case .notPaired: SourceVocabulary.dayLocalityNoJournal
+        case .stalled: SourceVocabulary.stallCantReachYourJournal
         }
     }
 
@@ -252,6 +307,7 @@ struct StatusPane: View {
         case .offline: SourceVocabulary.heldOnThisDevice
         case .connecting: SourceVocabulary.statusConnectingLabel
         case .caughtUp, .syncing: SourceVocabulary.syncedHeadline
+        case .stalled: SourceVocabulary.stallCantReachYourJournal
         }
     }
 
@@ -288,48 +344,149 @@ struct StatusPane: View {
         }
     }
 
+    @ViewBuilder
+    private func renderTriedAddresses(_ tried: TriedAddresses) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("addresses tried")
+            ForEach(Array(tried.ownerLines.enumerated()), id: \.offset) { _, line in
+                Text(verbatim: line)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("shell.pane.status.addressesTried")
+    }
+
+    @ViewBuilder
+    private func renderStalledTryAgainButton(_ mode: StatusPaneStallTryAgain) -> some View {
+        Button {
+            mode.perform {
+                Task {
+                    await self.tunnelManager.retryNow()
+                }
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(mode == .trying ? SourceVocabulary.stallTryingLabel : SourceVocabulary.stallTryAgainLabel)
+                    .font(.body)
+                Text(SourceVocabulary.stallTriesEveryAddress)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .disabled(mode != .ready)
+        .accessibilityIdentifier(StatusPaneStallJournalRow.tryAgain(mode).accessibilityIdentifier)
+    }
+
+    @ViewBuilder
+    private var renderStalledPairAgainLink: some View {
+        NavigationLink(value: ShellDestination.pairFlow) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(SourceVocabulary.stallPairAgainLabel)
+                    .font(.body)
+                Text(SourceVocabulary.stallPairAgainDetail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityIdentifier(StatusPaneStallJournalRow.pairAgain.accessibilityIdentifier)
+    }
+
+    @ViewBuilder
+    private func renderStalledRow(_ row: StatusPaneStallJournalRow, carriesDegraded: Bool) -> some View {
+        if carriesDegraded {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("")
+                    .frame(width: 1, height: 1)
+                    .opacity(0.01)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier(self.statusRegionID)
+                switch row {
+                case .reason:
+                    if let heard = self.connectionStallMonitor.displayableLastHeardAt {
+                        Text(SourceVocabulary.stallLastReached(date: heard, now: Date()))
+                            .accessibilityIdentifier(row.accessibilityIdentifier)
+                    }
+                case .tryAgain(let mode):
+                    self.renderStalledTryAgainButton(mode)
+                case .pairAgain:
+                    self.renderStalledPairAgainLink
+                case .addresses:
+                    if let tried = self.triedAddresses {
+                        self.renderTriedAddresses(tried)
+                    }
+                }
+            }
+        } else {
+            switch row {
+            case .reason:
+                if let heard = self.connectionStallMonitor.displayableLastHeardAt {
+                    Text(SourceVocabulary.stallLastReached(date: heard, now: Date()))
+                        .accessibilityIdentifier(row.accessibilityIdentifier)
+                }
+            case .tryAgain(let mode):
+                self.renderStalledTryAgainButton(mode)
+            case .pairAgain:
+                self.renderStalledPairAgainLink
+            case .addresses:
+                if let tried = self.triedAddresses {
+                    self.renderTriedAddresses(tried)
+                }
+            }
+        }
+    }
+
     private var paneContent: some View {
         List {
             self.leadSection
             self.whatIsWaitingSection
             Section {
-                Text(self.pillState.label)
-                    .font(.body.weight(.semibold))
-                    .accessibilityIdentifier(self.statusRegionID)
-                    .accessibilityValue(self.pillState.label)
-
-                if self.showsConnectionDetails {
-                    LabeledContent(
-                        "method",
-                        value: self.shellStatusContext.via == .lan ? "local network" : "remote journal"
+                if self.pillState == .stalled {
+                    let stalledRows = StatusPaneStallJournal.rows(
+                        tryAgain: StatusPaneStallTryAgain.resolve(self.tunnelManager.state),
+                        hasDisplayableLastHeard: self.connectionStallMonitor.displayableLastHeardAt != nil,
+                        hasTriedAddresses: self.triedAddresses != nil
                     )
-                    LabeledContent("journal", value: self.serverHost)
-                    LabeledContent("uptime") {
-                        Text(self.shellStatusContext.connectedSince, style: .timer)
+                    ForEach(Array(stalledRows.enumerated()), id: \.offset) { index, row in
+                        self.renderStalledRow(row, carriesDegraded: index == 0)
                     }
-                    LabeledContent(SourceVocabulary.transferRateLabel) {
-                        Text(
-                            self.transferRate > 0
-                                ? SourceVocabulary.transferRateValue(bytesPerSecond: self.transferRate)
-                                : SourceVocabulary.transferRateIdle
+                }
+
+                if self.pillState != .stalled {
+                    ForEach([self.statusRegionID], id: \.self) { identifier in
+                        Text(self.pillState.label)
+                            .font(.body.weight(.semibold))
+                            .accessibilityIdentifier(identifier)
+                            .accessibilityValue(self.pillState.label)
+                    }
+                }
+
+                if self.pillState != .stalled {
+                    if self.showsConnectionDetails {
+                        LabeledContent(
+                        "method",
+                            value: self.shellStatusContext.via == .lan ? "local network" : "remote journal"
                         )
-                    }
-                    .accessibilityIdentifier("shell.pane.status.transferRate")
-                    Text(SourceVocabulary.standingSyncFootnote(sustaining: self.locationManager.isSustainingBackground))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("shell.pane.status.syncFootnote")
-                } else if let tried = self.triedAddresses {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("addresses tried")
-                        ForEach(Array(tried.ownerLines.enumerated()), id: \.offset) { _, line in
-                            Text(verbatim: line)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                        LabeledContent("journal", value: self.serverHost)
+                        LabeledContent("uptime") {
+                            Text(self.shellStatusContext.connectedSince, style: .timer)
                         }
+                        LabeledContent(SourceVocabulary.transferRateLabel) {
+                            Text(
+                                self.transferRate > 0
+                                    ? SourceVocabulary.transferRateValue(bytesPerSecond: self.transferRate)
+                                    : SourceVocabulary.transferRateIdle
+                            )
+                        }
+                        .accessibilityIdentifier("shell.pane.status.transferRate")
+                        Text(SourceVocabulary.standingSyncFootnote(sustaining: self.locationManager.isSustainingBackground))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .accessibilityIdentifier("shell.pane.status.syncFootnote")
+                    } else if let tried = self.triedAddresses {
+                        self.renderTriedAddresses(tried)
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("shell.pane.status.addressesTried")
                 }
             } header: {
                 Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)
@@ -377,28 +534,31 @@ struct StatusPane: View {
                 }
                 .accessibilityLabel("\(SourceVocabulary.journalTunnel): \(self.tunnelManager.state.isConnected ? "running" : "not available")")
 
-                Button {
-                    Task {
-                        await self.runProbe()
-                    }
-                } label: {
-                    HStack {
-                        Text(SourceVocabulary.checkConnection)
-                        Spacer()
-                        if self.isProbing {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else if let result = self.probeDisplay {
-                            Text(result)
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(self.probeDisplayColor)
+                if self.tunnelManager.state.isConnected {
+                    Button {
+                        Task {
+                            await self.runProbe()
+                        }
+                    } label: {
+                        HStack {
+                            Text(SourceVocabulary.checkConnection)
+                            Spacer()
+                            if self.isProbing {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else if let result = self.probeDisplay {
+                                Text(result)
+                                    .font(.subheadline.monospacedDigit())
+                                    .foregroundStyle(self.probeDisplayColor)
+                            }
                         }
                     }
+                    .disabled(self.isProbing || !self.tunnelManager.state.isConnected)
+                    .accessibilityLabel(SourceVocabulary.checkConnection)
+                    .accessibilityHint(self.isProbing ? "probing in progress" : "tap to test connection health")
+                    .accessibilityIdentifier("shell.pane.status.checkConnection")
+                    .hoverEffect(.highlight)
                 }
-                .disabled(self.isProbing || !self.tunnelManager.state.isConnected)
-                .accessibilityLabel(SourceVocabulary.checkConnection)
-                .accessibilityHint(self.isProbing ? "probing in progress" : "tap to test connection health")
-                .hoverEffect(.highlight)
 
                 NavigationLink(value: ShellDestination.diagnostics) {
                     Text("event log")
@@ -425,6 +585,11 @@ struct StatusPane: View {
             }
         }
         .accessibilityIdentifier("shell.pane.status")
+#if DEBUG
+        .overlay(alignment: .topLeading) {
+            UITestStateProbe(identifier: "shell.pane.status.leadState.\(self.pillState.uiTestStateName)")
+        }
+#endif
         .onAppear { self.headingFocused = true }
         .onDisappear { self.snapshotCopyTask?.cancel() }
         .task { await self.refreshTransferRate() }

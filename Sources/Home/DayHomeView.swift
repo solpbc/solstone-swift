@@ -168,6 +168,7 @@ struct DayHomeView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(AppGroupMirror.self) private var appGroupMirror
     @Environment(WatchBacklogSnapshotWriter.self) private var watchBacklogSnapshotWriter
+    @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(ObserverManager.self) private var observerManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
@@ -453,21 +454,49 @@ private extension DayHomeView {
         HomeStatusPillState.resolve(
             isPaired: self.appConfig.isPaired,
             status: self.connectionSyncModel.status,
-            hasBacklog: self.backlogCount.knownCount > 0
+            hasBacklog: self.backlogCount.knownCount > 0,
+            isStalled: self.connectionStallMonitor.isStalled
         )
     }
 
-    var statusPill: some View {
-        Button(action: self.onOpenStatus) {
+    @ViewBuilder
+    private var statusPillButton: some View {
+        let button = Button(action: self.onOpenStatus) {
             HomeStatusPillLabel(state: self.statusPillState, backlog: self.backlogCount)
         }
         .tint(.primary)
         .matchedTransitionSource(id: HomeChromeID.status, in: self.homeChrome)
         .accessibilityIdentifier("dayHome.statusPill")
         .accessibilityValue(self.statusPillAccessibilityValue)
+
+        if self.statusPillState == .stalled {
+            let label = self.backlogCount.knownCount > 0
+                ? "\(self.backlogCount.knownCount) \(SourceVocabulary.waitingToSync)"
+                : self.statusPillState.label(hasBacklog: false)
+            button
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+                .accessibilityValue(self.statusPillAccessibilityValue)
+        } else {
+            button
+        }
+    }
+
+    var statusPill: some View {
+#if DEBUG
+        ZStack(alignment: .topLeading) {
+            self.statusPillButton
+            UITestStateProbe(identifier: "dayHome.statusPill.state.\(self.statusPillState.uiTestStateName)")
+        }
+#else
+        self.statusPillButton
+#endif
     }
 
     var statusPillAccessibilityValue: String {
+        if self.statusPillState == .stalled {
+            return self.statusPillState.label(hasBacklog: self.backlogCount.knownCount > 0)
+        }
         switch self.backlogCount {
         case .known(let count) where count > 0:
             return "\(self.statusPillState.label), \(count) \(SourceVocabulary.waitingToSync)"

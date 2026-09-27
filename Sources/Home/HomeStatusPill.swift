@@ -3,7 +3,7 @@
 
 import SwiftUI
 
-/// The status pill's five states, per the shell contract.
+/// The status pill's six states, per the shell contract.
 ///
 /// The shipped pill rendered `connectionSyncStatus.statusLine` verbatim, which for a
 /// transferring connection reads `connected · syncing` — two statuses at once, and
@@ -20,13 +20,17 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
     case offline
     /// No journal yet.
     case notPaired
+    /// No response from the journal within stall window.
+    case stalled
 
     nonisolated static func resolve(
         isPaired: Bool,
         status: ConnectionSyncStatus,
-        hasBacklog: Bool
+        hasBacklog: Bool,
+        isStalled: Bool
     ) -> HomeStatusPillState {
         guard isPaired else { return .notPaired }
+        if isStalled { return .stalled }
         switch status {
         case .connectedIdle, .connectedWaiting, .connectedTransferring:
             return hasBacklog ? .syncing : .caughtUp
@@ -41,13 +45,33 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
         }
     }
 
-    var label: String {
+    func label(hasBacklog: Bool) -> String {
         switch self {
         case .caughtUp: SourceVocabulary.connectedLabel
         case .syncing: SourceVocabulary.syncingLabel
         case .connecting: SourceVocabulary.statusConnectingLabel
         case .offline: SourceVocabulary.statusOfflineLabel
         case .notPaired: SourceVocabulary.dayLocalityNoJournal
+        case .stalled: hasBacklog ? SourceVocabulary.stallWaitingLabel : SourceVocabulary.stallNotConnectedLabel
+        }
+    }
+
+    var label: String { self.label(hasBacklog: false) }
+
+    func shouldPulse(reduceMotion: Bool) -> Bool {
+        if reduceMotion { return false }
+        if case .syncing = self { return true }
+        return false
+    }
+
+    var uiTestStateName: String {
+        switch self {
+        case .caughtUp: "caughtUp"
+        case .syncing: "syncing"
+        case .connecting: "connecting"
+        case .offline: "offline"
+        case .notPaired: "notPaired"
+        case .stalled: "stalled"
         }
     }
 }
@@ -78,16 +102,14 @@ struct HomeStatusDot: View {
     }
 
     private var shouldPulse: Bool {
-        if self.reduceMotion { return false }
-        if case .syncing = self.state { return true }
-        return false
+        self.state.shouldPulse(reduceMotion: self.reduceMotion)
     }
 
     private var tint: Color {
         switch self.state {
         case .caughtUp: .solSavedGreen
         case .syncing: .solOrange
-        case .connecting, .offline, .notPaired: .secondary
+        case .connecting, .offline, .notPaired, .stalled: .secondary
         }
     }
 }
@@ -117,7 +139,7 @@ struct HomeStatusPillLabel: View {
                     .layoutPriority(1)
                     .accessibilityAddTraits(.updatesFrequently)
             }
-            Text(self.state.label)
+            Text(self.state.label(hasBacklog: self.backlog.knownCount > 0))
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(self.countText == nil ? .primary : .secondary)
                 .lineLimit(1)
@@ -136,3 +158,19 @@ struct HomeStatusPillLabel: View {
         }
     }
 }
+
+#if DEBUG
+struct UITestStateProbe: View {
+    let identifier: String
+
+    var body: some View {
+        if ProcessInfo.processInfo.arguments.contains("--ui-test") {
+            Text("")
+                .frame(width: 1, height: 1)
+                .opacity(0.01)
+                .allowsHitTesting(false)
+                .accessibilityIdentifier(self.identifier)
+        }
+    }
+}
+#endif

@@ -198,12 +198,29 @@ nonisolated enum SourceVocabulary {
     static let screencastPrimerBodyOff = "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."
     static let screencastPrimerBody = screencastPrimerBodyOff
 
-    // The status pill resolves to one of five states and names it in one word or
+    // The status pill resolves to one of six states and names it in one word or
     // phrase. `connected · syncing` was two of those states at once.
     static let connectedLabel = "connected"
     static let syncingLabel = "syncing"
     static let statusConnectingLabel = "connecting…"
     static let statusOfflineLabel = "offline"
+    static let stallWaitingLabel = "waiting"
+    static let stallNotConnectedLabel = "not connected"
+    static let stallCantReachYourJournal = "can't reach your journal"
+    static let stallTryAgainLabel = "try again"
+    static let stallTriesEveryAddress = "tries every address your journal gave this phone."
+    static let stallTryingLabel = "trying…"
+    static let stallPairAgainLabel = "pair again"
+    static let stallPairAgainDetail = "if your journal's computer is on and this keeps happening, your journal may have new addresses. pairing again gives this phone the current ones."
+
+    static func stallLastReached(date: Date, now: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.unitsStyle = .full
+        formatter.dateTimeStyle = .numeric
+        let relative = formatter.localizedString(for: date, relativeTo: now)
+        return "last reached \(relative)."
+    }
 
     static let addMoreTitle = "add more"
     static let addMoreSubline = "sources"

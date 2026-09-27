@@ -24,6 +24,7 @@ struct ContentView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(PairingHandoffState.self) private var pairingHandoff
@@ -231,7 +232,10 @@ struct ContentView: View {
                     return
                 }
 
-                if shouldSeedPairing {
+                if let stall = arguments.first(where: { $0.hasPrefix("--ui-test-stall=") }) {
+                    let value = String(stall.dropFirst("--ui-test-stall=".count))
+                    self.applyUITestStall(value, port: port)
+                } else if shouldSeedPairing {
                     if arguments.contains("--ui-test-shell-disconnected") {
                         self.tunnelManager.forceDisconnectedForUITest()
                         self.tunnelManager.forceNetworkStatus(
@@ -454,4 +458,45 @@ private extension ContentView {
         }
         return Double(argument.dropFirst("--ui-test-network-reconnect-after=".count))
     }
+
+#if DEBUG
+    private func applyUITestStall(_ value: String, port: Int) {
+        let now = Date()
+        let threeDaysAgo = now.addingTimeInterval(-3 * 24 * 60 * 60)
+        self.tunnelManager.forceNetworkStatus(isSatisfied: true, isWiFi: true)
+        switch value {
+        case "stalled":
+            self.tunnelManager.forceDisconnectedForUITest()
+            self.tunnelManager.state = .error(.unreachable)
+            self.tunnelManager.reconnectCountdown = 30
+            self.connectionStallMonitor.seedUITestStall(
+                lastHeardAt: threeDaysAgo,
+                stallClockSeededAt: threeDaysAgo,
+                carriedStall: true
+            )
+        case "stalled-connected":
+            self.tunnelManager.forceConnected(port: port, via: .lan)
+            self.tunnelManager.reconnectCountdown = nil
+            self.connectionStallMonitor.seedUITestStall(
+                lastHeardAt: threeDaysAgo,
+                stallClockSeededAt: threeDaysAgo,
+                carriedStall: true
+            )
+        case "fresh":
+            self.tunnelManager.forceDisconnectedForUITest()
+            self.tunnelManager.state = .error(.unreachable)
+            self.tunnelManager.reconnectCountdown = 30
+            self.connectionStallMonitor.seedUITestStall(
+                lastHeardAt: now,
+                stallClockSeededAt: now,
+                carriedStall: false
+            )
+        default:
+            log.error("unknown ui-test stall \(value, privacy: .public)")
+            return
+        }
+        self.lastPort = port
+        self.shellStatusContext.via = .lan
+    }
+#endif
 }

@@ -8,6 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Changed
 - the confirmations for unpairing, forgetting your journal and pairing a new one now say where anything still waiting goes: to the journal you pair next.
+- when your iphone can't reach your journal for 30 minutes, the status screen now says so, shows when it last got through, and offers "try again" and "pair again". after that, the home screen count reads "waiting" instead of "connecting…".
 
 ## [2.0.5 (110)] - 2026-09-25
 
