@@ -10,6 +10,11 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
     func testOnboardingTodayMoreAndSourcesRenderAtAccessibilityXXXL() async throws {
         let appConfig = AppConfig()
         appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:7071")
+        let connectionStallMonitor = ConnectionStallMonitor(
+            store: InMemoryConnectionStallStore(),
+            clock: SystemConnectionStallClock(),
+            credentials: appConfig.store
+        )
 
         let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
         let diagnosticLog = DiagnosticLog()
@@ -184,6 +189,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 sourcesBadgeVisible: false
             )
             .environment(appConfig)
+            .environment(connectionStallMonitor)
             .environment(appGroupMirror)
             .environment(watchBacklogSnapshotWriter)
             .environment(observerManager)
@@ -291,6 +297,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let statusPane = NavigationStack {
             StatusPane(presentation: .phoneModal)
                 .environment(appConfig)
+                .environment(connectionStallMonitor)
                 .environment(ShellStatusContext())
                 .environment(tunnelManager)
                 .environment(connectionSyncModel)

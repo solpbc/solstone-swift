@@ -147,7 +147,7 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         let text = try Self.sourceText("Sources/Home/DayHomeView.swift")
         let pill = try Self.slice(
             in: text,
-            from: "var statusPill: some View {",
+            from: "private var statusPillButton: some View {",
             to: "\n    var statusPillAccessibilityValue"
         )
         XCTAssertTrue(pill.contains("Button(action: self.onOpenStatus)"))

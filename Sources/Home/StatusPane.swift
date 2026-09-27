@@ -376,6 +376,9 @@ struct StatusPane: View {
             }
         }
         .disabled(mode != .ready)
+        // A list button takes the accent tint, which painted this row and its sub-line link
+        // blue beside a pair-again row in the pane ink. Same ink for both remedies.
+        .tint(.primary)
         .accessibilityIdentifier(StatusPaneStallJournalRow.tryAgain(mode).accessibilityIdentifier)
     }
 
