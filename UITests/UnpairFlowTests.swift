@@ -36,7 +36,7 @@ nonisolated final class UnpairFlowTests: XCTestCase {
         XCTAssertTrue(unpairButton.waitForExistence(timeout: 5))
         unpairButton.tap()
 
-        let confirmButton = app.alerts.buttons["Unpair"]
+        let confirmButton = app.alerts.buttons["unpair"]
         XCTAssertTrue(confirmButton.waitForExistence(timeout: 5))
         confirmButton.tap()
 

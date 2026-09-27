@@ -230,6 +230,8 @@ nonisolated enum SourceVocabulary {
     static let settingsTitle = "settings"
     // What VoiceOver calls the dimmed shell beside the open shelf: it is the way back.
     static let shelfDismissLabel = "close settings"
+    static let waitingGoesToNextJournal =
+        "nothing more from this device goes into your journal, and this takes you back to setup. what already reached it stays there, and anything still waiting goes to the journal you pair next."
     static let deckToggleTitle = "toggle deck"
     static let getHelp = "get help"
     static let reportAProblem = "report a problem"

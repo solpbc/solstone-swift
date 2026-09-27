@@ -370,7 +370,7 @@ struct JournalSettingsPane: View {
                 }
             }
         } message: {
-            Text("this removes the pairing from this device.")
+            Text(SourceVocabulary.waitingGoesToNextJournal)
         }
         .alert("pair a new journal?", isPresented: self.$showingPairNewConfirm) {
             Button("cancel", role: .cancel) {}
@@ -380,7 +380,7 @@ struct JournalSettingsPane: View {
                 }
             }
         } message: {
-            Text("this forgets the current journal before pairing another one.")
+            Text("this forgets the current journal first. anything still waiting goes to the journal you pair next.")
         }
         .sheet(isPresented: self.$showingPairFlow) {
             NavigationStack {
@@ -501,14 +501,14 @@ private struct UnpairThisDeviceAlert: ViewModifier {
 
     func body(content: Content) -> some View {
         content.alert("unpair this device?", isPresented: self.$isPresented) {
-            Button("Cancel", role: .cancel) {}
-            Button("Unpair", role: .destructive) {
+            Button("cancel", role: .cancel) {}
+            Button("unpair", role: .destructive) {
                 Task {
                     await self.unpair()
                 }
             }
         } message: {
-            Text("this clears the paired session on this device and returns you to setup.")
+            Text(SourceVocabulary.waitingGoesToNextJournal)
         }
     }
 

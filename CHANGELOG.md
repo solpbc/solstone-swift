@@ -4,6 +4,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- the confirmations for unpairing, forgetting your journal and pairing a new one now say where anything still waiting goes: to the journal you pair next.
+
 ## [2.0.5 (110)] - 2026-09-25
 
 ### Fixed
