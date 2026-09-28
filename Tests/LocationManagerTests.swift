@@ -526,13 +526,18 @@ nonisolated final class LocationManagerTests: XCTestCase {
         self.provider.capability = .whenInUse(accuracy: .full)
         let manager = self.makeManager()
         await manager.start(tier: .light)
-        await self.yieldToMainActor()
+        await self.waitForPendingSleeperCount(2)
 
         self.provider.emitGap()
-        self.clock.advance(by: 300)
         await self.yieldToMainActor()
+        // A location segment arms two timers: rotation and liveness. An advance only
+        // fires timers already armed, and the engine re-arms rotation only after it
+        // finishes closing the window, so wait for both before each advance and
+        // before asserting. A fixed sleep lost this race on a loaded host.
         self.clock.advance(by: 300)
-        await self.yieldToMainActor()
+        await self.waitForPendingSleeperCount(2)
+        self.clock.advance(by: 300)
+        await self.waitForPendingSleeperCount(2)
 
         XCTAssertEqual(self.mobileSegmentUploader.summary(for: .location).pendingCount, 1)
         XCTAssertEqual(try self.emptyTombstoneCount(), 1)
@@ -921,7 +926,8 @@ nonisolated final class LocationManagerTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
-        for _ in 0..<20 {
+        // Returns as soon as the count matches; the bound only matters on a loaded host.
+        for _ in 0..<100 {
             if self.clock.pendingSleeperCount == count { return }
             await self.yieldToMainActor()
         }
