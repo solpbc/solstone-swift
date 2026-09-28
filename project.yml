@@ -50,6 +50,7 @@ targets:
         aps-environment: development
         com.apple.developer.associated-domains:
           - applinks:go.solstone.app
+        com.apple.developer.device-information.user-assigned-device-name: true
         keychain-access-groups:
           - $(AppIdentifierPrefix)app.solstone.swift
           - $(AppIdentifierPrefix)app.solstone.push
