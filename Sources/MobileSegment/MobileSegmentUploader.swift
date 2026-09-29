@@ -2069,7 +2069,7 @@ private extension MobileSegmentUploader {
 extension MobileSegmentUploader {
     static func dayString(for date: Date, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
+        SegmentWireTimeFormatter.configure(formatter)
         formatter.timeZone = timeZone
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)

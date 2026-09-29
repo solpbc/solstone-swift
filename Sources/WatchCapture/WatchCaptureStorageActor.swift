@@ -53,7 +53,7 @@ nonisolated struct WatchCaptureStoragePaths: Sendable {
 
     static func dayString(for date: Date, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
+        SegmentWireTimeFormatter.configure(formatter)
         formatter.timeZone = timeZone
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
@@ -61,7 +61,7 @@ nonisolated struct WatchCaptureStoragePaths: Sendable {
 
     static func segmentString(for date: Date, durationSeconds: Double, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
+        SegmentWireTimeFormatter.configure(formatter)
         formatter.timeZone = timeZone
         formatter.dateFormat = "HHmmss"
         return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"

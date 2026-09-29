@@ -196,7 +196,7 @@ nonisolated enum LinkedDeviceIngestViewMapper {
 
     static func dayString(for date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
+        SegmentWireTimeFormatter.configure(formatter)
         formatter.timeZone = .current
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)

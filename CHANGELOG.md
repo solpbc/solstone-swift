@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- changing your phone or watch language no longer prevents moments from reaching your journal.
+
 ## [2.0.6 (115)] - 2026-09-28
 
 ### Changed

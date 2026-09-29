@@ -26,7 +26,7 @@ nonisolated struct ChunkSidecar: Codable, Equatable, Sendable {
 
     nonisolated static func segmentString(for date: Date, durationSeconds: Double, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
+        SegmentWireTimeFormatter.configure(formatter)
         formatter.timeZone = timeZone
         formatter.dateFormat = "HHmmss"
         return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"
