@@ -6,9 +6,13 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.6 (115)] - 2026-09-28
+
 ### Changed
+- the device name under this device in settings now shows the name you gave your iphone or ipad, instead of its model and a four-character code.
 - the confirmations for unpairing, forgetting your journal and pairing a new one now say where anything still waiting goes: to the journal you pair next.
-- when your iphone can't reach your journal for 30 minutes, the status screen now says so, shows when it last got through, and offers "try again" and "pair again". after that, the home screen count reads "waiting" instead of "connecting…".
+- when your iphone or ipad can't reach your journal for 30 minutes, the status screen now says so, shows when it last got through, and offers "try again" and "pair again".
+- the app no longer offers to delete a source. to stop location, pause it.
 
 ## [2.0.5 (110)] - 2026-09-25
 
