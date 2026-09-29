@@ -29,16 +29,16 @@ nonisolated struct WatchCaptureStoragePaths: Sendable {
             .appendingPathComponent(segment, isDirectory: true)
     }
 
-    func dayString(for date: Date) -> String {
-        Self.dayString(for: date)
+    func dayString(for date: Date, timeZone: TimeZone = .current) -> String {
+        Self.dayString(for: date, timeZone: timeZone)
     }
 
-    func segmentString(for date: Date, durationSeconds: Double) -> String {
-        Self.segmentString(for: date, durationSeconds: durationSeconds)
+    func segmentString(for date: Date, durationSeconds: Double, timeZone: TimeZone = .current) -> String {
+        Self.segmentString(for: date, durationSeconds: durationSeconds, timeZone: timeZone)
     }
 
-    func provisionalSegmentString(for date: Date) -> String {
-        Self.segmentString(for: date, durationSeconds: 1)
+    func provisionalSegmentString(for date: Date, timeZone: TimeZone = .current) -> String {
+        Self.segmentString(for: date, durationSeconds: 1, timeZone: timeZone)
     }
 
     func manifestURL(directory: URL) -> URL { directory.appendingPathComponent("manifest.json") }
@@ -51,18 +51,18 @@ nonisolated struct WatchCaptureStoragePaths: Sendable {
     func sessionHistoryURL() -> URL { self.rootURL.appendingPathComponent(WatchCaptureStorageActor.historyFileName) }
     func sessionHistoryCounterURL() -> URL { self.rootURL.appendingPathComponent(WatchCaptureStorageActor.counterFileName) }
 
-    static func dayString(for date: Date) -> String {
+    static func dayString(for date: Date, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
+        formatter.timeZone = timeZone
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
     }
 
-    static func segmentString(for date: Date, durationSeconds: Double) -> String {
+    static func segmentString(for date: Date, durationSeconds: Double, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
+        formatter.timeZone = timeZone
         formatter.dateFormat = "HHmmss"
         return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"
     }

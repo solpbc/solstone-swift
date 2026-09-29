@@ -176,7 +176,9 @@ final class ObserverAudioTransferEnqueuer {
             batteryState: power.batteryState,
             lowPowerMode: power.lowPowerMode,
             powerSampledAt: power.powerSampledAt,
-            payloadParts: parts
+            payloadParts: parts,
+            tz: watchManifest.tz,
+            utcOffsetSeconds: watchManifest.utcOffsetSeconds
         )
     }
 
@@ -214,21 +216,47 @@ final class ObserverAudioTransferEnqueuer {
         manifest mobileManifest: MobileSegmentManifest,
         now: Date,
         sources: [MobileSegmentSource],
-        payloadParts: [TransferPayloadPartDescriptor]
+        payloadParts: [TransferPayloadPartDescriptor],
+        timeZone: TimeZone = .current
     ) -> TransferManifest {
         let durationS = mobileManifest.durationS
             ?? max(0, (mobileManifest.endedAt ?? now).timeIntervalSince(mobileManifest.startedAt))
+
+        let day: String
+        let segment: String
+        let tz: String?
+        let utcOffsetSeconds: Int?
+
+        if let storedDay = mobileManifest.day, let storedSegment = mobileManifest.segment {
+            day = storedDay
+            segment = storedSegment
+            tz = mobileManifest.tz
+            utcOffsetSeconds = mobileManifest.utcOffsetSeconds
+        } else {
+            day = mobileManifest.day ?? ObserverSegmentNaming.dayString(for: mobileManifest.startedAt, timeZone: timeZone)
+            segment = mobileManifest.segment
+                ?? ChunkSidecar.segmentString(
+                    for: mobileManifest.startedAt,
+                    durationSeconds: mobileManifest.durationS ?? 0,
+                    timeZone: timeZone
+                )
+            if let storedOffset = mobileManifest.utcOffsetSeconds {
+                tz = mobileManifest.tz
+                utcOffsetSeconds = storedOffset
+            } else {
+                let stamp = SegmentTimeZoneStamp(timeZone: timeZone, startedAt: mobileManifest.startedAt)
+                tz = stamp.tz
+                utcOffsetSeconds = stamp.utcOffsetSeconds
+            }
+        }
+
         return self.makeManifest(
             itemID: itemID,
             source: ObserverAudioTransferSource.mobileSegment,
             platform: "ios",
             createdAt: mobileManifest.startedAt,
-            segment: mobileManifest.segment
-                ?? ChunkSidecar.segmentString(
-                    for: mobileManifest.startedAt,
-                    durationSeconds: mobileManifest.durationS ?? 0
-                ),
-            day: mobileManifest.day ?? ObserverSegmentNaming.dayString(for: mobileManifest.startedAt),
+            segment: segment,
+            day: day,
             startedAt: mobileManifest.startedAt,
             durationS: durationS,
             sources: sources.map(\.rawValue),
@@ -236,7 +264,9 @@ final class ObserverAudioTransferEnqueuer {
             sessionID: nil,
             modeRawValue: mobileManifest.audio.mode?.rawValue,
             segmentID: mobileManifest.segmentID,
-            payloadParts: payloadParts
+            payloadParts: payloadParts,
+            tz: tz,
+            utcOffsetSeconds: utcOffsetSeconds
         )
     }
 
@@ -258,7 +288,9 @@ final class ObserverAudioTransferEnqueuer {
         batteryState: String? = nil,
         lowPowerMode: Bool? = nil,
         powerSampledAt: Date? = nil,
-        payloadParts: [TransferPayloadPartDescriptor]
+        payloadParts: [TransferPayloadPartDescriptor],
+        tz: String? = nil,
+        utcOffsetSeconds: Int? = nil
     ) -> TransferManifest {
         TransferManifest(
             itemID: itemID,
@@ -285,7 +317,9 @@ final class ObserverAudioTransferEnqueuer {
                 batteryState: batteryState,
                 lowPowerMode: lowPowerMode,
                 powerSampledAt: powerSampledAt,
-                ingestProtocolVersion: 3
+                ingestProtocolVersion: 3,
+                tz: tz,
+                utcOffsetSeconds: utcOffsetSeconds
             ),
             meta: .object(["source": .string(source)]),
             appVersion: AppVersion.shortVersion

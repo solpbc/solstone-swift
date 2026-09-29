@@ -905,8 +905,9 @@ extension WatchCaptureEngine {
     ) async throws -> Bool {
         self.openingSegment = nil
         self.openingSegmentHasPersistedManifest = false
-        let day = self.paths.dayString(for: startedAt)
-        let segmentKey = self.paths.provisionalSegmentString(for: startedAt)
+        let zone = TimeZone.current
+        let day = self.paths.dayString(for: startedAt, timeZone: zone)
+        let segmentKey = self.paths.provisionalSegmentString(for: startedAt, timeZone: zone)
         let directory: URL
         do {
             directory = try await self.storageActor.prepareSegmentDirectory(day: day, segment: segmentKey)
@@ -939,6 +940,9 @@ extension WatchCaptureEngine {
             state: .captured,
             failureReason: nil
         )
+        let stamp = SegmentTimeZoneStamp(timeZone: zone, startedAt: startedAt)
+        manifest.tz = stamp.tz
+        manifest.utcOffsetSeconds = stamp.utcOffsetSeconds
         do {
             let sample = try self.environmentProvider.sampleSegmentPower()
             manifest.powerSampledAt = self.clock.now()
@@ -1338,10 +1342,13 @@ extension WatchCaptureEngine {
         case .queue:
             break
         }
+        let zone = TimeZone.current
         let finalSegment = self.paths.segmentString(
             for: manifest.startedAt,
-            durationSeconds: max(manifest.duration, 1)
+            durationSeconds: max(manifest.duration, 1),
+            timeZone: zone
         )
+        let stamp = SegmentTimeZoneStamp(timeZone: zone, startedAt: manifest.startedAt)
         do {
             _ = try await self.storageActor.moveSegmentDirectoryIfNeeded(
                 currentURL: segment.directoryURL,
@@ -1350,6 +1357,8 @@ extension WatchCaptureEngine {
                 finalSegment: finalSegment
             )
             manifest.segment = finalSegment
+            manifest.tz = stamp.tz
+            manifest.utcOffsetSeconds = stamp.utcOffsetSeconds
             manifest.state = .finalized
             try await self.storageActor.writeManifest(
                 manifest,

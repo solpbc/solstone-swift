@@ -33,6 +33,8 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
     var lowPowerMode: Bool?
     var powerSampledAt: Date?
     var parts: [ObserverIngestMultipartPart]
+    var tz: String?
+    var utcOffsetSeconds: Int?
 
     init(
         boundary: String,
@@ -51,7 +53,9 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
         batteryState: String? = nil,
         lowPowerMode: Bool? = nil,
         powerSampledAt: Date? = nil,
-        parts: [ObserverIngestMultipartPart]
+        parts: [ObserverIngestMultipartPart],
+        tz: String? = nil,
+        utcOffsetSeconds: Int? = nil
     ) {
         self.boundary = boundary
         self.day = day
@@ -70,6 +74,8 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
         self.lowPowerMode = lowPowerMode
         self.powerSampledAt = powerSampledAt
         self.parts = parts
+        self.tz = tz
+        self.utcOffsetSeconds = utcOffsetSeconds
     }
 }
 
@@ -113,6 +119,12 @@ nonisolated enum ObserverIngestMultipartBody {
         }
         if let powerSampledAt = payload.powerSampledAt {
             metaObject["power_sampled_at"] = ISO8601DateFormatter().string(from: powerSampledAt)
+        }
+        if let tz = payload.tz {
+            metaObject["tz"] = tz
+        }
+        if let utcOffsetSeconds = payload.utcOffsetSeconds {
+            metaObject["utc_offset_seconds"] = utcOffsetSeconds
         }
         let envelope: [String: Any] = [
             "day": payload.day,

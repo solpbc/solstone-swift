@@ -158,6 +158,8 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
     /// The wire format used for this persisted observer ingest item. `nil`
     /// marks a v2 persisted item.
     var ingestProtocolVersion: Int?
+    var tz: String?
+    var utcOffsetSeconds: Int?
 
     init(
         platform: String = "ios",
@@ -174,7 +176,9 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         batteryState: String? = nil,
         lowPowerMode: Bool? = nil,
         powerSampledAt: Date? = nil,
-        ingestProtocolVersion: Int? = nil
+        ingestProtocolVersion: Int? = nil,
+        tz: String? = nil,
+        utcOffsetSeconds: Int? = nil
     ) {
         self.platform = platform
         self.segment = segment
@@ -191,6 +195,8 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         self.lowPowerMode = lowPowerMode
         self.powerSampledAt = powerSampledAt
         self.ingestProtocolVersion = ingestProtocolVersion
+        self.tz = tz
+        self.utcOffsetSeconds = utcOffsetSeconds
     }
 }
 

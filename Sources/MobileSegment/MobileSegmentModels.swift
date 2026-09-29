@@ -119,6 +119,8 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
     var upload: MobileSegmentUploadState
     var createdAt: Date
     var updatedAt: Date
+    var tz: String?
+    var utcOffsetSeconds: Int?
 
     enum CodingKeys: String, CodingKey {
         case schema
@@ -136,6 +138,8 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
         case upload
         case createdAt = "created_at"
         case updatedAt = "updated_at"
+        case tz
+        case utcOffsetSeconds = "utc_offset_seconds"
     }
 
     init(
@@ -144,7 +148,9 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
         openedWithSources: Set<MobileSegmentSource>,
         activeSourceSetVersion: Int,
         day: String? = nil,
-        segment: String? = nil
+        segment: String? = nil,
+        tz: String? = nil,
+        utcOffsetSeconds: Int? = nil
     ) {
         self.schema = Self.schemaName
         self.segmentID = segmentID
@@ -161,6 +167,8 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
         self.upload = .notReady
         self.createdAt = startedAt
         self.updatedAt = startedAt
+        self.tz = tz
+        self.utcOffsetSeconds = utcOffsetSeconds
     }
 
     init(from decoder: any Decoder) throws {
@@ -180,6 +188,8 @@ nonisolated struct MobileSegmentManifest: Codable, Sendable, Equatable {
         self.upload = try container.decode(MobileSegmentUploadState.self, forKey: .upload)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        self.tz = try container.decodeIfPresent(String.self, forKey: .tz)
+        self.utcOffsetSeconds = try container.decodeIfPresent(Int.self, forKey: .utcOffsetSeconds)
     }
 
     func resolution(for source: MobileSegmentSource) -> MobileSegmentSourceResolution {

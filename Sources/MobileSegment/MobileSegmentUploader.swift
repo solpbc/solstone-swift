@@ -475,8 +475,12 @@ final class MobileSegmentUploader {
                 manifest.endedAt = endedAt
                 manifest.durationS = appAudioDuration ?? max(0, endedAt.timeIntervalSince(manifest.startedAt))
             }
-            manifest.day = Self.dayString(for: manifest.startedAt)
-            manifest.segment = ChunkSidecar.segmentString(for: manifest.startedAt, durationSeconds: manifest.durationS ?? 0)
+            let zone = TimeZone.current
+            manifest.day = Self.dayString(for: manifest.startedAt, timeZone: zone)
+            manifest.segment = ChunkSidecar.segmentString(for: manifest.startedAt, durationSeconds: manifest.durationS ?? 0, timeZone: zone)
+            let stamp = SegmentTimeZoneStamp(timeZone: zone, startedAt: manifest.startedAt)
+            manifest.tz = stamp.tz
+            manifest.utcOffsetSeconds = stamp.utcOffsetSeconds
             manifest.updatedAt = endedAt
 
             let carriedEndedAt = manifest.endedAt
@@ -1326,7 +1330,9 @@ private extension MobileSegmentUploader {
             duration: parsed.duration,
             day: parsed.day,
             segment: parsed.segment,
-            lifecycle: .pending
+            lifecycle: .pending,
+            tz: parsed.tz,
+            utcOffsetSeconds: parsed.utcOffsetSeconds
         )
         let target = self.store.locationURL(in: activeDirectory)
         try self.store.copyOrReplaceItem(at: locationURL, to: target)
@@ -1353,13 +1359,17 @@ private extension MobileSegmentUploader {
         duration: TimeInterval,
         day: String,
         segment: String,
-        lifecycle: MobileSegmentLifecycle
+        lifecycle: MobileSegmentLifecycle,
+        tz: String? = nil,
+        utcOffsetSeconds: Int? = nil
     ) throws -> URL {
         var manifest = MobileSegmentManifest(
             segmentID: segmentID,
             startedAt: startedAt,
             openedWithSources: Set([source]),
-            activeSourceSetVersion: 0
+            activeSourceSetVersion: 0,
+            tz: tz,
+            utcOffsetSeconds: utcOffsetSeconds
         )
         manifest.day = day
         manifest.segment = segment
@@ -1379,14 +1389,43 @@ private extension MobileSegmentUploader {
         self.refreshCounts()
     }
 
-    func parseLegacyLocationFilename(_ url: URL) -> (day: String, segment: String, startedAt: Date, duration: TimeInterval) {
+    func parseLegacyLocationFilename(_ url: URL) -> (day: String, segment: String, startedAt: Date, duration: TimeInterval, tz: String?, utcOffsetSeconds: Int?) {
         let fileID = url.deletingPathExtension().lastPathComponent
         let parts = fileID.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
-        let day = parts.first.map(String.init) ?? Self.dayString(for: self.clock.now())
-        let segment = parts.count == 2 ? String(parts[1]) : ChunkSidecar.segmentString(for: self.clock.now(), durationSeconds: 1)
+        let now = self.clock.now()
+        let zone = TimeZone.current
+        var didFormat = false
+
+        let day: String
+        if let first = parts.first {
+            day = String(first)
+        } else {
+            day = Self.dayString(for: now, timeZone: zone)
+            didFormat = true
+        }
+
+        let segment: String
+        if parts.count == 2 {
+            segment = String(parts[1])
+        } else {
+            segment = ChunkSidecar.segmentString(for: now, durationSeconds: 1, timeZone: zone)
+            didFormat = true
+        }
+
         let segmentParts = segment.split(separator: "_", maxSplits: 1, omittingEmptySubsequences: false)
         let duration = segmentParts.count == 2 ? TimeInterval(Int(segmentParts[1]) ?? 1) : 1
-        return (day, segment, self.date(day: day, segment: segment) ?? self.clock.now(), max(duration, 1))
+        let startedAt = self.date(day: day, segment: segment) ?? now
+        let tz: String?
+        let utcOffsetSeconds: Int?
+        if didFormat {
+            let stamp = SegmentTimeZoneStamp(timeZone: zone, startedAt: startedAt)
+            tz = stamp.tz
+            utcOffsetSeconds = stamp.utcOffsetSeconds
+        } else {
+            tz = nil
+            utcOffsetSeconds = nil
+        }
+        return (day, segment, startedAt, max(duration, 1), tz, utcOffsetSeconds)
     }
 
     func date(day: String, segment: String) -> Date? {
@@ -1745,15 +1784,19 @@ private extension MobileSegmentUploader {
                     if segmentID == self.heldScreencastAdoptionSkipSegmentID?() {
                         continue
                     }
-                    let day = MobileSegmentUploader.dayString(for: sidecar.startedAt)
-                    let segment = ChunkSidecar.segmentString(for: sidecar.startedAt, durationSeconds: 300)
+                    let zone = TimeZone.current
+                    let day = MobileSegmentUploader.dayString(for: sidecar.startedAt, timeZone: zone)
+                    let segment = ChunkSidecar.segmentString(for: sidecar.startedAt, durationSeconds: 300, timeZone: zone)
+                    let stamp = SegmentTimeZoneStamp(timeZone: zone, startedAt: sidecar.startedAt)
                     let manifest = MobileSegmentManifest(
                         segmentID: segmentID,
                         startedAt: sidecar.startedAt,
                         openedWithSources: [.screencast],
                         activeSourceSetVersion: Int(sidecar.revision),
                         day: day,
-                        segment: segment
+                        segment: segment,
+                        tz: stamp.tz,
+                        utcOffsetSeconds: stamp.utcOffsetSeconds
                     )
                     try self.store.writeManifest(manifest, in: directory)
                 } else if self.store.fileExists(livenessURL) {
@@ -2021,11 +2064,13 @@ private extension MobileSegmentUploader {
         }
         return items
     }
+}
 
-    static func dayString(for date: Date) -> String {
+extension MobileSegmentUploader {
+    static func dayString(for date: Date, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
+        formatter.timeZone = timeZone
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
     }

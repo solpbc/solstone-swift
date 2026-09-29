@@ -5,15 +5,15 @@ import Foundation
 
 nonisolated enum ObserverSegmentNaming {
     // Segment formatting remains on ChunkSidecar; this pairs it with the matching day key for writer and spool recovery.
-    static func dayString(for date: Date) -> String {
+    static func dayString(for date: Date, timeZone: TimeZone = .current) -> String {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = .current
+        formatter.timeZone = timeZone
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
     }
 
-    static func segmentString(for date: Date, durationSeconds: Double) -> String {
-        ChunkSidecar.segmentString(for: date, durationSeconds: durationSeconds)
+    static func segmentString(for date: Date, durationSeconds: Double, timeZone: TimeZone = .current) -> String {
+        ChunkSidecar.segmentString(for: date, durationSeconds: durationSeconds, timeZone: timeZone)
     }
 }

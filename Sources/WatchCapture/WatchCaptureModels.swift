@@ -24,6 +24,17 @@ nonisolated enum WatchSensor: String, Codable, Equatable, Sendable, CaseIterable
     case location
 }
 
+nonisolated struct SegmentTimeZoneStamp: Equatable, Sendable {
+    var tz: String?
+    var utcOffsetSeconds: Int
+
+    init(timeZone: TimeZone, startedAt: Date) {
+        let identifier = timeZone.identifier
+        self.tz = TimeZone.knownTimeZoneIdentifiers.contains(identifier) ? identifier : nil
+        self.utcOffsetSeconds = timeZone.secondsFromGMT(for: startedAt)
+    }
+}
+
 nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
     let id: UUID
     var day: String
@@ -47,6 +58,8 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
     var relayLastProgressAt: Date? = nil
     var relayDeliveryEffortSeconds: Double? = nil
     var abandonedAt: Date? = nil
+    var tz: String? = nil
+    var utcOffsetSeconds: Int? = nil
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -71,6 +84,8 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
         case relayLastProgressAt = "relay_last_progress_at"
         case relayDeliveryEffortSeconds = "relay_delivery_effort_seconds"
         case abandonedAt = "abandoned_at"
+        case tz
+        case utcOffsetSeconds = "utc_offset_seconds"
     }
 }
 

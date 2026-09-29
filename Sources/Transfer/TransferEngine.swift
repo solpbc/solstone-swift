@@ -110,7 +110,9 @@ nonisolated enum DefaultTransferBodyBuilder {
                 batteryState: ingest.batteryState,
                 lowPowerMode: ingest.lowPowerMode,
                 powerSampledAt: ingest.powerSampledAt,
-                parts: parts
+                parts: parts,
+                tz: ingest.tz,
+                utcOffsetSeconds: ingest.utcOffsetSeconds
             )))
         case .saveThenStart:
             if item.manifest.saveThenStart?.phase == .startPending {
