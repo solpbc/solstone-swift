@@ -21,9 +21,11 @@ final class AppConfig {
     var clientCertFingerprintHex: String
     var pairedAt: Date?
     var loopbackPort: Int?
+    var journalSendConfirmed: Bool
     let journalVersion: JournalVersionMetadata
 
     @ObservationIgnored let store: PairingCredentialStore
+    @ObservationIgnored let confirmationStore: JournalSendConfirmationStore
     @ObservationIgnored private let endpointCache: EndpointCache
     @ObservationIgnored private let appGroupMirror: AppGroupMirror
     @ObservationIgnored private let journalMarkStore: JournalMarkStore
@@ -32,18 +34,22 @@ final class AppConfig {
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
+        confirmationStore: JournalSendConfirmationStore? = nil,
         store: PairingCredentialStore? = nil,
         endpointCache: EndpointCache = .shared,
         appGroupMirror: AppGroupMirror = AppGroupMirror(),
         journalMarkStore: JournalMarkStore = JournalMarkStore(),
         journalVersion: JournalVersionMetadata = JournalVersionMetadata()
     ) {
+        let effectiveConfirmationStore = confirmationStore ?? SPLRuntime.confirmationStore
         let effectiveStore = store ?? PairingCredentialStore(
+            confirmationStore: effectiveConfirmationStore,
             loadPairing: loadPairing,
             savePairing: savePairing,
             deletePairing: deletePairing
         )
         self.store = effectiveStore
+        self.confirmationStore = effectiveConfirmationStore
         self.endpointCache = endpointCache
         self.appGroupMirror = appGroupMirror
         self.journalMarkStore = journalMarkStore
@@ -58,6 +64,7 @@ final class AppConfig {
         self.clientCertFingerprintHex = ""
         self.pairedAt = nil
         self.loopbackPort = nil
+        self.journalSendConfirmed = false
 
         do {
             if let pairing = try self.store.load() {
@@ -70,11 +77,48 @@ final class AppConfig {
             appConfigLog.error("load stored pairing failed: \(String(describing: error), privacy: .public)")
             self.appGroupMirror.clearPairing()
         }
+
+        do {
+            let settleOutcome = try self.confirmationStore.settle(
+                loadPairing: { try self.store.load() },
+                onRestoreSnapshot: { [weak self] restored in
+                    self?.store.restoreSnapshotFromSettle(restored)
+                    self?.applyDerivedState(from: restored)
+                }
+            )
+            self.journalSendConfirmed = settleOutcome.isConfirmed
+        } catch {
+            appConfigLog.error("confirmation settle failed on init: \(String(describing: error), privacy: .public)")
+            self.journalSendConfirmed = false
+        }
+    }
+
+    @discardableResult
+    func retrySettleIfNeeded() -> Bool {
+        guard !self.journalSendConfirmed else { return false }
+        do {
+            let settleOutcome = try self.confirmationStore.settle(
+                loadPairing: { try self.store.load() },
+                onRestoreSnapshot: { [weak self] restored in
+                    self?.store.restoreSnapshotFromSettle(restored)
+                    self?.applyDerivedState(from: restored)
+                }
+            )
+            if settleOutcome.isConfirmed {
+                self.journalSendConfirmed = true
+                return true
+            }
+            return false
+        } catch {
+            appConfigLog.error("confirmation retry settle failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
     }
 
     func applyPairing(_ pairing: StoredPairing) throws {
         let newIdentity = journalVersionMetadataIdentity(for: pairing)
         let unchangedIdentity = newIdentity != nil && newIdentity == self.journalVersion.identity
+        self.journalSendConfirmed = false
         try self.store.applyPairing(pairing)
         if !unchangedIdentity {
             self.journalVersion.clear()
@@ -87,6 +131,7 @@ final class AppConfig {
     }
 
     func clearPairing() {
+        self.journalSendConfirmed = false
         self.journalVersion.clear()
         do {
             try self.store.clearPairing()
@@ -138,9 +183,9 @@ final class AppConfig {
             homeLabel: homeLabel,
             relayEndpoint: relayEndpoint ?? "wss://127.0.0.1:\(endpointPort)",
             fingerprint: Self.syntheticFingerprint,
-            clientCertPEM: Self.syntheticCertificatePEM,
+            clientCertPEM: CertlessTrustConstants.leafPEM,
             clientKeyPEM: Self.syntheticPrivateKeyPEM,
-            caChainPEM: Self.syntheticCertificatePEM,
+            caChainPEM: CertlessTrustConstants.caPEM,
             relayEnrollment: .enrolled(deviceToken: sessionKey ?? "ui-test-device-token", expiresAt: nil),
             localEndpoints: [
                 LocalEndpoint(host: endpointHost, port: endpointPort, scope: "")
@@ -159,6 +204,13 @@ final class AppConfig {
         self.port = endpointPort
         self.loopbackPort = endpointPort
         self.deviceID = deviceID
+
+        do {
+            try self.confirmationStore.writeRecord(for: pairing)
+            self.journalSendConfirmed = true
+        } catch {
+            appConfigLog.error("ui-test confirmation write failed: \(String(describing: error), privacy: .public)")
+        }
     }
 #endif
 
@@ -202,19 +254,6 @@ final class AppConfig {
     }
 
     private static let syntheticFingerprint = String(repeating: "a", count: 64)
-    private static let syntheticCertificatePEM = """
-    -----BEGIN CERTIFICATE-----
-    MIIBsjCCAVigAwIBAgIJAO0AAAAAAAAAMAoGCCqGSM49BAMCMBcxFTATBgNVBAMM
-    DHVpLXRlc3QtY2VydDAeFw0yNjAxMDEwMDAwMDBaFw0yNzAxMDEwMDAwMDBaMBcx
-    FTATBgNVBAMMDHVpLXRlc3QtY2VydDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA
-    BAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaajUzBRMB0G
-    A1UdDgQWBBSaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaAfBgNVHSMEGDAWgBSa
-    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaAPBgNVHRMBAf8EBTADAQH/MAoGCCqG
-    SM49BAMCA0gAMEUCIQDaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaIgIgDaaa
-    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=
-    -----END CERTIFICATE-----
-    """
     private static let syntheticPrivateKeyPEM = """
     -----BEGIN PRIVATE KEY-----
     MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgaaaaaaaaaaaaaaaaaaaa

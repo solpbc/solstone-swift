@@ -21,5 +21,10 @@ nonisolated enum SPLRuntime {
 
     static let keychainStore = SPLKeychainStore(policy: keychainPolicy)
 
-    static let pairingStore = PairingCredentialStore(store: keychainStore)
+    static let confirmationStore = JournalSendConfirmationStore.production()
+
+    static let pairingStore = PairingCredentialStore(
+        store: keychainStore,
+        confirmationStore: confirmationStore
+    )
 }

@@ -8,7 +8,7 @@ import XCTest
 nonisolated final class DynamicTypeSmokeTests: XCTestCase {
     @MainActor
     func testOnboardingTodayMoreAndSourcesRenderAtAccessibilityXXXL() async throws {
-        let appConfig = AppConfig()
+        let appConfig = AppConfig(confirmationStore: JournalSendConfirmationStore.memory())
         appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:7071")
         let connectionStallMonitor = ConnectionStallMonitor(
             store: InMemoryConnectionStallStore(),
@@ -158,7 +158,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(appConfig)
             .environment(OnboardingFlow())
             .environment(tunnelManager)
-            .environment(PushNotificationManager())
+            .environment(PushNotificationManager(journalSendAllowed: { true }))
             .environment(problemReportsManager)
             .environment(ShellNavModel())
             .environment(JournalUnpairNoticeStore())

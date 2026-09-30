@@ -5,7 +5,7 @@ import Foundation
 
 /// Pure decision seam: should a successful pairing complete onboarding forward?
 nonisolated final class OnboardingPairingReconciliation {
-    static func shouldComplete(isPaired: Bool, isOnboardingCompleted: Bool) -> Bool {
-        isPaired && !isOnboardingCompleted
+    static func shouldComplete(isPaired: Bool, journalSendConfirmed: Bool, isOnboardingCompleted: Bool) -> Bool {
+        isPaired && journalSendConfirmed && !isOnboardingCompleted
     }
 }

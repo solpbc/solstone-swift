@@ -127,24 +127,57 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
     // AC5: cancelPairing from couldNotVerify uses real tearDownMismatchedPairing to clear store, disconnect tunnel, and idle coordinator
     @MainActor
     func testCancelPairingClearsAppPairingAndDisconnectsTunnel() async throws {
+        TransferURLProtocol.reset()
+        defer { TransferURLProtocol.reset() }
+
         try? SPLRuntime.keychainStore.delete()
         defer { try? SPLRuntime.keychainStore.delete() }
 
         let store = PairFlowCouldNotVerifyPairingStore()
         let pairing = Self.fixturePairing()
+        let confirmationStore = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: { store.load() },
+            savePairing: { store.save($0) },
+            deletePairing: { store.delete() }
+        )
         let appGroupRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("PairFlowCouldNotVerifyTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: appGroupRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: appGroupRoot) }
 
         let appConfig = AppConfig(
-            loadPairing: { store.load() },
-            savePairing: { store.save($0) },
-            deletePairing: { store.delete() },
+            confirmationStore: confirmationStore,
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
         )
         try appConfig.applyPairing(pairing)
+
+        let resolver = LoopbackTransferEndpointResolver(
+            credentials: credentials,
+            confirmation: confirmationStore
+        )
+        await resolver.update(activeLocalPort: 7071)
+
+        let spoolDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Spool-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: spoolDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: spoolDir) }
+
+        let spool = TransferSpool(rootURL: spoolDir)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TransferURLProtocol.self]
+        let transport = TransferTransport(sessionConfiguration: configuration)
+        let engine = TransferEngine(spool: spool, transport: transport, endpointResolver: resolver)
+
+        let itemID = UUID()
+        _ = try await engine.enqueue(
+            manifest: Self.makeManifest(itemID: itemID),
+            payloads: ["audio": Data("audio".utf8)]
+        )
+        try await engine.start()
 
         let tunnel = TunnelManager(
             transport: MockCFTunnelTransport(),
@@ -180,6 +213,10 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
 
         await applicator.cancelPairing()
 
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        let snap = await engine.snapshot()
+        XCTAssertEqual(snap.counters.queuedCount, 1)
+
         XCTAssertTrue(transportAsked1.value)
         XCTAssertFalse(appConfig.isPaired)
         XCTAssertNil(store.load())
@@ -190,22 +227,60 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
 
     // AC6: reaching couldNotVerify does not clear pairing, disconnect tunnel, or unpair coordinator
     @MainActor
-    func testReachingCouldNotVerifyPreservesPairingAndConnection() throws {
+    func testReachingCouldNotVerifyPreservesPairingAndConnection() async throws {
+        TransferURLProtocol.reset()
+        defer { TransferURLProtocol.reset() }
+
         let store = PairFlowCouldNotVerifyPairingStore()
         let pairing = Self.fixturePairing()
+        let confirmationStore = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: { store.load() },
+            savePairing: { store.save($0) },
+            deletePairing: { store.delete() }
+        )
         let appGroupRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("PairFlowCouldNotVerifyPreserve-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: appGroupRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: appGroupRoot) }
 
         let appConfig = AppConfig(
-            loadPairing: { store.load() },
-            savePairing: { store.save($0) },
-            deletePairing: { store.delete() },
+            confirmationStore: confirmationStore,
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
         )
         try appConfig.applyPairing(pairing)
+
+        let resolver = LoopbackTransferEndpointResolver(
+            credentials: credentials,
+            confirmation: confirmationStore
+        )
+        await resolver.update(activeLocalPort: 7071)
+
+        let spoolDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Spool-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: spoolDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: spoolDir) }
+
+        let spool = TransferSpool(rootURL: spoolDir)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TransferURLProtocol.self]
+        let transport = TransferTransport(sessionConfiguration: configuration)
+        let engine = TransferEngine(spool: spool, transport: transport, endpointResolver: resolver)
+
+        let itemID = UUID()
+        _ = try await engine.enqueue(
+            manifest: Self.makeManifest(itemID: itemID),
+            payloads: ["audio": Data("audio".utf8)]
+        )
+        try await engine.start()
+
+        for _ in 0..<5 {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(5))
+        }
 
         let tunnel = TunnelManager(
             transport: MockCFTunnelTransport(),
@@ -243,11 +318,16 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
 
         applicator.apply(.fallback(.timeout))
 
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        let snap = await engine.snapshot()
+        XCTAssertEqual(snap.counters.queuedCount, 1)
+        XCTAssertEqual(snap.counters.inFlightCount, 0)
+        XCTAssertEqual(snap.counters.deliveredCount, 0)
+
         XCTAssertEqual(applicator.phase, .couldNotVerify)
         XCTAssertFalse(teardownInvoked)
         XCTAssertFalse(transportAsked2.value)
         XCTAssertTrue(appConfig.isPaired)
-        XCTAssertNotNil(store.load())
         XCTAssertEqual(tunnel.state, .connected(localPort: 7071, via: .lan))
     }
 
@@ -265,6 +345,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
             deletePairing: { store.delete() },
+            confirmationStore: JournalSendConfirmationStore.memory(),
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
         )
@@ -345,6 +426,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
             deletePairing: { store.delete() },
+            confirmationStore: JournalSendConfirmationStore.memory(),
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
         )
@@ -417,6 +499,43 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
             relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
             localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 7071, scope: "")],
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
+        )
+    }
+
+    private static func makeManifest(
+        itemID: UUID = UUID(),
+        source: String = "alpha",
+        createdAt: Date = Date()
+    ) -> TransferManifest {
+        TransferManifest(
+            itemID: itemID,
+            source: source,
+            createdAt: createdAt,
+            priority: TransferPriorityInputs(basePriority: .normal, sourceKey: source),
+            payloadParts: [
+                TransferPayloadPartDescriptor(
+                    partID: "audio",
+                    kind: .audio,
+                    relativePath: "audio.m4a",
+                    filename: "audio.m4a",
+                    contentType: "audio/mp4"
+                ),
+            ],
+            endpoint: TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/app/devices/ingest"),
+            observerIngest: TransferObserverIngestMetadata(
+                segment: "120000_3",
+                day: "20260420",
+                startedAt: createdAt,
+                durationS: 3,
+                sources: ["audio"],
+                chunkIndex: 0,
+                sessionID: itemID,
+                modeRawValue: "meeting",
+                segmentID: itemID,
+                ingestProtocolVersion: 3
+            ),
+            meta: .object(["kind": .string("test")]),
+            nextAttemptAt: nil
         )
     }
 }

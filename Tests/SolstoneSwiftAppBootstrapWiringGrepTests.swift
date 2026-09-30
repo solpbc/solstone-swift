@@ -25,6 +25,17 @@ nonisolated final class SolstoneSwiftAppBootstrapWiringGrepTests: XCTestCase {
         XCTAssertLessThan(reconcileIndex, enableIndex)
     }
 
+    func testLoopbackTransferEndpointResolverWiring() throws {
+        let appURL = StringLiteralGrepSupport.worktreeRoot()
+            .appendingPathComponent("Sources/SolstoneSwiftApp.swift")
+        let text = try String(contentsOf: appURL, encoding: .utf8)
+
+        XCTAssertTrue(
+            text.contains("LoopbackTransferEndpointResolver(credentials: appConfig.store, confirmation: SPLRuntime.confirmationStore)")
+            || text.contains("LoopbackTransferEndpointResolver(\n            credentials: appConfig.store,\n            confirmation: SPLRuntime.confirmationStore\n        )")
+        )
+    }
+
     private static func slice(in text: String, from startToken: String, to endToken: String) throws -> Substring {
         let start = try XCTUnwrap(text.range(of: startToken))
         let remaining = text[start.lowerBound...]

@@ -41,6 +41,7 @@ final class PushNotificationManager {
     private(set) var ownerEnabled = false
     var activeLocalPort: Int?
 
+    @ObservationIgnored private let journalSendAllowed: @Sendable () -> Bool
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let keyStore: PushKeyStore
@@ -53,32 +54,19 @@ final class PushNotificationManager {
     @ObservationIgnored private let profileBytes: @Sendable () -> Data?
     @ObservationIgnored private var tokenContinuations: [UUID: AsyncStream<String>.Continuation] = [:]
 
-    convenience init(
+    init(
+        journalSendAllowed: @escaping @Sendable () -> Bool,
         defaults: UserDefaults = .standard,
         session: URLSession = .shared,
-        keyStore: PushKeyStore = .production()
-    ) {
-        self.init(
-            defaults: defaults,
-            session: session,
-            keyStore: keyStore,
-            retryDelays: [
-                2_000_000_000,
-                4_000_000_000,
-                8_000_000_000,
-            ],
-            sleep: { delay in
-                try? await Task.sleep(nanoseconds: delay)
-            }
-        )
-    }
-
-    init(
-        defaults: UserDefaults,
-        session: URLSession,
         keyStore: PushKeyStore = .production(),
-        retryDelays: [UInt64],
-        sleep: @escaping @Sendable (UInt64) async -> Void,
+        retryDelays: [UInt64] = [
+            2_000_000_000,
+            4_000_000_000,
+            8_000_000_000,
+        ],
+        sleep: @escaping @Sendable (UInt64) async -> Void = { delay in
+            try? await Task.sleep(nanoseconds: delay)
+        },
         bundleIdentifierOverride: String? = nil,
         environmentOverride: String? = nil,
         register: @escaping @MainActor @Sendable () -> Void = { UIApplication.shared.registerForRemoteNotifications() },
@@ -94,6 +82,7 @@ final class PushNotificationManager {
             return try? Data(contentsOf: url)
         }
     ) {
+        self.journalSendAllowed = journalSendAllowed
         self.defaults = defaults
         self.session = session
         self.keyStore = keyStore
@@ -270,7 +259,35 @@ final class PushNotificationManager {
         }
     }
 
+    func kickAfterConfirmation() async {
+        guard let localPort = self.activeLocalPort else { return }
+        guard self.journalSendAllowed() else { return }
+
+        if self.ownerEnabled {
+            if let pendingToken = self.defaults.string(forKey: DefaultsKey.pendingRegistrationToken),
+               !pendingToken.isEmpty
+            {
+                await self.register(token: pendingToken, localPort: localPort)
+            } else if let token = self.deviceToken, !token.isEmpty {
+                await self.register(token: token, localPort: localPort)
+            } else if let lastToken = self.defaults.string(forKey: DefaultsKey.lastRegisteredToken),
+                      !lastToken.isEmpty
+            {
+                await self.register(token: lastToken, localPort: localPort)
+            }
+        } else if let unregisterToken = self.defaults.string(forKey: DefaultsKey.pendingUnregisterToken),
+                  !unregisterToken.isEmpty
+        {
+            await self.unregisterPending(localPort: localPort)
+        }
+    }
+
     func sendTestNotification() async -> Bool {
+        guard self.journalSendAllowed() else {
+            log.error("push test failed: journal send not allowed")
+            return false
+        }
+
         guard let localPort = self.activeLocalPort,
               let url = PushServerURL.url(path: "/api/push/test", localPort: localPort)
         else {
@@ -428,6 +445,13 @@ private extension PushNotificationManager {
     }
 
     func register(token: String, localPort: Int) async {
+        guard self.journalSendAllowed() else {
+            self.defaults.set(token, forKey: DefaultsKey.pendingRegistrationToken)
+            self.registrationState = .idle
+            log.debug("push registration deferred: journal send not allowed")
+            return
+        }
+
         let pushKey: Data
         do {
             pushKey = try self.keyStore.loadOrCreate()
@@ -514,6 +538,8 @@ private extension PushNotificationManager {
     }
 
     func unregisterPending(localPort: Int) async {
+        guard self.journalSendAllowed() else { return }
+
         guard let token = self.defaults.string(forKey: DefaultsKey.pendingUnregisterToken),
               !token.isEmpty,
               let url = PushServerURL.url(path: "/api/push/register", localPort: localPort)

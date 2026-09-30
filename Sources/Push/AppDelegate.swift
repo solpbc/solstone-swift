@@ -17,7 +17,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         ["share", "upload"].joined(separator: "-"),
     ].joined(separator: ".")
 
-    let pushManager = PushNotificationManager()
+    let pushManager = PushNotificationManager(
+        journalSendAllowed: {
+            SPLRuntime.confirmationStore.allowsSend(pairing: SPLRuntime.pairingStore.snapshot().pairing)
+        }
+    )
     let pendingRoute = PendingNotificationRouteState()
     lazy var tapRouter = NotificationTapRouter(
         isPaired: { (try? SPLRuntime.pairingStore.load()) != nil },

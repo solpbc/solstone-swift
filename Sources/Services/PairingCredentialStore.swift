@@ -50,17 +50,20 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     private var state = State()
     private let keychainQueue = DispatchQueue(label: "app.solstone.swift.pairing-store.keychain")
 
+    private let confirmationStore: JournalSendConfirmationStore
     private let loadPairingClosure: @Sendable () throws -> StoredPairing?
     private let savePairingClosure: @Sendable (StoredPairing) throws -> Void
     private let deletePairingClosure: @Sendable () throws -> Void
     private let deletePushKeyClosure: @Sendable () throws -> Void
 
     init(
+        confirmationStore: JournalSendConfirmationStore = SPLRuntime.confirmationStore,
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         savePairing: @escaping @Sendable (StoredPairing) throws -> Void = { try SPLRuntime.keychainStore.save($0) },
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
         deletePushKey: @escaping @Sendable () throws -> Void = {}
     ) {
+        self.confirmationStore = confirmationStore
         self.loadPairingClosure = loadPairing
         self.savePairingClosure = savePairing
         self.deletePairingClosure = deletePairing
@@ -72,13 +75,27 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
         }
     }
 
-    convenience init(store: SPLKeychainStore) {
+    convenience init(store: SPLKeychainStore, confirmationStore: JournalSendConfirmationStore) {
         self.init(
+            confirmationStore: confirmationStore,
             loadPairing: { try store.load() },
             savePairing: { try store.save($0) },
             deletePairing: { try store.delete() },
             deletePushKey: { try PushKeyStore.production().delete() }
         )
+    }
+
+    func performOnKeychainQueue<T>(_ block: () throws -> T) throws -> T {
+        try self.keychainQueue.sync {
+            try block()
+        }
+    }
+
+    func restoreSnapshotFromSettle(_ pairing: StoredPairing) {
+        self.lock.withLock {
+            self.state.pairing = pairing
+            self.state.pairingIdentity = journalVersionMetadataIdentity(for: pairing)
+        }
     }
 
     private func performMutation(
@@ -144,6 +161,8 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
 
     func applyPairing(_ pairing: StoredPairing) throws {
         try self.keychainQueue.sync {
+            try self.confirmationStore.writeMarkerOnApplyPairing()
+
             let previousFingerprint = self.lock.withLock { self.state.pairing?.fingerprint }
             let shouldDeletePushKey = previousFingerprint == nil || previousFingerprint != pairing.fingerprint
             if shouldDeletePushKey {
@@ -154,6 +173,9 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
                 }
             }
             try self.savePairingClosure(pairing)
+            if self.confirmationStore.firstSettleReadFailed && !self.confirmationStore.hasSettledSuccessfully {
+                self.confirmationStore.noteApplyPairingAfterFailedRead()
+            }
             self.lock.withLock {
                 self.state.pairing = pairing
                 self.state.pairingGeneration &+= 1
@@ -314,6 +336,11 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     }
 
     private func publishClearedPairing() {
+        do {
+            try self.confirmationStore.clearRecord()
+        } catch {
+            storeLog.error("confirmation record clear failed on publishClearedPairing")
+        }
         do {
             try self.deletePushKeyClosure()
         } catch {

@@ -30,13 +30,17 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let mark = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
 
-        XCTAssertEqual(mark?.words, ["afoot", "unfixed"])
+        if case .match(let mark) = result {
+            XCTAssertEqual(mark.words, ["afoot", "unfixed"])
+        } else {
+            XCTFail("expected .match, got \(result)")
+        }
     }
 
     @MainActor
-    func testFetchReturnsNilWhenUncommitted() async {
+    func testFetchReturnsMissingOrInvalidWhenUncommitted() async {
         JournalIdentityURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -44,13 +48,13 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let mark = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
 
-        XCTAssertNil(mark)
+        XCTAssertEqual(result, .missingOrInvalid)
     }
 
     @MainActor
-    func testFetchReturnsNilWhenMarkNull() async {
+    func testFetchReturnsMissingOrInvalidWhenMarkNull() async {
         JournalIdentityURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -58,13 +62,13 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let mark = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
 
-        XCTAssertNil(mark)
+        XCTAssertEqual(result, .missingOrInvalid)
     }
 
     @MainActor
-    func testFetchReturnsNilForNon2xx() async {
+    func testFetchReturnsMissingOrInvalidForNon2xx() async {
         JournalIdentityURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!,
@@ -72,13 +76,13 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let mark = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
 
-        XCTAssertNil(mark)
+        XCTAssertEqual(result, .missingOrInvalid)
     }
 
     @MainActor
-    func testFetchReturnsNilForGarbageJSON() async {
+    func testFetchReturnsMissingOrInvalidForGarbageJSON() async {
         JournalIdentityURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -86,13 +90,13 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let mark = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
 
-        XCTAssertNil(mark)
+        XCTAssertEqual(result, .missingOrInvalid)
     }
 
     @MainActor
-    func testFetchReturnsNilForInvalidMark() async {
+    func testFetchReturnsMissingOrInvalidForInvalidMark() async {
         JournalIdentityURLProtocol.handler = { request in
             var mark = Self.markObject()
             var icon2 = mark["icon2"] as! [String: Any]
@@ -104,15 +108,65 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let mark = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
 
-        XCTAssertNil(mark)
+        XCTAssertEqual(result, .missingOrInvalid)
     }
 
-    private static func identityData(committed: Bool, mark: Any) -> Data {
+    @MainActor
+    func testFetchReturnsInstanceMismatchWhenInstanceDoesNotMatch() async {
+        JournalIdentityURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Self.identityData(committed: true, mark: Self.markObject(), instanceID: "instance-other")
+            )
+        }
+
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-123")
+
+        XCTAssertEqual(result, .instanceMismatch)
+    }
+
+    @MainActor
+    func testFetchReturnsMatchForCaseDifferentInstanceID() async {
+        JournalIdentityURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Self.identityData(committed: true, mark: Self.markObject(), instanceID: "INSTANCE-ABC-123")
+            )
+        }
+
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-abc-123")
+
+        if case .match(let mark) = result {
+            XCTAssertEqual(mark.words, ["afoot", "unfixed"])
+        } else {
+            XCTFail("expected .match for case-different instance ID, got \(result)")
+        }
+    }
+
+    @MainActor
+    func testFetchReturnsInstanceMismatchWhenInstanceIDMissingInResponse() async {
+        JournalIdentityURLProtocol.handler = { request in
+            let data = try! JSONSerialization.data(withJSONObject: [
+                "committed": true,
+                "mark": Self.markObject(),
+            ])
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                data
+            )
+        }
+
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-123")
+
+        XCTAssertEqual(result, .instanceMismatch)
+    }
+
+    private static func identityData(committed: Bool, mark: Any, instanceID: String = "instance-123") -> Data {
         try! JSONSerialization.data(withJSONObject: [
             "committed": committed,
-            "instance_id": "instance-123",
+            "instance_id": instanceID,
             "mark": mark,
         ])
     }

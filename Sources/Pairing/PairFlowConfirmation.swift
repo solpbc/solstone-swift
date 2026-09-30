@@ -77,32 +77,63 @@ final class PairFlowCompletionGate {
 }
 
 @MainActor
+func completeJournalSend(
+    release: JournalSendRelease,
+    appConfig: AppConfig,
+    gate: PairFlowCompletionGate,
+    onComplete: @MainActor () -> Void
+) -> Bool {
+    do {
+        try release.authorize(appConfig, writeMarker: false)
+    } catch {
+        return false
+    }
+    gate.completeOnce(onComplete)
+    return true
+}
+
+@MainActor
 func resolveConfirmation(
     timeout: Duration = .seconds(6),
     step: Duration = .milliseconds(125),
+    startDeadlineWhenConnected: Bool = false,
     connectedPort: @MainActor @Sendable @escaping () -> Int?,
-    fetchMark: @Sendable @escaping (_ port: Int) async -> JournalMark?
+    fetchResult: @Sendable @escaping (_ port: Int) async -> JournalIdentityFetchResult
 ) async -> ConfirmOutcome {
     let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: timeout)
+    var deadline: ContinuousClock.Instant? = startDeadlineWhenConnected ? nil : clock.now.advanced(by: timeout)
 
-    while clock.now < deadline {
+    while true {
         if Task.isCancelled {
             confirmationLog.debug("journal mark confirm fallback: cancelled before connected port")
             return .fallback(.cancelled)
         }
 
         if let port = connectedPort() {
-            let mark = await fetchMark(port)
+            if deadline == nil {
+                deadline = clock.now.advanced(by: timeout)
+            }
+
+            let result = await fetchResult(port)
             if Task.isCancelled {
                 confirmationLog.debug("journal mark confirm fallback: cancelled during fetch")
                 return .fallback(.cancelled)
             }
-            guard let mark else {
+
+            switch result {
+            case .match(let mark):
+                return .confirm(mark)
+            case .missingOrInvalid:
                 confirmationLog.info("journal mark confirm fallback: missing or invalid mark")
                 return .fallback(.missingOrInvalidMark)
+            case .instanceMismatch:
+                break
             }
-            return .confirm(mark)
+        }
+
+        if let activeDeadline = deadline, clock.now >= activeDeadline {
+            confirmationLog.info("journal mark confirm fallback: connected port or instance match timeout")
+            return .fallback(.timeout)
         }
 
         do {
@@ -111,15 +142,12 @@ func resolveConfirmation(
             confirmationLog.debug("journal mark confirm fallback: cancelled while waiting for connected port")
             return .fallback(.cancelled)
         }
-    }
 
-    if Task.isCancelled {
-        confirmationLog.debug("journal mark confirm fallback: cancelled at deadline")
-        return .fallback(.cancelled)
+        if let activeDeadline = deadline, clock.now >= activeDeadline {
+            confirmationLog.info("journal mark confirm fallback: deadline reached after step")
+            return .fallback(.timeout)
+        }
     }
-
-    confirmationLog.info("journal mark confirm fallback: connected port timeout")
-    return .fallback(.timeout)
 }
 
 @MainActor

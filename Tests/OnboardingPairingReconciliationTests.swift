@@ -6,27 +6,53 @@ import Foundation
 import XCTest
 
 nonisolated final class OnboardingPairingReconciliationTests: XCTestCase {
-    func testCompletesWhenPairedAndOnboardingIncomplete() {
+    func testCompletesWhenPairedConfirmedAndOnboardingIncomplete() {
         XCTAssertTrue(
-            OnboardingPairingReconciliation.shouldComplete(isPaired: true, isOnboardingCompleted: false)
+            OnboardingPairingReconciliation.shouldComplete(
+                isPaired: true,
+                journalSendConfirmed: true,
+                isOnboardingCompleted: false
+            )
         )
     }
 
-    func testDoesNotCompleteWhenPairedAndOnboardingCompleted() {
+    func testDoesNotCompleteWhenPairedUnconfirmedAndOnboardingIncomplete() {
         XCTAssertFalse(
-            OnboardingPairingReconciliation.shouldComplete(isPaired: true, isOnboardingCompleted: true)
+            OnboardingPairingReconciliation.shouldComplete(
+                isPaired: true,
+                journalSendConfirmed: false,
+                isOnboardingCompleted: false
+            )
+        )
+    }
+
+    func testDoesNotCompleteWhenPairedConfirmedAndOnboardingCompleted() {
+        XCTAssertFalse(
+            OnboardingPairingReconciliation.shouldComplete(
+                isPaired: true,
+                journalSendConfirmed: true,
+                isOnboardingCompleted: true
+            )
         )
     }
 
     func testDoesNotCompleteWhenUnpairedAndOnboardingIncomplete() {
         XCTAssertFalse(
-            OnboardingPairingReconciliation.shouldComplete(isPaired: false, isOnboardingCompleted: false)
+            OnboardingPairingReconciliation.shouldComplete(
+                isPaired: false,
+                journalSendConfirmed: false,
+                isOnboardingCompleted: false
+            )
         )
     }
 
     func testDoesNotCompleteWhenUnpairedAndOnboardingCompleted() {
         XCTAssertFalse(
-            OnboardingPairingReconciliation.shouldComplete(isPaired: false, isOnboardingCompleted: true)
+            OnboardingPairingReconciliation.shouldComplete(
+                isPaired: false,
+                journalSendConfirmed: false,
+                isOnboardingCompleted: true
+            )
         )
     }
 }

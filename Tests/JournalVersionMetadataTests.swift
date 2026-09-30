@@ -226,6 +226,54 @@ final class JournalVersionMetadataTests: XCTestCase {
         let over80 = String(repeating: "a", count: 81)
         XCTAssertNil(sanitizedJournalName(over80))
     }
+
+    func testJournalSendConfirmationKeyDerivation() {
+        let pairingA = StoredPairing(
+            instanceID: "inst-1",
+            homeLabel: "Home",
+            relayEndpoint: "https://relay.example.com",
+            fingerprint: "ca-fingerprint-1",
+            clientCertPEM: CertlessTrustFixtures.leafPEM,
+            clientKeyPEM: "KEY_A",
+            caChainPEM: CertlessTrustFixtures.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [],
+            pairedAt: Date()
+        )
+        let pairingB = StoredPairing(
+            instanceID: "inst-2",
+            homeLabel: "Home",
+            relayEndpoint: "https://relay.example.com",
+            fingerprint: "ca-fingerprint-1",
+            clientCertPEM: CertlessTrustFixtures.leafPEM,
+            clientKeyPEM: "KEY_A",
+            caChainPEM: CertlessTrustFixtures.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [],
+            pairedAt: Date()
+        )
+
+        let keyA = journalSendConfirmationKey(for: pairingA)
+        let keyB = journalSendConfirmationKey(for: pairingB)
+        let idA = journalVersionMetadataIdentity(for: pairingA)
+
+        XCTAssertNotNil(keyA)
+        XCTAssertNotNil(keyB)
+        XCTAssertNotEqual(keyA, keyB)
+        XCTAssertNotEqual(keyA, idA)
+    }
+
+    func testJournalInstanceIDsMatch() {
+        XCTAssertTrue(journalInstanceIDsMatch("ABC", "abc"))
+        XCTAssertTrue(journalInstanceIDsMatch("  ABC  ", "abc"))
+        XCTAssertTrue(journalInstanceIDsMatch("instance-1", "INSTANCE-1"))
+        XCTAssertFalse(journalInstanceIDsMatch("instance-1", "instance-2"))
+        XCTAssertFalse(journalInstanceIDsMatch("", ""))
+        XCTAssertFalse(journalInstanceIDsMatch("   ", ""))
+        XCTAssertFalse(journalInstanceIDsMatch(nil, "abc"))
+        XCTAssertFalse(journalInstanceIDsMatch("abc", nil))
+        XCTAssertFalse(journalInstanceIDsMatch(nil, nil))
+    }
 }
 
 @MainActor

@@ -45,7 +45,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             )
         }
 
-        let manager = self.makeManager()
+        let manager = self.makeManager(journalSendAllowed: { true })
         await MainActor.run {
             manager.activeLocalPort = 8474
         }
@@ -72,7 +72,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         }
 
         let keyStore = PushKeyStore.memory()
-        let manager = self.makeManager(keyStore: keyStore)
+        let manager = self.makeManager(journalSendAllowed: { true }, keyStore: keyStore)
         await MainActor.run {
             manager.activeLocalPort = 8474
         }
@@ -114,6 +114,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         }
 
         let manager = self.makeManager(
+            journalSendAllowed: { true },
             retryDelays: [2, 4, 8],
             sleep: { delay in await sleepRecorder.append(delay) }
         )
@@ -138,7 +139,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             )
         }
 
-        let manager = self.makeManager()
+        let manager = self.makeManager(journalSendAllowed: { true })
         await MainActor.run {
             manager.activeLocalPort = 8474
         }
@@ -157,7 +158,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             )
         }
 
-        let manager = self.makeManager()
+        let manager = self.makeManager(journalSendAllowed: { true })
         await MainActor.run {
             manager.activeLocalPort = 8474
         }
@@ -181,7 +182,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
 
         // 1. No pending token and known deviceToken -> sends 1
         PushManagerURLProtocol.callCount = 0
-        let manager1 = self.makeManager()
+        let manager1 = self.makeManager(journalSendAllowed: { true })
         await manager1.submitToken(Data([0x11, 0x22, 0x33, 0x44]))
         XCTAssertEqual(PushManagerURLProtocol.callCount, 0) // not connected yet
         XCTAssertEqual(self.defaults.string(forKey: "push.pendingRegistrationToken"), "11223344")
@@ -197,6 +198,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         manager2Defaults.set("55667788", forKey: "push.lastRegisteredToken")
         manager2Defaults.set("production", forKey: "push.registeredEnvironment") // mismatch with override "development"
         let manager2 = PushNotificationManager(
+            journalSendAllowed: { true },
             defaults: manager2Defaults,
             session: self.session,
             keyStore: .memory(),
@@ -217,6 +219,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         let manager3Defaults = UserDefaults(suiteName: "T3.\(UUID().uuidString)")!
         manager3Defaults.set(true, forKey: "push.ownerEnabled")
         let manager3 = PushNotificationManager(
+            journalSendAllowed: { true },
             defaults: manager3Defaults,
             session: self.session,
             keyStore: .memory(),
@@ -236,7 +239,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
     @MainActor
     func testBadPrefixFailsWithNoKeyReason() async {
         let badStore = PushKeyStore.memory(prefix: "INVALID")
-        let manager = self.makeManager(keyStore: badStore)
+        let manager = self.makeManager(journalSendAllowed: { true }, keyStore: badStore)
         await MainActor.run {
             manager.activeLocalPort = 8474
         }
@@ -253,7 +256,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             delete: { _ in errSecInteractionNotAllowed }
         )
         let lockedStore = PushKeyStore(seam: seam, prefix: "7QCG8V4M6H.")
-        let manager = self.makeManager(keyStore: lockedStore)
+        let manager = self.makeManager(journalSendAllowed: { true }, keyStore: lockedStore)
         await MainActor.run {
             manager.activeLocalPort = 8474
         }
@@ -274,6 +277,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         for (permissionState, expectedCount) in cases {
             let registerCount = OSAllocatedUnfairLock<Int>(initialState: 0)
             let manager = self.makeManager(
+                journalSendAllowed: { true },
                 register: {
                     registerCount.withLock { $0 += 1 }
                 }
@@ -325,7 +329,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         PushManagerURLProtocol.handler = { request in
             (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data())
         }
-        let manager = self.makeManager(ownerEnabled: nil)
+        let manager = self.makeManager(journalSendAllowed: { true }, ownerEnabled: nil)
         manager.setPermissionStateForTesting(.authorized)
         manager.activeLocalPort = 8474
 
@@ -365,7 +369,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         PushManagerURLProtocol.handler = { request in
             (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data())
         }
-        let manager = self.makeManager(ownerEnabled: true)
+        let manager = self.makeManager(journalSendAllowed: { true }, ownerEnabled: true)
         manager.setPermissionStateForTesting(.authorized)
         manager.activeLocalPort = 8474
         await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
@@ -384,7 +388,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         manager.reregisterIfAuthorized()
         XCTAssertEqual(PushManagerURLProtocol.callCount, 1, "the next journal must not be registered until the owner turns it on")
 
-        let relaunched = self.makeManager(ownerEnabled: nil)
+        let relaunched = self.makeManager(journalSendAllowed: { true }, ownerEnabled: nil)
         XCTAssertFalse(relaunched.ownerEnabled)
     }
 
@@ -402,7 +406,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             }
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data())
         }
-        let manager = self.makeManager()
+        let manager = self.makeManager(journalSendAllowed: { true })
         manager.activeLocalPort = 8474
         await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
         XCTAssertEqual(manager.registrationState, .registered(token: "deadbeef"))
@@ -426,7 +430,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         }
         self.defaults.set("deadbeef", forKey: "push.lastRegisteredToken")
         self.defaults.set("development", forKey: "push.registeredEnvironment")
-        let manager = self.makeManager(ownerEnabled: nil)
+        let manager = self.makeManager(journalSendAllowed: { true }, ownerEnabled: nil)
 
         await manager.handleTunnelConnected(localPort: 8474)
         await manager.handleTunnelConnected(localPort: 8474)
@@ -444,9 +448,12 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             return (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data())
         }
         let box = ManagerBox()
-        let manager = self.makeManager(sleep: { _ in
-            await MainActor.run { box.manager?.setOwnerEnabledForTesting(false) }
-        })
+        let manager = self.makeManager(
+            journalSendAllowed: { true },
+            sleep: { _ in
+                await MainActor.run { box.manager?.setOwnerEnabledForTesting(false) }
+            }
+        )
         box.manager = manager
         manager.activeLocalPort = 8474
 
@@ -472,7 +479,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             }
             return (HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!, Data())
         }
-        let manager = self.makeManager()
+        let manager = self.makeManager(journalSendAllowed: { true })
         box.manager = manager
         manager.activeLocalPort = 8474
 
@@ -487,7 +494,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
     @MainActor
     func testReregisterDoesNothingWhileOff() {
         let registerCount = OSAllocatedUnfairLock<Int>(initialState: 0)
-        let manager = self.makeManager(register: { registerCount.withLock { $0 += 1 } }, ownerEnabled: nil)
+        let manager = self.makeManager(journalSendAllowed: { true }, register: { registerCount.withLock { $0 += 1 } }, ownerEnabled: nil)
         manager.setPermissionStateForTesting(.authorized)
         manager.reregisterIfAuthorized()
         XCTAssertEqual(registerCount.withLock { $0 }, 0)
@@ -506,7 +513,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             return (HTTPURLResponse(url: request.url!, statusCode: fail ? 500 : 204, httpVersion: nil, headerFields: nil)!, Data())
         }
         self.defaults.set("deadbeef", forKey: "push.lastRegisteredToken")
-        let manager = self.makeManager(ownerEnabled: nil)
+        let manager = self.makeManager(journalSendAllowed: { true }, ownerEnabled: nil)
 
         await manager.handleTunnelConnected(localPort: 8474)
         XCTAssertEqual(self.defaults.string(forKey: "push.pendingUnregisterToken"), "deadbeef")
@@ -519,7 +526,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
     @MainActor
     func testTurnOnWithAuthorizedPermissionAsksForAToken() async {
         let registerCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
-        let manager = self.makeManager(register: { registerCalls.withLock { $0 += 1 } }, ownerEnabled: nil)
+        let manager = self.makeManager(journalSendAllowed: { true }, register: { registerCalls.withLock { $0 += 1 } }, ownerEnabled: nil)
         manager.setPermissionStateForTesting(.authorized)
 
         await manager.turnOn()
@@ -530,6 +537,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
     }
 
     @MainActor private func makeManager(
+        journalSendAllowed: @escaping @Sendable () -> Bool,
         keyStore: PushKeyStore = .memory(),
         retryDelays: [UInt64] = [1, 2, 3],
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
@@ -543,6 +551,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
             self.defaults.set(ownerEnabled, forKey: "push.ownerEnabled")
         }
         return PushNotificationManager(
+            journalSendAllowed: journalSendAllowed,
             defaults: self.defaults,
             session: self.session,
             keyStore: keyStore,
@@ -573,6 +582,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         }
 
         let manager = self.makeManager(
+            journalSendAllowed: { true },
             environmentOverride: nil,
             isSimulator: isSimulator,
             profileBytes: profileBytes
@@ -598,7 +608,7 @@ private final class ManagerBox {
     var manager: PushNotificationManager?
 }
 
-private final class PushManagerURLProtocol: URLProtocol, @unchecked Sendable {
+final class PushManagerURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
 
     private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)

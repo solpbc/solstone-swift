@@ -212,10 +212,17 @@ struct JournalWebView: UIViewRepresentable {
     }
 }
 
+nonisolated enum InAppJournalPresentation {
+    static func shouldLoadWebView(journalSendConfirmed: Bool, resolvedURL: URL?) -> Bool {
+        journalSendConfirmed && resolvedURL != nil
+    }
+}
+
 struct InAppJournalView: View {
     var mark: JournalMark? = nil
     var presentation: ShellPanePresentation = .phoneModal
     var path: String = "/"
+    @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(\.dismiss) private var dismiss
@@ -294,7 +301,10 @@ struct InAppJournalView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let url = self.resolvedURL {
+        if InAppJournalPresentation.shouldLoadWebView(
+            journalSendConfirmed: self.appConfig.journalSendConfirmed,
+            resolvedURL: self.resolvedURL
+        ), let url = self.resolvedURL {
             ZStack {
                 JournalWebView(
                     url: url,

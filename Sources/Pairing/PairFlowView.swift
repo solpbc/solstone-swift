@@ -101,6 +101,11 @@ final class PairFlowStillTryingTimer {
 }
 
 struct PairFlowView: View {
+    nonisolated enum PairFlowStart: Equatable, Sendable {
+        case ceremony
+        case confirmHeldJournal
+    }
+
     enum EntryMode: String, CaseIterable, Identifiable {
         case scan
         case paste
@@ -173,12 +178,15 @@ struct PairFlowView: View {
     }
 
     @Environment(AppConfig.self) private var appConfig
+    @Environment(JournalSendRelease.self) private var journalSendRelease
+    @Environment(PairFlowPresence.self) private var presence
     @Environment(PairingHandoffState.self) private var handoff
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(\.scenePhase) private var scenePhase
 
-    let onBack: () -> Void
-    let onComplete: () -> Void
+    var startMode: PairFlowStart = .ceremony
+    let onBack: @MainActor () -> Void
+    let onComplete: @MainActor () -> Void
 
     @State private var coordinator = PairFlowCoordinator()
     @State private var fallbackTimer = PairFlowFallbackTimer()
@@ -201,6 +209,7 @@ struct PairFlowView: View {
             self.phaseContent
         }
         .onAppear {
+            self.presence.increment()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--ui-test-mark-confirm") {
                 self.cancelFlowTask()
@@ -210,6 +219,10 @@ struct PairFlowView: View {
                 return
             }
             #endif
+            if self.startMode == .confirmHeldJournal {
+                self.startConfirmHeldJournal()
+                return
+            }
             guard !self.coordinator.hasAutoPaired else { return }
             if let pairURLError = self.handoff.pairURLError {
                 self.fallbackTimer.cancel()
@@ -227,6 +240,7 @@ struct PairFlowView: View {
             }
         }
         .onDisappear {
+            self.presence.decrement()
             self.cancelFlowTask()
             self.fallbackTimer.cancel()
             self.stillTryingTimer.reset()
@@ -441,7 +455,12 @@ struct PairFlowView: View {
                 // The owner just confirmed this is their journal's mark: keep it, so the shell
                 // shows it from the first frame instead of waiting on a fetch.
                 JournalMarkStore().save(mark)
-                self.completeOnce()
+                guard completeJournalSend(
+                    release: self.journalSendRelease,
+                    appConfig: self.appConfig,
+                    gate: self.completionGate,
+                    onComplete: self.onComplete
+                ) else { return }
             }
             .buttonStyle(.borderedProminent)
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -458,7 +477,12 @@ struct PairFlowView: View {
     private var couldNotVerifyContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             Button(SourceVocabulary.journalMarkCouldNotVerifyContinue) {
-                self.completeOnce()
+                guard completeJournalSend(
+                    release: self.journalSendRelease,
+                    appConfig: self.appConfig,
+                    gate: self.completionGate,
+                    onComplete: self.onComplete
+                ) else { return }
             }
             .buttonStyle(.borderedProminent)
             .accessibilityLabel(SourceVocabulary.journalMarkCouldNotVerifyContinueAccessibility)
@@ -663,21 +687,24 @@ struct PairFlowView: View {
         }
         do {
             try await self.coordinator.handlePairURL(pairURL)
-            if let pairing = try SPLRuntime.keychainStore.load() {
+            let pairing = try SPLRuntime.keychainStore.load()
+            if let pairing {
                 try self.appConfig.applyPairing(pairing)
             }
             guard !Task.isCancelled else { return }
             self.phase = .connecting
             let fetcher = JournalIdentityFetcher()
+            let expectedInstanceID = pairing?.instanceID
             let outcome = await resolveConfirmation(
+                startDeadlineWhenConnected: false,
                 connectedPort: {
                     if case .connected(let port, _) = self.tunnelManager.state {
                         return port
                     }
                     return nil
                 },
-                fetchMark: { port in
-                    await fetcher.fetch(localPort: port)
+                fetchResult: { port in
+                    await fetcher.fetch(localPort: port, expectedInstanceID: expectedInstanceID)
                 }
             )
             guard !Task.isCancelled else { return }
@@ -698,6 +725,36 @@ struct PairFlowView: View {
             }
             self.endAttempt()
             self.startFallbackTimerIfNeeded()
+        }
+    }
+
+    private func startConfirmHeldJournal() {
+        self.cancelFlowTask()
+        self.phase = .connecting
+        self.flowTask = Task { @MainActor in
+            let fetcher = JournalIdentityFetcher()
+            let expectedInstanceID = self.appConfig.deviceID.isEmpty ? nil : self.appConfig.deviceID
+            let outcome = await resolveConfirmation(
+                startDeadlineWhenConnected: true,
+                connectedPort: {
+                    if case .connected(let port, _) = self.tunnelManager.state {
+                        return port
+                    }
+                    return nil
+                },
+                fetchResult: { port in
+                    await fetcher.fetch(localPort: port, expectedInstanceID: expectedInstanceID)
+                }
+            )
+            guard !Task.isCancelled else { return }
+            self.errorMessage = nil
+            let applicator = PairFlowConfirmationApplicator(
+                initialPhase: self.phase,
+                completionGate: self.completionGate,
+                tearDown: {}
+            )
+            applicator.apply(outcome)
+            self.phase = applicator.phase
         }
     }
 

@@ -8,6 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Changed
 
+- the solstone app now waits for you to confirm your journal before anything on this device is sent.
 - the notifications page in settings now says what a notification from your journal is: a short heads-up when there's something worth a look, never the content.
 
 ### Fixed

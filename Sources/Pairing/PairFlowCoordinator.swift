@@ -97,7 +97,7 @@ final class PairFlowCoordinator {
                 { orderCandidatesBySubnet($0, interfaces: interfaces) }
             )
             if let priorPairing,
-               Self.sameInstance(priorPairing.instanceID, pairing.instanceID),
+               journalInstanceIDsMatch(priorPairing.instanceID, pairing.instanceID),
                priorPairing.fingerprint == pairing.fingerprint {
                 state = .alreadyConnected
                 pairFlowLog.info("pairing completed against existing journal")
@@ -147,10 +147,6 @@ final class PairFlowCoordinator {
 
     static func deviceLabel() -> String {
         DeviceRegistrationDescriptor.currentDisplayName()
-    }
-
-    private static func sameInstance(_ lhs: String?, _ rhs: String) -> Bool {
-        lhs?.caseInsensitiveCompare(rhs) == .orderedSame
     }
 
     internal static func message(

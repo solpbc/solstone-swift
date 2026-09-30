@@ -40,11 +40,31 @@ final class PairingCredentialStoreTests: XCTestCase {
         )
         testKeychainStores.append(keychain)
         let store = PairingCredentialStore(
+            confirmationStore: JournalSendConfirmationStore.memory(),
             loadPairing: { try keychain.load() },
             savePairing: { try keychain.save($0) },
             deletePairing: { try keychain.delete() }
         )
         return (store, keychain)
+    }
+
+    private func makeStore(
+        holder: StoredHolder,
+        confirmationStore: JournalSendConfirmationStore = JournalSendConfirmationStore.memory(),
+        deletePushKey: (@Sendable () throws -> Void)? = nil
+    ) -> PairingCredentialStore {
+        PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: { holder.stored },
+            savePairing: {
+                if holder.shouldThrowOnSave {
+                    throw TestSaveError()
+                }
+                holder.stored = $0
+            },
+            deletePairing: { holder.stored = nil },
+            deletePushKey: deletePushKey ?? {}
+        )
     }
 
     private func makeSamplePairing(
@@ -480,6 +500,7 @@ final class PairingCredentialStoreTests: XCTestCase {
         let holder = StoredHolder(pairing)
         let deletePushKeyCount = StoreTestCounter()
         let store = PairingCredentialStore(
+            confirmationStore: JournalSendConfirmationStore.memory(),
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
             deletePairing: { holder.stored = nil },
@@ -494,6 +515,7 @@ final class PairingCredentialStoreTests: XCTestCase {
         let holder = StoredHolder(nil)
         let deletePushKeyCount = StoreTestCounter()
         let store = PairingCredentialStore(
+            confirmationStore: JournalSendConfirmationStore.memory(),
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
             deletePairing: { holder.stored = nil },
@@ -508,6 +530,7 @@ final class PairingCredentialStoreTests: XCTestCase {
     func testThrownDeletePushKeyStillClearsPairing() throws {
         let holder = StoredHolder(makeSamplePairing())
         let store = PairingCredentialStore(
+            confirmationStore: JournalSendConfirmationStore.memory(),
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
             deletePairing: { holder.stored = nil },
@@ -517,6 +540,55 @@ final class PairingCredentialStoreTests: XCTestCase {
         try store.clearPairing()
         XCTAssertNil(holder.stored)
         XCTAssertNil(store.snapshot().pairing)
+    }
+
+    func testPersistRefreshedPairingAndCommitReadyAccessKeepConfirmationRecord() async throws {
+        let holder = StoredHolder()
+        let confirmation = JournalSendConfirmationStore.memory()
+        let store = makeStore(holder: holder, confirmationStore: confirmation)
+        let pairing = makeSamplePairing()
+        try store.applyPairing(pairing)
+        try confirmation.writeRecord(for: pairing)
+        XCTAssertTrue(confirmation.allowsSend(pairing: pairing))
+
+        let refreshed = makeSamplePairing(relayEnrollment: .enrolled(deviceToken: "refreshed-tok", expiresAt: nil))
+        let okRefresh = try await store.persistRefreshedPairing(refreshed, pairingGen: 1, mutationGen: 1)
+        XCTAssertTrue(okRefresh)
+        XCTAssertTrue(confirmation.allowsSend(pairing: refreshed))
+
+        let okReady = try await store.commitReadyAccess(
+            relayOrigin: "https://relay.example.com",
+            deviceToken: "ready-tok",
+            expiresAt: nil,
+            pairingGen: 1,
+            mutationGen: 2
+        )
+        XCTAssertTrue(okReady)
+        XCTAssertTrue(confirmation.allowsSend(pairing: store.snapshot().pairing))
+    }
+
+    func testClearPairingAndRevokeIfCurrentGenerationDeleteConfirmationRecordAndLeaveMarker() async throws {
+        let holder = StoredHolder()
+        let confirmation = JournalSendConfirmationStore.memory()
+        let store = makeStore(holder: holder, confirmationStore: confirmation)
+        let pairing = makeSamplePairing()
+        try store.applyPairing(pairing)
+        try confirmation.writeRecord(for: pairing)
+        XCTAssertTrue(confirmation.allowsSend(pairing: pairing))
+
+        // Revoke deletes the record
+        let okRevoke = try await store.revokeIfCurrentGeneration(pairingGen: 1, mutationGen: 1)
+        XCTAssertTrue(okRevoke)
+        XCTAssertFalse(confirmation.allowsSend(pairing: pairing))
+
+        // Re-apply and confirm
+        try store.applyPairing(pairing)
+        try confirmation.writeRecord(for: pairing)
+        XCTAssertTrue(confirmation.allowsSend(pairing: pairing))
+
+        // Clear pairing deletes the record
+        try store.clearPairing()
+        XCTAssertFalse(confirmation.allowsSend(pairing: pairing))
     }
 }
 

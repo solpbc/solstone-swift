@@ -16,12 +16,18 @@ private nonisolated struct JournalIdentityResponse: Decodable {
     }
 }
 
+nonisolated enum JournalIdentityFetchResult: Equatable, Sendable {
+    case match(JournalMark)
+    case instanceMismatch
+    case missingOrInvalid
+}
+
 nonisolated struct JournalIdentityFetcher {
-    func fetch(localPort: Int) async -> JournalMark? {
+    func fetch(localPort: Int, expectedInstanceID: String? = nil) async -> JournalIdentityFetchResult {
         let log = Logger(subsystem: "app.solstone.swift", category: "journal-mark")
         guard let url = ConveyURL.url(localPort: localPort, path: "/app/link/api/identity") else {
             log.debug("[solstone-swift] journal mark skipped: invalid URL")
-            return nil
+            return .missingOrInvalid
         }
 
         var request = URLRequest(url: url)
@@ -33,7 +39,7 @@ nonisolated struct JournalIdentityFetcher {
             guard let response = response as? HTTPURLResponse, 200..<300 ~= response.statusCode else {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 log.debug("[solstone-swift] journal mark unavailable: HTTP \(status)")
-                return nil
+                return .missingOrInvalid
             }
             let decoded = try JSONDecoder().decode(JournalIdentityResponse.self, from: data)
             guard decoded.committed,
@@ -41,15 +47,21 @@ nonisolated struct JournalIdentityFetcher {
                   let valid = JournalMark.validate(mark)
             else {
                 log.debug("[solstone-swift] journal mark unavailable: uncommitted, missing, or invalid")
-                return nil
+                return .missingOrInvalid
             }
-            return valid
+            if let expectedInstanceID {
+                guard journalInstanceIDsMatch(decoded.instanceID, expectedInstanceID) else {
+                    log.info("[solstone-swift] journal mark instance mismatch: expected \(expectedInstanceID, privacy: .public), got \(decoded.instanceID ?? "nil", privacy: .public)")
+                    return .instanceMismatch
+                }
+            }
+            return .match(valid)
         } catch is CancellationError {
             log.debug("[solstone-swift] journal mark cancelled")
-            return nil
+            return .missingOrInvalid
         } catch {
             log.debug("[solstone-swift] journal mark unavailable: \(String(describing: error), privacy: .public)")
-            return nil
+            return .missingOrInvalid
         }
     }
 }

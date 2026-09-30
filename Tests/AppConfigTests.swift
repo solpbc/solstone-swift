@@ -63,6 +63,7 @@ nonisolated final class AppConfigTests: XCTestCase {
         try config.applyPairing(pairing)
 
         XCTAssertTrue(config.isPaired)
+        XCTAssertFalse(config.journalSendConfirmed)
         XCTAssertEqual(config.homeLabel, "sol")
         XCTAssertEqual(config.clientCertFingerprintHex, String(repeating: "a", count: 64))
         XCTAssertEqual(config.deviceID, "instance-123")
@@ -81,6 +82,7 @@ nonisolated final class AppConfigTests: XCTestCase {
         config.clearPairing()
 
         XCTAssertFalse(config.isPaired)
+        XCTAssertFalse(config.journalSendConfirmed)
         XCTAssertEqual(config.host, "")
         XCTAssertEqual(config.port, 22)
         XCTAssertTrue(self.pairingState.deleted())
@@ -102,6 +104,12 @@ nonisolated final class AppConfigTests: XCTestCase {
         )
 
         XCTAssertTrue(config.isPaired)
+        XCTAssertTrue(config.journalSendConfirmed)
+        if let stored = self.pairingState.load() {
+            XCTAssertTrue(config.confirmationStore.allowsSend(pairing: stored))
+        } else {
+            XCTFail("stored pairing missing")
+        }
         XCTAssertEqual(config.loopbackPort, 8676)
         XCTAssertEqual(self.pairingState.load()?.homeLabel, "ui-test-solstone")
         XCTAssertEqual(self.pairingState.load()?.relayEndpoint, "wss://127.0.0.1:8676")
@@ -146,12 +154,13 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertEqual(mirror.snapshot()?.pairing, AppGroupMirror.PairingSnapshot(journalName: nil, isPaired: false))
     }
 
-    @MainActor private func makeConfig() -> AppConfig {
+    @MainActor private func makeConfig(confirmationStore: JournalSendConfirmationStore = JournalSendConfirmationStore.memory()) -> AppConfig {
         let pairingState = self.pairingState!
         return AppConfig(
             loadPairing: { pairingState.load() },
             savePairing: { pairingState.save($0) },
             deletePairing: { pairingState.delete() },
+            confirmationStore: confirmationStore,
             appGroupMirror: self.mirror()
         )
     }

@@ -20,6 +20,31 @@ final class ShellStatusContext {
     var connectedSince = Date()
 }
 
+nonisolated enum HeldJournalReAskDecision {
+    static func shouldPresent(
+        arguments: [String] = ProcessInfo.processInfo.arguments,
+        scenePhase: ScenePhase,
+        tunnelState: TunnelState,
+        isPaired: Bool,
+        journalSendConfirmed: Bool,
+        presenceCount: Int,
+        isShowingPairingSheet: Bool
+    ) -> Bool {
+        let isTestSeeded = arguments.contains("--ui-test")
+            || arguments.contains("--integration-test")
+            || arguments.contains("--integration-test-live")
+        guard !isTestSeeded else { return false }
+        guard scenePhase == .active,
+              case .connected = tunnelState,
+              isPaired,
+              !journalSendConfirmed,
+              presenceCount == 0,
+              !isShowingPairingSheet
+        else { return false }
+        return true
+    }
+}
+
 struct ContentView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
@@ -29,9 +54,13 @@ struct ContentView: View {
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(PairingHandoffState.self) private var pairingHandoff
     @Environment(JournalUnpairNoticeStore.self) private var noticeStore
+    @Environment(JournalSendRelease.self) private var journalSendRelease
+    @Environment(PairFlowPresence.self) private var pairFlowPresence
+    @Environment(\.scenePhase) private var scenePhase
     @State private var shellStatusContext = ShellStatusContext()
     @State private var showingReinstallNotice = false
     @State private var showPairing = false
+    @State private var pairFlowStart: PairFlowView.PairFlowStart = .ceremony
     @State private var lastPort: Int = 0
 #if DEBUG
     @State private var showGenericJournalMarkPreview = false
@@ -73,6 +102,7 @@ struct ContentView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             if self.appConfig.isPaired && self.isRevoked {
                 RePairBanner {
+                    self.pairFlowStart = .ceremony
                     self.showPairing = true
                 }
             }
@@ -81,6 +111,7 @@ struct ContentView: View {
         .sheet(isPresented: self.$showPairing) {
             NavigationStack {
                 PairFlowView(
+                    startMode: self.pairFlowStart,
                     onBack: {
                         self.dismissPairing()
                     },
@@ -92,6 +123,11 @@ struct ContentView: View {
                 )
             }
         }
+        .onChange(of: self.scenePhase) { _, newPhase in
+            if newPhase == .active {
+                self.presentHeldJournalReAskIfNeeded()
+            }
+        }
         .onChange(of: self.tunnelManager.state) { _, newState in
             if case .connected(let port, let via) = newState {
                 self.lastPort = port
@@ -99,6 +135,7 @@ struct ContentView: View {
                 Task {
                     await self.pushManager.handleTunnelConnected(localPort: port)
                 }
+                self.presentHeldJournalReAskIfNeeded()
             } else {
                 self.pushManager.activeLocalPort = nil
             }
@@ -294,6 +331,7 @@ struct ContentView: View {
             self.checkForReinstall()
             self.completeOnboardingIfPaired()
             self.startTunnelIfPaired()
+            self.presentHeldJournalReAskIfNeeded()
         }
         .alert(SourceVocabulary.reinstallNoticeTitle, isPresented: self.$showingReinstallNotice) {
             Button(SourceVocabulary.reinstallNoticeKeep, role: .cancel) {}
@@ -338,6 +376,7 @@ private extension ContentView {
 
     func dismissPairing() {
         self.showPairing = false
+        self.pairFlowStart = .ceremony
         self.clearPairingHandoff()
     }
 
@@ -346,8 +385,25 @@ private extension ContentView {
             pairURL: self.pairingHandoff.pairURL,
             pairURLError: self.pairingHandoff.pairURLError
         ) {
+            self.pairFlowStart = .ceremony
             self.showPairing = true
         }
+    }
+
+    func presentHeldJournalReAskIfNeeded() {
+        if self.appConfig.retrySettleIfNeeded() {
+            self.journalSendRelease.kickConfirmedSend()
+        }
+        guard HeldJournalReAskDecision.shouldPresent(
+            scenePhase: self.scenePhase,
+            tunnelState: self.tunnelManager.state,
+            isPaired: self.appConfig.isPaired,
+            journalSendConfirmed: self.appConfig.journalSendConfirmed,
+            presenceCount: self.pairFlowPresence.count,
+            isShowingPairingSheet: self.showPairing
+        ) else { return }
+        self.pairFlowStart = .confirmHeldJournal
+        self.showPairing = true
     }
 
     /// Runs before `completeOnboardingIfPaired`, which is what turns a reinstall's leftover
@@ -378,6 +434,7 @@ private extension ContentView {
         else { return }
         if OnboardingPairingReconciliation.shouldComplete(
             isPaired: self.appConfig.isPaired,
+            journalSendConfirmed: self.appConfig.journalSendConfirmed,
             isOnboardingCompleted: self.onboardingFlow.isCompleted
         ) {
             self.onboardingFlow.completeViaPairing()

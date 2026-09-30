@@ -14,9 +14,9 @@ nonisolated final class PairFlowConfirmationTests: XCTestCase {
             timeout: .milliseconds(20),
             step: .milliseconds(5),
             connectedPort: { nil },
-            fetchMark: { _ in
+            fetchResult: { _ in
                 fetchCalled.withLock { $0 = true }
-                return .uiTestSample
+                return .match(.uiTestSample)
             }
         )
 
@@ -25,12 +25,12 @@ nonisolated final class PairFlowConfirmationTests: XCTestCase {
     }
 
     @MainActor
-    func testResolveConfirmationFallsBackWhenFetcherReturnsNil() async {
+    func testResolveConfirmationFallsBackWhenFetcherReturnsMissingOrInvalid() async {
         let outcome = await resolveConfirmation(
             timeout: .milliseconds(20),
             step: .milliseconds(5),
             connectedPort: { 7071 },
-            fetchMark: { _ in nil }
+            fetchResult: { _ in .missingOrInvalid }
         )
 
         XCTAssertEqual(outcome, .fallback(.missingOrInvalidMark))
@@ -42,10 +42,78 @@ nonisolated final class PairFlowConfirmationTests: XCTestCase {
             timeout: .milliseconds(20),
             step: .milliseconds(5),
             connectedPort: { 7071 },
-            fetchMark: { _ in .uiTestSample }
+            fetchResult: { _ in .match(.uiTestSample) }
         )
 
         XCTAssertEqual(outcome, .confirm(.uiTestSample))
+    }
+
+    @MainActor
+    func testResolveConfirmationRetriesOnInstanceMismatchUntilTimeout() async {
+        let fetchCount = OSAllocatedUnfairLock(initialState: 0)
+        let outcome = await resolveConfirmation(
+            timeout: .milliseconds(30),
+            step: .milliseconds(5),
+            connectedPort: { 7071 },
+            fetchResult: { _ in
+                fetchCount.withLock { $0 += 1 }
+                return .instanceMismatch
+            }
+        )
+
+        XCTAssertEqual(outcome, .fallback(.timeout))
+        XCTAssertGreaterThan(fetchCount.withLock { $0 }, 1)
+    }
+
+    @MainActor
+    func testResolveConfirmationSucceedsAfterInstanceMismatch() async {
+        let fetchCount = OSAllocatedUnfairLock(initialState: 0)
+        let outcome = await resolveConfirmation(
+            timeout: .milliseconds(100),
+            step: .milliseconds(5),
+            connectedPort: { 7071 },
+            fetchResult: { _ in
+                let count = fetchCount.withLock { count -> Int in
+                    count += 1
+                    return count
+                }
+                if count == 1 {
+                    return .instanceMismatch
+                }
+                return .match(.uiTestSample)
+            }
+        )
+
+        XCTAssertEqual(outcome, .confirm(.uiTestSample))
+        XCTAssertEqual(fetchCount.withLock { $0 }, 2)
+    }
+
+    @MainActor
+    func testResolveConfirmationWithStartDeadlineWhenConnectedStartsDeadlineOnlyWhenConnected() async {
+        var isConnected = false
+        let clock = ContinuousClock()
+        let start = clock.now
+
+        let outcome = await resolveConfirmation(
+            timeout: .milliseconds(50),
+            step: .milliseconds(10),
+            startDeadlineWhenConnected: true,
+            connectedPort: {
+                if !isConnected {
+                    if clock.now - start > .milliseconds(40) {
+                        isConnected = true
+                    }
+                    return nil
+                }
+                return 7071
+            },
+            fetchResult: { _ in
+                .match(.uiTestSample)
+            }
+        )
+
+        XCTAssertEqual(outcome, .confirm(.uiTestSample))
+        XCTAssertTrue(clock.now - start >= .milliseconds(40))
     }
 
     @MainActor
@@ -73,15 +141,15 @@ nonisolated final class PairFlowConfirmationTests: XCTestCase {
                 timeout: .seconds(1),
                 step: .milliseconds(5),
                 connectedPort: { 7071 },
-                fetchMark: { _ in
+                fetchResult: { _ in
                     fetchStarted.withLock { $0 = true }
                     do {
                         try await Task.sleep(for: .seconds(10))
                     } catch {
                         fetchCancelled.withLock { $0 = true }
-                        return nil
+                        return .missingOrInvalid
                     }
-                    return .uiTestSample
+                    return .match(.uiTestSample)
                 }
             )
         }

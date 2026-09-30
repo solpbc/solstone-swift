@@ -88,6 +88,7 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
             deletePairing: { store.delete() },
+            confirmationStore: JournalSendConfirmationStore.memory(),
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
         )
@@ -155,7 +156,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
                 deletePairing: { store.delete() },
-                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                confirmationStore: JournalSendConfirmationStore.memory(),
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(pairing)
@@ -273,7 +275,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
                 deletePairing: { store.delete() },
-                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                confirmationStore: JournalSendConfirmationStore.memory(),
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(Self.makeFixturePairing())
@@ -310,7 +313,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
                 deletePairing: { store.delete() },
-                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                confirmationStore: JournalSendConfirmationStore.memory(),
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(Self.makeFixturePairing())
@@ -344,7 +348,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
                 deletePairing: { store.delete() },
-                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                confirmationStore: JournalSendConfirmationStore.memory(),
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(Self.makeFixturePairing())
@@ -381,7 +386,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
                 deletePairing: { store.delete() },
-                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                confirmationStore: JournalSendConfirmationStore.memory(),
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(Self.makeFixturePairing())
@@ -427,6 +433,7 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
             deletePairing: { store.delete() },
+            confirmationStore: JournalSendConfirmationStore.memory(),
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
         )

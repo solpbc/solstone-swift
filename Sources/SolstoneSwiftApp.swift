@@ -48,6 +48,8 @@ struct SolstoneSwiftApp: App {
     @State private var finishSyncingCoordinator: FinishSyncingCoordinator
     @State private var foregroundDrainGate: ForegroundDrainGate
     @State private var launchMaintenanceCoordinator: LaunchMaintenanceCoordinator
+    @State private var journalSendRelease: JournalSendRelease
+    @State private var pairFlowPresence: PairFlowPresence
     @State private var backgroundDrainTask: Task<Void, Never>?
     @State private var didBootstrapTransfer = false
     @State private var integrationObserverStartTask: Task<Void, Never>?
@@ -263,7 +265,10 @@ struct SolstoneSwiftApp: App {
             mobileSegmentStorageDisabledReason = diagnostic
             mobileSegmentMigrationDiagnostics = []
         }
-        let transferEndpointResolver = LoopbackTransferEndpointResolver()
+        let transferEndpointResolver = LoopbackTransferEndpointResolver(
+            credentials: appConfig.store,
+            confirmation: SPLRuntime.confirmationStore
+        )
         let transferStatusMirror = TransferStatusMirror()
         let transferConditionsSource = TransferConditionsSource()
         let transferSpool: TransferSpool
@@ -536,6 +541,13 @@ struct SolstoneSwiftApp: App {
             integrationGateDriver = nil
         }
 #endif
+        let journalSendRelease = JournalSendRelease(
+            credentialStore: appConfig.store,
+            confirmationStore: SPLRuntime.confirmationStore,
+            transferEngine: transferEngine,
+            foregroundDrainGate: foregroundDrainGate
+        )
+        let pairFlowPresence = PairFlowPresence()
         self._appConfig = State(initialValue: appConfig)
         self._appGroupMirror = State(initialValue: appGroupMirror)
         self._watchBacklogSnapshotWriter = State(initialValue: watchBacklogSnapshotWriter)
@@ -569,6 +581,8 @@ struct SolstoneSwiftApp: App {
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
+        self._journalSendRelease = State(initialValue: journalSendRelease)
+        self._pairFlowPresence = State(initialValue: pairFlowPresence)
 #if DEBUG && targetEnvironment(simulator)
         self._integrationGateDriver = State(initialValue: integrationGateDriver)
 #endif
@@ -629,6 +643,8 @@ struct SolstoneSwiftApp: App {
                 .environment(self.diagnosticLog)
                 .environment(self.problemReportsManager)
                 .environment(self.journalUnpairNoticeStore)
+                .environment(self.journalSendRelease)
+                .environment(self.pairFlowPresence)
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
                 .onOpenURL { url in
@@ -739,6 +755,9 @@ struct SolstoneSwiftApp: App {
                 }
                 self.connectionSyncModel.refreshFromInputChange()
                 self.tunnelManager.startNetworkMonitoring()
+                if self.appConfig.retrySettleIfNeeded() {
+                    self.journalSendRelease.kickConfirmedSend()
+                }
 
                 switch self.tunnelManager.state {
                 case .connected:

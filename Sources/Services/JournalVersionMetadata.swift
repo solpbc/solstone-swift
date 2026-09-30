@@ -171,6 +171,27 @@ nonisolated internal func journalVersionMetadataIdentity(for pairing: StoredPair
     ])
 }
 
+nonisolated func journalSendConfirmationKey(for pairing: StoredPairing) -> String? {
+    guard let normalizedCAFingerprint = normalizedCAFingerprint(for: pairing.caChainPEM),
+          let clientCertFingerprint = clientCertFingerprint(for: pairing.clientCertPEM) else {
+        return nil
+    }
+    return opaqueSHA256([
+        "journal-send-confirmation-v1",
+        pairing.instanceID,
+        normalizedCAFingerprint,
+        clientCertFingerprint
+    ])
+}
+
+nonisolated func journalInstanceIDsMatch(_ lhs: String?, _ rhs: String?) -> Bool {
+    guard let lhs = lhs?.trimmingCharacters(in: .whitespacesAndNewlines), !lhs.isEmpty,
+          let rhs = rhs?.trimmingCharacters(in: .whitespacesAndNewlines), !rhs.isEmpty else {
+        return false
+    }
+    return lhs.caseInsensitiveCompare(rhs) == .orderedSame
+}
+
 nonisolated private func clientCertFingerprint(for pem: String) -> String? {
     guard let certificate = try? CertChain.certificates(fromPEM: pem).first else {
         return nil

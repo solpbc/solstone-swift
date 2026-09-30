@@ -4,7 +4,17 @@
 import Foundation
 
 actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
+    private let credentials: PairingCredentialStore
+    private let confirmation: JournalSendConfirmationStore
     private var activeLocalPort: Int?
+
+    init(
+        credentials: PairingCredentialStore,
+        confirmation: JournalSendConfirmationStore
+    ) {
+        self.credentials = credentials
+        self.confirmation = confirmation
+    }
 
     func update(activeLocalPort: Int?) {
         self.activeLocalPort = activeLocalPort
@@ -16,6 +26,10 @@ actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
         }
         guard let port = self.activeLocalPort else {
             return .unavailable("waiting")
+        }
+        let pairing = self.credentials.snapshot().pairing
+        guard self.confirmation.allowsSend(pairing: pairing) else {
+            return .unavailable("journal-send-held")
         }
         guard let baseURL = ObserverServerURL.url(localPort: port, path: "/") else {
             return .unavailable("invalid endpoint")
