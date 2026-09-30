@@ -1,0 +1,24 @@
+{
+  "data": [
+    {
+      "attributes": {
+        "bundleId": "app.solstone.swift",
+        "name": "solstone mobile"
+      },
+      "id": "6776850664",
+      "links": {
+        "self": "https://api.appstoreconnect.apple.com/v1/apps/6776850664"
+      },
+      "type": "apps"
+    }
+  ],
+  "links": {
+    "self": "https://api.appstoreconnect.apple.com/v1/apps?fields%5Bapps%5D=name%2CbundleId&filter%5BbundleId%5D=app.solstone.swift&limit=10"
+  },
+  "meta": {
+    "paging": {
+      "limit": 10,
+      "total": 1
+    }
+  }
+}

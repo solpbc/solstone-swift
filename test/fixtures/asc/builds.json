@@ -1,0 +1,80 @@
+{
+  "data": [
+    {
+      "attributes": {
+        "buildAudienceType": "APP_STORE_ELIGIBLE",
+        "expired": false,
+        "processingState": "VALID",
+        "uploadedDate": "2026-09-29T22:16:33-07:00",
+        "usesNonExemptEncryption": false,
+        "version": "116"
+      },
+      "id": "357f6e46-25f4-48ae-a645-afca33ebb288",
+      "links": {
+        "self": "https://api.appstoreconnect.apple.com/v1/builds/357f6e46-25f4-48ae-a645-afca33ebb288"
+      },
+      "relationships": {
+        "betaGroups": {
+          "data": [
+            {
+              "id": "99939ef1-191c-43a9-ac9b-90bf548f2b08",
+              "type": "betaGroups"
+            }
+          ],
+          "links": {
+            "self": "https://api.appstoreconnect.apple.com/v1/builds/357f6e46-25f4-48ae-a645-afca33ebb288/relationships/betaGroups"
+          },
+          "meta": {
+            "paging": {
+              "limit": 10,
+              "total": 1
+            }
+          }
+        },
+        "buildBetaDetail": {
+          "data": {
+            "id": "357f6e46-25f4-48ae-a645-afca33ebb288",
+            "type": "buildBetaDetails"
+          },
+          "links": {
+            "related": "https://api.appstoreconnect.apple.com/v1/builds/357f6e46-25f4-48ae-a645-afca33ebb288/buildBetaDetail",
+            "self": "https://api.appstoreconnect.apple.com/v1/builds/357f6e46-25f4-48ae-a645-afca33ebb288/relationships/buildBetaDetail"
+          }
+        }
+      },
+      "type": "builds"
+    }
+  ],
+  "included": [
+    {
+      "attributes": {
+        "hasAccessToAllBuilds": true,
+        "isInternalGroup": true,
+        "name": "solstone core"
+      },
+      "id": "99939ef1-191c-43a9-ac9b-90bf548f2b08",
+      "links": {
+        "self": "https://api.appstoreconnect.apple.com/v1/betaGroups/99939ef1-191c-43a9-ac9b-90bf548f2b08"
+      },
+      "type": "betaGroups"
+    },
+    {
+      "attributes": {
+        "autoNotifyEnabled": true,
+        "externalBuildState": "READY_FOR_BETA_SUBMISSION",
+        "internalBuildState": "IN_BETA_TESTING"
+      },
+      "id": "357f6e46-25f4-48ae-a645-afca33ebb288",
+      "links": {
+        "self": "https://api.appstoreconnect.apple.com/v1/buildBetaDetails/357f6e46-25f4-48ae-a645-afca33ebb288"
+      },
+      "type": "buildBetaDetails"
+    }
+  ],
+  "meta": {
+    "paging": {
+      "limit": 200,
+      "total": 1
+    }
+  }
+}

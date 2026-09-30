@@ -1,0 +1,49 @@
+{
+  "data": [
+    {
+      "attributes": {
+        "hasAccessToAllBuilds": true,
+        "isInternalGroup": true,
+        "name": "solstone core"
+      },
+      "id": "99939ef1-191c-43a9-ac9b-90bf548f2b08",
+      "links": {
+        "self": "https://api.appstoreconnect.apple.com/v1/betaGroups/99939ef1-191c-43a9-ac9b-90bf548f2b08"
+      },
+      "type": "betaGroups"
+    },
+    {
+      "attributes": {
+        "hasAccessToAllBuilds": null,
+        "isInternalGroup": false,
+        "name": "solstone testers"
+      },
+      "id": "4d2db6cd-b792-40e1-b4fd-fbec36db655d",
+      "links": {
+        "self": "https://api.appstoreconnect.apple.com/v1/betaGroups/4d2db6cd-b792-40e1-b4fd-fbec36db655d"
+      },
+      "type": "betaGroups"
+    },
+    {
+      "attributes": {
+        "hasAccessToAllBuilds": null,
+        "isInternalGroup": false,
+        "name": "solstone-beta"
+      },
+      "id": "c1930bec-2b84-4631-b685-fb9a20de84e8",
+      "links": {
+        "self": "https://api.appstoreconnect.apple.com/v1/betaGroups/c1930bec-2b84-4631-b685-fb9a20de84e8"
+      },
+      "type": "betaGroups"
+    }
+  ],
+  "links": {
+    "self": "https://api.appstoreconnect.apple.com/v1/apps/6776850664/betaGroups?fields%5BbetaGroups%5D=hasAccessToAllBuilds%2CisInternalGroup%2Cname&limit=200"
+  },
+  "meta": {
+    "paging": {
+      "limit": 200,
+      "total": 3
+    }
+  }
+}

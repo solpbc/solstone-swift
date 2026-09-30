@@ -1,6 +1,6 @@
 # solstone-swift build targets
 
-.PHONY: generate build-metadata-bootstrap build-metadata build build-generic release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test primer-shots integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest brand-sync \
+.PHONY: generate build-metadata-bootstrap build-metadata build build-generic release sim sim-json sim-ipad sim-ipad-json watch-sim watch-sim-json sim-create sim-delete sim-state sim-launch verify-capture-audio test ui-test primer-shots integration-test integration-test-push integration-test-observer integration-test-onboarding integration-test-live test-one test-build test-fast ci ci-watch ci-ipad sim-shots-ipad ci-selftest test-release-helper brand-sync \
 			       release-distribution ipa-appstore ipa-device verify-ipa-parity deploy-ipa-device device-gate testflight-upload testflight-release testflight check-asc-config \
 			       install deploy launch cycle run unlock \
 			       sim-shots watch-shots launch-shots sim-widget-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
@@ -645,7 +645,7 @@ integration-test-onboarding: sim
 # The test phase goes through test/run_ci_tests.sh: a timeout-guarded, retry-once
 # wrapper that never hangs and never masks a real failure (host-side UITest-runner
 # flake resistance). Override CI_* vars above to tune timeout/runtime/attempts.
-ci: check-versions deps
+ci: check-versions test-release-helper deps
 	bash test/assert_accessibility_hints.sh
 	bash test/assert_haptics_gated.sh
 	bash test/assert_tap_targets.sh
@@ -684,6 +684,10 @@ ci-ipad: deps
 # derives from SIM, so overriding SIM alone retargets both the build and the boot.
 sim-shots-ipad:
 	$(MAKE) sim-shots SIM='$(SIM_IPAD)'
+
+# The TestFlight release helper against App Store Connect response fixtures (no network).
+test-release-helper:
+	python3 test/test_release_testflight.py
 
 # Validate the CI runner's trust-critical classification logic (no simulator needed).
 ci-selftest:
@@ -859,6 +863,11 @@ testflight-upload: ipa-appstore
 
 # Full pipeline: upload, wait for processing, clear export compliance,
 # attach to the internal group, and wait for IN_BETA_TESTING.
+# The helper exits 3 when App Store Connect's status reads fail or lag after a
+# delivered upload. That is not a failed upload: do not run this target again
+# (it rebuilds and uploads a second time). Re-run scripts/release-testflight.py
+# with --build-number once reads recover. Every response it read is kept in
+# build/asc-reads/ for diagnosis.
 testflight: testflight-release
 
 testflight-release: testflight-upload
@@ -871,6 +880,7 @@ testflight-release: testflight-upload
 		--key-id "$(ASC_KEY_ID)" \
 		--issuer-id "$(ASC_ISSUER)" \
 		--key-path "$(ASC_KEY_PATH)" \
+		--capture-dir build/asc-reads \
 		$(if $(TESTFLIGHT_SUMMARY),--summary "$(TESTFLIGHT_SUMMARY)") \
 		$$notify_arg
 

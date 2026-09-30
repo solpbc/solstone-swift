@@ -1,0 +1,25 @@
+{
+  "data": {
+    "attributes": {
+      "autoNotifyEnabled": true,
+      "externalBuildState": "READY_FOR_BETA_SUBMISSION",
+      "internalBuildState": "IN_BETA_TESTING"
+    },
+    "id": "357f6e46-25f4-48ae-a645-afca33ebb288",
+    "links": {
+      "self": "https://api.appstoreconnect.apple.com/v1/buildBetaDetails/357f6e46-25f4-48ae-a645-afca33ebb288"
+    },
+    "relationships": {
+      "build": {
+        "links": {
+          "related": "https://api.appstoreconnect.apple.com/v1/buildBetaDetails/357f6e46-25f4-48ae-a645-afca33ebb288/build",
+          "self": "https://api.appstoreconnect.apple.com/v1/buildBetaDetails/357f6e46-25f4-48ae-a645-afca33ebb288/relationships/build"
+        }
+      }
+    },
+    "type": "buildBetaDetails"
+  },
+  "links": {
+    "self": "https://api.appstoreconnect.apple.com/v1/builds/357f6e46-25f4-48ae-a645-afca33ebb288/buildBetaDetail"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "errors": [
+    {
+      "code": "NOT_FOUND",
+      "detail": "There is no resource of type 'buildBetaDetails' with id '00000000-0000-0000-0000-000000000000'",
+      "id": "78ed1a71-6b87-4e5b-9a66-33409aa0c263",
+      "status": "404",
+      "title": "The specified resource does not exist"
+    }
+  ]
+}
