@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Changed
+
+- the notifications page in settings now says what a notification from your journal is: a short heads-up when there's something worth a look, never the content.
+
 ### Fixed
 
 - changing your phone or watch language no longer prevents moments from reaching your journal.

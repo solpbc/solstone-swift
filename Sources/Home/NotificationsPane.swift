@@ -103,7 +103,13 @@ struct NotificationsPane: View {
                     }
                 }
             } footer: {
-                Text("off until you turn it on. your journal encrypts each notification to this device's own key.")
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("when there's something worth a look")
+                    Text("a short heads-up, never the content")
+                    Text("off until you turn it on. your journal encrypts each notification to this device's own key.")
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
             }
         }
         .task {
