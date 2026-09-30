@@ -472,9 +472,11 @@ actor WatchCaptureStorageActor {
     ) async throws -> URL {
         try await self.withTransaction(transactionClass: .captureSafety) {
             let finalURL = self.withSynchronousActorWork(.captureFinalization) { () -> URL? in
-                let targetURL = self.paths.segmentDirectoryURL(day: day, segment: finalSegment)
-                guard targetURL.standardizedFileURL != currentURL.standardizedFileURL else { return nil }
-                return targetURL
+                // Compare names, not paths: the same directory can be spelled
+                // /private/var or /var, and a move onto itself would strand it.
+                let currentDay = currentURL.deletingLastPathComponent().lastPathComponent
+                guard currentSegment != finalSegment || currentDay != day else { return nil }
+                return self.paths.segmentDirectoryURL(day: day, segment: finalSegment)
             }
             guard let finalURL else { return currentURL }
             try await self.fileWriter.moveItem(at: currentURL, to: finalURL)
