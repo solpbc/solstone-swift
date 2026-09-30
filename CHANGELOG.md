@@ -13,6 +13,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Fixed
 
 - changing your phone or watch language no longer prevents moments from reaching your journal.
+- on your apple watch, each moment now keeps the time zone it started in, even if you travel before it's done or it's recovered after a restart.
+- when the clocks go back an hour, moments from the repeated hour on your watch now reach your journal. before, some of them could stay on your watch.
 
 ## [2.0.6 (115)] - 2026-09-28
 
