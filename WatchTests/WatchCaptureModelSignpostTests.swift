@@ -17,11 +17,11 @@ private struct WatchModelTestStorage {
     var rootURL: URL { self.paths.rootURL }
 
     func dayString(for date: Date) -> String {
-        self.paths.dayString(for: date)
+        self.paths.dayString(for: date, timeZone: .current)
     }
 
     func segmentString(for date: Date, durationSeconds: Double) -> String {
-        self.paths.segmentString(for: date, durationSeconds: durationSeconds)
+        self.paths.segmentString(for: date, durationSeconds: durationSeconds, timeZone: .current)
     }
 
     func manifestURL(directory: URL) -> URL {

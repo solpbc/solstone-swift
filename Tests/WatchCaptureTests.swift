@@ -3000,18 +3000,19 @@ final class WatchCaptureTests: XCTestCase {
     }
 
     func testRolloverEnsureDirectoryFailureTerminalizesWithoutSuccessor() async throws {
-        let harness = try self.makeHarness(locationAuthorization: .denied)
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let harness = try self.makeHarness(locationAuthorization: .denied, fileWriter: writer)
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
         let successor = self.successorDirectory(in: harness)
-        try await harness.storage.fileWriter.createDirectory(at: successor)
+        writer.failCreateDirectory(at: successor)
 
         harness.clock.advance(by: 300)
         await self.drain(until: { !harness.engine.ownerPresentation.isSessionRunning })
         await harness.engine.settled()
 
         try await self.assertTerminalRolloverFailure(in: harness, successorStarts: 1)
-        XCTAssertTrue(FileManager.default.fileExists(atPath: successor.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: successor.path))
         let manifests = await self.catalogEntries(for: harness.storage)
         XCTAssertEqual(manifests.filter { $0.manifest.state == .queued }.count, 1)
     }
@@ -4703,10 +4704,7 @@ final class WatchCaptureTests: XCTestCase {
 
         harness.engine.stop(); await harness.engine.settled()
     }
-}
 
-@MainActor
-private extension WatchCaptureTests {
     struct AudioSessionNotificationCase {
         let name: Notification.Name
         let reason: WatchCaptureTerminalReason
@@ -4714,7 +4712,7 @@ private extension WatchCaptureTests {
         let makesInputUnsuitable: Bool
     }
 
-    struct Harness {
+    fileprivate struct Harness {
         let engine: WatchCaptureEngine
         let recorder: MockWatchAudioRecorder
         let audioSession: MockWatchAudioSession
@@ -4762,7 +4760,7 @@ private extension WatchCaptureTests {
         ]
     }
 
-    struct ProductionAudioHarness {
+    fileprivate struct ProductionAudioHarness {
         let engine: WatchCaptureEngine
         let recorder: LiveWatchAudioRecorder
         let recorders: ProductionRecorderStore
@@ -4776,7 +4774,7 @@ private extension WatchCaptureTests {
         let deliveries: TerminalDeliveryProbe
     }
 
-    func makeProductionAudioHarness(
+    fileprivate func makeProductionAudioHarness(
         terminalHandoffGate: WatchCaptureHoldGate? = nil,
         synchronousTerminalHandoff: Bool = false
     ) throws -> ProductionAudioHarness {
@@ -4843,7 +4841,7 @@ private extension WatchCaptureTests {
         )
     }
 
-    func rolloverProductionRecorderPair(
+    fileprivate func rolloverProductionRecorderPair(
         in harness: ProductionAudioHarness
     ) async throws -> (predecessor: WeakRecorderHandle, successor: WeakRecorderHandle) {
         harness.engine.start()
@@ -4856,7 +4854,7 @@ private extension WatchCaptureTests {
         return (predecessor, try XCTUnwrap(harness.recorders.latest))
     }
 
-    func assertDelayedFormerSessionCallbackIsInert(
+    fileprivate func assertDelayedFormerSessionCallbackIsInert(
         in harness: ProductionAudioHarness,
         former: WeakRecorderHandle,
         successor: WeakRecorderHandle,
@@ -4899,7 +4897,7 @@ private extension WatchCaptureTests {
         await self.drain(until: { former.isReleased })
     }
 
-    func assertDelayedRolloverPredecessorCallbackIsInert(
+    fileprivate func assertDelayedRolloverPredecessorCallbackIsInert(
         in harness: ProductionAudioHarness,
         pair: (predecessor: WeakRecorderHandle, successor: WeakRecorderHandle),
         deliver: @MainActor (WeakRecorderHandle) -> Void
@@ -4950,7 +4948,7 @@ private extension WatchCaptureTests {
         await self.drain(until: { pair.predecessor.isReleased })
     }
 
-    func storageInventory(in storage: WatchCaptureTestStorage) throws -> WatchCaptureStorageInventory {
+    fileprivate func storageInventory(in storage: WatchCaptureTestStorage) throws -> WatchCaptureStorageInventory {
         let rootURL = storage.rootURL
         let fileManager = FileManager.default
 
@@ -5017,7 +5015,7 @@ private extension WatchCaptureTests {
         }
     }
 
-    func assertOwnerStoppedTerminal(in harness: Harness, recorderStops: Int) async throws {
+    fileprivate func assertOwnerStoppedTerminal(in harness: Harness, recorderStops: Int) async throws {
         let recordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
         let record = try XCTUnwrap(recordValue)
         XCTAssertEqual(record.state, .terminal)
@@ -5030,7 +5028,7 @@ private extension WatchCaptureTests {
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
     }
 
-    func assertDetectedTerminalOnce(
+    fileprivate func assertDetectedTerminalOnce(
         in harness: Harness,
         reason: WatchCaptureTerminalReason,
         recorderStops: Int
@@ -5044,7 +5042,7 @@ private extension WatchCaptureTests {
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
     }
 
-    func assertSupersededStartTerminal(
+    fileprivate func assertSupersededStartTerminal(
         in harness: Harness,
         publications: WatchCapturePublicationRecord,
         recorderStops: Int,
@@ -5068,7 +5066,7 @@ private extension WatchCaptureTests {
         XCTAssertFalse(publications.presentations.contains { $0.status == .active && $0.isSessionRunning })
     }
 
-    func capturePublications(in harness: Harness) -> WatchCapturePublicationRecord {
+    fileprivate func capturePublications(in harness: Harness) -> WatchCapturePublicationRecord {
         let publications = WatchCapturePublicationRecord()
         harness.engine.onPublishStatus = { publications.statuses.append($0) }
         harness.engine.onPresentationChanged = { publications.presentations.append($0) }
@@ -5185,7 +5183,6 @@ private extension WatchCaptureTests {
         )
         XCTAssertEqual(catalog.rootState, partialCatalog ? .partial : .complete)
     }
-
 
     func testEnginePowerSamplingPopulatesSegmentManifestAtCreation() async throws {
         let env = MockWatchRelayDiagnosticsEnvironmentProvider()
@@ -5326,11 +5323,478 @@ private extension WatchCaptureTests {
         XCTAssertEqual(env.sampleCount, 0)
     }
 
-    func makeHarness(
+    func testRepeatedHourFinalizeBumpsTakenStem() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-10-25T01:30:00.000Z"))
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Berlin"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(zone: zone)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+
+        let plantedDir = harness.storage.segmentDirectoryURL(day: "20261025", segment: "023000_300")
+        try await harness.storage.fileWriter.createDirectory(at: plantedDir)
+        let markerURL = plantedDir.appendingPathComponent("marker.txt")
+        let markerData = Data("planted-marker-repeated-hour".utf8)
+        try await harness.storage.fileWriter.writeData(markerData, to: markerURL, options: .atomic)
+
+        harness.engine.start()
+        await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 1 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count >= 2 })
+        await harness.engine.settled()
+
+        let readMarkerData = try await harness.storage.fileWriter.readData(from: markerURL)
+        XCTAssertEqual(readMarkerData, markerData)
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let entry = try XCTUnwrap(entries.first { $0.manifest.startedAt == openInstant })
+        XCTAssertEqual(entry.manifest.state, .queued)
+        XCTAssertEqual(entry.manifest.segment, "023001_300")
+        XCTAssertEqual(entry.manifest.day, "20261025")
+        XCTAssertEqual(entry.manifest.tz, "Europe/Berlin")
+        XCTAssertEqual(entry.manifest.utcOffsetSeconds, 3600)
+        XCTAssertEqual(entry.directoryURL.lastPathComponent, "023001_300")
+        XCTAssertEqual(entry.directoryURL.deletingLastPathComponent().lastPathComponent, "20261025")
+    }
+
+    func testRepeatedHourRolloverBumpsAndRecoveryKeepsPlantedStem() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-10-25T01:25:00.000Z"))
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Berlin"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(zone: zone)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+        harness.engine.start()
+        await harness.engine.settled()
+
+        let plantedDir = harness.storage.segmentDirectoryURL(day: "20261025", segment: "023000_1")
+        try await harness.storage.fileWriter.createDirectory(at: plantedDir)
+        let markerURL = plantedDir.appendingPathComponent("marker.txt")
+        let markerData = Data("planted-persisted-marker".utf8)
+        try await harness.storage.fileWriter.writeData(markerData, to: markerURL, options: .atomic)
+        let plantedAudioURL = harness.storage.audioURL(directory: plantedDir)
+        try await harness.storage.fileWriter.writeData(Data("audio-bytes".utf8), to: plantedAudioURL, options: .atomic)
+        await harness.audioProbe.setDuration(300, forPath: plantedAudioURL.path)
+
+        let plantedStartedAt = openInstant.addingTimeInterval(300)
+        let plantedManifest = WatchSegmentManifest(
+            id: UUID(),
+            day: "20261025",
+            segment: "023000_1",
+            startedAt: plantedStartedAt,
+            duration: 0,
+            sensors: [.audio],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 0,
+            state: .persisted,
+            tz: "Europe/Berlin",
+            utcOffsetSeconds: 7200,
+            zoneSnapshotRecorded: true
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let manifestData = try encoder.encode(plantedManifest)
+        try await harness.storage.fileWriter.writeData(
+            manifestData,
+            to: harness.storage.manifestURL(directory: plantedDir),
+            options: .atomic
+        )
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 1 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count >= 2 })
+        await harness.engine.settled()
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertNil(harness.engine.ownerPresentation.terminalReason)
+
+        let readMarkerData = try await harness.storage.fileWriter.readData(from: markerURL)
+        XCTAssertEqual(readMarkerData, markerData)
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 1 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count >= 3 })
+        await harness.engine.settled()
+
+        let intermediateEntries = await self.catalogEntries(for: harness.storage)
+        let bumpedLiveEntry = try XCTUnwrap(intermediateEntries.first { $0.manifest.segment.hasPrefix("023001_") && $0.manifest.state == .queued })
+        XCTAssertEqual(bumpedLiveEntry.manifest.day, "20261025")
+
+        harness.engine.stop()
+        await harness.engine.settled()
+
+        let relaunch = self.relaunchEngine(
+            for: harness,
+            zoneSource: ScriptedWatchCaptureZoneSource(zone: zone)
+        )
+        relaunch.reconcileOnLaunch()
+        await relaunch.settled()
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let plantedEntry = try XCTUnwrap(entries.first { $0.manifest.id == plantedManifest.id })
+        XCTAssertEqual(plantedEntry.manifest.state, .queued)
+        XCTAssertEqual(plantedEntry.manifest.segment, "023000_300")
+        XCTAssertEqual(plantedEntry.directoryURL.lastPathComponent, "023000_300")
+    }
+
+    func testZoneSnapshotSurvivesTravelAtFinalize() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-09-29T14:55:00.600Z"))
+        let tokyoZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let aucklandZone = try XCTUnwrap(TimeZone(identifier: "Pacific/Auckland"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(zone: tokyoZone)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+
+        harness.engine.start()
+        await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 1 })
+
+        zoneSource.setZone(aucklandZone)
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count >= 2 })
+        await harness.engine.settled()
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let first = try XCTUnwrap(entries.first { $0.manifest.day == "20260929" && $0.manifest.segment == "235500_300" })
+        XCTAssertEqual(first.manifest.state, .queued)
+        XCTAssertEqual(first.manifest.tz, "Asia/Tokyo")
+        XCTAssertEqual(first.manifest.utcOffsetSeconds, 32400)
+        XCTAssertEqual(first.manifest.startedAt, Date(timeIntervalSince1970: floor(openInstant.timeIntervalSince1970)))
+
+        let nextStart = openInstant.addingTimeInterval(300)
+        let expectedAucklandDay = harness.storage.paths.dayString(for: nextStart, timeZone: aucklandZone)
+        let expectedAucklandProvisional = harness.storage.paths.provisionalSegmentString(for: nextStart, timeZone: aucklandZone)
+        let second = try XCTUnwrap(entries.first { $0.manifest.day == expectedAucklandDay && $0.manifest.segment == expectedAucklandProvisional })
+        XCTAssertEqual(second.manifest.tz, "Pacific/Auckland")
+        XCTAssertEqual(second.manifest.utcOffsetSeconds, aucklandZone.secondsFromGMT(for: nextStart))
+    }
+
+    func testZoneSnapshotSurvivesTravelAcrossRelaunch() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-09-29T14:55:00.600Z"))
+        let tokyoZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let aucklandZone = try XCTUnwrap(TimeZone(identifier: "Pacific/Auckland"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(zone: tokyoZone)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+
+        let day = harness.storage.paths.dayString(for: openInstant, timeZone: tokyoZone)
+        let provisional = harness.storage.paths.provisionalSegmentString(for: openInstant, timeZone: tokyoZone)
+        let directory = try await harness.storageActor.prepareSegmentDirectory(day: day, segment: provisional)
+        let audioURL = harness.storage.audioURL(directory: directory)
+        try await harness.storage.fileWriter.writeData(Data("audio-data".utf8), to: audioURL, options: .atomic)
+        await harness.audioProbe.setDuration(300, forPath: audioURL.path)
+
+        let persistedManifest = WatchSegmentManifest(
+            id: UUID(),
+            day: day,
+            segment: provisional,
+            startedAt: openInstant,
+            duration: 0,
+            sensors: [.audio],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 0,
+            state: .persisted,
+            tz: "Asia/Tokyo",
+            utcOffsetSeconds: 32400,
+            zoneSnapshotRecorded: true
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let manifestData = try encoder.encode(persistedManifest)
+        try await harness.storage.fileWriter.writeData(
+            manifestData,
+            to: harness.storage.manifestURL(directory: directory),
+            options: .atomic
+        )
+
+        let relaunch = self.relaunchEngine(
+            for: harness,
+            zoneSource: ScriptedWatchCaptureZoneSource(zone: aucklandZone)
+        )
+        relaunch.reconcileOnLaunch()
+        await relaunch.settled()
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let entry = try XCTUnwrap(entries.first { $0.manifest.day == "20260929" && $0.manifest.segment == "235500_300" })
+        XCTAssertEqual(entry.manifest.state, .queued)
+        XCTAssertEqual(entry.manifest.tz, "Asia/Tokyo")
+        XCTAssertEqual(entry.manifest.utcOffsetSeconds, 32400)
+        XCTAssertEqual(entry.manifest.startedAt, Date(timeIntervalSince1970: floor(openInstant.timeIntervalSince1970)))
+    }
+
+    func testKolkataOffsetSurvivesFinalizeUnderAuckland() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-09-29T18:25:00.000Z"))
+        let kolkataZone = try XCTUnwrap(TimeZone(identifier: "Asia/Kolkata"))
+        let aucklandZone = try XCTUnwrap(TimeZone(identifier: "Pacific/Auckland"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(zone: kolkataZone)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+
+        harness.engine.start()
+        await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 1 })
+
+        zoneSource.setZone(aucklandZone)
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count >= 2 })
+        await harness.engine.settled()
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let entry = try XCTUnwrap(entries.first { $0.manifest.startedAt == openInstant })
+        XCTAssertEqual(entry.manifest.state, .queued)
+        XCTAssertEqual(entry.manifest.day, "20260929")
+        XCTAssertEqual(entry.manifest.segment, "235500_300")
+        XCTAssertNil(entry.manifest.tz)
+        XCTAssertEqual(entry.manifest.utcOffsetSeconds, 19800)
+    }
+
+    func testLegacyManifestWithoutZoneKeysFinalizesUnderCurrentZone() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-09-29T14:55:00.000Z"))
+        let tokyoZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(zone: tokyoZone)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+
+        let day = harness.storage.paths.dayString(for: openInstant, timeZone: tokyoZone)
+        let provisional = harness.storage.paths.provisionalSegmentString(for: openInstant, timeZone: tokyoZone)
+        let directory = try await harness.storageActor.prepareSegmentDirectory(day: day, segment: provisional)
+        let audioURL = harness.storage.audioURL(directory: directory)
+        try await harness.storage.fileWriter.writeData(Data("audio-data".utf8), to: audioURL, options: .atomic)
+        await harness.audioProbe.setDuration(300, forPath: audioURL.path)
+
+        let legacyManifest = WatchSegmentManifest(
+            id: UUID(),
+            day: day,
+            segment: provisional,
+            startedAt: openInstant,
+            duration: 0,
+            sensors: [.audio],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 0,
+            state: .persisted,
+            tz: nil,
+            utcOffsetSeconds: nil,
+            zoneSnapshotRecorded: false
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let manifestData = try encoder.encode(legacyManifest)
+        let manifestString = String(decoding: manifestData, as: UTF8.self)
+        XCTAssertFalse(manifestString.contains("\"tz\""))
+        XCTAssertFalse(manifestString.contains("\"utc_offset_seconds\""))
+        try await harness.storage.fileWriter.writeData(
+            manifestData,
+            to: harness.storage.manifestURL(directory: directory),
+            options: .atomic
+        )
+
+        let relaunch = self.relaunchEngine(for: harness, zoneSource: zoneSource)
+        relaunch.reconcileOnLaunch()
+        await relaunch.settled()
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let entry = try XCTUnwrap(entries.first { $0.manifest.id == legacyManifest.id })
+        XCTAssertEqual(entry.manifest.state, .queued)
+        XCTAssertEqual(entry.manifest.segment, "235500_300")
+        XCTAssertEqual(entry.manifest.day, "20260929")
+        XCTAssertEqual(entry.manifest.tz, "Asia/Tokyo")
+        XCTAssertEqual(entry.manifest.utcOffsetSeconds, 32400)
+    }
+
+    func testChainedStemBumpSkipsTwoTakenSeconds() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-10-25T01:30:00.000Z"))
+        let zone = try XCTUnwrap(TimeZone(identifier: "Europe/Berlin"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(zone: zone)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+
+        let dir0 = harness.storage.segmentDirectoryURL(day: "20261025", segment: "023000_300")
+        try await harness.storage.fileWriter.createDirectory(at: dir0)
+        let marker0 = dir0.appendingPathComponent("marker.txt")
+        let data0 = Data("marker-0".utf8)
+        try await harness.storage.fileWriter.writeData(data0, to: marker0, options: .atomic)
+
+        let dir1 = harness.storage.segmentDirectoryURL(day: "20261025", segment: "023001_300")
+        try await harness.storage.fileWriter.createDirectory(at: dir1)
+        let marker1 = dir1.appendingPathComponent("marker.txt")
+        let data1 = Data("marker-1".utf8)
+        try await harness.storage.fileWriter.writeData(data1, to: marker1, options: .atomic)
+
+        harness.engine.start()
+        await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 1 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count >= 2 })
+        await harness.engine.settled()
+
+        let readData0 = try await harness.storage.fileWriter.readData(from: marker0)
+        XCTAssertEqual(readData0, data0)
+        let readData1 = try await harness.storage.fileWriter.readData(from: marker1)
+        XCTAssertEqual(readData1, data1)
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let entry = try XCTUnwrap(entries.first { $0.manifest.startedAt == openInstant })
+        XCTAssertEqual(entry.manifest.state, .queued)
+        XCTAssertEqual(entry.manifest.segment, "023002_300")
+        XCTAssertEqual(entry.directoryURL.lastPathComponent, "023002_300")
+    }
+
+    func testMidnightStemBumpRollsCivilDay() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-09-29T14:59:59.000Z"))
+        let tokyoZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(zone: tokyoZone)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+
+        let dir = harness.storage.segmentDirectoryURL(day: "20260929", segment: "235959_300")
+        try await harness.storage.fileWriter.createDirectory(at: dir)
+        let marker = dir.appendingPathComponent("marker.txt")
+        let markerData = Data("marker-midnight".utf8)
+        try await harness.storage.fileWriter.writeData(markerData, to: marker, options: .atomic)
+
+        harness.engine.start()
+        await harness.engine.settled()
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 1 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count >= 2 })
+        await harness.engine.settled()
+
+        let readMarker = try await harness.storage.fileWriter.readData(from: marker)
+        XCTAssertEqual(readMarker, markerData)
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let entry = try XCTUnwrap(entries.first { $0.manifest.startedAt == openInstant })
+        XCTAssertEqual(entry.manifest.state, .queued)
+        XCTAssertEqual(entry.manifest.day, "20260930")
+        XCTAssertEqual(entry.manifest.segment, "000000_300")
+        XCTAssertEqual(entry.directoryURL.lastPathComponent, "000000_300")
+        XCTAssertEqual(entry.directoryURL.deletingLastPathComponent().lastPathComponent, "20260930")
+        XCTAssertEqual(entry.manifest.startedAt, openInstant)
+    }
+
+    func testZoneSourceIsReadOncePerOpenedSegment() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-09-29T14:55:00.000Z"))
+        let tokyoZone = try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(zone: tokyoZone)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+
+        harness.engine.start()
+        await harness.engine.settled()
+        XCTAssertEqual(zoneSource.readCount, 1)
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 1 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count >= 2 })
+        await harness.engine.settled()
+        XCTAssertEqual(zoneSource.readCount, 2)
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        XCTAssertEqual(entries.count, 2)
+        for entry in entries {
+            XCTAssertEqual(entry.manifest.tz, "Asia/Tokyo")
+            XCTAssertEqual(entry.manifest.utcOffsetSeconds, tokyoZone.secondsFromGMT(for: entry.manifest.startedAt))
+        }
+    }
+
+    func testFailedZoneReadDoesNotInventAZone() async throws {
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let openInstant = try XCTUnwrap(isoFormatter.date(from: "2026-09-29T14:55:00.000Z"))
+        let aucklandZone = try XCTUnwrap(TimeZone(identifier: "Pacific/Auckland"))
+        let zoneSource = ScriptedWatchCaptureZoneSource(shouldThrow: true)
+        let harness = try self.makeHarness(
+            locationAuthorization: .denied,
+            now: openInstant,
+            zoneSource: zoneSource
+        )
+
+        harness.engine.start()
+        await harness.engine.settled()
+        XCTAssertTrue(harness.engine.ownerPresentation.isSessionRunning)
+        XCTAssertNil(harness.engine.ownerPresentation.terminalReason)
+
+        let day = harness.storage.paths.dayString(for: openInstant, timeZone: TimeZone(secondsFromGMT: 0)!)
+        let segment = harness.storage.paths.provisionalSegmentString(for: openInstant, timeZone: TimeZone(secondsFromGMT: 0)!)
+        let manifestURL = harness.storage.paths.manifestURL(
+            directory: harness.storage.segmentDirectoryURL(day: day, segment: segment)
+        )
+        let rawManifestData = try await harness.storage.fileWriter.readData(from: manifestURL)
+        let rawManifestString = String(decoding: rawManifestData, as: UTF8.self)
+        XCTAssertTrue(rawManifestString.contains("\"tz\":null") || rawManifestString.contains("\"tz\" : null"))
+        XCTAssertTrue(rawManifestString.contains("\"utc_offset_seconds\":null") || rawManifestString.contains("\"utc_offset_seconds\" : null"))
+
+        zoneSource.setZone(aucklandZone)
+        zoneSource.setShouldThrow(false)
+
+        await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 1 })
+        harness.clock.advance(by: 300)
+        await self.drain(until: { harness.recorder.startURLs.count >= 2 })
+        await harness.engine.settled()
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        let first = try XCTUnwrap(entries.first { $0.manifest.startedAt == openInstant })
+        XCTAssertEqual(first.manifest.state, .queued)
+        XCTAssertNil(first.manifest.tz)
+        XCTAssertNil(first.manifest.utcOffsetSeconds)
+    }
+
+    fileprivate func makeHarness(
         audioPermission: Bool = true,
         microphonePermission: WatchMicrophonePermission? = nil,
         locationAuthorization: WatchLocationAuthorization = .authorized,
         fileWriter: (any WatchFileWriting)? = nil,
+        now: Date? = nil,
+        zoneSource: (any WatchCaptureZoneSource)? = nil,
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = MockWatchRelayDiagnosticsEnvironmentProvider(),
         signposter: any WatchSignposting = WatchSignpost.live,
         audioSessionNotificationHandoff: @escaping WatchAudioSessionNotificationHandoff = { operation in
@@ -5346,7 +5810,7 @@ private extension WatchCaptureTests {
         let rootURL = self.tempDirectory
             .appendingPathComponent("Harness-\(UUID().uuidString)", isDirectory: true)
         let storage = try WatchCaptureTestStorage(rootURL: rootURL, fileWriter: writer)
-        let clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_713_624_000))
+        let clock = MockObserverClock(now: now ?? Date(timeIntervalSince1970: 1_713_624_000))
         let audioProbe = MockWatchAudioProbe()
         let storageActor = WatchCaptureStorageActor(
             paths: storage.paths,
@@ -5361,6 +5825,7 @@ private extension WatchCaptureTests {
             paths: storage.paths,
             storageActor: storageActor,
             clock: clock,
+            zoneSource: zoneSource ?? DeviceWatchCaptureZoneSource(),
             environmentProvider: environmentProvider,
             notificationCenter: notificationCenter,
             signposter: signposter,
@@ -5407,7 +5872,7 @@ private extension WatchCaptureTests {
 
     /// Yields until the gate has a parked continuation, then returns immediately.
     /// Fails closed at the bounded cap for the same reason as `drain(until:)`.
-    func waitForGate(
+    fileprivate func waitForGate(
         _ gate: WatchCaptureHoldGate,
         maxYields: Int = 10_000,
         file: StaticString = #filePath,
@@ -5449,7 +5914,7 @@ private extension WatchCaptureTests {
         )
     }
 
-    func initialDirectory(in harness: Harness) -> URL {
+    fileprivate func initialDirectory(in harness: Harness) -> URL {
         let startedAt = harness.clock.now()
         return harness.storage.segmentDirectoryURL(
             day: harness.storage.dayString(for: startedAt),
@@ -5457,7 +5922,7 @@ private extension WatchCaptureTests {
         )
     }
 
-    func successorDirectory(in harness: Harness) -> URL {
+    fileprivate func successorDirectory(in harness: Harness) -> URL {
         let startedAt = harness.clock.now().addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds)
         return harness.storage.segmentDirectoryURL(
             day: harness.storage.dayString(for: startedAt),
@@ -5465,7 +5930,7 @@ private extension WatchCaptureTests {
         )
     }
 
-    func assertTerminalRolloverFailure(in harness: Harness, successorStarts: Int) async throws {
+    fileprivate func assertTerminalRolloverFailure(in harness: Harness, successorStarts: Int) async throws {
         let recordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
         let record = try XCTUnwrap(recordValue)
         XCTAssertEqual(record.state, .terminal)
@@ -5532,7 +5997,10 @@ private extension WatchCaptureTests {
         return directory
     }
 
-    func relaunchEngine(for harness: Harness) -> WatchCaptureEngine {
+    fileprivate func relaunchEngine(
+        for harness: Harness,
+        zoneSource: (any WatchCaptureZoneSource)? = nil
+    ) -> WatchCaptureEngine {
         WatchCaptureEngine(
             audioRecorder: MockWatchAudioRecorder(microphonePermission: .granted),
             audioSession: MockWatchAudioSession(),
@@ -5540,6 +6008,7 @@ private extension WatchCaptureTests {
             paths: harness.storage.paths,
             storageActor: harness.storageActor,
             clock: harness.clock,
+            zoneSource: zoneSource ?? DeviceWatchCaptureZoneSource(),
             environmentProvider: MockWatchRelayDiagnosticsEnvironmentProvider(),
             notificationCenter: NotificationCenter()
         )
@@ -5596,13 +6065,13 @@ fileprivate actor WatchCaptureHoldGate {
 }
 
 @MainActor
-private final class WatchCapturePublicationRecord {
+fileprivate final class WatchCapturePublicationRecord {
     var statuses: [WatchStatusContext] = []
     var presentations: [WatchCaptureOwnerPresentation] = []
 }
 
 @MainActor
-private final class MockWatchAudioSession: WatchAudioSessionControlling {
+fileprivate final class MockWatchAudioSession: WatchAudioSessionControlling {
     var hasSuitableInput = true
     var setActiveCalls: [Bool] = []
     var activeErrors: [any Error] = []
@@ -5625,7 +6094,7 @@ private final class MockWatchAudioSession: WatchAudioSessionControlling {
 }
 
 @MainActor
-private final class ProductionRecorderStore {
+fileprivate final class ProductionRecorderStore {
     private(set) var handles: [WeakRecorderHandle] = []
 
     var count: Int { self.handles.count }
@@ -5654,11 +6123,11 @@ private final class ProductionRecorderStore {
 /// Counts terminal deliveries that actually reached the sink, so fixtures can
 /// converge on proof a callback was delivered instead of a fixed yield count.
 @MainActor
-private final class TerminalDeliveryProbe {
+fileprivate final class TerminalDeliveryProbe {
     var count = 0
 }
 
-private final class AudioSessionNotificationHandoffProbe: @unchecked Sendable {
+fileprivate final class AudioSessionNotificationHandoffProbe: @unchecked Sendable {
     typealias Operation = @MainActor @Sendable () -> Void
 
     private let operations = OSAllocatedUnfairLock<[Operation]>(initialState: [])
@@ -5685,14 +6154,14 @@ private final class AudioSessionNotificationHandoffProbe: @unchecked Sendable {
 }
 
 @MainActor
-private final class ProductionRolloverSnapshotProbe {
+fileprivate final class ProductionRolloverSnapshotProbe {
     var value: ProductionRolloverSnapshot?
     var error: (any Error)?
     let publications = WatchCapturePublicationRecord()
 }
 
 @MainActor
-private struct ProductionRolloverSnapshot {
+fileprivate struct ProductionRolloverSnapshot {
     let record: WatchCaptureSessionRecord
     let storageInventory: WatchCaptureStorageInventory
     let presentation: WatchCaptureOwnerPresentation
@@ -5702,7 +6171,7 @@ private struct ProductionRolloverSnapshot {
     let predecessorTelemetry: RecorderTelemetry.Snapshot
 }
 
-private struct WatchCaptureStorageInventory: Equatable {
+fileprivate struct WatchCaptureStorageInventory: Equatable {
     struct Entry: Equatable {
         let relativePath: String
         let isDirectory: Bool
@@ -5713,7 +6182,7 @@ private struct WatchCaptureStorageInventory: Equatable {
 }
 
 @MainActor
-private final class MockWatchAudioRecorder: WatchAudioRecording {
+fileprivate final class MockWatchAudioRecorder: WatchAudioRecording {
     var url: URL?
     var currentTime: TimeInterval = 0
     var isRecording = false
@@ -5772,7 +6241,7 @@ private final class MockWatchAudioRecorder: WatchAudioRecording {
 }
 
 @MainActor
-private final class MockWatchLocationProvider: WatchLocationProviding {
+fileprivate final class MockWatchLocationProvider: WatchLocationProviding {
     var onFix: (@MainActor @Sendable (WatchLocationFix) -> Void)?
     var onAuthorizationChanged: (@MainActor @Sendable (WatchLocationAuthorization) -> Void)?
     var onFailure: (@MainActor @Sendable (any Error) -> Void)?
@@ -5808,7 +6277,7 @@ private final class MockWatchLocationProvider: WatchLocationProviding {
     }
 }
 
-private actor MockWatchAudioProbe: WatchAudioProbing {
+fileprivate actor MockWatchAudioProbe: WatchAudioProbing {
     private var durations: [String: TimeInterval?] = [:]
     private var ioUnknownPaths: Set<String> = []
     // Six re-harnessed legacy tests depend on unseeded URLs reading decodable.
@@ -5874,6 +6343,7 @@ final class FailingWatchFileWriter: WatchFileWriting {
     private var appendLineFailures: [String: Set<Int>] = [:]
     private var fileSizeFailures: Set<String> = []
     private var readFailures: Set<String> = []
+    private var createDirectoryFailures: Set<String> = []
     private var contentsCallCount = 0
     private var contentsFailures: Set<Int> = []
     private var removeItemFailures: Set<String> = []
@@ -5891,11 +6361,20 @@ final class FailingWatchFileWriter: WatchFileWriting {
     }
 
     nonisolated func createDirectory(at url: URL) async throws {
-        let gate = await MainActor.run {
-            self.createDirectoryGateURL == url ? self.createDirectoryGate : nil
+        let (gate, shouldFail) = await MainActor.run {
+            let gate = self.createDirectoryGateURL == url ? self.createDirectoryGate : nil
+            let shouldFail = self.createDirectoryFailures.remove(url.path) != nil
+            return (gate, shouldFail)
         }
         if let gate {
             await gate.suspend()
+        }
+        if shouldFail {
+            throw NSError(
+                domain: NSCocoaErrorDomain,
+                code: NSFileWriteFileExistsError,
+                userInfo: [NSFilePathErrorKey: url.path]
+            )
         }
         try await self.base.createDirectory(at: url)
     }
@@ -6072,6 +6551,10 @@ final class FailingWatchFileWriter: WatchFileWriting {
         self.removeItemFailures.insert(url.path)
     }
 
+    func failCreateDirectory(at url: URL) {
+        self.createDirectoryFailures.insert(url.path)
+    }
+
     func clearReadFailure(at url: URL) {
         self.readFailures.remove(url.path)
     }
@@ -6080,5 +6563,51 @@ final class FailingWatchFileWriter: WatchFileWriting {
         let ordinal = (ordinals[url.path] ?? 0) + 1
         ordinals[url.path] = ordinal
         return ordinal
+    }
+}
+
+final class ScriptedWatchCaptureZoneSource: WatchCaptureZoneSource, @unchecked Sendable {
+    private struct State {
+        var zone: TimeZone
+        var shouldThrow: Bool
+        var readCount: Int
+    }
+
+    private let state: OSAllocatedUnfairLock<State>
+
+    init(zone: TimeZone = TimeZone(identifier: "Asia/Tokyo")!, shouldThrow: Bool = false) {
+        self.state = OSAllocatedUnfairLock(initialState: State(zone: zone, shouldThrow: shouldThrow, readCount: 0))
+    }
+
+    var currentZone: TimeZone {
+        get { self.state.withLock { $0.zone } }
+        set { self.state.withLock { $0.zone = newValue } }
+    }
+
+    var shouldThrow: Bool {
+        get { self.state.withLock { $0.shouldThrow } }
+        set { self.state.withLock { $0.shouldThrow = newValue } }
+    }
+
+    var readCount: Int {
+        self.state.withLock { $0.readCount }
+    }
+
+    func setZone(_ zone: TimeZone) {
+        self.state.withLock { $0.zone = zone }
+    }
+
+    func setShouldThrow(_ shouldThrow: Bool) {
+        self.state.withLock { $0.shouldThrow = shouldThrow }
+    }
+
+    func currentTimeZone() throws -> TimeZone {
+        try self.state.withLock { state in
+            state.readCount += 1
+            if state.shouldThrow {
+                throw NSError(domain: "WatchCaptureTests.ScriptedWatchCaptureZoneSource", code: 1, userInfo: nil)
+            }
+            return state.zone
+        }
     }
 }

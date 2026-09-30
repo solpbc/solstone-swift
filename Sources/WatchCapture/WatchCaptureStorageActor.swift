@@ -29,15 +29,15 @@ nonisolated struct WatchCaptureStoragePaths: Sendable {
             .appendingPathComponent(segment, isDirectory: true)
     }
 
-    func dayString(for date: Date, timeZone: TimeZone = .current) -> String {
+    func dayString(for date: Date, timeZone: TimeZone) -> String {
         Self.dayString(for: date, timeZone: timeZone)
     }
 
-    func segmentString(for date: Date, durationSeconds: Double, timeZone: TimeZone = .current) -> String {
+    func segmentString(for date: Date, durationSeconds: Double, timeZone: TimeZone) -> String {
         Self.segmentString(for: date, durationSeconds: durationSeconds, timeZone: timeZone)
     }
 
-    func provisionalSegmentString(for date: Date, timeZone: TimeZone = .current) -> String {
+    func provisionalSegmentString(for date: Date, timeZone: TimeZone) -> String {
         Self.segmentString(for: date, durationSeconds: 1, timeZone: timeZone)
     }
 
@@ -51,7 +51,7 @@ nonisolated struct WatchCaptureStoragePaths: Sendable {
     func sessionHistoryURL() -> URL { self.rootURL.appendingPathComponent(WatchCaptureStorageActor.historyFileName) }
     func sessionHistoryCounterURL() -> URL { self.rootURL.appendingPathComponent(WatchCaptureStorageActor.counterFileName) }
 
-    static func dayString(for date: Date, timeZone: TimeZone = .current) -> String {
+    static func dayString(for date: Date, timeZone: TimeZone) -> String {
         let formatter = DateFormatter()
         SegmentWireTimeFormatter.configure(formatter)
         formatter.timeZone = timeZone
@@ -59,7 +59,7 @@ nonisolated struct WatchCaptureStoragePaths: Sendable {
         return formatter.string(from: date)
     }
 
-    static func segmentString(for date: Date, durationSeconds: Double, timeZone: TimeZone = .current) -> String {
+    static func segmentString(for date: Date, durationSeconds: Double, timeZone: TimeZone) -> String {
         let formatter = DateFormatter()
         SegmentWireTimeFormatter.configure(formatter)
         formatter.timeZone = timeZone
@@ -448,6 +448,22 @@ actor WatchCaptureStorageActor {
         }
     }
 
+    func listDayDirectorySegmentNames(day: String) async throws -> [String] {
+        try await self.withTransaction(transactionClass: .captureSafety) {
+            let dayURL = self.withSynchronousActorWork(.storageActorFileOperation) {
+                self.paths.rootURL.appendingPathComponent(day, isDirectory: true)
+            }
+            let kind = try await self.fileWriter.itemKind(at: dayURL)
+            if kind == .missing {
+                return []
+            }
+            let urls = try await self.fileWriter.contentsOfDirectory(at: dayURL)
+            return self.withSynchronousActorWork(.storageActorFileOperation) {
+                urls.map(\.lastPathComponent)
+            }
+        }
+    }
+
     func moveSegmentDirectoryIfNeeded(
         currentURL: URL,
         day: String,
@@ -456,8 +472,9 @@ actor WatchCaptureStorageActor {
     ) async throws -> URL {
         try await self.withTransaction(transactionClass: .captureSafety) {
             let finalURL = self.withSynchronousActorWork(.captureFinalization) { () -> URL? in
-                guard currentSegment != finalSegment else { return nil }
-                return self.paths.segmentDirectoryURL(day: day, segment: finalSegment)
+                let targetURL = self.paths.segmentDirectoryURL(day: day, segment: finalSegment)
+                guard targetURL.standardizedFileURL != currentURL.standardizedFileURL else { return nil }
+                return targetURL
             }
             guard let finalURL else { return currentURL }
             try await self.fileWriter.moveItem(at: currentURL, to: finalURL)

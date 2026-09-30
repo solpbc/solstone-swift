@@ -54,6 +54,7 @@ final class WatchCaptureEngine {
     private let paths: WatchCaptureStoragePaths
     private let storageActor: WatchCaptureStorageActor
     private let clock: any ObserverClock
+    private let zoneSource: any WatchCaptureZoneSource
     private let notificationCenter: NotificationCenter
     private let audioSessionNotificationHandoff: WatchAudioSessionNotificationHandoff
     private let environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding
@@ -123,6 +124,7 @@ final class WatchCaptureEngine {
         paths: WatchCaptureStoragePaths,
         storageActor: WatchCaptureStorageActor,
         clock: any ObserverClock = SystemObserverClock(),
+        zoneSource: any WatchCaptureZoneSource = DeviceWatchCaptureZoneSource(),
         environmentProvider: any WatchRelayDiagnosticsEnvironmentProviding = LiveWatchRelayDiagnosticsEnvironmentProvider(),
         notificationCenter: NotificationCenter = .default,
         signposter: any WatchSignposting = WatchSignpost.live,
@@ -136,6 +138,7 @@ final class WatchCaptureEngine {
         self.paths = paths
         self.storageActor = storageActor
         self.clock = clock
+        self.zoneSource = zoneSource
         self.environmentProvider = environmentProvider
         self.signposter = signposter
         self.notificationCenter = notificationCenter
@@ -905,12 +908,33 @@ extension WatchCaptureEngine {
     ) async throws -> Bool {
         self.openingSegment = nil
         self.openingSegmentHasPersistedManifest = false
-        let zone = TimeZone.current
+        let zone: TimeZone
+        var stamp: SegmentTimeZoneStamp?
+        var zoneSnapshotRecorded = true
+        do {
+            let sampledZone = try self.zoneSource.currentTimeZone()
+            zone = sampledZone
+            stamp = SegmentTimeZoneStamp(timeZone: sampledZone, startedAt: startedAt)
+        } catch {
+            watchCaptureLog.error(
+                "watch open segment time zone read failed: \(String(describing: error), privacy: .public)"
+            )
+            zone = TimeZone(secondsFromGMT: 0)!
+            stamp = nil
+            zoneSnapshotRecorded = true
+        }
         let day = self.paths.dayString(for: startedAt, timeZone: zone)
-        let segmentKey = self.paths.provisionalSegmentString(for: startedAt, timeZone: zone)
+        let provisional = self.paths.provisionalSegmentString(for: startedAt, timeZone: zone)
+        let stem = provisional.components(separatedBy: "_").first ?? provisional
+        let (resolvedDay, segmentKey) = await self.bumpSegment(
+            day: day,
+            stem: stem,
+            durationSuffix: "1",
+            excludingDirectoryName: nil
+        )
         let directory: URL
         do {
-            directory = try await self.storageActor.prepareSegmentDirectory(day: day, segment: segmentKey)
+            directory = try await self.storageActor.prepareSegmentDirectory(day: resolvedDay, segment: segmentKey)
         } catch {
             guard await self.continueOpeningLifecycleOperation(generation) else { return false }
             throw error
@@ -928,7 +952,7 @@ extension WatchCaptureEngine {
         }
         var manifest = WatchSegmentManifest(
             id: UUID(),
-            day: day,
+            day: resolvedDay,
             segment: segmentKey,
             startedAt: startedAt,
             duration: 0,
@@ -938,11 +962,11 @@ extension WatchCaptureEngine {
             gap: false,
             fixCount: 0,
             state: .captured,
-            failureReason: nil
+            failureReason: nil,
+            tz: stamp?.tz,
+            utcOffsetSeconds: stamp?.utcOffsetSeconds,
+            zoneSnapshotRecorded: zoneSnapshotRecorded
         )
-        let stamp = SegmentTimeZoneStamp(timeZone: zone, startedAt: startedAt)
-        manifest.tz = stamp.tz
-        manifest.utcOffsetSeconds = stamp.utcOffsetSeconds
         do {
             let sample = try self.environmentProvider.sampleSegmentPower()
             manifest.powerSampledAt = self.clock.now()
@@ -1342,45 +1366,166 @@ extension WatchCaptureEngine {
         case .queue:
             break
         }
-        let zone = TimeZone.current
-        let finalSegment = self.paths.segmentString(
-            for: manifest.startedAt,
-            durationSeconds: max(manifest.duration, 1),
-            timeZone: zone
-        )
-        let stamp = SegmentTimeZoneStamp(timeZone: zone, startedAt: manifest.startedAt)
-        do {
-            _ = try await self.storageActor.moveSegmentDirectoryIfNeeded(
-                currentURL: segment.directoryURL,
-                day: manifest.day,
-                currentSegment: manifest.segment,
-                finalSegment: finalSegment
-            )
-            manifest.segment = finalSegment
-            manifest.tz = stamp.tz
-            manifest.utcOffsetSeconds = stamp.utcOffsetSeconds
-            manifest.state = .finalized
-            try await self.storageActor.writeManifest(
-                manifest,
-                ensuringDirectory: false,
-                transactionClass: .captureSafety
-            )
-            manifest.state = .queued
-            try await self.storageActor.writeManifest(
-                manifest,
-                ensuringDirectory: false,
-                transactionClass: .captureSafety
-            )
-            if manifest.partial {
+        if !manifest.zoneSnapshotRecorded {
+            let zone: TimeZone
+            do {
+                zone = try self.zoneSource.currentTimeZone()
+            } catch {
                 watchCaptureLog.error(
-                    "watch segment partial id=\(manifest.id.uuidString, privacy: .public) state=queued"
+                    "watch legacy finalize time zone read failed: \(String(describing: error), privacy: .public)"
                 )
+                self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
+                return
             }
-            self.queuedCount += 1
-            await self.incrementSegmentsProduced(sessionID: sessionID, source: source)
-            self.requestRelayDrain(trigger: relayTrigger)
-        } catch {
-            self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
+            let finalSegment = self.paths.segmentString(
+                for: manifest.startedAt,
+                durationSeconds: max(manifest.duration, 1),
+                timeZone: zone
+            )
+            let stamp = SegmentTimeZoneStamp(timeZone: zone, startedAt: manifest.startedAt)
+            do {
+                _ = try await self.storageActor.moveSegmentDirectoryIfNeeded(
+                    currentURL: segment.directoryURL,
+                    day: manifest.day,
+                    currentSegment: manifest.segment,
+                    finalSegment: finalSegment
+                )
+                manifest.segment = finalSegment
+                manifest.tz = stamp.tz
+                manifest.utcOffsetSeconds = stamp.utcOffsetSeconds
+                manifest.state = .finalized
+                try await self.storageActor.writeManifest(
+                    manifest,
+                    ensuringDirectory: false,
+                    transactionClass: .captureSafety
+                )
+                manifest.state = .queued
+                try await self.storageActor.writeManifest(
+                    manifest,
+                    ensuringDirectory: false,
+                    transactionClass: .captureSafety
+                )
+                if manifest.partial {
+                    watchCaptureLog.error(
+                        "watch segment partial id=\(manifest.id.uuidString, privacy: .public) state=queued"
+                    )
+                }
+                self.queuedCount += 1
+                await self.incrementSegmentsProduced(sessionID: sessionID, source: source)
+                self.requestRelayDrain(trigger: relayTrigger)
+            } catch {
+                self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
+            }
+        } else {
+            let stem = manifest.segment.components(separatedBy: "_").first ?? manifest.segment
+            let durationSuffix = "\(max(1, Int(manifest.duration.rounded())))"
+            let (finalDay, finalSegment) = await self.bumpSegment(
+                day: manifest.day,
+                stem: stem,
+                durationSuffix: durationSuffix,
+                excludingDirectoryName: manifest.segment
+            )
+            do {
+                _ = try await self.storageActor.moveSegmentDirectoryIfNeeded(
+                    currentURL: segment.directoryURL,
+                    day: finalDay,
+                    currentSegment: manifest.segment,
+                    finalSegment: finalSegment
+                )
+                manifest.day = finalDay
+                manifest.segment = finalSegment
+                manifest.state = .finalized
+                try await self.storageActor.writeManifest(
+                    manifest,
+                    ensuringDirectory: false,
+                    transactionClass: .captureSafety
+                )
+                manifest.state = .queued
+                try await self.storageActor.writeManifest(
+                    manifest,
+                    ensuringDirectory: false,
+                    transactionClass: .captureSafety
+                )
+                if manifest.partial {
+                    watchCaptureLog.error(
+                        "watch segment partial id=\(manifest.id.uuidString, privacy: .public) state=queued"
+                    )
+                }
+                self.queuedCount += 1
+                await self.incrementSegmentsProduced(sessionID: sessionID, source: source)
+                self.requestRelayDrain(trigger: relayTrigger)
+            } catch {
+                self.status = .needsAttention(WatchCaptureFailureMapper.observerError(for: error))
+            }
+        }
+    }
+
+    private func bumpSegment(
+        day: String,
+        stem: String,
+        durationSuffix: String,
+        excludingDirectoryName: String?
+    ) async -> (day: String, segment: String) {
+        guard stem.count == 6, Int(stem) != nil else {
+            return (day, "\(stem)_\(durationSuffix)")
+        }
+        var currentDay = day
+        var currentStem = stem
+        while true {
+            let entries: [String]
+            do {
+                entries = try await self.storageActor.listDayDirectorySegmentNames(day: currentDay)
+            } catch {
+                watchCaptureLog.error(
+                    "watch listing day directory failed: \(String(describing: error), privacy: .public)"
+                )
+                return (currentDay, "\(currentStem)_\(durationSuffix)")
+            }
+            let isTaken = entries.contains { entry in
+                guard entry != excludingDirectoryName else { return false }
+                return entry.hasPrefix("\(currentStem)_")
+            }
+            if !isTaken {
+                return (currentDay, "\(currentStem)_\(durationSuffix)")
+            }
+            let startIndex = currentStem.startIndex
+            let hStr = String(currentStem[startIndex..<currentStem.index(startIndex, offsetBy: 2)])
+            let mStr = String(currentStem[currentStem.index(startIndex, offsetBy: 2)..<currentStem.index(startIndex, offsetBy: 4)])
+            let sStr = String(currentStem[currentStem.index(startIndex, offsetBy: 4)..<currentStem.endIndex])
+            guard var h = Int(hStr), var m = Int(mStr), var s = Int(sStr) else {
+                return (currentDay, "\(currentStem)_\(durationSuffix)")
+            }
+            s += 1
+            if s >= 60 {
+                s = 0
+                m += 1
+            }
+            if m >= 60 {
+                m = 0
+                h += 1
+            }
+            if h >= 24 {
+                h = 0
+                m = 0
+                s = 0
+                // Converting the stem through the segment zone repeats or skips the Berlin fold.
+                var gmtCalendar = Calendar(identifier: .gregorian)
+                gmtCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
+                gmtCalendar.locale = Locale(identifier: "en_US_POSIX")
+                let gmtFormatter = DateFormatter()
+                gmtFormatter.locale = Locale(identifier: "en_US_POSIX")
+                gmtFormatter.timeZone = TimeZone(secondsFromGMT: 0)!
+                gmtFormatter.calendar = gmtCalendar
+                gmtFormatter.dateFormat = "yyyyMMdd"
+                guard let parsedDay = gmtFormatter.date(from: currentDay),
+                      let nextDay = gmtCalendar.date(byAdding: .day, value: 1, to: parsedDay) else {
+                    return (currentDay, "\(currentStem)_\(durationSuffix)")
+                }
+                currentDay = gmtFormatter.string(from: nextDay)
+                currentStem = "000000"
+            } else {
+                currentStem = String(format: "%02d%02d%02d", h, m, s)
+            }
         }
     }
 

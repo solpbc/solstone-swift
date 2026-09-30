@@ -24,6 +24,21 @@ nonisolated enum WatchSensor: String, Codable, Equatable, Sendable, CaseIterable
     case location
 }
 
+nonisolated protocol WatchCaptureZoneSource: Sendable {
+    func currentTimeZone() throws -> TimeZone
+}
+
+nonisolated struct DeviceWatchCaptureZoneSource: WatchCaptureZoneSource {
+    func currentTimeZone() throws -> TimeZone {
+        let zone = TimeZone.current
+        if TimeZone.knownTimeZoneIdentifiers.contains(zone.identifier),
+           let fixed = TimeZone(identifier: zone.identifier) {
+            return fixed
+        }
+        return TimeZone(secondsFromGMT: zone.secondsFromGMT()) ?? TimeZone(secondsFromGMT: 0)!
+    }
+}
+
 nonisolated struct SegmentTimeZoneStamp: Equatable, Sendable {
     var tz: String?
     var utcOffsetSeconds: Int
@@ -60,6 +75,8 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
     var abandonedAt: Date? = nil
     var tz: String? = nil
     var utcOffsetSeconds: Int? = nil
+    /// Absent keys are a pre-field manifest; JSON null is a recorded snapshot with no zone.
+    var zoneSnapshotRecorded: Bool = false
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -86,6 +103,122 @@ nonisolated struct WatchSegmentManifest: Codable, Equatable, Sendable {
         case abandonedAt = "abandoned_at"
         case tz
         case utcOffsetSeconds = "utc_offset_seconds"
+    }
+
+    init(
+        id: UUID,
+        day: String,
+        segment: String,
+        startedAt: Date,
+        duration: Double,
+        sensors: [WatchSensor],
+        partial: Bool,
+        lost: Bool,
+        gap: Bool,
+        fixCount: Int,
+        state: WatchSegmentState,
+        failureReason: String? = nil,
+        deliveredAt: Date? = nil,
+        batteryLevel: Double? = nil,
+        batteryState: String? = nil,
+        lowPowerMode: Bool? = nil,
+        powerSampledAt: Date? = nil,
+        relayDeliveryAttemptCount: Int? = nil,
+        relayLastProgress: Double? = nil,
+        relayLastProgressAt: Date? = nil,
+        relayDeliveryEffortSeconds: Double? = nil,
+        abandonedAt: Date? = nil,
+        tz: String? = nil,
+        utcOffsetSeconds: Int? = nil,
+        zoneSnapshotRecorded: Bool = false
+    ) {
+        self.id = id
+        self.day = day
+        self.segment = segment
+        self.startedAt = startedAt
+        self.duration = duration
+        self.sensors = sensors
+        self.partial = partial
+        self.lost = lost
+        self.gap = gap
+        self.fixCount = fixCount
+        self.state = state
+        self.failureReason = failureReason
+        self.deliveredAt = deliveredAt
+        self.batteryLevel = batteryLevel
+        self.batteryState = batteryState
+        self.lowPowerMode = lowPowerMode
+        self.powerSampledAt = powerSampledAt
+        self.relayDeliveryAttemptCount = relayDeliveryAttemptCount
+        self.relayLastProgress = relayLastProgress
+        self.relayLastProgressAt = relayLastProgressAt
+        self.relayDeliveryEffortSeconds = relayDeliveryEffortSeconds
+        self.abandonedAt = abandonedAt
+        self.tz = tz
+        self.utcOffsetSeconds = utcOffsetSeconds
+        self.zoneSnapshotRecorded = zoneSnapshotRecorded
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(UUID.self, forKey: .id)
+        self.day = try container.decode(String.self, forKey: .day)
+        self.segment = try container.decode(String.self, forKey: .segment)
+        self.startedAt = try container.decode(Date.self, forKey: .startedAt)
+        self.duration = try container.decode(Double.self, forKey: .duration)
+        self.sensors = try container.decode([WatchSensor].self, forKey: .sensors)
+        self.partial = try container.decode(Bool.self, forKey: .partial)
+        self.lost = try container.decode(Bool.self, forKey: .lost)
+        self.gap = try container.decode(Bool.self, forKey: .gap)
+        self.fixCount = try container.decode(Int.self, forKey: .fixCount)
+        self.state = try container.decode(WatchSegmentState.self, forKey: .state)
+        self.failureReason = try container.decodeIfPresent(String.self, forKey: .failureReason)
+        self.deliveredAt = try container.decodeIfPresent(Date.self, forKey: .deliveredAt)
+        self.batteryLevel = try container.decodeIfPresent(Double.self, forKey: .batteryLevel)
+        self.batteryState = try container.decodeIfPresent(String.self, forKey: .batteryState)
+        self.lowPowerMode = try container.decodeIfPresent(Bool.self, forKey: .lowPowerMode)
+        self.powerSampledAt = try container.decodeIfPresent(Date.self, forKey: .powerSampledAt)
+        self.relayDeliveryAttemptCount = try container.decodeIfPresent(Int.self, forKey: .relayDeliveryAttemptCount)
+        self.relayLastProgress = try container.decodeIfPresent(Double.self, forKey: .relayLastProgress)
+        self.relayLastProgressAt = try container.decodeIfPresent(Date.self, forKey: .relayLastProgressAt)
+        self.relayDeliveryEffortSeconds = try container.decodeIfPresent(Double.self, forKey: .relayDeliveryEffortSeconds)
+        self.abandonedAt = try container.decodeIfPresent(Date.self, forKey: .abandonedAt)
+        self.zoneSnapshotRecorded = container.contains(.tz) || container.contains(.utcOffsetSeconds)
+        self.tz = try container.decodeIfPresent(String.self, forKey: .tz)
+        self.utcOffsetSeconds = try container.decodeIfPresent(Int.self, forKey: .utcOffsetSeconds)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.id, forKey: .id)
+        try container.encode(self.day, forKey: .day)
+        try container.encode(self.segment, forKey: .segment)
+        try container.encode(self.startedAt, forKey: .startedAt)
+        try container.encode(self.duration, forKey: .duration)
+        try container.encode(self.sensors, forKey: .sensors)
+        try container.encode(self.partial, forKey: .partial)
+        try container.encode(self.lost, forKey: .lost)
+        try container.encode(self.gap, forKey: .gap)
+        try container.encode(self.fixCount, forKey: .fixCount)
+        try container.encode(self.state, forKey: .state)
+        try container.encodeIfPresent(self.failureReason, forKey: .failureReason)
+        try container.encodeIfPresent(self.deliveredAt, forKey: .deliveredAt)
+        try container.encodeIfPresent(self.batteryLevel, forKey: .batteryLevel)
+        try container.encodeIfPresent(self.batteryState, forKey: .batteryState)
+        try container.encodeIfPresent(self.lowPowerMode, forKey: .lowPowerMode)
+        try container.encodeIfPresent(self.powerSampledAt, forKey: .powerSampledAt)
+        try container.encodeIfPresent(self.relayDeliveryAttemptCount, forKey: .relayDeliveryAttemptCount)
+        try container.encodeIfPresent(self.relayLastProgress, forKey: .relayLastProgress)
+        try container.encodeIfPresent(self.relayLastProgressAt, forKey: .relayLastProgressAt)
+        try container.encodeIfPresent(self.relayDeliveryEffortSeconds, forKey: .relayDeliveryEffortSeconds)
+        try container.encodeIfPresent(self.abandonedAt, forKey: .abandonedAt)
+        if self.zoneSnapshotRecorded && self.tz == nil && self.utcOffsetSeconds == nil {
+            try container.encodeNil(forKey: .tz)
+            try container.encodeNil(forKey: .utcOffsetSeconds)
+        } else {
+            try container.encodeIfPresent(self.tz, forKey: .tz)
+            try container.encodeIfPresent(self.utcOffsetSeconds, forKey: .utcOffsetSeconds)
+        }
     }
 }
 

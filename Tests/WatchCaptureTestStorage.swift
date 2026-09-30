@@ -20,11 +20,11 @@ struct WatchCaptureTestStorage {
 
     var rootURL: URL { self.paths.rootURL }
 
-    func dayString(for date: Date) -> String { self.paths.dayString(for: date) }
+    func dayString(for date: Date) -> String { self.paths.dayString(for: date, timeZone: .current) }
     func segmentString(for date: Date, durationSeconds: Double) -> String {
-        self.paths.segmentString(for: date, durationSeconds: durationSeconds)
+        self.paths.segmentString(for: date, durationSeconds: durationSeconds, timeZone: .current)
     }
-    func provisionalSegmentString(for date: Date) -> String { self.paths.provisionalSegmentString(for: date) }
+    func provisionalSegmentString(for date: Date) -> String { self.paths.provisionalSegmentString(for: date, timeZone: .current) }
     func segmentDirectoryURL(day: String, segment: String) -> URL {
         self.paths.segmentDirectoryURL(day: day, segment: segment)
     }
