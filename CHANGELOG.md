@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Added
+
+- the solstone app on your apple watch now shows its own version and build number alongside your journal's version.
+
 ### Changed
 
 - the notifications page in settings now says what a notification from your journal is: a short heads-up when there's something worth a look, never the content.

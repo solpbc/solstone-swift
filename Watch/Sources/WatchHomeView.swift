@@ -45,6 +45,12 @@ struct WatchHomeView: View {
                             .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
                         }
 
+                        Text("app version \(AppVersion.shortVersion) (\(AppVersion.build))")
+                            .font(.caption2)
+                            .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
+                            .minimumScaleFactor(0.7)
+                            .fixedSize(horizontal: false, vertical: true)
+
                         Text("journal version \(self.model.journalVersion.displayValue)")
                             .font(.caption2)
                             .foregroundStyle(Color(watchHex: WatchHomePalette.calm))

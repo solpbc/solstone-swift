@@ -279,6 +279,7 @@ targets:
       - Watch/Sources
       - Watch/PrivacyInfo.xcprivacy
       - Watch/Assets.xcassets
+      - Sources/AppVersion.swift
       - path: Sources/SunArc
       - path: Sources/WatchCapture
         excludes:
