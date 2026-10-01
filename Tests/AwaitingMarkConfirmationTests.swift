@@ -44,7 +44,22 @@ nonisolated final class AwaitingMarkConfirmationTests: XCTestCase {
         XCTAssertFalse(configMatching.awaitingMarkConfirmation)
 
         // 2. Marker + mismatched/nil record -> awaitingMarkConfirmation == true
-        let confStoreMismatched = JournalSendConfirmationStore.memory(initialRecord: nil, initialMarker: true)
+        let confStoreNilRecord = JournalSendConfirmationStore.memory(initialRecord: nil, initialMarker: true)
+        let credStoreNilRecord = PairingCredentialStore(
+            confirmationStore: confStoreNilRecord,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        let configNilRecord = AppConfig(
+            confirmationStore: confStoreNilRecord,
+            store: credStoreNilRecord
+        )
+        XCTAssertTrue(configNilRecord.isPaired)
+        XCTAssertFalse(configNilRecord.journalSendConfirmed)
+        XCTAssertTrue(configNilRecord.awaitingMarkConfirmation)
+
+        let confStoreMismatched = JournalSendConfirmationStore.memory(initialRecord: "not-the-key", initialMarker: true)
         let credStoreMismatched = PairingCredentialStore(
             confirmationStore: confStoreMismatched,
             loadPairing: { pairing },
@@ -111,6 +126,33 @@ nonisolated final class AwaitingMarkConfirmationTests: XCTestCase {
         XCTAssertTrue(retrySucceeded)
         XCTAssertTrue(configFail.journalSendConfirmed)
         XCTAssertFalse(configFail.awaitingMarkConfirmation)
+
+        // 6. Failed first read with a matching record, then button decision
+        let key = try XCTUnwrap(journalSendConfirmationKey(for: pairing))
+        let confStoreFailMatching = JournalSendConfirmationStore.memory(initialRecord: key, failFirstRead: true)
+        let credStoreFailMatching = PairingCredentialStore(
+            confirmationStore: confStoreFailMatching,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        let configFailMatching = AppConfig(
+            confirmationStore: confStoreFailMatching,
+            store: credStoreFailMatching
+        )
+        XCTAssertFalse(configFailMatching.journalSendConfirmed)
+        XCTAssertTrue(confStoreFailMatching.allowsSend(pairing: pairing))
+        XCTAssertTrue(configFailMatching.awaitingMarkConfirmation)
+
+        XCTAssertTrue(configFailMatching.retrySettleIfNeeded())
+        XCTAssertEqual(configFailMatching.awaitingMarkConfirmation, !confStoreFailMatching.allowsSend(pairing: pairing))
+
+        let decision = AwaitingMarkConfirmationPrompt.decide(
+            retrySettled: true,
+            awaitingMarkConfirmation: configFailMatching.awaitingMarkConfirmation
+        )
+        XCTAssertTrue(decision.kickConfirmedSend)
+        XCTAssertFalse(decision.present)
     }
 
     @MainActor
