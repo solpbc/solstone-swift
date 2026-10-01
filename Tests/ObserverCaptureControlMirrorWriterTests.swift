@@ -66,7 +66,8 @@ nonisolated final class ObserverCaptureControlMirrorWriterTests: XCTestCase {
             microphonePermission: .denied,
             session: .notLive,
             sourceStates: [.observer: .off],
-            backlogCount: 2
+            backlogCount: 2,
+            awaitingMarkConfirmation: false
         ) else {
             return XCTFail("expected initial app group mirror write to succeed")
         }
@@ -80,6 +81,70 @@ nonisolated final class ObserverCaptureControlMirrorWriterTests: XCTestCase {
         }
 
         XCTAssertEqual(mirror.snapshot()?.microphonePermission, .denied)
+        XCTAssertEqual(controls.kinds, [observerCaptureControlKind])
+    }
+
+    @MainActor
+    func testWritePreservesAwaitingMarkConfirmationTrue() {
+        let rootURL = self.rootURL!
+        let mirror = AppGroupMirror(rootURLProvider: { rootURL })
+        let controls = ObserverCaptureControlReloadSpy()
+        let pairing = AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true)
+
+        guard case .success = mirror.updateSessionAndSources(
+            pairing: pairing,
+            microphonePermission: .granted,
+            session: .notLive,
+            sourceStates: [.observer: .off],
+            backlogCount: 3,
+            awaitingMarkConfirmation: true
+        ) else {
+            return XCTFail("expected initial app group mirror write to succeed")
+        }
+
+        guard case .success = ObserverCaptureControlMirrorWriter.update(
+            session: .live(mode: .meeting, startedAt: Date(timeIntervalSince1970: 1_776_144_000)),
+            mirror: mirror,
+            controls: controls
+        ) else {
+            return XCTFail("expected app group mirror write to succeed")
+        }
+
+        let snapshot = mirror.snapshot()
+        XCTAssertEqual(snapshot?.awaitingMarkConfirmation, true)
+        XCTAssertEqual(snapshot?.backlogCount, 3)
+        XCTAssertEqual(controls.kinds, [observerCaptureControlKind])
+    }
+
+    @MainActor
+    func testWritePreservesAwaitingMarkConfirmationFalse() {
+        let rootURL = self.rootURL!
+        let mirror = AppGroupMirror(rootURLProvider: { rootURL })
+        let controls = ObserverCaptureControlReloadSpy()
+        let pairing = AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true)
+
+        guard case .success = mirror.updateSessionAndSources(
+            pairing: pairing,
+            microphonePermission: .granted,
+            session: .notLive,
+            sourceStates: [.observer: .off],
+            backlogCount: 3,
+            awaitingMarkConfirmation: false
+        ) else {
+            return XCTFail("expected initial app group mirror write to succeed")
+        }
+
+        guard case .success = ObserverCaptureControlMirrorWriter.update(
+            session: .live(mode: .meeting, startedAt: Date(timeIntervalSince1970: 1_776_144_000)),
+            mirror: mirror,
+            controls: controls
+        ) else {
+            return XCTFail("expected app group mirror write to succeed")
+        }
+
+        let snapshot = mirror.snapshot()
+        XCTAssertEqual(snapshot?.awaitingMarkConfirmation, false)
+        XCTAssertEqual(snapshot?.backlogCount, 3)
         XCTAssertEqual(controls.kinds, [observerCaptureControlKind])
     }
 }

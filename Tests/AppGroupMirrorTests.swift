@@ -22,6 +22,16 @@ private struct LegacyAppGroupMirrorSnapshot: Codable {
     let backlogCount: Int
 }
 
+private struct PreUpgradeAppGroupMirrorSnapshot: Codable {
+    let schemaVersion: Int
+    let writtenAt: Date
+    let pairing: AppGroupMirror.PairingSnapshot
+    let microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot?
+    let session: AppGroupMirror.SessionState
+    let sourceStates: [SourceKind: SourceState]
+    let backlogCount: Int
+}
+
 nonisolated final class AppGroupMirrorTests: XCTestCase {
     private var rootURL: URL!
 
@@ -96,7 +106,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .granted,
                 session: .live(mode: .meeting, startedAt: Date(timeIntervalSince1970: 1_776_144_000)),
                 sourceStates: sourceStates,
-                backlogCount: 9
+                backlogCount: 9,
+                awaitingMarkConfirmation: false
             )
         )
 
@@ -108,6 +119,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         XCTAssertEqual(stored.microphonePermission, .granted)
         XCTAssertEqual(stored.sourceStates, sourceStates)
         XCTAssertEqual(stored.backlogCount, 9)
+        XCTAssertFalse(stored.awaitingMarkConfirmation)
     }
 
     @MainActor
@@ -125,7 +137,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
-                backlogCount: 0
+                backlogCount: 0,
+                awaitingMarkConfirmation: false
             )
         )
         let sessionWrite = try XCTUnwrap(mirror.snapshot())
@@ -144,7 +157,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .undetermined,
                 session: .notLive,
                 sourceStates: [.observer: .off],
-                backlogCount: 0
+                backlogCount: 0,
+                awaitingMarkConfirmation: false
             )
         )
         let firstWrite = try XCTUnwrap(mirror.snapshot())
@@ -156,7 +170,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
-                backlogCount: 0
+                backlogCount: 0,
+                awaitingMarkConfirmation: false
             )
         )
 
@@ -176,7 +191,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
-                backlogCount: 0
+                backlogCount: 0,
+                awaitingMarkConfirmation: false
             )
         )
         let firstWrite = try XCTUnwrap(mirror.snapshot())
@@ -188,7 +204,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
-                backlogCount: 0
+                backlogCount: 0,
+                awaitingMarkConfirmation: false
             )
         )
         XCTAssertEqual(mirror.snapshot()?.writtenAt, firstWrite.writtenAt)
@@ -200,7 +217,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
-                backlogCount: 0
+                backlogCount: 0,
+                awaitingMarkConfirmation: false
             )
         )
         XCTAssertEqual(mirror.snapshot()?.writtenAt, dateSource.value)
@@ -239,7 +257,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
-                backlogCount: totals.pending + totals.failed
+                backlogCount: totals.pending + totals.failed,
+                awaitingMarkConfirmation: false
             )
         )
         XCTAssertEqual(mirror.snapshot()?.backlogCount, 29)
@@ -269,6 +288,7 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         XCTAssertNil(result.microphonePermission)
         XCTAssertEqual(result.sourceStates, [:])
         XCTAssertEqual(result.backlogCount, 0)
+        XCTAssertFalse(result.awaitingMarkConfirmation)
     }
 
     @MainActor
@@ -283,7 +303,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
             microphonePermission: .granted,
             session: .notLive,
             sourceStates: [:],
-            backlogCount: 0
+            backlogCount: 0,
+            awaitingMarkConfirmation: false
         )
         try JSONEncoder().encode(stale).write(to: self.snapshotURL)
 
@@ -293,7 +314,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [:],
-                backlogCount: 0
+                backlogCount: 0,
+                awaitingMarkConfirmation: false
             )
         )
 
@@ -312,7 +334,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 microphonePermission: .granted,
                 session: .notLive,
                 sourceStates: [.observer: .off],
-                backlogCount: 3
+                backlogCount: 3,
+                awaitingMarkConfirmation: false
             )
         )
 
@@ -351,6 +374,177 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
         XCTAssertNil(snapshot.microphonePermission)
         XCTAssertEqual(snapshot.pairing, self.pairedPairing)
         XCTAssertEqual(snapshot.sourceStates, [.observer: .off])
+        XCTAssertFalse(snapshot.awaitingMarkConfirmation)
+    }
+
+    @MainActor
+    func testDecodesPreUpgradeSnapshotWithoutAwaitingMarkConfirmation() throws {
+        let now = Date(timeIntervalSince1970: 1_776_144_000)
+        let dateSource = AppGroupMirrorDateSource(now)
+        let mirror = self.makeMirror(dateSource: dateSource)
+        let preUpgrade = PreUpgradeAppGroupMirrorSnapshot(
+            schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion,
+            writtenAt: now,
+            pairing: self.pairedPairing,
+            microphonePermission: .granted,
+            session: .notLive,
+            sourceStates: [.observer: .off],
+            backlogCount: 4
+        )
+
+        try JSONEncoder().encode(preUpgrade).write(to: self.snapshotURL)
+
+        let snapshot = try XCTUnwrap(mirror.snapshot())
+        XCTAssertFalse(snapshot.awaitingMarkConfirmation)
+        XCTAssertEqual(snapshot.pairing, self.pairedPairing)
+        XCTAssertEqual(snapshot.microphonePermission, .granted)
+        XCTAssertEqual(snapshot.sourceStates, [.observer: .off])
+    }
+
+    @MainActor
+    func testRoundTripsAwaitingMarkConfirmationKey() throws {
+        let now = Date(timeIntervalSince1970: 1_776_144_000)
+        let dateSource = AppGroupMirrorDateSource(now)
+        let mirror = self.makeMirror(dateSource: dateSource)
+
+        for expected in [true, false] {
+            let snapshot = AppGroupMirror.Snapshot(
+                schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion,
+                writtenAt: now,
+                pairing: self.pairedPairing,
+                microphonePermission: .granted,
+                session: .notLive,
+                sourceStates: [.observer: .active],
+                backlogCount: 2,
+                awaitingMarkConfirmation: expected
+            )
+            try JSONEncoder().encode(snapshot).write(to: self.snapshotURL)
+
+            let read = try XCTUnwrap(mirror.snapshot())
+            XCTAssertEqual(read.awaitingMarkConfirmation, expected)
+            XCTAssertEqual(read.writtenAt, now)
+        }
+    }
+
+    @MainActor
+    func testAwaitingMarkConfirmationChangeWritesWithinHeartbeat() throws {
+        let dateSource = AppGroupMirrorDateSource(Date(timeIntervalSince1970: 1_776_144_000))
+        let mirror = self.makeMirror(dateSource: dateSource)
+
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                microphonePermission: .granted,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 0,
+                awaitingMarkConfirmation: false
+            )
+        )
+        let firstWrite = try XCTUnwrap(mirror.snapshot())
+        XCTAssertFalse(firstWrite.awaitingMarkConfirmation)
+
+        dateSource.value = firstWrite.writtenAt.addingTimeInterval(1)
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                microphonePermission: .granted,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 0,
+                awaitingMarkConfirmation: true
+            )
+        )
+
+        let secondWrite = try XCTUnwrap(mirror.snapshot())
+        XCTAssertTrue(secondWrite.awaitingMarkConfirmation)
+        XCTAssertEqual(secondWrite.writtenAt, dateSource.value)
+
+        dateSource.value = secondWrite.writtenAt.addingTimeInterval(1)
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                microphonePermission: .granted,
+                session: .notLive,
+                sourceStates: [.observer: .off],
+                backlogCount: 0,
+                awaitingMarkConfirmation: false
+            )
+        )
+
+        let thirdWrite = try XCTUnwrap(mirror.snapshot())
+        XCTAssertFalse(thirdWrite.awaitingMarkConfirmation)
+        XCTAssertEqual(thirdWrite.writtenAt, dateSource.value)
+    }
+
+    @MainActor
+    func testWritePairingPreservesNotAwaitingAndSubsequentAwaitingWriteAdvancesWithinHeartbeat() throws {
+        let dateSource = AppGroupMirrorDateSource(Date(timeIntervalSince1970: 1_776_144_000))
+        let mirror = self.makeMirror(dateSource: dateSource)
+        let sourceStates: [SourceKind: SourceState] = [.observer: .active, .location: .off]
+        let session: AppGroupMirror.SessionState = .live(mode: .meeting, startedAt: dateSource.value)
+
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.unpairedPairing,
+                microphonePermission: .granted,
+                session: session,
+                sourceStates: sourceStates,
+                backlogCount: 5,
+                awaitingMarkConfirmation: false
+            )
+        )
+        let initialWrite = try XCTUnwrap(mirror.snapshot())
+
+        self.assertSuccess(mirror.writePairing(journalName: "sol"))
+        let pairingWrite = try XCTUnwrap(mirror.snapshot())
+        XCTAssertFalse(pairingWrite.awaitingMarkConfirmation)
+        XCTAssertEqual(pairingWrite.microphonePermission, initialWrite.microphonePermission)
+        XCTAssertEqual(pairingWrite.session, initialWrite.session)
+        XCTAssertEqual(pairingWrite.sourceStates, initialWrite.sourceStates)
+        XCTAssertEqual(pairingWrite.backlogCount, initialWrite.backlogCount)
+        XCTAssertEqual(pairingWrite.pairing, AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true))
+
+        dateSource.value = pairingWrite.writtenAt.addingTimeInterval(1)
+        let micPermission = try XCTUnwrap(pairingWrite.microphonePermission)
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: pairingWrite.pairing,
+                microphonePermission: micPermission,
+                session: pairingWrite.session,
+                sourceStates: pairingWrite.sourceStates,
+                backlogCount: pairingWrite.backlogCount,
+                awaitingMarkConfirmation: true
+            )
+        )
+        let awaitingWrite = try XCTUnwrap(mirror.snapshot())
+        XCTAssertTrue(awaitingWrite.awaitingMarkConfirmation)
+        XCTAssertEqual(awaitingWrite.writtenAt, dateSource.value)
+    }
+
+    @MainActor
+    func testClearPairingOnAwaitingSnapshotStoresNotAwaiting() throws {
+        let now = Date(timeIntervalSince1970: 1_776_144_000)
+        let dateSource = AppGroupMirrorDateSource(now)
+        let mirror = self.makeMirror(dateSource: dateSource)
+
+        self.assertSuccess(
+            mirror.updateSessionAndSources(
+                pairing: self.pairedPairing,
+                microphonePermission: .granted,
+                session: .notLive,
+                sourceStates: [.observer: .active],
+                backlogCount: 1,
+                awaitingMarkConfirmation: true
+            )
+        )
+        let beforeClear = try XCTUnwrap(mirror.snapshot())
+        XCTAssertTrue(beforeClear.awaitingMarkConfirmation)
+
+        self.assertSuccess(mirror.clearPairing())
+        let afterClear = try XCTUnwrap(mirror.snapshot())
+        XCTAssertFalse(afterClear.awaitingMarkConfirmation)
+        XCTAssertFalse(afterClear.pairing.isPaired)
     }
 }
 

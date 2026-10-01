@@ -27,7 +27,7 @@ final class AppGroupMirror {
         case live(mode: ObserverMode, startedAt: Date)
     }
 
-    struct Snapshot: Codable, Equatable, Sendable {
+    struct Snapshot: Equatable, Sendable {
         static let currentSchemaVersion = 1
         static let maximumAge: Duration = .seconds(60)
         static let activeSessionHeartbeatInterval: Duration = .seconds(30)
@@ -40,6 +40,7 @@ final class AppGroupMirror {
         var session: SessionState
         var sourceStates: [SourceKind: SourceState]
         var backlogCount: Int
+        var awaitingMarkConfirmation: Bool = false
     }
 
     enum StorageError: Error, Equatable, Sendable {
@@ -80,6 +81,7 @@ final class AppGroupMirror {
     func clearPairing() -> Result<Void, StorageError> {
         self.write { snapshot, now in
             snapshot.pairing = PairingSnapshot(journalName: nil, isPaired: false)
+            snapshot.awaitingMarkConfirmation = false
             snapshot.writtenAt = now
         }
     }
@@ -90,7 +92,8 @@ final class AppGroupMirror {
         microphonePermission: MicrophonePermissionSnapshot,
         session: SessionState,
         sourceStates: [SourceKind: SourceState],
-        backlogCount: Int
+        backlogCount: Int,
+        awaitingMarkConfirmation: Bool
     ) -> Result<Void, StorageError> {
         let now = self.now()
         let existing = self.freshSnapshotOrDefault(now: now)
@@ -100,6 +103,7 @@ final class AppGroupMirror {
            existing.snapshot.backlogCount == backlogCount,
            existing.snapshot.pairing == pairing,
            existing.snapshot.microphonePermission == microphonePermission,
+           existing.snapshot.awaitingMarkConfirmation == awaitingMarkConfirmation,
            self.isWithinHeartbeatInterval(existing.snapshot, now: now)
         {
             return .success(())
@@ -111,6 +115,7 @@ final class AppGroupMirror {
         snapshot.session = session
         snapshot.sourceStates = sourceStates
         snapshot.backlogCount = backlogCount
+        snapshot.awaitingMarkConfirmation = awaitingMarkConfirmation
         snapshot.writtenAt = now
 
         switch self.write(snapshot) {
@@ -120,6 +125,45 @@ final class AppGroupMirror {
         case .failure(let error):
             return .failure(error)
         }
+    }
+}
+
+extension AppGroupMirror.Snapshot: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion
+        case writtenAt
+        case pairing
+        case microphonePermission
+        case session
+        case sourceStates
+        case backlogCount
+        case awaitingMarkConfirmation
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        self.writtenAt = try container.decode(Date.self, forKey: .writtenAt)
+        self.pairing = try container.decode(AppGroupMirror.PairingSnapshot.self, forKey: .pairing)
+        self.microphonePermission = try container.decodeIfPresent(AppGroupMirror.MicrophonePermissionSnapshot.self, forKey: .microphonePermission)
+        self.session = try container.decode(AppGroupMirror.SessionState.self, forKey: .session)
+        self.sourceStates = try container.decode([SourceKind: SourceState].self, forKey: .sourceStates)
+        self.backlogCount = try container.decode(Int.self, forKey: .backlogCount)
+        // For up to 60s after upgrade (`Snapshot.maximumAge`) a pre-upgrade file with no key
+        // reads as not awaiting; past `maximumAge`, `snapshot()` is nil anyway. Accepted.
+        self.awaitingMarkConfirmation = try container.decodeIfPresent(Bool.self, forKey: .awaitingMarkConfirmation) ?? false
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(self.schemaVersion, forKey: .schemaVersion)
+        try container.encode(self.writtenAt, forKey: .writtenAt)
+        try container.encode(self.pairing, forKey: .pairing)
+        try container.encodeIfPresent(self.microphonePermission, forKey: .microphonePermission)
+        try container.encode(self.session, forKey: .session)
+        try container.encode(self.sourceStates, forKey: .sourceStates)
+        try container.encode(self.backlogCount, forKey: .backlogCount)
+        try container.encode(self.awaitingMarkConfirmation, forKey: .awaitingMarkConfirmation)
     }
 }
 

@@ -86,6 +86,7 @@ private struct AppGroupSnapshotInputs: Equatable {
     let backlogCount: WatchAwareBacklog
     let pairing: AppGroupMirror.PairingSnapshot
     let microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot
+    let awaitingMarkConfirmation: Bool
 }
 
 /// `.body` point sizes over the default, matching what
@@ -233,7 +234,8 @@ struct DayHomeView: View {
                 microphonePermission: self.appGroupMicrophonePermission,
                 session: self.appGroupSessionState,
                 sourceStates: self.appGroupSourceStates,
-                backlogCount: self.backlogCount.knownCount
+                backlogCount: self.backlogCount.knownCount,
+                awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
             )
             self.watchBacklogSnapshotWriter.write(
                 backlog: self.backlogCount,
@@ -261,7 +263,8 @@ private extension DayHomeView {
             bundle: self.bundle,
             backlogCount: self.backlogCount,
             pairing: self.appGroupPairing,
-            microphonePermission: self.appGroupMicrophonePermission
+            microphonePermission: self.appGroupMicrophonePermission,
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
         )
     }
 

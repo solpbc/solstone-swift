@@ -29,7 +29,7 @@ private struct ObserverStatusMediumView: View {
     }
 
     private var presentation: ObserverStatusPresentation {
-        ObserverStatusPresentations.medium(for: self.entry)
+        ObserverStatusPresentations.medium(snapshot: self.entry.snapshot)
     }
 
     private var placeholder: some View {

@@ -30,7 +30,7 @@ private struct ObserverStatusAccessoryCircularView: View {
     }
 
     private var presentation: ObserverStatusPresentation {
-        ObserverStatusPresentations.circular(for: self.entry)
+        ObserverStatusPresentations.circular(snapshot: self.entry.snapshot)
     }
 
     private var content: some View {

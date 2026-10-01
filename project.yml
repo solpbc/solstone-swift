@@ -246,6 +246,7 @@ targets:
       - Sources/Services/AppGroupContainer.swift
       - Sources/SourceModels.swift
       - Sources/SourceVocabulary.swift
+      - Sources/Widgets/ObserverStatusPresentation.swift
       - Sources/AppIntents/ObserverWidgetConfigurationIntent.swift
       - Sources/AppIntents/ObserverCaptureIntent.swift
     entitlements:

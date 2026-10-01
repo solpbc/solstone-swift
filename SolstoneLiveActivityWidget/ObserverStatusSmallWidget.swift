@@ -33,7 +33,7 @@ private struct ObserverStatusSmallView: View {
     }
 
     private var presentation: ObserverStatusPresentation {
-        ObserverStatusPresentations.small(for: self.entry)
+        ObserverStatusPresentations.small(snapshot: self.entry.snapshot, sourceKind: self.entry.sourceKind)
     }
 
     private var placeholder: some View {
