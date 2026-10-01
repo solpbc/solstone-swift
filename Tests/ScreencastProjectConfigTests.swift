@@ -161,7 +161,7 @@ private extension ScreencastProjectConfigTests {
     static func appTargetBlock() throws -> String {
         let projectYML = try self.projectYML()
         guard let start = projectYML.range(of: "  solstone-swift:"),
-              let end = projectYML[start.upperBound...].range(of: "  SolstoneNotificationContent:")
+              let end = projectYML[start.upperBound...].range(of: "  SolstoneNotificationService:")
         else {
             throw XCTSkip("solstone-swift block missing")
         }

@@ -109,8 +109,6 @@ targets:
         product: SPLTunnel
       - package: SwiftCrypto
         product: Crypto
-      - target: SolstoneNotificationContent
-        embed: true
       - target: SolstoneNotificationService
         embed: true
       - target: SolstoneShareExtension
@@ -121,40 +119,6 @@ targets:
         embed: true
       - target: SolstoneWatch
         embed: true
-  SolstoneNotificationContent:
-    type: app-extension
-    platform: iOS
-    deploymentTarget: "26.0"
-    sources:
-      - SolstoneNotificationContent
-      - Sources/Design/Colors.swift
-    entitlements:
-      path: SolstoneNotificationContent/SolstoneNotificationContent.entitlements
-      properties:
-        com.apple.security.application-groups:
-          - group.app.solstone.swift
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.content
-        INFOPLIST_KEY_CFBundleDisplayName: SolstoneNotificationContent
-        CODE_SIGN_ENTITLEMENTS: SolstoneNotificationContent/SolstoneNotificationContent.entitlements
-        DEVELOPMENT_TEAM: 7QCG8V4M6H
-        GENERATE_INFOPLIST_FILE: YES
-        SWIFT_STRICT_CONCURRENCY: complete
-        SWIFT_VERSION: "6.0"
-    info:
-      path: SolstoneNotificationContent/Info.plist
-      properties:
-        CFBundleShortVersionString: $(MARKETING_VERSION)
-        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
-          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController
-          NSExtensionAttributes:
-            # No categories currently use this no-op shell; target removal is an out-of-scope follow-up.
-            UNNotificationExtensionCategory: []
-            UNNotificationExtensionInitialContentSizeRatio: 1.0
-            UNNotificationExtensionDefaultContentHidden: false
   SolstoneNotificationService:
     type: app-extension
     platform: iOS

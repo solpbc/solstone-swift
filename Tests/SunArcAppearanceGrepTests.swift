@@ -18,7 +18,7 @@ nonisolated final class SunArcAppearanceGrepTests: XCTestCase {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         let scanRoots = [
             "Sources", "Watch", "SolstoneShareExtension", "SolstoneBroadcastExtension",
-            "SolstoneLiveActivityWidget", "SolstoneNotificationContent", "SolstoneWatchComplication",
+            "SolstoneLiveActivityWidget", "SolstoneWatchComplication",
         ].map { root.appendingPathComponent($0) }
         var scanned = 0
         for scanRoot in scanRoots {

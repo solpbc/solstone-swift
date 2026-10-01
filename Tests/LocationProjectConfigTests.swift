@@ -74,7 +74,7 @@ nonisolated final class LocationProjectConfigTests: XCTestCase {
 
     private static func appTargetBlock(in projectYML: String) -> String? {
         guard let start = projectYML.range(of: "  solstone-swift:"),
-              let end = projectYML[start.upperBound...].range(of: "  SolstoneNotificationContent:")
+              let end = projectYML[start.upperBound...].range(of: "  SolstoneNotificationService:")
         else {
             return nil
         }
