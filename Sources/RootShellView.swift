@@ -548,7 +548,8 @@ struct RootShellView: View {
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
             }
-            let expectedInstanceID = self.appConfig.deviceID.isEmpty ? nil : self.appConfig.deviceID
+            guard !Task.isCancelled else { return }
+            let expectedInstanceID = self.appConfig.loadStoredPairing()?.instanceID
             if case .match(let fetched) = await JournalIdentityFetcher().fetch(localPort: port, expectedInstanceID: expectedInstanceID) {
                 guard !Task.isCancelled else { return }
                 self.journalMark = fetched

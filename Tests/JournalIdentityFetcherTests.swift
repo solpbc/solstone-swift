@@ -30,7 +30,7 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-123")
 
         if case .match(let mark) = result {
             XCTAssertEqual(mark.words, ["afoot", "unfixed"])
@@ -48,7 +48,7 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-123")
 
         XCTAssertEqual(result, .missingOrInvalid)
     }
@@ -62,7 +62,7 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-123")
 
         XCTAssertEqual(result, .missingOrInvalid)
     }
@@ -76,7 +76,7 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-123")
 
         XCTAssertEqual(result, .missingOrInvalid)
     }
@@ -90,7 +90,7 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-123")
 
         XCTAssertEqual(result, .missingOrInvalid)
     }
@@ -108,9 +108,23 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
             )
         }
 
-        let result = await JournalIdentityFetcher().fetch(localPort: 7071)
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-123")
 
         XCTAssertEqual(result, .missingOrInvalid)
+    }
+
+    @MainActor
+    func testFetchReturnsInstanceMismatchWhenExpectedInstanceIDIsNil() async {
+        JournalIdentityURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Self.identityData(committed: true, mark: Self.markObject(), instanceID: "instance-123")
+            )
+        }
+
+        let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: nil)
+
+        XCTAssertEqual(result, .instanceMismatch)
     }
 
     @MainActor

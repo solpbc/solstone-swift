@@ -66,6 +66,10 @@ final class AppConfig {
         self.loopbackPort = nil
         self.journalSendConfirmed = false
 
+        self.store.registerOnApplyPairing { [weak self] in
+            self?.journalSendConfirmed = false
+        }
+
         do {
             if let pairing = try self.store.load() {
                 self.applyDerivedState(from: pairing)
@@ -80,9 +84,8 @@ final class AppConfig {
 
         do {
             let settleOutcome = try self.confirmationStore.settle(
-                loadPairing: { try self.store.load() },
+                loadPairing: { try self.store.reloadPairingFromKeychain() },
                 onRestoreSnapshot: { [weak self] restored in
-                    self?.store.restoreSnapshotFromSettle(restored)
                     self?.applyDerivedState(from: restored)
                 }
             )
@@ -98,9 +101,8 @@ final class AppConfig {
         guard !self.journalSendConfirmed else { return false }
         do {
             let settleOutcome = try self.confirmationStore.settle(
-                loadPairing: { try self.store.load() },
+                loadPairing: { try self.store.reloadPairingFromKeychain() },
                 onRestoreSnapshot: { [weak self] restored in
-                    self?.store.restoreSnapshotFromSettle(restored)
                     self?.applyDerivedState(from: restored)
                 }
             )

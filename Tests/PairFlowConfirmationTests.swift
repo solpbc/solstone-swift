@@ -62,7 +62,7 @@ nonisolated final class PairFlowConfirmationTests: XCTestCase {
         )
 
         XCTAssertEqual(outcome, .fallback(.timeout))
-        XCTAssertGreaterThan(fetchCount.withLock { $0 }, 1)
+        XCTAssertLessThanOrEqual(fetchCount.withLock { $0 }, 30 / 5 + 1)
     }
 
     @MainActor

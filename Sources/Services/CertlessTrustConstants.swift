@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+#if DEBUG
 nonisolated enum CertlessTrustConstants {
     static let caPEM = """
     -----BEGIN CERTIFICATE-----
@@ -54,3 +55,5 @@ nonisolated enum CertlessTrustConstants {
     static let chainPEM = "\(leafPEM)\n\(caPEM)\n"
     static let wrongChainPEM = "\(leafPEM)\n\(wrongCAPEM)\n"
 }
+#endif
+

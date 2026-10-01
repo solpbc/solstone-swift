@@ -6,6 +6,7 @@ import CryptoKit
 import SPLTunnel
 import SwiftUI
 import XCTest
+import os
 
 private final class StoredHolder: @unchecked Sendable {
     private let lock = NSLock()
@@ -353,6 +354,135 @@ nonisolated final class JournalSendGrandfatherTests: XCTestCase {
         XCTAssertFalse(appConfig2.retrySettleIfNeeded())
     }
 
+    @MainActor
+    func testLockedFirstLaunchFailsInitAndSettleReadsThenRetrySettleGrandfathers() throws {
+        let pairing = self.makePairing()
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let loadClosure: @Sendable () throws -> StoredPairing? = {
+            let count = loadCount.withLock { count -> Int in
+                count += 1
+                return count
+            }
+            if count == 1 {
+                throw JournalSendConfirmationStoreError.secItemError(errSecInteractionNotAllowed)
+            }
+            return pairing
+        }
+
+        let backing = GrandfatherBacking(failFirstMarkerRead: true)
+        let confirmationStore1 = backing.makeConfirmationStore()
+        let credentialStore1 = PairingCredentialStore(
+            confirmationStore: confirmationStore1,
+            loadPairing: loadClosure,
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+
+        let appGroupRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GrandfatherLockedTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appGroupRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appGroupRoot) }
+
+        let appConfig1 = AppConfig(
+            confirmationStore: confirmationStore1,
+            store: credentialStore1,
+            appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
+        )
+
+        // Init spends call 1; settle failed on marker read and did not call loadClosure
+        XCTAssertEqual(loadCount.withLock { $0 }, 1)
+        XCTAssertFalse(appConfig1.journalSendConfirmed)
+        XCTAssertFalse(appConfig1.isPaired)
+        XCTAssertNil(backing.record)
+        XCTAssertFalse(backing.marker)
+
+        // retrySettleIfNeeded invokes reloadPairingFromKeychain (call 2)
+        let flipped = appConfig1.retrySettleIfNeeded()
+        XCTAssertTrue(flipped)
+        XCTAssertEqual(loadCount.withLock { $0 }, 2)
+        XCTAssertTrue(appConfig1.journalSendConfirmed)
+        XCTAssertEqual(try credentialStore1.load(), pairing)
+        XCTAssertTrue(appConfig1.isPaired)
+        XCTAssertFalse(HeldJournalReAskDecision.shouldPresent(
+            arguments: [],
+            scenePhase: .active,
+            tunnelState: .connected(localPort: 7071, via: .lan),
+            isPaired: appConfig1.isPaired,
+            journalSendConfirmed: appConfig1.journalSendConfirmed,
+            presenceCount: 0,
+            isShowingPairingSheet: false
+        ))
+
+        // Build a new confirmation store from those same closures (fresh process flags), a new credential store, and a new AppConfig
+        let confirmationStore2 = backing.makeConfirmationStore()
+        let credentialStore2 = PairingCredentialStore(
+            confirmationStore: confirmationStore2,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        let appConfig2 = AppConfig(
+            confirmationStore: confirmationStore2,
+            store: credentialStore2,
+            appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
+        )
+        XCTAssertTrue(appConfig2.journalSendConfirmed)
+        XCTAssertTrue(confirmationStore2.allowsSend(pairing: pairing))
+    }
+
+    @MainActor
+    func testLoaderFailsOnBothInitAndSettleThenSubsequentRetrySettleGrandfathers() throws {
+        let pairing = self.makePairing()
+        let loadCount = OSAllocatedUnfairLock(initialState: 0)
+        let loadClosure: @Sendable () throws -> StoredPairing? = {
+            let count = loadCount.withLock { count -> Int in
+                count += 1
+                return count
+            }
+            if count <= 2 {
+                throw JournalSendConfirmationStoreError.secItemError(errSecInteractionNotAllowed)
+            }
+            return pairing
+        }
+
+        // Marker read always succeeds, marker starts absent, record starts nil
+        let backing = GrandfatherBacking(failFirstMarkerRead: false)
+        let confirmationStore = backing.makeConfirmationStore()
+        let credentialStore = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: loadClosure,
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+
+        let appGroupRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("GrandfatherLoaderFailTest-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appGroupRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appGroupRoot) }
+
+        let appConfig = AppConfig(
+            confirmationStore: confirmationStore,
+            store: credentialStore,
+            appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
+        )
+
+        // Init spends call 1 (cache fill), and call 2 during settle (reloadPairingFromKeychain) which throws
+        XCTAssertFalse(backing.marker)
+        XCTAssertNil(backing.record)
+        XCTAssertEqual(loadCount.withLock { $0 }, 2)
+        XCTAssertFalse(appConfig.journalSendConfirmed)
+        XCTAssertFalse(appConfig.isPaired)
+
+        // retrySettleIfNeeded makes call 3, loads pairing, grandfathers
+        let flipped = appConfig.retrySettleIfNeeded()
+        XCTAssertTrue(flipped)
+        XCTAssertEqual(loadCount.withLock { $0 }, 3)
+        XCTAssertTrue(appConfig.journalSendConfirmed)
+        XCTAssertEqual(try credentialStore.load(), pairing)
+        XCTAssertTrue(appConfig.isPaired)
+        XCTAssertTrue(confirmationStore.allowsSend(pairing: pairing))
+    }
+
     private func makeManifest(
         itemID: UUID = UUID(),
         source: String = "alpha",
@@ -390,3 +520,67 @@ nonisolated final class JournalSendGrandfatherTests: XCTestCase {
         )
     }
 }
+
+private final class GrandfatherBacking: @unchecked Sendable {
+    private let lock = NSLock()
+    var record: String?
+    var marker: Bool = false
+    var markerReadCount: Int = 0
+    var failFirstMarkerRead: Bool
+
+    init(failFirstMarkerRead: Bool = false) {
+        self.failFirstMarkerRead = failFirstMarkerRead
+    }
+
+    func readMarker() throws -> Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        self.markerReadCount += 1
+        if self.failFirstMarkerRead && self.markerReadCount == 1 {
+            throw JournalSendConfirmationStoreError.secItemError(errSecInteractionNotAllowed)
+        }
+        return self.marker
+    }
+
+    func writeMarker() throws {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        self.marker = true
+    }
+
+    func deleteMarker() {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        self.marker = false
+    }
+
+    func readRecord() throws -> String? {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.record
+    }
+
+    func writeRecord(_ key: String) throws {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        self.record = key
+    }
+
+    func deleteRecord() {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        self.record = nil
+    }
+
+    func makeConfirmationStore() -> JournalSendConfirmationStore {
+        JournalSendConfirmationStore(
+            loadRecord: { try self.readRecord() },
+            saveRecord: { try self.writeRecord($0) },
+            deleteRecord: { self.deleteRecord() },
+            loadMarker: { try self.readMarker() },
+            saveMarker: { try self.writeMarker() },
+            deleteMarker: { self.deleteMarker() }
+        )
+    }
+}
+

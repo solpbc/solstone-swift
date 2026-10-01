@@ -317,6 +317,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
         )
 
         applicator.apply(.fallback(.timeout))
+        XCTAssertNotNil(store.load())
 
         XCTAssertEqual(TransferURLProtocol.requests.count, 0)
         let snap = await engine.snapshot()

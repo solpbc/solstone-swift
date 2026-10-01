@@ -85,16 +85,30 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
         )
     }
 
+    private var onApplyPairingHook: (@MainActor @Sendable () -> Void)?
+
+    func registerOnApplyPairing(_ hook: (@MainActor @Sendable () -> Void)?) {
+        self.lock.withLock {
+            self.onApplyPairingHook = hook
+        }
+    }
+
     func performOnKeychainQueue<T>(_ block: () throws -> T) throws -> T {
         try self.keychainQueue.sync {
             try block()
         }
     }
 
-    func restoreSnapshotFromSettle(_ pairing: StoredPairing) {
-        self.lock.withLock {
-            self.state.pairing = pairing
-            self.state.pairingIdentity = journalVersionMetadataIdentity(for: pairing)
+    func reloadPairingFromKeychain() throws -> StoredPairing? {
+        // The loadPairing closure must not hop to the main actor and must not call back onto keychainQueue.
+        try self.keychainQueue.sync {
+            let loaded = try self.loadPairingClosure()
+            guard let loaded else { return nil }
+            self.lock.withLock {
+                self.state.pairing = loaded
+                self.state.pairingIdentity = journalVersionMetadataIdentity(for: loaded)
+            }
+            return loaded
         }
     }
 
@@ -183,6 +197,21 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
                 self.state.liveRelayDisabled = false
                 self.state.pairingIdentity = journalVersionMetadataIdentity(for: pairing)
                 self.state.failedDurableClear = nil
+            }
+        }
+
+        let hook = self.lock.withLock { self.onApplyPairingHook }
+        if let hook {
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    hook()
+                }
+            } else {
+                DispatchQueue.main.sync {
+                    MainActor.assumeIsolated {
+                        hook()
+                    }
+                }
             }
         }
     }

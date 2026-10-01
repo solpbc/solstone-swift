@@ -167,12 +167,124 @@ nonisolated final class JournalSendReAskTests: XCTestCase {
         XCTAssertEqual(outcome, ConfirmOutcome.fallback(.cancelled))
     }
 
-    func testPairFlowViewDefinesStartConfirmHeldJournal() throws {
-        let sourceURL = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .appendingPathComponent("Sources/Pairing/PairFlowView.swift")
-        let content = try String(contentsOf: sourceURL, encoding: .utf8)
-        XCTAssertTrue(content.contains("func startConfirmHeldJournal()"))
+    @MainActor
+    func testPairFlowViewConfirmHeldJournalRendersConnectingFirstAndCompletesViaYes() throws {
+        let onboardingSuite = "test.onboarding.\(UUID().uuidString)"
+        let markSuite = "test.mark.\(UUID().uuidString)"
+        let onboardingDefaults = UserDefaults(suiteName: onboardingSuite)!
+        let markDefaults = UserDefaults(suiteName: markSuite)!
+        onboardingDefaults.removePersistentDomain(forName: onboardingSuite)
+        markDefaults.removePersistentDomain(forName: markSuite)
+        defer {
+            onboardingDefaults.removePersistentDomain(forName: onboardingSuite)
+            markDefaults.removePersistentDomain(forName: markSuite)
+        }
+
+        let pairing = StoredPairing(
+            instanceID: "inst-held",
+            homeLabel: "Home",
+            relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+            clientCertPEM: CertlessTrustConstants.leafPEM,
+            clientKeyPEM: "key",
+            caChainPEM: CertlessTrustConstants.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 7071, scope: "")],
+            pairedAt: Date()
+        )
+
+        let confirmationStore = JournalSendConfirmationStore.memory(initialMarker: true)
+        let credentialStore = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        let appConfig = AppConfig(
+            confirmationStore: confirmationStore,
+            store: credentialStore
+        )
+        try appConfig.applyPairing(pairing)
+
+        let flow = OnboardingFlow(defaults: onboardingDefaults)
+        XCTAssertFalse(flow.isCompleted)
+
+        let release = JournalSendRelease(
+            credentialStore: credentialStore,
+            confirmationStore: confirmationStore,
+            transferEngine: TransferEngine(
+                spool: TransferSpool(rootURL: FileManager.default.temporaryDirectory),
+                transport: TransferTransport(),
+                endpointResolver: LoopbackTransferEndpointResolver(credentials: credentialStore, confirmation: confirmationStore)
+            ),
+            foregroundDrainGate: ForegroundDrainGate(drive: {})
+        )
+
+        let presence = PairFlowPresence()
+        let handoff = PairingHandoffState()
+        let tunnel = TunnelManager(
+            transport: MockCFTunnelTransport(),
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+
+        var renderedPhases: [PairFlowPhase] = []
+        var scanPhaseMountedCount = 0
+        var pairOperationCount = 0
+
+        let view = PairFlowView(
+            startMode: .confirmHeldJournal,
+            pairOperation: { _, _, _, _ in
+                pairOperationCount += 1
+                throw PairError.pairingWindowClosed
+            },
+            onRenderPhase: { phase in
+                renderedPhases.append(phase)
+            },
+            onScanPhaseMounted: {
+                scanPhaseMountedCount += 1
+            },
+            onBack: {},
+            onComplete: {}
+        )
+        .environment(appConfig)
+        .environment(release)
+        .environment(presence)
+        .environment(handoff)
+        .environment(tunnel)
+
+        let controller = UIHostingController(rootView: view)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        window.rootViewController = controller
+        window.isHidden = false
+        controller.loadViewIfNeeded()
+        controller.view.frame = window.bounds
+        window.layoutIfNeeded()
+
+        window.isHidden = true
+        window.rootViewController = nil
+
+        XCTAssertEqual(renderedPhases.first, .connecting)
+        XCTAssertFalse(renderedPhases.contains(.pairing))
+        XCTAssertEqual(scanPhaseMountedCount, 0)
+        XCTAssertEqual(pairOperationCount, 0)
+
+        let markStore = JournalMarkStore(suiteName: markSuite)
+        let gate = PairFlowCompletionGate()
+        try completeJournalSend(
+            mark: .uiTestSample,
+            markStore: markStore,
+            release: release,
+            appConfig: appConfig,
+            gate: gate,
+            onComplete: {
+                flow.completeViaPairing()
+            }
+        )
+
+        XCTAssertTrue(flow.isCompleted)
+        XCTAssertEqual(markStore.load(), .uiTestSample)
+        XCTAssertTrue(appConfig.journalSendConfirmed)
     }
 }

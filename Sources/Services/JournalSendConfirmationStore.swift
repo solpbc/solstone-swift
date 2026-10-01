@@ -117,14 +117,24 @@ nonisolated final class JournalSendConfirmationStore: @unchecked Sendable {
                 return true
             },
             saveMarker: {
-                let deleteQuery = baseQuery(account: settledAccount)
-                SecItemDelete(deleteQuery as CFDictionary)
+                let query = baseQuery(account: settledAccount)
                 guard let data = "1".data(using: .utf8) else { return }
-                let addQuery = addAttributes(account: settledAccount, valueData: data)
-                let status = SecItemAdd(addQuery as CFDictionary, nil)
-                guard status == errSecSuccess else {
-                    throw JournalSendConfirmationStoreError.secItemError(status)
+                let updateAttributes: [String: Any] = [
+                    kSecValueData as String: data
+                ]
+                let updateStatus = SecItemUpdate(query as CFDictionary, updateAttributes as CFDictionary)
+                if updateStatus == errSecSuccess {
+                    return
                 }
+                if updateStatus == errSecItemNotFound {
+                    let addQuery = addAttributes(account: settledAccount, valueData: data)
+                    let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+                    guard addStatus == errSecSuccess else {
+                        throw JournalSendConfirmationStoreError.secItemError(addStatus)
+                    }
+                    return
+                }
+                throw JournalSendConfirmationStoreError.secItemError(updateStatus)
             },
             deleteMarker: {
                 let query = baseQuery(account: settledAccount)
@@ -203,6 +213,7 @@ nonisolated final class JournalSendConfirmationStore: @unchecked Sendable {
         func writeRecord(_ key: String) throws {
             self.lock.lock()
             defer { self.lock.unlock() }
+            self.record = nil
             if self.shouldFailRecordWrite {
                 self.shouldFailRecordWrite = false
                 throw JournalSendConfirmationStoreError.secItemError(errSecIO)

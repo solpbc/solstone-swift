@@ -78,6 +78,20 @@ final class PairFlowCompletionGate {
 
 @MainActor
 func completeJournalSend(
+    mark: JournalMark,
+    markStore: JournalMarkStore,
+    release: JournalSendRelease,
+    appConfig: AppConfig,
+    gate: PairFlowCompletionGate,
+    onComplete: @MainActor () -> Void
+) throws {
+    try release.authorize(appConfig, writeMarker: false)
+    markStore.save(mark)
+    gate.completeOnce(onComplete)
+}
+
+@MainActor
+func completeJournalSend(
     release: JournalSendRelease,
     appConfig: AppConfig,
     gate: PairFlowCompletionGate,

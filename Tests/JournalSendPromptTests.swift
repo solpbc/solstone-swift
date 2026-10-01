@@ -173,4 +173,63 @@ nonisolated final class JournalSendPromptTests: XCTestCase {
         XCTAssertTrue(appConfig.journalSendConfirmed)
         XCTAssertTrue(confirmationStore.allowsSend(pairing: pairing))
     }
+
+    @MainActor
+    func testThrowingCompleteJournalSendDoesNotSaveMarkAndDoesNotCompleteOnFailure() throws {
+        let suiteName = "test.prompt.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let markStore = JournalMarkStore(suiteName: suiteName)
+        let pairing = self.makePairing()
+        let confirmationStore = JournalSendConfirmationStore.memory()
+        let credentialStore = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        let appConfig = AppConfig(
+            confirmationStore: confirmationStore,
+            store: credentialStore
+        )
+        try appConfig.applyPairing(pairing)
+
+        let release = JournalSendRelease(
+            credentialStore: credentialStore,
+            confirmationStore: confirmationStore,
+            transferEngine: TransferEngine(
+                spool: TransferSpool(rootURL: FileManager.default.temporaryDirectory),
+                transport: TransferTransport(),
+                endpointResolver: LoopbackTransferEndpointResolver(credentials: credentialStore, confirmation: confirmationStore)
+            ),
+            foregroundDrainGate: ForegroundDrainGate(drive: {})
+        )
+
+        confirmationStore.failNextRecordWrite()
+
+        let gate = PairFlowCompletionGate()
+        var completed = false
+        do {
+            try completeJournalSend(
+                mark: .uiTestSample,
+                markStore: markStore,
+                release: release,
+                appConfig: appConfig,
+                gate: gate,
+                onComplete: { completed = true }
+            )
+            XCTFail("expected completeJournalSend to throw")
+        } catch let error as JournalSendConfirmationStoreError {
+            XCTAssertEqual(error, .confirmFailed)
+            XCTAssertEqual(error.description, "journal-send-confirm-failed")
+        } catch {
+            XCTFail("unexpected error: \(error)")
+        }
+
+        XCTAssertFalse(completed)
+        XCTAssertNil(markStore.load())
+        XCTAssertFalse(appConfig.journalSendConfirmed)
+    }
 }

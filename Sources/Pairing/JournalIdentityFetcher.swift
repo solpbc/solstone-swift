@@ -23,7 +23,7 @@ nonisolated enum JournalIdentityFetchResult: Equatable, Sendable {
 }
 
 nonisolated struct JournalIdentityFetcher {
-    func fetch(localPort: Int, expectedInstanceID: String? = nil) async -> JournalIdentityFetchResult {
+    func fetch(localPort: Int, expectedInstanceID: String?) async -> JournalIdentityFetchResult {
         let log = Logger(subsystem: "app.solstone.swift", category: "journal-mark")
         guard let url = ConveyURL.url(localPort: localPort, path: "/app/link/api/identity") else {
             log.debug("[solstone-swift] journal mark skipped: invalid URL")
@@ -49,11 +49,9 @@ nonisolated struct JournalIdentityFetcher {
                 log.debug("[solstone-swift] journal mark unavailable: uncommitted, missing, or invalid")
                 return .missingOrInvalid
             }
-            if let expectedInstanceID {
-                guard journalInstanceIDsMatch(decoded.instanceID, expectedInstanceID) else {
-                    log.info("[solstone-swift] journal mark instance mismatch: expected \(expectedInstanceID, privacy: .public), got \(decoded.instanceID ?? "nil", privacy: .public)")
-                    return .instanceMismatch
-                }
+            guard journalInstanceIDsMatch(decoded.instanceID, expectedInstanceID) else {
+                log.info("[solstone-swift] journal mark instance mismatch: expected \(expectedInstanceID ?? "nil", privacy: .public), got \(decoded.instanceID ?? "nil", privacy: .public)")
+                return .instanceMismatch
             }
             return .match(valid)
         } catch is CancellationError {

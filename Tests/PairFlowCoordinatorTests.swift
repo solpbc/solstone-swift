@@ -429,6 +429,98 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
         URL(string: "https://go.solstone.app/p#0G0W1A0158DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF")!
     }
 
+    @MainActor
+    func testApplyPairingClearsJournalSendConfirmedWithoutAppConfigDirectCallAndEnablesRetrySettle() async throws {
+        let p1 = StoredPairing(
+            instanceID: "inst-1",
+            homeLabel: "sol-1",
+            relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+            clientCertPEM: CertlessTrustConstants.leafPEM,
+            clientKeyPEM: "key",
+            caChainPEM: CertlessTrustConstants.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 7071, scope: "")],
+            pairedAt: Date()
+        )
+        let p2 = StoredPairing(
+            instanceID: "inst-2",
+            homeLabel: "sol-2",
+            relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:\(String(repeating: "b", count: 64))",
+            clientCertPEM: CertlessTrustConstants.leafPEM,
+            clientKeyPEM: "key",
+            caChainPEM: CertlessTrustConstants.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 7071, scope: "")],
+            pairedAt: Date()
+        )
+
+        let pairingHolder = OSAllocatedUnfairLock<StoredPairing?>(initialState: p1)
+        let loadCounter = OSAllocatedUnfairLock(initialState: 0)
+        let confirmationStore = JournalSendConfirmationStore.memory()
+        try confirmationStore.writeRecord(for: p1)
+
+        let credentialStore = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: {
+                loadCounter.withLock { $0 += 1 }
+                return pairingHolder.withLock { $0 }
+            },
+            savePairing: { pairing in pairingHolder.withLock { $0 = pairing } },
+            deletePairing: { pairingHolder.withLock { $0 = nil } }
+        )
+
+        let appGroupRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("PairFlowCoordinatorTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appGroupRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appGroupRoot) }
+
+        let endpointCacheFile = Self.tempFileURL()
+        let endpointCache = EndpointCache(fileURL: endpointCacheFile)
+
+        let appConfig = AppConfig(
+            confirmationStore: confirmationStore,
+            store: credentialStore,
+            endpointCache: endpointCache,
+            appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
+        )
+
+        // Starts confirmed from p1
+        XCTAssertTrue(appConfig.journalSendConfirmed)
+
+        // 1. store.applyPairing directly (without AppConfig.applyPairing) clears journalSendConfirmed
+        try credentialStore.applyPairing(p2)
+        XCTAssertFalse(appConfig.journalSendConfirmed)
+
+        let countBeforeRetry = loadCounter.withLock { $0 }
+        _ = appConfig.retrySettleIfNeeded()
+        let countAfterRetry = loadCounter.withLock { $0 }
+        XCTAssertGreaterThan(countAfterRetry, countBeforeRetry)
+
+        // 2. PairFlowCoordinator.handlePairURL clears journalSendConfirmed
+        // Re-confirm p2 for the coordinator test
+        try confirmationStore.writeRecord(for: p2)
+        _ = appConfig.retrySettleIfNeeded()
+        XCTAssertTrue(appConfig.journalSendConfirmed)
+
+        let coordinator = PairFlowCoordinator(
+            store: credentialStore,
+            endpointCache: endpointCache,
+            pairOperation: { _, _, _, _ in p1 }
+        )
+
+        let pairURL = try PairURL.parse(Self.canonicalDirectURL())
+        try await coordinator.handlePairURL(pairURL)
+
+        XCTAssertFalse(appConfig.journalSendConfirmed)
+
+        let countBeforeRetry2 = loadCounter.withLock { $0 }
+        _ = appConfig.retrySettleIfNeeded()
+        let countAfterRetry2 = loadCounter.withLock { $0 }
+        XCTAssertGreaterThan(countAfterRetry2, countBeforeRetry2)
+    }
+
     private static func canonicalRelayURL() -> URL {
         URL(string: "https://go.solstone.app/p#0R0J6HB7H6NWVVR1VTPVXVYAZTXBW0938NKRKAYDXW00")!
     }

@@ -187,12 +187,14 @@ struct PairFlowView: View {
     var startMode: PairFlowStart = .ceremony
     let onBack: @MainActor () -> Void
     let onComplete: @MainActor () -> Void
+    private let onRenderPhase: ((PairFlowPhase) -> Void)?
+    private let onScanPhaseMounted: (() -> Void)?
 
-    @State private var coordinator = PairFlowCoordinator()
+    @State private var coordinator: PairFlowCoordinator
     @State private var fallbackTimer = PairFlowFallbackTimer()
     @State private var stillTryingTimer = PairFlowStillTryingTimer()
     @State private var completionGate = PairFlowCompletionGate()
-    @State private var phase: PairFlowPhase = .pairing
+    @State private var phase: PairFlowPhase
     @State private var flowTask: Task<Void, Never>?
     @State private var mode: EntryMode = .scan
     @State private var pastedURL = ""
@@ -200,7 +202,25 @@ struct PairFlowView: View {
     @State private var cameraDenied = false
     @State private var linkAttemptInFlight = false
 
+    init(
+        startMode: PairFlowStart = .ceremony,
+        pairOperation: PairOperation? = nil,
+        onRenderPhase: ((PairFlowPhase) -> Void)? = nil,
+        onScanPhaseMounted: (() -> Void)? = nil,
+        onBack: @escaping @MainActor () -> Void,
+        onComplete: @escaping @MainActor () -> Void = {}
+    ) {
+        self.startMode = startMode
+        self.onBack = onBack
+        self.onComplete = onComplete
+        self.onRenderPhase = onRenderPhase
+        self.onScanPhaseMounted = onScanPhaseMounted
+        self._coordinator = State(initialValue: PairFlowCoordinator(pairOperation: pairOperation))
+        self._phase = State(initialValue: startMode == .confirmHeldJournal ? .connecting : .pairing)
+    }
+
     var body: some View {
+        let _ = self.onRenderPhase?(self.displayedPhase)
         OnboardingScaffold(
             title: self.scaffoldTitle,
             subtitle: self.scaffoldSubtitle,
@@ -349,6 +369,7 @@ struct PairFlowView: View {
 
     @ViewBuilder
     private var pairingContent: some View {
+        let _ = self.onScanPhaseMounted?()
         VStack(alignment: .leading, spacing: 16) {
             JournalUnpairNoticeBanner()
 
@@ -454,13 +475,18 @@ struct PairFlowView: View {
             Button(SourceVocabulary.journalMarkConfirmButton) {
                 // The owner just confirmed this is their journal's mark: keep it, so the shell
                 // shows it from the first frame instead of waiting on a fetch.
-                JournalMarkStore().save(mark)
-                guard completeJournalSend(
-                    release: self.journalSendRelease,
-                    appConfig: self.appConfig,
-                    gate: self.completionGate,
-                    onComplete: self.onComplete
-                ) else { return }
+                do {
+                    try completeJournalSend(
+                        mark: mark,
+                        markStore: JournalMarkStore(),
+                        release: self.journalSendRelease,
+                        appConfig: self.appConfig,
+                        gate: self.completionGate,
+                        onComplete: self.onComplete
+                    )
+                } catch {
+                    return
+                }
             }
             .buttonStyle(.borderedProminent)
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -733,7 +759,7 @@ struct PairFlowView: View {
         self.phase = .connecting
         self.flowTask = Task { @MainActor in
             let fetcher = JournalIdentityFetcher()
-            let expectedInstanceID = self.appConfig.deviceID.isEmpty ? nil : self.appConfig.deviceID
+            let expectedInstanceID = self.appConfig.loadStoredPairing()?.instanceID
             let outcome = await resolveConfirmation(
                 startDeadlineWhenConnected: true,
                 connectedPort: {
