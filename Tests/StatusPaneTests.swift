@@ -176,6 +176,126 @@ nonisolated final class StatusPaneTests: XCTestCase {
         }
     }
 
+    func testStatusPaneLeadResolveAwaitingMarkConfirmation() {
+        // N = 0
+        let lead0 = StatusPaneLead.resolve(
+            pillState: .awaitingMarkConfirmation,
+            waitingTotal: 0,
+            showsConnectionDetails: false
+        )
+        XCTAssertEqual(lead0.region.accessibilityIdentifier, "shell.pane.status.awaitingMarkConfirmation")
+        switch lead0.lead {
+        case .headline(let headline):
+            XCTAssertEqual(headline, SourceVocabulary.awaitingMarkConfirmationLine)
+            XCTAssertNotEqual(headline, SourceVocabulary.syncedHeadline)
+        case .count:
+            XCTFail("expected headline lead for N = 0")
+        }
+        XCTAssertEqual(lead0.subline, SourceVocabulary.awaitingMarkConfirmationSubline)
+        XCTAssertEqual(lead0.buttonTitle, SourceVocabulary.confirmTheMarkAction)
+        if case .confirmMark(let title, let identifier) = lead0.region {
+            XCTAssertEqual(title, SourceVocabulary.confirmTheMarkAction)
+            XCTAssertEqual(identifier, "shell.pane.status.awaitingMarkConfirmation")
+        } else {
+            XCTFail("expected confirmMark region")
+        }
+        XCTAssertFalse(lead0.showsStandingSyncFootnote)
+
+        // N > 0
+        let lead3 = StatusPaneLead.resolve(
+            pillState: .awaitingMarkConfirmation,
+            waitingTotal: 3,
+            showsConnectionDetails: true
+        )
+        XCTAssertEqual(lead3.region.accessibilityIdentifier, "shell.pane.status.awaitingMarkConfirmation")
+        switch lead3.lead {
+        case .count(let count, let caption, let statusLine):
+            XCTAssertEqual(count, 3)
+            XCTAssertEqual(caption, SourceVocabulary.waitingToSync)
+            XCTAssertEqual(statusLine, SourceVocabulary.awaitingMarkConfirmationLine)
+        case .headline:
+            XCTFail("expected count lead for N > 0")
+        }
+        XCTAssertEqual(lead3.subline, SourceVocabulary.awaitingMarkConfirmationSubline)
+        XCTAssertEqual(lead3.buttonTitle, SourceVocabulary.confirmTheMarkAction)
+        if case .confirmMark(let title, let identifier) = lead3.region {
+            XCTAssertEqual(title, SourceVocabulary.confirmTheMarkAction)
+            XCTAssertEqual(identifier, "shell.pane.status.awaitingMarkConfirmation")
+        } else {
+            XCTFail("expected confirmMark region")
+        }
+        XCTAssertFalse(lead3.showsStandingSyncFootnote)
+    }
+
+    func testStatusPaneLeadResolveNonAwaitingStates() {
+        let statuses: [ConnectionSyncStatus] = [
+            .offline,
+            .connecting,
+            .waitingForHome,
+            .reconnecting,
+            .unreachable,
+            .connectedIdle,
+            .connectedWaiting,
+            .connectedTransferring,
+        ]
+        for isPaired in [false, true] {
+            for status in statuses {
+                for showsConnectionDetails in [false, true] {
+                    let pill = HomeStatusPillState.resolve(
+                        isPaired: isPaired,
+                        status: status,
+                        hasBacklog: false,
+                        isStalled: false,
+                        awaitingMarkConfirmation: false
+                    )
+                    let lead = StatusPaneLead.resolve(
+                        pillState: pill,
+                        waitingTotal: 0,
+                        showsConnectionDetails: showsConnectionDetails
+                    )
+                    XCTAssertNotEqual(lead.region.accessibilityIdentifier, "shell.pane.status.awaitingMarkConfirmation")
+                    XCTAssertNil(lead.subline)
+                    XCTAssertNil(lead.buttonTitle)
+                    if showsConnectionDetails && pill != .stalled {
+                        XCTAssertTrue(lead.showsStandingSyncFootnote)
+                    } else {
+                        XCTAssertFalse(lead.showsStandingSyncFootnote)
+                    }
+                }
+            }
+        }
+
+        // Stalled pill
+        let stalledPill = HomeStatusPillState.resolve(
+            isPaired: true,
+            status: .connectedIdle,
+            hasBacklog: true,
+            isStalled: true,
+            awaitingMarkConfirmation: false
+        )
+        let stalledLead = StatusPaneLead.resolve(
+            pillState: stalledPill,
+            waitingTotal: 2,
+            showsConnectionDetails: true
+        )
+        XCTAssertEqual(stalledLead.region.accessibilityIdentifier, "shell.pane.status.degraded")
+        XCTAssertFalse(stalledLead.showsStandingSyncFootnote)
+    }
+
+    func testStatusPaneAwaitingMarkConfirmationMarkup() throws {
+        let text = try String(
+            contentsOf: StringLiteralGrepSupport.worktreeRoot()
+                .appendingPathComponent("Sources/Home/StatusPane.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(text.contains("shell.pane.status.awaitingMarkConfirmation"))
+        XCTAssertFalse(text.contains("shell.pane.status.confirmMark"))
+        XCTAssertTrue(text.contains("confirmMarkTapped()"))
+        XCTAssertTrue(text.contains("leadModel.subline"))
+        XCTAssertTrue(text.contains("leadModel.showsStandingSyncFootnote"))
+    }
+
     private static func slice(in text: String, from startToken: String, to endToken: String) throws -> Substring {
         let start = try XCTUnwrap(text.range(of: startToken))
         let remaining = text[start.lowerBound...]

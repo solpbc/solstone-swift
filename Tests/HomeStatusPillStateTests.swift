@@ -26,7 +26,8 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
                             isPaired: isPaired,
                             status: status,
                             hasBacklog: hasBacklog,
-                            isStalled: false
+                            isStalled: false,
+                            awaitingMarkConfirmation: false
                         ),
                         Self.expectedState(
                             isPaired: isPaired,
@@ -58,7 +59,8 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
                     isPaired: true,
                     status: status,
                     hasBacklog: hasBacklog,
-                    isStalled: true
+                    isStalled: true,
+                    awaitingMarkConfirmation: false
                 )
                 XCTAssertEqual(state, .stalled)
                 XCTAssertEqual(
@@ -70,7 +72,8 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
                     isPaired: false,
                     status: status,
                     hasBacklog: hasBacklog,
-                    isStalled: true
+                    isStalled: true,
+                    awaitingMarkConfirmation: false
                 )
                 XCTAssertEqual(unpairedState, .notPaired)
                 XCTAssertEqual(unpairedState.label(hasBacklog: hasBacklog), SourceVocabulary.dayLocalityNoJournal)
@@ -78,9 +81,68 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
         }
     }
 
+    func testConnectedAwaitingResolvesToAwaitingMarkConfirmation() {
+        let connectedStatuses: [ConnectionSyncStatus] = [
+            .connectedIdle,
+            .connectedWaiting,
+            .connectedTransferring,
+        ]
+
+        for hasBacklog in [false, true] {
+            for status in connectedStatuses {
+                let state = HomeStatusPillState.resolve(
+                    isPaired: true,
+                    status: status,
+                    hasBacklog: hasBacklog,
+                    isStalled: false,
+                    awaitingMarkConfirmation: true
+                )
+                XCTAssertEqual(state, .awaitingMarkConfirmation)
+                XCTAssertEqual(state.label, SourceVocabulary.confirmTheMarkAction)
+            }
+        }
+
+        // Stalled has higher precedence than awaitingMarkConfirmation
+        let stalledState = HomeStatusPillState.resolve(
+            isPaired: true,
+            status: .connectedIdle,
+            hasBacklog: false,
+            isStalled: true,
+            awaitingMarkConfirmation: true
+        )
+        XCTAssertEqual(stalledState, .stalled)
+
+        // Unpaired returns notPaired
+        let unpairedState = HomeStatusPillState.resolve(
+            isPaired: false,
+            status: .connectedIdle,
+            hasBacklog: false,
+            isStalled: false,
+            awaitingMarkConfirmation: true
+        )
+        XCTAssertEqual(unpairedState, .notPaired)
+    }
+
+    func testAwaitingMarkConfirmationAccessibilityAndComposedText() {
+        let state = HomeStatusPillState.awaitingMarkConfirmation
+
+        XCTAssertEqual(state.accessibilityLabel(backlog: .known(0)), SourceVocabulary.confirmTheMarkAction)
+        XCTAssertEqual(state.accessibilityLabel(backlog: .known(3)), "\(SourceVocabulary.confirmTheMarkAction) · 3 waiting")
+        XCTAssertEqual(state.accessibilityValue, SourceVocabulary.awaitingMarkConfirmationLine)
+
+        XCTAssertEqual(state.composedText(backlog: .known(0)), SourceVocabulary.confirmTheMarkAction)
+        XCTAssertEqual(state.composedText(backlog: .known(3)), "\(SourceVocabulary.confirmTheMarkAction) · 3 waiting")
+    }
+
     func testCollapsedLabelsDoNotLeakRawConnectingOrUnreachableStatusLines() {
         for status in [ConnectionSyncStatus.waitingForHome, .reconnecting, .unreachable] {
-            let state = HomeStatusPillState.resolve(isPaired: true, status: status, hasBacklog: false, isStalled: false)
+            let state = HomeStatusPillState.resolve(
+                isPaired: true,
+                status: status,
+                hasBacklog: false,
+                isStalled: false,
+                awaitingMarkConfirmation: false
+            )
             XCTAssertEqual(state.label, SourceVocabulary.statusConnectingLabel)
             XCTAssertNotEqual(state.label, status.statusLine)
         }
@@ -94,6 +156,7 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
             .offline,
             .notPaired,
             .stalled,
+            .awaitingMarkConfirmation,
         ]
 
         for state in allStates {

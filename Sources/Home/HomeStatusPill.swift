@@ -3,7 +3,7 @@
 
 import SwiftUI
 
-/// The status pill's six states, per the shell contract.
+/// The status pill's states, per the shell contract.
 ///
 /// The shipped pill rendered `connectionSyncStatus.statusLine` verbatim, which for a
 /// transferring connection reads `connected · syncing` — two statuses at once, and
@@ -22,27 +22,46 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
     case notPaired
     /// No response from the journal within stall window.
     case stalled
+    /// Paired and connected, but awaiting owner confirmation of the journal mark.
+    case awaitingMarkConfirmation
 
     nonisolated static func resolve(
         isPaired: Bool,
         status: ConnectionSyncStatus,
         hasBacklog: Bool,
-        isStalled: Bool
+        isStalled: Bool,
+        awaitingMarkConfirmation: Bool
     ) -> HomeStatusPillState {
         guard isPaired else { return .notPaired }
         if isStalled { return .stalled }
         switch status {
-        case .connectedIdle, .connectedWaiting, .connectedTransferring:
-            return hasBacklog ? .syncing : .caughtUp
-        // .unreachable only fires mid-retry-loop (the sub-second gap as a countdown
-        // expires and a fresh attempt begins) or for the non-retryable .revoked
-        // error, which already surfaces its own RePairBanner — never a state where
-        // nothing is happening, so it reads as "connecting", not "offline".
         case .connecting, .waitingForHome, .reconnecting, .unreachable:
             return .connecting
         case .offline:
             return .offline
+        case .connectedIdle, .connectedWaiting, .connectedTransferring:
+            if awaitingMarkConfirmation {
+                return .awaitingMarkConfirmation
+            }
+            return hasBacklog ? .syncing : .caughtUp
         }
+    }
+
+    func composedText(backlog: WatchAwareBacklog) -> String {
+        let count = backlog.knownCount
+        if count > 0 {
+            return "\(SourceVocabulary.confirmTheMarkAction) · \(count) waiting"
+        } else {
+            return SourceVocabulary.confirmTheMarkAction
+        }
+    }
+
+    func accessibilityLabel(backlog: WatchAwareBacklog) -> String {
+        self.composedText(backlog: backlog)
+    }
+
+    var accessibilityValue: String {
+        SourceVocabulary.awaitingMarkConfirmationLine
     }
 
     func label(hasBacklog: Bool) -> String {
@@ -53,6 +72,7 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
         case .offline: SourceVocabulary.statusOfflineLabel
         case .notPaired: SourceVocabulary.dayLocalityNoJournal
         case .stalled: hasBacklog ? SourceVocabulary.stallWaitingLabel : SourceVocabulary.stallNotConnectedLabel
+        case .awaitingMarkConfirmation: SourceVocabulary.confirmTheMarkAction
         }
     }
 
@@ -72,6 +92,7 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
         case .offline: "offline"
         case .notPaired: "notPaired"
         case .stalled: "stalled"
+        case .awaitingMarkConfirmation: "awaitingMarkConfirmation"
         }
     }
 }
@@ -109,7 +130,7 @@ struct HomeStatusDot: View {
         switch self.state {
         case .caughtUp: .solSavedGreen
         case .syncing: .solOrange
-        case .connecting, .offline, .notPaired, .stalled: .secondary
+        case .connecting, .offline, .notPaired, .stalled, .awaitingMarkConfirmation: .secondary
         }
     }
 }
@@ -131,19 +152,27 @@ struct HomeStatusPillLabel: View {
         // ended up detached below the word it belongs to.
         HStack(alignment: .center, spacing: 6) {
             HomeStatusDot(state: self.state)
-            if let count = self.countText {
-                Text(count)
-                    .font(.subheadline.monospacedDigit().weight(.semibold))
+            if self.state == .awaitingMarkConfirmation {
+                Text(self.state.composedText(backlog: self.backlog))
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    .layoutPriority(1)
-                    .accessibilityAddTraits(.updatesFrequently)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                if let count = self.countText {
+                    Text(count)
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                        .accessibilityAddTraits(.updatesFrequently)
+                }
+                Text(self.state.label(hasBacklog: self.backlog.knownCount > 0))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(self.countText == nil ? .primary : .secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Text(self.state.label(hasBacklog: self.backlog.knownCount > 0))
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(self.countText == nil ? .primary : .secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

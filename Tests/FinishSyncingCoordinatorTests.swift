@@ -17,7 +17,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: FinishSyncingCoordinator.backlogThreshold,
                 isFinishing: false,
                 lastOutcome: nil,
-                threshold: FinishSyncingCoordinator.backlogThreshold
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
             ),
             .hidden
         )
@@ -30,7 +31,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: FinishSyncingCoordinator.backlogThreshold,
                 isFinishing: false,
                 lastOutcome: nil,
-                threshold: FinishSyncingCoordinator.backlogThreshold
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
             ),
             .hidden
         )
@@ -43,7 +45,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: FinishSyncingCoordinator.backlogThreshold - 1,
                 isFinishing: false,
                 lastOutcome: nil,
-                threshold: FinishSyncingCoordinator.backlogThreshold
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
             ),
             .hidden
         )
@@ -56,7 +59,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: FinishSyncingCoordinator.backlogThreshold,
                 isFinishing: false,
                 lastOutcome: nil,
-                threshold: FinishSyncingCoordinator.backlogThreshold
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
             ),
             .idle
         )
@@ -69,7 +73,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: FinishSyncingCoordinator.backlogThreshold,
                 isFinishing: false,
                 lastOutcome: nil,
-                threshold: FinishSyncingCoordinator.backlogThreshold
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
             ),
             .hidden
         )
@@ -82,7 +87,22 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: FinishSyncingCoordinator.backlogThreshold,
                 isFinishing: false,
                 lastOutcome: nil,
-                threshold: FinishSyncingCoordinator.backlogThreshold
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
+            ),
+            .hidden
+        )
+        XCTAssertEqual(
+            FinishSyncingCoordinator.cardState(
+                isPaired: true,
+                isConnected: true,
+                isSustaining: false,
+                isCapable: true,
+                backlog: FinishSyncingCoordinator.backlogThreshold,
+                isFinishing: false,
+                lastOutcome: nil,
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: true
             ),
             .hidden
         )
@@ -95,7 +115,22 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: 0,
                 isFinishing: true,
                 lastOutcome: nil,
-                threshold: FinishSyncingCoordinator.backlogThreshold
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
+            ),
+            .inProgress
+        )
+        XCTAssertEqual(
+            FinishSyncingCoordinator.cardState(
+                isPaired: false,
+                isConnected: false,
+                isSustaining: false,
+                isCapable: true,
+                backlog: 0,
+                isFinishing: true,
+                lastOutcome: nil,
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: true
             ),
             .inProgress
         )
@@ -108,7 +143,22 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: 0,
                 isFinishing: false,
                 lastOutcome: .completed,
-                threshold: FinishSyncingCoordinator.backlogThreshold
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
+            ),
+            .completed
+        )
+        XCTAssertEqual(
+            FinishSyncingCoordinator.cardState(
+                isPaired: true,
+                isConnected: true,
+                isSustaining: false,
+                isCapable: true,
+                backlog: 0,
+                isFinishing: false,
+                lastOutcome: .completed,
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: true
             ),
             .completed
         )
@@ -121,7 +171,22 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: 0,
                 isFinishing: false,
                 lastOutcome: .interrupted(remaining: 3),
-                threshold: FinishSyncingCoordinator.backlogThreshold
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
+            ),
+            .interrupted(remaining: 3)
+        )
+        XCTAssertEqual(
+            FinishSyncingCoordinator.cardState(
+                isPaired: true,
+                isConnected: true,
+                isSustaining: false,
+                isCapable: true,
+                backlog: 0,
+                isFinishing: false,
+                lastOutcome: .interrupted(remaining: 3),
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: true
             ),
             .interrupted(remaining: 3)
         )
@@ -138,7 +203,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: 5,
                 isFinishing: false,
                 lastOutcome: nil,
-                threshold: 5
+                threshold: 5,
+                awaitingMarkConfirmation: false
             ),
             .idle
         )
@@ -151,7 +217,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
                 backlog: 4,
                 isFinishing: false,
                 lastOutcome: nil,
-                threshold: 5
+                threshold: 5,
+                awaitingMarkConfirmation: false
             ),
             .hidden
         )

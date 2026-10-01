@@ -257,6 +257,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
                 .environment(observerManager)
+                .environment(connectionSyncModel)
+                .environment(connectionStallMonitor)
         }
         let onThisPhoneView = NavigationStack {
             OnThisPhoneView()
@@ -272,6 +274,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(locationManager)
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
+                .environment(connectionStallMonitor)
         }
         let onThisPhoneItemDetailView = NavigationStack {
             OnThisPhoneItemDetailView(
@@ -288,6 +291,13 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(mobileSegmentTransferHolder)
                 .environment(tunnelManager)
         }
+
+        let journalSendRelease = JournalSendRelease(
+            credentialStore: appConfig.store,
+            confirmationStore: appConfig.confirmationStore,
+            transferEngine: transferHarness.engine,
+            foregroundDrainGate: ForegroundDrainGate(drive: {})
+        )
 
         try self.assertHosted(
             WelcomeScreen(onGetStarted: {})
@@ -307,6 +317,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(watchUploaderHolder)
                 .environment(shareTransferHolder)
                 .environment(locationManager)
+                .environment(PairFlowRouter())
+                .environment(journalSendRelease)
         }
         try self.assertHosted(shelfPane.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(statusPane.environment(\.dynamicTypeSize, .accessibility3))

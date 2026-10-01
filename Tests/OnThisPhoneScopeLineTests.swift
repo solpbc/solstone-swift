@@ -9,7 +9,7 @@ nonisolated final class OnThisPhoneScopeLineTests: XCTestCase {
     func testOfflineWithEmptyBacklogSuppressesScopeLine() {
         let migration = OnThisPhoneMigration(onThisPhone: 0, needsAttention: 0)
 
-        XCTAssertNil(onThisPhoneScopeLine(state: .linkedOffline, migration: migration))
+        XCTAssertNil(onThisPhoneScopeLine(state: .linkedOffline, migration: migration, showsAwaitingWords: false))
     }
 
     @MainActor
@@ -17,7 +17,7 @@ nonisolated final class OnThisPhoneScopeLineTests: XCTestCase {
         let migration = OnThisPhoneMigration(onThisPhone: 1, needsAttention: 0)
 
         XCTAssertEqual(
-            onThisPhoneScopeLine(state: .linkedOffline, migration: migration),
+            onThisPhoneScopeLine(state: .linkedOffline, migration: migration, showsAwaitingWords: false),
             SourceVocabulary.onThisPhoneScopeOfflinePaired
         )
     }
@@ -27,7 +27,7 @@ nonisolated final class OnThisPhoneScopeLineTests: XCTestCase {
         let migration = OnThisPhoneMigration(onThisPhone: 0, needsAttention: 1)
 
         XCTAssertEqual(
-            onThisPhoneScopeLine(state: .linkedOffline, migration: migration),
+            onThisPhoneScopeLine(state: .linkedOffline, migration: migration, showsAwaitingWords: false),
             SourceVocabulary.onThisPhoneScopeOfflinePaired
         )
     }
@@ -37,9 +37,16 @@ nonisolated final class OnThisPhoneScopeLineTests: XCTestCase {
         let migration = OnThisPhoneMigration(onThisPhone: 0, needsAttention: 0)
 
         XCTAssertEqual(
-            onThisPhoneScopeLine(state: .linkedOnline, migration: migration),
+            onThisPhoneScopeLine(state: .linkedOnline, migration: migration, showsAwaitingWords: false),
             SourceVocabulary.onThisPhoneScopeConnected
         )
+    }
+
+    @MainActor
+    func testOnlineAwaitingWordsSuppressesScopeLine() {
+        let migration = OnThisPhoneMigration(onThisPhone: 0, needsAttention: 0)
+
+        XCTAssertNil(onThisPhoneScopeLine(state: .linkedOnline, migration: migration, showsAwaitingWords: true))
     }
 
     @MainActor
@@ -47,11 +54,11 @@ nonisolated final class OnThisPhoneScopeLineTests: XCTestCase {
         let migration = OnThisPhoneMigration(onThisPhone: 0, needsAttention: 0)
 
         XCTAssertEqual(
-            onThisPhoneScopeLine(state: .noJournal, migration: migration),
+            onThisPhoneScopeLine(state: .noJournal, migration: migration, showsAwaitingWords: false),
             SourceVocabulary.onThisPhoneScope
         )
         XCTAssertEqual(
-            onThisPhoneScopeLine(state: nil, migration: migration),
+            onThisPhoneScopeLine(state: nil, migration: migration, showsAwaitingWords: false),
             SourceVocabulary.onThisPhoneScope
         )
     }

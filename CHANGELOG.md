@@ -12,6 +12,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
+- while a pairing waits for you to confirm your journal's mark, the app's status and the status screen say so, and the status screen can ask you again. before, the status could read as connected or syncing while nothing was going to your journal. opening your journal now says so too, instead of saying "lost the connection to your journal".
 - this is a security fix: when you pair your phone or ipad with a journal, nothing you've kept on it goes to that journal until you confirm it's your journal. before, what you'd kept could start going to it as soon as pairing finished, even to a journal you then said wasn't yours. if you paired before this update, you won't be asked.
 - changing your phone or watch language no longer prevents moments from reaching your journal.
 - on your apple watch, each moment now keeps the time zone it started in, even if you travel before it's done or it's recovered after a restart.

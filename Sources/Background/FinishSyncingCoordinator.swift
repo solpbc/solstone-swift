@@ -161,7 +161,8 @@ final class FinishSyncingCoordinator {
         backlog: Int,
         isFinishing: Bool,
         lastOutcome: Outcome?,
-        threshold: Int
+        threshold: Int,
+        awaitingMarkConfirmation: Bool
     ) -> CardState {
         if isFinishing { return .inProgress }
         if let lastOutcome {
@@ -171,6 +172,7 @@ final class FinishSyncingCoordinator {
             }
         }
         if isSustaining { return .hidden }
+        if awaitingMarkConfirmation { return .hidden }
         if isPaired, isConnected, isCapable, backlog >= threshold { return .idle }
         return .hidden
     }

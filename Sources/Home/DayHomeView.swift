@@ -455,7 +455,8 @@ private extension DayHomeView {
             isPaired: self.appConfig.isPaired,
             status: self.connectionSyncModel.status,
             hasBacklog: self.backlogCount.knownCount > 0,
-            isStalled: self.connectionStallMonitor.isStalled
+            isStalled: self.connectionStallMonitor.isStalled,
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
         )
     }
 
@@ -477,6 +478,11 @@ private extension DayHomeView {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(label)
                 .accessibilityValue(self.statusPillAccessibilityValue)
+        } else if self.statusPillState == .awaitingMarkConfirmation {
+            button
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(self.statusPillState.accessibilityLabel(backlog: self.backlogCount))
+                .accessibilityValue(self.statusPillState.accessibilityValue)
         } else {
             button
         }

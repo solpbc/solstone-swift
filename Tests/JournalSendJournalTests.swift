@@ -68,4 +68,68 @@ nonisolated final class JournalSendJournalTests: XCTestCase {
         // Confirmed: web view loads
         XCTAssertTrue(InAppJournalPresentation.shouldLoadWebView(journalSendConfirmed: appConfig.journalSendConfirmed, resolvedURL: url))
     }
+
+    func testInAppJournalPresentationContent() {
+        let testURL = URL(string: "http://127.0.0.1:7071/")!
+
+        // Confirmed with valid URL and connected status -> web
+        XCTAssertEqual(
+            InAppJournalPresentation.content(
+                journalSendConfirmed: true,
+                resolvedURL: testURL,
+                awaitingMarkConfirmation: false,
+                status: .connectedIdle,
+                isStalled: false
+            ),
+            .web
+        )
+
+        // Awaiting mark confirmation when connected and not stalled -> awaitingMarkConfirmation
+        XCTAssertEqual(
+            InAppJournalPresentation.content(
+                journalSendConfirmed: false,
+                resolvedURL: testURL,
+                awaitingMarkConfirmation: true,
+                status: .connectedIdle,
+                isStalled: false
+            ),
+            .awaitingMarkConfirmation
+        )
+
+        // Stalled -> connectionLost even if awaiting
+        XCTAssertEqual(
+            InAppJournalPresentation.content(
+                journalSendConfirmed: false,
+                resolvedURL: testURL,
+                awaitingMarkConfirmation: true,
+                status: .connectedIdle,
+                isStalled: true
+            ),
+            .connectionLost
+        )
+
+        // Offline / not connected -> connectionLost
+        XCTAssertEqual(
+            InAppJournalPresentation.content(
+                journalSendConfirmed: false,
+                resolvedURL: testURL,
+                awaitingMarkConfirmation: true,
+                status: .offline,
+                isStalled: false
+            ),
+            .connectionLost
+        )
+
+        // Confirmed but nil URL -> connectionLost
+        XCTAssertEqual(
+            InAppJournalPresentation.content(
+                journalSendConfirmed: true,
+                resolvedURL: nil,
+                awaitingMarkConfirmation: false,
+                status: .connectedIdle,
+                isStalled: false
+            ),
+            .connectionLost
+        )
+    }
 }

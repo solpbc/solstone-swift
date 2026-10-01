@@ -123,6 +123,125 @@ nonisolated enum StatusPaneStallJournal {
     }
 }
 
+nonisolated struct StatusPaneLead: Equatable, Sendable {
+    enum Lead: Equatable, Sendable {
+        case count(count: Int, caption: String, statusLine: String)
+        case headline(String)
+    }
+
+    enum Region: Equatable, Sendable {
+        case status(title: String, identifier: String, accessibilityValue: String)
+        case stalled
+        case confirmMark(title: String, identifier: String)
+
+        var accessibilityIdentifier: String {
+            switch self {
+            case .status(_, let identifier, _):
+                identifier
+            case .stalled:
+                "shell.pane.status.degraded"
+            case .confirmMark(_, let identifier):
+                identifier
+            }
+        }
+    }
+
+    let lead: Lead
+    let subline: String?
+    let region: Region
+    let showsStandingSyncFootnote: Bool
+
+    var buttonTitle: String? {
+        switch self.region {
+        case .confirmMark(let title, _): title
+        default: nil
+        }
+    }
+
+    var headline: String {
+        switch self.lead {
+        case .headline(let text): text
+        case .count(_, _, let statusLine): statusLine
+        }
+    }
+
+    static func resolve(
+        pillState: HomeStatusPillState,
+        waitingTotal: Int,
+        showsConnectionDetails: Bool
+    ) -> StatusPaneLead {
+        if pillState == .awaitingMarkConfirmation {
+            let lead: Lead = waitingTotal > 0
+                ? .count(
+                    count: waitingTotal,
+                    caption: SourceVocabulary.waitingToSync,
+                    statusLine: SourceVocabulary.awaitingMarkConfirmationLine
+                )
+                : .headline(SourceVocabulary.awaitingMarkConfirmationLine)
+            return StatusPaneLead(
+                lead: lead,
+                subline: SourceVocabulary.awaitingMarkConfirmationSubline,
+                region: .confirmMark(
+                    title: SourceVocabulary.confirmTheMarkAction,
+                    identifier: "shell.pane.status.awaitingMarkConfirmation"
+                ),
+                showsStandingSyncFootnote: false
+            )
+        }
+
+        let showsStandingSyncFootnote = showsConnectionDetails && pillState != .stalled
+        let subline: String? = nil
+        let region: Region
+        if pillState == .stalled {
+            region = .stalled
+        } else {
+            let identifier = (pillState == .caughtUp || pillState == .syncing)
+                ? "shell.pane.status.connected"
+                : "shell.pane.status.degraded"
+            region = .status(
+                title: pillState.label,
+                identifier: identifier,
+                accessibilityValue: pillState.label
+            )
+        }
+
+        let lead: Lead
+        if waitingTotal > 0 {
+            let statusLine: String = switch pillState {
+            case .syncing: SourceVocabulary.syncingToYourJournal
+            case .caughtUp: SourceVocabulary.connectedLabel
+            case .connecting: SourceVocabulary.statusConnectingLabel
+            case .offline: SourceVocabulary.heldOnThisDevice
+            case .notPaired: SourceVocabulary.dayLocalityNoJournal
+            case .stalled: SourceVocabulary.stallCantReachYourJournal
+            case .awaitingMarkConfirmation: SourceVocabulary.awaitingMarkConfirmationLine
+            }
+            lead = .count(
+                count: waitingTotal,
+                caption: SourceVocabulary.waitingToSync,
+                statusLine: statusLine
+            )
+        } else {
+            let headline: String = switch pillState {
+            case .notPaired: SourceVocabulary.dayLocalityNoJournal
+            case .offline: SourceVocabulary.heldOnThisDevice
+            case .connecting: SourceVocabulary.statusConnectingLabel
+            case .caughtUp, .syncing: SourceVocabulary.syncedHeadline
+            case .stalled: SourceVocabulary.stallCantReachYourJournal
+            case .awaitingMarkConfirmation: SourceVocabulary.awaitingMarkConfirmationLine
+            }
+            lead = .headline(headline)
+        }
+
+        return StatusPaneLead(
+            lead: lead,
+            subline: subline,
+            region: region,
+            showsStandingSyncFootnote: showsStandingSyncFootnote
+        )
+    }
+}
+
 struct StatusPane: View {
     let presentation: ShellPanePresentation
 
@@ -137,6 +256,8 @@ struct StatusPane: View {
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(LocationManager.self) private var locationManager
+    @Environment(PairFlowRouter.self) private var pairFlowRouter
+    @Environment(JournalSendRelease.self) private var journalSendRelease
     @Environment(\.dismiss) private var dismiss
     @AccessibilityFocusState private var headingFocused: Bool
     @State private var justCopiedSnapshot = false
@@ -183,6 +304,33 @@ struct StatusPane: View {
         self.probeAlive ? .green : .orange
     }
 
+    private var leadModel: StatusPaneLead {
+        StatusPaneLead.resolve(
+            pillState: self.pillState,
+            waitingTotal: self.waitingTotal,
+            showsConnectionDetails: self.showsConnectionDetails
+        )
+    }
+
+    private func confirmMarkTapped() {
+        let decision = AwaitingMarkConfirmationPrompt.decide(
+            retrySettled: self.appConfig.retrySettleIfNeeded(),
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
+        )
+        if decision.kickConfirmedSend {
+            self.journalSendRelease.kickConfirmedSend()
+        }
+        guard decision.present else { return }
+        if self.presentation.isPhoneModal {
+            self.dismiss()
+            Task { @MainActor in
+                self.pairFlowRouter.present(.confirmHeldJournal)
+            }
+        } else {
+            self.pairFlowRouter.present(.confirmHeldJournal)
+        }
+    }
+
     /// What the status view leads with, per the shell contract: the count, then what
     /// is happening to it. The pane had been opening straight into `your journal` and
     /// its connection facts — the one number an owner opens this view to read was not
@@ -194,31 +342,35 @@ struct StatusPane: View {
     private var leadSection: some View {
         Section {
             VStack(alignment: .leading, spacing: 2) {
-                if self.waitingTotal > 0 {
-                    Text("\(self.waitingTotal)")
+                switch self.leadModel.lead {
+                case .count(let count, let caption, let statusLine):
+                    Text("\(count)")
                         .font(.system(size: 44, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.primary)
-                    Text(SourceVocabulary.waitingToSync)
+                    Text(caption)
                         .font(.title3)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 6) {
                         HomeStatusDot(state: self.pillState)
-                        Text(self.leadStatusLine)
+                        Text(statusLine)
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(self.leadStatusColor)
                     }
                     .padding(.top, 8)
-                } else {
-                    // Caught up says it once. The connection fact lives one section
-                    // down under `your journal`; repeating `connected` here put the
-                    // same word on screen twice, eight points apart.
+                case .headline(let headline):
                     HStack(spacing: 8) {
                         HomeStatusDot(state: self.pillState)
-                        Text(self.caughtUpHeadline)
+                        Text(headline)
                             .font(ShellFont.display(26, relativeTo: .title))
                             .foregroundStyle(.primary)
                     }
+                }
+                if let subline = self.leadModel.subline {
+                    Text(subline)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
                 }
             }
             .padding(.vertical, 6)
@@ -264,31 +416,9 @@ struct StatusPane: View {
             isPaired: self.appConfig.isPaired,
             status: self.connectionSyncModel.status,
             hasBacklog: self.waitingTotal > 0,
-            isStalled: self.connectionStallMonitor.isStalled
+            isStalled: self.connectionStallMonitor.isStalled,
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
         )
-    }
-
-    private var statusRegionID: String {
-        switch self.pillState {
-        case .caughtUp, .syncing:
-            "shell.pane.status.connected"
-        case .connecting, .offline, .notPaired, .stalled:
-            "shell.pane.status.degraded"
-        }
-    }
-
-    /// Offline says only where the material is — `on this device` — and never that it
-    /// is safe: the app adds no protection of its own, so a safety claim would be
-    /// asserting something we do not supply.
-    private var leadStatusLine: String {
-        switch self.pillState {
-        case .syncing: SourceVocabulary.syncingToYourJournal
-        case .caughtUp: SourceVocabulary.connectedLabel
-        case .connecting: SourceVocabulary.statusConnectingLabel
-        case .offline: SourceVocabulary.heldOnThisDevice
-        case .notPaired: SourceVocabulary.dayLocalityNoJournal
-        case .stalled: SourceVocabulary.stallCantReachYourJournal
-        }
     }
 
     /// Orange is reserved for material actually moving. A held or unpaired state is
@@ -296,19 +426,6 @@ struct StatusPane: View {
     private var leadStatusColor: Color {
         if case .syncing = self.pillState { return .solOrangeAdaptive }
         return .secondary
-    }
-
-    /// With nothing waiting the headline states the *sync* outcome when there is a
-    /// journal, and the locality when there is not — never "all caught up" to an
-    /// owner who has no journal to be caught up with.
-    private var caughtUpHeadline: String {
-        switch self.pillState {
-        case .notPaired: SourceVocabulary.dayLocalityNoJournal
-        case .offline: SourceVocabulary.heldOnThisDevice
-        case .connecting: SourceVocabulary.statusConnectingLabel
-        case .caughtUp, .syncing: SourceVocabulary.syncedHeadline
-        case .stalled: SourceVocabulary.stallCantReachYourJournal
-        }
     }
 
     private var waitingTotal: Int {
@@ -404,7 +521,7 @@ struct StatusPane: View {
                     .frame(width: 1, height: 1)
                     .opacity(0.01)
                     .allowsHitTesting(false)
-                    .accessibilityIdentifier(self.statusRegionID)
+                    .accessibilityIdentifier(StatusPaneLead.Region.stalled.accessibilityIdentifier)
                 switch row {
                 case .reason:
                     if let heard = self.connectionStallMonitor.displayableLastHeardAt {
@@ -457,11 +574,22 @@ struct StatusPane: View {
                 }
 
                 if self.pillState != .stalled {
-                    ForEach([self.statusRegionID], id: \.self) { identifier in
-                        Text(self.pillState.label)
+                    switch self.leadModel.region {
+                    case .confirmMark(let title, let identifier):
+                        Button(action: self.confirmMarkTapped) {
+                            Text(title)
+                                .font(.body.weight(.semibold))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(minHeight: 44)
+                        .accessibilityIdentifier(identifier)
+                    case .status(let title, let identifier, let accessibilityValue):
+                        Text(title)
                             .font(.body.weight(.semibold))
                             .accessibilityIdentifier(identifier)
-                            .accessibilityValue(self.pillState.label)
+                            .accessibilityValue(accessibilityValue)
+                    case .stalled:
+                        EmptyView()
                     }
                 }
 
@@ -483,10 +611,12 @@ struct StatusPane: View {
                             )
                         }
                         .accessibilityIdentifier("shell.pane.status.transferRate")
-                        Text(SourceVocabulary.standingSyncFootnote(sustaining: self.locationManager.isSustainingBackground))
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .accessibilityIdentifier("shell.pane.status.syncFootnote")
+                        if self.leadModel.showsStandingSyncFootnote {
+                            Text(SourceVocabulary.standingSyncFootnote(sustaining: self.locationManager.isSustainingBackground))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .accessibilityIdentifier("shell.pane.status.syncFootnote")
+                        }
                     } else if let tried = self.triedAddresses {
                         self.renderTriedAddresses(tried)
                     }

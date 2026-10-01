@@ -65,8 +65,12 @@ nonisolated func onThisPhoneEmptyInviteBranch(
 
 nonisolated func onThisPhoneScopeLine(
     state: DayHomeJournalState?,
-    migration: OnThisPhoneMigration
+    migration: OnThisPhoneMigration,
+    showsAwaitingWords: Bool
 ) -> String? {
+    if showsAwaitingWords && state == .linkedOnline {
+        return nil
+    }
     switch state {
     case .linkedOffline:
         guard migration.onThisPhone + migration.needsAttention > 0 else { return nil }
@@ -104,6 +108,8 @@ struct OnThisPhoneMomentsView: View {
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
+    @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(FinishSyncingCoordinator.self) private var finishSyncingCoordinator
     @Environment(LocationManager.self) private var locationManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -151,7 +157,15 @@ struct OnThisPhoneMomentsView: View {
 
                 if hasItems,
                    !self.isShowingNotBackedUpNudge,
-                   let scope = onThisPhoneScopeLine(state: self.journalState, migration: migration) {
+                   let scope = onThisPhoneScopeLine(
+                       state: self.journalState,
+                       migration: migration,
+                       showsAwaitingWords: MarkConfirmationDisplay.showsAwaitingWords(
+                           awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+                           status: self.connectionSyncModel.status,
+                           isStalled: self.connectionStallMonitor.isStalled
+                       )
+                   ) {
                     Text(scope)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -319,7 +333,10 @@ private extension OnThisPhoneMomentsView {
         let headline = onThisPhoneHeadline(
             migration: migration,
             isPaired: self.appConfig.isPaired,
-            isConnected: self.tunnelManager.state.isConnected
+            isConnected: self.tunnelManager.state.isConnected,
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+            isStalled: self.connectionStallMonitor.isStalled,
+            connectionStatus: self.connectionSyncModel.status
         )
 
         NavigationLink {
@@ -339,6 +356,11 @@ private extension OnThisPhoneMomentsView {
                         }
                         .foregroundStyle(Color("SendState/Sending/Foreground"))
                         .accessibilityElement(children: .combine)
+                    case .awaitingMarkConfirmation:
+                        self.statusHero(count: headline.onThisPhone)
+                        Text(SourceVocabulary.awaitingMarkConfirmationLine)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     case .offline:
                         self.statusHero(count: headline.onThisPhone)
                         Text(SourceVocabulary.offlineSafeLine)
@@ -510,7 +532,8 @@ private extension OnThisPhoneMomentsView {
             backlog: self.finishSyncingBacklog,
             isFinishing: self.finishSyncingCoordinator.isFinishing,
             lastOutcome: self.finishSyncingCoordinator.lastOutcome,
-            threshold: FinishSyncingCoordinator.backlogThreshold
+            threshold: FinishSyncingCoordinator.backlogThreshold,
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
         )
     }
 

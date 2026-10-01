@@ -213,8 +213,34 @@ struct JournalWebView: UIViewRepresentable {
 }
 
 nonisolated enum InAppJournalPresentation {
+    enum Content: Equatable, Sendable {
+        case web
+        case awaitingMarkConfirmation
+        case connectionLost
+    }
+
     static func shouldLoadWebView(journalSendConfirmed: Bool, resolvedURL: URL?) -> Bool {
         journalSendConfirmed && resolvedURL != nil
+    }
+
+    static func content(
+        journalSendConfirmed: Bool,
+        resolvedURL: URL?,
+        awaitingMarkConfirmation: Bool,
+        status: ConnectionSyncStatus,
+        isStalled: Bool
+    ) -> Content {
+        if self.shouldLoadWebView(journalSendConfirmed: journalSendConfirmed, resolvedURL: resolvedURL) {
+            return .web
+        }
+        if MarkConfirmationDisplay.showsAwaitingWords(
+            awaitingMarkConfirmation: awaitingMarkConfirmation,
+            status: status,
+            isStalled: isStalled
+        ) {
+            return .awaitingMarkConfirmation
+        }
+        return .connectionLost
     }
 }
 
@@ -224,6 +250,8 @@ struct InAppJournalView: View {
     var path: String = "/"
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
+    @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(\.dismiss) private var dismiss
     @AccessibilityFocusState private var headingFocused: Bool
@@ -301,20 +329,41 @@ struct InAppJournalView: View {
 
     @ViewBuilder
     private var content: some View {
-        if InAppJournalPresentation.shouldLoadWebView(
+        switch InAppJournalPresentation.content(
             journalSendConfirmed: self.appConfig.journalSendConfirmed,
-            resolvedURL: self.resolvedURL
-        ), let url = self.resolvedURL {
-            ZStack {
-                JournalWebView(
-                    url: url,
-                    reloadToken: self.reloadToken,
-                    loadState: self.$loadState,
-                    diagnosticLog: self.diagnosticLog
-                )
-                self.stateOverlay
+            resolvedURL: self.resolvedURL,
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+            status: self.connectionSyncModel.status,
+            isStalled: self.connectionStallMonitor.isStalled
+        ) {
+        case .web:
+            if let url = self.resolvedURL {
+                ZStack {
+                    JournalWebView(
+                        url: url,
+                        reloadToken: self.reloadToken,
+                        loadState: self.$loadState,
+                        diagnosticLog: self.diagnosticLog
+                    )
+                    self.stateOverlay
+                }
+            } else {
+                self.errorView(message: JournalWebPresentation.connectionLostMessage)
             }
-        } else {
+        case .awaitingMarkConfirmation:
+            VStack(spacing: 8) {
+                Text(SourceVocabulary.awaitingMarkConfirmationLine)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.center)
+                Text(SourceVocabulary.awaitingMarkConfirmationSubline)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .connectionLost:
             self.errorView(message: JournalWebPresentation.connectionLostMessage)
         }
     }

@@ -45,6 +45,50 @@ nonisolated enum HeldJournalReAskDecision {
     }
 }
 
+struct PairFlowRequest: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let start: PairFlowView.PairFlowStart
+}
+
+enum PairFlowRequests {
+    static func next(after current: PairFlowRequest?, start: PairFlowView.PairFlowStart) -> PairFlowRequest {
+        var id = UUID()
+        while id == current?.id {
+            id = UUID()
+        }
+        return PairFlowRequest(id: id, start: start)
+    }
+}
+
+struct AwaitingMarkConfirmationPrompt: Equatable, Sendable {
+    var kickConfirmedSend: Bool
+    var present: Bool
+
+    static func decide(retrySettled: Bool, awaitingMarkConfirmation: Bool) -> Self {
+        if retrySettled {
+            return Self(kickConfirmedSend: true, present: false)
+        } else if awaitingMarkConfirmation {
+            return Self(kickConfirmedSend: false, present: true)
+        } else {
+            return Self(kickConfirmedSend: false, present: false)
+        }
+    }
+}
+
+@MainActor
+@Observable
+final class PairFlowRouter {
+    var request: PairFlowRequest?
+
+    func present(_ start: PairFlowView.PairFlowStart) {
+        self.request = PairFlowRequests.next(after: self.request, start: start)
+    }
+
+    func dismiss() {
+        self.request = nil
+    }
+}
+
 struct ContentView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
@@ -58,9 +102,8 @@ struct ContentView: View {
     @Environment(PairFlowPresence.self) private var pairFlowPresence
     @Environment(\.scenePhase) private var scenePhase
     @State private var shellStatusContext = ShellStatusContext()
+    @State private var pairFlowRouter = PairFlowRouter()
     @State private var showingReinstallNotice = false
-    @State private var showPairing = false
-    @State private var pairFlowStart: PairFlowView.PairFlowStart = .ceremony
     @State private var lastPort: Int = 0
 #if DEBUG
     @State private var showGenericJournalMarkPreview = false
@@ -99,19 +142,19 @@ struct ContentView: View {
             }
         }
         .environment(self.shellStatusContext)
+        .environment(self.pairFlowRouter)
         .safeAreaInset(edge: .top, spacing: 0) {
             if self.appConfig.isPaired && self.isRevoked {
                 RePairBanner {
-                    self.pairFlowStart = .ceremony
-                    self.showPairing = true
+                    self.pairFlowRouter.present(.ceremony)
                 }
             }
         }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: self.isRevoked)
-        .sheet(isPresented: self.$showPairing) {
+        .sheet(item: Bindable(self.pairFlowRouter).request) { request in
             NavigationStack {
                 PairFlowView(
-                    startMode: self.pairFlowStart,
+                    startMode: request.start,
                     onBack: {
                         self.dismissPairing()
                     },
@@ -208,7 +251,8 @@ struct ContentView: View {
                         self.appConfig.seedUITestPairing(
                             journalRoot: journalRoot,
                             deviceID: deviceID,
-                            sessionKey: sessionKey
+                            sessionKey: sessionKey,
+                            confirmsSend: !arguments.contains("--ui-test-awaiting-mark-confirmation")
                         )
                     }
                     self.onboardingFlow.seedUITest(step: onboardingStep)
@@ -217,7 +261,8 @@ struct ContentView: View {
                         self.appConfig.seedUITestPairing(
                             journalRoot: journalRoot,
                             deviceID: deviceID,
-                            sessionKey: sessionKey
+                            sessionKey: sessionKey,
+                            confirmsSend: !arguments.contains("--ui-test-awaiting-mark-confirmation")
                         )
                     }
                     self.onboardingFlow.markCompletedForUITest()
@@ -246,7 +291,7 @@ struct ContentView: View {
                     )
                     self.lastPort = port
                     self.shellStatusContext.via = .lan
-                    self.showPairing = true
+                    self.pairFlowRouter.present(.ceremony)
                     self.connectionSyncModel.refreshNow()
                     return
                 }
@@ -375,8 +420,7 @@ private extension ContentView {
     }
 
     func dismissPairing() {
-        self.showPairing = false
-        self.pairFlowStart = .ceremony
+        self.pairFlowRouter.dismiss()
         self.clearPairingHandoff()
     }
 
@@ -385,8 +429,7 @@ private extension ContentView {
             pairURL: self.pairingHandoff.pairURL,
             pairURLError: self.pairingHandoff.pairURLError
         ) {
-            self.pairFlowStart = .ceremony
-            self.showPairing = true
+            self.pairFlowRouter.present(.ceremony)
         }
     }
 
@@ -400,10 +443,9 @@ private extension ContentView {
             isPaired: self.appConfig.isPaired,
             journalSendConfirmed: self.appConfig.journalSendConfirmed,
             presenceCount: self.pairFlowPresence.count,
-            isShowingPairingSheet: self.showPairing
+            isShowingPairingSheet: self.pairFlowRouter.request != nil
         ) else { return }
-        self.pairFlowStart = .confirmHeldJournal
-        self.showPairing = true
+        self.pairFlowRouter.present(.confirmHeldJournal)
     }
 
     /// Runs before `completeOnboardingIfPaired`, which is what turns a reinstall's leftover

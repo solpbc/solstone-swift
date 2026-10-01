@@ -165,6 +165,17 @@ final class AppConfig {
         nil
     }
 
+    /// True when a pairing is stored and the owner has not confirmed the journal's mark.
+    ///
+    /// Accepted window: if `settle` throws before first unlock, `journalSendConfirmed` can
+    /// read false while a later `allowsSend` would be true, until `retrySettleIfNeeded` on
+    /// the next foreground. `ContentView.presentHeldJournalReAskIfNeeded` and `SolstoneSwiftApp`
+    /// already call `retrySettleIfNeeded` on foreground and connect. This property does not
+    /// exempt that window.
+    var awaitingMarkConfirmation: Bool {
+        self.isPaired && !self.journalSendConfirmed
+    }
+
 #if DEBUG
     func seedUITestPairing(
         host: String = "journal.local",
@@ -174,7 +185,8 @@ final class AppConfig {
         sessionKey: String? = nil,
         homeLabel: String = "ui-test-solstone",
         endpointPort: Int? = nil,
-        relayEndpoint: String? = nil
+        relayEndpoint: String? = nil,
+        confirmsSend: Bool = true
     ) {
         let endpointPort = endpointPort ?? Self.endpointPort(from: journalRoot)
             ?? Int(ProcessInfo.processInfo.environment["MOCK_PAIRING_PORT"] ?? "")
@@ -207,11 +219,15 @@ final class AppConfig {
         self.loopbackPort = endpointPort
         self.deviceID = deviceID
 
-        do {
-            try self.confirmationStore.writeRecord(for: pairing)
-            self.journalSendConfirmed = true
-        } catch {
-            appConfigLog.error("ui-test confirmation write failed: \(String(describing: error), privacy: .public)")
+        if confirmsSend {
+            do {
+                try self.confirmationStore.writeRecord(for: pairing)
+                self.journalSendConfirmed = true
+            } catch {
+                appConfigLog.error("ui-test confirmation write failed: \(String(describing: error), privacy: .public)")
+            }
+        } else {
+            self.journalSendConfirmed = false
         }
     }
 #endif

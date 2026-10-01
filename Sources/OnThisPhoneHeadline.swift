@@ -14,20 +14,32 @@ nonisolated struct OnThisPhoneHeadline: Equatable, Sendable {
         case offline
         case needsAttentionOnly
         case none
+        case awaitingMarkConfirmation
     }
 }
 
 nonisolated func onThisPhoneHeadline(
     migration: OnThisPhoneMigration,
     isPaired: Bool,
-    isConnected: Bool
+    isConnected: Bool,
+    awaitingMarkConfirmation: Bool,
+    isStalled: Bool,
+    connectionStatus: ConnectionSyncStatus
 ) -> OnThisPhoneHeadline {
     let role: OnThisPhoneHeadline.Role
 
     if !isPaired {
         role = migration.needsAttention > 0 ? .needsAttentionOnly : .none
     } else if migration.onThisPhone > 0 {
-        role = isConnected ? .syncing : .offline
+        if MarkConfirmationDisplay.showsAwaitingWords(
+            awaitingMarkConfirmation: awaitingMarkConfirmation,
+            status: connectionStatus,
+            isStalled: isStalled
+        ) {
+            role = .awaitingMarkConfirmation
+        } else {
+            role = isConnected ? .syncing : .offline
+        }
     } else if migration.needsAttention == 0 {
         role = .upToDate
     } else {

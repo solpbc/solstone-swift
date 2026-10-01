@@ -19,13 +19,33 @@ nonisolated final class OnThisPhoneHeadlineTests: XCTestCase {
             let headline = onThisPhoneHeadline(
                 migration: migration,
                 isPaired: isPaired,
-                isConnected: isConnected
+                isConnected: isConnected,
+                awaitingMarkConfirmation: false,
+                isStalled: false,
+                connectionStatus: isConnected ? .connectedIdle : .offline
             )
 
             XCTAssertEqual(headline.role, expectedRole)
             XCTAssertEqual(headline.onThisPhone, migration.onThisPhone)
             XCTAssertEqual(headline.needsAttention, migration.needsAttention)
         }
+    }
+
+    func testAwaitingConnectedWithBacklogIsNotSyncing() {
+        let migration = Self.migration(onThisPhone: 8, needsAttention: 2)
+        let headline = onThisPhoneHeadline(
+            migration: migration,
+            isPaired: true,
+            isConnected: true,
+            awaitingMarkConfirmation: true,
+            isStalled: false,
+            connectionStatus: .connectedIdle
+        )
+
+        XCTAssertEqual(headline.role, .awaitingMarkConfirmation)
+        XCTAssertNotEqual(headline.role, .syncing)
+        XCTAssertEqual(headline.onThisPhone, 8)
+        XCTAssertEqual(headline.needsAttention, 2)
     }
 }
 

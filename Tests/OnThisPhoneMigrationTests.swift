@@ -109,7 +109,10 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
         let headline = onThisPhoneHeadline(
             migration: migration,
             isPaired: true,
-            isConnected: true
+            isConnected: true,
+            awaitingMarkConfirmation: false,
+            isStalled: false,
+            connectionStatus: .connectedIdle
         )
 
         XCTAssertEqual(migration.backlog, migration.onThisPhone)
@@ -182,7 +185,10 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
         let headline = onThisPhoneHeadline(
             migration: migration,
             isPaired: true,
-            isConnected: true
+            isConnected: true,
+            awaitingMarkConfirmation: false,
+            isStalled: false,
+            connectionStatus: .connectedIdle
         )
 
         XCTAssertEqual(headline.role, .syncing)
@@ -202,7 +208,10 @@ nonisolated final class OnThisPhoneMigrationTests: XCTestCase {
         let headline = onThisPhoneHeadline(
             migration: migration,
             isPaired: true,
-            isConnected: true
+            isConnected: true,
+            awaitingMarkConfirmation: false,
+            isStalled: false,
+            connectionStatus: .connectedIdle
         )
 
         XCTAssertEqual(headline.role, .syncing)

@@ -7,6 +7,8 @@ struct ImportView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(ConnectionSyncModel.self) private var connectionSyncModel
+    @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     var body: some View {
@@ -27,7 +29,10 @@ struct ImportView: View {
                     Text(ImportRecentPresentation.recentText(
                         pendingCount: self.shareTransferHolder.pendingCount,
                         lastDeliveredAt: self.shareTransferHolder.lastUploadAt,
-                        failedCount: self.shareTransferHolder.failedCount
+                        failedCount: self.shareTransferHolder.failedCount,
+                        awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+                        connectionStatus: self.connectionSyncModel.status,
+                        isStalled: self.connectionStallMonitor.isStalled
                     ))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -35,12 +40,19 @@ struct ImportView: View {
 
                 SourceDetailBlock(title: SourceVocabulary.onThisPhone) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(SourceVocabulary.onThisPhoneScope(
-                            isJournalPaired: self.appConfig.isPaired,
-                            isConnected: self.tunnelManager.state.isConnected
-                        ))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                        let showsAwaiting = MarkConfirmationDisplay.showsAwaitingWords(
+                            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+                            status: self.connectionSyncModel.status,
+                            isStalled: self.connectionStallMonitor.isStalled
+                        )
+                        if !showsAwaiting {
+                            Text(SourceVocabulary.onThisPhoneScope(
+                                isJournalPaired: self.appConfig.isPaired,
+                                isConnected: self.tunnelManager.state.isConnected
+                            ))
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
 
                         // The action names what it opens rather than restating the
                         // heading it sits under: a button reading `on this device`
