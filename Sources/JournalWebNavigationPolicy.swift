@@ -14,7 +14,7 @@ nonisolated enum JournalWebNavigationPolicy {
         case allow
         case cancel
         case rewrite(to: URL)
-        /// A main-frame navigation to another site. It opens outside the
+        /// A main-frame or new-window navigation to another site. It opens outside the
         /// journal view, so no third-party page runs in the web view that holds
         /// the loopback capability and its admitted connections.
         case openExternally(URL)
