@@ -51,6 +51,135 @@ final class JournalWKWebViewRuntimeTests: XCTestCase {
         )
     }
 
+    func testExternalLocationActivationsAreHandedOffWithoutLoadFailure() async throws {
+        let fixture = try LoopbackJournalFixture()
+        let port = try await fixture.start()
+        defer { fixture.stop() }
+        let recorder = RuntimeJournalRecorder()
+        let journal = try await self.makeJournal(port: port, recorder: recorder)
+        defer { journal.teardown() }
+
+        _ = try await journal.webView.evaluateJavaScript("window.location = 'https://example.test/script'")
+        try await self.waitForOpenCount(1, recorder: recorder)
+        XCTAssertEqual(recorder.openedURLs, [try XCTUnwrap(URL(string: "https://example.test/script"))])
+
+        _ = try await journal.webView.evaluateJavaScript(
+            "setTimeout(function(){ window.location = 'https://example.test/delayed'; }, 0)"
+        )
+        try await self.waitForOpenCount(2, recorder: recorder)
+        XCTAssertEqual(recorder.openedURLs[1], try XCTUnwrap(URL(string: "https://example.test/delayed")))
+
+        let repeatedURL = try XCTUnwrap(URL(string: "https://example.test/repeat"))
+        _ = try await journal.webView.evaluateJavaScript(
+            "window.location = 'https://example.test/repeat'; " +
+                "setTimeout(function(){ window.location = 'https://example.test/repeat'; }, 150)"
+        )
+        try await self.waitForOpenCount(4, recorder: recorder)
+        XCTAssertEqual(Array(recorder.openedURLs.suffix(2)), [repeatedURL, repeatedURL])
+
+        let title = try await self.waitForDocumentTitle("journal-ready", in: journal.webView)
+        XCTAssertEqual(title, "journal-ready")
+        XCTAssertFalse(recorder.states.contains { state in
+            if case .error(message: JournalWebPresentation.loadFailureMessage) = state { return true }
+            return false
+        })
+    }
+
+    func testRedirectToExternalAuthorityOpensWithoutCommittingForeignURL() async throws {
+        let fixture = try LoopbackJournalFixture()
+        let port = try await fixture.start()
+        defer { fixture.stop() }
+        let recorder = RuntimeJournalRecorder()
+        let journal = try await self.makeJournal(port: port, recorder: recorder)
+        defer { journal.teardown() }
+        let foreignURL = try XCTUnwrap(URL(string: "https://example.test/foreign"))
+
+        _ = try await journal.webView.evaluateJavaScript("window.location = '/redirect-foreign'")
+        try await self.waitForOpenCount(1, recorder: recorder)
+        try await Task.sleep(for: .milliseconds(250))
+
+        XCTAssertEqual(recorder.openedURLs, [foreignURL])
+        XCTAssertNotEqual(journal.webView.url, foreignURL)
+        let title = try await self.waitForDocumentTitle("journal-ready", in: journal.webView)
+        XCTAssertEqual(title, "journal-ready")
+        XCTAssertFalse(fixture.requestedPaths.contains("/foreign"))
+    }
+
+    func testBlankTargetAndWindowOpenHandoffAndSameAuthorityLoad() async throws {
+        let fixture = try LoopbackJournalFixture()
+        let port = try await fixture.start()
+        defer { fixture.stop() }
+        let recorder = RuntimeJournalRecorder()
+        let journal = try await self.makeJournal(
+            port: port,
+            recorder: recorder,
+            allowsJavaScriptWindows: true
+        )
+        defer { journal.teardown() }
+
+        _ = try await journal.webView.evaluateJavaScript("document.getElementById('blank').click()")
+        try await self.waitForOpenCount(1, recorder: recorder)
+        XCTAssertEqual(recorder.openedURLs, [try XCTUnwrap(URL(string: "https://example.test/blank"))])
+
+        _ = try await journal.webView.evaluateJavaScript("document.getElementById('blank').click()")
+        try await self.waitForOpenCount(2, recorder: recorder)
+        XCTAssertEqual(recorder.openedURLs.count, 2)
+
+        _ = try await journal.webView.evaluateJavaScript("window.open('https://example.test/open')")
+        try await self.waitForOpenCount(3, recorder: recorder)
+        XCTAssertEqual(recorder.openedURLs[2], try XCTUnwrap(URL(string: "https://example.test/open")))
+
+        _ = try await journal.webView.evaluateJavaScript("document.getElementById('same').click()")
+        let title = try await self.waitForDocumentTitle("same-authority-target", in: journal.webView)
+        XCTAssertEqual(title, "same-authority-target")
+        XCTAssertEqual(recorder.openedURLs.count, 3)
+    }
+
+    private func makeJournal(
+        port: UInt16,
+        recorder: RuntimeJournalRecorder,
+        allowsJavaScriptWindows: Bool = false
+    ) async throws -> RuntimeJournal {
+        let diagnosticLog = DiagnosticLog()
+        let coordinator = JournalWebView.Coordinator(
+            diagnosticLog: diagnosticLog,
+            setState: { recorder.states.append($0) },
+            opener: { url in
+                recorder.openedURLs.append(url)
+                return true
+            }
+        )
+        let configuration = JournalWebHostContractConfiguration.make(diagnosticLog: diagnosticLog)
+        if allowsJavaScriptWindows {
+            configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
+        }
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = coordinator
+        webView.uiDelegate = coordinator
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        webView.frame = window.bounds
+        window.addSubview(webView)
+        window.makeKeyAndVisible()
+        coordinator.observeForeground(of: webView)
+        coordinator.requestLoad(
+            url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/")),
+            reloadToken: 0,
+            webView: webView
+        )
+        _ = try await self.waitForDocumentTitle("journal-ready", in: webView)
+        return RuntimeJournal(webView: webView, window: window, coordinator: coordinator)
+    }
+
+    private func waitForOpenCount(_ expected: Int, recorder: RuntimeJournalRecorder) async throws {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            if recorder.openedURLs.count >= expected { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTFail("expected \(expected) external opens, got \(recorder.openedURLs.count)")
+    }
+
     private func waitForDocumentTitle(_ expected: String, in webView: WKWebView) async throws -> String? {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(5))
@@ -64,6 +193,27 @@ final class JournalWKWebViewRuntimeTests: XCTestCase {
         }
         XCTFail("document title did not become \(expected); last=\(lastTitle ?? "nil")")
         return lastTitle
+    }
+}
+
+@MainActor
+private final class RuntimeJournalRecorder {
+    var states: [JournalWebPresentation.LoadState] = []
+    var openedURLs: [URL] = []
+}
+
+@MainActor
+private struct RuntimeJournal {
+    let webView: WKWebView
+    let window: UIWindow
+    let coordinator: JournalWebView.Coordinator
+
+    func teardown() {
+        self.coordinator.teardown()
+        self.webView.stopLoading()
+        self.webView.navigationDelegate = nil
+        self.webView.uiDelegate = nil
+        self.window.isHidden = true
     }
 }
 
@@ -178,8 +328,19 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
                 headers: ["Content-Type: text/html; charset=utf-8"],
                 body: """
                 <!doctype html><html><head><title>journal-loading</title></head>
-                <body><main id="surface">loading</main><script src="/static/boot.js"></script></body></html>
+                <body><main id="surface">loading</main>
+                <a id="blank" target="_blank" href="https://example.test/blank">outside</a>
+                <a id="same" target="_blank" href="/same-authority-target">same authority</a>
+                <script src="/static/boot.js"></script></body></html>
                 """
+            )
+        case "/redirect-foreign":
+            return Self.httpResponse(status: "302 Found", headers: ["Location: https://example.test/foreign"], body: "")
+        case "/same-authority-target":
+            return Self.httpResponse(
+                status: "200 OK",
+                headers: ["Content-Type: text/html; charset=utf-8"],
+                body: "<!doctype html><html><head><title>same-authority-target</title></head><body>same</body></html>"
             )
         case "/static/boot.js":
             return Self.httpResponse(

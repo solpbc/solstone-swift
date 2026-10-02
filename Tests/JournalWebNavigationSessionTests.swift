@@ -21,7 +21,7 @@ final class JournalWebNavigationSessionTests: XCTestCase {
 
         let decision = session.decidePolicy(
             for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home?x=1#section")),
-            isMainFrame: true
+            frame: .main
         )
 
         guard case .rewrite(let rewrittenURL) = decision else {
@@ -58,7 +58,7 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         let loadCountBeforeRewrite = recorder.loads.count
         let decision = session.decidePolicy(
             for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home")),
-            isMainFrame: true
+            frame: .main
         )
 
         guard case .rewrite = decision else {
@@ -98,7 +98,7 @@ final class JournalWebNavigationSessionTests: XCTestCase {
 
         let decision = session.decidePolicy(
             for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home")),
-            isMainFrame: true
+            frame: .main
         )
 
         guard case .rewrite = decision else {
@@ -149,7 +149,7 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         recorder.enqueueLoadNavigation(replacementNavigation)
         let decision = session.decidePolicy(
             for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home")),
-            isMainFrame: true
+            frame: .main
         )
 
         guard case .rewrite = decision else {
@@ -193,14 +193,14 @@ final class JournalWebNavigationSessionTests: XCTestCase {
 
         let staleDecision = session.decidePolicy(
             for: URLRequest(url: try self.url("https://127.0.0.1:8080/stale")),
-            isMainFrame: true
+            frame: .main
         )
-        XCTAssertEqual(staleDecision, .allow)
+        XCTAssertEqual(staleDecision, .cancel)
         XCTAssertEqual(recorder.loads.count, 2)
 
         let currentDecision = session.decidePolicy(
             for: URLRequest(url: try self.url("https://127.0.0.1:9090/current")),
-            isMainFrame: true
+            frame: .main
         )
         guard case .rewrite(let rewrittenURL) = currentDecision else {
             XCTFail("expected rewrite")
@@ -210,6 +210,101 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         XCTAssertEqual(recorder.loads.last?.url, rewrittenURL)
         session.teardown()
         gate.fireAll()
+    }
+
+    func testExternalHandoffRestoresLoadedStateAndNewGenerationTimesOut() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let log = DiagnosticLog()
+        let session = recorder.makeSession(gate: gate, diagnosticLog: log)
+        let initialNavigation = NavigationToken()
+        let provisionalNavigation = NavigationToken()
+        let initialURL = try self.url("http://127.0.0.1:8080/")
+
+        recorder.enqueueLoadNavigation(initialNavigation)
+        session.requestLoad(url: initialURL, reloadToken: 0)
+        try await self.waitFor("pending initial request-load bound") {
+            gate.pendingCount == 1
+        }
+        session.didStart(navigation: initialNavigation)
+        session.didFinish(navigation: initialNavigation)
+        XCTAssertEqual(recorder.states.last, .loaded)
+
+        session.didStart(navigation: provisionalNavigation)
+        try await self.waitFor("pending provisional handoff bound") {
+            gate.pendingCount == 3
+        }
+        let outsideURL = try self.url("https://example.test/outside?day=today")
+        XCTAssertEqual(
+            session.decidePolicy(for: URLRequest(url: outsideURL), frame: .main),
+            .openExternally(outsideURL)
+        )
+        session.didFail(
+            navigation: provisionalNavigation,
+            error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        )
+        XCTAssertEqual(recorder.states.last, .loading)
+        XCTAssertEqual(gate.pendingCount, 3)
+
+        gate.fireAll()
+        try await self.waitFor("handoff restoration") {
+            log.events.contains { $0.category == .journal && $0.message == "handoff_restored" }
+        }
+        XCTAssertEqual(recorder.states.last, .loaded)
+        XCTAssertFalse(recorder.states.containsLoadFailure)
+
+        let nextURL = try self.url("http://127.0.0.1:9090/")
+        let nextNavigation = NavigationToken()
+        recorder.enqueueLoadNavigation(nextNavigation)
+        session.requestLoad(url: nextURL, reloadToken: 0)
+        try await self.waitFor("pending newer request-load bound") {
+            gate.pendingCount == 1
+        }
+        session.didStart(navigation: nextNavigation)
+        try await self.waitFor("pending newer navigation bound") {
+            gate.pendingCount == 2
+        }
+        gate.fireAll()
+        try await self.waitFor("new generation timeout") {
+            recorder.states.containsLoadFailure
+        }
+        XCTAssertEqual(recorder.states.last, .error(message: JournalWebPresentation.loadFailureMessage))
+        session.teardown()
+    }
+
+    func testProvisionalCancellationWithoutHandoffStillTimesOut() async throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(gate: gate)
+        let initialNavigation = NavigationToken()
+        let provisionalNavigation = NavigationToken()
+
+        recorder.enqueueLoadNavigation(initialNavigation)
+        session.requestLoad(url: try self.url("http://127.0.0.1:8080/"), reloadToken: 0)
+        try await self.waitFor("pending initial request-load bound") {
+            gate.pendingCount == 1
+        }
+        session.didStart(navigation: initialNavigation)
+        session.didFinish(navigation: initialNavigation)
+        XCTAssertEqual(recorder.states.last, .loaded)
+
+        session.didStart(navigation: provisionalNavigation)
+        try await self.waitFor("pending provisional failure bound") {
+            gate.pendingCount == 3
+        }
+        session.didFail(
+            navigation: provisionalNavigation,
+            error: NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        )
+        XCTAssertEqual(recorder.states.last, .loading)
+        XCTAssertEqual(gate.pendingCount, 3)
+
+        gate.fireAll()
+        try await self.waitFor("provisional timeout error") {
+            recorder.states.containsLoadFailure
+        }
+        XCTAssertEqual(recorder.states.last, .error(message: JournalWebPresentation.loadFailureMessage))
+        session.teardown()
     }
 
     func testRetiredNavigationCallbacksCannotClobberRequestLoadBeforeDidStart() async throws {
@@ -716,7 +811,7 @@ final class JournalWebNavigationSessionTests: XCTestCase {
 
         let decision = session.decidePolicy(
             for: URLRequest(url: try self.url("https://127.0.0.1:8080/app/home")),
-            isMainFrame: true
+            frame: .main
         )
 
         guard case .rewrite = decision else {

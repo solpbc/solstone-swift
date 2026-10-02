@@ -4,7 +4,7 @@
 import Foundation
 import os
 
-nonisolated private let journalWebLog = Logger(subsystem: "app.solstone.swift", category: "journalweb")
+nonisolated let journalWebLog = Logger(subsystem: "app.solstone.swift", category: "journalweb")
 
 @MainActor
 final class JournalWebNavigationSession {
@@ -42,6 +42,7 @@ final class JournalWebNavigationSession {
     private var liveAuthority: JournalWebNavigationPolicy.Authority?
     private var lastRequest: LastRequest?
     private var isTornDown = false
+    private var restoreAfterHandoff = false
 
     init(
         timeout: Duration = .seconds(20),
@@ -78,12 +79,12 @@ final class JournalWebNavigationSession {
     }
 
     @discardableResult
-    func decidePolicy(for request: URLRequest, isMainFrame: Bool) -> JournalWebNavigationPolicy.Decision {
-        guard !self.isTornDown else { return .allow }
+    func decidePolicy(for request: URLRequest, frame: JournalWebNavigationPolicy.Frame) -> JournalWebNavigationPolicy.Decision {
+        guard !self.isTornDown else { return .cancel }
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: request.url,
             httpMethod: request.httpMethod,
-            isMainFrame: isMainFrame,
+            frame: frame,
             liveAuthority: self.liveAuthority
         )
         let schemeClass = JournalWebNavigationPolicy.schemeClass(for: request.url).rawValue
@@ -96,6 +97,11 @@ final class JournalWebNavigationSession {
         case .allow:
             self.emit(
                 "policy_allow",
+                detail: "schemeClass=\(schemeClass) hostPortMatch=\(hostPortMatch) generation=\(self.generation)"
+            )
+        case .cancel:
+            self.emit(
+                "policy_cancel",
                 detail: "schemeClass=\(schemeClass) hostPortMatch=\(hostPortMatch) generation=\(self.generation)"
             )
         case .rewrite(let rewrittenURL):
@@ -118,9 +124,21 @@ final class JournalWebNavigationSession {
                 "policy_open_externally",
                 detail: "schemeClass=\(schemeClass) generation=\(self.generation)"
             )
+            if self.boundTask != nil {
+                self.restoreAfterHandoff = true
+            }
         }
 
         return decision
+    }
+
+    func loadInCurrentView(_ request: URLRequest) {
+        guard !self.isTornDown else { return }
+        self.issueProgrammaticLoad(request)
+    }
+
+    func noteOpenRejected() {
+        self.emit("open_rejected", detail: "generation=\(self.generation)")
     }
 
     func didStart(navigation: AnyObject?) {
@@ -239,6 +257,7 @@ final class JournalWebNavigationSession {
         guard !self.isTornDown else { return }
         self.emit("teardown", detail: "generation=\(self.generation)")
         self.isTornDown = true
+        self.restoreAfterHandoff = false
         self.cancelBound()
         self.currentNavigation = nil
         self.expectedNavigation = nil
@@ -251,10 +270,24 @@ final class JournalWebNavigationSession {
 
     private func armBound(generation: Int) {
         self.cancelBound()
+        self.restoreAfterHandoff = false
         self.boundTask = Task { @MainActor in
             await self.sleep(self.timeout)
             guard !Task.isCancelled else { return }
             guard self.generation == generation else { return }
+            if self.restoreAfterHandoff {
+                self.restoreAfterHandoff = false
+                self.retire(self.expectedNavigation)
+                self.expectedNavigation = nil
+                self.retire(self.currentNavigation)
+                self.currentNavigation = nil
+                self.unkeyedCallbacksSealed = true
+                self.attemptPhase = .loaded
+                self.emit("handoff_restored", detail: "generation=\(generation)")
+                self.boundTask = nil
+                self.setState(.loaded)
+                return
+            }
             self.attemptPhase = .terminalError
             self.retire(self.expectedNavigation)
             self.expectedNavigation = nil

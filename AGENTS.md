@@ -6,7 +6,7 @@ Native iOS app for solstone — the private, AI-powered journal from sol pbc. Na
 
 - **Privacy is an architecture decision.** Observations sync only to the owner's journal server, never to sol pbc. No analytics, no crash reporting, no telemetry. No phone-home.
 - **Agent-native.** All builds, tests, deploys, and diagnostics happen through Makefile targets — no freeform `xcodebuild` / `simctl` / `devicectl` composition. `make sim-json` pipes through xcsift for structured JSON errors an agent can parse.
-- **Swift 6 language mode, strict (complete) concurrency.** `@MainActor` by default. `nonisolated` where it belongs, including the `WKNavigationDelegate` callbacks in `Sources/Portal/InAppJournalView.swift`. Never `nonisolated(unsafe)` — fix the isolation. `@Observable`, not `ObservableObject`. `NavigationStack`, not `NavigationView`. `async/await`, no completion handlers.
+- **Swift 6 language mode, strict (complete) concurrency.** `@MainActor` by default. `nonisolated` where it belongs, including the `WKNavigationDelegate` and `WKUIDelegate` callbacks in `Sources/Portal/InAppJournalView.swift`; async callbacks hop to the main actor, while synchronous `createWebViewWith` uses `MainActor.assumeIsolated`. Never `nonisolated(unsafe)` — fix the isolation. `@Observable`, not `ObservableObject`. `NavigationStack`, not `NavigationView`. `async/await`, no completion handlers.
 - **`os.Logger` only.** `.info` / `.error` / `.debug` survive from any thread. `print()` and `NSLog()` silently drop from background threads/queues — don't use them. Subsystem: `app.solstone.swift`.
 - **Universal always.** Universal iPhone + iPad, size-class-aware SwiftUI. No iPhone-only hardcoding.
 - **KISS / YAGNI.** Build for the wave's scope; don't add speculative machinery, options, or fallbacks for cases that don't exist yet. No backwards-compatibility shims — update call sites directly when you rename or move something.
@@ -29,7 +29,7 @@ Capture pipelines:
 - `Sources/WatchCapture/` + `Watch/Sources/` — Apple Watch companion, both halves.
 - `Sources/ShareImport/` + `SolstoneShareExtension/` (`SolstoneShareExtension/ShareViewController.swift`) — share-sheet staging, app adoption, and transfer handoff.
 
-Embedded journal web: `Sources/Portal/InAppJournalView.swift` is a plain `WKWebView` with `WKNavigationDelegate` callbacks only. There are no script message handlers and no URL-scheme handler. There is no JavaScript bridge; native ↔ journal communication is HTTP over the loopback port.
+Embedded journal web: `Sources/Portal/InAppJournalView.swift` uses a `WKWebView` with `WKNavigationDelegate` and `WKUIDelegate` callbacks. Their callbacks are nonisolated and route to the main actor; asynchronous callbacks hop there, and synchronous `createWebViewWith` uses `MainActor.assumeIsolated`. The initialization script from the pinned host contract is installed at document start for the main frame: [solpbc/solstone-journal `05705f731e156f8ea1956d038ec60896fdd6219e` `contracts/journal-web-host/host-contract.json`](https://github.com/solpbc/solstone-journal/blob/05705f731e156f8ea1956d038ec60896fdd6219e/contracts/journal-web-host/host-contract.json). There is no script message handler, URL-scheme handler, or JavaScript bridge. Native-to-journal communication remains HTTP over the loopback port.
 
 Transport / tunnel: SPLTunnel is consumed from the `spl-swift` Swift package pinned at `v0.8.3` in `project.yml`, product `SPLTunnel`. It provides pairing crypto, relay dial over WebSocket, inner mTLS TLS 1.3 with a client cert + CA pinning, a framed multiplexer, and a loopback proxy. `TunnelManager` (`Sources/Tunnel/TunnelManager.swift`, `final class TunnelManager`) is the connection state machine over single-shot sessions — connect watchdog, liveness probe, backoff, and `PathMonitor` reactions. The tunnel exposes `http://127.0.0.1:<ephemeral port>`; everything app-side speaks plain HTTP to that loopback port. No SSH — the tunnel is mTLS with a framed multiplexer.
 
@@ -67,7 +67,7 @@ make clean         # remove build artifacts
 
 ## Swift 6 concurrency
 
-- Types are `@MainActor`-isolated by default. Mark `nonisolated` explicitly; the `WKNavigationDelegate` callbacks in `Sources/Portal/InAppJournalView.swift` are `nonisolated`.
+- Types are `@MainActor`-isolated by default. Mark `nonisolated` explicitly; the `WKNavigationDelegate` and `WKUIDelegate` callbacks in `Sources/Portal/InAppJournalView.swift` are nonisolated and route to the main actor. Asynchronous callbacks hop there; synchronous `createWebViewWith` uses `MainActor.assumeIsolated`.
 - Never `nonisolated(unsafe)` — fix isolation instead.
 - All `Sendable` conformance explicit.
 

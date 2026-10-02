@@ -12,11 +12,18 @@ nonisolated enum JournalWebNavigationPolicy {
 
     enum Decision: Equatable, Sendable {
         case allow
+        case cancel
         case rewrite(to: URL)
         /// A main-frame navigation to another site. It opens outside the
         /// journal view, so no third-party page runs in the web view that holds
         /// the loopback capability and its admitted connections.
         case openExternally(URL)
+    }
+
+    enum Frame: Equatable, Sendable {
+        case main
+        case noTarget
+        case subframe
     }
 
     enum SchemeClass: String, Equatable, Sendable {
@@ -29,7 +36,7 @@ nonisolated enum JournalWebNavigationPolicy {
     static func authority(for liveURL: URL) -> Authority? {
         guard let scheme = self.normalizedScheme(liveURL.scheme),
               let host = self.normalizedHost(liveURL.host),
-              let port = liveURL.port
+              let port = self.effectivePort(for: liveURL)
         else {
             return nil
         }
@@ -40,36 +47,40 @@ nonisolated enum JournalWebNavigationPolicy {
     static func decision(
         requestURL: URL?,
         httpMethod: String?,
-        isMainFrame: Bool,
+        frame: Frame,
         liveAuthority: Authority?
     ) -> Decision {
-        if isMainFrame,
-           liveAuthority != nil,
-           let requestURL,
-           [.http, .https].contains(self.schemeClass(for: requestURL)),
-           let host = self.normalizedHost(requestURL.host),
-           !self.isLoopbackHost(host),
-           !self.hostPortMatches(requestURL: requestURL, liveAuthority: liveAuthority) {
-            return .openExternally(requestURL)
-        }
-        guard isMainFrame,
-              let liveAuthority,
-              liveAuthority.scheme == "http",
-              let requestURL,
-              self.schemeClass(for: requestURL) == .https,
-              !self.hasEmbeddedAuthorityPrefix(in: requestURL),
-              self.isRewritableMethod(httpMethod),
-              self.hostPortMatches(requestURL: requestURL, liveAuthority: liveAuthority),
-              var components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false)
+        guard frame != .subframe else { return .allow }
+        guard let requestURL,
+              let scheme = self.normalizedScheme(requestURL.scheme),
+              scheme == "http" || scheme == "https",
+              let host = self.normalizedHost(requestURL.host),
+              !self.hasEmbeddedAuthorityPrefix(in: requestURL)
         else {
+            return .cancel
+        }
+
+        if scheme == "https",
+           liveAuthority?.scheme == "http",
+           self.isRewritableMethod(httpMethod),
+           self.hostPortMatches(requestURL: requestURL, liveAuthority: liveAuthority),
+           var components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false) {
+            components.scheme = "http"
+            guard let rewrittenURL = components.url else { return .cancel }
+            return .rewrite(to: rewrittenURL)
+        }
+
+        if let liveAuthority,
+           host == liveAuthority.host,
+           self.effectivePort(for: requestURL) == liveAuthority.port {
             return .allow
         }
 
-        components.scheme = "http"
-        guard let rewrittenURL = components.url else {
-            return .allow
+        guard !self.isLoopbackHost(host) else {
+            return liveAuthority == nil ? .allow : .cancel
         }
-        return .rewrite(to: rewrittenURL)
+
+        return .openExternally(requestURL)
     }
 
     static func replacementRequest(from original: URLRequest, rewrittenURL: URL) -> URLRequest {
@@ -101,7 +112,7 @@ nonisolated enum JournalWebNavigationPolicy {
         guard let requestURL,
               let liveAuthority,
               let host = self.normalizedHost(requestURL.host),
-              let port = requestURL.port
+              let port = self.effectivePort(for: requestURL)
         else {
             return false
         }
@@ -121,8 +132,6 @@ nonisolated enum JournalWebNavigationPolicy {
         return specifier[authorityStart..<authorityEnd].contains("@")
     }
 
-    /// A loopback navigation that is not the live authority is a stale journal
-    /// port left over from a rotation, not another site; it stays in place.
     private static func isLoopbackHost(_ host: String) -> Bool {
         host == "127.0.0.1" || host == "localhost" || host == "::1"
     }
@@ -135,6 +144,17 @@ nonisolated enum JournalWebNavigationPolicy {
     private static func normalizedScheme(_ scheme: String?) -> String? {
         guard let scheme, !scheme.isEmpty else { return nil }
         return scheme.lowercased()
+    }
+
+    private static func effectivePort(for url: URL) -> Int? {
+        if let port = url.port {
+            return port
+        }
+        return switch self.normalizedScheme(url.scheme) {
+        case "http": 80
+        case "https": 443
+        default: nil
+        }
     }
 
     private static func normalizedHost(_ host: String?) -> String? {

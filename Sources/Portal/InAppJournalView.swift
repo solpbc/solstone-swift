@@ -23,8 +23,10 @@ struct JournalWebView: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> WKWebView {
-        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let configuration = JournalWebHostContractConfiguration.make(diagnosticLog: self.diagnosticLog)
+        let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
         context.coordinator.observeForeground(of: webView)
         context.coordinator.requestLoad(url: self.url, reloadToken: self.reloadToken, webView: webView)
@@ -39,23 +41,29 @@ struct JournalWebView: UIViewRepresentable {
         coordinator.teardown()
         uiView.stopLoading()
         uiView.navigationDelegate = nil
+        uiView.uiDelegate = nil
     }
 
-    nonisolated final class Coordinator: NSObject, WKNavigationDelegate, @unchecked Sendable {
+    nonisolated final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, @unchecked Sendable {
         private let setState: @MainActor (JournalWebPresentation.LoadState) -> Void
         private let diagnosticLog: DiagnosticLog
         @MainActor private var session: JournalWebNavigationSession?
+        @MainActor private var activationRouter: JournalWebActivationRouter?
         @MainActor private var latestLoad: (url: URL, reloadToken: Int)?
         @MainActor private var isTornDown = false
         @MainActor private var foregroundObserver: (any NSObjectProtocol)?
 
         init(
             diagnosticLog: DiagnosticLog,
-            setState: @escaping @MainActor (JournalWebPresentation.LoadState) -> Void
+            setState: @escaping @MainActor (JournalWebPresentation.LoadState) -> Void,
+            opener: @escaping JournalWebActivationRouter.Opener = JournalSystemOpen.live
         ) {
             self.diagnosticLog = diagnosticLog
             self.setState = setState
+            self.opener = opener
         }
+
+        private let opener: JournalWebActivationRouter.Opener
 
         /// Every programmatic load first sets the loopback capability cookie in
         /// this web view's store and waits for it, so the load and every request
@@ -108,6 +116,8 @@ struct JournalWebView: UIViewRepresentable {
                 self.foregroundObserver = nil
             }
             self.isTornDown = true
+            self.activationRouter?.teardown()
+            self.activationRouter = nil
             self.session?.teardown()
             self.session = nil
         }
@@ -125,6 +135,7 @@ struct JournalWebView: UIViewRepresentable {
                 diagnosticLog: self.diagnosticLog
             )
             self.session = session
+            self.activationRouter = JournalWebActivationRouter(session: session, opener: self.opener)
             return session
         }
 
@@ -139,22 +150,44 @@ struct JournalWebView: UIViewRepresentable {
             decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
         ) {
             let request = navigationAction.request
-            let isMainFrame = navigationAction.targetFrame?.isMainFrame == true
+            let frame = Self.frame(for: navigationAction.targetFrame)
             Task { @MainActor in
-                guard let session = self.existingSession else {
-                    decisionHandler(.allow)
+                guard !self.isTornDown else {
+                    decisionHandler(.cancel)
                     return
                 }
-                switch session.decidePolicy(for: request, isMainFrame: isMainFrame) {
-                case .allow:
-                    decisionHandler(.allow)
-                case .rewrite:
-                    decisionHandler(.cancel)
-                case .openExternally(let url):
-                    decisionHandler(.cancel)
-                    UIApplication.shared.open(url)
+                guard let router = self.activationRouter else {
+                    switch frame {
+                    case .main, .subframe:
+                        decisionHandler(.allow)
+                    case .noTarget:
+                        decisionHandler(.cancel)
+                    }
+                    return
                 }
+                await router.handleNavigationAction(
+                    frame: frame,
+                    request: request,
+                    decisionHandler: decisionHandler
+                )
             }
+        }
+
+        nonisolated func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            MainActor.assumeIsolated {
+                guard !self.isTornDown, let router = self.activationRouter else { return nil }
+                return router.handleNewWindow(request: navigationAction.request)
+            }
+        }
+
+        private nonisolated static func frame(for targetFrame: WKFrameInfo?) -> JournalWebNavigationPolicy.Frame {
+            guard let targetFrame else { return .noTarget }
+            return targetFrame.isMainFrame ? .main : .subframe
         }
 
         nonisolated func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {

@@ -653,6 +653,7 @@ ci: check-versions test-release-helper deps
 	bash test/assert_watch_background_modes.sh
 	bash test/assert_watch_privacy.sh
 	bash test/assert_broadcast_privacy.sh
+	bash test/assert_journal_host_contract.sh
 	PROJECT='$(PROJECT)' SCHEME='$(SCHEME)' DERIVED='$(DERIVED)' \
 		CI_SIM_NAME='$(CI_SIM_NAME)' CI_SIM_DEVICETYPE='$(CI_SIM_DEVICETYPE)' \
 		CI_SIM_RUNTIME='$(CI_SIM_RUNTIME)' CI_ATTEMPT_TIMEOUT='$(CI_ATTEMPT_TIMEOUT)' \

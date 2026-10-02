@@ -6,8 +6,16 @@ import Foundation
 import XCTest
 
 nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
-    func testAuthorityRequiresExplicitPort() throws {
-        XCTAssertNil(JournalWebNavigationPolicy.authority(for: try XCTUnwrap(URL(string: "http://127.0.0.1/"))))
+    func testAuthorityUsesEffectiveDefaultPorts() throws {
+        let portlessHTTP = try XCTUnwrap(
+            JournalWebNavigationPolicy.authority(for: try XCTUnwrap(URL(string: "http://127.0.0.1/")))
+        )
+        XCTAssertEqual(portlessHTTP.port, 80)
+
+        let portlessHTTPS = try XCTUnwrap(
+            JournalWebNavigationPolicy.authority(for: try XCTUnwrap(URL(string: "https://127.0.0.1/")))
+        )
+        XCTAssertEqual(portlessHTTPS.port, 443)
 
         let authority = try XCTUnwrap(
             JournalWebNavigationPolicy.authority(for: try XCTUnwrap(URL(string: "http://127.0.0.1:8080/")))
@@ -15,6 +23,7 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         XCTAssertEqual(authority.scheme, "http")
         XCTAssertEqual(authority.host, "127.0.0.1")
         XCTAssertEqual(authority.port, 8080)
+        XCTAssertNil(JournalWebNavigationPolicy.authority(for: try XCTUnwrap(URL(string: "about:blank"))))
     }
 
     func testAuthorityNormalizesCaseTrailingDotAndIPv6Host() throws {
@@ -39,7 +48,7 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: requestURL,
             httpMethod: "GET",
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: authority
         )
 
@@ -62,7 +71,7 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: requestURL,
             httpMethod: "HEAD",
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: authority
         )
 
@@ -80,7 +89,7 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: requestURL,
             httpMethod: nil,
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: authority
         )
 
@@ -98,7 +107,7 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: try XCTUnwrap(URL(string: "https://live.example.test:8443/app/home")),
             httpMethod: "GET",
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: liveAuthority
         )
 
@@ -110,29 +119,29 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: requestURL,
             httpMethod: "GET",
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: try self.liveAuthority()
         )
 
         XCTAssertEqual(decision, .openExternally(requestURL))
     }
 
-    func testAllowsPortOffByOne() throws {
+    func testCancelsPortOffByOne() throws {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: try XCTUnwrap(URL(string: "https://127.0.0.1:8081/")),
             httpMethod: "GET",
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: try self.liveAuthority()
         )
 
-        XCTAssertEqual(decision, .allow)
+        XCTAssertEqual(decision, .cancel)
     }
 
     func testAllowsPostToLiveAuthority() throws {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: try XCTUnwrap(URL(string: "https://127.0.0.1:8080/")),
             httpMethod: "POST",
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: try self.liveAuthority()
         )
 
@@ -143,7 +152,7 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: try XCTUnwrap(URL(string: "http://127.0.0.1:8080/")),
             httpMethod: "GET",
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: try self.liveAuthority()
         )
 
@@ -155,7 +164,7 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: requestURL,
             httpMethod: "GET",
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: try self.liveAuthority()
         )
 
@@ -167,19 +176,19 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: requestURL,
             httpMethod: "POST",
-            isMainFrame: true,
+            frame: .main,
             liveAuthority: try self.liveAuthority()
         )
 
         XCTAssertEqual(decision, .openExternally(requestURL))
     }
 
-    func testKeepsExternalSubframeAndNonWebSchemesInPlace() throws {
+    func testCancelsMainAndNoTargetNonWebSchemesAndAllowsExternalSubframe() throws {
         XCTAssertEqual(
             JournalWebNavigationPolicy.decision(
                 requestURL: try XCTUnwrap(URL(string: "https://example.test/")),
                 httpMethod: "GET",
-                isMainFrame: false,
+                frame: .subframe,
                 liveAuthority: try self.liveAuthority()
             ),
             .allow
@@ -188,45 +197,124 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
             JournalWebNavigationPolicy.decision(
                 requestURL: try XCTUnwrap(URL(string: "about:blank")),
                 httpMethod: "GET",
-                isMainFrame: true,
+                frame: .main,
                 liveAuthority: try self.liveAuthority()
             ),
-            .allow
+            .cancel
         )
-    }
-
-    func testKeepsAStaleLoopbackPortInPlace() throws {
         XCTAssertEqual(
             JournalWebNavigationPolicy.decision(
-                requestURL: try XCTUnwrap(URL(string: "http://localhost:9090/")),
+                requestURL: try XCTUnwrap(URL(string: "about:blank")),
                 httpMethod: "GET",
-                isMainFrame: true,
+                frame: .noTarget,
                 liveAuthority: try self.liveAuthority()
             ),
-            .allow
+            .cancel
+        )
+        XCTAssertEqual(
+            JournalWebNavigationPolicy.decision(
+                requestURL: try XCTUnwrap(URL(string: "mailto:hello@example.test")),
+                httpMethod: "GET",
+                frame: .main,
+                liveAuthority: try self.liveAuthority()
+            ),
+            .cancel
+        )
+        XCTAssertEqual(
+            JournalWebNavigationPolicy.decision(
+                requestURL: nil,
+                httpMethod: "GET",
+                frame: .main,
+                liveAuthority: try self.liveAuthority()
+            ),
+            .cancel
         )
     }
 
-    func testAllowsUserinfoAtLiveAuthority() throws {
-        let decision = JournalWebNavigationPolicy.decision(
-            requestURL: try XCTUnwrap(URL(string: "https://user:secret@127.0.0.1:8080/")),
-            httpMethod: "GET",
-            isMainFrame: true,
-            liveAuthority: try self.liveAuthority()
-        )
+    func testCancelsStaleLoopbackAuthoritiesForMainAndNoTarget() throws {
+        let staleURL = try XCTUnwrap(URL(string: "http://localhost:9090/"))
+        for frame in [JournalWebNavigationPolicy.Frame.main, .noTarget] {
+            XCTAssertEqual(
+                JournalWebNavigationPolicy.decision(
+                    requestURL: staleURL,
+                    httpMethod: "GET",
+                    frame: frame,
+                    liveAuthority: try self.liveAuthority()
+                ),
+                .cancel
+            )
+        }
+        for url in ["http://[::1]:8080/", "http://127.0.0.1/"] {
+            XCTAssertEqual(
+                JournalWebNavigationPolicy.decision(
+                    requestURL: try XCTUnwrap(URL(string: url)),
+                    httpMethod: "GET",
+                    frame: .main,
+                    liveAuthority: try self.liveAuthority()
+                ),
+                .cancel
+            )
+        }
+    }
 
-        XCTAssertEqual(decision, .allow)
+    func testCancelsUserinfoAtLiveAuthorityForMainAndNoTarget() throws {
+        let requestURL = try XCTUnwrap(URL(string: "https://user:secret@127.0.0.1:8080/"))
+        for frame in [JournalWebNavigationPolicy.Frame.main, .noTarget] {
+            XCTAssertEqual(
+                JournalWebNavigationPolicy.decision(
+                    requestURL: requestURL,
+                    httpMethod: "GET",
+                    frame: frame,
+                    liveAuthority: try self.liveAuthority()
+                ),
+                .cancel
+            )
+        }
     }
 
     func testAllowsSubframeNavigation() throws {
         let decision = JournalWebNavigationPolicy.decision(
             requestURL: try XCTUnwrap(URL(string: "https://127.0.0.1:8080/")),
             httpMethod: "GET",
-            isMainFrame: false,
+            frame: .subframe,
             liveAuthority: try self.liveAuthority()
         )
 
         XCTAssertEqual(decision, .allow)
+    }
+
+    func testNoTargetOutsideHTTPSSameURLOpensExternallyAndSubframeStaysInPlace() throws {
+        let requestURL = try XCTUnwrap(URL(string: "https://example.test/leave?day=today"))
+        XCTAssertEqual(
+            JournalWebNavigationPolicy.decision(
+                requestURL: requestURL,
+                httpMethod: "GET",
+                frame: .noTarget,
+                liveAuthority: try self.liveAuthority()
+            ),
+            .openExternally(requestURL)
+        )
+        XCTAssertEqual(
+            JournalWebNavigationPolicy.decision(
+                requestURL: requestURL,
+                httpMethod: "GET",
+                frame: .subframe,
+                liveAuthority: try self.liveAuthority()
+            ),
+            .allow
+        )
+    }
+
+    func testLoopbackIsAllowedWithoutLiveAuthority() throws {
+        XCTAssertEqual(
+            JournalWebNavigationPolicy.decision(
+                requestURL: try XCTUnwrap(URL(string: "http://127.0.0.1/")),
+                httpMethod: "GET",
+                frame: .main,
+                liveAuthority: nil
+            ),
+            .allow
+        )
     }
 
     func testReplacementRequestCarriesMethodHeadersCachePolicyAndTimeout() throws {
