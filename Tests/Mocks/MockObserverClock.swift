@@ -8,6 +8,7 @@ import Foundation
 final class MockObserverClock: ObserverClock {
     private var currentDate: Date
     private var sleepers: [(deadline: Date, continuation: CheckedContinuation<Void, any Error>)] = []
+    private(set) var completedSleepCancellations: [Bool] = []
 
     init(now: Date = Date(timeIntervalSince1970: 1_713_624_000)) {
         self.currentDate = now
@@ -27,6 +28,7 @@ final class MockObserverClock: ObserverClock {
             let deadline = self.currentDate.addingTimeInterval(TimeInterval(nanoseconds) / 1_000_000_000)
             self.sleepers.append((deadline, continuation))
         }
+        self.completedSleepCancellations.append(Task.isCancelled)
     }
 
     func advance(by seconds: TimeInterval) {

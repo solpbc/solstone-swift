@@ -995,12 +995,17 @@ final class WatchCaptureTests: XCTestCase {
     func testOwnerStopDuringInterruptionCancelsRetryAndIsSoleTerminalFact() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { harness.clock.pendingSleeperCount >= 2 })
         harness.notificationCenter.post(
             name: AVAudioSession.interruptionNotification,
             object: nil,
             userInfo: [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue]
         )
         await self.drain(until: { harness.engine.ownerPresentation.status != .active })
+        await harness.engine.settled()
+        // Park the cancelled segment/heartbeat sleepers and the resume retry
+        // before Stop, so the cancellation check cannot pass vacuously.
+        await self.drain(until: { harness.clock.pendingSleeperCount >= 3 })
 
         harness.engine.stop(); await harness.engine.settled()
         let recordValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
@@ -1010,8 +1015,7 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(record.terminalDisposition, .ownerStopped)
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
 
-        harness.clock.advance(by: 120)
-        await Task.yield()
+        await self.advanceCancelledSleepers(in: harness.clock)
         XCTAssertEqual(harness.recorder.startURLs.count, 1)
     }
 
@@ -1185,15 +1189,28 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(stalledManifest.fixCount, 0)
         XCTAssertTrue(stalledManifest.gap)
 
-        let stationary = try self.makeHarness(locationAuthorization: .authorized)
+        let writer = FailingWatchFileWriter(failAppend: false)
+        let stationary = try self.makeHarness(locationAuthorization: .authorized, fileWriter: writer)
         stationary.engine.start(); await stationary.engine.settled()
         stationary.locationProvider.emitFix(Self.fix())
         await stationary.engine.settled()
+        // A catalog entry is visible before the successor's location log opens.
+        // Hold that boundary so this test exercises the ordering even on an idle host.
+        let gate = WatchCaptureHoldGate()
+        writer.writeDataGateURL = stationary.storage.locationURL(directory: self.successorDirectory(in: stationary))
+        writer.writeDataGate = gate
         await self.drain(until: { self.pendingSleeperCount(in: stationary.clock) >= 2 })
         stationary.clock.advance(by: 300)
+        await self.waitForGate(gate)
         await self.drain(until: {
             (await self.catalogEntries(for: stationary.storage).count) == 2
         })
+        let openingEntries = await self.catalogEntries(for: stationary.storage)
+        XCTAssertTrue(openingEntries.contains { $0.manifest.state == .captured })
+        await gate.open()
+        // Stop can supersede an opening rollover. Let it finish before asserting
+        // on the successor's carry-forward data.
+        await stationary.engine.settled()
         stationary.engine.stop(); await stationary.engine.settled()
         let entries = await self.catalogEntries(for: stationary.storage)
         let locationLines = try entries.flatMap { entry in
@@ -1884,8 +1901,13 @@ final class WatchCaptureTests: XCTestCase {
     }
 
     func testRunningStartThenStopBeforePumpTerminalizesLiveSessionOnce() async throws {
-        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        let handoffs = AudioSessionNotificationHandoffProbe()
+        let harness = try self.makeHarness(
+            locationAuthorization: .authorized,
+            audioSessionNotificationHandoff: { handoffs.capture($0) }
+        )
         harness.engine.start(); await harness.engine.settled()
+        await self.drain(until: { harness.clock.pendingSleeperCount >= 2 })
         let sessionIDValue = try await harness.storageActor.readSessionRecord(transactionClass: .captureSafety)
         let sessionID = try XCTUnwrap(sessionIDValue).sessionID
 
@@ -1905,9 +1927,11 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(harness.locationProvider.stopCallCount, 1)
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
 
-        harness.notificationCenter.post(name: AVAudioSession.interruptionNotification, object: nil)
-        harness.clock.advance(by: 300)
-        await Task.yield()
+        harness.notificationCenter.post(name: AVAudioSession.mediaServicesWereLostNotification, object: nil)
+        XCTAssertEqual(handoffs.pendingCount, 0)
+        handoffs.releaseAll()
+        await self.advanceCancelledSleepers(in: harness.clock)
+        await harness.engine.settled()
         XCTAssertEqual(harness.recorder.stopCallCount, 1)
     }
 
@@ -2419,7 +2443,11 @@ final class WatchCaptureTests: XCTestCase {
     }
 
     func testOnceRecorderStopFailureStillCompletesOwnerStopCleanup() async throws {
-        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        let handoffs = AudioSessionNotificationHandoffProbe()
+        let harness = try self.makeHarness(
+            locationAuthorization: .authorized,
+            audioSessionNotificationHandoff: { handoffs.capture($0) }
+        )
         harness.recorder.stopErrorOnce = NSError(domain: "WatchCaptureTests.recorder", code: 2)
         harness.engine.onPublishStatus = self.oneShotStatusAction(
             phase: .observing,
@@ -2439,9 +2467,11 @@ final class WatchCaptureTests: XCTestCase {
         XCTAssertEqual(harness.locationProvider.stopCallCount, 1)
         XCTAssertFalse(harness.engine.ownerPresentation.isSessionRunning)
 
-        harness.notificationCenter.post(name: AVAudioSession.interruptionNotification, object: nil)
-        harness.clock.advance(by: 300)
-        await Task.yield()
+        harness.notificationCenter.post(name: AVAudioSession.mediaServicesWereLostNotification, object: nil)
+        XCTAssertEqual(handoffs.pendingCount, 0)
+        handoffs.releaseAll()
+        await self.advanceCancelledSleepers(in: harness.clock)
+        await harness.engine.settled()
         XCTAssertEqual(harness.recorder.stopCallCount, 1)
         XCTAssertEqual(harness.recorder.startURLs.count, 1)
     }
@@ -5842,6 +5872,18 @@ final class WatchCaptureTests: XCTestCase {
             audioProbe: audioProbe,
             notificationCenter: notificationCenter
         )
+    }
+
+    /// A stopped task may still be parked on the mock clock, which intentionally
+    /// does not resume on cancellation. Wait for every released sleep to return
+    /// and prove it was cancelled instead of guessing how many yields it needs.
+    private func advanceCancelledSleepers(in clock: MockObserverClock) async {
+        let pending = clock.pendingSleeperCount
+        let completed = clock.completedSleepCancellations.count
+        clock.advance(by: WatchCaptureTiming.segmentDurationSeconds)
+        await self.drain(until: { clock.completedSleepCancellations.count == completed + pending })
+        XCTAssertTrue(clock.completedSleepCancellations.dropFirst(completed).allSatisfy { $0 })
+        XCTAssertEqual(clock.pendingSleeperCount, 0)
     }
 
     /// Yield the cooperative thread until `condition` holds or a bounded cap is hit.
