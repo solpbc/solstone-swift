@@ -1812,9 +1812,13 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         // connected() is a new lane.
         let clock = ContinuousClock()
         let started = clock.now
-        let deadline: Duration = .seconds(20)
-        let firstReleaseAt = started.advanced(by: .seconds(8))
-        let secondBodyAt = started.advanced(by: .seconds(24))
+        // A loaded suite can take well over ten seconds to deliver a body that
+        // has already been released. Keep that delivery inside the original
+        // deadline, and keep the coalesced body past it but inside a follow-up
+        // that started a fresh deadline at release.
+        let deadline: Duration = .seconds(120)
+        let firstReleaseAt = started.advanced(by: .seconds(15))
+        let secondBodyAt = started.advanced(by: .seconds(128))
 
         let firstStarted = expectation(description: "first metadata request")
         let firstAccepted = expectation(description: "first metadata version accepted")
@@ -1871,12 +1875,12 @@ final class HomeConnectionLifecycleTests: XCTestCase {
             snapshotProvider: { DeviceDescriptionSnapshot(name: nil, platform: nil, deviceType: nil, appID: nil, appVersion: nil) })
         defer { jobs.disconnected() }
         jobs.connected(localPort: 7071)
-        await fulfillment(of: [firstStarted], timeout: 10)
+        await fulfillment(of: [firstStarted], timeout: 30)
         jobs.connected(localPort: 7071)
         try await clock.sleep(until: firstReleaseAt)
         release.continuation.yield(())
-        await fulfillment(of: [firstAccepted], timeout: 20)
-        await fulfillment(of: [secondDelivered], timeout: 40)
+        await fulfillment(of: [firstAccepted], timeout: 150)
+        await fulfillment(of: [secondDelivered], timeout: 180)
         // The handler signals before URLSession applies the body. A reset deadline
         // accepts version 2 during this settle; the shared deadline already timed
         // the request out, so the version stays 1.0.0.
@@ -1887,7 +1891,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         XCTAssertEqual(count.withLock { $0 }, 2, "\(requestPaths.withLock { $0 })")
         XCTAssertEqual(metadata.version, "1.0.0", "\(requestPaths.withLock { $0 })")
         jobs.connected(localPort: 7071)
-        await fulfillment(of: [thirdAccepted], timeout: 15)
+        await fulfillment(of: [thirdAccepted], timeout: 30)
         XCTAssertEqual(metadata.version, "3.0.0")
     }
 
