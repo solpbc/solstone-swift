@@ -107,7 +107,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .live(mode: .meeting, startedAt: Date(timeIntervalSince1970: 1_776_144_000)),
                 sourceStates: sourceStates,
                 backlogCount: 9,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
 
@@ -138,7 +139,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
         let sessionWrite = try XCTUnwrap(mirror.snapshot())
@@ -158,7 +160,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
         let firstWrite = try XCTUnwrap(mirror.snapshot())
@@ -171,7 +174,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
 
@@ -192,7 +196,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
         let firstWrite = try XCTUnwrap(mirror.snapshot())
@@ -205,7 +210,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
         XCTAssertEqual(mirror.snapshot()?.writtenAt, firstWrite.writtenAt)
@@ -218,7 +224,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
         XCTAssertEqual(mirror.snapshot()?.writtenAt, dateSource.value)
@@ -258,7 +265,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: totals.pending + totals.failed,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
         XCTAssertEqual(mirror.snapshot()?.backlogCount, 29)
@@ -315,7 +323,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [:],
                 backlogCount: 0,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
 
@@ -335,7 +344,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 3,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
 
@@ -438,7 +448,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
         let firstWrite = try XCTUnwrap(mirror.snapshot())
@@ -452,7 +463,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0,
-                awaitingMarkConfirmation: true
+                awaitingMarkConfirmation: true,
+                audioInterrupted: false
             )
         )
 
@@ -468,7 +480,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .off],
                 backlogCount: 0,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
 
@@ -491,7 +504,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: session,
                 sourceStates: sourceStates,
                 backlogCount: 5,
-                awaitingMarkConfirmation: false
+                awaitingMarkConfirmation: false,
+                audioInterrupted: false
             )
         )
         let initialWrite = try XCTUnwrap(mirror.snapshot())
@@ -514,7 +528,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: pairingWrite.session,
                 sourceStates: pairingWrite.sourceStates,
                 backlogCount: pairingWrite.backlogCount,
-                awaitingMarkConfirmation: true
+                awaitingMarkConfirmation: true,
+                audioInterrupted: false
             )
         )
         let awaitingWrite = try XCTUnwrap(mirror.snapshot())
@@ -535,7 +550,8 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
                 session: .notLive,
                 sourceStates: [.observer: .active],
                 backlogCount: 1,
-                awaitingMarkConfirmation: true
+                awaitingMarkConfirmation: true,
+                audioInterrupted: false
             )
         )
         let beforeClear = try XCTUnwrap(mirror.snapshot())

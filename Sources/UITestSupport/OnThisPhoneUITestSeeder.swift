@@ -20,6 +20,7 @@ enum OnThisPhoneUITestSeeder {
     private static let resetAudioL5Flag = "--ui-test-reset-audio-l5"
     private static let resetNudgeDismissalFlag = "--ui-test-reset-nudge-dismissal"
     private static let resetOnThisPhoneFlag = "--ui-test-reset-on-this-phone"
+    private static let audioInterruptionSeedFlag = "--ui-test-seed-audio-interruption"
     private static let largeBacklogDefaultCount = 800
     private static let largeBacklogMaxCount = 2_000
 
@@ -42,11 +43,20 @@ enum OnThisPhoneUITestSeeder {
         let seedLargeBacklog = arguments.contains(Self.largeBacklogSeedFlag)
         let seedScreenBacklog = arguments.contains(Self.screenBacklogSeedFlag)
         let resetOnThisPhone = arguments.contains(Self.resetOnThisPhoneFlag)
-        guard resetOnThisPhone || seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog else { return }
+        let seedAudioInterruption = arguments.contains(Self.audioInterruptionSeedFlag)
+        guard resetOnThisPhone || seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
+            || seedAudioInterruption else { return }
 
         do {
             let roots = try Self.roots(fileManager: fileManager)
             try Self.reset(roots: roots, fileManager: fileManager)
+            if seedAudioInterruption {
+                try MobileSegmentStore(rootURL: roots.mobileSegment, fileManager: fileManager).writeAudioInterruption(
+                    segmentID: UUID(),
+                    reason: MobileSegmentUploader.undecodableAudioReason,
+                    now: Date()
+                )
+            }
             guard seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog else {
                 onThisPhoneUITestSeedLog.info("on-this-phone ui-test reset complete")
                 return

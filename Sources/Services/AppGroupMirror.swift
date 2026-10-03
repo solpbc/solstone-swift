@@ -41,6 +41,8 @@ final class AppGroupMirror {
         var sourceStates: [SourceKind: SourceState]
         var backlogCount: Int
         var awaitingMarkConfirmation: Bool = false
+        /// Some owner audio never reached the journal (durable history, not backlog).
+        var audioInterrupted: Bool = false
     }
 
     enum StorageError: Error, Equatable, Sendable {
@@ -93,7 +95,8 @@ final class AppGroupMirror {
         session: SessionState,
         sourceStates: [SourceKind: SourceState],
         backlogCount: Int,
-        awaitingMarkConfirmation: Bool
+        awaitingMarkConfirmation: Bool,
+        audioInterrupted: Bool
     ) -> Result<Void, StorageError> {
         let now = self.now()
         let existing = self.freshSnapshotOrDefault(now: now)
@@ -104,6 +107,7 @@ final class AppGroupMirror {
            existing.snapshot.pairing == pairing,
            existing.snapshot.microphonePermission == microphonePermission,
            existing.snapshot.awaitingMarkConfirmation == awaitingMarkConfirmation,
+           existing.snapshot.audioInterrupted == audioInterrupted,
            self.isWithinHeartbeatInterval(existing.snapshot, now: now)
         {
             return .success(())
@@ -116,6 +120,7 @@ final class AppGroupMirror {
         snapshot.sourceStates = sourceStates
         snapshot.backlogCount = backlogCount
         snapshot.awaitingMarkConfirmation = awaitingMarkConfirmation
+        snapshot.audioInterrupted = audioInterrupted
         snapshot.writtenAt = now
 
         switch self.write(snapshot) {
@@ -138,6 +143,7 @@ extension AppGroupMirror.Snapshot: Codable {
         case sourceStates
         case backlogCount
         case awaitingMarkConfirmation
+        case audioInterrupted
     }
 
     init(from decoder: any Decoder) throws {
@@ -152,6 +158,7 @@ extension AppGroupMirror.Snapshot: Codable {
         // For up to 60s after upgrade (`Snapshot.maximumAge`) a pre-upgrade file with no key
         // reads as not awaiting; past `maximumAge`, `snapshot()` is nil anyway. Accepted.
         self.awaitingMarkConfirmation = try container.decodeIfPresent(Bool.self, forKey: .awaitingMarkConfirmation) ?? false
+        self.audioInterrupted = try container.decodeIfPresent(Bool.self, forKey: .audioInterrupted) ?? false
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -164,6 +171,7 @@ extension AppGroupMirror.Snapshot: Codable {
         try container.encode(self.sourceStates, forKey: .sourceStates)
         try container.encode(self.backlogCount, forKey: .backlogCount)
         try container.encode(self.awaitingMarkConfirmation, forKey: .awaitingMarkConfirmation)
+        try container.encode(self.audioInterrupted, forKey: .audioInterrupted)
     }
 }
 

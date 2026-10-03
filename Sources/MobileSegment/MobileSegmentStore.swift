@@ -235,6 +235,61 @@ final class MobileSegmentStore {
             .appendingPathComponent(kind, isDirectory: true)
     }
 
+    func readTombstone(at url: URL) throws -> MobileSegmentTombstone {
+        try self.decoder.decode(MobileSegmentTombstone.self, from: Data(contentsOf: url))
+    }
+
+    func listTombstones(kind: String) -> [URL] {
+        let entries = (try? self.fileManager.contentsOfDirectory(
+            at: self.tombstoneDirectory(kind: kind),
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return entries.filter { $0.pathExtension == "json" }
+    }
+
+    /// Durable evidence that owner audio was lost before it reached the journal: one record
+    /// per segment, written before the unreadable recording is removed. Nothing clears it, so
+    /// it outlives the segment, later uploads and restarts.
+    func audioInterruptionDirectory() -> URL {
+        self.rootURL
+            .appendingPathComponent("interruptions", isDirectory: true)
+            .appendingPathComponent("audio", isDirectory: true)
+    }
+
+    func writeAudioInterruption(segmentID: UUID, reason: String, now: Date) throws {
+        let directory = self.audioInterruptionDirectory()
+        try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appendingPathComponent("\(segmentID.uuidString).json", isDirectory: false)
+        guard !self.fileManager.fileExists(atPath: url.path) else { return }
+        let record = MobileSegmentTombstone(segmentID: segmentID, reason: reason, recordedAt: now)
+        try self.encoder.encode(record).write(to: url, options: .atomic)
+    }
+
+    func audioInterruptionCount() -> Int {
+        let entries = (try? self.fileManager.contentsOfDirectory(
+            at: self.audioInterruptionDirectory(),
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return entries.filter { $0.pathExtension == "json" }.count
+    }
+
+    /// Set once every record an earlier build left (an empty tombstone, or a manifest still in
+    /// the store) has been carried into the interruption records.
+    private var audioInterruptionBackfillMarkerURL: URL {
+        self.audioInterruptionDirectory().appendingPathComponent(".backfilled", isDirectory: false)
+    }
+
+    var hasBackfilledAudioInterruptions: Bool {
+        self.fileManager.fileExists(atPath: self.audioInterruptionBackfillMarkerURL.path)
+    }
+
+    func markAudioInterruptionsBackfilled() throws {
+        try self.fileManager.createDirectory(at: self.audioInterruptionDirectory(), withIntermediateDirectories: true)
+        try Data().write(to: self.audioInterruptionBackfillMarkerURL, options: .atomic)
+    }
+
     func hasTombstone(segmentID: UUID, kind: String) -> Bool {
         self.fileManager.fileExists(
             atPath: self.tombstoneDirectory(kind: kind)

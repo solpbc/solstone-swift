@@ -150,6 +150,9 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
     let subline: String?
     let region: Region
     let showsStandingSyncFootnote: Bool
+    /// The interruption notice beside a lead that is about something else (held, offline,
+    /// sending, no journal). When the notice is itself the lead, this is false.
+    var showsAudioInterruptionNotice = false
 
     var buttonTitle: String? {
         switch self.region {
@@ -168,8 +171,37 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
     static func resolve(
         pillState: HomeStatusPillState,
         waitingTotal: Int,
+        showsConnectionDetails: Bool,
+        hasAudioInterruption: Bool = false
+    ) -> StatusPaneLead {
+        var resolved = Self.resolveLead(
+            pillState: pillState,
+            waitingTotal: waitingTotal,
+            showsConnectionDetails: showsConnectionDetails
+        )
+        resolved.showsAudioInterruptionNotice = hasAudioInterruption && pillState != .audioInterrupted
+        return resolved
+    }
+
+    private static func resolveLead(
+        pillState: HomeStatusPillState,
+        waitingTotal: Int,
         showsConnectionDetails: Bool
     ) -> StatusPaneLead {
+        if pillState == .audioInterrupted {
+            // The journal is reachable and nothing is waiting, so the connection row stays
+            // `connected`; the lead says what did not arrive.
+            return StatusPaneLead(
+                lead: .headline(SourceVocabulary.audioInterruptedHeadline),
+                subline: SourceVocabulary.audioInterruptedLine,
+                region: .status(
+                    title: SourceVocabulary.connectedLabel,
+                    identifier: "shell.pane.status.connected",
+                    accessibilityValue: SourceVocabulary.connectedLabel
+                ),
+                showsStandingSyncFootnote: showsConnectionDetails
+            )
+        }
         if pillState == .awaitingMarkConfirmation {
             let lead: Lead = waitingTotal > 0
                 ? .count(
@@ -209,7 +241,7 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
         if waitingTotal > 0 {
             let statusLine: String = switch pillState {
             case .syncing: SourceVocabulary.syncingToYourJournal
-            case .caughtUp: SourceVocabulary.connectedLabel
+            case .caughtUp, .audioInterrupted: SourceVocabulary.connectedLabel
             case .connecting: SourceVocabulary.statusConnectingLabel
             case .offline: SourceVocabulary.heldOnThisDevice
             case .notPaired: SourceVocabulary.dayLocalityNoJournal
@@ -227,6 +259,7 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
             case .offline: SourceVocabulary.heldOnThisDevice
             case .connecting: SourceVocabulary.statusConnectingLabel
             case .caughtUp, .syncing: SourceVocabulary.syncedHeadline
+            case .audioInterrupted: SourceVocabulary.audioInterruptedHeadline
             case .stalled: SourceVocabulary.stallCantReachYourJournal
             case .awaitingMarkConfirmation: SourceVocabulary.awaitingMarkConfirmationLine
             }
@@ -308,7 +341,8 @@ struct StatusPane: View {
         StatusPaneLead.resolve(
             pillState: self.pillState,
             waitingTotal: self.waitingTotal,
-            showsConnectionDetails: self.showsConnectionDetails
+            showsConnectionDetails: self.showsConnectionDetails,
+            hasAudioInterruption: self.mobileSegmentTransferHolder.hasAudioInterruption
         )
     }
 
@@ -376,6 +410,20 @@ struct StatusPane: View {
             .padding(.vertical, 6)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("shell.pane.status.lead")
+
+            if self.leadModel.showsAudioInterruptionNotice {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(SourceVocabulary.audioInterruptedHeadline)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(SourceVocabulary.audioInterruptedLine)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("shell.pane.status.audioInterrupted")
+            }
         }
     }
 
@@ -417,7 +465,8 @@ struct StatusPane: View {
             status: self.connectionSyncModel.status,
             hasBacklog: self.waitingTotal > 0,
             isStalled: self.connectionStallMonitor.isStalled,
-            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+            hasAudioInterruption: self.mobileSegmentTransferHolder.hasAudioInterruption
         )
     }
 

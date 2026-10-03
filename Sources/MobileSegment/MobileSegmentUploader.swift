@@ -44,6 +44,9 @@ final class MobileSegmentUploader {
     private(set) var pendingCount = 0
     private(set) var failedCount = 0
     private(set) var finalizeFailedCount = 0
+    /// Segments whose audio was lost before it reached the journal. Durable history, kept
+    /// apart from the send counts: later uploads and restarts leave it in place.
+    private(set) var audioInterruptionCount = 0
     var lastUploadAt: Date?
     var lastError: String?
     private(set) var recentErrorCount = 0
@@ -743,6 +746,11 @@ final class MobileSegmentUploader {
         guard self.guardStorageAvailable() else { return }
         do {
             try self.store.ensureRoot()
+            await self.backfillAudioInterruptionsIfNeeded()
+            if Task.isCancelled {
+                self.refreshCounts()
+                return
+            }
             self.sweepStaleTransferEnqueueTemps()
             try self.retireDeliveredResidue()
             await self.retireTransferOwnedResidue()
@@ -849,6 +857,13 @@ final class MobileSegmentUploader {
             try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
             return .resolved
         case .permanentlyUndecodable(let domain, let code):
+            // The loss is recorded before the recording is removed. If the record cannot be
+            // written, the recording stays and a later pass tries again.
+            try self.store.writeAudioInterruption(
+                segmentID: manifest.segmentID,
+                reason: Self.undecodableAudioReason,
+                now: now
+            )
             self.store.removeIfExists(audioURL)
             let resolution = MobileSegmentSourceResolution(
                 state: .removed,
@@ -862,6 +877,48 @@ final class MobileSegmentUploader {
         case .unknownOrTransient:
             return .liveOrDeferred
         }
+    }
+
+    static let undecodableAudioReason = "audio_undecodable_container"
+
+    /// Earlier builds recorded lost audio only on a retired segment's empty tombstone, or on a
+    /// manifest still in the store. Carry that evidence into the interruption records once.
+    /// Other empty tombstones (`no_artifacts`, `unrecoverable_lost_data`, `screencast_removed`)
+    /// describe segments with no recorded audio to lose, so they are not interruptions.
+    private func backfillAudioInterruptionsIfNeeded() async {
+        guard !self.store.hasBackfilledAudioInterruptions else { return }
+        do {
+            for url in self.store.listTombstones(kind: "empty") {
+                await self.cooperator.step()
+                if Task.isCancelled { return }
+                guard let tombstone = try? self.store.readTombstone(at: url),
+                      tombstone.reason == Self.undecodableAudioReason
+                else { continue }
+                try self.store.writeAudioInterruption(
+                    segmentID: tombstone.segmentID,
+                    reason: tombstone.reason,
+                    now: tombstone.recordedAt
+                )
+            }
+            for lifecycle in [MobileSegmentLifecycle.active, .pending, .failed] {
+                for directory in try self.store.list(lifecycle) {
+                    await self.cooperator.step()
+                    if Task.isCancelled { return }
+                    guard let manifest = try? self.store.readManifest(in: directory),
+                          manifest.audio.reason == Self.undecodableAudioReason
+                    else { continue }
+                    try self.store.writeAudioInterruption(
+                        segmentID: manifest.segmentID,
+                        reason: Self.undecodableAudioReason,
+                        now: manifest.audio.lastAttemptAt ?? manifest.updatedAt
+                    )
+                }
+            }
+            try self.store.markAudioInterruptionsBackfilled()
+        } catch {
+            mobileSegmentUploadLog.error("mobile segment audio interruption backfill deferred stage=resume")
+        }
+        self.refreshCounts()
     }
 
     private func tombstoneReasonForEmptyRetirement(manifest: MobileSegmentManifest, defaultReason: String) -> String {
@@ -1106,8 +1163,10 @@ final class MobileSegmentUploader {
             self.pendingCount = 0
             self.failedCount = 0
             self.finalizeFailedCount = 0
+            self.audioInterruptionCount = 0
             return
         }
+        self.audioInterruptionCount = self.store.audioInterruptionCount()
         self.pendingCount = (try? self.store.list(.pending).count) ?? 0
         let failed = (try? self.store.list(.failed)) ?? []
         self.failedCount = failed.count

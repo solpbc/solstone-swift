@@ -50,6 +50,12 @@ final class MobileSegmentTransferHolder {
         self.status.attentionCount + self.uploader.finalizeFailedCount
     }
 
+    /// Some owner audio never reached the journal. This is history, not backlog: it never
+    /// adds to the waiting count and stays after the queue drains.
+    var hasAudioInterruption: Bool {
+        self.uploader.audioInterruptionCount > 0
+    }
+
     var inFlightCount: Int {
         self.status.inFlightCount
     }

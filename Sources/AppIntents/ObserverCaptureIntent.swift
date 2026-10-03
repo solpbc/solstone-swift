@@ -95,13 +95,15 @@ enum ObserverCaptureControlMirrorWriter {
         let sourceStates = snapshot?.sourceStates ?? [:]
         let backlogCount = snapshot?.backlogCount ?? 0
         let awaitingMarkConfirmation = snapshot?.awaitingMarkConfirmation ?? false
+        let audioInterrupted = snapshot?.audioInterrupted ?? false
         let result = mirror.updateSessionAndSources(
             pairing: pairing,
             microphonePermission: microphonePermission,
             session: session,
             sourceStates: sourceStates,
             backlogCount: backlogCount,
-            awaitingMarkConfirmation: awaitingMarkConfirmation
+            awaitingMarkConfirmation: awaitingMarkConfirmation,
+            audioInterrupted: audioInterrupted
         )
         controls.reloadControls(ofKind: observerCaptureControlKind)
         return result

@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- if some audio from your iphone or ipad can't be read, including audio from before this update, for example because the app was shut down while audio was on, the app's status and the widgets now say "audio was interrupted", and the status screen and the list of what's on this device add "some audio hasn't reached your journal." before, they could say everything was caught up.
+
 ## [2.0.6 (119)] - 2026-10-03
 
 ### Added

@@ -50,15 +50,19 @@ nonisolated struct OnThisPhoneDeliveryMarkers: Equatable, Sendable {
 
 nonisolated enum OnThisPhoneEmptyInviteBranch: Equatable, Sendable {
     case allQuiet
+    /// Nothing on this device, but some owner audio never reached the journal, so the
+    /// all-quiet line's claim that everything is in the journal would be false.
+    case audioInterrupted
     case invite(includesJournalTruth: Bool)
 }
 
 nonisolated func onThisPhoneEmptyInviteBranch(
     isJournalPaired: Bool,
-    hasWelcomeFraming: Bool
+    hasWelcomeFraming: Bool,
+    hasAudioInterruption: Bool = false
 ) -> OnThisPhoneEmptyInviteBranch {
     if isJournalPaired && !hasWelcomeFraming {
-        return .allQuiet
+        return hasAudioInterruption ? .audioInterrupted : .allQuiet
     }
     return .invite(includesJournalTruth: !isJournalPaired)
 }
@@ -326,6 +330,17 @@ private extension OnThisPhoneMomentsView {
         }
     }
 
+    var audioInterruptedNotice: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(SourceVocabulary.audioInterruptedHeadline)
+                .font(.headline)
+            Text(SourceVocabulary.audioInterruptedLine)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
     @ViewBuilder
     func statusBlock(
         migration: OnThisPhoneMigration
@@ -336,7 +351,8 @@ private extension OnThisPhoneMomentsView {
             isConnected: self.tunnelManager.state.isConnected,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
             isStalled: self.connectionStallMonitor.isStalled,
-            connectionStatus: self.connectionSyncModel.status
+            connectionStatus: self.connectionSyncModel.status,
+            hasAudioInterruption: self.mobileSegmentTransferHolder.hasAudioInterruption
         )
 
         NavigationLink {
@@ -376,6 +392,9 @@ private extension OnThisPhoneMomentsView {
                         }
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("onThisPhone.status.headline")
+                    case .audioInterrupted:
+                        self.audioInterruptedNotice
+                            .accessibilityIdentifier("onThisPhone.status.headline")
                     case .needsAttentionOnly, .none:
                         EmptyView()
                     }
@@ -727,7 +746,8 @@ private extension OnThisPhoneMomentsView {
         if snapshot.items.isEmpty {
             switch onThisPhoneEmptyInviteBranch(
                 isJournalPaired: self.appConfig.isPaired,
-                hasWelcomeFraming: self.welcomeFraming != nil
+                hasWelcomeFraming: self.welcomeFraming != nil,
+                hasAudioInterruption: self.mobileSegmentTransferHolder.hasAudioInterruption
             ) {
             case .allQuiet:
                 VStack(alignment: .leading, spacing: 12) {
@@ -746,6 +766,10 @@ private extension OnThisPhoneMomentsView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("onThisPhone.allQuiet")
+            case .audioInterrupted:
+                self.audioInterruptedNotice
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("onThisPhone.audioInterrupted")
             case .invite(let includesJournalTruth):
                 self.emptyInvite(includesJournalTruth: includesJournalTruth)
             }

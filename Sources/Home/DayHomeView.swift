@@ -87,6 +87,7 @@ private struct AppGroupSnapshotInputs: Equatable {
     let pairing: AppGroupMirror.PairingSnapshot
     let microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot
     let awaitingMarkConfirmation: Bool
+    let audioInterrupted: Bool
 }
 
 /// `.body` point sizes over the default, matching what
@@ -235,7 +236,8 @@ struct DayHomeView: View {
                 session: self.appGroupSessionState,
                 sourceStates: self.appGroupSourceStates,
                 backlogCount: self.backlogCount.knownCount,
-                awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
+                awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+                audioInterrupted: self.mobileSegmentTransferHolder.hasAudioInterruption
             )
             self.watchBacklogSnapshotWriter.write(
                 backlog: self.backlogCount,
@@ -264,7 +266,8 @@ private extension DayHomeView {
             backlogCount: self.backlogCount,
             pairing: self.appGroupPairing,
             microphonePermission: self.appGroupMicrophonePermission,
-            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+            audioInterrupted: self.mobileSegmentTransferHolder.hasAudioInterruption
         )
     }
 
@@ -459,7 +462,8 @@ private extension DayHomeView {
             status: self.connectionSyncModel.status,
             hasBacklog: self.backlogCount.knownCount > 0,
             isStalled: self.connectionStallMonitor.isStalled,
-            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+            hasAudioInterruption: self.mobileSegmentTransferHolder.hasAudioInterruption
         )
     }
 

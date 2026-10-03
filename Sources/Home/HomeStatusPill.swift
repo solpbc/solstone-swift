@@ -12,6 +12,8 @@ import SwiftUI
 nonisolated enum HomeStatusPillState: Equatable, Sendable {
     /// A journal, reachable, nothing waiting.
     case caughtUp
+    /// A journal, reachable, nothing waiting, but some owner audio never reached it.
+    case audioInterrupted
     /// Material is moving or queued to move.
     case syncing
     /// Connecting or reconnecting to the journal.
@@ -30,7 +32,8 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
         status: ConnectionSyncStatus,
         hasBacklog: Bool,
         isStalled: Bool,
-        awaitingMarkConfirmation: Bool
+        awaitingMarkConfirmation: Bool,
+        hasAudioInterruption: Bool = false
     ) -> HomeStatusPillState {
         guard isPaired else { return .notPaired }
         if isStalled { return .stalled }
@@ -43,7 +46,8 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
             if awaitingMarkConfirmation {
                 return .awaitingMarkConfirmation
             }
-            return hasBacklog ? .syncing : .caughtUp
+            if hasBacklog { return .syncing }
+            return hasAudioInterruption ? .audioInterrupted : .caughtUp
         }
     }
 
@@ -67,6 +71,7 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
     func label(hasBacklog: Bool) -> String {
         switch self {
         case .caughtUp: SourceVocabulary.connectedLabel
+        case .audioInterrupted: SourceVocabulary.audioInterruptedHeadline
         case .syncing: SourceVocabulary.syncingLabel
         case .connecting: SourceVocabulary.statusConnectingLabel
         case .offline: SourceVocabulary.statusOfflineLabel
@@ -87,6 +92,7 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
     var uiTestStateName: String {
         switch self {
         case .caughtUp: "caughtUp"
+        case .audioInterrupted: "audioInterrupted"
         case .syncing: "syncing"
         case .connecting: "connecting"
         case .offline: "offline"
@@ -130,7 +136,7 @@ struct HomeStatusDot: View {
         switch self.state {
         case .caughtUp: .solSavedGreen
         case .syncing: .solOrange
-        case .connecting, .offline, .notPaired, .stalled, .awaitingMarkConfirmation: .secondary
+        case .audioInterrupted, .connecting, .offline, .notPaired, .stalled, .awaitingMarkConfirmation: .secondary
         }
     }
 }

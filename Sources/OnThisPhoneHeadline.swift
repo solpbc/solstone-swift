@@ -11,6 +11,8 @@ nonisolated struct OnThisPhoneHeadline: Equatable, Sendable {
     enum Role: Equatable, Sendable {
         case syncing
         case upToDate
+        /// Nothing waiting, but some owner audio never reached the journal.
+        case audioInterrupted
         case offline
         case needsAttentionOnly
         case none
@@ -24,7 +26,8 @@ nonisolated func onThisPhoneHeadline(
     isConnected: Bool,
     awaitingMarkConfirmation: Bool,
     isStalled: Bool,
-    connectionStatus: ConnectionSyncStatus
+    connectionStatus: ConnectionSyncStatus,
+    hasAudioInterruption: Bool = false
 ) -> OnThisPhoneHeadline {
     let role: OnThisPhoneHeadline.Role
 
@@ -41,7 +44,7 @@ nonisolated func onThisPhoneHeadline(
             role = isConnected ? .syncing : .offline
         }
     } else if migration.needsAttention == 0 {
-        role = .upToDate
+        role = hasAudioInterruption ? .audioInterrupted : .upToDate
     } else {
         role = .needsAttentionOnly
     }

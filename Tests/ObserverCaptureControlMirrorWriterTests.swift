@@ -67,7 +67,8 @@ nonisolated final class ObserverCaptureControlMirrorWriterTests: XCTestCase {
             session: .notLive,
             sourceStates: [.observer: .off],
             backlogCount: 2,
-            awaitingMarkConfirmation: false
+            awaitingMarkConfirmation: false,
+            audioInterrupted: false
         ) else {
             return XCTFail("expected initial app group mirror write to succeed")
         }
@@ -97,7 +98,8 @@ nonisolated final class ObserverCaptureControlMirrorWriterTests: XCTestCase {
             session: .notLive,
             sourceStates: [.observer: .off],
             backlogCount: 3,
-            awaitingMarkConfirmation: true
+            awaitingMarkConfirmation: true,
+            audioInterrupted: false
         ) else {
             return XCTFail("expected initial app group mirror write to succeed")
         }
@@ -129,7 +131,8 @@ nonisolated final class ObserverCaptureControlMirrorWriterTests: XCTestCase {
             session: .notLive,
             sourceStates: [.observer: .off],
             backlogCount: 3,
-            awaitingMarkConfirmation: false
+            awaitingMarkConfirmation: false,
+            audioInterrupted: false
         ) else {
             return XCTFail("expected initial app group mirror write to succeed")
         }

@@ -9,6 +9,7 @@ nonisolated enum ObserverStatusPresentation: Equatable, Sendable {
     case needsAttention
     case waiting(count: Int)
     case awaitingMarkConfirmation(count: Int)
+    case audioInterrupted
     case caughtUp
 
     var label: String {
@@ -23,6 +24,8 @@ nonisolated enum ObserverStatusPresentation: Equatable, Sendable {
             SourceVocabulary.waitingToSync
         case .awaitingMarkConfirmation:
             SourceVocabulary.confirmTheMarkAction
+        case .audioInterrupted:
+            SourceVocabulary.audioInterruptedHeadline
         case .caughtUp:
             SourceVocabulary.syncedHeadline
         }
@@ -40,6 +43,8 @@ nonisolated enum ObserverStatusPresentation: Equatable, Sendable {
             "arrow.triangle.2.circlepath"
         case .awaitingMarkConfirmation:
             "hand.raised"
+        case .audioInterrupted:
+            "waveform.badge.exclamationmark"
         case .caughtUp:
             "checkmark.circle"
         }
@@ -51,7 +56,7 @@ nonisolated enum ObserverStatusPresentation: Equatable, Sendable {
             count
         case let .awaitingMarkConfirmation(count):
             count > 0 ? count : nil
-        case .unavailable, .notPaired, .needsAttention, .caughtUp:
+        case .unavailable, .notPaired, .needsAttention, .audioInterrupted, .caughtUp:
             nil
         }
     }
@@ -86,6 +91,10 @@ nonisolated enum ObserverStatusPresentations {
             return .waiting(count: snapshot.backlogCount)
         }
 
+        if snapshot.audioInterrupted {
+            return .audioInterrupted
+        }
+
         return .caughtUp
     }
 
@@ -110,6 +119,10 @@ nonisolated enum ObserverStatusPresentations {
             return .waiting(count: snapshot.backlogCount)
         }
 
+        if snapshot.audioInterrupted {
+            return .audioInterrupted
+        }
+
         return .caughtUp
     }
 
@@ -128,6 +141,10 @@ nonisolated enum ObserverStatusPresentations {
 
         if snapshot.backlogCount > 0 {
             return .waiting(count: snapshot.backlogCount)
+        }
+
+        if snapshot.audioInterrupted {
+            return .audioInterrupted
         }
 
         return .caughtUp
