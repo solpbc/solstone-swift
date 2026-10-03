@@ -1806,19 +1806,19 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         let metadata = JournalVersionMetadata(defaults: defaults) { _ in nil }
         metadata.setIdentity(journalVersionMetadataIdentity(for: pairing))
 
-        // The lane arms one deadline at the first connected(). Release the first
-        // body while slack remains. Deliver the coalesced second body after that
-        // deadline and before a follow-up that reset it would time out. The next
-        // connected() is a new lane.
+        // The lane arms one deadline at the first connected(). An earlier test in this
+        // class can leave a clients/self task for port 7071 in flight under suite load;
+        // this lane uses another port so that task cannot take the first ordinal.
+        // Release the first body after its handler is parked, with slack still inside
+        // the original deadline. Deliver the coalesced body after that deadline and
+        // before a follow-up that reset the deadline when the first body returned
+        // would time out. The next connected() is a new lane.
+        let port = 18079
         let clock = ContinuousClock()
-        let started = clock.now
-        // A loaded suite can take well over ten seconds to deliver a body that
-        // has already been released. Keep that delivery inside the original
-        // deadline, and keep the coalesced body past it but inside a follow-up
-        // that started a fresh deadline at release.
-        let deadline: Duration = .seconds(120)
-        let firstReleaseAt = started.advanced(by: .seconds(15))
-        let secondBodyAt = started.advanced(by: .seconds(128))
+        let deadline: Duration = .seconds(90)
+        let releaseDelay: Duration = .seconds(30)
+        let coalescedBodyDelay: Duration = .seconds(108)
+        let connectedAt = OSAllocatedUnfairLock<ContinuousClock.Instant?>(initialState: nil)
 
         let firstStarted = expectation(description: "first metadata request")
         let firstAccepted = expectation(description: "first metadata version accepted")
@@ -1849,8 +1849,11 @@ final class HomeConnectionLifecycleTests: XCTestCase {
             }
         }
         MockURLProtocol.asyncRequestHandler = { request in
-            requestPaths.withLock { $0.append("\(request.httpMethod ?? "GET") \(request.url?.path ?? "")") }
-            guard request.httpMethod == "GET", request.url?.path.hasSuffix("clients/self") == true else {
+            let requestPort = request.url?.port ?? 0
+            let method = request.httpMethod ?? "GET"
+            let path = request.url?.path ?? ""
+            requestPaths.withLock { $0.append("\(method) \(path) :\(requestPort)") }
+            guard requestPort == port, method == "GET", path.hasSuffix("clients/self") else {
                 return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
             }
             let ordinal = count.withLock { $0 += 1; return $0 }
@@ -1858,7 +1861,10 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                 firstStarted.fulfill()
                 for await _ in release.stream { break }
             } else if ordinal == 2 {
-                try? await clock.sleep(until: secondBodyAt)
+                let armed = connectedAt.withLock { $0 }
+                if let armed {
+                    try? await clock.sleep(until: armed.advanced(by: coalescedBodyDelay))
+                }
                 let fulfill = deliveredSecond.withLock { seen -> Bool in
                     if seen { return false }
                     seen = true
@@ -1874,13 +1880,15 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         let jobs = HomeAuthenticatedJobs(store: store, journalVersion: metadata, client: makeTestClient(), deadline: deadline,
             snapshotProvider: { DeviceDescriptionSnapshot(name: nil, platform: nil, deviceType: nil, appID: nil, appVersion: nil) })
         defer { jobs.disconnected() }
-        jobs.connected(localPort: 7071)
+        let armedAt = clock.now
+        connectedAt.withLock { $0 = armedAt }
+        jobs.connected(localPort: port)
         await fulfillment(of: [firstStarted], timeout: 30)
-        jobs.connected(localPort: 7071)
-        try await clock.sleep(until: firstReleaseAt)
+        jobs.connected(localPort: port)
+        try await clock.sleep(for: releaseDelay)
         release.continuation.yield(())
-        await fulfillment(of: [firstAccepted], timeout: 150)
-        await fulfillment(of: [secondDelivered], timeout: 180)
+        await fulfillment(of: [firstAccepted], timeout: 60)
+        await fulfillment(of: [secondDelivered], timeout: 120)
         // The handler signals before URLSession applies the body. A reset deadline
         // accepts version 2 during this settle; the shared deadline already timed
         // the request out, so the version stays 1.0.0.
@@ -1890,7 +1898,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         }
         XCTAssertEqual(count.withLock { $0 }, 2, "\(requestPaths.withLock { $0 })")
         XCTAssertEqual(metadata.version, "1.0.0", "\(requestPaths.withLock { $0 })")
-        jobs.connected(localPort: 7071)
+        jobs.connected(localPort: port)
         await fulfillment(of: [thirdAccepted], timeout: 30)
         XCTAssertEqual(metadata.version, "3.0.0")
     }
