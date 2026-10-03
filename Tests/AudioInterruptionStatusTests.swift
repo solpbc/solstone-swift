@@ -18,19 +18,19 @@ final class AudioInterruptionStatusTests: XCTestCase {
     private var tempDirectory: URL!
     private var clock: MockObserverClock!
 
-    override func setUp() {
-        super.setUp()
+    override func setUp() async throws {
+        try await super.setUp()
         self.tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("AudioInterruptionStatusTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
         self.clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_780_480_800))
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
         try? FileManager.default.removeItem(at: self.tempDirectory)
         self.tempDirectory = nil
         self.clock = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     // MARK: - Evidence
