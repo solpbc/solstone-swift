@@ -2,7 +2,10 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import os
 import SPLTunnel
+
+nonisolated private let aboutReadLog = Logger(subsystem: "app.solstone.swift", category: "home-about")
 
 nonisolated final class JournalVersionRedirectDelegate: NSObject, URLSessionTaskDelegate {
     func urlSession(
@@ -185,6 +188,20 @@ nonisolated enum RelayAccessFetchResult: Sendable, Equatable {
     case malformedOrFailed
 }
 
+nonisolated struct JournalAboutFacts: Sendable, Equatable {
+    let version: String
+    let os: String
+    let osVersion: String
+    let arch: String
+    let build: String?
+}
+
+nonisolated enum JournalAboutFetchResult: Sendable, Equatable {
+    case success(JournalAboutFacts)
+    case notFound
+    case failed
+}
+
 nonisolated final class AuthenticatedHomeClient: Sendable {
     private static let maxBodyBytes = 65_536
 
@@ -253,6 +270,47 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
             return sanitizedJournalVersion(status.version.current)
         } catch {
             return nil
+        }
+    }
+
+    func fetchAbout(localPort: Int, timeout: Duration = .seconds(5)) async -> JournalAboutFetchResult {
+        guard (1...65535).contains(localPort),
+              let url = URL(string: "http://127.0.0.1:\(localPort)/api/system/about") else { return .failed }
+        let session = self.sessionFactory(timeout)
+        defer { session.invalidateAndCancel() }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.timeInterval(for: timeout))
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        do {
+            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
+            guard httpResponse.statusCode != 404 else { return .notFound }
+            guard httpResponse.statusCode == 200 else { return .failed }
+            guard let resource = try? JSONDecoder().decode(JournalAboutResource.self, from: data),
+                  resource.protocolVersion == 1 else {
+                aboutReadLog.error("about read failed")
+                return .failed
+            }
+            let version = AboutBlock.trimLeadingV(resource.version)
+            let rendered = AboutBlock.line(
+                name: "journal",
+                version: version,
+                build: resource.build ?? "",
+                os: resource.os,
+                osVersion: resource.osVersion,
+                arch: resource.arch
+            )
+            guard rendered == resource.about else { return .failed }
+            return .success(JournalAboutFacts(
+                version: version,
+                os: resource.os,
+                osVersion: resource.osVersion,
+                arch: resource.arch,
+                build: resource.build
+            ))
+        } catch {
+            if !Task.isCancelled {
+                aboutReadLog.error("about read failed")
+            }
+            return .failed
         }
     }
 
@@ -366,8 +424,27 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         let version: Version
     }
 
+    private struct JournalAboutResource: Decodable {
+        let protocolVersion: Int
+        let version: String
+        let os: String
+        let osVersion: String
+        let arch: String
+        let about: String
+        let build: String?
+
+        enum CodingKeys: String, CodingKey {
+            case protocolVersion = "protocol_version"
+            case version
+            case build
+            case os
+            case osVersion = "os_version"
+            case arch
+            case about
+        }
+    }
+
     private struct RevisionContainer: Decodable {
         let revision: UInt64?
     }
 }
-

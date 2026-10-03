@@ -3,6 +3,7 @@
 
 import SwiftUI
 import os
+import UIKit
 
 private let shelfLog = Logger(subsystem: "app.solstone.swift", category: "pairing")
 
@@ -541,14 +542,16 @@ struct HelpPane: View {
 
 struct AboutPane: View {
     @Environment(AppConfig.self) private var appConfig
+    @Environment(WatchLink.self) private var watchLink
     @AccessibilityFocusState private var headingFocused: Bool
+    @State private var copyResult: String?
 
     private var version: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+        AppVersion.shortVersion
     }
 
     private var build: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+        AppVersion.build
     }
 
     private var server: String {
@@ -568,6 +571,10 @@ struct AboutPane: View {
     }
 
     var body: some View {
+        let aboutBlock = PhoneAboutBlock.block(
+            journalVersion: self.appConfig.journalVersion,
+            watchFacts: self.watchLink.aboutWatchFacts
+        )
         GeometryReader { proxy in
             List {
                 Section {
@@ -594,10 +601,25 @@ struct AboutPane: View {
                     LabeledContent("device", value: self.device)
                     LabeledContent("journal root", value: self.journalRoot)
                 }
+
+                Section("about") {
+                    Text(aboutBlock)
+                        .textSelection(.enabled)
+                    Button("copy") {
+                        UIPasteboard.general.string = aboutBlock
+                        self.copyResult = UIPasteboard.general.string == aboutBlock
+                            ? "copied"
+                            : "couldn't copy. select the text and copy it."
+                    }
+                    if let copyResult = self.copyResult {
+                        Text(copyResult)
+                    }
+                }
             }
         }
         .navigationTitle(ShellDestination.shelfAbout.shelfTitle)
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: aboutBlock) { _, _ in self.copyResult = nil }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text(ShellDestination.shelfAbout.shelfTitle)

@@ -3,6 +3,7 @@
 
 import Foundation
 import SwiftUI
+import WatchKit
 
 struct WatchHomeView: View {
     let model: WatchSessionModel
@@ -45,13 +46,30 @@ struct WatchHomeView: View {
                             .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
                         }
 
-                        Text("app version \(AppVersion.shortVersion) (\(AppVersion.build))")
+                        let now = Date()
+                        Text(AboutBlock.line(
+                            name: "watch app",
+                            version: AppVersion.shortVersion,
+                            build: AppVersion.build,
+                            os: "watchos",
+                            osVersion: WKInterfaceDevice.current().systemVersion
+                        ))
                             .font(.caption2)
                             .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
                             .minimumScaleFactor(0.7)
                             .fixedSize(horizontal: false, vertical: true)
 
-                        Text("journal version \(self.model.journalVersion.displayValue)")
+                        Text(AboutBlock.line(
+                            name: "journal",
+                            version: self.model.journalVersion.version ?? "",
+                            build: self.model.journalVersion.journalBuild ?? "",
+                            os: self.model.journalVersion.journalOS ?? "",
+                            osVersion: self.model.journalVersion.journalOSVersion ?? "",
+                            arch: self.model.journalVersion.journalArch ?? "",
+                            isCurrent: self.model.journalVersion.isCurrent,
+                            observedAt: self.model.journalVersion.versionObservedAt,
+                            now: now
+                        ))
                             .font(.caption2)
                             .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
                             .minimumScaleFactor(0.7)

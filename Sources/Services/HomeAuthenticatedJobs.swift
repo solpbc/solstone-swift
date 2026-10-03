@@ -11,6 +11,15 @@ private let jobsLog = Logger(subsystem: "app.solstone.swift", category: "home-jo
 /// resampled on the next connection lifecycle event.
 @MainActor
 final class HomeAuthenticatedJobs {
+    private struct PendingAbout {
+        let facts: JournalAboutFacts
+        let pairingIdentity: String
+        let pairingGeneration: UInt64
+        let generation: UInt64
+        let port: Int
+        let permit: PairingMutationPermit
+    }
+
     private let store: PairingCredentialStore
     private let journalVersion: JournalVersionMetadata
     private let client: AuthenticatedHomeClient
@@ -22,7 +31,13 @@ final class HomeAuthenticatedJobs {
     private var activePort: Int?
     private var activePairingGeneration: UInt64?
     private var metadataPermit: PairingMutationPermit?
+    private var aboutTask: Task<Void, Never>?
+    private var metadataWorkTask: Task<Void, Never>?
+    private var activeAboutGeneration: UInt64?
+    private var pendingAbout: PendingAbout?
+    private var metadataLaneAcceptedVersion = false
     private var accessPermit: PairingMutationPermit?
+    private var accessWorkTask: Task<Void, Never>?
 
     private var inFlightSnapshot: DeviceDescriptionSnapshot?
     private var pendingFollowUpSnapshot: DeviceDescriptionSnapshot?
@@ -89,6 +104,11 @@ final class HomeAuthenticatedJobs {
         self.metadataPermit?.cancel()
         self.accessPermit?.cancel()
         self.metadataPermit = nil
+        self.aboutTask?.cancel()
+        self.aboutTask = nil
+        self.activeAboutGeneration = nil
+        self.pendingAbout = nil
+        self.metadataLaneAcceptedVersion = false
         self.accessPermit = nil
         self.inFlightSnapshot = nil
         self.pendingFollowUpSnapshot = nil
@@ -96,17 +116,46 @@ final class HomeAuthenticatedJobs {
         self.pendingAccessFollowUp = false
         self.metadataTask?.cancel()
         self.metadataTask = nil
+        self.metadataWorkTask?.cancel()
+        self.metadataWorkTask = nil
         self.accessTask?.cancel()
         self.accessTask = nil
+        self.accessWorkTask?.cancel()
+        self.accessWorkTask = nil
+    }
+
+    private enum DeadlineWorkLane {
+        case metadata
+        case access
+    }
+
+    private func storeWorkTask(_ task: Task<Void, Never>?, lane: DeadlineWorkLane, generation: UInt64) {
+        switch lane {
+        case .metadata:
+            guard self.metadataGeneration == generation else {
+                task?.cancel()
+                return
+            }
+            self.metadataWorkTask = task
+        case .access:
+            guard self.accessGeneration == generation else {
+                task?.cancel()
+                return
+            }
+            self.accessWorkTask = task
+        }
     }
 
     private func raceWorkAgainstDeadline(
         until deadlineClock: ContinuousClock.Instant,
+        lane: DeadlineWorkLane,
+        generation: UInt64,
         work: @escaping @MainActor () async -> Void
     ) async -> Bool {
         let workTask = Task { @MainActor in
             await work()
         }
+        self.storeWorkTask(workTask, lane: lane, generation: generation)
         let finishedBeforeDeadline = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             let lock = NSLock()
             var resumed = false
@@ -130,6 +179,7 @@ final class HomeAuthenticatedJobs {
             workTask.cancel()
             // do not await workTask
         }
+        self.storeWorkTask(nil, lane: lane, generation: generation)
         return finishedBeforeDeadline
     }
 
@@ -139,6 +189,8 @@ final class HomeAuthenticatedJobs {
         self.metadataPermit = permit
         self.metadataTask = Task { @MainActor [weak self] in
             guard let self else { return }
+
+            self.startAboutTask(localPort: localPort, generation: generation, deadlineClock: deadlineClock, permit: permit)
 
             for pass in 0..<2 {
                 guard permit.isValid, !Task.isCancelled, self.metadataGeneration == generation, self.activePort == localPort else { break }
@@ -153,7 +205,11 @@ final class HomeAuthenticatedJobs {
                     currentSnapshot = followUp
                 }
 
-                let finishedBeforeDeadline = await self.raceWorkAgainstDeadline(until: deadlineClock) { [weak self] in
+                let finishedBeforeDeadline = await self.raceWorkAgainstDeadline(
+                    until: deadlineClock,
+                    lane: .metadata,
+                    generation: generation
+                ) { [weak self] in
                     guard let self else { return }
                     await self.executeMetadataPublication(
                         snapshot: currentSnapshot,
@@ -169,13 +225,126 @@ final class HomeAuthenticatedJobs {
                 }
             }
 
+            if let aboutTask = self.aboutTask {
+                let aboutFinishedBeforeDeadline = await self.raceWorkAgainstDeadline(
+                    until: deadlineClock,
+                    lane: .metadata,
+                    generation: generation
+                ) {
+                    await aboutTask.value
+                }
+                if !aboutFinishedBeforeDeadline {
+                    aboutTask.cancel()
+                    self.aboutTask = nil
+                    self.pendingAbout = nil
+                }
+            }
+
             guard self.metadataGeneration == generation, self.activePort == localPort else { return }
             permit.cancel()
             self.metadataPermit = nil
             self.metadataTask = nil
+            self.aboutTask = nil
+            self.activeAboutGeneration = nil
+            self.pendingAbout = nil
+            self.metadataLaneAcceptedVersion = false
             self.inFlightSnapshot = nil
             self.pendingFollowUpSnapshot = nil
         }
+    }
+
+    private func startAboutTask(
+        localPort: Int,
+        generation: UInt64,
+        deadlineClock: ContinuousClock.Instant,
+        permit: PairingMutationPermit
+    ) {
+        let pairing = self.store.snapshot()
+        guard permit.isValid,
+              pairing.pairingGeneration == self.activePairingGeneration,
+              let pairingIdentity = pairing.pairingIdentity else { return }
+        let pairingGeneration = pairing.pairingGeneration
+        self.pendingAbout = nil
+        self.activeAboutGeneration = generation
+        self.metadataLaneAcceptedVersion = false
+        self.aboutTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let remaining = deadlineClock - ContinuousClock.now
+            guard remaining > .zero, permit.isValid, !Task.isCancelled else { return }
+            let result = await self.client.fetchAbout(localPort: localPort, timeout: remaining)
+            guard self.metadataGeneration == generation,
+                  self.activePort == localPort,
+                  self.activeAboutGeneration == generation else { return }
+            guard !Task.isCancelled else {
+                self.aboutTask = nil
+                return
+            }
+            if case .success(let facts) = result {
+                self.pendingAbout = PendingAbout(
+                    facts: facts,
+                    pairingIdentity: pairingIdentity,
+                    pairingGeneration: pairingGeneration,
+                    generation: generation,
+                    port: localPort,
+                    permit: permit
+                )
+            }
+            self.aboutTask = nil
+            self.commitPendingAboutIfReady()
+        }
+    }
+
+    private func commitPendingAboutIfReady() {
+        guard let pending = self.pendingAbout else { return }
+        guard self.metadataLaneAcceptedVersion else { return }
+        let pairing = self.store.snapshot()
+        guard pending.permit.isValid,
+              !Task.isCancelled,
+              self.metadataGeneration == pending.generation,
+              self.activePort == pending.port,
+              self.activeAboutGeneration == pending.generation,
+              self.activePairingGeneration == pending.pairingGeneration,
+              pairing.pairingGeneration == pending.pairingGeneration,
+              pairing.pairingIdentity == pending.pairingIdentity,
+              self.journalVersion.identity == pending.pairingIdentity else {
+            self.pendingAbout = nil
+            return
+        }
+        guard let acceptedVersion = self.journalVersion.version else {
+            self.pendingAbout = nil
+            return
+        }
+        guard AboutBlock.trimLeadingV(acceptedVersion) == pending.facts.version else {
+            self.pendingAbout = nil
+            return
+        }
+        self.journalVersion.acceptHostFacts(
+            os: pending.facts.os,
+            osVersion: pending.facts.osVersion,
+            arch: pending.facts.arch,
+            build: pending.facts.build,
+            identity: pending.pairingIdentity,
+            activePort: pending.port,
+            version: pending.facts.version
+        )
+        self.pendingAbout = nil
+    }
+
+    private func applyMetadataVersion(
+        name: String?,
+        version: String?,
+        pairingIdentity: String,
+        isClientsSelfUpdate: Bool
+    ) {
+        if self.journalVersion.applyValidated(
+            name: name,
+            version: version,
+            pairingIdentity: pairingIdentity,
+            isClientsSelfUpdate: isClientsSelfUpdate
+        ) {
+            self.metadataLaneAcceptedVersion = true
+        }
+        self.commitPendingAboutIfReady()
     }
 
     private func executeMetadataPublication(
@@ -186,7 +355,8 @@ final class HomeAuthenticatedJobs {
         permit: PairingMutationPermit
     ) async {
         let snap = self.store.snapshot()
-        guard permit.isValid, snap.pairingGeneration == self.activePairingGeneration,
+        guard permit.isValid, !Task.isCancelled, self.metadataGeneration == generation,
+              self.activePort == localPort, snap.pairingGeneration == self.activePairingGeneration,
               let pairingIdentity = snap.pairingIdentity else { return }
         let preFetchPairingGen = snap.pairingGeneration
 
@@ -201,7 +371,7 @@ final class HomeAuthenticatedJobs {
 
         switch fetchResult {
         case .success(let resource):
-            self.journalVersion.applyValidated(
+            self.applyMetadataVersion(
                 name: resource.journal.name,
                 version: resource.journal.version,
                 pairingIdentity: pairingIdentity,
@@ -224,7 +394,7 @@ final class HomeAuthenticatedJobs {
 
             switch putResult {
             case .success(let putResource):
-                self.journalVersion.applyValidated(
+                self.applyMetadataVersion(
                     name: putResource.journal.name,
                     version: putResource.journal.version,
                     pairingIdentity: pairingIdentity,
@@ -241,7 +411,7 @@ final class HomeAuthenticatedJobs {
                 guard postRefetchSnap.pairingIdentity == pairingIdentity, postRefetchSnap.pairingGeneration == preFetchPairingGen else { return }
 
                 if case .success(let newResource) = refetchResult {
-                    self.journalVersion.applyValidated(
+                    self.applyMetadataVersion(
                         name: newResource.journal.name,
                         version: newResource.journal.version,
                         pairingIdentity: pairingIdentity,
@@ -262,7 +432,7 @@ final class HomeAuthenticatedJobs {
                           current.pairingGeneration == preFetchPairingGen else { return }
 
                     if case .success(let finalResource) = retryPutResult {
-                        self.journalVersion.applyValidated(
+                        self.applyMetadataVersion(
                             name: finalResource.journal.name,
                             version: finalResource.journal.version,
                             pairingIdentity: pairingIdentity,
@@ -286,7 +456,7 @@ final class HomeAuthenticatedJobs {
                   current.pairingGeneration == preFetchPairingGen else { return }
 
             if let statusVersion {
-                self.journalVersion.applyValidated(
+                self.applyMetadataVersion(
                     name: nil,
                     version: statusVersion,
                     pairingIdentity: pairingIdentity,
@@ -315,7 +485,11 @@ final class HomeAuthenticatedJobs {
                     self.pendingAccessFollowUp = false
                 }
 
-                let finishedBeforeDeadline = await self.raceWorkAgainstDeadline(until: deadlineClock) { [weak self] in
+                let finishedBeforeDeadline = await self.raceWorkAgainstDeadline(
+                    until: deadlineClock,
+                    lane: .access,
+                    generation: generation
+                ) { [weak self] in
                     guard let self else { return }
                     await self.executeRelayAccess(
                         localPort: localPort,
@@ -346,7 +520,10 @@ final class HomeAuthenticatedJobs {
         permit: PairingMutationPermit
     ) async {
         let initialSnap = self.store.snapshot()
-        guard permit.isValid, initialSnap.pairingGeneration == self.activePairingGeneration else { return }
+        guard permit.isValid, !Task.isCancelled,
+              self.accessGeneration == generation,
+              self.activePort == localPort,
+              initialSnap.pairingGeneration == self.activePairingGeneration else { return }
         if case .uncommittedClear(let pGen, let mGen) = initialSnap.failedDurableClear {
             _ = try? await self.store.retryDurableClear(pairingGen: pGen, mutationGen: mGen, mayPublish: { permit.isValid })
         }
@@ -399,4 +576,3 @@ final class HomeAuthenticatedJobs {
         }
     }
 }
-

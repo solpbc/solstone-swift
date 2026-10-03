@@ -213,6 +213,78 @@ final class JournalVersionMetadataTests: XCTestCase {
         XCTAssertFalse(restored.isCurrent)
     }
 
+    @MainActor
+    func testLegacyRecordWithoutNewOptionalFieldsRestoresIdentityVersionAndName() throws {
+        let suiteName = "JournalVersionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let legacy = Data(#"{"identity":"legacy-id","version":"2.3.4","name":"Old Home"}"#.utf8)
+        defaults.set(legacy, forKey: "journalVersionMetadata")
+
+        let owner = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        owner.setIdentity("legacy-id")
+
+        XCTAssertEqual(owner.version, "2.3.4")
+        XCTAssertEqual(owner.name, "Old Home")
+        XCTAssertNil(owner.versionObservedAt)
+        XCTAssertNil(owner.hostFactsAcceptedAt)
+        XCTAssertNil(owner.journalOS)
+        XCTAssertFalse(owner.isCurrent)
+    }
+
+    @MainActor
+    func testVersionChangesClearFactsAndSameVersionPreservesThem() throws {
+        let suiteName = "JournalVersionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let owner = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        owner.setIdentity("identity-1")
+        owner.noteConnected(localPort: 7071)
+
+        XCTAssertTrue(owner.applyValidated(name: "Home", version: "1.0", pairingIdentity: "identity-1"))
+        owner.acceptHostFacts(
+            os: "ubuntu", osVersion: "24.04", arch: "x86_64", build: nil,
+            identity: "identity-1", activePort: 7071, version: "1.0",
+            now: Date(timeIntervalSince1970: 100)
+        )
+        let acceptedAt = try XCTUnwrap(owner.hostFactsAcceptedAt)
+        let oldVersionObservedAt = try XCTUnwrap(owner.versionObservedAt)
+        Thread.sleep(forTimeInterval: 0.01)
+        XCTAssertTrue(owner.applyValidated(name: "Home", version: "1.0", pairingIdentity: "identity-1"))
+        XCTAssertEqual(owner.journalOS, "ubuntu")
+        XCTAssertEqual(owner.hostFactsAcceptedAt, acceptedAt)
+        XCTAssertGreaterThan(try XCTUnwrap(owner.versionObservedAt), oldVersionObservedAt)
+
+        XCTAssertTrue(owner.applyValidated(name: "Home", version: "2.0", pairingIdentity: "identity-1"))
+        XCTAssertNil(owner.journalOS)
+        XCTAssertNil(owner.journalOSVersion)
+        XCTAssertNil(owner.journalArch)
+        XCTAssertNil(owner.journalBuild)
+        XCTAssertNil(owner.hostFactsAcceptedAt)
+        XCTAssertNotNil(owner.versionObservedAt)
+    }
+
+    @MainActor
+    func testIdentityChangeDropsPersistedHostFacts() throws {
+        let suiteName = "JournalVersionTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let owner = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        owner.setIdentity("identity-a")
+        owner.noteConnected(localPort: 7071)
+        _ = owner.applyValidated(name: nil, version: "1.0", pairingIdentity: "identity-a")
+        owner.acceptHostFacts(
+            os: "ubuntu", osVersion: "24.04", arch: "x86_64", build: "7",
+            identity: "identity-a", activePort: 7071, version: "1.0"
+        )
+
+        owner.setIdentity("identity-b")
+        XCTAssertNil(owner.version)
+        XCTAssertNil(owner.journalOS)
+        XCTAssertNil(owner.hostFactsAcceptedAt)
+        XCTAssertNil(defaults.data(forKey: "journalVersionMetadata"))
+    }
+
     func testSanitizedJournalName() {
         XCTAssertEqual(sanitizedJournalName("  Home Journal  "), "Home Journal")
         XCTAssertNil(sanitizedJournalName("   "))
@@ -286,7 +358,9 @@ final class WatchJournalVersionTests: XCTestCase {
         let nonce = state.beginReachableSession()
         func data(_ revision: Int, _ version: String?, _ responseNonce: String?, identity: String? = "a") throws -> Data {
             try JSONEncoder().encode(WatchJournalVersionPayload(revision: revision, identity: identity,
-                                      version: version, current: true, nonce: responseNonce))
+                                      version: version, current: true, nonce: responseNonce,
+                                      versionObservedAt: nil, journalOS: nil, journalOSVersion: nil,
+                                      journalArch: nil, journalBuild: nil))
         }
         let current = try data(2, "2.0.1", nonce)
         state.receive(current, live: false)

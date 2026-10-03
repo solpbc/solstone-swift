@@ -19,6 +19,9 @@ final class WatchLink {
     private(set) var activationFailed: Bool
     private(set) var watchStatus: WatchStatusContext?
     private(set) var watchDiagnosticsEnvelopeResult: WatchRelayDiagnosticsEnvelopeResult = .absent
+    private var freshWatchDiagnosticsPayload: WatchRelayDiagnosticsPayload?
+    private var hasFreshEligibleDiagnostics = false
+    private var hasActiveEligibleActivation = false
 
     @ObservationIgnored private let session: any WatchConnectivitySession
     @ObservationIgnored private let receiver: WatchRelayReceiver?
@@ -28,18 +31,43 @@ final class WatchLink {
     @ObservationIgnored private var lastRelayStuck = false
     @ObservationIgnored private var lastHandoffStuck = false
     @ObservationIgnored private var lastOrphanStuck = false
-    @ObservationIgnored var journalVersionProvider: (@MainActor () -> (String?, String?, Bool))?
+    @ObservationIgnored var journalVersionProvider: (@MainActor () -> (
+        identity: String?, version: String?, current: Bool, versionObservedAt: TimeInterval?,
+        journalOS: String?, journalOSVersion: String?, journalArch: String?, journalBuild: String?
+    ))?
     @ObservationIgnored private var journalVersionNonce: String?
+
+    var aboutWatchFacts: WatchAboutFacts? {
+        guard self.isPaired, self.isWatchAppInstalled,
+              self.activationState == .activated,
+              self.hasActiveEligibleActivation,
+              self.hasFreshEligibleDiagnostics,
+              let payload = self.freshWatchDiagnosticsPayload else { return nil }
+        return WatchAboutFacts(
+            marketingVersion: payload.watchAppMarketingVersion.value,
+            build: payload.watchAppBuild.value,
+            osVersion: payload.watchOSVersion.value
+        )
+    }
 
     func publishJournalVersion() {
         guard session.activationState == .activated,
-              let (identity, version, current) = journalVersionProvider?() else { return }
+              let values = journalVersionProvider?() else { return }
         let defaults = UserDefaults.standard
         let revision = defaults.integer(forKey: "sentJournalVersionRevision") + 1
         defaults.set(revision, forKey: "sentJournalVersionRevision")
-        let payload = WatchJournalVersionPayload(revision: revision, identity: identity,
-                                                version: version, current: current,
-                                                nonce: journalVersionNonce)
+        let payload = WatchJournalVersionPayload(
+            revision: revision,
+            identity: values.identity,
+            version: values.version,
+            current: values.current,
+            nonce: journalVersionNonce,
+            versionObservedAt: values.versionObservedAt,
+            journalOS: values.journalOS,
+            journalOSVersion: values.journalOSVersion,
+            journalArch: values.journalArch,
+            journalBuild: values.journalBuild
+        )
         guard let data = try? JSONEncoder().encode(payload) else { return }
         let context: [String: Any] = [WatchJournalVersionPayload.contextKey: data]
         do { try session.updateApplicationContext(context) }
@@ -74,6 +102,9 @@ final class WatchLink {
         self.activationState = session.activationState
         self.activationFailed = false
         self.watchStatus = nil
+        self.freshWatchDiagnosticsPayload = nil
+        self.hasFreshEligibleDiagnostics = false
+        self.hasActiveEligibleActivation = session.activationState == .activated
         self.session.onActivationChanged = { [weak self] didActivate in
             Task { @MainActor [weak self] in
                 self?.handleActivationChanged(didActivate)
@@ -156,6 +187,9 @@ final class WatchLink {
 
 private extension WatchLink {
     func refreshWatchState() {
+        let oldPaired = self.isPaired
+        let oldInstalled = self.isWatchAppInstalled
+        let oldActivationState = self.activationState
         self.isSupported = self.session.isSupported
         self.isReachable = self.session.isReachable
         self.isPaired = self.session.isPaired
@@ -163,6 +197,15 @@ private extension WatchLink {
         self.activationState = self.session.activationState
         if self.activationState == .activated {
             self.activationFailed = false
+        }
+        if oldPaired != self.isPaired || oldInstalled != self.isWatchAppInstalled
+            || oldActivationState != self.activationState || self.activationState != .activated {
+            self.clearFreshWatchDiagnostics()
+        }
+        if self.activationState != .activated {
+            self.hasActiveEligibleActivation = false
+        } else if oldActivationState != .activated {
+            self.hasActiveEligibleActivation = true
         }
     }
 
@@ -177,6 +220,12 @@ private extension WatchLink {
         }
         if let envelopeData = status?.diagnosticsEnvelope {
             let diagnostics = WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData)
+            if self.isPaired, self.isWatchAppInstalled, self.activationState == .activated,
+               self.hasActiveEligibleActivation,
+               let payload = diagnostics.payload {
+                self.freshWatchDiagnosticsPayload = payload
+                self.hasFreshEligibleDiagnostics = true
+            }
             if diagnostics.payload != nil || self.watchDiagnosticsEnvelopeResult.payload == nil {
                 self.watchDiagnosticsEnvelopeResult = diagnostics
             }
@@ -188,8 +237,21 @@ private extension WatchLink {
         let detail = didActivate ? "completed" : "failed"
         watchLog.info("watch: activation \(detail, privacy: .public)")
         self.activationFailed = !didActivate
+        if !didActivate {
+            self.hasActiveEligibleActivation = false
+            self.clearFreshWatchDiagnostics()
+        }
         self.refreshWatchState()
+        if didActivate, self.activationState == .activated {
+            self.hasActiveEligibleActivation = true
+            self.clearFreshWatchDiagnostics()
+        }
         if didActivate { self.publishJournalVersion() }
+    }
+
+    func clearFreshWatchDiagnostics() {
+        self.hasFreshEligibleDiagnostics = false
+        self.freshWatchDiagnosticsPayload = nil
     }
 
     func handleReachabilityChanged(_ isReachable: Bool) {

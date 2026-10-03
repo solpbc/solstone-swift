@@ -375,6 +375,7 @@ targets:
       - Tests/WatchHomePaletteTests.swift
       - Tests/WatchHomeControlStyleTests.swift
       - Tests/WatchComplicationLiteralTests.swift
+      - Tests/AboutBlockTests.swift
       - SolstoneWatchComplication/ComplicationViews.swift
       - SolstoneWatchComplication/WatchComplicationPalette.swift
       - Sources/SourceVocabulary.swift
@@ -402,6 +403,8 @@ targets:
       - Sources/Observer/ObserverError.swift
       - path: SolstoneWatchComplication/Assets.xcassets
         buildPhase: resources
+      - path: Tests/Fixtures/solstone-core-about
+        buildPhase: resources
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -419,6 +422,7 @@ targets:
       - Tests/Fixtures/IntegrationGate
       - Tests/Fixtures/WatchCaptureStoragePreActor
       - Tests/Fixtures/PushEnvelope
+      - Tests/Fixtures/solstone-core-about
     dependencies:
       - target: solstone-swift
       - package: spl-swift

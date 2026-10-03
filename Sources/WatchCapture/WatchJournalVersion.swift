@@ -12,6 +12,11 @@ nonisolated struct WatchJournalVersionPayload: Codable {
     let version: String?
     let current: Bool
     let nonce: String?
+    let versionObservedAt: TimeInterval?
+    let journalOS: String?
+    let journalOSVersion: String?
+    let journalArch: String?
+    let journalBuild: String?
 }
 
 /// Context replays and disk restores carry a value, but only a response to this
@@ -21,8 +26,14 @@ nonisolated struct WatchJournalVersionPayload: Codable {
 final class WatchJournalVersionState {
     private(set) var version: String?
     private(set) var isCurrent = false
+    private(set) var versionObservedAt: TimeInterval?
+    private(set) var journalOS: String?
+    private(set) var journalOSVersion: String?
+    private(set) var journalArch: String?
+    private(set) var journalBuild: String?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var revision = 0
+    @ObservationIgnored private var identity: String?
     @ObservationIgnored private var nonce: String?
     private static let storageKey = "receivedJournalVersion"
 
@@ -56,11 +67,18 @@ final class WatchJournalVersionState {
               payload.version == nil || sanitizedJournalVersion(payload.version!) != nil else { return }
         if payload.revision > revision {
             revision = payload.revision
+            identity = payload.identity
             version = payload.identity == nil ? nil : payload.version
+            versionObservedAt = payload.versionObservedAt
+            journalOS = payload.identity == nil ? nil : payload.journalOS
+            journalOSVersion = payload.identity == nil ? nil : payload.journalOSVersion
+            journalArch = payload.identity == nil ? nil : payload.journalArch
+            journalBuild = payload.identity == nil ? nil : payload.journalBuild
             isCurrent = false
             defaults.set(data, forKey: Self.storageKey)
         }
-        if live, let nonce, payload.nonce == nonce {
+        if live, let nonce, payload.nonce == nonce,
+           payload.identity == identity, payload.version == version {
             isCurrent = payload.current && version != nil
         }
     }

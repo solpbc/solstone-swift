@@ -7,6 +7,8 @@ import UIKit
 struct ProblemReportsView: View {
     var showsSupportHeader = false
     @Environment(ProblemReportsManager.self) private var manager
+    @Environment(AppConfig.self) private var appConfig
+    @Environment(WatchLink.self) private var watchLink
 
     @State private var shareAllURL: URL?
     @State private var showingDeleteAllConfirm = false
@@ -52,7 +54,11 @@ struct ProblemReportsView: View {
                             version: AppVersion.shortVersion,
                             build: AppVersion.build,
                             osVersion: UIDevice.current.systemVersion,
-                            state: self.supportState
+                            state: self.supportState,
+                            about: PhoneAboutBlock.block(
+                                journalVersion: self.appConfig.journalVersion,
+                                watchFacts: self.watchLink.aboutWatchFacts
+                            )
                         )
                     )
                     self.supportRow(

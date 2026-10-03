@@ -231,6 +231,72 @@ nonisolated final class WatchLinkTests: XCTestCase {
     }
 
     @MainActor
+    func testAboutWatchFactsRequireFreshDiagnosticsOnEligibleSession() async throws {
+        self.session.isPaired = true
+        self.session.isWatchAppInstalled = true
+        self.session.activationState = .activated
+        let link = WatchLink(session: self.session, receiver: nil, facts: Self.facts(), phoneSessionHistoryStore: Self.historyStore())
+        let now = Date()
+        let envelope = WatchRelayDiagnosticsEnvelope(
+            generatedAt: now,
+            diagnostics: .available(Self.historyPayload(entries: []))
+        )
+        let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(envelope)
+        func status(seq: Int, diagnostics: Data?) -> WatchStatusContext {
+            WatchStatusContext(
+                phase: .idle,
+                sessionID: nil,
+                startedAt: nil,
+                asOf: now,
+                seq: seq,
+                queuedCount: 0,
+                transferringCount: 0,
+                diagnosticsEnvelope: diagnostics
+            )
+        }
+
+        self.session.deliverApplicationContext(status(seq: 1, diagnostics: data).applicationContext())
+        await self.yieldToMainActor()
+        XCTAssertEqual(link.aboutWatchFacts?.marketingVersion, "0.1")
+        XCTAssertEqual(link.aboutWatchFacts?.build, "1")
+        XCTAssertEqual(link.aboutWatchFacts?.osVersion, "26")
+
+        self.session.emitWatchState(isPaired: false, isWatchAppInstalled: true, activationState: .activated)
+        await self.yieldToMainActor()
+        XCTAssertNil(link.aboutWatchFacts)
+
+        self.session.emitWatchState(isPaired: true, isWatchAppInstalled: true, activationState: .activated)
+        await self.yieldToMainActor()
+        self.session.deliverApplicationContext(status(seq: 2, diagnostics: nil).applicationContext())
+        await self.yieldToMainActor()
+        XCTAssertNotNil(link.watchDiagnosticsEnvelopeResult.payload)
+        XCTAssertNil(link.aboutWatchFacts, "retained diagnostics are not fresh eligibility")
+
+        self.session.deliverApplicationContext(status(seq: 3, diagnostics: data).applicationContext())
+        await self.yieldToMainActor()
+        XCTAssertNotNil(link.aboutWatchFacts)
+
+        self.session.emitWatchState(isPaired: true, isWatchAppInstalled: false, activationState: .inactive)
+        await self.yieldToMainActor()
+        XCTAssertNil(link.aboutWatchFacts)
+
+        self.session.emitWatchState(isPaired: true, isWatchAppInstalled: true, activationState: .activated)
+        await self.yieldToMainActor()
+        self.session.emitActivationChanged(false)
+        await self.yieldToMainActor()
+        XCTAssertNil(link.aboutWatchFacts)
+
+        self.session.deliverApplicationContext(status(seq: 4, diagnostics: data).applicationContext())
+        await self.yieldToMainActor()
+        XCTAssertNil(link.aboutWatchFacts)
+        self.session.emitActivationChanged(true)
+        await self.yieldToMainActor()
+        self.session.deliverApplicationContext(status(seq: 5, diagnostics: data).applicationContext())
+        await self.yieldToMainActor()
+        XCTAssertNotNil(link.aboutWatchFacts)
+    }
+
+    @MainActor
     func testActivateRecoversReceivedApplicationContext() async {
         let status = Self.status(seq: 2)
         self.session.receivedApplicationContext = status.applicationContext()

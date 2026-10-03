@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import SwiftUI
+import WatchKit
 
 @main
 struct SolstoneWatchApp: App {
@@ -61,7 +62,16 @@ struct SolstoneWatchApp: App {
             model.isReachable = isReachable
             let nonce = model.journalVersion.beginReachableSession()
             let version = WatchJournalVersionPayload(
-                revision: 1, identity: "sample-journal", version: "2.0.0", current: isReachable, nonce: nonce
+                revision: 1,
+                identity: "sample-journal",
+                version: "2.0.0",
+                current: isReachable,
+                nonce: nonce,
+                versionObservedAt: Date().timeIntervalSince1970,
+                journalOS: nil,
+                journalOSVersion: nil,
+                journalArch: nil,
+                journalBuild: nil
             )
             if let data = try? JSONEncoder().encode(version) {
                 model.journalVersion.receive(data, live: isReachable)

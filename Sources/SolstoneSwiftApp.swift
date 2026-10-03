@@ -339,7 +339,16 @@ struct SolstoneSwiftApp: App {
         let phoneSessionHistoryStore = watchPipeline.phoneSessionHistoryStore
         let watchLink = watchPipeline.watchLink
         watchLink.journalVersionProvider = { [metadata = appConfig.journalVersion] in
-            (metadata.identity, metadata.version, metadata.isCurrent)
+            (
+                identity: metadata.identity,
+                version: metadata.version,
+                current: metadata.isCurrent,
+                versionObservedAt: metadata.versionObservedAt,
+                journalOS: metadata.journalOS,
+                journalOSVersion: metadata.journalOSVersion,
+                journalArch: metadata.journalArch,
+                journalBuild: metadata.journalBuild
+            )
         }
         appConfig.journalVersion.onChange = { [weak watchLink] in
             watchLink?.publishJournalVersion()

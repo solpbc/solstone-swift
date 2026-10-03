@@ -53,6 +53,34 @@ private final class ValueBox<T>: @unchecked Sendable {
     }
 }
 
+private final class AboutRequestContinuationBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<(HTTPURLResponse, Data), Error>?
+
+    var isPending: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.continuation != nil
+    }
+
+    func wait(started: AsyncStream<Void>.Continuation) async throws -> (HTTPURLResponse, Data) {
+        try await withCheckedThrowingContinuation { continuation in
+            self.lock.lock()
+            self.continuation = continuation
+            self.lock.unlock()
+            started.yield(())
+        }
+    }
+
+    func resume(with value: (HTTPURLResponse, Data)) {
+        self.lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        self.lock.unlock()
+        continuation?.resume(returning: value)
+    }
+}
+
 final class HomeConnectionLifecycleTests: XCTestCase {
     final class MockURLProtocol: URLProtocol, @unchecked Sendable {
         private static let box = LifecycleHandlerBox()
@@ -296,6 +324,192 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         XCTAssertEqual(journalVersion.version, "2.5.0")
         XCTAssertTrue(journalVersion.isCurrent)
         XCTAssertTrue(store.isLiveRelayDisabled)
+    }
+
+    @MainActor
+    func testPendingAboutBodyDoesNotDelayClientsSelfGETOrPUT() async throws {
+        let pairing = makeSamplePairing(instanceID: "inst-about-pending")
+        let holder = StoredHolder(pairing)
+        let store = PairingCredentialStore(
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil }
+        )
+        let defaultsSuite = "LifecycleTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
+        journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
+
+        let continuationBox = AboutRequestContinuationBox()
+        let (aboutStarted, aboutStartedSignal) = AsyncStream<Void>.makeStream()
+        let (clientRequests, clientRequestSignal) = AsyncStream<String>.makeStream()
+        let (metadataChanges, metadataChangeSignal) = AsyncStream<Void>.makeStream()
+        journalVersion.onChange = { metadataChangeSignal.yield(()) }
+
+        MockURLProtocol.asyncRequestHandler = { request in
+            let path = request.url?.path ?? ""
+            if path == "/api/system/about" {
+                return try await continuationBox.wait(started: aboutStartedSignal)
+            }
+            if path == "/app/network/api/clients/self", request.httpMethod == "GET" {
+                clientRequestSignal.yield("GET")
+                let json = #"{"protocol_version":1,"revision":1,"reported":{"name":"Old","platform":"ios","device_type":"phone","app_id":"app.solstone.swift","app_version":"1.0.0"},"owner_label":null,"display_label":"Old","updated_at":null,"journal":{"name":"Home","version":"3.0.0"}}"#.data(using: .utf8)!
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, json)
+            }
+            if path == "/app/network/api/clients/self", request.httpMethod == "PUT" {
+                clientRequestSignal.yield("PUT")
+                let json = #"{"protocol_version":1,"revision":2,"reported":{"name":"New Phone","platform":"ios","device_type":"phone","app_id":"app.solstone.swift","app_version":"1.0.0"},"owner_label":null,"display_label":"New Phone","updated_at":null,"journal":{"name":"Home","version":"3.0.0"}}"#.data(using: .utf8)!
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!, json)
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+        }
+
+        let jobs = HomeAuthenticatedJobs(
+            store: store,
+            journalVersion: journalVersion,
+            client: makeTestClient(),
+            deadline: .seconds(5),
+            snapshotProvider: {
+                DeviceDescriptionSnapshot(name: "New Phone", platform: "ios", deviceType: "phone", appID: "app.solstone.swift", appVersion: "1.0.0")
+            }
+        )
+        jobs.connected(localPort: 7071)
+
+        var aboutIterator = aboutStarted.makeAsyncIterator()
+        _ = await aboutIterator.next()
+        XCTAssertTrue(continuationBox.isPending)
+
+        var requestIterator = clientRequests.makeAsyncIterator()
+        let first = await requestIterator.next()
+        let second = await requestIterator.next()
+        XCTAssertEqual(Set([first, second].compactMap { $0 }), Set(["GET", "PUT"]))
+        XCTAssertTrue(continuationBox.isPending)
+        var metadataIterator = metadataChanges.makeAsyncIterator()
+        _ = await metadataIterator.next()
+        _ = await metadataIterator.next()
+        XCTAssertEqual(journalVersion.version, "3.0.0")
+        let versionObservedAtBeforeAbout = journalVersion.versionObservedAt
+        XCTAssertTrue(continuationBox.isPending)
+
+        let aboutValue = AboutBlock.line(
+            name: "journal", version: "v3.0.0", os: "ubuntu", osVersion: "24.04", arch: "x86_64"
+        )
+        let aboutJSON = try JSONSerialization.data(withJSONObject: [
+            "protocol_version": 1, "version": "v3.0.0", "os": "ubuntu", "os_version": "24.04",
+            "arch": "x86_64", "about": aboutValue, "hostname": "not stored",
+        ])
+        let aboutResponse = HTTPURLResponse(url: URL(string: "http://127.0.0.1:7071/api/system/about")!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        continuationBox.resume(with: (aboutResponse, aboutJSON))
+
+        for _ in 0..<4 where journalVersion.journalOS == nil {
+            _ = await metadataIterator.next()
+        }
+        XCTAssertEqual(journalVersion.journalOS, "ubuntu")
+        XCTAssertEqual(journalVersion.journalOSVersion, "24.04")
+        XCTAssertEqual(journalVersion.journalArch, "x86_64")
+        XCTAssertEqual(journalVersion.version, "3.0.0")
+        XCTAssertTrue(journalVersion.isCurrent)
+        XCTAssertEqual(journalVersion.versionObservedAt, versionObservedAtBeforeAbout)
+        jobs.disconnected()
+    }
+
+    @MainActor
+    func testAbout404AndMismatchedLineLeaveAcceptedVersionVersionOnly() async throws {
+        struct Snapshot {
+            let version: String?
+            let isCurrent: Bool
+            let journalOS: String?
+            let hostFactsAcceptedAt: TimeInterval?
+            let versionObservedAt: TimeInterval?
+        }
+        func runAboutFailure(statusCode: Int, body: Data) async throws -> Snapshot {
+            let pairing = self.makeSamplePairing(instanceID: "inst-about-failure-\(statusCode)")
+            let holder = StoredHolder(pairing)
+            let store = PairingCredentialStore(
+                loadPairing: { holder.stored },
+                savePairing: { holder.stored = $0 },
+                deletePairing: { holder.stored = nil }
+            )
+            let suite = "LifecycleTests.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let metadata = JournalVersionMetadata(defaults: defaults) { _ in nil }
+            metadata.setIdentity(journalVersionMetadataIdentity(for: pairing))
+            metadata.noteConnected(localPort: 7071)
+            _ = metadata.applyValidated(name: "Home", version: "2.0.0", pairingIdentity: journalVersionMetadataIdentity(for: pairing)!)
+            metadata.acceptHostFacts(
+                os: "old-os", osVersion: "1", arch: "old-arch", build: "old-build",
+                identity: journalVersionMetadataIdentity(for: pairing)!, activePort: 7071, version: "2.0.0",
+                now: Date(timeIntervalSince1970: 10)
+            )
+
+            let (aboutStarted, aboutSignal) = AsyncStream<Void>.makeStream()
+            let (metadataChanges, metadataSignal) = AsyncStream<Void>.makeStream()
+            metadata.onChange = { metadataSignal.yield(()) }
+            MockURLProtocol.asyncRequestHandler = { request in
+                let path = request.url?.path ?? ""
+                if path == "/api/system/about" {
+                    aboutSignal.yield(())
+                    return (
+                        HTTPURLResponse(url: request.url!, statusCode: statusCode, httpVersion: nil, headerFields: nil)!,
+                        body
+                    )
+                }
+                if path == "/app/network/api/clients/self" {
+                    let json = #"{"protocol_version":1,"revision":1,"reported":{"name":"Phone","platform":"ios","device_type":"phone","app_id":"app.solstone.swift","app_version":"1.0.0"},"owner_label":null,"display_label":"Phone","updated_at":null,"journal":{"name":"Home","version":"3.0.0"}}"#.data(using: .utf8)!
+                    return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, json)
+                }
+                return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            let jobs = HomeAuthenticatedJobs(
+                store: store,
+                journalVersion: metadata,
+                client: self.makeTestClient(),
+                deadline: .seconds(2),
+                snapshotProvider: {
+                    DeviceDescriptionSnapshot(name: "Phone", platform: "ios", deviceType: "phone", appID: "app.solstone.swift", appVersion: "1.0.0")
+                }
+            )
+            jobs.connected(localPort: 7071)
+            var aboutIterator = aboutStarted.makeAsyncIterator()
+            _ = await aboutIterator.next()
+            var changeIterator = metadataChanges.makeAsyncIterator()
+            while metadata.version != "3.0.0" {
+                _ = await changeIterator.next()
+            }
+            try await Task.sleep(for: .milliseconds(25))
+            let snapshot = Snapshot(
+                version: metadata.version,
+                isCurrent: metadata.isCurrent,
+                journalOS: metadata.journalOS,
+                hostFactsAcceptedAt: metadata.hostFactsAcceptedAt,
+                versionObservedAt: metadata.versionObservedAt
+            )
+            jobs.disconnected()
+            return snapshot
+        }
+
+        let notFound = try await runAboutFailure(statusCode: 404, body: Data())
+        XCTAssertEqual(notFound.version, "3.0.0")
+        XCTAssertTrue(notFound.isCurrent)
+        XCTAssertNil(notFound.journalOS)
+        XCTAssertNil(notFound.hostFactsAcceptedAt)
+        XCTAssertNotNil(notFound.versionObservedAt)
+
+        let mismatchedAbout = AboutBlock.line(
+            name: "journal", version: "3.0.0", os: "ubuntu", osVersion: "24.04", arch: "arm64"
+        )
+        let mismatch = try JSONSerialization.data(withJSONObject: [
+            "protocol_version": 1, "version": "3.0.0", "os": "ubuntu", "os_version": "24.04",
+            "arch": "x86_64", "about": mismatchedAbout,
+        ])
+        let rejected = try await runAboutFailure(statusCode: 200, body: mismatch)
+        XCTAssertEqual(rejected.version, "3.0.0")
+        XCTAssertTrue(rejected.isCurrent)
+        XCTAssertNil(rejected.journalOS)
+        XCTAssertNil(rejected.hostFactsAcceptedAt)
+        XCTAssertNotNil(rejected.versionObservedAt)
     }
 
     @MainActor
@@ -1595,7 +1809,9 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         let release = AsyncStream<Void>.makeStream()
         defer { release.continuation.finish() }
         let count = OSAllocatedUnfairLock(initialState: 0)
+        let requestPaths = OSAllocatedUnfairLock(initialState: [String]())
         MockURLProtocol.asyncRequestHandler = { request in
+            requestPaths.withLock { $0.append("\(request.httpMethod ?? "GET") \(request.url?.path ?? "")") }
             guard request.url?.path.hasSuffix("clients/self") == true else {
                 return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
             }
@@ -1620,8 +1836,8 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         try await Task.sleep(for: .milliseconds(250))
         release.continuation.yield(())
         try await Task.sleep(for: .milliseconds(1200))
-        XCTAssertEqual(count.withLock { $0 }, 2)
-        XCTAssertEqual(metadata.version, "1.0.0")
+        XCTAssertEqual(count.withLock { $0 }, 2, "\(requestPaths.withLock { $0 })")
+        XCTAssertEqual(metadata.version, "1.0.0", "\(requestPaths.withLock { $0 })")
         jobs.connected(localPort: 7071)
         try await Task.sleep(for: .milliseconds(100))
         XCTAssertEqual(metadata.version, "3.0.0")
