@@ -9,6 +9,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Added
 
 - the solstone app on your apple watch now shows its own version and build number alongside your journal's version.
+- the about solstone page now shows one block with the versions of the solstone app on your iphone or ipad, on your apple watch once it has checked in, and of your journal, with a copy button so you can paste it when you ask for help. the report a problem link carries the same block.
 
 ### Changed
 
@@ -22,6 +23,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 - changing your phone or watch language no longer prevents moments from reaching your journal.
 - on your apple watch, each moment now keeps the time zone it started in, even if you travel before it's done or it's recovered after a restart.
 - when the clocks go back an hour, moments from the repeated hour on your watch now reach your journal. before, some of them could stay on your watch.
+- links in your journal that lead to another website now open in your browser, including links that open in a new tab. before, tapping some of them did nothing.
 
 ## [2.0.6 (115)] - 2026-09-28
 
