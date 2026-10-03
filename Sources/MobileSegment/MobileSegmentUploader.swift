@@ -334,7 +334,7 @@ final class MobileSegmentUploader {
                     state: .noArtifact,
                     startedAt: batch.segmentStart,
                     endedAt: endedAt,
-                    durationS: TimeInterval(batch.coveredSeconds),
+                    durationS: MobileSegmentDuration.bounded(container: nil, elapsed: TimeInterval(batch.coveredSeconds)),
                     reason: reason ?? "location_no_fixes_or_visits",
                     fixCount: 0
                 )
@@ -471,6 +471,15 @@ final class MobileSegmentUploader {
                 let cappedEnd = min(ceilingEnd, min(endedAt, windowEnd))
                 manifest.endedAt = cappedEnd
                 manifest.durationS = appAudioDuration ?? max(0, cappedEnd.timeIntervalSince(manifest.startedAt))
+            } else if appAudioDuration == nil, !manifest.openedWithSources.contains(.screencast) {
+                // With no media length to go by (a location-only segment), the boundary can
+                // arrive long after the ceiling when the app was suspended, so the wall-clock
+                // span is bounded like every other segment length.
+                manifest.endedAt = min(endedAt, manifest.startedAt.addingTimeInterval(MobileSegmentDuration.rotationCeiling))
+                manifest.durationS = MobileSegmentDuration.bounded(
+                    container: nil,
+                    elapsed: endedAt.timeIntervalSince(manifest.startedAt)
+                )
             } else {
                 manifest.endedAt = endedAt
                 manifest.durationS = appAudioDuration ?? max(0, endedAt.timeIntervalSince(manifest.startedAt))
@@ -1172,7 +1181,7 @@ private extension MobileSegmentUploader {
             bytes: self.store.fileSize(at: target),
             startedAt: batch.segmentStart,
             endedAt: endedAt,
-            durationS: TimeInterval(batch.coveredSeconds),
+            durationS: MobileSegmentDuration.bounded(container: nil, elapsed: TimeInterval(batch.coveredSeconds)),
             reason: reason,
             fixCount: frozen.fixCount
         )

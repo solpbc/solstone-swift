@@ -133,6 +133,37 @@ final class MobileSegmentEngineTests: XCTestCase {
         XCTAssertEqual(current.startedAt, finalized.startedAt.addingTimeInterval(300))
     }
 
+    func testLocationRollAfterSuspensionKeepsTheSegmentWithinTheRotationCeiling() async throws {
+        let harness = self.makeHarness()
+        try await harness.engine.startLocation(tier: .balanced, accuracy: .full)
+        harness.engine.recordLocationFix(Self.fix(at: self.clock.now()))
+        await self.yieldToMainActor()
+
+        // A suspended app's rotation timer fires only at the next wake, hours late.
+        let suspended: TimeInterval = 42_324
+        self.clock.advance(by: suspended)
+        try await self.waitFor("late location rollover") {
+            (try? harness.store.list(.pending).count) == 1
+                && (try? harness.store.list(.active).count) == 1
+        }
+
+        let finalized = try harness.store.readManifest(in: try XCTUnwrap(try harness.store.list(.pending).first))
+        let current = try harness.store.readManifest(in: try XCTUnwrap(try harness.store.list(.active).first))
+
+        XCTAssertEqual(finalized.openedWithSources, [.location])
+        XCTAssertEqual(finalized.location.state, .finalizedArtifact)
+        XCTAssertEqual(finalized.location.fixCount, 1)
+        XCTAssertEqual(finalized.durationS, MobileSegmentDuration.rotationCeiling)
+        XCTAssertEqual(finalized.location.durationS, MobileSegmentDuration.rotationCeiling)
+        XCTAssertEqual(finalized.endedAt, finalized.startedAt.addingTimeInterval(MobileSegmentDuration.rotationCeiling))
+        XCTAssertEqual(
+            finalized.segment,
+            ChunkSidecar.segmentString(for: finalized.startedAt, durationSeconds: MobileSegmentDuration.rotationCeiling)
+        )
+        // The next segment opens at the wake; the silent hours are not filled in.
+        XCTAssertEqual(current.startedAt, finalized.startedAt.addingTimeInterval(suspended))
+    }
+
     func testLocationMutatorsAppendLiveLogAndRefreshLiveness() async throws {
         let harness = self.makeHarness()
         try await harness.engine.startLocation(tier: .balanced, accuracy: .full)
