@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- the block on the about solstone page now names your iphone or ipad's architecture as arm64, the same word every other solstone app uses, instead of arm64e.
+
 ## [2.0.6 (120)] - 2026-10-03
 
 ### Fixed
