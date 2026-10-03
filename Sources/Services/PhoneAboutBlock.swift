@@ -2,7 +2,6 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
-import MachO
 import UIKit
 
 nonisolated struct WatchAboutFacts: Sendable {
@@ -31,13 +30,16 @@ enum PhoneAboutBlock {
         let osVersion = version.patchVersion == 0
             ? "\(version.majorVersion).\(version.minorVersion)"
             : "\(version.majorVersion).\(version.minorVersion).\(version.patchVersion)"
-        let arch: String
-        if let archInfo = NXGetLocalArchInfo() {
-            let name = String(cString: archInfo.pointee.name)
-            arch = name.isEmpty ? "" : name
-        } else {
-            arch = ""
-        }
+        // The running binary's architecture, never the CPU subtype: NXGetLocalArchInfo names
+        // A12-and-later iPhones "arm64e", which the line grammar does not allow. Every device
+        // build is arm64; a simulator prints its slice (arm64, or x86_64 for an Intel slice).
+        #if arch(arm64)
+        let arch = "arm64"
+        #elseif arch(x86_64)
+        let arch = "x86_64"
+        #else
+        let arch = ""
+        #endif
         return AboutBlock.line(
             name: "ios app",
             version: AppVersion.shortVersion,

@@ -46,6 +46,13 @@ nonisolated final class AboutBlockTests: XCTestCase {
         XCTAssertEqual(AboutBlock.line(name: "ios app", version: "1", arch: "riscv64"), "ios app 1 · riscv64")
     }
 
+    #if os(iOS)
+    @MainActor func testIOSAppLineNamesTheMachineArchitecture() {
+        let arch = PhoneAboutBlock.iosAppLine().components(separatedBy: " · ").last
+        XCTAssertTrue(["arm64", "x86_64"].contains(arch ?? ""), "unexpected arch \(arch ?? "")")
+    }
+    #endif
+
     func testCurrentAndMissingObservationHaveNoFreshnessSuffix() {
         let observedAt: TimeInterval = 1_700_000_000
         let now = Date(timeIntervalSince1970: observedAt + 172_800)
