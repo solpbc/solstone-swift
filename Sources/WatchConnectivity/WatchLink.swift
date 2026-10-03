@@ -131,7 +131,10 @@ final class WatchLink {
         }
         self.session.onReceiveApplicationContext = { [weak self] applicationContext in
             Task { @MainActor [weak self] in
-                self?.applyWatchStatus(WatchStatusContext(applicationContext: applicationContext))
+                self?.applyWatchStatus(
+                    WatchStatusContext(applicationContext: applicationContext),
+                    isLiveDelivery: true
+                )
             }
         }
     }
@@ -210,17 +213,20 @@ private extension WatchLink {
     }
 
     func refreshWatchStatus() {
-        self.applyWatchStatus(WatchStatusContext(applicationContext: self.session.receivedApplicationContext))
+        self.applyWatchStatus(
+            WatchStatusContext(applicationContext: self.session.receivedApplicationContext),
+            isLiveDelivery: false
+        )
     }
 
-    func applyWatchStatus(_ status: WatchStatusContext?) {
+    func applyWatchStatus(_ status: WatchStatusContext?, isLiveDelivery: Bool) {
         self.watchStatus = status
         if status != nil {
             self.facts.noteStatusContextCheckedIn()
         }
         if let envelopeData = status?.diagnosticsEnvelope {
             let diagnostics = WatchRelayDiagnosticsEnvelope.decodeResult(from: envelopeData)
-            if self.isPaired, self.isWatchAppInstalled, self.activationState == .activated,
+            if isLiveDelivery, self.isPaired, self.isWatchAppInstalled, self.activationState == .activated,
                self.hasActiveEligibleActivation,
                let payload = diagnostics.payload {
                 self.freshWatchDiagnosticsPayload = payload

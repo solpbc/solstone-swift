@@ -317,6 +317,43 @@ nonisolated final class WatchLinkTests: XCTestCase {
     }
 
     @MainActor
+    func testCachedDiagnosticsDoNotEstablishAboutEligibility() async throws {
+        self.session.isPaired = true
+        self.session.isWatchAppInstalled = true
+        self.session.activationState = .activated
+
+        let now = Date()
+        let envelope = WatchRelayDiagnosticsEnvelope(
+            generatedAt: now,
+            diagnostics: .available(Self.historyPayload(entries: []))
+        )
+        let data = try WatchRelayDiagnosticsEnvelope.makeEncoder().encode(envelope)
+        func status(seq: Int) -> WatchStatusContext {
+            WatchStatusContext(
+                phase: .idle,
+                sessionID: nil,
+                startedAt: nil,
+                asOf: now,
+                seq: seq,
+                queuedCount: 0,
+                transferringCount: 0,
+                diagnosticsEnvelope: data
+            )
+        }
+
+        self.session.receivedApplicationContext = status(seq: 1).applicationContext()
+        let link = WatchLink(session: self.session, receiver: nil, facts: Self.facts(), phoneSessionHistoryStore: Self.historyStore())
+
+        link.activate()
+        XCTAssertNil(link.aboutWatchFacts)
+
+        self.session.deliverApplicationContext(status(seq: 2).applicationContext())
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(link.aboutWatchFacts?.marketingVersion, "0.1")
+    }
+
+    @MainActor
     func testReachabilityDoesNotAffectWatchStatus() async {
         let status = Self.status(seq: 3)
         let watchLink = WatchLink(session: self.session, receiver: nil, facts: Self.facts(), phoneSessionHistoryStore: Self.historyStore())
