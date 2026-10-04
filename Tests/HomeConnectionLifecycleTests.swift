@@ -81,6 +81,21 @@ private final class AboutRequestContinuationBox: @unchecked Sendable {
     }
 }
 
+private struct LifecycleDelivery: @unchecked Sendable {
+    let protocolInstance: HomeConnectionLifecycleTests.MockURLProtocol
+
+    func finish(response: HTTPURLResponse, data: Data) {
+        let client = self.protocolInstance.client
+        client?.urlProtocol(self.protocolInstance, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self.protocolInstance, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self.protocolInstance)
+    }
+
+    func fail(error: any Error) {
+        self.protocolInstance.client?.urlProtocol(self.protocolInstance, didFailWithError: error)
+    }
+}
+
 final class HomeConnectionLifecycleTests: XCTestCase {
     final class MockURLProtocol: URLProtocol, @unchecked Sendable {
         private static let box = LifecycleHandlerBox()
@@ -106,14 +121,14 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
         override func startLoading() {
             if let asyncHandler = MockURLProtocol.asyncRequestHandler {
-                Task {
+                let request = self.request
+                let delivery = LifecycleDelivery(protocolInstance: self)
+                Task { [request, delivery, asyncHandler] in
                     do {
                         let (response, data) = try await asyncHandler(request)
-                        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                        client?.urlProtocol(self, didLoad: data)
-                        client?.urlProtocolDidFinishLoading(self)
+                        delivery.finish(response: response, data: data)
                     } catch {
-                        client?.urlProtocol(self, didFailWithError: error)
+                        delivery.fail(error: error)
                     }
                 }
                 return
