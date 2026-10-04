@@ -83,13 +83,31 @@ extension JournalMark {
 }
 #endif
 
+struct JournalMarkUnavailableChip: View {
+    var side: CGFloat = MarkGeometry.size
+
+    var body: some View {
+        let radius = MarkGeometry.chipRadius(side: self.side)
+        let glyphSize = MarkGeometry.glyphSide(side: self.side)
+        return ZStack {
+            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(MarkGeometry.chipBorder)
+            Text("?")
+                .font(.system(size: glyphSize, weight: .semibold, design: .rounded))
+                .foregroundColor(MarkGeometry.wordColor)
+        }
+        .frame(width: self.side, height: self.side)
+    }
+}
+
 struct JournalMarkView: View {
-    let mark: JournalMark?
+    let identity: JournalIdentity
     var isConfirmed = false
 
     var body: some View {
         Group {
-            if let mark {
+            switch self.identity {
+            case .mark(let mark):
                 VStack(spacing: MarkGeometry.verticalGap) {
                     HStack(spacing: MarkGeometry.iconGap) {
                         JournalMarkIconChip(icon: mark.icon1)
@@ -112,7 +130,7 @@ struct JournalMarkView: View {
                         .stroke(self.isConfirmed ? MarkGeometry.confirmedBorder : MarkGeometry.cardBorder, lineWidth: self.isConfirmed ? 2 : 1)
                 }
                 .shadow(color: self.isConfirmed ? MarkGeometry.confirmedBorder.opacity(0.35) : .clear, radius: 10)
-            } else {
+            case .generic:
                 VStack(spacing: MarkGeometry.verticalGap) {
                     HStack(spacing: MarkGeometry.iconGap) {
                         JournalMarkGenericChip(
@@ -134,11 +152,27 @@ struct JournalMarkView: View {
                     RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous)
                         .stroke(MarkGeometry.cardBorder, lineWidth: 1)
                 }
+            case .unavailable:
+                VStack(spacing: MarkGeometry.verticalGap) {
+                    HStack(spacing: MarkGeometry.iconGap) {
+                        JournalMarkUnavailableChip()
+                        JournalMarkUnavailableChip()
+                    }
+
+                    JournalMarkWordLine(words: JournalIdentity.unavailableWords)
+                }
+                .padding(.horizontal, MarkGeometry.cardHorizontalPadding)
+                .padding(.vertical, MarkGeometry.cardVerticalPadding)
+                .background(MarkGeometry.cardFill, in: RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous)
+                        .stroke(MarkGeometry.cardBorder, lineWidth: 1)
+                }
             }
         }
         // ignore is load-bearing for the four-token / generic spoken value; chips must not be separate elements.
         .accessibilityElement(children: .ignore)
-        .accessibilityValue(JournalMarkAccessibility.spokenValue(mark: self.mark))
+        .accessibilityValue(self.identity.spokenValue)
         .accessibilityIdentifier("journalMark")
     }
 }
@@ -947,12 +981,12 @@ private nonisolated struct PathDataParser {
 
 #if DEBUG
 #Preview("committed") {
-    JournalMarkView(mark: .uiTestSample, isConfirmed: true)
+    JournalMarkView(identity: .mark(.uiTestSample), isConfirmed: true)
         .padding()
 }
 
 #Preview("generic") {
-    JournalMarkView(mark: nil)
+    JournalMarkView(identity: .generic)
         .padding()
 }
 #endif

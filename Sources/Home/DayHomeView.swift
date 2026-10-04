@@ -88,6 +88,8 @@ private struct AppGroupSnapshotInputs: Equatable {
     let microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot
     let awaitingMarkConfirmation: Bool
     let audioInterrupted: Bool
+    let journalMark: JournalMark?
+    let journalSendConfirmed: Bool
 }
 
 /// `.body` point sizes over the default, matching what
@@ -267,7 +269,9 @@ private extension DayHomeView {
             pairing: self.appGroupPairing,
             microphonePermission: self.appGroupMicrophonePermission,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-            audioInterrupted: self.mobileSegmentTransferHolder.hasAudioInterruption
+            audioInterrupted: self.mobileSegmentTransferHolder.hasAudioInterruption,
+            journalMark: self.journalMark,
+            journalSendConfirmed: self.appConfig.journalSendConfirmed
         )
     }
 
@@ -275,9 +279,21 @@ private extension DayHomeView {
         self.watchPipelineInputs.assembly(now: self.now)
     }
 
+    private var journalIdentity: JournalIdentity {
+        JournalIdentity.select(
+            isPaired: self.appConfig.isPaired,
+            sendConfirmed: self.appConfig.journalSendConfirmed,
+            mark: self.journalMark
+        )
+    }
+
     var appGroupPairing: AppGroupMirror.PairingSnapshot {
-        AppGroupMirror.PairingSnapshot(
-            journalName: self.appConfig.isPaired ? self.appConfig.homeLabel : nil,
+        let name: String? = switch self.journalIdentity {
+        case .mark(let mark): journalPaneTitle(mark: mark)
+        case .generic, .unavailable: nil
+        }
+        return AppGroupMirror.PairingSnapshot(
+            journalName: name,
             isPaired: self.appConfig.isPaired
         )
     }
@@ -535,14 +551,7 @@ private extension DayHomeView {
             }
         } label: {
             HStack(spacing: 8) {
-                // Identity is on the pill in every state: the journal's own mark when
-                // there is one, the generic dashed mark when there is not. The pill had
-                // shown no chips at all while unpaired.
-                if let mark = self.journalMark {
-                    JournalMarkCompactChips(mark: mark)
-                } else {
-                    JournalMarkCompactGenericChips()
-                }
+                JournalMarkCompactChips(identity: self.journalIdentity)
                 Text(self.journalPillTitle)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
@@ -557,23 +566,16 @@ private extension DayHomeView {
         // Same side margin as the deck's own tiles — a full-bleed glass bar read as
         // a rendering defect against everything else that keeps this inset.
         .padding(.horizontal, ShellMetrics.screenMargin)
+        .accessibilityLabel(self.journalIdentity.spokenValue)
         .accessibilityIdentifier(
             self.journalState == .linkedOnline ? "dayHome.openInJournal" : "dayHome.journalSetup"
         )
     }
 
-    /// The pill is the journal's identity, not an action label. It carries the mark's
-    /// chips *and* its two words whenever there is a journal to name, so home always
-    /// answers "which journal am I feeding" — the one question the shell puts here and
-    /// nowhere else. Only the no-journal case has no name to show, so only it reads as
-    /// an invitation.
+    /// The pill presents the journal's identity across all states via select, showing its
+    /// mark when confirmed or the generic mark and title when unpaired or not confirmed yet.
     var journalPillTitle: String {
-        switch self.journalState {
-        case .linkedOnline, .linkedOffline:
-            journalPaneTitle(mark: self.journalMark)
-        case .noJournal:
-            SourceVocabulary.onThisPhoneConnectJournalButton
-        }
+        self.journalIdentity.title
     }
 
     /// The shelf control.

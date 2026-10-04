@@ -469,7 +469,7 @@ struct PairFlowView: View {
     @ViewBuilder
     private func confirmContent(_ mark: JournalMark) -> some View {
         VStack(alignment: .leading, spacing: 18) {
-            JournalMarkView(mark: mark)
+            JournalMarkView(identity: .mark(mark))
                 .frame(maxWidth: .infinity, alignment: .center)
 
             Button(SourceVocabulary.journalMarkConfirmButton) {

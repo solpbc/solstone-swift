@@ -8,7 +8,7 @@ nonisolated final class ConnectionSyncStatusTests: XCTestCase {
     func testStatusLinesAreFunctionalDefaults() {
         XCTAssertEqual(ConnectionSyncStatus.offline.statusLine, "offline")
         XCTAssertEqual(ConnectionSyncStatus.connecting.statusLine, "connecting…")
-        XCTAssertEqual(ConnectionSyncStatus.waitingForHome.statusLine, "waiting for your home…")
+        XCTAssertEqual(ConnectionSyncStatus.waitingForHome.statusLine, "waiting for your journal…")
         XCTAssertEqual(ConnectionSyncStatus.reconnecting.statusLine, "reconnecting…")
         XCTAssertEqual(ConnectionSyncStatus.unreachable.statusLine, "can't reach your journal")
         XCTAssertEqual(ConnectionSyncStatus.connectedIdle.statusLine, "connected")

@@ -543,7 +543,7 @@ struct RootShellView: View {
         // With no mark known (a reinstall keeps the pairing but not the mark), ask a few more
         // times over the first ~45 seconds of this connection: one short read at connect time is
         // easy to miss. The task is keyed on the port, so a new connection starts over. Until
-        // then a reinstall shows the generic mark, the one case the first-frame rule can't meet.
+        // then a reinstall shows unavailable via select (confirmed pairing with nil mark).
         for delay in [0, 2, 5, 10, 30] as [UInt64] {
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay * 1_000_000_000)

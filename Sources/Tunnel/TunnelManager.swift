@@ -835,7 +835,9 @@ final class TunnelManager {
                 log.info("[solstone-swift] connected on localhost:\(localPort) via \(endpoint == .lan ? "lan" : "remote")")
                 self.diagnosticLog?.append(
                     category: .tunnel,
-                    message: "connected via \(endpoint == .lan ? "local network" : "remote journal") on port \(localPort)",
+                    message: endpoint == .lan
+                        ? "connected via local network on port \(localPort)"
+                        : "connected through the relay on port \(localPort)",
                     detail: self.connectionIdentityDetail(port: localPort, epoch: connectionEpoch)
                 )
                 if self.ownerConnectSuccessBannerArmed {
@@ -1529,9 +1531,9 @@ final class TunnelManager {
            observation.journalFingerprint == self.journalFingerprint,
            observation.connectionEpoch == self.connectionEpoch {
             let age = max(observation.observedAt.duration(to: now).components.seconds, 0)
-            lines.append("last known home listener: \(observation.generation) seen \(age)s ago")
+            lines.append("last known journal listener: \(observation.generation) seen \(age)s ago")
         } else {
-            lines.append("last known home listener: unavailable")
+            lines.append("last known journal listener: unavailable")
         }
         lines.append("candidate telemetry: \(self.telemetryCompleteness.rawValue)")
         let candidates = self.candidateTelemetry.values.sorted { $0.ordinal < $1.ordinal }

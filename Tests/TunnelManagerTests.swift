@@ -840,7 +840,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         let snapshot = diagnostics.snapshot(tunnel: manager)
         XCTAssertTrue(snapshot.contains("journal fingerprint: unavailable"))
-        XCTAssertTrue(snapshot.contains("last known home listener: unavailable"))
+        XCTAssertTrue(snapshot.contains("last known journal listener: unavailable"))
     }
 
     @MainActor

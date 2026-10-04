@@ -72,7 +72,7 @@ final class AppGroupMirror {
     }
 
     @discardableResult
-    func writePairing(journalName: String) -> Result<Void, StorageError> {
+    func writePairing(journalName: String?) -> Result<Void, StorageError> {
         self.write { snapshot, now in
             snapshot.pairing = PairingSnapshot(journalName: journalName, isPaired: true)
             snapshot.writtenAt = now

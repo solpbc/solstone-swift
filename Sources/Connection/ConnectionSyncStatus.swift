@@ -24,7 +24,7 @@ nonisolated enum ConnectionSyncStatus: Equatable, Sendable {
         case .connecting:
             "connecting…"
         case .waitingForHome:
-            "waiting for your home…"
+            "waiting for your journal…"
         case .reconnecting:
             "reconnecting…"
         case .unreachable:

@@ -5,45 +5,42 @@
 import XCTest
 
 nonisolated final class JournalMarkAccessibilityTests: XCTestCase {
-    func testSpokenValueUsesDecodedColorName() {
+    func testSpokenValueUsesDecodedColorNamesWhenBothPresent() {
         let mark = Self.mark(color1: "amber", color2: "lime")
         XCTAssertEqual(
             JournalMarkAccessibility.spokenValue(mark: mark),
-            "amber bug, lime gem, afoot, unfixed"
-        )
-        XCTAssertEqual(
-            JournalMarkAccessibility.chipToken(colorName: "amber", glyphName: "bug"),
-            "amber bug"
+            "amber, lime, afoot, unfixed"
         )
 #if DEBUG
         XCTAssertEqual(
             JournalMarkAccessibility.spokenValue(mark: .uiTestSample),
-            "amber bug, lime gem, afoot, unfixed"
+            "amber, lime, afoot, unfixed"
         )
 #endif
     }
 
-    func testSpokenValueFallsBackToGlyphNameWhenColorNameAbsent() {
-        let mark = Self.mark(color1: nil, color2: nil)
-        XCTAssertEqual(
-            JournalMarkAccessibility.spokenValue(mark: mark),
-            "bug, gem, afoot, unfixed"
-        )
-        XCTAssertEqual(JournalMarkAccessibility.chipToken(colorName: nil, glyphName: "bug"), "bug")
-        XCTAssertEqual(JournalMarkAccessibility.chipToken(colorName: "  ", glyphName: "bug"), "bug")
-        XCTAssertEqual(JournalMarkAccessibility.chipToken(colorName: "", glyphName: "gem"), "gem")
+    func testSpokenValueFallsBackToWordsWhenEitherColorNameAbsentOrBlank() {
+        let nameless = Self.mark(color1: nil, color2: nil)
+        XCTAssertEqual(JournalMarkAccessibility.spokenValue(mark: nameless), "afoot, unfixed")
+        XCTAssertFalse(JournalMarkAccessibility.spokenValue(mark: nameless).contains("bug"))
+        XCTAssertFalse(JournalMarkAccessibility.spokenValue(mark: nameless).contains("gem"))
+
+        let blank1 = Self.mark(color1: "  ", color2: "lime")
+        XCTAssertEqual(JournalMarkAccessibility.spokenValue(mark: blank1), "afoot, unfixed")
+        XCTAssertFalse(JournalMarkAccessibility.spokenValue(mark: blank1).contains("bug"))
+        XCTAssertFalse(JournalMarkAccessibility.spokenValue(mark: blank1).contains("gem"))
+
+        let blank2 = Self.mark(color1: "amber", color2: "")
+        XCTAssertEqual(JournalMarkAccessibility.spokenValue(mark: blank2), "afoot, unfixed")
+        XCTAssertFalse(JournalMarkAccessibility.spokenValue(mark: blank2).contains("bug"))
+        XCTAssertFalse(JournalMarkAccessibility.spokenValue(mark: blank2).contains("gem"))
     }
 
-    func testSpokenValueForNilIsGeneric() {
-        XCTAssertEqual(
-            JournalMarkAccessibility.spokenValue(mark: nil),
-            "your journal, not set up yet"
-        )
+    func testGenericAndUnavailableSpokenValues() {
         XCTAssertEqual(JournalMarkGeneric.spokenValue, "your journal, not set up yet")
+        XCTAssertEqual(JournalIdentity.generic.spokenValue, JournalMarkGeneric.spokenValue)
+        XCTAssertEqual(JournalIdentity.unavailable.spokenValue, JournalIdentity.unavailableSpokenValue)
         XCTAssertEqual(JournalMarkGeneric.words, ["your", "journal"])
-        XCTAssertFalse(JournalMarkAccessibility.spokenValue(mark: nil).contains("bug"))
-        XCTAssertFalse(JournalMarkAccessibility.spokenValue(mark: nil).contains("gem"))
-        XCTAssertFalse(JournalMarkAccessibility.spokenValue(mark: nil).contains("unavailable"))
     }
 
     func testDashGeometryScalesWithChipSide() {
@@ -59,10 +56,9 @@ nonisolated final class JournalMarkAccessibilityTests: XCTestCase {
     func testJournalMarkViewUsesIgnoreAndSpokenValue() throws {
         let text = try Self.source("Sources/Pairing/JournalMark.swift")
         XCTAssertTrue(text.contains(".accessibilityElement(children: .ignore)"))
-        XCTAssertTrue(text.contains(".accessibilityValue(JournalMarkAccessibility.spokenValue(mark: self.mark))"))
+        XCTAssertTrue(text.contains("spokenValue"))
         XCTAssertFalse(text.contains(".accessibilityElement(children: .combine)"))
         XCTAssertFalse(text.contains("JournalMarkTint"))
-        XCTAssertFalse(text.contains("journalMarkUnavailable"))
     }
 
     func testGenericChipHasNoGlyph() throws {

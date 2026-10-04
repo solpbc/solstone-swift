@@ -646,9 +646,9 @@ struct StatusPane: View {
                     if self.showsConnectionDetails {
                         LabeledContent(
                         "method",
-                            value: self.shellStatusContext.via == .lan ? "local network" : "remote journal"
+                            value: self.shellStatusContext.via == .lan ? "local network" : "through the relay"
                         )
-                        LabeledContent("journal", value: self.serverHost)
+                        LabeledContent("your journal's address", value: self.serverHost)
                         LabeledContent("uptime") {
                             Text(self.shellStatusContext.connectedSince, style: .timer)
                         }

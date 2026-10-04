@@ -296,7 +296,12 @@ struct JournalSettingsPane: View {
     var body: some View {
         List {
             Section {
-                JournalMarkView(mark: self.journalMark)
+                let identity = JournalIdentity.select(
+                    isPaired: self.appConfig.isPaired,
+                    sendConfirmed: self.appConfig.journalSendConfirmed,
+                    mark: self.journalMark
+                )
+                JournalMarkView(identity: identity)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
                     .listRowBackground(Color.clear)
@@ -320,7 +325,6 @@ struct JournalSettingsPane: View {
             }
 
             Section {
-                LabeledContent("label", value: self.appConfig.homeLabel.isEmpty ? "unpaired" : self.appConfig.homeLabel)
                 LabeledContent("paired", value: self.pairedAtText)
 
                 DisclosureGroup("technical details") {
@@ -558,10 +562,6 @@ struct AboutPane: View {
         self.appConfig.journalVersion.displayValue
     }
 
-    private var owner: String {
-        self.appConfig.ownerIdentity.isEmpty ? "unpaired" : self.appConfig.ownerIdentity
-    }
-
     private var device: String {
         DeviceRegistrationDescriptor.currentDisplayName()
     }
@@ -596,8 +596,7 @@ struct AboutPane: View {
                 Section {
                     LabeledContent("version", value: self.version)
                     LabeledContent("build", value: self.build)
-                    LabeledContent("journal", value: self.server)
-                    LabeledContent("owner", value: self.owner)
+                    LabeledContent("journal version", value: self.server)
                     LabeledContent("device", value: self.device)
                     LabeledContent("journal root", value: self.journalRoot)
                 }

@@ -186,9 +186,9 @@ struct ContentView: View {
             case .connecting:
                 "connecting…"
             case .waitingForHome:
-                "waiting for your home…"
+                ConnectionSyncStatus.waitingForHome.statusLine
             case .connected(_, let via):
-                via == .lan ? "connected via local network" : "connected via remote journal"
+                via == .lan ? "connected via local network" : "connected through the relay"
             case .error(let error):
                 "connection error, \(error.userMessage)"
             case .disconnected:
@@ -404,7 +404,7 @@ struct ContentView: View {
             if self.showGenericJournalMarkPreview {
                 ZStack {
                     Color(.systemBackground).ignoresSafeArea()
-                    JournalMarkView(mark: nil)
+                    JournalMarkView(identity: .generic)
                 }
                 .accessibilityIdentifier("journalMark.generic")
             }

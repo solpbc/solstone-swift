@@ -298,8 +298,16 @@ struct InAppJournalView: View {
         )
     }
 
+    private var journalIdentity: JournalIdentity {
+        JournalIdentity.select(
+            isPaired: self.appConfig.isPaired,
+            sendConfirmed: self.appConfig.journalSendConfirmed,
+            mark: self.mark
+        )
+    }
+
     private var headingString: String {
-        journalPaneTitle(mark: self.mark)
+        self.journalIdentity.title
     }
 
     @ViewBuilder
@@ -336,15 +344,11 @@ struct InAppJournalView: View {
                 }
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 8) {
-                        if let mark = self.mark {
-                            JournalMarkCompactChips(mark: mark)
-                        } else {
-                            JournalMarkCompactGenericChips()
-                        }
+                        JournalMarkCompactChips(identity: self.journalIdentity)
                         Text(self.headingString)
                     }
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(self.headingString)
+                        .accessibilityLabel(self.journalIdentity.spokenValue)
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("shell.pane.journal.heading")
                         .accessibilityFocused(self.$headingFocused)

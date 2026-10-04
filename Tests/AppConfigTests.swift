@@ -70,7 +70,7 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertEqual(self.pairingState.load(), pairing)
         XCTAssertEqual(
             self.mirror().snapshot()?.pairing,
-            AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true)
+            AppGroupMirror.PairingSnapshot(journalName: nil, isPaired: true)
         )
     }
 
@@ -116,7 +116,7 @@ nonisolated final class AppConfigTests: XCTestCase {
         XCTAssertNil(config.currentSessionKey())
         XCTAssertEqual(
             self.mirror().snapshot()?.pairing,
-            AppGroupMirror.PairingSnapshot(journalName: "ui-test-solstone", isPaired: true)
+            AppGroupMirror.PairingSnapshot(journalName: nil, isPaired: true)
         )
     }
 

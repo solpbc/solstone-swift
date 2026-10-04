@@ -15,41 +15,35 @@ import SwiftUI
 /// smaller side. One renderer is the point: two implementations of one mark is how
 /// the pill drifted from the card in the first place.
 struct JournalMarkCompactChips: View {
-    let mark: JournalMark
+    let identity: JournalIdentity
     /// Pill scale. Every ratio in § 5 is relative to the side, so the mark holds its
     /// proportions here exactly as it does on the card.
     @ScaledMetric(relativeTo: .subheadline) private var side: CGFloat = 22
 
     var body: some View {
         HStack(spacing: MarkGeometry.iconGap(side: self.side)) {
-            JournalMarkIconChip(icon: self.mark.icon1, side: self.side)
-            JournalMarkIconChip(icon: self.mark.icon2, side: self.side)
+            switch self.identity {
+            case .mark(let mark):
+                JournalMarkIconChip(icon: mark.icon1, side: self.side)
+                JournalMarkIconChip(icon: mark.icon2, side: self.side)
+            case .generic:
+                JournalMarkGenericChip(
+                    hex: JournalMarkGeneric.orangeHex,
+                    rotated: false,
+                    side: self.side
+                )
+                JournalMarkGenericChip(
+                    hex: JournalMarkGeneric.goldHex,
+                    rotated: true,
+                    side: self.side
+                )
+            case .unavailable:
+                JournalMarkUnavailableChip(side: self.side)
+                JournalMarkUnavailableChip(side: self.side)
+            }
         }
         // A rot-45 chip's corners swing outside its own square frame; give the pair
         // room so the diamond is not clipped against its neighbour or the pill.
-        .padding(.horizontal, self.side * 0.2)
-        .accessibilityHidden(true)
-    }
-}
-
-/// The generic mark's chip pair at pill size — same tile, dashed border, no glyph.
-/// [`journal-mark.md`](journal-mark.md) § 4.3.
-struct JournalMarkCompactGenericChips: View {
-    @ScaledMetric(relativeTo: .subheadline) private var side: CGFloat = 22
-
-    var body: some View {
-        HStack(spacing: MarkGeometry.iconGap(side: self.side)) {
-            JournalMarkGenericChip(
-                hex: JournalMarkGeneric.orangeHex,
-                rotated: false,
-                side: self.side
-            )
-            JournalMarkGenericChip(
-                hex: JournalMarkGeneric.goldHex,
-                rotated: true,
-                side: self.side
-            )
-        }
         .padding(.horizontal, self.side * 0.2)
         .accessibilityHidden(true)
     }

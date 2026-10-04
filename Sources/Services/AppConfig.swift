@@ -14,7 +14,6 @@ final class AppConfig {
     var host: String
     var port: Int
     var journalRoot: String
-    var ownerIdentity: String
     var deviceID: String
     var isPaired: Bool
     var homeLabel: String
@@ -57,7 +56,6 @@ final class AppConfig {
         self.host = ""
         self.port = 22
         self.journalRoot = ""
-        self.ownerIdentity = ""
         self.deviceID = ""
         self.isPaired = false
         self.homeLabel = ""
@@ -147,7 +145,6 @@ final class AppConfig {
         self.host = ""
         self.port = 22
         self.journalRoot = ""
-        self.ownerIdentity = ""
         self.deviceID = ""
         self.isPaired = false
         self.homeLabel = ""
@@ -238,14 +235,13 @@ final class AppConfig {
         self.host = firstEndpoint?.host ?? URL(string: pairing.relayEndpoint)?.host ?? ""
         self.port = firstEndpoint?.port ?? URL(string: pairing.relayEndpoint)?.port ?? 443
         self.journalRoot = firstEndpoint.map { "http://127.0.0.1:\($0.port)" } ?? ""
-        self.ownerIdentity = pairing.homeLabel
         self.deviceID = pairing.instanceID
         self.isPaired = true
         self.homeLabel = pairing.homeLabel
         self.clientCertFingerprintHex = Self.normalizedFingerprint(pairing.fingerprint)
         self.pairedAt = pairing.pairedAt
         self.loopbackPort = firstEndpoint?.port
-        self.appGroupMirror.writePairing(journalName: pairing.homeLabel)
+        self.appGroupMirror.writePairing(journalName: nil)
     }
 
     private static func normalizedFingerprint(_ fingerprint: String) -> String {

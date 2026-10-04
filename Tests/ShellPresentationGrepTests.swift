@@ -118,9 +118,8 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertFalse(view.contains("WKScriptMessageHandler"))
         XCTAssertFalse(view.contains("URLSchemeHandler"))
         XCTAssertFalse(view.contains("navigationTitle(\"journal\")"))
-        XCTAssertTrue(view.contains("journalPaneTitle("))
-        XCTAssertTrue(view.contains("JournalMarkCompactChips(mark: mark)"))
-        XCTAssertTrue(view.contains("JournalMarkCompactGenericChips()"))
+        XCTAssertTrue(view.contains("JournalIdentity.select"))
+        XCTAssertTrue(view.contains("JournalMarkCompactChips(identity:"))
         XCTAssertFalse(view.contains("WebPage("))
     }
 

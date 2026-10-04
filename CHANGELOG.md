@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Changed
+
+- your journal is named by its mark. settings no longer shows a label, about no longer shows an owner, and a journal you have already confirmed shows that mark or says its mark is unavailable. the status says your journal and through the relay instead of home and remote journal.
+
 ### Fixed
 
 - the block on the about solstone page now names your iphone or ipad's architecture as arm64, the same word every other solstone app uses, instead of arm64e.

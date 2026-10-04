@@ -25,20 +25,16 @@ nonisolated enum JournalMarkGeneric {
 }
 
 nonisolated enum JournalMarkAccessibility {
-    static func chipToken(colorName: String?, glyphName: String) -> String {
-        let tint = colorName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if tint.isEmpty {
-            return glyphName
-        }
-        return "\(tint) \(glyphName)"
-    }
+    static func spokenValue(mark: JournalMark) -> String {
+        let name1 = mark.icon1.color.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let name2 = mark.icon2.color.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let word1 = mark.words.first ?? ""
+        let word2 = mark.words.count > 1 ? mark.words[1] : ""
 
-    static func spokenValue(mark: JournalMark?) -> String {
-        guard let mark, mark.words.count >= 2 else {
-            return JournalMarkGeneric.spokenValue
+        if !name1.isEmpty && !name2.isEmpty {
+            return "\(name1), \(name2), \(word1), \(word2)"
         }
-        let chip1 = Self.chipToken(colorName: mark.icon1.color.name, glyphName: mark.icon1.name)
-        let chip2 = Self.chipToken(colorName: mark.icon2.color.name, glyphName: mark.icon2.name)
-        return "\(chip1), \(chip2), \(mark.words[0]), \(mark.words[1])"
+        return "\(word1), \(word2)"
     }
 }
+
