@@ -8,7 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Changed
 
-- your journal is named by its mark. settings no longer shows a label, about no longer shows an owner, and a journal you have already confirmed shows that mark or says its mark is unavailable. the status says your journal and through the relay instead of home and remote journal.
+- settings no longer shows a label, and once you've confirmed your journal's mark, the app shows it. the status now says "your journal" and "through the relay" instead of "home" and "remote journal".
 
 ### Fixed
 
