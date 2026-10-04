@@ -6,7 +6,7 @@ Built in SwiftUI. You choose what the app takes in (audio, location and screen, 
 
 ## Status
 
-Open beta. Anyone can join through TestFlight at [solstone.app/beta](https://solstone.app/beta).
+On the [App Store](https://apps.apple.com/app/id6776850664), where it's listed as solstone mobile. It needs ios or ipados 26 or later.
 
 ## Install
 
