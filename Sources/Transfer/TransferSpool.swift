@@ -198,6 +198,7 @@ nonisolated struct TransferSpool: Sendable {
     static let salvageDirectoryName = "salvage"
     static let manifestFilename = "manifest.json"
     static let bodyUploadFilename = "body.upload"
+    static let followedPairingFilename = "followed-pairing"
 
     let rootURL: URL
     private let fileSystem: any TransferFileSystem
@@ -528,6 +529,25 @@ nonisolated struct TransferSpool: Sendable {
         let updated = manifest.replacingDiskState(.queued)
         try self.writeManifestAtomically(updated, in: directoryURL)
         return TransferStoredItem(manifest: updated, directoryURL: directoryURL)
+    }
+
+    /// The pairing the engine last followed. It only tells the engine that the
+    /// pairing changed; no item records a pairing, and this never decides
+    /// whether an item is sent. Unreadable reads as unknown, which the engine
+    /// treats as a change.
+    func followedPairing() -> String? {
+        guard let data = try? self.fileSystem.data(contentsOf: self.followedPairingURL) else { return nil }
+        let value = String(decoding: data, as: UTF8.self)
+        return value.isEmpty ? nil : value
+    }
+
+    func recordFollowedPairing(_ identity: String) throws {
+        try self.fileSystem.createDirectory(at: self.rootURL, withIntermediateDirectories: true)
+        try self.fileSystem.write(Data(identity.utf8), to: self.followedPairingURL, options: .atomic)
+    }
+
+    private var followedPairingURL: URL {
+        self.rootURL.appendingPathComponent(Self.followedPairingFilename, isDirectory: false)
     }
 
     func bodyCacheURL(for item: TransferStoredItem) -> URL {

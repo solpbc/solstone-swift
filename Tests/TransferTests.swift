@@ -3584,6 +3584,57 @@ nonisolated final class TransferTests: XCTestCase {
         }
     }
 
+    func testItemsAnEarlierJournalTurnedAwayGoToNewlyPairedJournalAfterConfirm() async throws {
+        let root = self.tempDirectory.appendingPathComponent("verdicts-follow-pairing", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        let removedID = Self.uuid(960)
+        let receiptID = Self.uuid(961)
+        try self.seedJournalVerdict(spool: spool, itemID: removedID, reason: "removed_in_journal")
+        try self.seedJournalVerdict(spool: spool, itemID: receiptID, reason: "receipt_sha256")
+        try spool.recordFollowedPairing("pairing-a")
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+        let resolver = TransferEndpointResolverStub(.unavailable("journal-send-held"))
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
+        try await engine.start()
+
+        await engine.noteNewConnectionEstablished(pairingIdentity: "pairing-b")
+        await engine.endpointAvailabilityChanged()
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0, "nothing is sent before the new journal's mark is confirmed")
+        let held = await engine.snapshot()
+        XCTAssertEqual(held.counters.attentionCount, 0)
+        XCTAssertEqual(held.counters.queuedCount, 2)
+        XCTAssertEqual(spool.followedPairing(), "pairing-b")
+
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("both delivered to the new journal") {
+            (await engine.snapshot()).counters.deliveredCount == 2
+        }
+        XCTAssertEqual(Set(TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:))), [removedID, receiptID])
+    }
+
+    func testReconnectingToSamePairingKeepsJournalVerdicts() async throws {
+        let root = self.tempDirectory.appendingPathComponent("verdicts-same-pairing", isDirectory: true)
+        let spool = TransferSpool(rootURL: root)
+        try self.seedJournalVerdict(spool: spool, itemID: Self.uuid(962), reason: "removed_in_journal")
+        try spool.recordFollowedPairing("pairing-a")
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root))
+        try await engine.start()
+
+        await engine.noteNewConnectionEstablished(pairingIdentity: "pairing-a")
+        await engine.endpointAvailabilityChanged()
+        try await Task.sleep(for: .milliseconds(80))
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.attentionCount, 1)
+    }
+
     func testOwnershipVerdictIgnoresRetryHistory() async throws {
         let root = self.tempDirectory.appendingPathComponent("ownership-verdict-retry", isDirectory: true)
         let spool = TransferSpool(rootURL: root)
@@ -3856,6 +3907,18 @@ private extension TransferTests {
             reason: "needs_attention",
             detail: "held",
             now: now
+        )
+    }
+
+    /// An attention item carrying a journal's verdict, retried moments ago.
+    func seedJournalVerdict(spool: TransferSpool, itemID: UUID, reason: String) throws {
+        _ = try self.seedAttentionItem(spool: spool, itemID: itemID)
+        let stored = try XCTUnwrap(try spool.initialize(now: Self.baseDate).attention.first { $0.manifest.itemID == itemID })
+        _ = try spool.moveQueuedItemToAttention(
+            spool.moveAttentionItemToQueued(stored, now: Self.baseDate),
+            reason: reason,
+            detail: "held",
+            now: Self.baseDate
         )
     }
 

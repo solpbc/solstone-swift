@@ -732,8 +732,9 @@ struct SolstoneSwiftApp: App {
                     // Initial connected state needs the same transfer edge handling because
                     // onChange does not fire for its initial value.
                     guard case .connected(let port, _) = self.tunnelManager.state else { return }
+                    let pairingIdentity = self.tunnelManager.dialedPairingIdentity
                     await self.transferEndpointResolver.update(activeLocalPort: port)
-                    await self.transferEngine.noteNewConnectionEstablished()
+                    await self.transferEngine.noteNewConnectionEstablished(pairingIdentity: pairingIdentity)
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
         }
@@ -853,9 +854,10 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.tunnelManager.state) { _, newState in
             switch newState {
             case .connected(let port, _):
+                let pairingIdentity = self.tunnelManager.dialedPairingIdentity
                 Task {
                     await self.transferEndpointResolver.update(activeLocalPort: port)
-                    await self.transferEngine.noteNewConnectionEstablished()
+                    await self.transferEngine.noteNewConnectionEstablished(pairingIdentity: pairingIdentity)
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
                 Task { await self.foregroundDrainGate.requestDrain() }

@@ -237,6 +237,7 @@ actor TransferEngine {
     private var attemptCountByItemID: [UUID: Int] = [:]
     private var firstAttemptAtByItemID: [UUID: Date] = [:]
     private var attentionRetryArmed = false
+    private var connectedPairingIdentity: String?
     private var sourceCursorByBand: [TransferPriorityBand: Int] = [:]
     private var retrySleepTask: Task<Void, Never>?
     private var paused = false
@@ -330,6 +331,7 @@ actor TransferEngine {
         }
         self.scheduleStatusUpdate(summary: "queued")
         self.initializedForLaunch = true
+        self.followPairingIfChanged()
     }
 
     func enableDispatch() {
@@ -542,9 +544,57 @@ actor TransferEngine {
         self.scheduleWork()
     }
 
-    func noteNewConnectionEstablished() {
+    /// `pairingIdentity` names the pairing this connection was dialed for; nil
+    /// when it is not known, which leaves held items as they are.
+    func noteNewConnectionEstablished(pairingIdentity: String? = nil) {
+        if let pairingIdentity {
+            self.connectedPairingIdentity = pairingIdentity
+            self.followPairingIfChanged()
+        }
         self.attentionRetryArmed = true
         transferLog.notice("transfer attention retry armed")
+    }
+
+    /// Everything held goes to the journal the device is paired with now, so
+    /// after a pairing change nothing an earlier journal said decides what is
+    /// sent. Every item waiting in attention is queued again, whatever that
+    /// journal's verdict was, and an import that journal saved but did not
+    /// start is saved again, because the saved path it returned means nothing
+    /// to another journal. `client_item_id` keeps a re-save to the same journal
+    /// idempotent. A SAVE never reads the body cache, and the START that
+    /// follows it replaces the cache, so a stale START body is never sent. The endpoint resolver still holds every send until the owner
+    /// confirms the new journal's mark.
+    ///
+    /// The new pairing is recorded only after the items are reset, so a failure
+    /// part way through is finished on the next connection.
+    private func followPairingIfChanged() {
+        guard self.initializedForLaunch,
+              let identity = self.connectedPairingIdentity,
+              self.spool.followedPairing() != identity
+        else {
+            return
+        }
+        do {
+            try self.moveAttentionItemsToQueued(
+                self.attentionItems.values
+                    .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
+                    .sorted(by: self.itemSort)
+            )
+            for item in self.queuedItems.values where item.manifest.saveThenStart?.phase == .startPending {
+                var manifest = item.manifest.replacingNextAttemptAt(nil)
+                manifest.saveThenStart = TransferSaveThenStartState(phase: .savePending)
+                self.queuedItems[item.manifest.itemID] = try self.spool.updateQueuedManifest(
+                    manifest,
+                    directoryURL: item.directoryURL
+                )
+            }
+            try self.spool.recordFollowedPairing(identity)
+            transferLog.notice("transfer pairing changed; held items follow it")
+        } catch {
+            transferLog.error("transfer pairing change incomplete \(String(describing: error), privacy: .public)")
+        }
+        self.scheduleStatusUpdate(summary: self.lastEventSummary)
+        self.scheduleWork()
     }
 
     private func consumeAttentionRetryArm() -> Bool {
