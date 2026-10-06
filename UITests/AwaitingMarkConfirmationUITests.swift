@@ -71,7 +71,7 @@ nonisolated final class AwaitingMarkConfirmationUITests: XCTestCase {
 
         let connectedRegion = app.descendants(matching: .any)["shell.pane.status.connected"]
         self.scrollToElement(connectedRegion, in: app)
-        XCTAssertTrue(connectedRegion.waitForExistence(timeout: 10))
+        XCTAssertTrue(connectedRegion.waitForExistence(timeout: 10), app.debugDescription)
 
         let awaitingLead = app.descendants(matching: .any)["shell.pane.status.leadState.awaitingMarkConfirmation"]
         XCTAssertFalse(awaitingLead.exists)

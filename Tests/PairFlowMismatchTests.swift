@@ -35,9 +35,6 @@ private final class BoolBox: @unchecked Sendable {
 nonisolated final class PairFlowMismatchTests: XCTestCase {
     @MainActor
     func testMismatchTeardownClearsAppPairingAndDisconnectsTunnel() async throws {
-        try? SPLRuntime.keychainStore.delete()
-        defer { try? SPLRuntime.keychainStore.delete() }
-
         TransferURLProtocol.reset()
         defer { TransferURLProtocol.reset() }
 
@@ -98,6 +95,7 @@ nonisolated final class PairFlowMismatchTests: XCTestCase {
         tunnel.forceConnected(port: 7071, via: .lan)
 
         let coordinator = PairFlowCoordinator(
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             pairOperation: { _, _, _, _ in pairing }
         )

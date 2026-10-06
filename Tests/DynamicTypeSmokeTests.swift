@@ -8,7 +8,14 @@ import XCTest
 nonisolated final class DynamicTypeSmokeTests: XCTestCase {
     @MainActor
     func testOnboardingTodayMoreAndSourcesRenderAtAccessibilityXXXL() async throws {
-        let appConfig = AppConfig(confirmationStore: JournalSendConfirmationStore.memory())
+        let confirmationStore = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: { nil },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        let appConfig = AppConfig(confirmationStore: confirmationStore, store: credentials)
         appConfig.seedUITestPairing(journalRoot: "http://127.0.0.1:7071")
         let connectionStallMonitor = ConnectionStallMonitor(
             store: InMemoryConnectionStallStore(),
@@ -16,7 +23,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             credentials: appConfig.store
         )
 
-        let tunnelManager = TunnelManager(transport: MockCFTunnelTransport())
+        let tunnelManager = TunnelManager(transport: MockCFTunnelTransport(), store: credentials)
         let diagnosticLog = DiagnosticLog()
         let mobileSegmentRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("DynamicTypeSmokeTests-MobileSegment-\(UUID().uuidString)", isDirectory: true)
