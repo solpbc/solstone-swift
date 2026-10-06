@@ -270,6 +270,10 @@ final class AppConfig {
 
         do {
             try self.applyPairing(pairing)
+            // This DEBUG fixture represents an already paired shell. A prior
+            // no-journal test can leave the same journal's adoption baseline;
+            // reseeding it must not become a new owner replacement ceremony.
+            try self.deviceMigrationStore.finishFreshPairing(pairing: pairing, includeFreshPairOffer: false)
         } catch {
             appConfigLog.error("ui-test pairing seed save failed: \(String(describing: error), privacy: .public)")
             self.applyDerivedState(from: pairing)

@@ -121,6 +121,23 @@ nonisolated final class AppConfigTests: XCTestCase {
     }
 
     @MainActor
+    func testSeedUITestPairingRetainsAdoptionWithoutCreatingReplacementAfterNoJournalFixture() throws {
+        let config = self.makeConfig()
+        config.seedUITestPairing()
+        let pairing = try XCTUnwrap(self.pairingState.load())
+        let identity = try DevicePairingIdentity.make(for: pairing)
+        XCTAssertNotNil(try config.deviceMigrationStore.loadPortable(for: identity).baseline)
+
+        config.clearPairing()
+        XCTAssertNil(self.pairingState.load())
+        config.seedUITestPairing()
+
+        XCTAssertNil(try config.deviceMigrationStore.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(try config.deviceMigrationStore.classify(pairing: pairing), .sameDevice)
+        XCTAssertTrue(config.confirmationStore.allowsSend(pairing: pairing))
+    }
+
+    @MainActor
     func testSeedUITestPairingDerivesEndpointAndPreservesSessionToken() {
         let config = self.makeConfig()
         config.seedUITestPairing(
