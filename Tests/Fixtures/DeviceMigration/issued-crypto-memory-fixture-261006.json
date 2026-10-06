@@ -1,0 +1,66 @@
+{
+  "fixture_only": true,
+  "recipe": "CryptoCSR.generate plus real authenticated SPL rekey; positive validator and unrelated-key negative control",
+  "operation_id": "01E5B17A-5C85-4E7D-8F37-BAB9BD454FBD",
+  "validated_cid": "sha256:44a36c4f06030df79c71cedc1993c2831f13b832d4c4de8896b1e3a569d7bcdc",
+  "paired_at_epoch": 1791250883.45638,
+  "csr_pem": "-----BEGIN CERTIFICATE REQUEST-----\nMIHaMIGCAgEAMCAxHjAcBgNVBAMMFWNhbGxlci1jcnlwdG8tZml4dHVyZTBZMBMG\nByqGSM49AgEGCCqGSM49AwEHA0IABEtuywfbtxy3wFi8fY+ghcXlaElA+pJS/OQ9\nDmGI7yB7fg/NE3RHvHy5CfxjVXbtud7coLvJ9V6X7FsZdSgAZdWgADAKBggqhkjO\nPQQDAgNHADBEAiAK6QVcHwPmOKob5bsQQudLLcEv4MvfcDPHyvgiR5ScVwIgVBwE\n8qzNLyECLvXtoLFAVjaE/cPbCeweQJxxCnxhTQk=\n-----END CERTIFICATE REQUEST-----\n",
+  "private_key_pem": "-----BEGIN PRIVATE KEY-----\nMIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg33KcIZI2NyVtnUOE\ndprMsYgF1rQtN9WYLizB4zcRTSegCgYIKoZIzj0DAQehRANCAARLbssH27cct8BY\nvH2PoIXF5WhJQPqSUvzkPQ5hiO8ge34PzRN0R7x8uQn8Y1V27bne3KC7yfVel+xb\nGXUoAGXV\n-----END PRIVATE KEY-----\n",
+  "public_key_x963_sha256": "39086c9f2b8413f541ce7d661930dd5c305ba35d6f80220e1339085efee9be5d",
+  "old_pairing_public": {
+    "ca_chain_pem": "-----BEGIN CERTIFICATE-----\nMIIBfjCCASSgAwIBAgIUG/PA1JvoMk8IBNTffudL/f/u6yAwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQc29sc3RvbmUgbGluayBDQTAeFw0yNjEwMDUyMTU1NDNaFw0z\nNjEwMDIyMjAwNDNaMBsxGTAXBgNVBAMMEHNvbHN0b25lIGxpbmsgQ0EwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAAQwaTt8bCzWv3yDS51AbPY4+TMzrmuqopfsYxPz\n3rwMsO3EsJa6TCPDq0ItsRM6gmX9BO25ahWrj/ZSaIhryBFTo0YwRDAPBgNVHQ8B\nAf8EBQMDB4YAMB0GA1UdDgQWBBTN56JzIL/ug6A7vOFzqgpZqafyCjASBgNVHRMB\nAf8ECDAGAQH/AgEAMAoGCCqGSM49BAMCA0gAMEUCIQCLKG0apPWfIIYAk7WmIoAS\nbvKhYKMeHHDhjOXcQFeEDQIgegppd5DUwUtbzcT8+o4sgkwyFhdJ7zxSOeLey/zC\nC58=\n-----END CERTIFICATE-----\n",
+    "client_cert": "-----BEGIN CERTIFICATE-----\nMIIBmjCCAUGgAwIBAgIUNi8l4L2fE9T7LGYP47JC3wlETwEwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQc29sc3RvbmUgbGluayBDQTAeFw0yNjEwMDYwMTM2MjJaFw0z\nNjEwMDMwMTQxMjJaMCYxJDAiBgNVBAMMG2NhbGxlci1maXh0dXJlLW9sZC00QUM0\nNzA0NzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABK4ATRkDujPOcEZ+jS8mUO79\n8QSoEoC4M3HQ1lBDhgKhCr6dHD3VVlkmT0PamMvtUHL1WaM9Vsus8Jce6CeCzxuj\nWDBWMA8GA1UdDwEB/wQFAwMHgAAwEwYDVR0lBAwwCgYIKwYBBQUHAwIwHQYDVR0O\nBBYEFPQwneZvvw5gxvk187Zr1wC8IV/CMA8GA1UdEwEB/wQFMAMBAQAwCgYIKoZI\nzj0EAwIDRwAwRAIgfi1miXvfrOC3vUvLUylnl8G3S/Vgv/kwwISYVEk6+YsCIEya\nSDeTyvjZokUkwSJki5UwWlrDTKD6a46hBd+csWdC\n-----END CERTIFICATE-----\n",
+    "fingerprint": "sha256:db6d12d5622c7b92e5c2586edb34f8538f92fac94f255ec60aae45046b862ba2",
+    "home_label": "aground\u00b7photo",
+    "instance_id": "bb4e06a7-3e8e-81aa-b3a4-351461b0c019",
+    "relay_endpoint": "https://link.solstone.app"
+  },
+  "provenance": {
+    "actual_native_fixture_sha256": "10213fefc7ebc073d6a9d39db0edcbca9210c9adbec6abf9af642c74b19be32f",
+    "native_producer_exit_code": 0,
+    "actual_matching_key_positive_and_wrong_key_negative_passed": true,
+    "independent_key_csr_leaf_and_ca_audit_passed": true,
+    "live_fixture_client_authorization_removed": true,
+    "transformations": "Remove optional local_endpoints and relay_access from actual issued rekey response; second copy adds canonical v2 not_configured envelope. Required certificate/identity/operation fields unchanged. No live relay capability included."
+  },
+  "responses": {
+    "without_optional_network_metadata": {
+      "cid": "sha256:44a36c4f06030df79c71cedc1993c2831f13b832d4c4de8896b1e3a569d7bcdc",
+      "operation_id": "01E5B17A-5C85-4E7D-8F37-BAB9BD454FBD",
+      "pairing": {
+        "ca_chain": [
+          "-----BEGIN CERTIFICATE-----\nMIIBfjCCASSgAwIBAgIUG/PA1JvoMk8IBNTffudL/f/u6yAwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQc29sc3RvbmUgbGluayBDQTAeFw0yNjEwMDUyMTU1NDNaFw0z\nNjEwMDIyMjAwNDNaMBsxGTAXBgNVBAMMEHNvbHN0b25lIGxpbmsgQ0EwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAAQwaTt8bCzWv3yDS51AbPY4+TMzrmuqopfsYxPz\n3rwMsO3EsJa6TCPDq0ItsRM6gmX9BO25ahWrj/ZSaIhryBFTo0YwRDAPBgNVHQ8B\nAf8EBQMDB4YAMB0GA1UdDgQWBBTN56JzIL/ug6A7vOFzqgpZqafyCjASBgNVHRMB\nAf8ECDAGAQH/AgEAMAoGCCqGSM49BAMCA0gAMEUCIQCLKG0apPWfIIYAk7WmIoAS\nbvKhYKMeHHDhjOXcQFeEDQIgegppd5DUwUtbzcT8+o4sgkwyFhdJ7zxSOeLey/zC\nC58=\n-----END CERTIFICATE-----\n"
+        ],
+        "client_cert": "-----BEGIN CERTIFICATE-----\nMIIBlTCCATugAwIBAgIUf//Fme+nNSJCR8VULRCNohwg9BQwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQc29sc3RvbmUgbGluayBDQTAeFw0yNjEwMDYwMTM2MjNaFw0z\nNjEwMDMwMTQxMjNaMCAxHjAcBgNVBAMMFWNhbGxlci1jcnlwdG8tZml4dHVyZTBZ\nMBMGByqGSM49AgEGCCqGSM49AwEHA0IABEtuywfbtxy3wFi8fY+ghcXlaElA+pJS\n/OQ9DmGI7yB7fg/NE3RHvHy5CfxjVXbtud7coLvJ9V6X7FsZdSgAZdWjWDBWMA8G\nA1UdDwEB/wQFAwMHgAAwEwYDVR0lBAwwCgYIKwYBBQUHAwIwHQYDVR0OBBYEFPsp\n1AvYcq7waMRn8XGtgQ9/yKJVMA8GA1UdEwEB/wQFMAMBAQAwCgYIKoZIzj0EAwID\nSAAwRQIgdGQGeQC7CvkfXon203PBWhsALINxJkh2PeFcsKAN6wsCIQDt8yOX4/yG\ntglh1cmoaRS/ImmpupIJNvPpqv+I3+QL2w==\n-----END CERTIFICATE-----\n",
+        "fingerprint": "sha256:44a36c4f06030df79c71cedc1993c2831f13b832d4c4de8896b1e3a569d7bcdc",
+        "home_attestation": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImhvbWUtYXR0ZXN0In0.eyJpc3MiOiJob21lOmJiNGUwNmE3LTNlOGUtODFhYS1iM2E0LTM1MTQ2MWIwYzAxOSIsImF1ZCI6InNwbC1yZWxheSIsInNjb3BlIjoiZGV2aWNlLmVucm9sbCIsImluc3RhbmNlX2lkIjoiYmI0ZTA2YTctM2U4ZS04MWFhLWIzYTQtMzUxNDYxYjBjMDE5IiwiZGV2aWNlX2ZwIjoic2hhMjU2OjQ0YTM2YzRmMDYwMzBkZjc5YzcxY2VkYzE5OTNjMjgzMWYxM2I4MzJkNGM0ZGU4ODk2YjFlM2E1NjlkN2JjZGMiLCJpYXQiOjE3OTEyNTA4ODMsImV4cCI6MTc5MTI1MTEyMywianRpIjoiOWxoaHVjclQwbnNobXBIbkI5SWRXUSJ9.3LB5tV8pWFoLuB5OEcJ6kaE0TqsJO6KJNbh6omTQjECM9gsWzYDXKDVGou7hUYgIKo9Qg0DcP0Uv5FNV2lBsCQ",
+        "home_label": "aground\u00b7photo",
+        "instance_id": "bb4e06a7-3e8e-81aa-b3a4-351461b0c019"
+      },
+      "previous_cid": "sha256:db6d12d5622c7b92e5c2586edb34f8538f92fac94f255ec60aae45046b862ba2",
+      "protocol_version": 1,
+      "state": "pending"
+    },
+    "not_configured": {
+      "cid": "sha256:44a36c4f06030df79c71cedc1993c2831f13b832d4c4de8896b1e3a569d7bcdc",
+      "operation_id": "01E5B17A-5C85-4E7D-8F37-BAB9BD454FBD",
+      "pairing": {
+        "ca_chain": [
+          "-----BEGIN CERTIFICATE-----\nMIIBfjCCASSgAwIBAgIUG/PA1JvoMk8IBNTffudL/f/u6yAwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQc29sc3RvbmUgbGluayBDQTAeFw0yNjEwMDUyMTU1NDNaFw0z\nNjEwMDIyMjAwNDNaMBsxGTAXBgNVBAMMEHNvbHN0b25lIGxpbmsgQ0EwWTATBgcq\nhkjOPQIBBggqhkjOPQMBBwNCAAQwaTt8bCzWv3yDS51AbPY4+TMzrmuqopfsYxPz\n3rwMsO3EsJa6TCPDq0ItsRM6gmX9BO25ahWrj/ZSaIhryBFTo0YwRDAPBgNVHQ8B\nAf8EBQMDB4YAMB0GA1UdDgQWBBTN56JzIL/ug6A7vOFzqgpZqafyCjASBgNVHRMB\nAf8ECDAGAQH/AgEAMAoGCCqGSM49BAMCA0gAMEUCIQCLKG0apPWfIIYAk7WmIoAS\nbvKhYKMeHHDhjOXcQFeEDQIgegppd5DUwUtbzcT8+o4sgkwyFhdJ7zxSOeLey/zC\nC58=\n-----END CERTIFICATE-----\n"
+        ],
+        "client_cert": "-----BEGIN CERTIFICATE-----\nMIIBlTCCATugAwIBAgIUf//Fme+nNSJCR8VULRCNohwg9BQwCgYIKoZIzj0EAwIw\nGzEZMBcGA1UEAwwQc29sc3RvbmUgbGluayBDQTAeFw0yNjEwMDYwMTM2MjNaFw0z\nNjEwMDMwMTQxMjNaMCAxHjAcBgNVBAMMFWNhbGxlci1jcnlwdG8tZml4dHVyZTBZ\nMBMGByqGSM49AgEGCCqGSM49AwEHA0IABEtuywfbtxy3wFi8fY+ghcXlaElA+pJS\n/OQ9DmGI7yB7fg/NE3RHvHy5CfxjVXbtud7coLvJ9V6X7FsZdSgAZdWjWDBWMA8G\nA1UdDwEB/wQFAwMHgAAwEwYDVR0lBAwwCgYIKwYBBQUHAwIwHQYDVR0OBBYEFPsp\n1AvYcq7waMRn8XGtgQ9/yKJVMA8GA1UdEwEB/wQFMAMBAQAwCgYIKoZIzj0EAwID\nSAAwRQIgdGQGeQC7CvkfXon203PBWhsALINxJkh2PeFcsKAN6wsCIQDt8yOX4/yG\ntglh1cmoaRS/ImmpupIJNvPpqv+I3+QL2w==\n-----END CERTIFICATE-----\n",
+        "fingerprint": "sha256:44a36c4f06030df79c71cedc1993c2831f13b832d4c4de8896b1e3a569d7bcdc",
+        "home_attestation": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImhvbWUtYXR0ZXN0In0.eyJpc3MiOiJob21lOmJiNGUwNmE3LTNlOGUtODFhYS1iM2E0LTM1MTQ2MWIwYzAxOSIsImF1ZCI6InNwbC1yZWxheSIsInNjb3BlIjoiZGV2aWNlLmVucm9sbCIsImluc3RhbmNlX2lkIjoiYmI0ZTA2YTctM2U4ZS04MWFhLWIzYTQtMzUxNDYxYjBjMDE5IiwiZGV2aWNlX2ZwIjoic2hhMjU2OjQ0YTM2YzRmMDYwMzBkZjc5YzcxY2VkYzE5OTNjMjgzMWYxM2I4MzJkNGM0ZGU4ODk2YjFlM2E1NjlkN2JjZGMiLCJpYXQiOjE3OTEyNTA4ODMsImV4cCI6MTc5MTI1MTEyMywianRpIjoiOWxoaHVjclQwbnNobXBIbkI5SWRXUSJ9.3LB5tV8pWFoLuB5OEcJ6kaE0TqsJO6KJNbh6omTQjECM9gsWzYDXKDVGou7hUYgIKo9Qg0DcP0Uv5FNV2lBsCQ",
+        "home_label": "aground\u00b7photo",
+        "instance_id": "bb4e06a7-3e8e-81aa-b3a4-351461b0c019",
+        "relay_access": {
+          "protocol_version": 2,
+          "status": "not_configured"
+        }
+      },
+      "previous_cid": "sha256:db6d12d5622c7b92e5c2586edb34f8538f92fac94f255ec60aae45046b862ba2",
+      "protocol_version": 1,
+      "state": "pending"
+    }
+  }
+}

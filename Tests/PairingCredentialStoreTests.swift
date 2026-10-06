@@ -69,13 +69,14 @@ final class PairingCredentialStoreTests: XCTestCase {
 
     private func makeSamplePairing(
         instanceID: String = "test-instance",
+        fingerprint: String = "0123456789abcdef",
         relayEnrollment: RelayEnrollment = .unavailable
     ) -> StoredPairing {
         StoredPairing(
             instanceID: instanceID,
             homeLabel: "Alice Journal",
             relayEndpoint: "https://relay.example.com",
-            fingerprint: "0123456789abcdef",
+            fingerprint: fingerprint,
             clientCertPEM: CertlessTrustFixtures.leafPEM,
             clientKeyPEM: "KEY",
             caChainPEM: CertlessTrustFixtures.caPEM,
@@ -511,6 +512,69 @@ final class PairingCredentialStoreTests: XCTestCase {
         XCTAssertEqual(deletePushKeyCount.value, 0)
     }
 
+    func testPairingFlowLeasePreventsLateResponseFromReplacingNewFlow() throws {
+        let holder = StoredHolder(nil)
+        let store = makeStore(holder: holder)
+        let oldResponse = makeSamplePairing(instanceID: "old-flow")
+        let newerResponse = makeSamplePairing(instanceID: "new-flow")
+
+        let oldLease = try store.beginPairingFlow()
+        let currentLease = try store.beginPairingFlow()
+        XCTAssertThrowsError(try store.applyPairing(oldResponse, ifPairingFlowLease: oldLease))
+        XCTAssertNil(holder.stored)
+
+        try store.applyPairing(newerResponse, ifPairingFlowLease: currentLease)
+        XCTAssertEqual(holder.stored?.instanceID, "new-flow")
+    }
+
+    func testPairingFlowLeaseRemainsOwnedAfterItsCommitUntilAnotherFlowStarts() throws {
+        let holder = StoredHolder(nil)
+        let store = makeStore(holder: holder)
+        let lease = try store.beginPairingFlow()
+
+        try store.applyPairing(
+            makeSamplePairing(instanceID: "committed-flow", fingerprint: "committed-cid"),
+            ifPairingFlowLease: lease
+        )
+        XCTAssertTrue(try store.migrationStore.ownsPairingFlowLease(lease))
+
+        let nextLease = try store.beginPairingFlow()
+        XCTAssertFalse(try store.migrationStore.ownsPairingFlowLease(lease))
+        XCTAssertTrue(try store.migrationStore.ownsPairingFlowLease(nextLease))
+    }
+
+    func testPairingInvalidationCompareAndSetRejectsReplacedCredentialOwner() throws {
+        let holder = StoredHolder(nil)
+        let store = makeStore(holder: holder)
+        try store.applyPairing(makeSamplePairing(instanceID: "same-journal", fingerprint: "old-cid"))
+        let old = store.snapshot()
+        let oldOwner = try XCTUnwrap(old.deviceOwnerID)
+        try store.applyPairing(makeSamplePairing(instanceID: "same-journal", fingerprint: "fresh-cid"))
+        let fresh = store.snapshot()
+
+        XCTAssertThrowsError(try store.beginPairingInvalidation(
+            expectedOwnerID: oldOwner,
+            expectedPairingGeneration: old.pairingGeneration
+        ))
+        XCTAssertEqual(fresh, store.snapshot())
+        XCTAssertEqual(store.snapshot().pairing?.fingerprint, "fresh-cid")
+        XCTAssertTrue(store.hasActiveOwner)
+    }
+
+    func testCancelledPairingFlowDoesNotDurablyApplyResponse() throws {
+        let holder = StoredHolder(nil)
+        let store = makeStore(holder: holder)
+        let lease = try store.beginPairingFlow()
+
+        XCTAssertThrowsError(try store.applyPairing(
+            makeSamplePairing(instanceID: "cancelled-flow"),
+            ifPairingFlowLease: lease,
+            shouldCommit: { false }
+        ))
+        XCTAssertNil(holder.stored)
+        XCTAssertNil(store.snapshot().deviceOwnerID)
+    }
+
     func testApplyPairingWithNoStoredPairingCallsDeletePushKey() throws {
         let holder = StoredHolder(nil)
         let deletePushKeyCount = StoreTestCounter()
@@ -527,19 +591,39 @@ final class PairingCredentialStoreTests: XCTestCase {
         XCTAssertEqual(deletePushKeyCount.value, 1)
     }
 
-    func testThrownDeletePushKeyStillClearsPairing() throws {
+    func testThrownDeletePushKeyKeepsInvalidationFencedUntilColdCleanupRetry() throws {
         let holder = StoredHolder(makeSamplePairing())
+        let migration = DeviceMigrationStore.memory()
+        let deletePushKeyCount = StoreTestCounter()
+        let deletePushKey: @Sendable () throws -> Void = {
+            if deletePushKeyCount.next() == 1 { throw NSError(domain: "TestError", code: -1) }
+        }
         let store = PairingCredentialStore(
             confirmationStore: JournalSendConfirmationStore.memory(),
+            migrationStore: migration,
             loadPairing: { holder.stored },
             savePairing: { holder.stored = $0 },
             deletePairing: { holder.stored = nil },
-            deletePushKey: { throw NSError(domain: "TestError", code: -1) }
+            deletePushKey: deletePushKey
         )
 
-        try store.clearPairing()
+        XCTAssertThrowsError(try store.clearPairing())
         XCTAssertNil(holder.stored)
-        XCTAssertNil(store.snapshot().pairing)
+        XCTAssertFalse(store.hasActiveOwner)
+        XCTAssertNotNil(try migration.resumeInvalidation())
+        let recovered = PairingCredentialStore(
+            confirmationStore: JournalSendConfirmationStore.memory(),
+            migrationStore: migration,
+            loadPairing: { holder.stored },
+            savePairing: { holder.stored = $0 },
+            deletePairing: { holder.stored = nil },
+            deletePushKey: deletePushKey
+        )
+        XCTAssertNil(recovered.snapshot().pairing)
+        try recovered.clearPairing()
+        XCTAssertNil(try migration.resumeInvalidation())
+        XCTAssertNil(recovered.snapshot().pairing)
+        XCTAssertFalse(recovered.hasActiveOwner)
     }
 
     func testPersistRefreshedPairingAndCommitReadyAccessKeepConfirmationRecord() async throws {

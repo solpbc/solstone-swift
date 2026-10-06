@@ -165,6 +165,7 @@ func resolveConfirmation(
 }
 
 @MainActor
+@discardableResult
 func tearDownMismatchedPairing(
     appConfig: AppConfig,
     tunnelManager: TunnelManager,
@@ -172,14 +173,26 @@ func tearDownMismatchedPairing(
     notice: JournalUnpairNoticeStore = JournalUnpairNoticeStore(),
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
     timeout: Duration = .seconds(10)
-) async {
-    await ownerUnpair(
+) async -> Bool {
+    let snapshot = appConfig.store.snapshot()
+    guard let pairing = snapshot.pairing,
+          let ownerID = snapshot.deviceOwnerID,
+          (try? appConfig.store.migrationStore.owns(ownerID: ownerID, pairing: pairing)) == true else {
+        return false
+    }
+    let expectedFlowGeneration = coordinator.pairingFlowGeneration
+    let expectedClearedPairingGeneration = snapshot.pairingGeneration &+ 2
+    guard await ownerUnpair(
         appConfig: appConfig,
         tunnelManager: tunnelManager,
         notice: notice,
         transport: transport,
-        timeout: timeout
+        timeout: timeout,
+        expectedOwnerID: ownerID,
+        expectedPairingGeneration: snapshot.pairingGeneration
+    ) else { return false }
+    return coordinator.reflectUnpairedIfClear(
+        expectedFlowGeneration: expectedFlowGeneration,
+        expectedPairingGeneration: expectedClearedPairingGeneration
     )
-    await tunnelManager.disconnect()
-    await coordinator.unpair()
 }

@@ -16,6 +16,7 @@ final class JournalSendRelease {
     private let confirmationStore: JournalSendConfirmationStore
     private let transferEngine: TransferEngine
     private let foregroundDrainGate: ForegroundDrainGate
+    private let homeJobs: HomeAuthenticatedJobs?
     private let pushManagerProvider: @MainActor () -> PushNotificationManager?
 
     init(
@@ -23,6 +24,7 @@ final class JournalSendRelease {
         confirmationStore: JournalSendConfirmationStore,
         transferEngine: TransferEngine,
         foregroundDrainGate: ForegroundDrainGate,
+        homeJobs: HomeAuthenticatedJobs? = nil,
         pushManager: PushNotificationManager? = nil,
         pushManagerProvider: (@MainActor () -> PushNotificationManager?)? = nil
     ) {
@@ -30,6 +32,7 @@ final class JournalSendRelease {
         self.confirmationStore = confirmationStore
         self.transferEngine = transferEngine
         self.foregroundDrainGate = foregroundDrainGate
+        self.homeJobs = homeJobs
         if let pushManager {
             self.pushManagerProvider = { pushManager }
         } else if let pushManagerProvider {
@@ -42,6 +45,8 @@ final class JournalSendRelease {
     func authorize(_ appConfig: AppConfig, writeMarker: Bool = false) throws {
         let snapshot = self.credentialStore.snapshot()
         guard let pairing = snapshot.pairing,
+              snapshot.deviceOwnerID != nil,
+              self.credentialStore.hasActiveOwner,
               let key = journalSendConfirmationKey(for: pairing)
         else {
             releaseLog.error("\(JournalSendConfirmationStore.confirmFailedCode, privacy: .public)")
@@ -62,6 +67,7 @@ final class JournalSendRelease {
         }
 
         appConfig.journalSendConfirmed = true
+        self.homeJobs?.confirmationDidChange()
         self.kickConfirmedSend()
     }
 

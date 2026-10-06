@@ -27,6 +27,26 @@ private final class MockPathSource: PathMonitoringSource, @unchecked Sendable {
     }
 }
 
+private enum MigrationPreflightTestError: Error {
+    case refused
+}
+
+@MainActor
+private final class FailingMigrationControl: MigrationControlExchanging {
+    private(set) var calls = 0
+
+    func postRekey(
+        pairing: StoredPairing,
+        candidates: [TransportEndpoint],
+        body: Data,
+        shouldContinue: @MainActor @Sendable () -> Bool,
+        afterResponse: @MainActor @Sendable (Data) async throws -> Void
+    ) async throws {
+        self.calls += 1
+        throw MigrationPreflightTestError.refused
+    }
+}
+
 nonisolated final class TunnelManagerTests: XCTestCase {
     @MainActor private func makeManager(
         transport: any Transporting,
@@ -51,7 +71,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         forcedReconnectDegradedIntervalCap: Duration? = nil,
         jitterRandom: @escaping @Sendable (ClosedRange<Double>) -> Double = { Double.random(in: $0) },
         activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        migrationCoordinator: DeviceMigrationCoordinator? = nil
     ) -> TunnelManager {
         let probeWatchdogPolicy = ProbeWatchdogPolicy(
             healthyInterval: probeInterval,
@@ -76,8 +97,57 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             probeWatchdogPolicy: probeWatchdogPolicy,
             random: jitterRandom,
             activeLocalTransferCountProvider: activeLocalTransferCountProvider,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            migrationCoordinator: migrationCoordinator
         )
+    }
+
+    @MainActor
+    func testMigrationPreflightFailureNeverPublishesOrdinaryTransport() async throws {
+        let pairing = StoredPairing(
+            instanceID: "migration-preflight-test",
+            homeLabel: "test",
+            relayEndpoint: "https://relay.example.invalid",
+            fingerprint: "sha256:" + String(repeating: "a", count: 64),
+            clientCertPEM: CertlessTrustFixtures.leafPEM,
+            clientKeyPEM: "old key",
+            caChainPEM: CertlessTrustFixtures.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [],
+            pairedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let confirmation = JournalSendConfirmationStore.memory()
+        let migrationStore = DeviceMigrationStore.memory()
+        _ = try migrationStore.adopt(pairing: pairing, includeFreshPairOffer: false)
+        try migrationStore.saveMarker(.fresh())
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            migrationStore: migrationStore,
+            loadPairing: { pairing },
+            savePairing: { _ in }
+        )
+        let control = FailingMigrationControl()
+        let coordinator = DeviceMigrationCoordinator(
+            credentials: credentials,
+            confirmation: confirmation,
+            control: control
+        )
+        let transport = MockCFTunnelTransport()
+        let manager = self.makeManager(
+            transport: transport,
+            pairing: pairing,
+            store: credentials,
+            migrationCoordinator: coordinator
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(control.calls, 1)
+        XCTAssertEqual(transport.connectCallCount, 0)
+        if case .connected = manager.state {
+            XCTFail("ordinary transport connected before migration admission")
+        }
+        await manager.disconnect()
     }
 
     @MainActor
@@ -4011,7 +4081,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             fingerprint: "sha256:\(String(repeating: "a", count: 64))",
             clientCertPEM: "cert",
             clientKeyPEM: "key",
-            caChainPEM: "ca",
+            caChainPEM: CertlessTrustConstants.caPEM,
             relayEnrollment: relayEnrollment ?? .enrolled(deviceToken: deviceToken, expiresAt: nil),
             localEndpoints: localEndpoints,
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)

@@ -5,6 +5,7 @@
 import Crypto
 import Foundation
 import os
+import SPLTunnel
 import XCTest
 
 nonisolated final class TransferTests: XCTestCase {
@@ -23,6 +24,130 @@ nonisolated final class TransferTests: XCTestCase {
         try? FileManager.default.removeItem(at: self.tempDirectory)
         self.tempDirectory = nil
         super.tearDown()
+    }
+
+    func testTransportRechecksAdmissionBeforeAttachingLoopbackRequest() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TransferURLProtocol.self]
+        let transport = TransferTransport(sessionConfiguration: configuration, admission: { _ in false })
+        let manifest = self.makeManifest()
+        let item = TransferStoredItem(manifest: manifest, directoryURL: self.tempDirectory)
+        let endpoint = TransferResolvedEndpoint(
+            baseURL: URL(string: "http://127.0.0.1:7071")!,
+            port: 7071,
+            dispatchOwner: TransferDispatchOwner(pairingGeneration: 1, ownerID: UUID(), credentialCID: "old")
+        )
+
+        let result = await transport.send(
+            item: item,
+            bodyURL: self.tempDirectory.appendingPathComponent("not-opened"),
+            endpoint: endpoint,
+            phase: .observerIngest
+        )
+
+        XCTAssertEqual(result.issue, .cancelled)
+        XCTAssertTrue(TransferURLProtocol.requests.isEmpty)
+    }
+
+    func testTransportRejectsAdmissionLostWhilePreparingRequest() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TransferURLProtocol.self]
+        let admissions = OSAllocatedUnfairLock(initialState: 0)
+        let transport = TransferTransport(sessionConfiguration: configuration, admission: { _ in
+            admissions.withLock {
+                $0 += 1
+                return $0 == 1
+            }
+        })
+        let manifest = self.makeManifest()
+        let item = TransferStoredItem(manifest: manifest, directoryURL: self.tempDirectory)
+        let endpoint = TransferResolvedEndpoint(
+            baseURL: URL(string: "http://127.0.0.1:7071")!,
+            port: 7071,
+            dispatchOwner: TransferDispatchOwner(pairingGeneration: 1, ownerID: UUID(), credentialCID: "old")
+        )
+
+        let result = await transport.send(
+            item: item,
+            bodyURL: self.tempDirectory.appendingPathComponent("not-opened"),
+            endpoint: endpoint,
+            phase: .observerIngest
+        )
+
+        XCTAssertEqual(result.issue, .cancelled)
+        XCTAssertEqual(admissions.withLock { $0 }, 2)
+        XCTAssertTrue(TransferURLProtocol.requests.isEmpty)
+    }
+
+    @MainActor
+    func testTransportDoesNotPrepareLoopbackRequestAfterPairingInvalidation() async throws {
+        let pairing = StoredPairing(
+            instanceID: "transfer-admission-instance",
+            homeLabel: "Journal",
+            relayEndpoint: "https://relay.example.invalid",
+            fingerprint: "sha256:" + String(repeating: "a", count: 64),
+            clientCertPEM: CertlessTrustConstants.leafPEM,
+            clientKeyPEM: "unused",
+            caChainPEM: CertlessTrustConstants.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [],
+            pairedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let confirmation = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            loadPairing: { pairing },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        try credentials.applyPairing(pairing)
+        try confirmation.writeRecord(for: pairing)
+
+        let resolver = LoopbackTransferEndpointResolver(credentials: credentials, confirmation: confirmation)
+        await resolver.update(activeLocalPort: 7071, connectionEpoch: 4)
+        guard case .available(let endpoint) = await resolver.resolve(
+            TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/app/devices/ingest")
+        ) else {
+            return XCTFail("expected an admitted endpoint before invalidation")
+        }
+
+        let admissionCalls = OSAllocatedUnfairLock(initialState: 0)
+        let requestBuilds = OSAllocatedUnfairLock(initialState: 0)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TransferURLProtocol.self]
+        let transport = TransferTransport(
+            sessionConfiguration: configuration,
+            admission: { endpoint in
+                let wasCurrent = await resolver.isCurrent(endpoint)
+                let call = admissionCalls.withLock { count -> Int in
+                    count += 1
+                    return count
+                }
+                if call == 2 { try? credentials.clearPairing() }
+                return wasCurrent
+            },
+            requestAdmission: { endpoint, start in
+                await resolver.startRequest(endpoint) {
+                    requestBuilds.withLock { $0 += 1 }
+                    start()
+                }
+            }
+        )
+        let manifest = self.makeManifest()
+        let item = TransferStoredItem(manifest: manifest, directoryURL: self.tempDirectory)
+
+        let result = await transport.send(
+            item: item,
+            bodyURL: self.tempDirectory.appendingPathComponent("not-opened"),
+            endpoint: endpoint,
+            phase: .observerIngest
+        )
+
+        XCTAssertEqual(result.issue, .cancelled)
+        XCTAssertEqual(admissionCalls.withLock { $0 }, 2)
+        XCTAssertEqual(requestBuilds.withLock { $0 }, 0)
+        XCTAssertTrue(TransferURLProtocol.requests.isEmpty)
+        XCTAssertNil(credentials.snapshot().pairing)
     }
 
     func testCrashResumeRestoresPersistedQueuedAndAttentionOnly() async throws {
@@ -977,6 +1102,11 @@ nonisolated final class TransferTests: XCTestCase {
             events.withLock { values in values.filter { $0.outcome == .resumed }.count == 1 }
         }
         XCTAssertEqual(events.withLock { values in values.filter { $0.outcome == .held }.count }, 1)
+        try await self.waitFor("resumed request") {
+            TransferURLProtocol.requests.contains { Self.boundaryItemID(from: $0) == Self.uuid(85) }
+        }
+        await engine.pause()
+        await engine.drop(itemID: Self.uuid(85))
     }
 
     func testDispatchSelectionRespectsFreshPriorityRoundRobinConcurrencyAndPause() async throws {
@@ -2386,7 +2516,7 @@ nonisolated final class TransferTests: XCTestCase {
 
         XCTAssertTrue(project.contains("solstone-swift:\n    type: application\n    platform: iOS\n    sources:\n      - path: Sources"))
         XCTAssertFalse(project.contains("excludes:\n          - SPLTunnel"))
-        XCTAssertTrue(project.contains("solstone-swiftTests:\n    type: bundle.unit-test\n    platform: iOS\n    sources:\n      - Tests"))
+        XCTAssertTrue(project.contains("solstone-swiftTests:\n    type: bundle.unit-test\n    platform: iOS\n    sources:\n      - path: Tests"))
         XCTAssertFalse(project.contains("Sources/Transfer/"))
     }
 

@@ -20,11 +20,16 @@ final class AppConfig {
     var clientCertFingerprintHex: String
     var pairedAt: Date?
     var loopbackPort: Int?
-    var journalSendConfirmed: Bool
+    private var journalSendConfirmationValue: Bool
+    var journalSendConfirmed: Bool {
+        get { self.journalSendConfirmationValue && self.store.hasActiveOwner }
+        set { self.journalSendConfirmationValue = newValue }
+    }
     let journalVersion: JournalVersionMetadata
 
     @ObservationIgnored let store: PairingCredentialStore
     @ObservationIgnored let confirmationStore: JournalSendConfirmationStore
+    @ObservationIgnored let deviceMigrationStore: DeviceMigrationStore
     @ObservationIgnored private let endpointCache: EndpointCache
     @ObservationIgnored private let appGroupMirror: AppGroupMirror
     @ObservationIgnored private let journalMarkStore: JournalMarkStore
@@ -43,12 +48,14 @@ final class AppConfig {
         let effectiveConfirmationStore = confirmationStore ?? SPLRuntime.confirmationStore
         let effectiveStore = store ?? PairingCredentialStore(
             confirmationStore: effectiveConfirmationStore,
+            migrationStore: SPLRuntime.deviceMigrationStore,
             loadPairing: loadPairing,
             savePairing: savePairing,
             deletePairing: deletePairing
         )
         self.store = effectiveStore
         self.confirmationStore = effectiveConfirmationStore
+        self.deviceMigrationStore = effectiveStore.migrationStore
         self.endpointCache = endpointCache
         self.appGroupMirror = appGroupMirror
         self.journalMarkStore = journalMarkStore
@@ -62,7 +69,7 @@ final class AppConfig {
         self.clientCertFingerprintHex = ""
         self.pairedAt = nil
         self.loopbackPort = nil
-        self.journalSendConfirmed = false
+        self.journalSendConfirmationValue = false
 
         self.store.registerOnApplyPairing { [weak self] in
             self?.journalSendConfirmed = false
@@ -119,26 +126,83 @@ final class AppConfig {
         let newIdentity = journalVersionMetadataIdentity(for: pairing)
         let unchangedIdentity = newIdentity != nil && newIdentity == self.journalVersion.identity
         self.journalSendConfirmed = false
-        try self.store.applyPairing(pairing)
+        do {
+            try self.store.applyPairing(pairing)
+        } catch {
+            if self.store.snapshot().pairing?.fingerprint == pairing.fingerprint {
+                if !unchangedIdentity { self.journalVersion.clear() }
+                self.applyDerivedState(from: pairing)
+            }
+            throw error
+        }
         if !unchangedIdentity {
             self.journalVersion.clear()
         }
-        self.applyDerivedState(from: pairing)
-        Task {
-            await self.endpointCache.bootstrap(from: pairing)
-        }
+        self.reflectCommittedPairing(pairing)
         appConfigLog.info("pairing applied for \(pairing.homeLabel, privacy: .public)")
     }
 
-    func clearPairing() {
+    func reflectCommittedPairing(_ pairing: StoredPairing) {
+        guard self.store.snapshot().pairing?.fingerprint == pairing.fingerprint else { return }
+        let newIdentity = journalVersionMetadataIdentity(for: pairing)
+        if newIdentity != self.journalVersion.identity { self.journalVersion.clear() }
         self.journalSendConfirmed = false
-        self.journalVersion.clear()
+        self.applyDerivedState(from: pairing)
+        Task { await self.endpointCache.bootstrap(from: pairing) }
+    }
+
+    func applyMigratedPairing(_ pairing: StoredPairing) {
+        self.applyDerivedState(from: pairing)
+        self.journalSendConfirmed = self.confirmationStore.allowsSend(pairing: pairing)
+        Task { await self.endpointCache.bootstrap(from: pairing) }
+        appConfigLog.info("migrated pairing applied for \(pairing.homeLabel, privacy: .public)")
+    }
+
+    @discardableResult
+    func clearPairing() -> Bool {
         do {
-            try self.store.clearPairing()
+            if self.store.snapshot().pairing == nil {
+                try self.store.clearPairing()
+            } else {
+                let lease = try self.store.beginPairingInvalidation()
+                guard try self.store.clearPairing(invalidation: lease) else { return false }
+            }
         } catch {
             appConfigLog.error("clear pairing keychain failed: \(String(describing: error), privacy: .public)")
+            return false
         }
 
+        self.finishPairingClear()
+        return true
+    }
+
+    func beginPairingInvalidation(
+        expectedOwnerID: UUID? = nil,
+        expectedPairingGeneration: UInt64? = nil
+    ) throws -> DeviceMigrationInvalidationLease {
+        let lease = try self.store.beginPairingInvalidation(
+            expectedOwnerID: expectedOwnerID,
+            expectedPairingGeneration: expectedPairingGeneration
+        )
+        self.journalSendConfirmationValue = false
+        return lease
+    }
+
+    @discardableResult
+    func clearPairing(invalidation lease: DeviceMigrationInvalidationLease) -> Bool {
+        do {
+            guard try self.store.clearPairing(invalidation: lease) else { return false }
+        } catch {
+            appConfigLog.error("clear pairing cleanup failed: \(String(describing: error), privacy: .public)")
+            return false
+        }
+        self.finishPairingClear()
+        return true
+    }
+
+    private func finishPairingClear() {
+        self.journalSendConfirmed = false
+        self.journalVersion.clear()
         Task {
             await self.endpointCache.wipe()
         }

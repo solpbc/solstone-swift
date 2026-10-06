@@ -156,11 +156,19 @@ nonisolated final class AppConfigTests: XCTestCase {
 
     @MainActor private func makeConfig(confirmationStore: JournalSendConfirmationStore = JournalSendConfirmationStore.memory()) -> AppConfig {
         let pairingState = self.pairingState!
+        let store = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            migrationStore: .memory(),
+            loadPairing: { pairingState.load() },
+            savePairing: { pairingState.save($0) },
+            deletePairing: { pairingState.delete() }
+        )
         return AppConfig(
             loadPairing: { pairingState.load() },
             savePairing: { pairingState.save($0) },
             deletePairing: { pairingState.delete() },
             confirmationStore: confirmationStore,
+            store: store,
             appGroupMirror: self.mirror()
         )
     }
@@ -178,7 +186,7 @@ nonisolated final class AppConfigTests: XCTestCase {
             fingerprint: "sha256:\(String(repeating: "a", count: 64))",
             clientCertPEM: "cert",
             clientKeyPEM: "key",
-            caChainPEM: "ca",
+            caChainPEM: CertlessTrustConstants.caPEM,
             relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
             localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)

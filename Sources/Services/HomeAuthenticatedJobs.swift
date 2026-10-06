@@ -25,6 +25,8 @@ final class HomeAuthenticatedJobs {
     private let client: AuthenticatedHomeClient
     private let deadline: Duration
     private let snapshotProvider: @MainActor () -> DeviceDescriptionSnapshot
+    private let isSendAdmissionAllowed: @Sendable () -> Bool
+    private let deviceMigrationOwner: DeviceMigrationOwnerModel?
 
     private var metadataGeneration: UInt64 = 0
     private var accessGeneration: UInt64 = 0
@@ -53,22 +55,34 @@ final class HomeAuthenticatedJobs {
         journalVersion: JournalVersionMetadata,
         client: AuthenticatedHomeClient = AuthenticatedHomeClient(),
         deadline: Duration = .seconds(15),
+        isSendAdmissionAllowed: @escaping @Sendable () -> Bool = { true },
+        deviceMigrationOwner: DeviceMigrationOwnerModel? = nil,
         snapshotProvider: @escaping @MainActor () -> DeviceDescriptionSnapshot = { DeviceDescriptionSnapshot.current() }
     ) {
         self.store = store
         self.journalVersion = journalVersion
         self.client = client
         self.deadline = deadline
+        self.isSendAdmissionAllowed = isSendAdmissionAllowed
+        self.deviceMigrationOwner = deviceMigrationOwner
         self.snapshotProvider = snapshotProvider
     }
 
-    func connected(localPort: Int) {
+    func connected(localPort: Int, connectionEpoch: UInt64? = nil) {
         let pairingGeneration = self.store.snapshot().pairingGeneration
         if self.activePort != localPort || self.activePairingGeneration != pairingGeneration {
             self.disconnected()
         }
         self.activePort = localPort
         self.activePairingGeneration = pairingGeneration
+
+        if let deviceMigrationOwner = self.deviceMigrationOwner {
+            Task { @MainActor in
+                await deviceMigrationOwner.connected(localPort: localPort, connectionEpoch: connectionEpoch)
+            }
+        }
+
+        guard self.isSendAdmissionAllowed() else { return }
         self.journalVersion.noteConnected(localPort: localPort)
 
         let snapshot = self.snapshotProvider()
@@ -101,6 +115,7 @@ final class HomeAuthenticatedJobs {
         self.accessGeneration &+= 1
         self.activePort = nil
         self.activePairingGeneration = nil
+        self.deviceMigrationOwner?.disconnected()
         self.metadataPermit?.cancel()
         self.accessPermit?.cancel()
         self.metadataPermit = nil
@@ -122,6 +137,11 @@ final class HomeAuthenticatedJobs {
         self.accessTask = nil
         self.accessWorkTask?.cancel()
         self.accessWorkTask = nil
+    }
+
+    func confirmationDidChange() {
+        guard let localPort = self.activePort else { return }
+        self.connected(localPort: localPort)
     }
 
     private enum DeadlineWorkLane {

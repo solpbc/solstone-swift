@@ -49,6 +49,7 @@ struct SolstoneSwiftApp: App {
     @State private var foregroundDrainGate: ForegroundDrainGate
     @State private var launchMaintenanceCoordinator: LaunchMaintenanceCoordinator
     @State private var journalSendRelease: JournalSendRelease
+    @State private var deviceMigrationOwner: DeviceMigrationOwnerModel
     @State private var pairFlowPresence: PairFlowPresence
     @State private var backgroundDrainTask: Task<Void, Never>?
     @State private var didBootstrapTransfer = false
@@ -287,7 +288,11 @@ struct SolstoneSwiftApp: App {
         let connectionHeardReporter = ConnectionHeardReporter()
         let transferEngine = TransferEngine(
             spool: transferSpool,
-            transport: TransferTransport(),
+            transport: TransferTransport(admission: { endpoint in
+                await transferEndpointResolver.isCurrent(endpoint)
+            }, requestAdmission: { endpoint, start in
+                await transferEndpointResolver.startRequest(endpoint, start: start)
+            }),
             endpointResolver: transferEndpointResolver,
             diagnosticsSink: ObserverAudioTransferDiagnostics.makeSink(diagnosticLog: log),
             statusMirror: transferStatusMirror,
@@ -368,10 +373,30 @@ struct SolstoneSwiftApp: App {
             mirror: transferStatusMirror,
             store: shareImportStore
         )
+        let deviceMigrationOwner = DeviceMigrationOwnerModel(
+            credentials: appConfig.store,
+            confirmation: appConfig.confirmationStore
+        )
         let homeJobs = HomeAuthenticatedJobs(
             store: appConfig.store,
-            journalVersion: appConfig.journalVersion
+            journalVersion: appConfig.journalVersion,
+            isSendAdmissionAllowed: {
+                SPLRuntime.pairingStore.hasActiveOwner
+                    && SPLRuntime.confirmationStore.allowsSend(pairing: SPLRuntime.pairingStore.snapshot().pairing)
+            },
+            deviceMigrationOwner: deviceMigrationOwner
         )
+        let migrationCoordinator = DeviceMigrationCoordinator(
+            credentials: appConfig.store,
+            confirmation: appConfig.confirmationStore,
+            appConfig: appConfig,
+            didRotateCredential: {
+                (UIApplication.shared.delegate as? AppDelegate)?.pushManager.credentialDidRotate()
+            }
+        )
+        appConfig.store.registerOnCredentialReplacement {
+            (UIApplication.shared.delegate as? AppDelegate)?.pushManager.credentialDidRotate()
+        }
         let tunnel = TunnelManager(
             transport: transport,
             store: appConfig.store,
@@ -384,8 +409,13 @@ struct SolstoneSwiftApp: App {
             },
             diagnosticLog: log,
             journalVersion: appConfig.journalVersion,
-            homeJobs: homeJobs
+            homeJobs: homeJobs,
+            migrationCoordinator: migrationCoordinator
         )
+        deviceMigrationOwner.bindActiveConnection { [weak tunnel] port, epoch in
+            guard let active = tunnel?.activeConnection else { return false }
+            return active.port == port && active.epoch == epoch
+        }
         let connectionStallMonitor = ConnectionStallMonitor(
             store: ConnectionStallStoreFactory.make(),
             clock: SystemConnectionStallClock(),
@@ -554,7 +584,8 @@ struct SolstoneSwiftApp: App {
             credentialStore: appConfig.store,
             confirmationStore: SPLRuntime.confirmationStore,
             transferEngine: transferEngine,
-            foregroundDrainGate: foregroundDrainGate
+            foregroundDrainGate: foregroundDrainGate,
+            homeJobs: homeJobs
         )
         let pairFlowPresence = PairFlowPresence()
         self._appConfig = State(initialValue: appConfig)
@@ -591,6 +622,7 @@ struct SolstoneSwiftApp: App {
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
         self._journalSendRelease = State(initialValue: journalSendRelease)
+        self._deviceMigrationOwner = State(initialValue: deviceMigrationOwner)
         self._pairFlowPresence = State(initialValue: pairFlowPresence)
 #if DEBUG && targetEnvironment(simulator)
         self._integrationGateDriver = State(initialValue: integrationGateDriver)
@@ -653,6 +685,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.problemReportsManager)
                 .environment(self.journalUnpairNoticeStore)
                 .environment(self.journalSendRelease)
+                .environment(self.deviceMigrationOwner)
                 .environment(self.pairFlowPresence)
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
@@ -731,9 +764,12 @@ struct SolstoneSwiftApp: App {
                 .task {
                     // Initial connected state needs the same transfer edge handling because
                     // onChange does not fire for its initial value.
-                    guard case .connected(let port, _) = self.tunnelManager.state else { return }
+                    guard let connection = self.tunnelManager.activeConnection else { return }
                     let pairingIdentity = self.tunnelManager.dialedPairingIdentity
-                    await self.transferEndpointResolver.update(activeLocalPort: port)
+                    await self.transferEndpointResolver.update(
+                        activeLocalPort: connection.port,
+                        connectionEpoch: connection.epoch
+                    )
                     await self.transferEngine.noteNewConnectionEstablished(pairingIdentity: pairingIdentity)
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
@@ -854,9 +890,13 @@ struct SolstoneSwiftApp: App {
         .onChange(of: self.tunnelManager.state) { _, newState in
             switch newState {
             case .connected(let port, _):
+                let connection = self.tunnelManager.activeConnection
                 let pairingIdentity = self.tunnelManager.dialedPairingIdentity
                 Task {
-                    await self.transferEndpointResolver.update(activeLocalPort: port)
+                    await self.transferEndpointResolver.update(
+                        activeLocalPort: connection?.port ?? port,
+                        connectionEpoch: connection?.epoch ?? self.tunnelManager.connectionEpoch
+                    )
                     await self.transferEngine.noteNewConnectionEstablished(pairingIdentity: pairingIdentity)
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
@@ -877,7 +917,7 @@ struct SolstoneSwiftApp: App {
                 }
             case .connecting, .waitingForHome, .disconnected, .error:
                 Task {
-                    await self.transferEndpointResolver.update(activeLocalPort: nil)
+                    await self.transferEndpointResolver.update(activeLocalPort: nil, connectionEpoch: nil)
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
                 self.integrationObserverStartTask?.cancel()

@@ -164,6 +164,7 @@ struct RootShellView: View {
 
     var body: some View {
         self.sunArcShell
+        .modifier(DeviceMigrationInitialPrompt())
         .task(id: self.tunnelManager.activeConnection?.port) {
             await self.fetchJournalMark()
         }

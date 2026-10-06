@@ -416,13 +416,21 @@ targets:
     type: bundle.unit-test
     platform: iOS
     sources:
-      - Tests
+      - path: Tests
+        excludes:
+          - Fixtures/LinkedDeviceIngest
+      - path: Tests/Fixtures/LinkedDeviceIngest
+        type: folder
+        buildPhase: resources
     resources:
       - Tests/Fixtures/ShareImportBodies
       - Tests/Fixtures/IntegrationGate
       - Tests/Fixtures/WatchCaptureStoragePreActor
       - Tests/Fixtures/PushEnvelope
       - Tests/Fixtures/solstone-core-about
+      - Tests/Fixtures/DeviceMigration/v1.schema.json
+      - Tests/Fixtures/DeviceMigration/v1.vectors.json
+      - Tests/Fixtures/DeviceMigration/issued-crypto-memory-fixture-261006.json
     dependencies:
       - target: solstone-swift
       - package: spl-swift

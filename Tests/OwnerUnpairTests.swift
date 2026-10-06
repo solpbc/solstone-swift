@@ -40,6 +40,30 @@ private final class MockUnpairTransport: @unchecked Sendable {
     }
 }
 
+private actor PausedUnpairTransport {
+    private var continuation: CheckedContinuation<(Data, URLResponse), Error>?
+    private var requestURL: URL?
+
+    func send(request: URLRequest) async throws -> (Data, URLResponse) {
+        self.requestURL = request.url
+        return try await withCheckedThrowingContinuation { self.continuation = $0 }
+    }
+
+    func waitForRequest() async {
+        while self.continuation == nil { await Task.yield() }
+    }
+
+    func resume(statusCode: Int) {
+        guard let continuation = self.continuation,
+              let requestURL = self.requestURL,
+              let response = HTTPURLResponse(url: requestURL, statusCode: statusCode, httpVersion: nil, headerFields: nil) else {
+            return
+        }
+        self.continuation = nil
+        continuation.resume(returning: (Data(), response))
+    }
+}
+
 private final class MemoryPairingStore: @unchecked Sendable {
     private let lock = NSLock()
     var pairing: StoredPairing?
@@ -66,6 +90,154 @@ private final class MemoryPairingStore: @unchecked Sendable {
 }
 
 nonisolated final class OwnerUnpairTests: XCTestCase {
+    @MainActor
+    func testFailedDurableInvalidationDoesNotRetireOrPresentNewPairFlow() async throws {
+        let persistence = MigrationTestPersistence()
+        let migration = DeviceMigrationStore(persistence: persistence)
+        let confirmation = JournalSendConfirmationStore.memory()
+        let pairing = StoredPairing(
+            instanceID: "invalidation-test-instance",
+            homeLabel: "Journal",
+            relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:" + String(repeating: "a", count: 64),
+            clientCertPEM: CertlessTrustFixtures.leafPEM,
+            clientKeyPEM: "unused",
+            caChainPEM: CertlessTrustFixtures.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [],
+            pairedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let store = MemoryPairingStore(pairing: nil)
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            migrationStore: migration,
+            loadPairing: { store.load() },
+            savePairing: { store.save($0) },
+            deletePairing: { store.delete() },
+            deletePushKey: {}
+        )
+        let appConfig = AppConfig(
+            confirmationStore: confirmation,
+            store: credentials,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
+        )
+        try appConfig.applyPairing(pairing)
+        let tunnelTransport = MockCFTunnelTransport()
+        let tunnel = TunnelManager(
+            transport: tunnelTransport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            loadPairing: { store.load() },
+            savePairing: { store.save($0) },
+            deletePairing: { store.delete() }
+        )
+        tunnel.forceConnected(port: 9090, via: .lan)
+        let suiteName = "OwnerUnpairTests.invalidation.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let notice = JournalUnpairNoticeStore(defaults: defaults)
+        let transport = MockUnpairTransport()
+        let generation = credentials.snapshot().pairingGeneration
+        persistence.failMutation(after: 0)
+
+        let didUnpair = await unpairForNewPair(
+            appConfig: appConfig,
+            tunnelManager: tunnel,
+            noticeStore: notice,
+            transport: { request in try await transport.send(request: request) }
+        )
+
+        XCTAssertFalse(didUnpair)
+        XCTAssertEqual(transport.callCount, 0)
+        XCTAssertEqual(store.load(), pairing)
+        XCTAssertEqual(store.deleteCallCount, 0)
+        XCTAssertEqual(credentials.snapshot().pairingGeneration, generation)
+        XCTAssertTrue(credentials.hasActiveOwner)
+        XCTAssertTrue(appConfig.isPaired)
+        XCTAssertTrue(tunnel.state.isConnected)
+    }
+
+    @MainActor
+    func testDelayedOldUnpairCannotClearOrDisconnectFreshSameJournalPairing() async throws {
+        let persistence = MigrationTestPersistence()
+        let migration = DeviceMigrationStore(persistence: persistence)
+        let confirmation = JournalSendConfirmationStore.memory()
+        let original = Self.makeFixturePairing()
+        let fresh = StoredPairing(
+            instanceID: original.instanceID,
+            homeLabel: original.homeLabel,
+            relayEndpoint: original.relayEndpoint,
+            fingerprint: "sha256:" + String(repeating: "b", count: 64),
+            clientCertPEM: original.clientCertPEM,
+            clientKeyPEM: original.clientKeyPEM,
+            caChainPEM: original.caChainPEM,
+            relayEnrollment: original.relayEnrollment,
+            localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 8080, scope: "")],
+            pairedAt: original.pairedAt
+        )
+        let pairingStore = MemoryPairingStore(pairing: nil)
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            migrationStore: migration,
+            loadPairing: { pairingStore.load() },
+            savePairing: { pairingStore.save($0) },
+            deletePairing: { pairingStore.delete() }
+        )
+        let appConfig = AppConfig(
+            confirmationStore: confirmation,
+            store: credentials,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
+        )
+        try appConfig.applyPairing(original)
+        let tunnelTransport = MockCFTunnelTransport()
+        let tunnel = TunnelManager(
+            transport: tunnelTransport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            loadPairing: { pairingStore.load() },
+            savePairing: { pairingStore.save($0) },
+            deletePairing: { pairingStore.delete() },
+            store: credentials
+        )
+        tunnel.forceConnected(port: 9090, via: .lan)
+        let suiteName = "OwnerUnpairTests.paused.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let onboarding = OnboardingFlow(defaults: defaults)
+        onboarding.completeOnboarding()
+        let transport = PausedUnpairTransport()
+        let notice = JournalUnpairNoticeStore(defaults: defaults)
+
+        let unpairTask = Task {
+            await unpairAndReturnToOnboarding(
+                appConfig: appConfig,
+                onboardingFlow: onboarding,
+                tunnelManager: tunnel,
+                noticeStore: notice,
+                transport: { request in try await transport.send(request: request) }
+            )
+        }
+        await transport.waitForRequest()
+
+        try appConfig.applyPairing(fresh)
+        for _ in 0..<1_000 {
+            if tunnel.activeConnection != nil, tunnelTransport.connectCallCount > 0 { break }
+            await Task.yield()
+        }
+        let freshConnection = tunnel.activeConnection
+        XCTAssertNotNil(freshConnection)
+        await transport.resume(statusCode: 200)
+        await unpairTask.value
+
+        XCTAssertEqual(pairingStore.load(), fresh)
+        XCTAssertEqual(credentials.snapshot().pairing, fresh)
+        XCTAssertTrue(credentials.hasActiveOwner)
+        XCTAssertTrue(appConfig.isPaired)
+        XCTAssertEqual(tunnel.activeConnection?.epoch, freshConnection?.epoch)
+        XCTAssertTrue(onboarding.isCompleted)
+        XCTAssertEqual(onboarding.step, .done)
+    }
+
     @MainActor
     func testConnectedDELETEWithCIDAndLoopbackCapability() async throws {
         let leafPEM = CertlessTrustFixtures.leafPEM
@@ -285,7 +457,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() }
+                deletePairing: { store.delete() },
+                store: appConfig.store
             )
             tunnel.forceConnected(port: 9090, via: .lan)
             let onboarding = OnboardingFlow()
@@ -323,7 +496,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() }
+                deletePairing: { store.delete() },
+                store: appConfig.store
             )
             tunnel.forceConnected(port: 9090, via: .lan)
             let notice = JournalUnpairNoticeStore(defaults: UserDefaults(suiteName: "W2.\(UUID().uuidString)")!)
@@ -358,7 +532,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() }
+                deletePairing: { store.delete() },
+                store: appConfig.store
             )
             tunnel.forceConnected(port: 9090, via: .lan)
             let onboarding = OnboardingFlow()
@@ -396,7 +571,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() }
+                deletePairing: { store.delete() },
+                store: appConfig.store
             )
             tunnel.forceConnected(port: 9090, via: .lan)
             let coordinator = PairFlowCoordinator(

@@ -139,6 +139,66 @@ private final class CoordinatorRelayURLProtocol: URLProtocol, @unchecked Sendabl
 
 nonisolated final class PairFlowCoordinatorTests: XCTestCase {
     @MainActor
+    func testLatePairResponseCannotReplaceNewerFlow() async throws {
+        let store = Self.makeStore()
+        let oldPairing = Self.pairing(
+            instanceID: "same-journal",
+            homeLabel: "old",
+            fingerprint: "sha256:\(String(repeating: "1", count: 64))"
+        )
+        let newPairing = Self.pairing(
+            instanceID: "same-journal",
+            homeLabel: "new",
+            fingerprint: "sha256:\(String(repeating: "2", count: 64))"
+        )
+        let gate = PairFlowPairingResponseGate()
+        let oldCoordinator = PairFlowCoordinator(
+            store: store,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in await gate.waitForPairing() }
+        )
+        let pairURL = try PairURL.parse(Self.canonicalDirectURL())
+        let oldTask = Task { try await oldCoordinator.handlePairURL(pairURL) }
+        await gate.waitUntilStarted()
+
+        let newCoordinator = PairFlowCoordinator(
+            store: store,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in newPairing }
+        )
+        let newCommitted = try await newCoordinator.handlePairURL(pairURL)
+        XCTAssertTrue(newCommitted)
+        await gate.resume(with: oldPairing)
+
+        let oldCommitted = try await oldTask.value
+        XCTAssertFalse(oldCommitted)
+        XCTAssertEqual(try store.load(), newPairing)
+    }
+
+    @MainActor
+    func testCancelledPairFlowDoesNotApplyReturnedCredential() async throws {
+        let store = Self.makeStore()
+        let pairing = Self.pairing(instanceID: "cancelled-flow", homeLabel: "cancelled")
+        let coordinator = PairFlowCoordinator(
+            store: store,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in pairing }
+        )
+
+        let committed = try await coordinator.handlePairURL(
+            try PairURL.parse(Self.canonicalDirectURL()),
+            shouldCommit: { false }
+        )
+
+        XCTAssertFalse(committed)
+        XCTAssertNil(try store.load())
+        XCTAssertNil(store.snapshot().deviceOwnerID)
+    }
+
+    @MainActor
     func testCoordinatorFailureResetsAutoPairLatchAndAllowsRetry() async throws {
         let store = Self.makeStore()
         let transport = CountingThrowingLANPairTransport()
@@ -555,11 +615,38 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
             fingerprint: fingerprint,
             clientCertPEM: "cert",
             clientKeyPEM: "key",
-            caChainPEM: "ca",
+            caChainPEM: CertlessTrustConstants.caPEM,
             relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
             localEndpoints: localEndpoints,
             pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
         )
+    }
+}
+
+private actor PairFlowPairingResponseGate {
+    private var pairingContinuation: CheckedContinuation<StoredPairing, Never>?
+    private var startedContinuation: CheckedContinuation<Void, Never>?
+    private var started = false
+
+    func waitForPairing() async -> StoredPairing {
+        await withCheckedContinuation { continuation in
+            self.pairingContinuation = continuation
+            self.started = true
+            self.startedContinuation?.resume()
+            self.startedContinuation = nil
+        }
+    }
+
+    func waitUntilStarted() async {
+        if self.started { return }
+        await withCheckedContinuation { continuation in
+            self.startedContinuation = continuation
+        }
+    }
+
+    func resume(with pairing: StoredPairing) {
+        self.pairingContinuation?.resume(returning: pairing)
+        self.pairingContinuation = nil
     }
 }
 

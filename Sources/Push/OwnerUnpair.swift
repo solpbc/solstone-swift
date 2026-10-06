@@ -35,41 +35,70 @@ private nonisolated func executeUnpairRequest(
 }
 
 @MainActor
+@discardableResult
 func ownerUnpair(
     appConfig: AppConfig,
     tunnelManager: TunnelManager,
     notice: JournalUnpairNoticeStore,
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
-    timeout: Duration = .seconds(10)
-) async {
+    timeout: Duration = .seconds(10),
+    expectedOwnerID: UUID? = nil,
+    expectedPairingGeneration: UInt64? = nil
+) async -> Bool {
+    guard (expectedOwnerID == nil) == (expectedPairingGeneration == nil) else { return false }
     let state = tunnelManager.state
+    let lease: DeviceMigrationInvalidationLease
+    do {
+        lease = try appConfig.beginPairingInvalidation(
+            expectedOwnerID: expectedOwnerID,
+            expectedPairingGeneration: expectedPairingGeneration
+        )
+    } catch {
+        unpairLog.error("pairing invalidation could not be persisted")
+        return false
+    }
+    let invalidationGeneration = appConfig.store.snapshot().pairingGeneration
+    tunnelManager.closeOrdinaryAdmission()
+
     if case .error(.revoked) = state {
-        appConfig.clearPairing()
-        return
+        let cleared = appConfig.clearPairing(invalidation: lease)
+        await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
+        return cleared && appConfig.store.snapshot().pairing == nil
     }
 
     guard case .connected(let localPort, _) = state else {
-        appConfig.clearPairing()
+        guard appConfig.clearPairing(invalidation: lease) else {
+            await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
+            return false
+        }
         notice.markNotTold()
-        return
+        await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
+        return appConfig.store.snapshot().pairing == nil
     }
 
     guard let stored = try? appConfig.store.load(),
           let certificate = try? CertChain.certificates(fromPEM: stored.clientCertPEM).first,
-          let derData = SecCertificateCopyData(certificate) as Data?
-    else {
-        appConfig.clearPairing()
+          let derData = SecCertificateCopyData(certificate) as Data? else {
+        guard appConfig.clearPairing(invalidation: lease) else {
+            await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
+            return false
+        }
         notice.markNotTold()
-        return
+        await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
+        return appConfig.store.snapshot().pairing == nil
     }
 
     let digest = SHA256.hash(data: derData)
     let cidHex = digest.map { String(format: "%02x", $0) }.joined()
 
     guard let url = URL(string: "http://127.0.0.1:\(localPort)/app/network/api/clients/sha256%3A\(cidHex)") else {
-        appConfig.clearPairing()
+        guard appConfig.clearPairing(invalidation: lease) else {
+            await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
+            return false
+        }
         notice.markNotTold()
-        return
+        await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
+        return appConfig.store.snapshot().pairing == nil
     }
 
     var request = URLRequest(url: url)
@@ -95,10 +124,15 @@ func ownerUnpair(
         unpairLog.error("journal unpair transport failed")
     }
 
-    appConfig.clearPairing()
+    guard appConfig.clearPairing(invalidation: lease) else {
+        await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
+        return false
+    }
     if !unpairConfirmed {
         notice.markNotTold()
     }
+    await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
+    return appConfig.store.snapshot().pairing == nil
 }
 
 @MainActor
@@ -110,33 +144,33 @@ func unpairAndReturnToOnboarding(
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
     timeout: Duration = .seconds(10)
 ) async {
-    await ownerUnpair(
+    guard await ownerUnpair(
         appConfig: appConfig,
         tunnelManager: tunnelManager,
         notice: noticeStore,
         transport: transport,
         timeout: timeout
-    )
+    ), appConfig.store.snapshot().pairing == nil else { return }
     onboardingFlow.reset()
-    await tunnelManager.disconnect()
 }
 
 @MainActor
+@discardableResult
 func unpairForNewPair(
     appConfig: AppConfig,
     tunnelManager: TunnelManager,
     noticeStore: JournalUnpairNoticeStore,
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
     timeout: Duration = .seconds(10)
-) async {
-    await ownerUnpair(
+) async -> Bool {
+    guard await ownerUnpair(
         appConfig: appConfig,
         tunnelManager: tunnelManager,
         notice: noticeStore,
         transport: transport,
         timeout: timeout
-    )
-    await tunnelManager.disconnect()
+    ), appConfig.store.snapshot().pairing == nil else { return false }
+    return true
 }
 
 @MainActor
@@ -148,13 +182,12 @@ func unpairThisDevice(
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
     timeout: Duration = .seconds(10)
 ) async {
-    await ownerUnpair(
+    guard await ownerUnpair(
         appConfig: appConfig,
         tunnelManager: tunnelManager,
         notice: noticeStore,
         transport: transport,
         timeout: timeout
-    )
+    ), appConfig.store.snapshot().pairing == nil else { return }
     onboardingFlow.reset()
-    await tunnelManager.disconnect()
 }

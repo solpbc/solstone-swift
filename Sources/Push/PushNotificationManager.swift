@@ -9,6 +9,12 @@ import os
 
 private let log = Logger(subsystem: "app.solstone.swift", category: "push")
 
+nonisolated struct PushRegistrationOwner: Equatable, Sendable {
+    let pairingGeneration: UInt64
+    let ownerID: UUID
+    let credentialCID: String
+}
+
 @MainActor
 @Observable
 final class PushNotificationManager {
@@ -39,9 +45,14 @@ final class PushNotificationManager {
     private(set) var deviceToken: String?
     /// The owner's own turn-on, per device. Off until they turn it on; nothing registers while off.
     private(set) var ownerEnabled = false
-    var activeLocalPort: Int?
+    var activeLocalPort: Int? {
+        didSet {
+            if oldValue != self.activeLocalPort { self.registrationGeneration &+= 1 }
+        }
+    }
 
     @ObservationIgnored private let journalSendAllowed: @Sendable () -> Bool
+    @ObservationIgnored private let registrationOwner: (@Sendable () -> PushRegistrationOwner?)?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let session: URLSession
     @ObservationIgnored private let keyStore: PushKeyStore
@@ -53,9 +64,11 @@ final class PushNotificationManager {
     @ObservationIgnored private let isSimulator: Bool
     @ObservationIgnored private let profileBytes: @Sendable () -> Data?
     @ObservationIgnored private var tokenContinuations: [UUID: AsyncStream<String>.Continuation] = [:]
+    @ObservationIgnored private var registrationGeneration: UInt64 = 0
 
     init(
         journalSendAllowed: @escaping @Sendable () -> Bool,
+        registrationOwner: (@Sendable () -> PushRegistrationOwner?)? = nil,
         defaults: UserDefaults = .standard,
         session: URLSession = .shared,
         keyStore: PushKeyStore = .production(),
@@ -83,6 +96,7 @@ final class PushNotificationManager {
         }
     ) {
         self.journalSendAllowed = journalSendAllowed
+        self.registrationOwner = registrationOwner
         self.defaults = defaults
         self.session = session
         self.keyStore = keyStore
@@ -232,6 +246,7 @@ final class PushNotificationManager {
     }
 
     func handleTunnelConnected(localPort: Int) async {
+        if self.activeLocalPort == localPort { self.registrationGeneration &+= 1 }
         self.activeLocalPort = localPort
 
         guard self.ownerEnabled else {
@@ -282,6 +297,23 @@ final class PushNotificationManager {
         }
     }
 
+    func credentialDidRotate() {
+        self.registrationGeneration &+= 1
+        let token = self.deviceToken
+            ?? self.defaults.string(forKey: DefaultsKey.pendingRegistrationToken)
+            ?? self.defaults.string(forKey: DefaultsKey.lastRegisteredToken)
+        self.defaults.removeObject(forKey: DefaultsKey.pendingRegistrationToken)
+        self.defaults.removeObject(forKey: DefaultsKey.lastRegisteredToken)
+        self.defaults.removeObject(forKey: DefaultsKey.registeredEnvironment)
+        self.defaults.removeObject(forKey: DefaultsKey.pendingUnregisterToken)
+        if let token, !token.isEmpty {
+            self.defaults.set(token, forKey: DefaultsKey.pendingRegistrationToken)
+            self.deviceToken = token
+        }
+        self.activeLocalPort = nil
+        self.registrationState = .idle
+    }
+
     func sendTestNotification() async -> Bool {
         guard self.journalSendAllowed() else {
             log.error("push test failed: journal send not allowed")
@@ -294,6 +326,10 @@ final class PushNotificationManager {
             log.error("push test failed: missing active local port")
             return false
         }
+        let generation = self.registrationGeneration
+        let owner = self.registrationOwner?()
+        guard self.registrationOwner == nil || owner != nil,
+              self.registrationIsCurrent(generation, owner: owner, port: localPort) else { return false }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -301,6 +337,7 @@ final class PushNotificationManager {
         do {
             request.attachLoopbackCapability()
             let (data, response) = try await self.session.data(for: request)
+            guard self.registrationIsCurrent(generation, owner: owner, port: localPort) else { return false }
             guard let http = response as? HTTPURLResponse else {
                 log.error("push test failed: invalid response")
                 return false
@@ -414,8 +451,29 @@ private extension PushNotificationManager {
     }
 
     func setOwnerEnabled(_ enabled: Bool) {
+        if self.ownerEnabled != enabled { self.registrationGeneration &+= 1 }
         self.ownerEnabled = enabled
         self.defaults.set(enabled, forKey: DefaultsKey.ownerEnabled)
+        if !enabled { self.registrationState = .idle }
+    }
+
+    func registrationIsCurrent(
+        _ generation: UInt64,
+        owner: PushRegistrationOwner?,
+        port: Int
+    ) -> Bool {
+        generation == self.registrationGeneration
+            && self.registrationOwnerIsCurrent(owner, port: port)
+    }
+
+    func registrationOwnerIsCurrent(_ owner: PushRegistrationOwner?, port: Int) -> Bool {
+        self.activeLocalPort == port
+            && self.journalSendAllowed()
+            && (self.registrationOwner == nil || self.registrationOwner?() == owner)
+    }
+
+    func abandonStaleRegistration(_ generation: UInt64) {
+        if generation == self.registrationGeneration { self.registrationState = .idle }
     }
 
     func restorePersistedState() {
@@ -452,6 +510,15 @@ private extension PushNotificationManager {
             return
         }
 
+        if self.activeLocalPort == nil { self.activeLocalPort = localPort }
+        let generation = self.registrationGeneration
+        let owner = self.registrationOwner?()
+        guard self.registrationOwner == nil || owner != nil else {
+            self.defaults.set(token, forKey: DefaultsKey.pendingRegistrationToken)
+            self.registrationState = .idle
+            return
+        }
+
         let pushKey: Data
         do {
             pushKey = try self.keyStore.loadOrCreate()
@@ -481,8 +548,8 @@ private extension PushNotificationManager {
 
         var lastFailure = "push registration failed"
         for (index, delay) in self.retryDelays.enumerated() {
-            guard self.ownerEnabled else {
-                self.registrationState = .idle
+            guard self.registrationIsCurrent(generation, owner: owner, port: localPort), self.ownerEnabled else {
+                self.abandonStaleRegistration(generation)
                 return
             }
             self.registrationState = .registering
@@ -495,6 +562,10 @@ private extension PushNotificationManager {
 
                 request.attachLoopbackCapability()
                 let (_, response) = try await self.session.data(for: request)
+                guard self.registrationOwnerIsCurrent(owner, port: localPort) else {
+                    self.abandonStaleRegistration(generation)
+                    return
+                }
                 guard let http = response as? HTTPURLResponse else {
                     lastFailure = "invalid response"
                     throw PushRegistrationError.invalidResponse
@@ -512,6 +583,10 @@ private extension PushNotificationManager {
                     await self.unregisterPending(localPort: localPort)
                     return
                 }
+                guard self.registrationIsCurrent(generation, owner: owner, port: localPort) else {
+                    self.abandonStaleRegistration(generation)
+                    return
+                }
                 self.defaults.removeObject(forKey: DefaultsKey.pendingRegistrationToken)
                 self.defaults.set(token, forKey: DefaultsKey.lastRegisteredToken)
                 self.defaults.set(self.environmentName, forKey: DefaultsKey.registeredEnvironment)
@@ -525,11 +600,15 @@ private extension PushNotificationManager {
                 }
                 log.debug("push registration retry \(index + 1) on port \(localPort)")
                 await self.sleep(delay)
+                guard self.registrationIsCurrent(generation, owner: owner, port: localPort) else {
+                    self.abandonStaleRegistration(generation)
+                    return
+                }
             }
         }
 
-        guard self.ownerEnabled else {
-            self.registrationState = .idle
+        guard self.registrationIsCurrent(generation, owner: owner, port: localPort), self.ownerEnabled else {
+            self.abandonStaleRegistration(generation)
             return
         }
         self.defaults.set(token, forKey: DefaultsKey.pendingRegistrationToken)
@@ -547,8 +626,15 @@ private extension PushNotificationManager {
             return
         }
 
+        let generation = self.registrationGeneration
+        let owner = self.registrationOwner?()
+        guard self.registrationOwner == nil || owner != nil,
+              !self.ownerEnabled,
+              self.registrationIsCurrent(generation, owner: owner, port: localPort) else { return }
+
         for (index, delay) in self.retryDelays.enumerated() {
-            guard !self.ownerEnabled else { return }
+            guard !self.ownerEnabled,
+                  self.registrationIsCurrent(generation, owner: owner, port: localPort) else { return }
             do {
                 var request = URLRequest(url: url)
                 request.httpMethod = "DELETE"
@@ -560,6 +646,8 @@ private extension PushNotificationManager {
 
                 request.attachLoopbackCapability()
                 let (_, response) = try await self.session.data(for: request)
+                guard !self.ownerEnabled,
+                      self.registrationIsCurrent(generation, owner: owner, port: localPort) else { return }
                 guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
                     throw PushRegistrationError.invalidResponse
                 }
@@ -576,6 +664,8 @@ private extension PushNotificationManager {
                     break
                 }
                 await self.sleep(delay)
+                guard !self.ownerEnabled,
+                      self.registrationIsCurrent(generation, owner: owner, port: localPort) else { return }
             }
         }
         log.error("push unregister failed on port \(localPort); will retry on the next connection")

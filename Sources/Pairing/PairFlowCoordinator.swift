@@ -45,6 +45,7 @@ enum PairFlowState: Equatable, Sendable {
 final class PairFlowCoordinator {
     var state: PairFlowState = .idle
     var hasAutoPaired = false
+    private(set) var pairingFlowGeneration: UInt64 = 0
     var canStartPairingInput: Bool {
         switch state {
         case .idle, .failed:
@@ -83,7 +84,13 @@ final class PairFlowCoordinator {
         self.networkReader = networkReader
     }
 
-    func handlePairURL(_ pairURL: PairURL) async throws {
+    func handlePairURL(
+        _ pairURL: PairURL,
+        shouldCommit: @escaping @Sendable () -> Bool = { true }
+    ) async throws -> Bool {
+        let lease = try self.store.beginPairingFlow()
+        self.pairingFlowGeneration &+= 1
+        let flowGeneration = self.pairingFlowGeneration
         let priorPairing = try? self.store.load()
         let priorInstance = priorPairing?.instanceID
 
@@ -96,22 +103,46 @@ final class PairFlowCoordinator {
                 SPLPairingConstants.relayEndpoint,
                 { orderCandidatesBySubnet($0, interfaces: interfaces) }
             )
+            guard !Task.isCancelled,
+                  shouldCommit(),
+                  (try? self.store.migrationStore.ownsPairingFlowLease(lease)) == true else {
+                throw CancellationError()
+            }
             if let priorPairing,
                journalInstanceIDsMatch(priorPairing.instanceID, pairing.instanceID),
                priorPairing.fingerprint == pairing.fingerprint {
                 state = .alreadyConnected
                 pairFlowLog.info("pairing completed against existing journal")
-                return
+                return true
             }
             // Replacing a pairing in place does not tell the previous journal. A changed
             // certificate fingerprint rotates the push key, so the new journal receives a
             // fresh key. The previous journal can keep sending the fixed fallback line
             // until the owner removes this phone there.
-            try self.store.applyPairing(pairing)
+            try self.store.applyPairing(
+                pairing,
+                ifPairingFlowLease: lease,
+                shouldCommit: { !Task.isCancelled && shouldCommit() }
+            )
+            let committedGeneration = self.store.pairingGeneration
+            let committedOwnerID = self.store.snapshot().deviceOwnerID
             await endpointCache.bootstrap(from: pairing)
+            guard !Task.isCancelled,
+                  shouldCommit(),
+                  (try? self.store.migrationStore.ownsPairingFlowLease(lease)) == true,
+                  self.store.pairingGeneration == committedGeneration,
+                  self.pairingFlowGeneration == flowGeneration,
+                  self.store.snapshot().deviceOwnerID == committedOwnerID,
+                  let committedOwnerID,
+                  (try? self.store.migrationStore.owns(ownerID: committedOwnerID, pairing: pairing)) == true,
+                  self.store.snapshot().pairing?.fingerprint == pairing.fingerprint,
+                  shouldCommit() else { return false }
             state = priorInstance == nil ? .connected : .reconnected
             pairFlowLog.info("pairing saved for \(pairing.homeLabel, privacy: .public)")
+            return true
         } catch {
+            if error is CancellationError { return false }
+            guard (try? self.store.migrationStore.ownsPairingFlowLease(lease)) == true else { return false }
             let message: String
             if case PairError.lanCandidatesExhausted(let sawCAFingerprintMismatch) = error {
                 message = PairFailureReason.classifyExhausted(
@@ -135,14 +166,31 @@ final class PairFlowCoordinator {
     }
 
     func unpair() async {
+        self.pairingFlowGeneration &+= 1
         do {
             try self.store.clearPairing()
         } catch {
             pairFlowLog.error("unpair keychain delete failed: \(String(describing: error), privacy: .public)")
+            return
         }
         await endpointCache.wipe()
         hasAutoPaired = false
         state = .idle
+    }
+
+    @discardableResult
+    func reflectUnpairedIfClear(
+        expectedFlowGeneration: UInt64,
+        expectedPairingGeneration: UInt64
+    ) -> Bool {
+        let snapshot = self.store.snapshot()
+        guard self.pairingFlowGeneration == expectedFlowGeneration,
+              snapshot.pairingGeneration == expectedPairingGeneration,
+              snapshot.pairing == nil,
+              snapshot.deviceOwnerID == nil else { return false }
+        self.hasAutoPaired = false
+        self.state = .idle
+        return true
     }
 
     static func deviceLabel() -> String {

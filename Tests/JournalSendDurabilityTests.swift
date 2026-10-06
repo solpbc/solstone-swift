@@ -342,9 +342,9 @@ nonisolated final class JournalSendDurabilityTests: XCTestCase {
         await resolverBad.update(activeLocalPort: 7071)
         let resBad = await resolverBad.resolve(TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/app/devices/ingest"))
         if case .unavailable(let reason) = resBad {
-            XCTAssertEqual(reason, "journal-send-held")
+            XCTAssertEqual(reason, "pairing-not-admitted")
         } else {
-            XCTFail("Expected unavailable(journal-send-held)")
+            XCTFail("Expected unavailable(pairing-not-admitted)")
         }
     }
 

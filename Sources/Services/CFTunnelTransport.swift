@@ -401,7 +401,7 @@ final class CFTunnelTransport: Transporting {
         }
     }
 
-    nonisolated private static func makeProductionSession(
+    nonisolated static func makeProductionSession(
         pairing: StoredPairing
     ) -> any TunnelSessioning & MuxStreamOpening {
         let session = TunnelSession(

@@ -149,6 +149,70 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         )
     }
 
+    func testProtocolThreeCollisionFixtureKeepsOpaqueListingKeysAndPhysicalIdentity() throws {
+        let root = try XCTUnwrap(Bundle(for: Self.self).resourceURL).appendingPathComponent("LinkedDeviceIngest")
+        let fixtureURL = root.appendingPathComponent("wire-behavior.json")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: fixtureURL)) as? [String: Any])
+        let entries = try XCTUnwrap(fixture["fixtures"] as? [[String: Any]])
+        let collision = try XCTUnwrap(entries.first { $0["id"] as? String == "declared.client.ingestSegments.collision.same_basename_distinct_streams" })
+        let payload = try XCTUnwrap(collision["payload"] as? [String: Any])
+        let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
+        let response = try JSONDecoder().decode(LinkedDeviceIngestSegmentsResponse.self, from: data)
+
+        XCTAssertNil(LinkedDeviceIngestClient.validationError(for: response))
+        XCTAssertEqual(response.items.map(\.key), ["120000_10~browser_a", "120000_10~browser_b"])
+        XCTAssertEqual(response.items.map(\.displayKey), ["120000_10", "120000_10"])
+        XCTAssertEqual(response.items.map(\.stream), ["browser_a", "browser_b"])
+
+        let rows = LinkedDeviceIngestViewMapper.observerManifestResult(
+            .success(response),
+            day: "20260603",
+            fileName: "browser_pages.jsonl",
+            locale: Locale(identifier: "en_US"),
+            timeZone: TimeZone(identifier: "UTC")!
+        )
+        guard case .loaded(let items) = rows else {
+            XCTFail("expected inherited collision rows")
+            return
+        }
+        XCTAssertEqual(items.map(\.id), ["120000_10~browser_b", "120000_10~browser_a"])
+        XCTAssertEqual(items.map(\.title), [Self.shortTime("2026-06-03T12:00:00Z"), Self.shortTime("2026-06-03T12:00:00Z")])
+        XCTAssertEqual(items.map(\.subtitle), ["10s", "10s"])
+
+        let vectorsURL = root.appendingPathComponent("vectors.json")
+        let vectors = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: vectorsURL)) as? [String: Any])
+        let vectorList = try XCTUnwrap(vectors["vectors"] as? [[String: Any]])
+        let duplicate = try XCTUnwrap(vectorList.first { $0["id"] as? String == "client.ingestSegments.collision.duplicate_wire_key_refused" })
+        let duplicateInput = try XCTUnwrap(duplicate["input"] as? [String: Any])
+        let duplicateData = try JSONSerialization.data(withJSONObject: duplicateInput, options: [.sortedKeys])
+        let duplicateResponse = try JSONDecoder().decode(LinkedDeviceIngestSegmentsResponse.self, from: duplicateData)
+        XCTAssertEqual(LinkedDeviceIngestClient.validationError(for: duplicateResponse), .duplicateListingKey)
+    }
+
+    func testProtocolThreeRejectsFalseTotalsIncompleteOrDuplicatePhysicalPairsAndDayEntryFields() throws {
+        let base = LinkedDeviceIngestSegmentsResponse(protocolVersion: 3, total: 1, items: [
+            LinkedDeviceIngestSegment(key: "listing-a", files: [Self.file("audio.m4a")], originalKey: nil, segment: "120000_10", stream: "audio")
+        ])
+        XCTAssertNil(LinkedDeviceIngestClient.validationError(for: base))
+        XCTAssertEqual(LinkedDeviceIngestClient.validationError(for: LinkedDeviceIngestSegmentsResponse(protocolVersion: 3, total: 2, items: base.items)), .malformedResponse)
+        XCTAssertEqual(LinkedDeviceIngestClient.validationError(for: LinkedDeviceIngestSegmentsResponse(protocolVersion: 3, total: 1, items: [
+            LinkedDeviceIngestSegment(key: "listing-a", files: [Self.file("audio.m4a")], originalKey: nil, segment: "120000_10", stream: nil)
+        ])), .invalidPhysicalIdentity)
+        XCTAssertEqual(LinkedDeviceIngestClient.validationError(for: LinkedDeviceIngestSegmentsResponse(protocolVersion: 3, total: 2, items: [
+            base.items[0],
+            LinkedDeviceIngestSegment(key: "listing-b", files: [Self.file("audio.m4a")], originalKey: nil, segment: "120000_10", stream: "audio")
+        ])), .invalidPhysicalIdentity)
+
+        let validManifest = Data(#"{"version":1,"day":"20260603","segments":{"120000_10~browser_a":{"files":[]}}}"#.utf8)
+        guard case .success(let manifest) = LinkedDeviceIngestClient.decodeDayManifest(validManifest, expectedDay: "20260603") else {
+            XCTFail("expected day manifest listing alias")
+            return
+        }
+        XCTAssertEqual(manifest.segments.keys.first, "120000_10~browser_a")
+        let manifestWithDisplayCopy = Data(#"{"version":1,"day":"20260603","segments":{"alias":{"files":[],"display_label":"not custody"}}}"#.utf8)
+        XCTAssertEqual(LinkedDeviceIngestClient.decodeDayManifest(manifestWithDisplayCopy, expectedDay: "20260603"), .failure(.malformedResponse))
+    }
+
     private var client: LinkedDeviceIngestClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [LinkedDeviceIngestURLProtocol.self]

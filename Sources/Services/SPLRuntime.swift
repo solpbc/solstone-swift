@@ -23,8 +23,11 @@ nonisolated enum SPLRuntime {
 
     static let confirmationStore = JournalSendConfirmationStore.production()
 
+    static let deviceMigrationStore = DeviceMigrationStore()
+
     static let pairingStore = PairingCredentialStore(
         store: keychainStore,
-        confirmationStore: confirmationStore
+        confirmationStore: confirmationStore,
+        migrationStore: deviceMigrationStore
     )
 }

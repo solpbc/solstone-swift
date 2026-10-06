@@ -2,11 +2,14 @@
 // Copyright (c) 2026 sol pbc
 
 import Foundation
+import SPLTunnel
 
 actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
     private let credentials: PairingCredentialStore
     private let confirmation: JournalSendConfirmationStore
     private var activeLocalPort: Int?
+    private var activeConnectionEpoch: UInt64?
+    private var admissionGeneration: UInt64 = 0
 
     init(
         credentials: PairingCredentialStore,
@@ -16,8 +19,12 @@ actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
         self.confirmation = confirmation
     }
 
-    func update(activeLocalPort: Int?) {
+    func update(activeLocalPort: Int?, connectionEpoch: UInt64? = nil) {
+        if self.activeLocalPort != activeLocalPort || self.activeConnectionEpoch != connectionEpoch {
+            self.admissionGeneration &+= 1
+        }
         self.activeLocalPort = activeLocalPort
+        self.activeConnectionEpoch = connectionEpoch
     }
 
     func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
@@ -27,14 +34,70 @@ actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
         guard let port = self.activeLocalPort else {
             return .unavailable("waiting")
         }
-        let pairing = self.credentials.snapshot().pairing
+        let snapshot = self.credentials.snapshot()
+        guard let pairing = snapshot.pairing,
+              let ownerID = snapshot.deviceOwnerID,
+              (try? self.credentials.migrationStore.owns(ownerID: ownerID, pairing: pairing)) == true else {
+            return .unavailable("pairing-not-admitted")
+        }
         guard self.confirmation.allowsSend(pairing: pairing) else {
             return .unavailable("journal-send-held")
         }
         guard let baseURL = ObserverServerURL.url(localPort: port, path: "/") else {
             return .unavailable("invalid endpoint")
         }
-        return .available(TransferResolvedEndpoint(baseURL: baseURL, port: port))
+        return .available(TransferResolvedEndpoint(
+            baseURL: baseURL,
+            port: port,
+            dispatchOwner: TransferDispatchOwner(
+                pairingGeneration: snapshot.pairingGeneration,
+                ownerID: ownerID,
+                credentialCID: pairing.fingerprint,
+                admissionGeneration: self.admissionGeneration
+            )
+        ))
+    }
+
+    func isCurrent(_ endpoint: TransferResolvedEndpoint) async -> Bool {
+        self.currentPairing(for: endpoint) != nil
+    }
+
+    func startRequest(
+        _ endpoint: TransferResolvedEndpoint,
+        start: @Sendable () -> Void
+    ) async -> Bool {
+        guard let (expected, pairing) = self.currentPairing(for: endpoint) else { return false }
+        let credentials = self.credentials
+        let confirmation = self.confirmation
+        return self.credentials.migrationStore.withCurrentCredentialAdmission(
+            ownerID: expected.ownerID,
+            pairing: pairing
+        ) {
+            let snapshot = credentials.snapshot()
+            guard snapshot.pairingGeneration == expected.pairingGeneration,
+                  snapshot.deviceOwnerID == expected.ownerID,
+                  snapshot.pairing?.fingerprint == expected.credentialCID,
+                  confirmation.allowsSend(pairing: pairing) else { return nil }
+            start()
+            return true
+        } == true
+    }
+
+    private func currentPairing(
+        for endpoint: TransferResolvedEndpoint
+    ) -> (owner: TransferDispatchOwner, pairing: StoredPairing)? {
+        guard let port = endpoint.port,
+              port == self.activeLocalPort,
+              let expected = endpoint.dispatchOwner,
+              expected.admissionGeneration == self.admissionGeneration else { return nil }
+        let snapshot = self.credentials.snapshot()
+        guard snapshot.pairingGeneration == expected.pairingGeneration,
+              snapshot.deviceOwnerID == expected.ownerID,
+              let pairing = snapshot.pairing,
+              pairing.fingerprint == expected.credentialCID,
+              (try? self.credentials.migrationStore.owns(ownerID: expected.ownerID, pairing: pairing)) == true,
+              self.confirmation.allowsSend(pairing: pairing) else { return nil }
+        return (expected, pairing)
     }
 }
 

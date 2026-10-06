@@ -19,7 +19,20 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     let pushManager = PushNotificationManager(
         journalSendAllowed: {
-            SPLRuntime.confirmationStore.allowsSend(pairing: SPLRuntime.pairingStore.snapshot().pairing)
+            SPLRuntime.pairingStore.hasActiveOwner
+                && SPLRuntime.confirmationStore.allowsSend(pairing: SPLRuntime.pairingStore.snapshot().pairing)
+        },
+        registrationOwner: {
+            let snapshot = SPLRuntime.pairingStore.snapshot()
+            guard SPLRuntime.pairingStore.hasActiveOwner,
+                  let ownerID = snapshot.deviceOwnerID,
+                  let pairing = snapshot.pairing,
+                  SPLRuntime.confirmationStore.allowsSend(pairing: pairing) else { return nil }
+            return PushRegistrationOwner(
+                pairingGeneration: snapshot.pairingGeneration,
+                ownerID: ownerID,
+                credentialCID: pairing.fingerprint
+            )
         }
     )
     let pendingRoute = PendingNotificationRouteState()

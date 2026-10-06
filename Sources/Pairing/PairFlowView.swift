@@ -615,12 +615,12 @@ struct PairFlowView: View {
     private func startMismatchTeardown() {
         self.cancelFlowTask()
         self.flowTask = Task { @MainActor in
-            await tearDownMismatchedPairing(
+            let didTearDown = await tearDownMismatchedPairing(
                 appConfig: self.appConfig,
                 tunnelManager: self.tunnelManager,
                 coordinator: self.coordinator
             )
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, didTearDown else { return }
             self.phase = .mismatch
         }
     }
@@ -628,12 +628,12 @@ struct PairFlowView: View {
     private func startCouldNotVerifyCancel() {
         self.cancelFlowTask()
         self.flowTask = Task { @MainActor in
-            await tearDownMismatchedPairing(
+            let didTearDown = await tearDownMismatchedPairing(
                 appConfig: self.appConfig,
                 tunnelManager: self.tunnelManager,
                 coordinator: self.coordinator
             )
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, didTearDown else { return }
             self.restoreScanUI()
         }
     }
@@ -712,11 +712,10 @@ struct PairFlowView: View {
             return
         }
         do {
-            try await self.coordinator.handlePairURL(pairURL)
+            let committed = try await self.coordinator.handlePairURL(pairURL, shouldCommit: { !Task.isCancelled })
+            guard committed else { return }
             let pairing = try SPLRuntime.keychainStore.load()
-            if let pairing {
-                try self.appConfig.applyPairing(pairing)
-            }
+            if let pairing { self.appConfig.reflectCommittedPairing(pairing) }
             guard !Task.isCancelled else { return }
             self.phase = .connecting
             let fetcher = JournalIdentityFetcher()

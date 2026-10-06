@@ -150,6 +150,73 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testStaleRegistrationResponseCannotSaveReceiptOrStatus() async {
+        let owner = OSAllocatedUnfairLock<PushRegistrationOwner?>(initialState: PushRegistrationOwner(
+            pairingGeneration: 4,
+            ownerID: UUID(),
+            credentialCID: "old-credential"
+        ))
+        PushManagerURLProtocol.handler = { request in
+            owner.withLock { $0 = nil }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        let manager = self.makeManager(
+            journalSendAllowed: { true },
+            registrationOwner: { owner.withLock { $0 } }
+        )
+        manager.activeLocalPort = 8474
+
+        await manager.submitToken(Data([0xaa, 0xbb, 0xcc, 0xdd]))
+
+        XCTAssertNil(self.defaults.string(forKey: "push.lastRegisteredToken"))
+        XCTAssertNotEqual(manager.registrationState, .registered(token: "aabbccdd"))
+    }
+
+    @MainActor
+    func testCredentialRotationDuringRegistrationKeepsOnlyFreshPendingToken() async {
+        let owner = OSAllocatedUnfairLock<PushRegistrationOwner?>(initialState: PushRegistrationOwner(
+            pairingGeneration: 4,
+            ownerID: UUID(),
+            credentialCID: "old-credential"
+        ))
+        let freshOwner = PushRegistrationOwner(
+            pairingGeneration: 5,
+            ownerID: UUID(),
+            credentialCID: "fresh-credential"
+        )
+        let box = ManagerBox()
+        self.defaults.set("old-token", forKey: "push.lastRegisteredToken")
+        self.defaults.set("development", forKey: "push.registeredEnvironment")
+        PushManagerURLProtocol.handler = { request in
+            owner.withLock { $0 = freshOwner }
+            DispatchQueue.main.sync {
+                MainActor.assumeIsolated { box.manager?.credentialDidRotate() }
+            }
+            return (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data()
+            )
+        }
+        let manager = self.makeManager(
+            journalSendAllowed: { true },
+            registrationOwner: { owner.withLock { $0 } }
+        )
+        box.manager = manager
+        manager.activeLocalPort = 8474
+
+        await manager.submitToken(Data([0xaa, 0xbb, 0xcc, 0xdd]))
+
+        XCTAssertNil(self.defaults.string(forKey: "push.lastRegisteredToken"))
+        XCTAssertNil(self.defaults.string(forKey: "push.registeredEnvironment"))
+        XCTAssertEqual(self.defaults.string(forKey: "push.pendingRegistrationToken"), "aabbccdd")
+        XCTAssertNil(manager.activeLocalPort)
+        XCTAssertEqual(manager.registrationState, .idle)
+    }
+
+    @MainActor
     func testTunnelConnectedReregisters() async {
         PushManagerURLProtocol.handler = { request in
             (
@@ -422,6 +489,33 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testLateSuccessfulRegistrationAfterTurnOffIsRemoved() async {
+        let methods = OSAllocatedUnfairLock<[String]>(initialState: [])
+        let box = ManagerBox()
+        PushManagerURLProtocol.handler = { request in
+            methods.withLock { $0.append(request.httpMethod ?? "") }
+            if request.httpMethod == "POST" {
+                DispatchQueue.main.sync {
+                    MainActor.assumeIsolated { box.manager?.setOwnerEnabledForTesting(false) }
+                }
+            }
+            let status = request.httpMethod == "DELETE" ? 204 : 200
+            return (HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!, Data())
+        }
+        let manager = self.makeManager(journalSendAllowed: { true })
+        box.manager = manager
+        manager.activeLocalPort = 8474
+
+        await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
+
+        XCTAssertEqual(methods.withLock { $0 }, ["POST", "DELETE"])
+        XCTAssertFalse(manager.ownerEnabled)
+        XCTAssertNil(self.defaults.string(forKey: "push.lastRegisteredToken"))
+        XCTAssertNil(self.defaults.string(forKey: "push.pendingUnregisterToken"))
+        XCTAssertEqual(manager.registrationState, .idle)
+    }
+
+    @MainActor
     func testExistingRegistrationIsRemovedOnceAfterUpdate() async {
         let methods = OSAllocatedUnfairLock<[String]>(initialState: [])
         PushManagerURLProtocol.handler = { request in
@@ -538,6 +632,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
 
     @MainActor private func makeManager(
         journalSendAllowed: @escaping @Sendable () -> Bool,
+        registrationOwner: (@Sendable () -> PushRegistrationOwner?)? = nil,
         keyStore: PushKeyStore = .memory(),
         retryDelays: [UInt64] = [1, 2, 3],
         sleep: @escaping @Sendable (UInt64) async -> Void = { _ in },
@@ -552,6 +647,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         }
         return PushNotificationManager(
             journalSendAllowed: journalSendAllowed,
+            registrationOwner: registrationOwner,
             defaults: self.defaults,
             session: self.session,
             keyStore: keyStore,

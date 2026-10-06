@@ -432,18 +432,27 @@ struct JournalSettingsPane: View {
     }
 
     private func clearPairingForNewPair() async {
-        await unpairForNewPair(
+        guard await unpairForNewPair(
             appConfig: self.appConfig,
             tunnelManager: self.tunnelManager,
             noticeStore: self.noticeStore
-        )
+        ) else { return }
         self.showingPairFlow = true
     }
 }
 
 struct ThisDevicePane: View {
     @Environment(AppConfig.self) private var appConfig
+    @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(DeviceMigrationOwnerModel.self) private var deviceMigrationOwner
     @State private var showingUnpairConfirm = false
+    @State private var showingFreshPairOffer = false
+    @State private var pendingReplacementCID: String?
+    @State private var replacementPresentation: DeviceMigrationReplacementPresentation?
+    @State private var pendingReplacementLabel = ""
+    @State private var showingSameDeviceConfirmation = false
+    @State private var sameDevicePresentation: DeviceMigrationChoicePresentation?
+    @State private var showingPairFlow = false
     @AccessibilityFocusState private var headingFocused: Bool
 
     var body: some View {
@@ -468,6 +477,122 @@ struct ThisDevicePane: View {
             }
 
             if self.appConfig.isPaired {
+                if let recovery = self.tunnelManager.migrationRecoveryState {
+                    Section {
+                        switch recovery {
+                        case .preparing:
+                            Text("migration.preparing.title").font(.headline)
+                            Text("migration.preparing.body")
+                        case .offline:
+                            Text("migration.offline.title").font(.headline)
+                            Text("migration.offline.body")
+                            Button("migration.offline.action") {
+                                Task { await self.tunnelManager.connect() }
+                            }
+                        case .unsupported:
+                            Text("migration.unsupported.title").font(.headline)
+                            Text("migration.unsupported.body")
+                            Button("migration.unsupported.action") {
+                                Task { await self.tunnelManager.connect() }
+                            }
+                        case .storageUnavailable:
+                            Text("migration.storage_unavailable.title").font(.headline)
+                            Text("migration.storage_unavailable.body")
+                            Button("migration.storage_unavailable.action") {
+                                UserSettings.verboseErrors = true
+                            }
+                        case .keyRefused:
+                            Text("migration.key_refused.title").font(.headline)
+                            Text("migration.key_refused.body")
+                            Button("migration.key_refused.action") {
+                                self.showingPairFlow = true
+                            }
+                        }
+                    }
+                }
+
+                if self.deviceMigrationOwner.migrationChoicePending {
+                    Section {
+                        LabeledContent { Text("migration.pending.value") } label: { Text("migration.pending.row") }
+                        Text("migration.choice.title").font(.headline)
+                        Text("migration.choice.body_fallback")
+                        if let decisionState = self.deviceMigrationOwner.migrationDecisionState,
+                           decisionState == .submitting || decisionState == .unknown {
+                            Text("migration.decision_unknown.title").font(.headline)
+                            Text("migration.decision_unknown.body")
+                            Button("migration.decision_unknown.action") {
+                                Task { await self.deviceMigrationOwner.refresh() }
+                            }
+                        } else if self.deviceMigrationOwner.serverState == nil {
+                            Text("migration.offline.title").font(.headline)
+                            Text("migration.offline.body")
+                            Button("migration.offline.action") {
+                                Task { await self.deviceMigrationOwner.refresh() }
+                            }
+                        } else if self.deviceMigrationOwner.migrationDecisionState == .refused {
+                            Text("migration.decision_refused.title").font(.headline)
+                            Text("migration.decision_refused.body")
+                            Button("migration.decision_refused.action") {
+                                UserSettings.verboseErrors = true
+                            }
+                        } else if self.deviceMigrationOwner.canChooseMigration {
+                            Button("migration.choice.new") {
+                                guard let context = self.deviceMigrationOwner.migrationChoicePresentation() else { return }
+                                Task { await self.deviceMigrationOwner.submitMigrationChoice(.newDevice, presentedContext: context) }
+                            }
+                            Button("migration.choice.same") {
+                                self.sameDevicePresentation = self.deviceMigrationOwner.migrationChoicePresentation()
+                                self.showingSameDeviceConfirmation = true
+                            }
+                            Button("migration.choice.defer", role: .cancel) {
+                                self.deviceMigrationOwner.deferMigrationChoice()
+                            }
+                        }
+                    }
+                }
+
+                if self.tunnelManager.activeConnection != nil,
+                   let offer = self.deviceMigrationOwner.freshPairOffer,
+                   offer.state != .awaitingMarkConfirmation,
+                   offer.state != .dismissed && offer.state != .complete && offer.state != .keptBoth {
+                    Section {
+                        LabeledContent { Text("migration.pending.value") } label: { Text("migration.pending.row") }
+                        Text("migration.replace_offer.title").font(.headline)
+                        Text("migration.replace_offer.body")
+                        if offer.state == .unknown || offer.state == .submitting {
+                            Text("migration.decision_unknown.title").font(.headline)
+                            Text("migration.decision_unknown.body")
+                            Button("migration.decision_unknown.action") {
+                                Task { await self.deviceMigrationOwner.refresh() }
+                            }
+                        } else {
+                            if offer.state == .targetRemoved {
+                                Text("migration.target_missing.title").font(.headline)
+                                Text("migration.target_missing.body")
+                            } else if offer.state == .refused {
+                                Text("migration.decision_refused.title").font(.headline)
+                                Text("migration.decision_refused.body")
+                                Button("migration.decision_refused.action") {
+                                    UserSettings.verboseErrors = true
+                                }
+                            }
+                            Button("migration.replace_offer.pick") {
+                                self.deviceMigrationOwner.prepareReplacementSelection()
+                                Task {
+                                    await self.deviceMigrationOwner.loadReplacementClients()
+                                    self.showingFreshPairOffer = true
+                                }
+                            }
+                            Button("migration.replace_offer.keep") {
+                                self.deviceMigrationOwner.keepBothFromFreshPairOffer()
+                            }
+                            Button("migration.replace_offer.defer") {
+                                self.deviceMigrationOwner.dismissReplacementOffer()
+                            }
+                        }
+                    }
+                }
+
                 Section {
                     Button("unpair this device", role: .destructive) {
                         self.showingUnpairConfirm = true
@@ -488,7 +613,133 @@ struct ThisDevicePane: View {
         }
         .onAppear { self.headingFocused = true }
         .unpairThisDeviceAlert(isPresented: self.$showingUnpairConfirm)
+        .task {
+            if let connection = self.tunnelManager.activeConnection {
+                await self.deviceMigrationOwner.connected(
+                    localPort: connection.port,
+                    connectionEpoch: connection.epoch
+                )
+            } else {
+                await self.deviceMigrationOwner.refresh()
+            }
+        }
+        .sheet(isPresented: self.$showingFreshPairOffer) {
+            NavigationStack {
+                List {
+                    if self.deviceMigrationOwner.replacementListState == .empty {
+                        Text("migration.picker.empty")
+                    } else if self.deviceMigrationOwner.replacementListState == .unavailable {
+                        Section {
+                            Text("migration.list_unavailable.title").font(.headline)
+                            Text("migration.list_unavailable.body")
+                            Button("migration.list_unavailable.action") {
+                                Task { await self.deviceMigrationOwner.loadReplacementClients() }
+                            }
+                        }
+                    } else {
+                        ForEach(self.deviceMigrationOwner.replacementRows, id: \.client.cid) { row in
+                            Button {
+                                self.deviceMigrationOwner.selectedCID = row.client.cid
+                                guard let presentation = self.deviceMigrationOwner.freshReplacementPresentation(targetCID: row.client.cid) else { return }
+                                self.replacementPresentation = presentation
+                                self.pendingReplacementCID = row.client.cid
+                                self.pendingReplacementLabel = row.client.displayLabel
+                            } label: {
+                                LabeledContent(row.label, value: row.client.cid)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("migration.picker.title")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("migration.picker.cancel") { self.showingFreshPairOffer = false }
+                    }
+                }
+            }
+            .confirmationDialog(
+                Text(verbatim: self.localizedMigrationCopy(
+                    "migration.replace_confirm.title",
+                    selectedDeviceLabel: self.pendingReplacementLabel
+                )),
+                isPresented: Binding(
+                    get: { self.pendingReplacementCID != nil },
+                    set: {
+                        if !$0 {
+                            self.pendingReplacementCID = nil
+                            self.pendingReplacementLabel = ""
+                            self.replacementPresentation = nil
+                        }
+                    }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let presentation = self.replacementPresentation {
+                    Button("migration.replace_confirm.replace", role: .destructive) {
+                        self.pendingReplacementCID = nil
+                        self.pendingReplacementLabel = ""
+                        self.replacementPresentation = nil
+                        self.showingFreshPairOffer = false
+                        Task { await self.deviceMigrationOwner.confirmFreshPairReplacement(presentedContext: presentation) }
+                    }
+                }
+                Button("migration.replace_confirm.cancel", role: .cancel) {
+                    self.pendingReplacementCID = nil
+                    self.pendingReplacementLabel = ""
+                    self.replacementPresentation = nil
+                }
+            } message: {
+                Text(verbatim: self.localizedMigrationCopy(
+                    "migration.replace_confirm.body",
+                    selectedDeviceLabel: self.pendingReplacementLabel
+                ))
+            }
+        }
+        .sheet(isPresented: self.$showingPairFlow) {
+            NavigationStack {
+                PairFlowView(
+                    onBack: { self.showingPairFlow = false },
+                    onComplete: { self.showingPairFlow = false }
+                )
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("cancel") { self.showingPairFlow = false }
+                    }
+                }
+            }
+        }
+        .confirmationDialog(
+            Text("migration.choice.title"),
+            isPresented: self.$showingSameDeviceConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("migration.choice.same", role: .destructive) {
+                guard let context = self.sameDevicePresentation else { return }
+                Task { await self.deviceMigrationOwner.submitMigrationChoice(.sameDevice, presentedContext: context) }
+            }
+            Button("migration.choice.new") {
+                guard let context = self.sameDevicePresentation else { return }
+                Task { await self.deviceMigrationOwner.submitMigrationChoice(.newDevice, presentedContext: context) }
+            }
+            Button("migration.choice.defer", role: .cancel) {
+                self.deviceMigrationOwner.deferMigrationChoice()
+            }
+        } message: {
+            Text("migration.choice.body_fallback")
+        }
+
     }
+
+    private func localizedMigrationCopy(_ key: String, selectedDeviceLabel: String) -> String {
+        if key == "migration.replace_confirm.title", selectedDeviceLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return String(localized: "migration.replace_confirm.title_fallback")
+        }
+        return String(localized: String.LocalizationValue(key))
+            .replacingOccurrences(of: "{selected_device_label}", with: selectedDeviceLabel)
+    }
+
+
 }
 
 private extension View {

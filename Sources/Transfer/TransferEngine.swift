@@ -979,9 +979,21 @@ actor TransferEngine {
         }
 
         let heardIdentity = phase == .observerIngest ? await self.heardReporter.currentIdentity() : nil
+        guard await self.endpointResolver.isCurrent(endpoint) else {
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+            self.scheduleStatusUpdate(summary: "held")
+            self.scheduleWork()
+            return
+        }
         Task {
             let result = await self.transport.send(item: item, bodyURL: bodyURL, endpoint: endpoint, phase: phase)
-            await self.handleCompletion(itemID: itemID, result: result, phase: phase, heardIdentity: heardIdentity)
+            await self.handleCompletion(
+                itemID: itemID,
+                result: result,
+                phase: phase,
+                endpoint: endpoint,
+                heardIdentity: heardIdentity
+            )
         }
     }
 
@@ -989,8 +1001,17 @@ actor TransferEngine {
         itemID: UUID,
         result: TransferHTTPResult,
         phase: TransferEndpointPhase,
+        endpoint: TransferResolvedEndpoint,
         heardIdentity: String? = nil
     ) async {
+        guard await self.endpointResolver.isCurrent(endpoint) else {
+            if let sourceKey = self.inFlightSourceKeys[itemID] {
+                self.clearInFlight(itemID: itemID, sourceKey: sourceKey)
+            }
+            self.scheduleStatusUpdate(summary: "held")
+            self.scheduleWork()
+            return
+        }
         guard let item = self.queuedItems[itemID] else {
             if let sourceKey = self.inFlightSourceKeys[itemID] {
                 self.clearInFlight(itemID: itemID, sourceKey: sourceKey)
@@ -1011,6 +1032,12 @@ actor TransferEngine {
         case .terminalSuccess(let successKind):
             if phase == .observerIngest {
                 let receiptOutcome = await self.verifyObserverIngestReceipt(item: item, data: result.data)
+                guard await self.endpointResolver.isCurrent(endpoint) else {
+                    self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+                    self.scheduleStatusUpdate(summary: "held")
+                    self.scheduleWork()
+                    return
+                }
                 // The item stays in flight so a drop or a new connection can run during the hash.
                 guard let currentItem = self.queuedItems[itemID] else {
                     self.droppedItemIDs.remove(itemID)
@@ -1043,7 +1070,19 @@ actor TransferEngine {
             }
 
             if phase == .observerIngest {
+                guard await self.endpointResolver.isCurrent(endpoint) else {
+                    self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+                    self.scheduleStatusUpdate(summary: "held")
+                    self.scheduleWork()
+                    return
+                }
                 await self.heardReporter.report(ConnectionHeardEvent(pairingIdentity: heardIdentity))
+                guard await self.endpointResolver.isCurrent(endpoint) else {
+                    self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+                    self.scheduleStatusUpdate(summary: "held")
+                    self.scheduleWork()
+                    return
+                }
             }
 
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)

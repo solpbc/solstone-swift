@@ -258,7 +258,7 @@ final class TunnelManager {
         didSet {
             if case .connected(let port, _) = state {
                 if let homeJobs {
-                    homeJobs.connected(localPort: port)
+                    homeJobs.connected(localPort: port, connectionEpoch: self.connectionEpoch)
                 } else {
                     journalVersion?.connected(localPort: port)
                 }
@@ -279,6 +279,8 @@ final class TunnelManager {
     private(set) var lastFailedDial: TriedAddresses?
     /// The address the current connection won through, or "the relay".
     private(set) var connectedAddress: String?
+    private var ordinaryAdmissionClosed = false
+    private(set) var migrationRecoveryState: DeviceMigrationRecoveryState?
     static let connectedThroughRelay = "the relay"
     /// The winning direct address; nil when the relay won or the winner is unknown.
     var connectedDirectAddress: String? {
@@ -286,6 +288,7 @@ final class TunnelManager {
     }
     @ObservationIgnored let store: PairingCredentialStore
     @ObservationIgnored private let homeJobs: HomeAuthenticatedJobs?
+    @ObservationIgnored private let migrationCoordinator: DeviceMigrationCoordinator?
     @ObservationIgnored private let journalVersion: JournalVersionMetadata?
     @ObservationIgnored private let transport: any Transporting
     @ObservationIgnored private let endpointCache: EndpointCache
@@ -298,6 +301,7 @@ final class TunnelManager {
     @ObservationIgnored private let probeURLBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private let activeLocalTransferCountProvider: @Sendable @MainActor () -> Int
     @ObservationIgnored private var connectTask: Task<Void, Never>?
+    @ObservationIgnored private var pairingReconnectTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var connectWatchdogTask: Task<Void, Never>?
     @ObservationIgnored private var brokerWaitCadenceTask: Task<Void, Never>?
@@ -382,7 +386,8 @@ final class TunnelManager {
         activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
         diagnosticLog: DiagnosticLog? = nil,
         journalVersion: JournalVersionMetadata? = nil,
-        homeJobs: HomeAuthenticatedJobs? = nil
+        homeJobs: HomeAuthenticatedJobs? = nil,
+        migrationCoordinator: DeviceMigrationCoordinator? = nil
     ) {
         let effectiveStore = store ?? PairingCredentialStore(
             loadPairing: loadPairing,
@@ -391,6 +396,7 @@ final class TunnelManager {
         )
         self.store = effectiveStore
         self.homeJobs = homeJobs
+        self.migrationCoordinator = migrationCoordinator
         self.journalVersion = journalVersion
         self.transport = transport ?? CFTunnelTransport(loadPairing: { try effectiveStore.load() })
         self.endpointCache = endpointCache
@@ -409,11 +415,33 @@ final class TunnelManager {
         // why: spl-swift prescribes the reconnect table; the app only schedules the chosen step.
         self.reconnectBackoff = ReconnectBackoff(schedule: .default, random: random)
         self.diagnosticLog = diagnosticLog
+        effectiveStore.registerOnCredentialInvalidation { [weak self] in
+            self?.closeOrdinaryAdmission()
+        }
+        effectiveStore.registerOnCredentialReplacement { [weak self] in
+            guard let self else { return }
+            self.closeOrdinaryAdmission()
+            Task { @MainActor in await self.reconnectAfterPairingChange() }
+        }
     }
 
     var activeConnection: (port: Int, epoch: UInt64)? {
-        guard case .connected(let port, _) = self.state else { return nil }
+        guard !self.ordinaryAdmissionClosed,
+              case .connected(let port, _) = self.state else { return nil }
         return (port, self.connectionEpoch)
+    }
+
+    func closeOrdinaryAdmission() {
+        self.ordinaryAdmissionClosed = true
+        self.homeJobs?.disconnected()
+        self.journalVersion?.disconnected()
+    }
+
+    func disconnectIfPairingInvalidated(generation: UInt64) async {
+        let snapshot = self.store.snapshot()
+        guard snapshot.pairing == nil
+                || (snapshot.pairingGeneration == generation && snapshot.deviceOwnerID == nil) else { return }
+        await self.disconnect()
     }
 
     var transportGenerationSnapshot: TransportGenerationSnapshot {
@@ -762,6 +790,9 @@ final class TunnelManager {
         case .disconnected, .waitingForHome, .error:
             break
         }
+        if self.store.hasActiveOwner {
+            self.ordinaryAdmissionClosed = false
+        }
 
         log.info("[solstone-swift] connect() starting")
         if case .error = self.state {
@@ -791,6 +822,40 @@ final class TunnelManager {
                 }
             }
             do {
+                if let pairing = snap.pairing, let migrationCoordinator = self.migrationCoordinator {
+                    let expectedPath = self.currentPathStatus.map(self.pathMeaningfulSignature)
+                    do {
+                        let requiresMigration = try migrationCoordinator.requiresMigrationPreparation(
+                            pairing: pairing,
+                            ownerID: snap.deviceOwnerID
+                        )
+                        self.migrationRecoveryState = requiresMigration ? .preparing : nil
+                        try await migrationCoordinator.prepareForOrdinaryAdmission(
+                            pairing: pairing,
+                            pairingGeneration: snap.pairingGeneration,
+                            mayContinue: { [weak self] in
+                                guard let self,
+                                      self.isCurrentAttempt(epoch),
+                                      self.store.snapshot().pairingGeneration == snap.pairingGeneration else {
+                                    return false
+                                }
+                                return self.currentPathStatus.map(self.pathMeaningfulSignature) == expectedPath
+                            }
+                        )
+                        self.migrationRecoveryState = nil
+                    } catch {
+                        self.migrationRecoveryState = DeviceMigrationRecoveryState.diagnosedFailure(error)
+                        throw error
+                    }
+                    guard !Task.isCancelled, self.isCurrentAttempt(epoch) else { return }
+                    let migratedSnapshot = self.store.snapshot()
+                    guard migratedSnapshot.pairing != nil else {
+                        await self.rejectCurrentConnection(epoch: epoch)
+                        return
+                    }
+                    attemptPairingGen = migratedSnapshot.pairingGeneration
+                    attemptMutationGen = migratedSnapshot.accessMutationGeneration
+                }
                 let localPort = try await self.connectWithReactiveTokenRefresh(epoch: epoch, permit: permit) { accepted in
                     attemptPairingGen = accepted.pairingGeneration
                     attemptMutationGen = accepted.accessMutationGeneration
@@ -822,6 +887,7 @@ final class TunnelManager {
                 }
                 self.connectionEpoch += 1
                 let connectionEpoch = self.connectionEpoch
+                self.ordinaryAdmissionClosed = false
                 self.state = .connected(localPort: localPort, via: endpoint)
                 self.clearBrokerWaitEpisode()
                 self.completeStage(.loopback)
@@ -1104,7 +1170,14 @@ final class TunnelManager {
     }
 
     func disconnect() async {
+        let reconnecting = self.pairingReconnectTask
+        reconnecting?.cancel()
+        await self.disconnectCurrentTransport()
+    }
+
+    private func disconnectCurrentTransport() async {
         let active = self.activeConnection
+        self.closeOrdinaryAdmission()
         self.cancelReconnect()
         self.cancelConnectWatchdog()
         self.clearBrokerWaitEpisode()
@@ -1129,7 +1202,8 @@ final class TunnelManager {
         self.connectionStages = []
         self.lastFailedDial = nil
         self.connectedAddress = nil
-        self.connectTask?.cancel()
+        let connecting = self.connectTask
+        connecting?.cancel()
         self.connectTask = nil
         self.retireAttempt()
         await self.transport.disconnect()
@@ -1141,9 +1215,19 @@ final class TunnelManager {
     }
 
     func reconnectAfterPairingChange() async {
-        await self.disconnect()
-        guard (try? self.loadPairing()) != nil else { return }
-        await self.connect()
+        if let task = self.pairingReconnectTask {
+            await task.value
+            return
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.disconnectCurrentTransport()
+            guard !Task.isCancelled, (try? self.loadPairing()) != nil else { return }
+            await self.connect()
+        }
+        self.pairingReconnectTask = task
+        await task.value
+        self.pairingReconnectTask = nil
     }
 
     func cancelConnect() {
@@ -1229,6 +1313,7 @@ final class TunnelManager {
             _ = self.beginAttempt()
         }
         self.connectionEpoch += 1
+        self.ordinaryAdmissionClosed = false
         self.state = .connected(localPort: port, via: via)
     }
 
