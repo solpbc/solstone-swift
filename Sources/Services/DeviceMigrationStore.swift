@@ -479,6 +479,9 @@ nonisolated struct DeviceMigrationPairingRecovery: Sendable {
 }
 
 nonisolated struct DeviceMigrationStore: Sendable {
+    func withMigrationMutation<T>(_ operation: () throws -> T) rethrows -> T {
+        try deviceMigrationMutationLock.withLock(operation)
+    }
     static let deviceMarkerAccount = "device-marker-v1"
     static let pendingRekeyAccount = "pending-rekey-v1"
     static let receiptAccount = "migration-receipt-v1"

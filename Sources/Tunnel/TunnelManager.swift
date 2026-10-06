@@ -387,7 +387,8 @@ final class TunnelManager {
         diagnosticLog: DiagnosticLog? = nil,
         journalVersion: JournalVersionMetadata? = nil,
         homeJobs: HomeAuthenticatedJobs? = nil,
-        migrationCoordinator: DeviceMigrationCoordinator? = nil
+        migrationCoordinator: DeviceMigrationCoordinator? = nil,
+        automaticallyReconnectOnCredentialReplacement: Bool = true
     ) {
         let effectiveStore = store ?? PairingCredentialStore(
             loadPairing: loadPairing,
@@ -421,7 +422,23 @@ final class TunnelManager {
         effectiveStore.registerOnCredentialReplacement { [weak self] in
             guard let self else { return }
             self.closeOrdinaryAdmission()
+            guard automaticallyReconnectOnCredentialReplacement else { return }
             Task { @MainActor in await self.reconnectAfterPairingChange() }
+        }
+        migrationCoordinator?.bindControlPreparation { [weak self] challenged in
+            guard let self else { throw CancellationError() }
+            let permit = self.activeAttemptPermit
+            var refreshedPairing: StoredPairing?
+            if challenged {
+                switch await self.refreshAfterAuthChallenge(permit: permit) {
+                case .retry(let pairing): refreshedPairing = pairing
+                case .revoked: throw SessionError.revoked
+                case .unreachable: throw SessionError.unreachable
+                }
+            }
+            let (candidates, snapshot) = try await self.candidateList(pairingOverride: refreshedPairing, permit: permit)
+            guard permit.isValid, !Task.isCancelled, let pairing = snapshot.pairing else { throw CancellationError() }
+            return DeviceMigrationCoordinator.ControlPreparation(pairing: pairing, candidates: candidates)
         }
     }
 

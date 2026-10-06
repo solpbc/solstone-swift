@@ -410,7 +410,8 @@ struct SolstoneSwiftApp: App {
             diagnosticLog: log,
             journalVersion: appConfig.journalVersion,
             homeJobs: homeJobs,
-            migrationCoordinator: migrationCoordinator
+            migrationCoordinator: migrationCoordinator,
+            automaticallyReconnectOnCredentialReplacement: !(Self.isIntegrationMode || Self.isUITest || Self.isUnitTest)
         )
         deviceMigrationOwner.bindActiveConnection { [weak tunnel] port, epoch in
             guard let active = tunnel?.activeConnection else { return false }

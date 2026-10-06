@@ -9,6 +9,7 @@ import SPLTunnel
 private final class StoredHolder: @unchecked Sendable {
     var stored: StoredPairing?
     var shouldThrowOnSave = false
+    var shouldThrowOnLoad = false
     init(_ stored: StoredPairing? = nil) {
         self.stored = stored
     }
@@ -51,11 +52,16 @@ final class PairingCredentialStoreTests: XCTestCase {
     private func makeStore(
         holder: StoredHolder,
         confirmationStore: JournalSendConfirmationStore = JournalSendConfirmationStore.memory(),
+        migrationStore: DeviceMigrationStore = .memory(),
         deletePushKey: (@Sendable () throws -> Void)? = nil
     ) -> PairingCredentialStore {
         PairingCredentialStore(
             confirmationStore: confirmationStore,
-            loadPairing: { holder.stored },
+            migrationStore: migrationStore,
+            loadPairing: {
+                if holder.shouldThrowOnLoad { throw TestSaveError() }
+                return holder.stored
+            },
             savePairing: {
                 if holder.shouldThrowOnSave {
                     throw TestSaveError()
@@ -65,6 +71,29 @@ final class PairingCredentialStoreTests: XCTestCase {
             deletePairing: { holder.stored = nil },
             deletePushKey: deletePushKey ?? {}
         )
+    }
+
+    func testUnlockReloadRecoversUnchangedDurableOwnerAndFailsClosedWhileStorageUnavailable() throws {
+        let pairing = self.makeSamplePairing()
+        let holder = StoredHolder(pairing)
+        let persistence = MigrationTestPersistence()
+        let migration = DeviceMigrationStore(persistence: persistence)
+        let ownerID = try migration.claimExistingPairing(pairing)
+        holder.shouldThrowOnLoad = true
+        let store = self.makeStore(holder: holder, migrationStore: migration)
+        XCTAssertNil(store.snapshot().pairing)
+        XCTAssertNil(store.snapshot().deviceOwnerID)
+        holder.shouldThrowOnLoad = false
+        persistence.setReadFailure(true)
+        XCTAssertThrowsError(try store.reloadPairingFromKeychain())
+        XCTAssertNil(store.snapshot().pairing)
+        XCTAssertNil(store.snapshot().deviceOwnerID)
+        persistence.setReadFailure(false)
+        XCTAssertEqual(try store.reloadPairingFromKeychain(), pairing)
+        XCTAssertEqual(store.snapshot().deviceOwnerID, ownerID)
+        XCTAssertEqual(try migration.claimExistingPairing(pairing), ownerID)
+        XCTAssertTrue(try migration.owns(ownerID: ownerID, pairing: pairing))
+        XCTAssertEqual(holder.stored, pairing)
     }
 
     private func makeSamplePairing(

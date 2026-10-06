@@ -32,6 +32,8 @@ final class HomeAuthenticatedJobs {
     private var accessGeneration: UInt64 = 0
     private var activePort: Int?
     private var activePairingGeneration: UInt64?
+    private var activeConnectionEpoch: UInt64?
+    private var migrationConnectionGeneration: UInt64 = 0
     private var metadataPermit: PairingMutationPermit?
     private var aboutTask: Task<Void, Never>?
     private var metadataWorkTask: Task<Void, Never>?
@@ -70,14 +72,22 @@ final class HomeAuthenticatedJobs {
 
     func connected(localPort: Int, connectionEpoch: UInt64? = nil) {
         let pairingGeneration = self.store.snapshot().pairingGeneration
-        if self.activePort != localPort || self.activePairingGeneration != pairingGeneration {
+        if self.activePort != localPort || self.activePairingGeneration != pairingGeneration
+            || self.activeConnectionEpoch != connectionEpoch {
             self.disconnected()
         }
         self.activePort = localPort
         self.activePairingGeneration = pairingGeneration
+        self.activeConnectionEpoch = connectionEpoch
 
         if let deviceMigrationOwner = self.deviceMigrationOwner {
-            Task { @MainActor in
+            let generation = self.migrationConnectionGeneration
+            Task { @MainActor [weak self] in
+                guard let self,
+                      self.migrationConnectionGeneration == generation,
+                      self.activePort == localPort,
+                      self.activePairingGeneration == pairingGeneration,
+                      self.activeConnectionEpoch == connectionEpoch else { return }
                 await deviceMigrationOwner.connected(localPort: localPort, connectionEpoch: connectionEpoch)
             }
         }
@@ -115,6 +125,8 @@ final class HomeAuthenticatedJobs {
         self.accessGeneration &+= 1
         self.activePort = nil
         self.activePairingGeneration = nil
+        self.activeConnectionEpoch = nil
+        self.migrationConnectionGeneration &+= 1
         self.deviceMigrationOwner?.disconnected()
         self.metadataPermit?.cancel()
         self.accessPermit?.cancel()
@@ -141,7 +153,7 @@ final class HomeAuthenticatedJobs {
 
     func confirmationDidChange() {
         guard let localPort = self.activePort else { return }
-        self.connected(localPort: localPort)
+        self.connected(localPort: localPort, connectionEpoch: self.activeConnectionEpoch)
     }
 
     private enum DeadlineWorkLane {

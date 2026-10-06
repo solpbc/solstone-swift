@@ -81,16 +81,7 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
             self.state.pairing = existing
             self.state.pairingIdentity = journalVersionMetadataIdentity(for: existing)
             do {
-                if let recovery = try migrationStore.recoverPairingReplacement(existing) {
-                    if recovery.resetPairingState {
-                        try confirmationStore.writeMarkerOnApplyPairing()
-                        try deletePushKeyClosure()
-                    }
-                    try migrationStore.commitPairingReplacement(ownerID: recovery.ownerID)
-                    self.state.deviceOwnerID = recovery.ownerID
-                } else {
-                    self.state.deviceOwnerID = try migrationStore.claimExistingPairing(existing)
-                }
+                self.state.deviceOwnerID = try self.recoverDeviceOwner(for: existing)
             } catch {
                 do {
                     self.state.deviceOwnerID = try migrationStore.claimExistingPairing(existing)
@@ -155,14 +146,31 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
 
     func reloadPairingFromKeychain() throws -> StoredPairing? {
         // The loadPairing closure must not hop to the main actor and must not call back onto keychainQueue.
+        // Match mutations: Keychain queue before migration-store serialization.
         try self.keychainQueue.sync {
             let loaded = try self.loadPairingClosure()
             guard let loaded else { return nil }
+            let ownerID = try self.recoverDeviceOwner(for: loaded)
             self.lock.withLock {
                 self.state.pairing = loaded
                 self.state.pairingIdentity = journalVersionMetadataIdentity(for: loaded)
+                self.state.deviceOwnerID = ownerID
             }
             return loaded
+        }
+    }
+
+    private func recoverDeviceOwner(for pairing: StoredPairing) throws -> UUID {
+        try self.migrationStore.withMigrationMutation {
+            if let recovery = try self.migrationStore.recoverPairingReplacement(pairing) {
+                if recovery.resetPairingState {
+                    try self.confirmationStore.writeMarkerOnApplyPairing()
+                    try self.deletePushKeyClosure()
+                }
+                try self.migrationStore.commitPairingReplacement(ownerID: recovery.ownerID)
+                return recovery.ownerID
+            }
+            return try self.migrationStore.claimExistingPairing(pairing)
         }
     }
 

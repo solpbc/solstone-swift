@@ -34,6 +34,10 @@ private enum MigrationPreflightTestError: Error {
 @MainActor
 private final class FailingMigrationControl: MigrationControlExchanging {
     private(set) var calls = 0
+    var challengeFirst = false
+    private(set) var bodies: [Data] = []
+    private(set) var candidates: [[TransportEndpoint]] = []
+    private(set) var pairings: [StoredPairing] = []
 
     func postRekey(
         pairing: StoredPairing,
@@ -43,11 +47,79 @@ private final class FailingMigrationControl: MigrationControlExchanging {
         afterResponse: @MainActor @Sendable (Data) async throws -> Void
     ) async throws {
         self.calls += 1
+        self.bodies.append(body)
+        self.candidates.append(candidates)
+        self.pairings.append(pairing)
+        if self.challengeFirst && self.calls == 1 { throw SessionError.authRefreshRequired }
         throw MigrationPreflightTestError.refused
     }
 }
 
 nonisolated final class TunnelManagerTests: XCTestCase {
+    @MainActor
+    func testPrivateMigrationUsesLearnedLANAndRefreshesRelayWithoutOrdinaryAdmission() async throws {
+        let stale = LocalEndpoint(host: "192.0.2.11", port: 7657, scope: "lan")
+        let learned = LocalEndpoint(host: "192.0.2.22", port: 7657, scope: "lan")
+        let pairing = Self.fixturePairing(localEndpoints: [stale])
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: pairing)
+        let confirmation = JournalSendConfirmationStore.memory()
+        let migration = DeviceMigrationStore.memory()
+        _ = try migration.adopt(pairing: pairing, includeFreshPairOffer: false)
+        let store = PairingCredentialStore(confirmationStore: confirmation, migrationStore: migration,
+            loadPairing: { holder.withLock { $0 } }, savePairing: { updated in holder.withLock { $0 = updated } })
+        var moved = DeviceMigrationMarker.fresh()
+        moved.adoption = .adopted(try DevicePairingIdentity.make(for: pairing))
+        try migration.saveMarker(moved)
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [learned]))
+        let control = FailingMigrationControl()
+        control.challengeFirst = true
+        let coordinator = DeviceMigrationCoordinator(credentials: store, confirmation: confirmation, control: control)
+        let transport = MockCFTunnelTransport()
+        let freshToken = Self.makeDeviceToken(jti: "migration-refresh")
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(responseData: Self.tokenRefreshSuccessData(deviceToken: freshToken)),
+            clientInfo: SPLRuntime.clientInfo)
+        let manager = makeManager(transport: transport, endpointCache: cache, store: store,
+            deviceTokenRefresher: refresher, migrationCoordinator: coordinator)
+        await manager.connect()
+        XCTAssertEqual(control.calls, 2)
+        XCTAssertEqual(control.bodies.first, control.bodies.last)
+        for candidates in control.candidates {
+            XCTAssertTrue(candidates.contains { if case .lan(let host, _, _, _) = $0 { return host == learned.host }; return false })
+        }
+        XCTAssertEqual(Self.relayTokens(from: control.candidates.last ?? []), [freshToken])
+        XCTAssertEqual(control.pairings.last?.relayEnrollment, store.snapshot().pairing?.relayEnrollment)
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs(), ["https://relay.example.com/token/refresh"])
+        XCTAssertEqual(store.snapshot().pairing?.fingerprint, pairing.fingerprint)
+        XCTAssertEqual(store.snapshot().pairingGeneration, 0)
+        let pending = try XCTUnwrap(migration.loadPendingRekey(ownerID: XCTUnwrap(store.snapshot().deviceOwnerID)))
+        XCTAssertEqual(pending.requestBytes, control.bodies.first)
+        XCTAssertEqual(transport.connectCallCount, 0)
+        XCTAssertNil(manager.activeConnection)
+        await manager.disconnect()
+        await cache.wipe()
+    }
+
+    @MainActor
+    func testFixtureReplacementClosesAdmissionWithoutStartingAutomaticReconnect() async throws {
+        let pairing = Self.fixturePairing()
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: pairing)
+        let store = PairingCredentialStore(loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } })
+        let transport = MockCFTunnelTransport()
+        let manager = TunnelManager(transport: transport, endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            store: store, automaticallyReconnectOnCredentialReplacement: false)
+        manager.state = .connected(localPort: 7111, via: .lan)
+        XCTAssertNotNil(manager.activeConnection)
+        try store.applyPairing(Self.fixturePairing(instanceID: "new-journal"))
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertEqual(manager.state, .connected(localPort: 7111, via: .lan))
+        XCTAssertNil(manager.activeConnection)
+        XCTAssertEqual(transport.connectCallCount, 0)
+        await manager.disconnect()
+    }
+
     @MainActor private func makeManager(
         transport: any Transporting,
         endpointCache: EndpointCache? = nil,
@@ -113,7 +185,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             clientKeyPEM: "old key",
             caChainPEM: CertlessTrustFixtures.caPEM,
             relayEnrollment: .unavailable,
-            localEndpoints: [],
+            localEndpoints: [LocalEndpoint(host: "192.0.2.10", port: 7657, scope: "lan")],
             pairedAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
         let confirmation = JournalSendConfirmationStore.memory()

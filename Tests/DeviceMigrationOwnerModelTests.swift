@@ -308,6 +308,11 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         await owner.confirmFreshPairReplacement(presentedContext: presentation)
         XCTAssertEqual(owner.freshPairOffer?.state, .unknown)
 
+        let heldRequest = owner.freshPairOffer?.requestBytes
+        owner.keepBothFromFreshPairOffer()
+        XCTAssertEqual(owner.freshPairOffer?.state, .unknown)
+        XCTAssertEqual(owner.freshPairOffer?.requestBytes, heldRequest)
+
         await owner.connected(localPort: 7111)
         let bodies = await journal.recordedBodies()
         XCTAssertEqual(bodies.count, 2)
@@ -376,6 +381,55 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         XCTAssertTrue(bodies.isEmpty)
         let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
         XCTAssertEqual(try migration.loadPortable(for: identity).replacementOffer?.targetCID, nil)
+        owner.keepBothFromFreshPairOffer()
+        XCTAssertEqual(try migration.loadPortable(for: identity).replacementOffer?.state, .keptBoth)
+    }
+
+    func testKeepBothCompletesDefinitelyRefusedFreshReplacement() async throws {
+        let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "old phone")])
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()),
+            clientsResults: [.success(clients), .success(clients)], putBehaviors: [.refused])
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+        await owner.connected(localPort: 7111)
+        await owner.loadReplacementClients()
+        owner.selectedCID = MigrationOwnerFixture.targetCID
+        let presentation = try XCTUnwrap(owner.freshReplacementPresentation(targetCID: MigrationOwnerFixture.targetCID))
+        await owner.confirmFreshPairReplacement(presentedContext: presentation)
+        XCTAssertEqual(owner.freshPairOffer?.state, .refused)
+        owner.keepBothFromFreshPairOffer()
+        let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+        XCTAssertEqual(try migration.loadPortable(for: identity).replacementOffer?.state, .keptBoth)
+        let bodies = await journal.recordedBodies()
+        XCTAssertEqual(bodies.count, 1)
+    }
+
+    func testHomeJobsPreserveEpochAndDiscardQueuedOwnerWorkAfterDisconnect() async throws {
+        let (_, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()))
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+        owner.bindActiveConnection { port, epoch in port == 7111 && epoch == 42 }
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let jobs = HomeAuthenticatedJobs(store: credentials,
+            journalVersion: JournalVersionMetadata(defaults: defaults, fetch: { _ in nil }),
+            isSendAdmissionAllowed: { false }, deviceMigrationOwner: owner)
+        jobs.connected(localPort: 7111, connectionEpoch: 42)
+        jobs.confirmationDidChange()
+        jobs.disconnected()
+        for _ in 0..<20 { await Task.yield() }
+        let disconnectedFetches = await journal.recordedStateFetchCount()
+        XCTAssertEqual(disconnectedFetches, 0)
+        XCTAssertFalse(owner.shouldPresentFreshPairOffer)
+        await owner.connected(localPort: 7111)
+        let missingEpochFetches = await journal.recordedStateFetchCount()
+        XCTAssertEqual(missingEpochFetches, 0)
+        jobs.connected(localPort: 7111, connectionEpoch: 42)
+        for _ in 0..<100 where await journal.recordedStateFetchCount() == 0 { await Task.yield() }
+        XCTAssertTrue(owner.shouldPresentFreshPairOffer)
+        jobs.confirmationDidChange()
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertTrue(owner.shouldPresentFreshPairOffer)
+        jobs.disconnected()
     }
 
     func testOldListContinuationCannotMutateSameJournalReplacementOffer() async throws {

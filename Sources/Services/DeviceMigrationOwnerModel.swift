@@ -48,6 +48,7 @@ final class DeviceMigrationOwnerModel {
     @ObservationIgnored private var replacementListGeneration: UInt64 = 0
     @ObservationIgnored private var activeConnectionEpoch: UInt64?
     @ObservationIgnored private var isActiveConnection: @MainActor @Sendable (Int, UInt64) -> Bool = { _, _ in true }
+    @ObservationIgnored private var hasActiveConnectionBinding = false
 
     private struct Connection: Sendable {
         let token: UUID
@@ -72,6 +73,7 @@ final class DeviceMigrationOwnerModel {
 
     func bindActiveConnection(_ isActive: @escaping @MainActor @Sendable (Int, UInt64) -> Bool) {
         self.isActiveConnection = isActive
+        self.hasActiveConnectionBinding = true
     }
 
     var migrationChoicePending: Bool {
@@ -221,7 +223,7 @@ final class DeviceMigrationOwnerModel {
         guard let context = self.currentConnection(),
               self.confirmation.allowsSend(pairing: context.pairing),
               let offer = self.freshPairOffer,
-              offer.state == .available else { return }
+              offer.state == .available || offer.state == .refused || offer.state == .targetRemoved else { return }
         if let presentedContext {
             guard presentedContext.ownerID == context.ownerID,
                   presentedContext.operationID == offer.operationID else { return }
@@ -782,7 +784,7 @@ final class DeviceMigrationOwnerModel {
     }
 
     private func connectionIsActive(port: Int, epoch: UInt64?) -> Bool {
-        guard let epoch else { return true }
+        guard let epoch else { return !self.hasActiveConnectionBinding }
         return self.isActiveConnection(port, epoch)
     }
 

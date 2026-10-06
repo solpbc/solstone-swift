@@ -58,12 +58,21 @@ nonisolated enum DeviceMigrationRecoveryState: Equatable, Sendable {
 
 @MainActor
 final class DeviceMigrationCoordinator {
+    struct ControlPreparation: Sendable {
+        let pairing: StoredPairing
+        let candidates: [TransportEndpoint]
+    }
     private let credentials: PairingCredentialStore
     private let confirmation: JournalSendConfirmationStore
     private let migrationStore: DeviceMigrationStore
     private let control: any MigrationControlExchanging
     private weak var appConfig: AppConfig?
     private let didRotateCredential: @MainActor @Sendable () -> Void
+    private var prepareControl: (@MainActor @Sendable (Bool) async throws -> ControlPreparation)?
+
+    func bindControlPreparation(_ prepare: @escaping @MainActor @Sendable (Bool) async throws -> ControlPreparation) {
+        self.prepareControl = prepare
+    }
 
     init(
         credentials: PairingCredentialStore,
@@ -190,10 +199,8 @@ final class DeviceMigrationCoordinator {
         guard self.mayContinue(ownerID: ownerID, pairingGeneration: pairingGeneration, mayContinue: mayContinue) else {
             throw CancellationError()
         }
-        let candidates = TransportEndpoint.candidates(for: pairing)
-        try await self.control.postRekey(
+        try await self.postRekey(
             pairing: pairing,
-            candidates: candidates,
             body: operation.requestBytes,
             shouldContinue: { [weak self] in
                 guard let self else { return false }
@@ -284,10 +291,8 @@ final class DeviceMigrationCoordinator {
         }
 
         operation.responseBytes = nil
-        let candidates = TransportEndpoint.candidates(for: pairing)
-        try await self.control.postRekey(
+        try await self.postRekey(
             pairing: pairing,
-            candidates: candidates,
             body: operation.requestBytes,
             shouldContinue: { [weak self] in
                 guard let self else { return false }
@@ -312,6 +317,40 @@ final class DeviceMigrationCoordinator {
                 pairingGeneration: pairingGeneration,
                 mayContinue: mayContinue
             )
+        }
+    }
+
+    private func postRekey(
+        pairing: StoredPairing,
+        body: Data,
+        shouldContinue: @MainActor @Sendable () -> Bool,
+        afterResponse: @MainActor @Sendable (Data) async throws -> Void
+    ) async throws {
+        var challenged = false
+        while true {
+            guard shouldContinue(), !Task.isCancelled else { throw CancellationError() }
+            let prepared: ControlPreparation
+            if let prepareControl {
+                prepared = try await prepareControl(challenged)
+            } else {
+                prepared = ControlPreparation(pairing: pairing, candidates: TransportEndpoint.candidates(for: pairing))
+            }
+            guard shouldContinue(), !Task.isCancelled,
+                  prepared.pairing.fingerprint == pairing.fingerprint,
+                  try DevicePairingIdentity.make(for: prepared.pairing) == DevicePairingIdentity.make(for: pairing) else {
+                throw CancellationError()
+            }
+            do {
+                try await self.control.postRekey(
+                    pairing: prepared.pairing, candidates: prepared.candidates, body: body,
+                    shouldContinue: shouldContinue, afterResponse: afterResponse
+                )
+                return
+            } catch let error as SessionError where error == .authRefreshRequired || error == .revoked {
+                // A fresh private session retries the same durable request exactly once.
+                guard !challenged, self.prepareControl != nil, shouldContinue() else { throw error }
+                challenged = true
+            }
         }
     }
 
