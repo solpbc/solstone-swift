@@ -155,7 +155,7 @@ final class WatchRelayTests: XCTestCase {
 
         watchSession.deliverUserInfo(try XCTUnwrap(phoneSession.transferredUserInfos.last))
         await self.settleConnectivityCallback()
-        await self.waitForNoManifests(in: storage)
+        await self.waitForNoManifests(in: storage, deleting: sourceDirectory)
 
         let sourceDirectoryExists = await storage.fileWriter.fileExists(at: sourceDirectory)
         XCTAssertFalse(sourceDirectoryExists)
@@ -185,7 +185,7 @@ final class WatchRelayTests: XCTestCase {
 
         watchSession.deliverUserInfo(phoneSession.sentMessages[0])
         await self.settleConnectivityCallback()
-        await self.waitForNoManifests(in: storage)
+        await self.waitForNoManifests(in: storage, deleting: sourceDirectory)
 
         let sourceDirectoryExists = await storage.fileWriter.fileExists(at: sourceDirectory)
         XCTAssertFalse(sourceDirectoryExists)
@@ -214,7 +214,7 @@ final class WatchRelayTests: XCTestCase {
 
         watchSession.deliverUserInfo(phoneSession.transferredUserInfos[0])
         await self.settleConnectivityCallback()
-        await self.waitForNoManifests(in: storage)
+        await self.waitForNoManifests(in: storage, deleting: sourceDirectory)
 
         let sourceDirectoryExists = await storage.fileWriter.fileExists(at: sourceDirectory)
         XCTAssertFalse(sourceDirectoryExists)
@@ -287,7 +287,7 @@ final class WatchRelayTests: XCTestCase {
         await self.settleConnectivityCallback()
         watchSession.deliverUserInfo(phoneSession.transferredUserInfos[0])
         await self.settleConnectivityCallback()
-        await self.waitForNoManifests(in: storage)
+        await self.waitForNoManifests(in: storage, deleting: sourceDirectory)
 
         let sourceDirectoryExists = await storage.fileWriter.fileExists(at: sourceDirectory)
         XCTAssertFalse(sourceDirectoryExists)
@@ -647,6 +647,7 @@ final class WatchRelayTests: XCTestCase {
         watchSession.finishTransfer(id: successID, failure: nil)
         await self.settleConnectivityCallback()
         await self.waitForManifestState(storage: storage, id: successID, expected: .delivered)
+        await self.drain(until: { stateChanges >= 1 })
 
         let successState = try await self.manifestState(storage: storage, id: successID)
         XCTAssertEqual(successState, .delivered)
@@ -663,6 +664,7 @@ final class WatchRelayTests: XCTestCase {
         watchSession.finishTransfer(id: queuedSuccessID, failure: nil)
         await self.settleConnectivityCallback()
         await self.waitForManifestState(storage: storage, id: queuedSuccessID, expected: .delivered)
+        await self.drain(until: { stateChanges >= 2 })
         let queuedSuccessState = try await self.manifestState(storage: storage, id: queuedSuccessID)
         XCTAssertEqual(queuedSuccessState, .delivered)
         let queuedSuccessManifest = try await self.manifest(storage: storage, id: queuedSuccessID)
@@ -2603,9 +2605,12 @@ private extension WatchRelayTests {
         })
     }
 
-    func waitForNoManifests(in storage: WatchCaptureTestStorage) async {
+    func waitForNoManifests(in storage: WatchCaptureTestStorage, deleting directory: URL? = nil) async {
         await self.drain(until: {
-            await self.catalogEntries(for: storage).isEmpty
+            // Recursive removal can erase the manifest before the directory.
+            // Tests asserting physical cleanup must await both obligations.
+            if let directory, await storage.fileWriter.fileExists(at: directory) { return false }
+            return await self.catalogEntries(for: storage).isEmpty
         })
     }
 

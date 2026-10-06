@@ -92,7 +92,8 @@ nonisolated final class PairFlowMismatchTests: XCTestCase {
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
-            deletePairing: { store.delete() }
+            deletePairing: { store.delete() },
+            store: credentials
         )
         tunnel.forceConnected(port: 7071, via: .lan)
 

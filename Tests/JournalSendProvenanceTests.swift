@@ -168,9 +168,16 @@ nonisolated final class JournalSendProvenanceTests: XCTestCase {
         )
         XCTAssertTrue(appConfig.journalSendConfirmed)
         let resAvailable = await resolver.resolve(descriptor)
-        XCTAssertEqual(
-            resAvailable,
-            TransferEndpointResolution.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071/")!, port: 7071))
-        )
+        guard case .available(let endpoint) = resAvailable else {
+            return XCTFail("confirmed replacement pairing must resolve")
+        }
+        XCTAssertEqual(endpoint.baseURL, URL(string: "http://127.0.0.1:7071/"))
+        XCTAssertEqual(endpoint.port, 7071)
+        let owner = try XCTUnwrap(endpoint.dispatchOwner)
+        let snapshot = credentialStore.snapshot()
+        XCTAssertEqual(owner.ownerID, snapshot.deviceOwnerID)
+        XCTAssertEqual(owner.pairingGeneration, snapshot.pairingGeneration)
+        XCTAssertEqual(owner.credentialCID, snapshot.pairing?.fingerprint)
+        XCTAssertGreaterThan(owner.admissionGeneration, 0)
     }
 }

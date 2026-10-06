@@ -256,11 +256,17 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         )
 
         let store = MemoryPairingStore(pairing: pairing)
-        let appConfig = AppConfig(
+        let confirmationStore = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            migrationStore: .memory(),
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
-            deletePairing: { store.delete() },
-            confirmationStore: JournalSendConfirmationStore.memory(),
+            deletePairing: { store.delete() }
+        )
+        let appConfig = AppConfig(
+            confirmationStore: confirmationStore,
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
         )
@@ -272,7 +278,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
-            deletePairing: { store.delete() }
+            deletePairing: { store.delete() },
+            store: appConfig.store
         )
         tunnel.forceConnected(port: 9090, via: .lan)
 
@@ -324,11 +331,17 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 pairedAt: Date()
             )
             let store = MemoryPairingStore(pairing: pairing)
-            let appConfig = AppConfig(
+            let confirmationStore = JournalSendConfirmationStore.memory()
+            let credentials = PairingCredentialStore(
+                confirmationStore: confirmationStore,
+                migrationStore: .memory(),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() },
-                confirmationStore: JournalSendConfirmationStore.memory(),
+                deletePairing: { store.delete() }
+            )
+            let appConfig = AppConfig(
+                confirmationStore: confirmationStore,
+                store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
@@ -338,7 +351,8 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() }
+                deletePairing: { store.delete() },
+                store: appConfig.store
             )
             let defaults = UserDefaults(suiteName: "OwnerUnpairTests.\(UUID().uuidString)")!
             let notice = JournalUnpairNoticeStore(defaults: defaults)
@@ -443,11 +457,17 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         // 1. unpairAndReturnToOnboarding
         do {
             let store = MemoryPairingStore(pairing: Self.makeFixturePairing())
-            let appConfig = AppConfig(
+            let confirmationStore = JournalSendConfirmationStore.memory()
+            let credentials = PairingCredentialStore(
+                confirmationStore: confirmationStore,
+                migrationStore: .memory(),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() },
-                confirmationStore: JournalSendConfirmationStore.memory(),
+                deletePairing: { store.delete() }
+            )
+            let appConfig = AppConfig(
+                confirmationStore: confirmationStore,
+                store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
@@ -482,11 +502,17 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         // 2. unpairForNewPair (does not reset onboarding)
         do {
             let store = MemoryPairingStore(pairing: Self.makeFixturePairing())
-            let appConfig = AppConfig(
+            let confirmationStore = JournalSendConfirmationStore.memory()
+            let credentials = PairingCredentialStore(
+                confirmationStore: confirmationStore,
+                migrationStore: .memory(),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() },
-                confirmationStore: JournalSendConfirmationStore.memory(),
+                deletePairing: { store.delete() }
+            )
+            let appConfig = AppConfig(
+                confirmationStore: confirmationStore,
+                store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
@@ -518,11 +544,17 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         // 3. unpairThisDevice
         do {
             let store = MemoryPairingStore(pairing: Self.makeFixturePairing())
-            let appConfig = AppConfig(
+            let confirmationStore = JournalSendConfirmationStore.memory()
+            let credentials = PairingCredentialStore(
+                confirmationStore: confirmationStore,
+                migrationStore: .memory(),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() },
-                confirmationStore: JournalSendConfirmationStore.memory(),
+                deletePairing: { store.delete() }
+            )
+            let appConfig = AppConfig(
+                confirmationStore: confirmationStore,
+                store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
@@ -557,11 +589,17 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         // 4. tearDownMismatchedPairing
         do {
             let store = MemoryPairingStore(pairing: Self.makeFixturePairing())
-            let appConfig = AppConfig(
+            let confirmationStore = JournalSendConfirmationStore.memory()
+            let credentials = PairingCredentialStore(
+                confirmationStore: confirmationStore,
+                migrationStore: .memory(),
                 loadPairing: { store.load() },
                 savePairing: { store.save($0) },
-                deletePairing: { store.delete() },
-                confirmationStore: JournalSendConfirmationStore.memory(),
+                deletePairing: { store.delete() }
+            )
+            let appConfig = AppConfig(
+                confirmationStore: confirmationStore,
+                store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
@@ -605,11 +643,17 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         XCTAssertTrue(notice.isSet)
 
         let store = MemoryPairingStore(pairing: nil)
-        let appConfig = AppConfig(
+        let confirmationStore = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            migrationStore: .memory(),
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
-            deletePairing: { store.delete() },
-            confirmationStore: JournalSendConfirmationStore.memory(),
+            deletePairing: { store.delete() }
+        )
+        let appConfig = AppConfig(
+            confirmationStore: confirmationStore,
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
         )

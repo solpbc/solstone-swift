@@ -18,6 +18,7 @@ nonisolated final class ClearPairingSourceScanGrepTests: XCTestCase {
         "Sources/Services/PairingCredentialStore.swift:publishClearedPairing",
         "Sources/Services/AppConfig.swift:init",
         "Sources/Services/AppConfig.swift:clearPairing",
+        "Sources/Services/AppConfig.swift:finishPairingClear",
         "Sources/Pairing/PairFlowCoordinator.swift:unpair",
         "Sources/ContentView.swift:body",
         "Sources/SolstoneSwiftApp.swift:resetOnboardingIntegrationState",

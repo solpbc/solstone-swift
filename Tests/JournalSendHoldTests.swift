@@ -252,10 +252,17 @@ nonisolated final class JournalSendHoldTests: XCTestCase {
 
         let descriptor = TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/app/devices/ingest")
         let res1 = await resolver.resolve(descriptor)
-        XCTAssertEqual(
-            res1,
-            TransferEndpointResolution.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071/")!, port: 7071))
-        )
+        guard case .available(let endpoint) = res1 else {
+            return XCTFail("confirmed current pairing must resolve")
+        }
+        XCTAssertEqual(endpoint.baseURL, URL(string: "http://127.0.0.1:7071/"))
+        XCTAssertEqual(endpoint.port, 7071)
+        let owner = try XCTUnwrap(endpoint.dispatchOwner)
+        let snapshot = credentialStore.snapshot()
+        XCTAssertEqual(owner.ownerID, snapshot.deviceOwnerID)
+        XCTAssertEqual(owner.pairingGeneration, snapshot.pairingGeneration)
+        XCTAssertEqual(owner.credentialCID, pairing1.fingerprint)
+        XCTAssertGreaterThan(owner.admissionGeneration, 0)
 
         // Re-pair with different instance
         let pairing2 = self.makePairing(instanceID: "inst-2")
@@ -264,5 +271,7 @@ nonisolated final class JournalSendHoldTests: XCTestCase {
         XCTAssertFalse(appConfig.journalSendConfirmed)
         let res2 = await resolver.resolve(descriptor)
         XCTAssertEqual(res2, TransferEndpointResolution.unavailable("journal-send-held"))
+        let oldEndpointStillCurrent = await resolver.isCurrent(endpoint)
+        XCTAssertFalse(oldEndpointStillCurrent)
     }
 }
