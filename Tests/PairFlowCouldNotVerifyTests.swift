@@ -130,9 +130,6 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
         TransferURLProtocol.reset()
         defer { TransferURLProtocol.reset() }
 
-        try? SPLRuntime.keychainStore.delete()
-        defer { try? SPLRuntime.keychainStore.delete() }
-
         let store = PairFlowCouldNotVerifyPairingStore()
         let pairing = Self.fixturePairing()
         let confirmationStore = JournalSendConfirmationStore.memory()
@@ -190,6 +187,7 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
         tunnel.forceConnected(port: 7071, via: .lan)
 
         let coordinator = PairFlowCoordinator(
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             pairOperation: { _, _, _, _ in pairing }
         )
@@ -288,11 +286,13 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
-            deletePairing: { store.delete() }
+            deletePairing: { store.delete() },
+            store: credentials
         )
         tunnel.forceConnected(port: 7071, via: .lan)
 
         let coordinator = PairFlowCoordinator(
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             pairOperation: { _, _, _, _ in pairing }
         )
@@ -338,16 +338,21 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
     func testLateOutcomesAreDiscardedOnceInCouldNotVerify() throws {
         let store = PairFlowCouldNotVerifyPairingStore()
         let pairing = Self.fixturePairing()
+        let confirmationStore = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: { store.load() },
+            savePairing: { store.save($0) },
+            deletePairing: { store.delete() }
+        )
         let appGroupRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("PairFlowCouldNotVerifyLate-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: appGroupRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: appGroupRoot) }
 
         let appConfig = AppConfig(
-            loadPairing: { store.load() },
-            savePairing: { store.save($0) },
-            deletePairing: { store.delete() },
-            confirmationStore: JournalSendConfirmationStore.memory(),
+            confirmationStore: confirmationStore,
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
         )
@@ -358,11 +363,13 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
-            deletePairing: { store.delete() }
+            deletePairing: { store.delete() },
+            store: credentials
         )
         tunnel.forceConnected(port: 7071, via: .lan)
 
         let coordinator = PairFlowCoordinator(
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             pairOperation: { _, _, _, _ in pairing }
         )
@@ -419,16 +426,21 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
     func testCancelPairingReturnsToPairingNotMismatch() async throws {
         let store = PairFlowCouldNotVerifyPairingStore()
         let pairing = Self.fixturePairing()
+        let confirmationStore = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmationStore,
+            loadPairing: { store.load() },
+            savePairing: { store.save($0) },
+            deletePairing: { store.delete() }
+        )
         let appGroupRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("PairFlowCouldNotVerifyCancelToPairing-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: appGroupRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: appGroupRoot) }
 
         let appConfig = AppConfig(
-            loadPairing: { store.load() },
-            savePairing: { store.save($0) },
-            deletePairing: { store.delete() },
-            confirmationStore: JournalSendConfirmationStore.memory(),
+            confirmationStore: confirmationStore,
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             appGroupMirror: AppGroupMirror(rootURLProvider: { appGroupRoot })
         )
@@ -439,11 +451,13 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             loadPairing: { store.load() },
             savePairing: { store.save($0) },
-            deletePairing: { store.delete() }
+            deletePairing: { store.delete() },
+            store: credentials
         )
         tunnel.forceConnected(port: 7071, via: .lan)
 
         let coordinator = PairFlowCoordinator(
+            store: credentials,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
             pairOperation: { _, _, _, _ in pairing }
         )

@@ -453,6 +453,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
             clientInfo: SPLRuntime.clientInfo
         )
         let coordinator = PairFlowCoordinator(
+            store: Self.isolatedCredentials(),
             pairClient: client,
             networkReader: StubNetworkReader(value: [
                 IPv4Interface(address: "192.168.1.20", netmask: "255.255.255.0")
@@ -509,6 +510,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
     @MainActor
     func testCoordinatorRendersDirectAddressNotLocalCopy() async throws {
         let coordinator = PairFlowCoordinator(
+            store: Self.isolatedCredentials(),
             networkReader: StubNetworkReader(value: []),
             pairOperation: { _, _, _, _ in
                 throw PairError.directAddressNotLocal
@@ -529,6 +531,15 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
             .failed(
                 error: "that pairing link points to an address that can't be opened. copy the link from your journal again and try again."
             )
+        )
+    }
+
+    private static func isolatedCredentials() -> PairingCredentialStore {
+        PairingCredentialStore(
+            confirmationStore: .memory(),
+            loadPairing: { nil },
+            savePairing: { _ in },
+            deletePairing: {}
         )
     }
 
