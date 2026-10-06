@@ -213,6 +213,36 @@ nonisolated final class LinkedDeviceIngestClientTests: XCTestCase {
         XCTAssertEqual(LinkedDeviceIngestClient.decodeDayManifest(manifestWithDisplayCopy, expectedDay: "20260603"), .failure(.malformedResponse))
     }
 
+    func testPinnedCollisionEqualBytesAndOccupiedAliasRemainDistinct() throws {
+        let root = try XCTUnwrap(Bundle(for: Self.self).resourceURL).appendingPathComponent("LinkedDeviceIngest")
+        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf:
+            root.appendingPathComponent("wire-behavior.json"))) as? [String: Any])
+        let entries = try XCTUnwrap(fixture["fixtures"] as? [[String: Any]])
+        let collision = try XCTUnwrap(entries.first {
+            $0["id"] as? String == "declared.client.ingestSegments.collision.same_basename_distinct_streams"
+        })
+        var payload = try XCTUnwrap(collision["payload"] as? [String: Any])
+        var items = try XCTUnwrap(payload["items"] as? [[String: Any]])
+        // Start with the pinned physical pair, then make their file custody equal.
+        items[1]["files"] = items[0]["files"]
+        // A third physical stream already occupies a plausible display alias.
+        var occupied = items[0]
+        occupied["key"] = "120000_10~browser_a~2"
+        occupied["stream"] = "browser_c"
+        items.append(occupied)
+        payload["items"] = items; payload["total"] = items.count
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let decoded = try JSONDecoder().decode(LinkedDeviceIngestSegmentsResponse.self, from: data)
+        XCTAssertNil(LinkedDeviceIngestClient.validationError(for: decoded))
+        XCTAssertEqual(Set(decoded.items.map(\.key)).count, 3)
+        XCTAssertEqual(decoded.items.map(\.displayKey), ["120000_10", "120000_10", "120000_10"])
+        let mapped = LinkedDeviceIngestViewMapper.observerManifestResult(.success(decoded), day: "20260603",
+            fileName: "browser_pages.jsonl", locale: Locale(identifier: "en_US"), timeZone: TimeZone(identifier: "UTC")!)
+        guard case .loaded(let rows) = mapped else { return XCTFail("expected separate inherited rows") }
+        XCTAssertEqual(Set(rows.map(\.id)), Set(decoded.items.map(\.key)))
+        XCTAssertEqual(rows.map(\.subtitle), ["10s", "10s", "10s"])
+    }
+
     private var client: LinkedDeviceIngestClient {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [LinkedDeviceIngestURLProtocol.self]

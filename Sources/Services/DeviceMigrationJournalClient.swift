@@ -67,7 +67,15 @@ nonisolated struct DeviceMigrationJournalClient: DeviceMigrationJournalAccess {
                 return .unavailable
             }
             guard http.statusCode == 200 else {
-                if (400..<500).contains(http.statusCode) { return .refused }
+                // These two pinned decision errors occur after the journal verifies
+                // current authorization and before preparing any decision. Other
+                // 4xx responses can mean revoked access or an already-applied replay.
+                if method == "PUT", http.statusCode == 409,
+                   let refusal = try? JSONDecoder().decode(AuthorizedRefusal.self, from: data),
+                   refusal.error == refusal.reasonCode, refusal.detail == refusal.reasonCode,
+                   ["migration_proof_missing", "migration_self_replacement"].contains(refusal.reasonCode) {
+                    return .refused
+                }
                 return .unavailable
             }
             guard !data.isEmpty,
@@ -78,6 +86,17 @@ nonisolated struct DeviceMigrationJournalClient: DeviceMigrationJournalAccess {
         } catch {
             migrationJournalLog.debug("migration API request unavailable")
             return .unavailable
+        }
+    }
+
+    private struct AuthorizedRefusal: Decodable {
+        let error: String
+        let reasonCode: String
+        let detail: String
+
+        enum CodingKeys: String, CodingKey {
+            case error, detail
+            case reasonCode = "reason_code"
         }
     }
 

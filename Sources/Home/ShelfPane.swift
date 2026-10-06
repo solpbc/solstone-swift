@@ -516,8 +516,9 @@ struct ThisDevicePane: View {
                         LabeledContent { Text("migration.pending.value") } label: { Text("migration.pending.row") }
                         Text("migration.choice.title").font(.headline)
                         Text("migration.choice.body_fallback")
-                        if let decisionState = self.deviceMigrationOwner.migrationDecisionState,
-                           decisionState == .submitting || decisionState == .unknown {
+                        if self.deviceMigrationOwner.migrationDecisionState == .submitting {
+                            Text("migration.deciding.title").font(.headline)
+                        } else if self.deviceMigrationOwner.migrationDecisionState == .unknown {
                             Text("migration.decision_unknown.title").font(.headline)
                             Text("migration.decision_unknown.body")
                             Button("migration.decision_unknown.action") {
@@ -559,7 +560,9 @@ struct ThisDevicePane: View {
                         LabeledContent { Text("migration.pending.value") } label: { Text("migration.pending.row") }
                         Text("migration.replace_offer.title").font(.headline)
                         Text("migration.replace_offer.body")
-                        if offer.state == .unknown || offer.state == .submitting {
+                        if offer.state == .submitting {
+                            Text("migration.deciding.title").font(.headline)
+                        } else if offer.state == .unknown {
                             Text("migration.decision_unknown.title").font(.headline)
                             Text("migration.decision_unknown.body")
                             Button("migration.decision_unknown.action") {

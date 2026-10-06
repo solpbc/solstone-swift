@@ -4,6 +4,7 @@
 import Foundation
 import SPLTunnel
 import XCTest
+import os
 @testable import solstone_swift
 
 private enum MigrationPutBehavior: Sendable, Equatable {
@@ -700,6 +701,44 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
         XCTAssertEqual(try migration.loadPortable(for: identity).replacementOffer?.state, .submitting)
         XCTAssertNil(owner.freshPairOffer)
+    }
+
+    func testRealHTTPAuthLossKeepsFreshReplacementUnknownAndBlocksKeepBoth() async throws {
+        let (_, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [LinkedDeviceIngestURLProtocol.self]
+        let client = DeviceMigrationJournalClient(session: URLSession(configuration: configuration))
+        let target = MigrationOwnerFixture.targetCID
+        let putBodies = OSAllocatedUnfairLock<[Data]>(initialState: [])
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            if request.httpMethod == "PUT" {
+                // URLSession may supply an input stream; the durable store below
+                // is the authoritative exact request retained for reconciliation.
+                if let body = request.httpBody { putBodies.withLock { $0.append(body) } }
+                return (HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!,
+                    Data(#"{"error":"migration_forbidden","reason_code":"migration_forbidden","detail":"migration_forbidden"}"#.utf8))
+            }
+            let body: Data
+            if request.url?.path == "/app/network/api/clients" {
+                body = Data("{\"clients\":[{\"cid\":\"\(target)\",\"display_label\":\"old phone\"}]}".utf8)
+            } else { body = Data(#"{"protocol_version":1,"state":"none"}"#.utf8) }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        defer { LinkedDeviceIngestURLProtocol.reset() }
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: client)
+        await owner.connected(localPort: 7111)
+        await owner.loadReplacementClients()
+        owner.selectedCID = target
+        let presentation = try XCTUnwrap(owner.freshReplacementPresentation(targetCID: target))
+        await owner.confirmFreshPairReplacement(presentedContext: presentation)
+        let held = try XCTUnwrap(owner.freshPairOffer)
+        XCTAssertEqual(held.state, .unknown)
+        XCTAssertNotNil(held.requestBytes)
+        owner.keepBothFromFreshPairOffer()
+        XCTAssertEqual(owner.freshPairOffer?.state, .unknown)
+        XCTAssertEqual(owner.freshPairOffer?.operationID, held.operationID)
+        XCTAssertEqual(owner.freshPairOffer?.requestBytes, held.requestBytes)
+        XCTAssertEqual(LinkedDeviceIngestURLProtocol.requests.filter { $0.httpMethod == "PUT" }.count, 1)
     }
 
     private static func makeCommittedOwnerState() throws -> (DeviceMigrationStore, JournalSendConfirmationStore, PairingCredentialStore) {
