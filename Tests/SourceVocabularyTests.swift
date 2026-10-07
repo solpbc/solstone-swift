@@ -533,10 +533,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     func testLockedSourceSubtexts() {
         XCTAssertEqual(SourceVocabulary.offSubtext(isJournalPaired: false), "turn it on any time.")
-        XCTAssertEqual(SourceVocabulary.offSubtext(isJournalPaired: true), "not sending to your journal. turn it on any time.")
+        XCTAssertEqual(SourceVocabulary.offSubtext(isJournalPaired: true), "intake is off. turn it on any time.")
         XCTAssertEqual(SourceVocabulary.enrollingSubtext(isJournalPaired: false), "getting ready…")
-        XCTAssertEqual(SourceVocabulary.enrollingSubtext(isJournalPaired: true), "getting ready — connecting to your journal.")
-        XCTAssertEqual(SourceVocabulary.pausedSubtext, "you paused this. resume to start sending again.")
+        XCTAssertEqual(SourceVocabulary.enrollingSubtext(isJournalPaired: true), "getting ready. connecting to your journal.")
+        XCTAssertEqual(SourceVocabulary.pausedSubtext, "you paused this. resume to start intake again.")
         XCTAssertEqual(SourceVocabulary.needsAttentionSubtext, "something's not getting through.")
     }
 
@@ -551,11 +551,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceState.off.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
-            "not sending to your journal. turn it on any time."
+            "intake is off. turn it on any time."
         )
         XCTAssertEqual(
             SourceState.off.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
-            "off. not sending to your journal. turn it on any time."
+            "off. intake is off. turn it on any time."
         )
         XCTAssertEqual(
             SourceState.enrolling.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: false),
@@ -567,11 +567,11 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(
             SourceState.enrolling.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
-            "getting ready — connecting to your journal."
+            "getting ready. connecting to your journal."
         )
         XCTAssertEqual(
             SourceState.enrolling.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
-            "setting up. getting ready — connecting to your journal."
+            "setting up. getting ready. connecting to your journal."
         )
         XCTAssertNil(SourceState.readyToSetUp.universalSubtext(isJournalPaired: true))
         // ⛔ The state word is the whole message. It used to speak the source's *running*

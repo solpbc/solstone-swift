@@ -91,7 +91,7 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
     /// The deck tile's sub-line.
     ///
     /// The short half of `subtext(...)`, said in the room a tile has. The detail view is
-    /// where a state explains itself in full ("not sending to your journal. turn it on
+    /// where a state explains itself in full ("intake is off. turn it on
     /// any time."); on a tile that wraps to three lines and truncates, so the tile takes
     /// less. ⛔ Not a second vocabulary: never a claim the long form does not make.
     ///
@@ -142,17 +142,17 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
 
 nonisolated enum SourceVocabulary {
     private static let offSubtextUnpaired = "turn it on any time."
-    private static let offSubtextPaired = "not sending to your journal. turn it on any time."
+    private static let offSubtextPaired = "intake is off. turn it on any time."
     // The tile-sized half of the sub-lines above. Each is the tail of its long form.
     static let offSubtextCompact = "turn it on any time."
     static let enrollingSubtextCompact = "getting ready…"
     static let pausedSubtextCompact = "you paused this."
 
     private static let enrollingSubtextUnpaired = "getting ready…"
-    private static let enrollingSubtextPaired = "getting ready — connecting to your journal."
+    private static let enrollingSubtextPaired = "getting ready. connecting to your journal."
     static let sourceStateReadyToSetUpLabel = "ready to set up"
     static let sourceStateCheckingLabel = "checking…"
-    static let pausedSubtext = "you paused this. resume to start sending again."
+    static let pausedSubtext = "you paused this. resume to start intake again."
     static let needsAttentionSubtext = "something's not getting through."
     static let needsAttention = "needs attention"
 
