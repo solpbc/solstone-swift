@@ -16,6 +16,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 - when you pair your iphone or ipad with a journal again, everything still waiting goes to that journal once you confirm its mark. before, something you'd shared that was partway into your previous journal could show as "in your journal" and be removed from your iphone or ipad without reaching your new journal, and recordings your previous journal had turned away could wait for you to tap "try now".
 - the block on the about solstone page now names your iphone or ipad's architecture as arm64, the same word every other solstone app uses, instead of arm64e.
 - if some audio from your iphone or ipad can't be read, including audio from before this update, for example because the app was shut down while audio was on, the app's status and the widgets now say "audio was interrupted", and the status screen and the list of what's on this device add "some audio hasn't reached your journal." before, they could say everything was caught up.
+- on a slow network, like a café's wifi, connecting to your journal through the relay now gets enough time to finish. before, the app could give up a moment before it would have connected.
+- when your iphone or ipad isn't on the same network as your journal, the addresses tried on the status screen now say "couldn't connect" or "no answer". before, they could say "answered, but couldn't prove it's your journal", which made it sound like something was wrong with your journal.
 
 ## [2.0.6 (119)] - 2026-10-03
 

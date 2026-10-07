@@ -366,7 +366,9 @@ final class TunnelManager {
         deletePairing: @escaping @Sendable () throws -> Void = { try SPLRuntime.keychainStore.delete() },
         store: PairingCredentialStore? = nil,
         deviceTokenRefresher: DeviceTokenRefresher = DeviceTokenRefresher(clientInfo: SPLRuntime.clientInfo),
-        connectDeadline: Duration = .seconds(15),
+        // why: outlasts the tunnel library's 15 s race budget, so the library's own
+        // per-candidate outcome reaches the status pane before this watchdog cuts in.
+        connectDeadline: Duration = .seconds(20),
         clock: any TunnelClock = LiveTunnelClock(),
         probeSession: URLSession = .shared,
         probeURLBuilder: @escaping @Sendable (Int) -> URL? = { localPort in
@@ -724,7 +726,7 @@ final class TunnelManager {
             self.diagnosticLog?.append(category: .tunnel, message: self.candidateLine(for: event.ordinal))
         }
         if case .failed(let failureClass, _) = event.phase,
-           failureClass == .tls || failureClass == .unreachable {
+           failureClass == .tls || failureClass == .unreachable || failureClass == .transport {
             switch event.route {
             case .directPinned, .directUnpinned:
                 if case .lan(let host, let port, let scope, _) = self.candidateEndpointByOrdinal[event.ordinal] {
@@ -1485,7 +1487,11 @@ final class TunnelManager {
                 let detail = self.pathStatusDetail(status)
                 log.debug("[solstone-swift] path changed: \(detail, privacy: .public)")
                 let signature = self.pathMeaningfulSignature(status)
-                if signature != self.lastEmittedPathSignature {
+                let pathChanged = signature != self.lastEmittedPathSignature
+                // why: a path update is not a failed attempt. With a retry already armed, only a
+                // real path change re-arms it, and then on the delay it already earned.
+                let rearmsReconnect = self.retryTask == nil || pathChanged
+                if pathChanged {
                     self.lastEmittedPathSignature = signature
                     self.diagnosticLog?.append(
                         category: .tunnel,
@@ -1503,17 +1509,19 @@ final class TunnelManager {
                 case .error(let error) where error.isRetryable:
                     if status.isSatisfied {
                         self.consecutiveNotEntitled = 0
+                    }
+                    if status.isSatisfied, rearmsReconnect {
                         if self.pendingReconnectReason == nil {
                             self.pendingReconnectReason = .pathRestore
 #if DEBUG && targetEnvironment(simulator)
                             self.integrationGateLastReconnectReasonBucket = .pathRestore
 #endif
                         }
-                        self.scheduleReconnect(for: error)
+                        self.scheduleReconnect(for: error, advancingBackoff: self.retryTask == nil)
                     }
                 case .disconnected:
-                    if status.isSatisfied {
-                        self.scheduleReconnect(for: .muxTeardown)
+                    if status.isSatisfied, rearmsReconnect {
+                        self.scheduleReconnect(for: .muxTeardown, advancingBackoff: self.retryTask == nil)
                     }
                 case .connecting, .error:
                     break
@@ -1695,21 +1703,28 @@ final class TunnelManager {
         return Int(fromSeconds + fromAttoseconds)
     }
 
-    private func scheduleReconnect(for error: TunnelError, epoch: UInt64? = nil) {
+    /// Arms the retry timer. Each failed attempt advances the backoff once; re-arming a
+    /// timer that is already pending (`advancingBackoff: false`) keeps the delay it earned.
+    private func scheduleReconnect(for error: TunnelError, epoch: UInt64? = nil, advancingBackoff: Bool = true) {
         guard error.isRetryable, self.isNetworkSatisfied != false else { return }
         let scheduledEpoch = epoch ?? self.activeAttemptEpoch
         self.cancelReconnect()
-        let step = self.reconnectBackoff.nextDelay()
-        self.lastScheduledReconnectDelay = step.delay
-        let displaySeconds = Self.displaySeconds(for: step.delay)
-        let components = step.delay.components
+        let delay: Duration
+        if !advancingBackoff, let earned = self.lastScheduledReconnectDelay {
+            delay = earned
+        } else {
+            delay = self.reconnectBackoff.nextDelay().delay
+        }
+        self.lastScheduledReconnectDelay = delay
+        let displaySeconds = Self.displaySeconds(for: delay)
+        let components = delay.components
         let wholeSeconds = max(Int(components.seconds), 0)
-        let fractional = step.delay - .seconds(components.seconds)
-        log.info("[solstone-swift] scheduling reconnect in \(String(describing: step.delay), privacy: .public) for \(String(describing: error), privacy: .public)")
+        let fractional = delay - .seconds(components.seconds)
+        log.info("[solstone-swift] scheduling reconnect in \(String(describing: delay), privacy: .public) for \(String(describing: error), privacy: .public)")
         self.diagnosticLog?.append(
             category: .tunnel,
             message: "scheduling reconnect",
-            detail: "delayMs=\(Self.milliseconds(for: step.delay)) error=\(error.diagnosticLabel)"
+            detail: "delayMs=\(Self.milliseconds(for: delay)) error=\(error.diagnosticLabel)"
         )
         self.reconnectCountdown = displaySeconds
         self.retryTask = Task { [weak self] in
@@ -1718,13 +1733,18 @@ final class TunnelManager {
                 if Task.isCancelled { return }
             }
             for remaining in stride(from: wholeSeconds, through: 1, by: -1) {
-                guard let self else { return }
-                if let scheduledEpoch, !self.isCurrentAttempt(scheduledEpoch) { return }
+                guard let self, !Task.isCancelled else { return }
+                if let scheduledEpoch, !self.isCurrentAttempt(scheduledEpoch) {
+                    self.retryTask = nil
+                    return
+                }
                 self.reconnectCountdown = remaining
                 try? await Task.sleep(for: .seconds(1))
                 if Task.isCancelled { return }
             }
-            guard let self else { return }
+            guard let self, !Task.isCancelled else { return }
+            // why: the timer has fired, so nothing is pending; the path handler reads this.
+            self.retryTask = nil
             if let scheduledEpoch, !self.isCurrentAttempt(scheduledEpoch) { return }
             self.reconnectCountdown = nil
             await self.connect()

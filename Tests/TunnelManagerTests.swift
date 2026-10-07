@@ -1284,7 +1284,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testNonTLSNonUnreachableFailureClassesDoNotEvictCachedCandidate() async throws {
+    func testFailureClassesThatDoNotIndictTheAddressKeepCachedCandidate() async throws {
         let cacheEndpoint = Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local")
         let bootstrapEndpoint = Self.localEndpoint(host: "10.0.0.99", port: 7657, scope: "local")
         let cache = EndpointCache(fileURL: Self.tempFileURL())
@@ -1309,7 +1309,6 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             .authRefreshRequired,
             .notEntitled,
             .revoked,
-            .transport,
             .other,
         ]
         for failureClass in failureClasses {
@@ -1326,6 +1325,44 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         let endpoints = await cache.endpoints()
         XCTAssertTrue(endpoints.contains(cacheCandidate))
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testRefusedDirectConnectEvictsCachedCandidate() async throws {
+        let cacheEndpoint = Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local")
+        let bootstrapEndpoint = Self.localEndpoint(host: "10.0.0.99", port: 7657, scope: "local")
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [cacheEndpoint]))
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            pairing: Self.fixturePairing(localEndpoints: [bootstrapEndpoint])
+        )
+
+        await manager.connect()
+
+        let cacheCandidate = TransportEndpoint.lan(
+            host: cacheEndpoint.host,
+            port: cacheEndpoint.port,
+            scope: cacheEndpoint.scope
+        )
+        let sortedCandidates = CandidateOrdering.sorted(transport.capturedCandidates, preferredEndpoint: nil)
+        let cacheOrdinal = try XCTUnwrap(sortedCandidates.firstIndex(of: cacheCandidate))
+        // A refused connect reports as a transport failure; the address is as stale as one that never answers.
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .directPinned,
+                ordinal: cacheOrdinal,
+                phase: .failed(.transport, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        await Self.settle()
+
+        let endpoints = await cache.endpoints()
+        XCTAssertFalse(endpoints.contains(cacheCandidate))
         await manager.disconnect()
     }
 
@@ -3267,6 +3304,46 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await manager.retryNow()
 
         Self.assertReconnectBuckets(manager, expected: [.pathRestore: 1])
+        manager.stopNetworkMonitoring()
+        await manager.disconnect()
+    }
+
+    @MainActor
+    func testPathUpdatesWhileRetryIsArmedDoNotAdvanceBackoff() async {
+        let source = MockPathSource()
+        let pathMonitor = PathMonitor(source: source)
+        let transport = MockCFTunnelTransport()
+        let diagnosticLog = DiagnosticLog()
+        let manager = makeManager(
+            transport: transport,
+            pathMonitor: pathMonitor,
+            jitterRandom: { range in range.upperBound },
+            diagnosticLog: diagnosticLog
+        )
+        manager.state = .error(.unreachable)
+        let schedules = { diagnosticLog.events.filter { $0.message == "scheduling reconnect" }.count }
+
+        manager.startNetworkMonitoring()
+        source.trigger(.satisfiedWiFi)
+        let didSchedule = await Self.waitUntil { schedules() == 1 }
+        XCTAssertTrue(didSchedule)
+        XCTAssertEqual(manager.lastScheduledReconnectDelay, .milliseconds(1_250))
+
+        // The same path reported again is not a failed attempt: the armed retry stands.
+        source.trigger(.satisfiedWiFi)
+        try? await Task.sleep(for: .milliseconds(260))
+        await Self.settle()
+        XCTAssertEqual(schedules(), 1)
+        XCTAssertEqual(manager.lastScheduledReconnectDelay, .milliseconds(1_250))
+
+        // A real path change re-arms, on the delay already earned rather than the next step.
+        source.trigger(.satisfiedCellular)
+        let didRearm = await Self.waitUntil { schedules() == 2 }
+        XCTAssertTrue(didRearm)
+        XCTAssertEqual(manager.lastScheduledReconnectDelay, .milliseconds(1_250))
+        XCTAssertEqual(transport.connectCallCount, 0)
+
+        manager.cancelReconnect()
         manager.stopNetworkMonitoring()
         await manager.disconnect()
     }
