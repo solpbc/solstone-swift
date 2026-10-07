@@ -472,12 +472,12 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.problemReportsOptedOutTitle, "problem reports are off")
         XCTAssertEqual(
             SourceVocabulary.problemReportsOptedOutBody,
-            "turn them on to keep reports on this device when the app quits or gets stuck."
+            "turn them on to keep a daily summary of how the app ran on this device, and a report if it quits unexpectedly or gets stuck."
         )
         XCTAssertEqual(SourceVocabulary.problemReportsEmptyTitle, "no problem reports yet")
         XCTAssertEqual(
             SourceVocabulary.problemReportsEmptyBody,
-            "reports will appear here if the solstone app quits unexpectedly or gets stuck."
+            "a daily summary of how the solstone app ran will appear here, and a report if it quits unexpectedly or gets stuck."
         )
         XCTAssertEqual(SourceVocabulary.problemReportKindCrash, "app quit unexpectedly")
         XCTAssertEqual(SourceVocabulary.problemReportKindHang, "app got stuck")

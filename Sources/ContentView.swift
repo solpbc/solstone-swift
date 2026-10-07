@@ -337,13 +337,6 @@ struct ContentView: View {
                     self.tunnelManager.forceNetworkStatus(isSatisfied: false, isWiFi: true)
                 }
                 self.connectionSyncModel.refreshNow()
-                if let reconnectDelay = Self.uiTestNetworkReconnectDelay {
-                    Task {
-                        try? await Task.sleep(for: .seconds(reconnectDelay))
-                        self.tunnelManager.forceNetworkStatus(isSatisfied: true, isWiFi: true)
-                        self.connectionSyncModel.refreshNow()
-                    }
-                }
                 return
             }
             if arguments.contains("--integration-test") {
@@ -549,13 +542,6 @@ private extension ContentView {
         }
         let rawValue = String(argument.dropFirst("--ui-test-onboarding-step=".count))
         return OnboardingFlow.Step(rawValue: rawValue)
-    }
-
-    static var uiTestNetworkReconnectDelay: Double? {
-        guard let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--ui-test-network-reconnect-after=") }) else {
-            return nil
-        }
-        return Double(argument.dropFirst("--ui-test-network-reconnect-after=".count))
     }
 
 #if DEBUG
