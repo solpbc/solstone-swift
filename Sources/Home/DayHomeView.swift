@@ -16,6 +16,11 @@ nonisolated enum DayHomeJournalState: Equatable, Sendable {
     case noJournal
     case linkedOffline
     case linkedOnline
+
+    /// Once paired, the journal door opens the journal in every connection state; the
+    /// journal pane itself shows the connection while it waits. Pairing setup is only
+    /// the door before a journal exists.
+    var opensJournal: Bool { self != .noJournal }
 }
 
 nonisolated func dayHomeJournalState(
@@ -543,10 +548,9 @@ private extension DayHomeView {
 
     var journalPill: some View {
         Button {
-            switch self.journalState {
-            case .linkedOnline:
+            if self.journalState.opensJournal {
                 self.onOpenJournal()
-            case .noJournal, .linkedOffline:
+            } else {
                 self.onOpenJournalSetup()
             }
         } label: {
@@ -568,7 +572,7 @@ private extension DayHomeView {
         .padding(.horizontal, ShellMetrics.screenMargin)
         .accessibilityLabel(self.journalIdentity.spokenValue)
         .accessibilityIdentifier(
-            self.journalState == .linkedOnline ? "dayHome.openInJournal" : "dayHome.journalSetup"
+            self.journalState.opensJournal ? "dayHome.openInJournal" : "dayHome.journalSetup"
         )
     }
 

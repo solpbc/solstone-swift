@@ -12,6 +12,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
+- once your iphone or ipad is paired, tapping your journal in the app always opens it, showing the connection until it's connected. before, if it wasn't connected, the same tap could open "where your journal lives" instead.
 - in the list of problem reports, the summary ios gives the app once a day about how it ran is now called "daily app summary". before, it could be called "app issue report" even when nothing had gone wrong.
 - when you pair your iphone or ipad with a journal again, everything still waiting goes to that journal once you confirm its mark. before, something you'd shared that was partway into your previous journal could show as "in your journal" and be removed from your iphone or ipad without reaching your new journal, and recordings your previous journal had turned away could wait for you to tap "try now".
 - the block on the about solstone page now names your iphone or ipad's architecture as arm64, the same word every other solstone app uses, instead of arm64e.

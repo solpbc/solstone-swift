@@ -385,7 +385,7 @@ struct InAppJournalView: View {
                     self.stateOverlay
                 }
             } else {
-                self.errorView(message: JournalWebPresentation.connectionLostMessage)
+                self.waitingView
             }
         case .awaitingMarkConfirmation:
             VStack(spacing: 8) {
@@ -401,8 +401,45 @@ struct InAppJournalView: View {
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .connectionLost:
-            self.errorView(message: JournalWebPresentation.connectionLostMessage)
+            self.waitingView
         }
+    }
+
+    /// No live tunnel yet: show the connection as it is rather than an error, and let
+    /// the journal load on its own once the tunnel is back.
+    private var waitingView: some View {
+        // Only states that hold on this pane: a bare "offline" would read as the
+        // phone being offline, and "connected" can't sit over a journal that isn't
+        // showing yet.
+        let (line, attemptInFlight): (String, Bool) = switch self.connectionSyncModel.status {
+        case .connecting, .connectedIdle, .connectedWaiting, .connectedTransferring:
+            (ConnectionSyncStatus.connecting.statusLine, true)
+        case .waitingForHome:
+            (ConnectionSyncStatus.waitingForHome.statusLine, true)
+        case .reconnecting:
+            (ConnectionSyncStatus.reconnecting.statusLine, true)
+        case .offline, .unreachable:
+            (ConnectionSyncStatus.unreachable.statusLine, false)
+        }
+        return VStack(spacing: 12) {
+            if attemptInFlight {
+                ProgressView()
+            }
+            Text(line)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("shell.pane.journal.waiting")
+
+            if !attemptInFlight {
+                Button("try again", action: self.retry)
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityHint("attempts to reconnect to your journal")
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.deckGround)
     }
 
     @ViewBuilder
@@ -438,6 +475,7 @@ struct InAppJournalView: View {
     private func retry() {
         guard self.resolvedURL != nil else {
             self.loadState = JournalWebPresentation.connectionLostState
+            Task { await self.tunnelManager.retryNow() }
             return
         }
         self.reloadToken += 1

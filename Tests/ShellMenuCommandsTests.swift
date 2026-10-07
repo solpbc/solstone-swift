@@ -56,11 +56,18 @@ final class ShellMenuCommandsTests: XCTestCase {
                 journalState: .linkedOnline
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             shellMenuCommandIsEnabled(
                 .journal,
                 onboardingIsCompleted: true,
                 journalState: .linkedOffline
+            )
+        )
+        XCTAssertFalse(
+            shellMenuCommandIsEnabled(
+                .journal,
+                onboardingIsCompleted: true,
+                journalState: .noJournal
             )
         )
         XCTAssertTrue(

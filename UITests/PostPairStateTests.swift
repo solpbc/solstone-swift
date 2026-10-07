@@ -35,7 +35,17 @@ nonisolated final class PostPairStateTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].exists)
         XCTAssertFalse(app.staticTexts["portal.warmCard"].exists)
-        XCTAssertFalse(app.buttons["dayHome.openInJournal"].exists)
+
+        // Paired, so the journal door opens the journal even offline: the pane
+        // shows the connection while it waits, never pairing setup.
+        XCTAssertFalse(app.buttons["dayHome.journalSetup"].exists)
+        let journalDoor = app.buttons["dayHome.openInJournal"]
+        XCTAssertTrue(journalDoor.exists)
+        journalDoor.tap()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["shell.pane.journal.waiting"].waitForExistence(timeout: 5)
+        )
+        XCTAssertFalse(app.descendants(matching: .any)["journalLives.sheet"].exists)
     }
 
     @MainActor

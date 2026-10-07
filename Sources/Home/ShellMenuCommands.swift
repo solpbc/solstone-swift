@@ -75,7 +75,7 @@ nonisolated func shellMenuCommandIsEnabled(
 
     return switch target {
     case .journal:
-        journalState == .linkedOnline
+        journalState.opensJournal
     case .journalSetup:
         journalState != .linkedOnline
     case .deckToggle, .status, .import, .addMore, .shelf:

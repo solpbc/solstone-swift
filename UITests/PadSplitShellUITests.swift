@@ -365,21 +365,18 @@ final class PadSplitShellUITests: XCTestCase {
         XCTAssertTrue(pushedAudio.waitForNonExistence(timeout: 10))
     }
 
+    /// Paired, so the journal shortcut opens the journal even while offline, never
+    /// pairing setup. (The waiting view itself is covered by PostPairStateTests.)
     @MainActor
-    func testJournalShortcutBecomesEffectiveAfterNetworkRestore() async throws {
-        let app = try self.launchPad([
-            "--ui-test-network-unsatisfied",
-            "--ui-test-network-reconnect-after=8",
-        ])
-        let journal = app.descendants(matching: .any)["shell.pane.journal.heading"]
+    func testJournalShortcutOpensTheJournalWhileOffline() throws {
+        let app = try self.launchPad(["--ui-test-network-unsatisfied"])
         self.assertMenuKeyChannelLive(app)
 
         app.typeKey("2", modifierFlags: .command)
-        XCTAssertFalse(journal.waitForExistence(timeout: 3))
-
-        try await Task.sleep(for: .seconds(10))
-        app.typeKey("2", modifierFlags: .command)
-        XCTAssertTrue(journal.waitForExistence(timeout: 10))
+        XCTAssertTrue(
+            app.descendants(matching: .any)["shell.pane.journal.heading"].waitForExistence(timeout: 10)
+        )
+        XCTAssertFalse(app.descendants(matching: .any)["shell.pane.journalSetup.heading"].exists)
     }
 
     @MainActor

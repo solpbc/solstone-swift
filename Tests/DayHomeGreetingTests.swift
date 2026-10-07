@@ -30,4 +30,10 @@ nonisolated final class DayHomeGreetingTests: XCTestCase {
         XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .reconnecting), .linkedOffline)
         XCTAssertEqual(dayHomeJournalState(isPaired: true, status: .unreachable), .linkedOffline)
     }
+
+    func testPairedJournalDoorOpensTheJournalInEveryConnectionState() {
+        XCTAssertFalse(DayHomeJournalState.noJournal.opensJournal)
+        XCTAssertTrue(DayHomeJournalState.linkedOffline.opensJournal)
+        XCTAssertTrue(DayHomeJournalState.linkedOnline.opensJournal)
+    }
 }
