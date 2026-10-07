@@ -19,8 +19,6 @@ struct WelcomeScreen: View {
             alignment: .center
         ) {
             VStack(alignment: .center, spacing: 16) {
-                JournalUnpairNoticeBanner()
-
                 Text("your journal is always private, only yours.")
                     .font(.body)
                     .foregroundStyle(.secondary)

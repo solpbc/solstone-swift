@@ -15,6 +15,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - when a source is off and a journal is paired, its page now reads "intake is off. turn it on any time." when you've paused it, it reads "you paused this. resume to start intake again." before, both lines talked about sending to your journal.
 - settings no longer shows a label row, and once you've confirmed your journal's mark, the app shows it. the status now says "your journal" and "through the relay" instead of "home" and "remote journal".
+- forgetting a journal, unpairing this device, pairing a new journal, or stopping a pairing at the mark check no longer warns you that your journal didn't confirm the unpair. your iphone or ipad tells your journal when it can, and forgets the journal either way.
 
 ### Fixed
 

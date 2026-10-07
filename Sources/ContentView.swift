@@ -97,7 +97,6 @@ struct ContentView: View {
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(PairingHandoffState.self) private var pairingHandoff
-    @Environment(JournalUnpairNoticeStore.self) private var noticeStore
     @Environment(JournalSendRelease.self) private var journalSendRelease
     @Environment(PairFlowPresence.self) private var pairFlowPresence
     @Environment(\.scenePhase) private var scenePhase
@@ -375,17 +374,16 @@ struct ContentView: View {
             Button(SourceVocabulary.reinstallNoticeKeep, role: .cancel) {}
             Button(SourceVocabulary.reinstallNoticeForget, role: .destructive) {
                 Task {
-                    // The alert shows on the first frame, before the tunnel is up. Forgetting has to
-                    // reach the journal to disconnect this device there, so give the connection a
-                    // moment first; if it never comes up, the not-told notice says what's left.
+                    // The alert is on the first frame, before the tunnel is up. The wait
+                    // gives the DELETE a chance to reach the journal. The local pairing
+                    // is cleared either way.
                     for _ in 0..<40 where !self.tunnelManager.state.isConnected {
                         try? await Task.sleep(nanoseconds: 250_000_000)
                     }
                     await unpairAndReturnToOnboarding(
                         appConfig: self.appConfig,
                         onboardingFlow: self.onboardingFlow,
-                        tunnelManager: self.tunnelManager,
-                        noticeStore: self.noticeStore
+                        tunnelManager: self.tunnelManager
                     )
                 }
             }

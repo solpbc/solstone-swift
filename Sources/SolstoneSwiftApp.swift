@@ -40,7 +40,6 @@ struct SolstoneSwiftApp: App {
     @State private var screencastManager: ScreencastManager
     @State private var observerManager: ObserverManager
     @State private var watchLink: WatchLink
-    @State private var journalUnpairNoticeStore: JournalUnpairNoticeStore
     @State private var pendingObserverCommand = PendingObserverCommandState()
     @State private var pendingJournalOpen = PendingJournalOpenState()
     @State private var pairingHandoff = PairingHandoffState()
@@ -215,7 +214,6 @@ struct SolstoneSwiftApp: App {
         }
 #endif
         let log = DiagnosticLog()
-        let journalUnpairNoticeStore = JournalUnpairNoticeStore()
         let appGroupMirror = AppGroupMirror()
         let watchBacklogSnapshotWriter = WatchBacklogSnapshotWriter()
         let appConfig = AppConfig(store: SPLRuntime.pairingStore, appGroupMirror: appGroupMirror)
@@ -618,7 +616,6 @@ struct SolstoneSwiftApp: App {
         self._screencastManager = State(initialValue: screencastManager)
         self._observerManager = State(initialValue: observerManager)
         self._watchLink = State(initialValue: watchLink)
-        self._journalUnpairNoticeStore = State(initialValue: journalUnpairNoticeStore)
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
@@ -684,7 +681,6 @@ struct SolstoneSwiftApp: App {
                 .environment(self.pairingHandoff)
                 .environment(self.diagnosticLog)
                 .environment(self.problemReportsManager)
-                .environment(self.journalUnpairNoticeStore)
                 .environment(self.journalSendRelease)
                 .environment(self.deviceMigrationOwner)
                 .environment(self.pairFlowPresence)

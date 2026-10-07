@@ -39,7 +39,6 @@ private nonisolated func executeUnpairRequest(
 func ownerUnpair(
     appConfig: AppConfig,
     tunnelManager: TunnelManager,
-    notice: JournalUnpairNoticeStore,
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
     timeout: Duration = .seconds(10),
     expectedOwnerID: UUID? = nil,
@@ -71,7 +70,7 @@ func ownerUnpair(
             await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
             return false
         }
-        notice.markNotTold()
+        unpairLog.error("journal unpair skipped: tunnel not connected")
         await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
         return appConfig.store.snapshot().pairing == nil
     }
@@ -83,7 +82,7 @@ func ownerUnpair(
             await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
             return false
         }
-        notice.markNotTold()
+        unpairLog.error("journal unpair skipped: client certificate unreadable")
         await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
         return appConfig.store.snapshot().pairing == nil
     }
@@ -96,7 +95,7 @@ func ownerUnpair(
             await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
             return false
         }
-        notice.markNotTold()
+        unpairLog.error("journal unpair skipped: unpair url not buildable")
         await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
         return appConfig.store.snapshot().pairing == nil
     }
@@ -107,12 +106,9 @@ func ownerUnpair(
     let timeoutSeconds = Double(timeout.components.seconds) + Double(timeout.components.attoseconds) / 1e18
     request.timeoutInterval = timeoutSeconds
 
-    var unpairConfirmed = false
     do {
         if let http = try await executeUnpairRequest(request: request, transport: transport, timeout: timeout) {
-            if http.statusCode == 200 || http.statusCode == 204 || http.statusCode == 404 {
-                unpairConfirmed = true
-            } else {
+            if http.statusCode != 200 && http.statusCode != 204 && http.statusCode != 404 {
                 unpairLog.error("journal unpair request returned HTTP \(http.statusCode)")
             }
         }
@@ -128,9 +124,6 @@ func ownerUnpair(
         await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
         return false
     }
-    if !unpairConfirmed {
-        notice.markNotTold()
-    }
     await tunnelManager.disconnectIfPairingInvalidated(generation: invalidationGeneration)
     return appConfig.store.snapshot().pairing == nil
 }
@@ -140,14 +133,12 @@ func unpairAndReturnToOnboarding(
     appConfig: AppConfig,
     onboardingFlow: OnboardingFlow,
     tunnelManager: TunnelManager,
-    noticeStore: JournalUnpairNoticeStore,
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
     timeout: Duration = .seconds(10)
 ) async {
     guard await ownerUnpair(
         appConfig: appConfig,
         tunnelManager: tunnelManager,
-        notice: noticeStore,
         transport: transport,
         timeout: timeout
     ), appConfig.store.snapshot().pairing == nil else { return }
@@ -159,14 +150,12 @@ func unpairAndReturnToOnboarding(
 func unpairForNewPair(
     appConfig: AppConfig,
     tunnelManager: TunnelManager,
-    noticeStore: JournalUnpairNoticeStore,
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
     timeout: Duration = .seconds(10)
 ) async -> Bool {
     guard await ownerUnpair(
         appConfig: appConfig,
         tunnelManager: tunnelManager,
-        notice: noticeStore,
         transport: transport,
         timeout: timeout
     ), appConfig.store.snapshot().pairing == nil else { return false }
@@ -178,14 +167,12 @@ func unpairThisDevice(
     appConfig: AppConfig,
     onboardingFlow: OnboardingFlow,
     tunnelManager: TunnelManager,
-    noticeStore: JournalUnpairNoticeStore,
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
     timeout: Duration = .seconds(10)
 ) async {
     guard await ownerUnpair(
         appConfig: appConfig,
         tunnelManager: tunnelManager,
-        notice: noticeStore,
         transport: transport,
         timeout: timeout
     ), appConfig.store.snapshot().pairing == nil else { return }

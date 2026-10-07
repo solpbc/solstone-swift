@@ -282,7 +282,6 @@ struct JournalSettingsPane: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
-    @Environment(JournalUnpairNoticeStore.self) private var noticeStore
 
     @State private var showingForgetConfirm = false
     @State private var showingPairNewConfirm = false
@@ -426,16 +425,14 @@ struct JournalSettingsPane: View {
         await unpairAndReturnToOnboarding(
             appConfig: self.appConfig,
             onboardingFlow: self.onboardingFlow,
-            tunnelManager: self.tunnelManager,
-            noticeStore: self.noticeStore
+            tunnelManager: self.tunnelManager
         )
     }
 
     private func clearPairingForNewPair() async {
         guard await unpairForNewPair(
             appConfig: self.appConfig,
-            tunnelManager: self.tunnelManager,
-            noticeStore: self.noticeStore
+            tunnelManager: self.tunnelManager
         ) else { return }
         self.showingPairFlow = true
     }
@@ -755,7 +752,6 @@ private struct UnpairThisDeviceAlert: ViewModifier {
     @Environment(AppConfig.self) private var appConfig
     @Environment(OnboardingFlow.self) private var onboardingFlow
     @Environment(TunnelManager.self) private var tunnelManager
-    @Environment(JournalUnpairNoticeStore.self) private var noticeStore
 
     func body(content: Content) -> some View {
         content.alert("unpair this device?", isPresented: self.$isPresented) {
@@ -774,8 +770,7 @@ private struct UnpairThisDeviceAlert: ViewModifier {
         await unpairThisDevice(
             appConfig: self.appConfig,
             onboardingFlow: self.onboardingFlow,
-            tunnelManager: self.tunnelManager,
-            noticeStore: self.noticeStore
+            tunnelManager: self.tunnelManager
         )
     }
 }

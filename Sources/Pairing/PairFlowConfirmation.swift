@@ -170,7 +170,6 @@ func tearDownMismatchedPairing(
     appConfig: AppConfig,
     tunnelManager: TunnelManager,
     coordinator: PairFlowCoordinator,
-    notice: JournalUnpairNoticeStore = JournalUnpairNoticeStore(),
     transport: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = OwnerUnpairTransport.live,
     timeout: Duration = .seconds(10)
 ) async -> Bool {
@@ -185,7 +184,6 @@ func tearDownMismatchedPairing(
     guard await ownerUnpair(
         appConfig: appConfig,
         tunnelManager: tunnelManager,
-        notice: notice,
         transport: transport,
         timeout: timeout,
         expectedOwnerID: ownerID,

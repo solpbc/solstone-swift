@@ -132,10 +132,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             deletePairing: { store.delete() }
         )
         tunnel.forceConnected(port: 9090, via: .lan)
-        let suiteName = "OwnerUnpairTests.invalidation.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let notice = JournalUnpairNoticeStore(defaults: defaults)
         let transport = MockUnpairTransport()
         let generation = credentials.snapshot().pairingGeneration
         persistence.failMutation(after: 0)
@@ -143,7 +139,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         let didUnpair = await unpairForNewPair(
             appConfig: appConfig,
             tunnelManager: tunnel,
-            noticeStore: notice,
             transport: { request in try await transport.send(request: request) }
         )
 
@@ -206,14 +201,12 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         let onboarding = OnboardingFlow(defaults: defaults)
         onboarding.completeOnboarding()
         let transport = PausedUnpairTransport()
-        let notice = JournalUnpairNoticeStore(defaults: defaults)
 
         let unpairTask = Task {
             await unpairAndReturnToOnboarding(
                 appConfig: appConfig,
                 onboardingFlow: onboarding,
                 tunnelManager: tunnel,
-                noticeStore: notice,
                 transport: { request in try await transport.send(request: request) }
             )
         }
@@ -288,10 +281,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         let cidHex = SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined()
         let expectedURL = "http://127.0.0.1:9090/app/network/api/clients/sha256%3A\(cidHex)"
 
-        let suiteName = "OwnerUnpairTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        let noticeStore = JournalUnpairNoticeStore(defaults: defaults)
-
         let transport = MockUnpairTransport()
         transport.responseStatus = 200
         transport.checkIsPaired = { store.load() != nil }
@@ -299,14 +288,12 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         await ownerUnpair(
             appConfig: appConfig,
             tunnelManager: tunnel,
-            notice: noticeStore,
             transport: { try await transport.send(request: $0) }
         )
 
         XCTAssertFalse(appConfig.isPaired)
         XCTAssertNil(store.load())
         XCTAssertEqual(store.deleteCallCount, 1)
-        XCTAssertFalse(noticeStore.isSet)
         XCTAssertTrue(transport.wasPairedDuringRequest)
         XCTAssertEqual(transport.lastHTTPMethod, "DELETE")
         XCTAssertEqual(transport.lastRequestedURL?.absoluteString, expectedURL)
@@ -317,7 +304,7 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
     func testResponseStatusesAndErrors() async throws {
         let leafPEM = CertlessTrustFixtures.leafPEM
 
-        func makeSetup() throws -> (AppConfig, TunnelManager, JournalUnpairNoticeStore, MemoryPairingStore) {
+        func makeSetup() throws -> (AppConfig, TunnelManager, MemoryPairingStore) {
             let pairing = StoredPairing(
                 instanceID: "test-instance",
                 homeLabel: "Journal",
@@ -342,7 +329,7 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             let appConfig = AppConfig(
                 confirmationStore: confirmationStore,
                 store: credentials,
-            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(pairing)
@@ -354,101 +341,102 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 deletePairing: { store.delete() },
                 store: appConfig.store
             )
-            let defaults = UserDefaults(suiteName: "OwnerUnpairTests.\(UUID().uuidString)")!
-            let notice = JournalUnpairNoticeStore(defaults: defaults)
-            return (appConfig, tunnel, notice, store)
+            return (appConfig, tunnel, store)
         }
 
-        // 204: clears and does not set notice
+        // 204: clears
         do {
-            let (appConfig, tunnel, notice, store) = try makeSetup()
+            let (appConfig, tunnel, store) = try makeSetup()
             tunnel.forceConnected(port: 9090, via: .lan)
             let transport = MockUnpairTransport()
             transport.responseStatus = 204
-            await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, notice: notice, transport: { try await transport.send(request: $0) })
+            await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, transport: { try await transport.send(request: $0) })
             XCTAssertFalse(appConfig.isPaired)
             XCTAssertNil(store.load())
-            XCTAssertFalse(notice.isSet)
         }
 
-        // 404: clears and does not set notice
+        // 404: clears
         do {
-            let (appConfig, tunnel, notice, store) = try makeSetup()
+            let (appConfig, tunnel, store) = try makeSetup()
             tunnel.forceConnected(port: 9090, via: .lan)
             let transport = MockUnpairTransport()
             transport.responseStatus = 404
-            await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, notice: notice, transport: { try await transport.send(request: $0) })
+            await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, transport: { try await transport.send(request: $0) })
             XCTAssertFalse(appConfig.isPaired)
             XCTAssertNil(store.load())
-            XCTAssertFalse(notice.isSet)
         }
 
-        // 500: clears and sets notice
+        // 500: clears and returns true
         do {
-            let (appConfig, tunnel, notice, store) = try makeSetup()
+            let (appConfig, tunnel, store) = try makeSetup()
             tunnel.forceConnected(port: 9090, via: .lan)
             let transport = MockUnpairTransport()
             transport.responseStatus = 500
-            await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, notice: notice, transport: { try await transport.send(request: $0) })
+            let didUnpair = await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, transport: { try await transport.send(request: $0) })
+            XCTAssertTrue(didUnpair)
+            XCTAssertNil(appConfig.store.snapshot().pairing)
+            XCTAssertEqual(transport.callCount, 1)
             XCTAssertFalse(appConfig.isPaired)
             XCTAssertNil(store.load())
-            XCTAssertTrue(notice.isSet)
         }
 
-        // Thrown error: clears and sets notice
+        // Thrown error: clears and returns true
         do {
-            let (appConfig, tunnel, notice, store) = try makeSetup()
+            let (appConfig, tunnel, store) = try makeSetup()
             tunnel.forceConnected(port: 9090, via: .lan)
             let transport = MockUnpairTransport()
             transport.shouldThrow = true
-            await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, notice: notice, transport: { try await transport.send(request: $0) })
+            let didUnpair = await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, transport: { try await transport.send(request: $0) })
+            XCTAssertTrue(didUnpair)
+            XCTAssertNil(appConfig.store.snapshot().pairing)
+            XCTAssertEqual(transport.callCount, 1)
             XCTAssertFalse(appConfig.isPaired)
             XCTAssertNil(store.load())
-            XCTAssertTrue(notice.isSet)
         }
 
-        // Transport that sleeps until cancelled (short timeout): clears inside bound and sets notice
+        // Transport that sleeps until cancelled (short timeout): clears inside bound and returns true
         do {
-            let (appConfig, tunnel, notice, store) = try makeSetup()
+            let (appConfig, tunnel, store) = try makeSetup()
             tunnel.forceConnected(port: 9090, via: .lan)
             let transport = MockUnpairTransport()
             transport.sleepDuration = .seconds(2)
             let start = ContinuousClock.now
-            await ownerUnpair(
+            let didUnpair = await ownerUnpair(
                 appConfig: appConfig,
                 tunnelManager: tunnel,
-                notice: notice,
                 transport: { try await transport.send(request: $0) },
                 timeout: .milliseconds(50)
             )
             let elapsed = ContinuousClock.now - start
             XCTAssertLessThan(elapsed, .seconds(1))
+            XCTAssertTrue(didUnpair)
+            XCTAssertNil(appConfig.store.snapshot().pairing)
+            XCTAssertEqual(transport.callCount, 1)
             XCTAssertFalse(appConfig.isPaired)
             XCTAssertNil(store.load())
-            XCTAssertTrue(notice.isSet)
         }
 
-        // Disconnected: sends nothing, returns promptly, sets notice
+        // Disconnected: sends nothing, returns promptly, clears and returns true
         do {
-            let (appConfig, tunnel, notice, store) = try makeSetup()
+            let (appConfig, tunnel, store) = try makeSetup()
             let transport = MockUnpairTransport()
-            await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, notice: notice, transport: { try await transport.send(request: $0) })
+            let didUnpair = await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, transport: { try await transport.send(request: $0) })
+            XCTAssertTrue(didUnpair)
+            XCTAssertNil(appConfig.store.snapshot().pairing)
             XCTAssertEqual(transport.callCount, 0)
             XCTAssertFalse(appConfig.isPaired)
             XCTAssertNil(store.load())
-            XCTAssertTrue(notice.isSet)
         }
 
-        // Revoked error: sends nothing, returns promptly, does not set notice
+        // Revoked error: sends nothing, returns promptly, clears
         do {
-            let (appConfig, tunnel, notice, store) = try makeSetup()
+            let (appConfig, tunnel, store) = try makeSetup()
             tunnel.state = .error(.revoked)
             let transport = MockUnpairTransport()
-            await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, notice: notice, transport: { try await transport.send(request: $0) })
+            await ownerUnpair(appConfig: appConfig, tunnelManager: tunnel, transport: { try await transport.send(request: $0) })
             XCTAssertEqual(transport.callCount, 0)
             XCTAssertFalse(appConfig.isPaired)
             XCTAssertNil(store.load())
-            XCTAssertFalse(notice.isSet)
         }
     }
 
@@ -468,7 +456,7 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             let appConfig = AppConfig(
                 confirmationStore: confirmationStore,
                 store: credentials,
-            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(Self.makeFixturePairing())
@@ -482,7 +470,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             )
             tunnel.forceConnected(port: 9090, via: .lan)
             let onboarding = OnboardingFlow()
-            let notice = JournalUnpairNoticeStore(defaults: UserDefaults(suiteName: "W1.\(UUID().uuidString)")!)
             let transport = MockUnpairTransport()
             transport.responseStatus = 200
 
@@ -490,7 +477,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 appConfig: appConfig,
                 onboardingFlow: onboarding,
                 tunnelManager: tunnel,
-                noticeStore: notice,
                 transport: { try await transport.send(request: $0) }
             )
             XCTAssertFalse(appConfig.isPaired)
@@ -513,7 +499,7 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             let appConfig = AppConfig(
                 confirmationStore: confirmationStore,
                 store: credentials,
-            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(Self.makeFixturePairing())
@@ -526,14 +512,12 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 store: appConfig.store
             )
             tunnel.forceConnected(port: 9090, via: .lan)
-            let notice = JournalUnpairNoticeStore(defaults: UserDefaults(suiteName: "W2.\(UUID().uuidString)")!)
             let transport = MockUnpairTransport()
             transport.responseStatus = 200
 
             await unpairForNewPair(
                 appConfig: appConfig,
                 tunnelManager: tunnel,
-                noticeStore: notice,
                 transport: { try await transport.send(request: $0) }
             )
             XCTAssertFalse(appConfig.isPaired)
@@ -555,7 +539,7 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             let appConfig = AppConfig(
                 confirmationStore: confirmationStore,
                 store: credentials,
-            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(Self.makeFixturePairing())
@@ -569,7 +553,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             )
             tunnel.forceConnected(port: 9090, via: .lan)
             let onboarding = OnboardingFlow()
-            let notice = JournalUnpairNoticeStore(defaults: UserDefaults(suiteName: "W3.\(UUID().uuidString)")!)
             let transport = MockUnpairTransport()
             transport.responseStatus = 200
 
@@ -577,7 +560,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 appConfig: appConfig,
                 onboardingFlow: onboarding,
                 tunnelManager: tunnel,
-                noticeStore: notice,
                 transport: { try await transport.send(request: $0) }
             )
             XCTAssertFalse(appConfig.isPaired)
@@ -600,7 +582,7 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             let appConfig = AppConfig(
                 confirmationStore: confirmationStore,
                 store: credentials,
-            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
             )
             try appConfig.applyPairing(Self.makeFixturePairing())
@@ -617,7 +599,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
                 pairOperation: { _, _, _, _ in Self.makeFixturePairing() }
             )
-            let notice = JournalUnpairNoticeStore(defaults: UserDefaults(suiteName: "W4.\(UUID().uuidString)")!)
             let transport = MockUnpairTransport()
             transport.responseStatus = 200
 
@@ -625,7 +606,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
                 appConfig: appConfig,
                 tunnelManager: tunnel,
                 coordinator: coordinator,
-                notice: notice,
                 transport: { try await transport.send(request: $0) }
             )
             XCTAssertFalse(appConfig.isPaired)
@@ -633,39 +613,6 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
             XCTAssertEqual(coordinator.state, .idle)
             XCTAssertEqual(transport.callCount, 1)
         }
-    }
-
-    @MainActor
-    func testNoticeFlagSurvivesAppConfigClearAndOnboardingReset() {
-        let defaults = UserDefaults(suiteName: "Survive.\(UUID().uuidString)")!
-        let notice = JournalUnpairNoticeStore(defaults: defaults)
-        notice.markNotTold()
-        XCTAssertTrue(notice.isSet)
-
-        let store = MemoryPairingStore(pairing: nil)
-        let confirmationStore = JournalSendConfirmationStore.memory()
-        let credentials = PairingCredentialStore(
-            confirmationStore: confirmationStore,
-            migrationStore: .memory(),
-            loadPairing: { store.load() },
-            savePairing: { store.save($0) },
-            deletePairing: { store.delete() }
-        )
-        let appConfig = AppConfig(
-            confirmationStore: confirmationStore,
-            store: credentials,
-            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
-            appGroupMirror: AppGroupMirror(rootURLProvider: { Self.tempDir() })
-        )
-        appConfig.clearPairing()
-        XCTAssertTrue(notice.isSet)
-
-        let onboarding = OnboardingFlow()
-        onboarding.reset()
-        XCTAssertTrue(notice.isSet)
-
-        notice.dismiss()
-        XCTAssertFalse(notice.isSet)
     }
 
     private static func makeFixturePairing() -> StoredPairing {

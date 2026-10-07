@@ -371,8 +371,6 @@ struct PairFlowView: View {
     private var pairingContent: some View {
         let _ = self.onScanPhaseMounted?()
         VStack(alignment: .leading, spacing: 16) {
-            JournalUnpairNoticeBanner()
-
             Picker(
                 "pairing method",
                 selection: Binding(
