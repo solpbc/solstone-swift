@@ -31,7 +31,7 @@ Observation pipelines:
 
 Embedded journal web: `Sources/Portal/InAppJournalView.swift` uses a `WKWebView` with `WKNavigationDelegate` and `WKUIDelegate` callbacks. Their callbacks are nonisolated and route to the main actor; asynchronous callbacks hop there, and synchronous `createWebViewWith` uses `MainActor.assumeIsolated`. The initialization script from the pinned host contract is installed at document start for the main frame: [solpbc/solstone-journal `05705f731e156f8ea1956d038ec60896fdd6219e` `contracts/journal-web-host/host-contract.json`](https://github.com/solpbc/solstone-journal/blob/05705f731e156f8ea1956d038ec60896fdd6219e/contracts/journal-web-host/host-contract.json). There is no script message handler, URL-scheme handler, or JavaScript bridge. Native-to-journal communication remains HTTP over the loopback port.
 
-Transport / tunnel: SPLTunnel is consumed from the `spl-swift` Swift package pinned at `v0.8.3` in `project.yml`, product `SPLTunnel`. It provides pairing crypto, relay dial over WebSocket, inner mTLS TLS 1.3 with a client cert + CA pinning, a framed multiplexer, and a loopback proxy. `TunnelManager` (`Sources/Tunnel/TunnelManager.swift`, `final class TunnelManager`) is the connection state machine over single-shot sessions: connect watchdog, liveness probe, backoff, and `PathMonitor` reactions. The tunnel exposes `http://127.0.0.1:<ephemeral port>`; everything app-side speaks plain HTTP to that loopback port. No SSH: the tunnel is mTLS with a framed multiplexer.
+Transport / tunnel: SPLTunnel is consumed from the `spl-swift` Swift package pinned at `v0.8.4` in `project.yml`, product `SPLTunnel`. It provides pairing crypto, relay dial over WebSocket, inner mTLS TLS 1.3 with a client cert + CA pinning, a framed multiplexer, and a loopback proxy. `TunnelManager` (`Sources/Tunnel/TunnelManager.swift`, `final class TunnelManager`) is the connection state machine over single-shot sessions: connect watchdog, liveness probe, backoff, and `PathMonitor` reactions. The tunnel exposes `http://127.0.0.1:<ephemeral port>`; everything app-side speaks plain HTTP to that loopback port. No SSH: the tunnel is mTLS with a framed multiplexer.
 
 ## Build
 
@@ -62,7 +62,7 @@ make clean         # remove build artifacts
 
 ## Dependencies
 
-- `solpbc/spl-swift` (product `SPLTunnel`): SPL tunnel package pinned at `exactVersion: 0.8.3`; provides pairing, relay, inner mTLS, mux, and loopback transport.
+- `solpbc/spl-swift` (product `SPLTunnel`): SPL tunnel package pinned at `exactVersion: 0.8.4`; provides pairing, relay, inner mTLS, mux, and loopback transport.
 - `apple/swift-crypto` (product `Crypto`): used directly by `Sources/MobileSegment/MobileSegmentUploader.swift` and declared explicitly on the app and test targets.
 
 ## Swift 6 concurrency
