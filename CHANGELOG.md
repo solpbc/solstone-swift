@@ -9,7 +9,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Added
 
 - when you set up a new iphone or ipad from a backup of your old one, made after this version had connected to your journal, the solstone app keeps its pairing with your journal and asks whether it's the same device or a new one. "same device" carries on with the old device's name and history and ends the old device's access to your journal. "new device" keeps both.
-- after you pair your iphone or ipad with the same journal again and confirm its mark, the app asks whether it's replacing one of your devices. you can choose the device it replaces, or keep both.
+- after you pair your iphone or ipad and confirm your journal's mark, the app checks which devices your journal has paired. if it lists another device, the app asks whether this one replaces it. you can choose the device it replaces, or keep both.
 
 ### Changed
 

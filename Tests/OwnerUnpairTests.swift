@@ -186,6 +186,7 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         )
         try appConfig.applyPairing(original)
         let tunnelTransport = MockCFTunnelTransport()
+        tunnelTransport.connectDelay = .milliseconds(100)
         let tunnel = TunnelManager(
             transport: tunnelTransport,
             endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
@@ -213,9 +214,10 @@ nonisolated final class OwnerUnpairTests: XCTestCase {
         await transport.waitForRequest()
 
         try appConfig.applyPairing(fresh)
-        for _ in 0..<1_000 {
-            if tunnel.activeConnection != nil, tunnelTransport.connectCallCount > 0 { break }
-            await Task.yield()
+        let connectionDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while tunnel.activeConnection == nil || tunnelTransport.connectCallCount == 0 {
+            guard ContinuousClock.now < connectionDeadline else { break }
+            try await Task.sleep(for: .milliseconds(10))
         }
         let freshConnection = tunnel.activeConnection
         XCTAssertNotNil(freshConnection)
