@@ -3,7 +3,6 @@
 
 import Foundation
 import os
-import XCTest
 
 final class LinkedDeviceIngestURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
@@ -34,11 +33,11 @@ final class LinkedDeviceIngestURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func startLoading() {
-        Self.requestsBox.withLock { $0.append(self.request) }
         guard let handler = Self.handler else {
-            XCTFail("LinkedDeviceIngestURLProtocol handler not set")
+            self.client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
             return
         }
+        Self.requestsBox.withLock { $0.append(self.request) }
         do {
             let (response, data) = try handler(self.request)
             self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)

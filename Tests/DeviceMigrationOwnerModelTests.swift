@@ -29,6 +29,7 @@ private actor MigrationJournalStub: DeviceMigrationJournalAccess {
     private var clientFetchContinuation: CheckedContinuation<DeviceMigrationJournalResult<ReplacementClientList>, Never>?
     private var clientFetchStarted = false
     private var pauseNextClientFetch = false
+    private var clientFetchCount = 0
 
     init(
         state: DeviceMigrationJournalResult<DeviceMigrationServerSnapshot>,
@@ -102,6 +103,7 @@ private actor MigrationJournalStub: DeviceMigrationJournalAccess {
     }
 
     func fetchClients(localPort: Int) async -> DeviceMigrationJournalResult<ReplacementClientList> {
+        self.clientFetchCount += 1
         if self.pauseNextClientFetch {
             self.pauseNextClientFetch = false
             self.clientFetchStarted = true
@@ -113,6 +115,8 @@ private actor MigrationJournalStub: DeviceMigrationJournalAccess {
     func recordedBodies() -> [Data] { self.requestBodies }
 
     func recordedStateFetchCount() -> Int { self.stateFetchCount }
+
+    func recordedClientsFetchCount() -> Int { self.clientFetchCount }
 
     func pauseNextClientsResponse() { self.pauseNextClientFetch = true }
 
@@ -274,7 +278,7 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
             MigrationOwnerFixture.client(otherCID, "tablet"),
             MigrationOwnerFixture.client("invalid", "ignored"),
         ])
-        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [.success(clients)])
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [.success(clients), .success(clients)])
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
         await owner.connected(localPort: 7111)
         XCTAssertEqual(owner.freshPairOffer?.state, .available)
@@ -285,6 +289,33 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         XCTAssertNil(owner.selectedCID)
         let bodies = await journal.recordedBodies()
         XCTAssertTrue(bodies.isEmpty)
+    }
+
+    func testFreshReplacementEmptyPickerListLeavesOfferAvailable() async throws {
+        let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "old phone")])
+        let emptyClients = ReplacementClientList(clients: [])
+        let journal = MigrationJournalStub(
+            state: .success(MigrationOwnerFixture.emptyState()),
+            clientsResults: [.success(clients), .success(emptyClients)]
+        )
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+        await owner.connected(localPort: 7111)
+        XCTAssertEqual(owner.freshPairOffer?.state, .available)
+        XCTAssertTrue(owner.shouldPresentFreshPairOffer)
+        let offerID = try XCTUnwrap(owner.freshPairOffer?.operationID)
+        XCTAssertTrue(owner.markFreshPairOfferPresented(operationID: offerID))
+        XCTAssertFalse(owner.shouldPresentFreshPairOffer)
+
+        await owner.loadReplacementClients()
+        XCTAssertEqual(owner.replacementListState, .empty)
+        let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+        let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(offer.state, .available)
+        XCTAssertNil(offer.targetCID)
+        XCTAssertNil(offer.requestBytes)
+        XCTAssertEqual(offer.presentationShown, true)
+        XCTAssertTrue(owner.isFreshPairPendingVisible)
     }
 
     func testFreshReplacementUnknownResultReplaysExactPutForSavedTarget() async throws {
@@ -298,7 +329,7 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
                 state: .replacedDevice,
                 replacedCID: MigrationOwnerFixture.targetCID
             )),
-            clientsResults: [.success(clients), .success(clients)],
+            clientsResults: [.success(clients), .success(clients), .success(clients)],
             putBehaviors: [.unavailable, .success]
         )
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
@@ -342,7 +373,7 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         )
         let journal = MigrationJournalStub(
             state: .success(invalidState),
-            clientsResults: [.success(clients), .success(clients)],
+            clientsResults: [.success(clients), .success(clients), .success(clients)],
             putBehaviors: [.unavailable]
         )
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
@@ -367,7 +398,7 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         let replacement = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.thirdCID, "other phone")])
         let journal = MigrationJournalStub(
             state: .success(MigrationOwnerFixture.emptyState()),
-            clientsResults: [.success(target), .success(replacement)],
+            clientsResults: [.success(target), .success(target), .success(replacement)],
             putBehaviors: [.success]
         )
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
@@ -390,7 +421,7 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
         let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "old phone")])
         let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()),
-            clientsResults: [.success(clients), .success(clients)], putBehaviors: [.refused])
+            clientsResults: [.success(clients), .success(clients), .success(clients)], putBehaviors: [.refused])
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
         await owner.connected(localPort: 7111)
         await owner.loadReplacementClients()
@@ -407,7 +438,8 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
 
     func testHomeJobsPreserveEpochAndDiscardQueuedOwnerWorkAfterDisconnect() async throws {
         let (_, confirmation, credentials) = try Self.makeFreshPairOwnerState()
-        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()))
+        let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "old phone")])
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [.success(clients)])
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
         owner.bindActiveConnection { port, epoch in port == 7111 && epoch == 42 }
         let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
@@ -435,7 +467,8 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
 
     func testOldListContinuationCannotMutateSameJournalReplacementOffer() async throws {
         let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
-        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()))
+        let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "old phone")])
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [.success(clients)])
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
         XCTAssertFalse(owner.shouldPresentFreshPairOffer)
         await owner.connected(localPort: 7111)
@@ -507,7 +540,8 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
 
     func testListResponseCannotReopenDismissedReplacementOffer() async throws {
         let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
-        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()))
+        let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "old phone")])
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [.success(clients)])
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
         await owner.connected(localPort: 7111)
         await journal.pauseNextClientsResponse()
@@ -604,7 +638,7 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "old phone")])
         let journal = MigrationJournalStub(
             state: .success(MigrationOwnerFixture.emptyState()),
-            clientsResults: [.success(clients), .success(clients)],
+            clientsResults: [.success(clients), .success(clients), .success(clients), .success(clients)],
             putBehaviors: [.success]
         )
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
@@ -634,7 +668,7 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "old phone")])
         let journal = MigrationJournalStub(
             state: .success(MigrationOwnerFixture.emptyState()),
-            clientsResults: [.success(clients), .success(clients)],
+            clientsResults: [.success(clients), .success(clients), .success(clients)],
             putBehaviors: [.success]
         )
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
@@ -672,7 +706,7 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "old phone")])
         let journal = MigrationJournalStub(
             state: .success(MigrationOwnerFixture.emptyState()),
-            clientsResults: [.success(clients), .success(clients)],
+            clientsResults: [.success(clients), .success(clients), .success(clients)],
             putBehaviors: [.success]
         )
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
@@ -739,6 +773,572 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         XCTAssertEqual(owner.freshPairOffer?.operationID, held.operationID)
         XCTAssertEqual(owner.freshPairOffer?.requestBytes, held.requestBytes)
         XCTAssertEqual(LinkedDeviceIngestURLProtocol.requests.filter { $0.httpMethod == "PUT" }.count, 1)
+    }
+
+    func testFreshPairEligibilitySuspendedReadDoesNotPromoteOfferOrShowPrompt() async throws {
+        let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()))
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+        await journal.pauseNextClientsResponse()
+        let connectTask = Task { await owner.connected(localPort: 7111) }
+        await journal.waitForClientsRequest()
+
+        let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+        XCTAssertEqual(try migration.loadPortable(for: identity).replacementOffer?.state, .awaitingMarkConfirmation)
+        XCTAssertFalse(owner.shouldPresentFreshPairOffer)
+        XCTAssertFalse(owner.isFreshPairPendingVisible)
+
+        let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "other phone")])
+        await journal.resumeClientsRequest(.success(clients))
+        await connectTask.value
+
+        XCTAssertEqual(try migration.loadPortable(for: identity).replacementOffer?.state, .available)
+        XCTAssertTrue(owner.shouldPresentFreshPairOffer)
+        XCTAssertTrue(owner.isFreshPairPendingVisible)
+    }
+
+    func testFreshPairEligibilityRetiresOnEmptyAndSelfOnlyClientList() async throws {
+        let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [
+            .success(ReplacementClientList(clients: []))
+        ])
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+        await owner.connected(localPort: 7111)
+
+        let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+        let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(offer.state, .retired)
+        XCTAssertNil(offer.targetCID)
+        XCTAssertNil(offer.requestBytes)
+        XCTAssertNil(offer.presentationShown)
+        XCTAssertTrue(confirmation.allowsSend(pairing: MigrationOwnerFixture.newPairing))
+        XCTAssertFalse(owner.shouldPresentFreshPairOffer)
+        XCTAssertFalse(owner.isFreshPairPendingVisible)
+        XCTAssertEqual(owner.freshPairOffer?.state, .retired)
+        let bodies = await journal.recordedBodies()
+        XCTAssertTrue(bodies.isEmpty)
+
+        let secondOwner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+        await secondOwner.connected(localPort: 7111)
+        let fetchCount = await journal.recordedClientsFetchCount()
+        XCTAssertEqual(fetchCount, 1)
+        XCTAssertFalse(secondOwner.shouldPresentFreshPairOffer)
+        XCTAssertFalse(secondOwner.isFreshPairPendingVisible)
+
+        let selfOnlyJournal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [
+            .success(ReplacementClientList(clients: [
+                MigrationOwnerFixture.client(MigrationOwnerFixture.newCID, "this device")
+            ]))
+        ])
+        let (migration2, confirmation2, credentials2) = try Self.makeFreshPairOwnerState()
+        let owner2 = DeviceMigrationOwnerModel(credentials: credentials2, confirmation: confirmation2, client: selfOnlyJournal)
+        await owner2.connected(localPort: 7111)
+        XCTAssertEqual(try migration2.loadPortable(for: identity).replacementOffer?.state, .retired)
+        XCTAssertFalse(owner2.shouldPresentFreshPairOffer)
+        XCTAssertFalse(owner2.isFreshPairPendingVisible)
+    }
+
+    func testFreshPairEligibilityPromotesToAvailableOnOtherValidClient() async throws {
+        let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let clients = ReplacementClientList(clients: [
+            MigrationOwnerFixture.client(MigrationOwnerFixture.newCID, "this device"),
+            MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "other device")
+        ])
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [.success(clients)])
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+        await owner.connected(localPort: 7111)
+
+        let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+        let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(offer.state, .available)
+        XCTAssertNil(offer.targetCID)
+        XCTAssertNil(offer.requestBytes)
+        XCTAssertTrue(owner.shouldPresentFreshPairOffer)
+        XCTAssertTrue(owner.isFreshPairPendingVisible)
+
+        owner.keepBothFromFreshPairOffer()
+        XCTAssertEqual(try migration.loadPortable(for: identity).replacementOffer?.state, .keptBoth)
+        XCTAssertFalse(owner.isFreshPairPendingVisible)
+    }
+
+    func testFreshPairEligibilityCountsLabelsWithWhitespaceEmptyAndDuplicatesViaHTTP() async throws {
+        let (_, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [LinkedDeviceIngestURLProtocol.self]
+        let client = DeviceMigrationJournalClient(session: URLSession(configuration: configuration))
+        let thisCID = MigrationOwnerFixture.newCID
+        let otherCID = MigrationOwnerFixture.targetCID
+
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            let body: Data
+            if request.url?.path == "/app/network/api/clients" {
+                body = Data("""
+                {
+                    "clients": [
+                        {"cid": "\(thisCID)", "display_label": "this", "platform": "ios"}
+                    ]
+                }
+                """.utf8)
+            } else {
+                body = Data(#"{"protocol_version":1,"state":"none"}"#.utf8)
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        defer { LinkedDeviceIngestURLProtocol.reset() }
+
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: client)
+        await owner.connected(localPort: 7111)
+        XCTAssertEqual(owner.freshPairOffer?.state, .retired)
+
+        let (migration2, confirmation2, credentials2) = try Self.makeFreshPairOwnerState()
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            let body: Data
+            if request.url?.path == "/app/network/api/clients" {
+                body = Data("""
+                {
+                    "clients": [
+                        {"cid": "\(thisCID)", "display_label": "this"},
+                        {"cid": "\(otherCID)", "display_label": "", "platform": "ios"}
+                    ]
+                }
+                """.utf8)
+            } else {
+                body = Data(#"{"protocol_version":1,"state":"none"}"#.utf8)
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        let owner2 = DeviceMigrationOwnerModel(credentials: credentials2, confirmation: confirmation2, client: client)
+        await owner2.connected(localPort: 7111)
+        let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+        XCTAssertEqual(try migration2.loadPortable(for: identity).replacementOffer?.state, .available)
+
+        let (migration3, confirmation3, credentials3) = try Self.makeFreshPairOwnerState()
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            let body: Data
+            if request.url?.path == "/app/network/api/clients" {
+                body = Data("""
+                {
+                    "clients": [
+                        {"cid": "\(thisCID)", "display_label": "this"},
+                        {"cid": "\(otherCID)", "display_label": " \t "}
+                    ]
+                }
+                """.utf8)
+            } else {
+                body = Data(#"{"protocol_version":1,"state":"none"}"#.utf8)
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        let owner3 = DeviceMigrationOwnerModel(credentials: credentials3, confirmation: confirmation3, client: client)
+        await owner3.connected(localPort: 7111)
+        XCTAssertEqual(try migration3.loadPortable(for: identity).replacementOffer?.state, .available)
+
+        let thirdCID = MigrationOwnerFixture.thirdCID
+        let (migration4, confirmation4, credentials4) = try Self.makeFreshPairOwnerState()
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            let body: Data
+            if request.url?.path == "/app/network/api/clients" {
+                body = Data("""
+                {
+                    "clients": [
+                        {"cid": "\(thisCID)", "display_label": "this"},
+                        {"cid": "\(otherCID)", "display_label": "duplicate"},
+                        {"cid": "\(thirdCID)", "display_label": "duplicate"}
+                    ]
+                }
+                """.utf8)
+            } else {
+                body = Data(#"{"protocol_version":1,"state":"none"}"#.utf8)
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        let owner4 = DeviceMigrationOwnerModel(credentials: credentials4, confirmation: confirmation4, client: client)
+        await owner4.connected(localPort: 7111)
+        XCTAssertEqual(try migration4.loadPortable(for: identity).replacementOffer?.state, .available)
+    }
+
+    func testFreshPairEligibilityForeignInvalidCIDDoesNotRetire() async throws {
+        let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [LinkedDeviceIngestURLProtocol.self]
+        let client = DeviceMigrationJournalClient(session: URLSession(configuration: configuration))
+        let thisCID = MigrationOwnerFixture.newCID
+
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            let body: Data
+            if request.url?.path == "/app/network/api/clients" {
+                body = Data("""
+                {
+                    "clients": [
+                        {"cid": "\(thisCID)", "display_label": "this"},
+                        {"cid": "not-a-valid-sha256-cid", "display_label": "tablet"}
+                    ]
+                }
+                """.utf8)
+            } else {
+                body = Data(#"{"protocol_version":1,"state":"none"}"#.utf8)
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        defer { LinkedDeviceIngestURLProtocol.reset() }
+
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: client)
+        await owner.connected(localPort: 7111)
+        let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+        let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(offer.state, .available)
+        XCTAssertNil(offer.targetCID)
+        XCTAssertNil(offer.requestBytes)
+        XCTAssertTrue(owner.shouldPresentFreshPairOffer)
+        XCTAssertTrue(owner.isFreshPairPendingVisible)
+    }
+
+    func testFreshPairEligibilityTreatsClientFetchFailuresAsUnresolvedAvailableOffer() async throws {
+        for failureResult in [
+            DeviceMigrationJournalResult<ReplacementClientList>.unavailable,
+            .invalidResponse,
+            .refused
+        ] {
+            let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+            let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [failureResult])
+            let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+            await owner.connected(localPort: 7111)
+
+            let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+            let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+            XCTAssertEqual(offer.state, .available)
+            XCTAssertNil(offer.targetCID)
+            XCTAssertNil(offer.requestBytes)
+            XCTAssertTrue(owner.shouldPresentFreshPairOffer)
+            XCTAssertTrue(owner.isFreshPairPendingVisible)
+
+            owner.dismissReplacementOffer()
+            let dismissedOffer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+            XCTAssertEqual(dismissedOffer.state, .available)
+            XCTAssertEqual(dismissedOffer.presentationShown, true)
+            XCTAssertNil(dismissedOffer.targetCID)
+            XCTAssertNil(dismissedOffer.requestBytes)
+            XCTAssertFalse(owner.shouldPresentFreshPairOffer)
+            XCTAssertTrue(owner.isFreshPairPendingVisible)
+
+            let rebuiltOwner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+            XCTAssertFalse(rebuiltOwner.shouldPresentFreshPairOffer)
+            XCTAssertTrue(rebuiltOwner.isFreshPairPendingVisible)
+        }
+    }
+
+    func testFreshPairEligibilityMutationFailureKeepsAwaitingMarkConfirmation() async throws {
+        let persistence = MigrationTestPersistence()
+        let migration = DeviceMigrationStore(persistence: persistence)
+        let pairing = MigrationOwnerFixture.newPairing
+        _ = try migration.adopt(pairing: pairing, includeFreshPairOffer: true)
+        _ = try migration.claimExistingPairing(pairing)
+        let confirmation = JournalSendConfirmationStore.memory()
+        try confirmation.writeRecord(for: pairing)
+        let holder = PairingSnapshotHolder(pairing)
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            migrationStore: migration,
+            loadPairing: { holder.pairing },
+            savePairing: { holder.pairing = $0 },
+            deletePairing: { holder.pairing = nil }
+        )
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()), clientsResults: [
+            .success(ReplacementClientList(clients: [])),
+            .success(ReplacementClientList(clients: []))
+        ])
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+
+        persistence.failMutation(after: 0)
+        await owner.connected(localPort: 7111)
+
+        let identity = try DevicePairingIdentity.make(for: pairing)
+        let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(offer.state, .awaitingMarkConfirmation)
+
+        persistence.allowMutations()
+        await owner.connected(localPort: 7111)
+        let retiredOffer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(retiredOffer.state, .retired)
+    }
+
+    func testFreshPairEligibilityFailsFenceOnConcurrentChangesDuringSuspension() async throws {
+        // (a) clearPairing and re-apply new CID on same journal
+        try await self.assertFreshPairEligibilitySuspensionFence { migration, confirmation, credentials, owner, journal in
+            try credentials.clearPairing()
+            try credentials.applyPairing(MigrationOwnerFixture.thirdPairing)
+            let thirdIdentity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.thirdPairing)
+            let thirdOffer = try XCTUnwrap(migration.loadPortable(for: thirdIdentity).replacementOffer)
+            let ownerID = credentials.snapshot().deviceOwnerID
+            return (thirdIdentity, thirdOffer, ownerID)
+        }
+
+        // (b) applyPairing with different instanceID
+        try await self.assertFreshPairEligibilitySuspensionFence { migration, confirmation, credentials, owner, journal in
+            let otherPairing = StoredPairing(
+                instanceID: "other-journal-instance",
+                homeLabel: "other",
+                relayEndpoint: "https://relay.other.invalid",
+                fingerprint: MigrationOwnerFixture.thirdCID,
+                clientCertPEM: CertlessTrustFixtures.leafPEM,
+                clientKeyPEM: "key",
+                caChainPEM: CertlessTrustFixtures.caPEM,
+                relayEnrollment: .unavailable,
+                localEndpoints: [],
+                pairedAt: Date()
+            )
+            try credentials.applyPairing(otherPairing)
+            let otherIdentity = try DevicePairingIdentity.make(for: otherPairing)
+            let otherOffer = try XCTUnwrap(migration.loadPortable(for: otherIdentity).replacementOffer)
+            let ownerID = credentials.snapshot().deviceOwnerID
+            return (otherIdentity, otherOffer, ownerID)
+        }
+
+        // (c) disconnected()
+        try await self.assertFreshPairEligibilitySuspensionFence { migration, confirmation, credentials, owner, journal in
+            owner.disconnected()
+            let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+            let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+            let ownerID = credentials.snapshot().deviceOwnerID
+            return (identity, offer, ownerID)
+        }
+
+        // (d) confirmation.clearRecord()
+        try await self.assertFreshPairEligibilitySuspensionFence { migration, confirmation, credentials, owner, journal in
+            try confirmation.clearRecord()
+            let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+            let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+            let ownerID = credentials.snapshot().deviceOwnerID
+            return (identity, offer, ownerID)
+        }
+
+        // (e) updateReplacementOffer to .keptBoth
+        try await self.assertFreshPairEligibilitySuspensionFence { migration, confirmation, credentials, owner, journal in
+            let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+            let ownerID = try XCTUnwrap(credentials.snapshot().deviceOwnerID)
+            try migration.updateReplacementOffer(identity: identity, ownerID: ownerID) {
+                $0.state = .keptBoth
+            }
+            let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+            return (identity, offer, ownerID)
+        }
+
+        // (f) updateReplacementOffer to .submitting
+        try await self.assertFreshPairEligibilitySuspensionFence(pauseStateBeforeResume: true) { migration, confirmation, credentials, owner, journal in
+            let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+            let ownerID = try XCTUnwrap(credentials.snapshot().deviceOwnerID)
+            let target = MigrationOwnerFixture.targetCID
+            let body = Data("request".utf8)
+            try migration.updateReplacementOffer(identity: identity, ownerID: ownerID) {
+                $0.state = .submitting
+                $0.targetCID = target
+                $0.requestBytes = body
+            }
+            let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+            return (identity, offer, ownerID)
+        }
+    }
+
+    private func assertFreshPairEligibilitySuspensionFence(
+        pauseStateBeforeResume: Bool = false,
+        mutateDuringSuspension: @MainActor (
+            DeviceMigrationStore,
+            JournalSendConfirmationStore,
+            PairingCredentialStore,
+            DeviceMigrationOwnerModel,
+            MigrationJournalStub
+        ) throws -> (identity: DevicePairingIdentity, expectedOffer: FreshPairReplacementOffer, expectedOwnerID: UUID?)
+    ) async throws {
+        for result in [
+            DeviceMigrationJournalResult<ReplacementClientList>.success(ReplacementClientList(clients: [])),
+            .success(ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "phone")])),
+            .unavailable
+        ] {
+            let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+            let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()))
+            let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+            await journal.pauseNextClientsResponse()
+            let connectTask = Task { await owner.connected(localPort: 7111) }
+            await journal.waitForClientsRequest()
+
+            let (targetIdentity, expectedOffer, expectedOwnerID) = try mutateDuringSuspension(
+                migration, confirmation, credentials, owner, journal
+            )
+
+            if pauseStateBeforeResume {
+                await journal.pauseNextStateResponse()
+            }
+
+            await journal.resumeClientsRequest(result)
+
+            if pauseStateBeforeResume {
+                await journal.waitForStateRequest()
+                let portable = try migration.loadPortable(for: targetIdentity)
+                let actualOffer = try XCTUnwrap(portable.replacementOffer)
+                XCTAssertEqual(actualOffer.pairingOwnerID, expectedOffer.pairingOwnerID)
+                XCTAssertEqual(actualOffer.pairingFingerprint, expectedOffer.pairingFingerprint)
+                XCTAssertEqual(actualOffer.operationID, expectedOffer.operationID)
+                XCTAssertEqual(actualOffer.state, expectedOffer.state)
+                XCTAssertEqual(actualOffer.presentationShown, expectedOffer.presentationShown)
+                XCTAssertEqual(actualOffer.targetCID, expectedOffer.targetCID)
+                XCTAssertEqual(actualOffer.requestBytes, expectedOffer.requestBytes)
+                XCTAssertEqual(credentials.snapshot().deviceOwnerID, expectedOwnerID)
+
+                await journal.resumeStateRequest(.success(MigrationOwnerFixture.emptyState()))
+            }
+
+            await connectTask.value
+
+            if !pauseStateBeforeResume {
+                let portable = try migration.loadPortable(for: targetIdentity)
+                let actualOffer = try XCTUnwrap(portable.replacementOffer)
+                XCTAssertEqual(actualOffer.pairingOwnerID, expectedOffer.pairingOwnerID)
+                XCTAssertEqual(actualOffer.pairingFingerprint, expectedOffer.pairingFingerprint)
+                XCTAssertEqual(actualOffer.operationID, expectedOffer.operationID)
+                XCTAssertEqual(actualOffer.state, expectedOffer.state)
+                XCTAssertEqual(actualOffer.presentationShown, expectedOffer.presentationShown)
+                XCTAssertEqual(actualOffer.targetCID, expectedOffer.targetCID)
+                XCTAssertEqual(actualOffer.requestBytes, expectedOffer.requestBytes)
+                XCTAssertEqual(credentials.snapshot().deviceOwnerID, expectedOwnerID)
+            }
+        }
+    }
+
+    func testFreshPairEligibilityRebuiltOwnerDuringSuspensionPreservesTerminalResult() async throws {
+        // (1) Empty success retires offer; reconnecting with nonempty queued result does not re-fetch or un-retire.
+        do {
+            let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+            let journal = MigrationJournalStub(
+                state: .success(MigrationOwnerFixture.emptyState()),
+                clientsResults: [
+                    .success(ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "phone")]))
+                ]
+            )
+            let owner1 = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+            await journal.pauseNextClientsResponse()
+            let connectTask = Task { await owner1.connected(localPort: 7111) }
+            await journal.waitForClientsRequest()
+
+            let owner2 = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+            await journal.resumeClientsRequest(.success(ReplacementClientList(clients: [])))
+            await connectTask.value
+
+            let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+            let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+            XCTAssertEqual(offer.state, .retired)
+            XCTAssertFalse(owner2.shouldPresentFreshPairOffer)
+            XCTAssertFalse(owner2.isFreshPairPendingVisible)
+
+            await owner2.connected(localPort: 7111)
+            let fetchCount = await journal.recordedClientsFetchCount()
+            XCTAssertEqual(fetchCount, 1)
+            XCTAssertEqual(try migration.loadPortable(for: identity).replacementOffer?.state, .retired)
+            XCTAssertFalse(owner2.shouldPresentFreshPairOffer)
+            XCTAssertFalse(owner2.isFreshPairPendingVisible)
+        }
+
+        // (2) Nonempty success sets offer to .available; second owner sees .available.
+        do {
+            let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+            let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()))
+            let owner1 = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+            await journal.pauseNextClientsResponse()
+            let connectTask = Task { await owner1.connected(localPort: 7111) }
+            await journal.waitForClientsRequest()
+
+            let owner2 = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+            let clients = ReplacementClientList(clients: [MigrationOwnerFixture.client(MigrationOwnerFixture.targetCID, "other phone")])
+            await journal.resumeClientsRequest(.success(clients))
+            await connectTask.value
+
+            let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+            let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+            XCTAssertEqual(offer.state, .available)
+
+            await owner2.connected(localPort: 7111)
+            let fetchCount = await journal.recordedClientsFetchCount()
+            XCTAssertEqual(fetchCount, 1)
+            XCTAssertEqual(owner2.freshPairOffer?.state, .available)
+            XCTAssertTrue(owner2.shouldPresentFreshPairOffer)
+            XCTAssertTrue(owner2.isFreshPairPendingVisible)
+        }
+
+        // (3) Unavailable result sets offer to .available (fallback); second owner sees .available.
+        do {
+            let (migration, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+            let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()))
+            let owner1 = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+            await journal.pauseNextClientsResponse()
+            let connectTask = Task { await owner1.connected(localPort: 7111) }
+            await journal.waitForClientsRequest()
+
+            let owner2 = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+            await journal.resumeClientsRequest(.unavailable)
+            await connectTask.value
+
+            let identity = try DevicePairingIdentity.make(for: MigrationOwnerFixture.newPairing)
+            let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+            XCTAssertEqual(offer.state, .available)
+
+            await owner2.connected(localPort: 7111)
+            let fetchCount = await journal.recordedClientsFetchCount()
+            XCTAssertEqual(fetchCount, 1)
+            XCTAssertEqual(owner2.freshPairOffer?.state, .available)
+            XCTAssertTrue(owner2.shouldPresentFreshPairOffer)
+            XCTAssertTrue(owner2.isFreshPairPendingVisible)
+        }
+    }
+
+    func testFreshPairEligibilitySuspendedReadDoesNotBlockHomeJobsMetadataAndAccess() async throws {
+        let (_, confirmation, credentials) = try Self.makeFreshPairOwnerState()
+        let journal = MigrationJournalStub(state: .success(MigrationOwnerFixture.emptyState()))
+        let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
+        await journal.pauseNextClientsResponse()
+
+        let metadataRequested = OSAllocatedUnfairLock(initialState: false)
+        let accessRequested = OSAllocatedUnfairLock(initialState: false)
+
+        let client = AuthenticatedHomeClient(sessionFactory: { _ in
+            let config = URLSessionConfiguration.ephemeral
+            config.protocolClasses = [LinkedDeviceIngestURLProtocol.self]
+            return URLSession(configuration: config)
+        })
+
+        LinkedDeviceIngestURLProtocol.handler = { request in
+            let path = request.url?.path ?? ""
+            if path.contains("/clients/self") || path.contains("/api/system/about") {
+                metadataRequested.withLock { $0 = true }
+            }
+            if path.contains("/relay/access") {
+                accessRequested.withLock { $0 = true }
+            }
+            let body = Data(#"{"status":"ok"}"#.utf8)
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
+        }
+        defer { LinkedDeviceIngestURLProtocol.reset() }
+
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: UUID().uuidString))
+        let jobs = HomeAuthenticatedJobs(
+            store: credentials,
+            journalVersion: JournalVersionMetadata(defaults: defaults, fetch: { _ in nil }),
+            client: client,
+            isSendAdmissionAllowed: { true },
+            deviceMigrationOwner: owner
+        )
+
+        jobs.connected(localPort: 7111)
+        await journal.waitForClientsRequest()
+
+        for _ in 0..<100 {
+            if metadataRequested.withLock({ $0 }) && accessRequested.withLock({ $0 }) { break }
+            await Task.yield()
+        }
+
+        XCTAssertTrue(metadataRequested.withLock { $0 })
+        XCTAssertTrue(accessRequested.withLock { $0 })
+
+        await journal.resumeClientsRequest(.success(ReplacementClientList(clients: [])))
+        jobs.disconnected()
     }
 
     private static func makeCommittedOwnerState() throws -> (DeviceMigrationStore, JournalSendConfirmationStore, PairingCredentialStore) {

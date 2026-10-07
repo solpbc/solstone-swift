@@ -332,11 +332,7 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
             let changedCredential = previousFingerprint != pairing.fingerprint
                 || previousPairing.flatMap { try? DevicePairingIdentity.make(for: $0) } != newIdentity
             pairingCredentialChanged = changedCredential
-            let hadSameJournalBaseline = try self.migrationStore.loadPortable(for: newIdentity).baseline != nil
-            let includeFreshPairOffer = changedCredential && (
-                previousPairing.flatMap { try? DevicePairingIdentity.make(for: $0) } == newIdentity
-                    || (previousPairing == nil && hadSameJournalBaseline)
-            )
+            let includeFreshPairOffer = changedCredential
             let sameOwner = !changedCredential
                 && previousPairing.map { (try? DevicePairingIdentity.make(for: $0)) == (try? DevicePairingIdentity.make(for: pairing)) } == true
             let ownerID: UUID

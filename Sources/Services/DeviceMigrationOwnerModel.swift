@@ -161,6 +161,16 @@ final class DeviceMigrationOwnerModel {
         return offer
     }
 
+    var isFreshPairPendingVisible: Bool {
+        guard let offer = self.freshPairOffer else { return false }
+        switch offer.state {
+        case .available, .submitting, .unknown, .targetRemoved, .refused:
+            return true
+        case .awaitingMarkConfirmation, .dismissed, .complete, .keptBoth, .retired:
+            return false
+        }
+    }
+
     var replacementRows: [(client: ReplacementClient, label: String)] {
         let counts = Dictionary(grouping: self.replacementClients, by: \.displayLabel).mapValues(\.count)
         return self.replacementClients.map { client in
@@ -179,7 +189,7 @@ final class DeviceMigrationOwnerModel {
         self.activate(context)
         await self.reconcileMigration(context)
         guard self.isCurrent(context) else { return }
-        self.reconcileFreshPairOffer(context)
+        await self.reconcileFreshPairOffer(context)
         guard self.isCurrent(context) else { return }
         if self.freshPairOffer?.state == .unknown || self.freshPairOffer?.state == .submitting {
             await self.reconcileFreshPairReplacement(context)
@@ -587,12 +597,45 @@ final class DeviceMigrationOwnerModel {
         }
     }
 
-    private func reconcileFreshPairOffer(_ context: Connection) {
+    private func reconcileFreshPairOffer(_ context: Connection) async {
         guard self.isCurrent(context),
               self.confirmation.allowsSend(pairing: context.pairing),
               let offer = self.freshPairOffer,
-              offer.state == .awaitingMarkConfirmation else { return }
-        self.updateFreshOffer(context, operationID: offer.operationID) { $0.state = .available }
+              offer.pairingOwnerID == context.ownerID,
+              offer.pairingFingerprint == context.pairing.fingerprint,
+              offer.state == .awaitingMarkConfirmation,
+              offer.targetCID == nil,
+              offer.requestBytes == nil else { return }
+        let operationID = offer.operationID
+        let result = await self.client.fetchClients(localPort: context.port)
+        guard self.isCurrent(context),
+              self.confirmation.allowsSend(pairing: context.pairing),
+              let currentOffer = self.freshPairOffer,
+              currentOffer.operationID == operationID,
+              currentOffer.pairingOwnerID == context.ownerID,
+              currentOffer.pairingFingerprint == context.pairing.fingerprint,
+              currentOffer.state == .awaitingMarkConfirmation,
+              currentOffer.targetCID == nil,
+              currentOffer.requestBytes == nil else { return }
+
+        let nextState: FreshPairReplacementState
+        switch result {
+        case .success(let list):
+            let otherClients = list.clients.filter { $0.cid != context.pairing.fingerprint }
+            if otherClients.isEmpty {
+                nextState = .retired
+            } else if otherClients.allSatisfy({ DeviceMigrationJournalClient.validCID($0.cid) }) {
+                nextState = .available
+            } else {
+                nextState = .available
+            }
+        case .unavailable, .invalidResponse, .refused:
+            nextState = .available
+        }
+
+        self.updateFreshOffer(context, operationID: operationID) { offer in
+            offer.state = nextState
+        }
     }
 
     private func reconcileFreshPairReplacement(_ context: Connection) async {

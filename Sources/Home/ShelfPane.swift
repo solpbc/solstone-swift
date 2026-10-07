@@ -553,9 +553,8 @@ struct ThisDevicePane: View {
                 }
 
                 if self.tunnelManager.activeConnection != nil,
-                   let offer = self.deviceMigrationOwner.freshPairOffer,
-                   offer.state != .awaitingMarkConfirmation,
-                   offer.state != .dismissed && offer.state != .complete && offer.state != .keptBoth {
+                   self.deviceMigrationOwner.isFreshPairPendingVisible,
+                   let offer = self.deviceMigrationOwner.freshPairOffer {
                     Section {
                         LabeledContent { Text("migration.pending.value") } label: { Text("migration.pending.row") }
                         Text("migration.replace_offer.title").font(.headline)

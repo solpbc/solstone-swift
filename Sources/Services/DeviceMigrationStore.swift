@@ -166,6 +166,7 @@ nonisolated enum FreshPairReplacementState: String, Codable, Equatable, Sendable
     case dismissed
     case complete
     case keptBoth
+    case retired = "retired"
 }
 
 nonisolated struct DevicePairingIdentity: Codable, Equatable, Sendable {

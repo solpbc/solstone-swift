@@ -911,6 +911,161 @@ final class DeviceMigrationStoreTests: XCTestCase {
         XCTAssertNil(credentials.snapshot().pairing)
     }
 
+    @MainActor
+    func testApplyPairingWithoutLocalBaselineEnrollsFreshPairOffer() throws {
+        let migration = DeviceMigrationStore.memory()
+        let confirmation = JournalSendConfirmationStore.memory()
+        let pairing = Self.pairing(cidByte: "a")
+        let holder = PairingSnapshotHolder(nil)
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            migrationStore: migration,
+            loadPairing: { holder.pairing },
+            savePairing: { holder.pairing = $0 },
+            deletePairing: { holder.pairing = nil }
+        )
+        try credentials.applyPairing(pairing)
+
+        let identity = try DevicePairingIdentity.make(for: pairing)
+        let offer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(offer.pairingFingerprint, pairing.fingerprint)
+        XCTAssertEqual(offer.pairingOwnerID, credentials.snapshot().deviceOwnerID)
+        XCTAssertEqual(offer.state, .awaitingMarkConfirmation)
+        XCTAssertNil(offer.targetCID)
+        XCTAssertNil(offer.requestBytes)
+        XCTAssertNil(offer.presentationShown)
+    }
+
+    @MainActor
+    func testApplyPairingWithDifferentIdentityEnrollsFreshPairOfferOnNewIdentity() throws {
+        let migration = DeviceMigrationStore.memory()
+        let confirmation = JournalSendConfirmationStore.memory()
+        let firstPairing = Self.pairing(cidByte: "b")
+        var secondPairing = Self.pairing(cidByte: "c")
+        secondPairing = StoredPairing(
+            instanceID: "different-journal-instance",
+            homeLabel: secondPairing.homeLabel,
+            relayEndpoint: secondPairing.relayEndpoint,
+            fingerprint: secondPairing.fingerprint,
+            clientCertPEM: secondPairing.clientCertPEM,
+            clientKeyPEM: secondPairing.clientKeyPEM,
+            caChainPEM: secondPairing.caChainPEM,
+            relayEnrollment: secondPairing.relayEnrollment,
+            localEndpoints: secondPairing.localEndpoints,
+            pairedAt: secondPairing.pairedAt
+        )
+        let holder = PairingSnapshotHolder(nil)
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            migrationStore: migration,
+            loadPairing: { holder.pairing },
+            savePairing: { holder.pairing = $0 },
+            deletePairing: { holder.pairing = nil }
+        )
+        try credentials.applyPairing(firstPairing)
+        let firstIdentity = try DevicePairingIdentity.make(for: firstPairing)
+        let firstOffer = try XCTUnwrap(migration.loadPortable(for: firstIdentity).replacementOffer)
+
+        try credentials.applyPairing(secondPairing)
+        let secondIdentity = try DevicePairingIdentity.make(for: secondPairing)
+        let secondOffer = try XCTUnwrap(migration.loadPortable(for: secondIdentity).replacementOffer)
+        XCTAssertNotEqual(firstIdentity, secondIdentity)
+        XCTAssertEqual(secondOffer.pairingFingerprint, secondPairing.fingerprint)
+        XCTAssertEqual(secondOffer.pairingOwnerID, credentials.snapshot().deviceOwnerID)
+        XCTAssertEqual(secondOffer.state, .awaitingMarkConfirmation)
+        XCTAssertNil(secondOffer.targetCID)
+        XCTAssertNil(secondOffer.requestBytes)
+        XCTAssertNil(try migration.loadPortable(for: firstIdentity).replacementOffer)
+    }
+
+    @MainActor
+    func testApplyPairingSameCredentialDoesNotReplaceExistingOffer() throws {
+        let migration = DeviceMigrationStore.memory()
+        let confirmation = JournalSendConfirmationStore.memory()
+        let pairing = Self.pairing(cidByte: "d")
+        let holder = PairingSnapshotHolder(nil)
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            migrationStore: migration,
+            loadPairing: { holder.pairing },
+            savePairing: { holder.pairing = $0 },
+            deletePairing: { holder.pairing = nil }
+        )
+        try credentials.applyPairing(pairing)
+        let identity = try DevicePairingIdentity.make(for: pairing)
+        let firstOffer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+
+        try credentials.applyPairing(pairing)
+        let secondOffer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(firstOffer.operationID, secondOffer.operationID)
+        XCTAssertEqual(firstOffer.pairingOwnerID, secondOffer.pairingOwnerID)
+        XCTAssertEqual(firstOffer.pairingFingerprint, secondOffer.pairingFingerprint)
+        XCTAssertEqual(firstOffer.state, secondOffer.state)
+    }
+
+    @MainActor
+    func testPersistRefreshedPairingAndCommitReadyAccessDoNotAlterReplacementOffer() async throws {
+        let migration = DeviceMigrationStore.memory()
+        let confirmation = JournalSendConfirmationStore.memory()
+        let pairing = Self.pairing(cidByte: "e")
+        let holder = PairingSnapshotHolder(nil)
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            migrationStore: migration,
+            loadPairing: { holder.pairing },
+            savePairing: { holder.pairing = $0 },
+            deletePairing: { holder.pairing = nil }
+        )
+        try credentials.applyPairing(pairing)
+        let identity = try DevicePairingIdentity.make(for: pairing)
+        let initialOffer = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+
+        let snap1 = credentials.snapshot()
+        let expiresAt = ISO8601DateFormatter().string(from: Date().addingTimeInterval(3600))
+        let committed = try await credentials.commitReadyAccess(
+            relayOrigin: "https://relay-updated.example.invalid",
+            deviceToken: "token-abc",
+            expiresAt: expiresAt,
+            pairingGen: snap1.pairingGeneration,
+            mutationGen: snap1.accessMutationGeneration
+        )
+        XCTAssertTrue(committed)
+        let offerAfterAccess = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(offerAfterAccess, initialOffer)
+
+        let currentPairing = try XCTUnwrap(credentials.load())
+        let updatedPairing = StoredPairing(
+            instanceID: currentPairing.instanceID,
+            homeLabel: currentPairing.homeLabel,
+            relayEndpoint: "https://relay-refreshed.example.invalid",
+            fingerprint: currentPairing.fingerprint,
+            clientCertPEM: currentPairing.clientCertPEM,
+            clientKeyPEM: currentPairing.clientKeyPEM,
+            caChainPEM: currentPairing.caChainPEM,
+            relayEnrollment: .enrolled(deviceToken: "token-def", expiresAt: expiresAt),
+            localEndpoints: currentPairing.localEndpoints,
+            pairedAt: currentPairing.pairedAt
+        )
+        let snap2 = credentials.snapshot()
+        let refreshed = try await credentials.persistRefreshedPairing(
+            updatedPairing,
+            pairingGen: snap2.pairingGeneration,
+            mutationGen: snap2.accessMutationGeneration
+        )
+        XCTAssertTrue(refreshed)
+        let offerAfterRefresh = try XCTUnwrap(migration.loadPortable(for: identity).replacementOffer)
+        XCTAssertEqual(offerAfterRefresh, initialOffer)
+    }
+
+    @MainActor
+    func testAdoptWithoutFreshPairOfferLeavesNoOffer() throws {
+        let migration = DeviceMigrationStore.memory()
+        let pairing = Self.pairing(cidByte: "f")
+        _ = try migration.adopt(pairing: pairing, includeFreshPairOffer: false)
+        let identity = try DevicePairingIdentity.make(for: pairing)
+        XCTAssertNil(try migration.loadPortable(for: identity).replacementOffer)
+    }
+
     private static func pairing(cidByte: String) -> StoredPairing {
         StoredPairing(
             instanceID: "migration-test-instance",
