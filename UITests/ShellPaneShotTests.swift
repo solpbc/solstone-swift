@@ -5,7 +5,7 @@ import XCTest
 
 /// Drives each shell pane and attaches a screenshot, so a reviewing session can look at the
 /// owner's pixels. Validation for the mobile-shell arc is the simulator plus screenshots
-/// (founder ruling 2026-08-22); `test/capture_shots.sh` covers launch states and cannot tap,
+/// (operator approval 2026-08-22); `test/capture_shots.sh` covers launch states and cannot tap,
 /// so panes are captured here.
 ///
 /// Extract after a run:

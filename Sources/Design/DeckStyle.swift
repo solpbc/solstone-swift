@@ -140,7 +140,7 @@ extension View {
 
 /// The shelf drawer's measurements.
 ///
-/// Taken from a working reference the founder supplied (Bluesky on iPhone, screen
+/// Taken from a working reference (Bluesky on iPhone, screen
 /// recording sampled frame by frame 2026-09-01), because the shelf is one of the few
 /// surfaces where a widely-used app has already answered the question and an owner
 /// arrives with the expectation already formed.

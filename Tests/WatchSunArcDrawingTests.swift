@@ -6,9 +6,9 @@
 #endif
 import XCTest
 
-/// The watch's wrist-down face (founder, 2026-09-23, the bi-modal watch): only the sun arc's
+/// The watch's wrist-down face (the bi-modal watch, 2026-09-23): only the sun arc's
 /// dark row, over black. The day halo follows the time; the sun is the colour mark at the
-/// founder's wrist-down peak of 0.50; the twilight glow and true dark are the dark row's.
+/// chosen wrist-down peak of 0.50; the twilight glow and true dark are the dark row's.
 nonisolated final class WatchSunArcDrawingTests: XCTestCase {
     // The watch's face, Series 11 46 mm, in points.
     private let placement = SunArcPlacement(size: CGSize(width: 208, height: 248), tipRadius: SunArc.phi * 208 / 2)

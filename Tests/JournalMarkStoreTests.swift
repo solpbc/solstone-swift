@@ -7,9 +7,9 @@ import XCTest
 
 /// The mark is a property of the pairing, not of the connection.
 ///
-/// Founder, 2026-09-01: the mark *"shouldn't wait for a connection, we should know that
-/// absolutely on app start and render it from our stored value… it needs to render the first
-/// time it syncs but once device is paired it should be an absolute."*
+/// Design rule, 2026-09-01: the mark doesn't wait for a connection. It renders from the stored
+/// value on app start; it needs a sync only the first time, and once the device is paired it is
+/// absolute.
 nonisolated final class JournalMarkStoreTests: XCTestCase {
     private var suiteName = ""
     private var defaults: UserDefaults!

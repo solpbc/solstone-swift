@@ -26,8 +26,8 @@ nonisolated final class WatchHomePaletteTests: XCTestCase {
     }
 
     func testEveryTextRoleClearsTheInkGround() {
-        // The active face is brand ink with no sun arc (founder, 2026-09-23, the bi-modal
-        // watch). Measured: cream 15.08, calm 8.83, live 8.47, in flight 8.75, alert 6.23.
+        // The active face is brand ink with no sun arc (the bi-modal watch,
+        // 2026-09-23). Measured: cream 15.08, calm 8.83, live 8.47, in flight 8.75, alert 6.23.
         let expected: [(String, Double)] = [
             (WatchHomePalette.cream, 15.08),
             (WatchHomePalette.calm, 8.83),

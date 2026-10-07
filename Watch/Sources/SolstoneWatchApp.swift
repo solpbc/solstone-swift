@@ -139,7 +139,7 @@ struct SolstoneWatchApp: App {
     }
 }
 
-/// The bi-modal watch face (founder, 2026-09-23). Wrist up: the hero, the details and the
+/// The bi-modal watch face (2026-09-23). Wrist up: the hero, the details and the
 /// control on brand ink, with no sun arc. Wrist down (`isLuminanceReduced`): only the sun arc's
 /// dark row over black, and nothing else. `WatchHomeView` holds one unconditional position, so
 /// its `.task`, its `scenePhase` raise handler and its elapsed timeline keep their identity

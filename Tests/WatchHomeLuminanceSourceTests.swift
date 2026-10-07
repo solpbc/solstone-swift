@@ -6,7 +6,7 @@
 #endif
 import XCTest
 
-/// The bi-modal watch face follows `isLuminanceReduced` (founder, 2026-09-23).
+/// The bi-modal watch face follows `isLuminanceReduced` (2026-09-23).
 nonisolated final class WatchHomeLuminanceSourceTests: XCTestCase {
     func testTheModeFollowsLuminanceReduced() {
         XCTAssertEqual(WatchFaceMode(luminanceReduced: false), .active)
