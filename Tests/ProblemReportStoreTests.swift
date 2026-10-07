@@ -140,6 +140,20 @@ nonisolated final class ProblemReportStoreTests: XCTestCase {
     }
 
     @MainActor
+    func testRoutineMetricPayloadIsADailySummaryNotAnIssue() throws {
+        let store = self.makeStore()
+        store.ingest([
+            Self.input(#"{"cpuMetrics":{"cumulativeCPUTime":"28 sec"}}"#, source: .metric, date: Self.date(10)),
+        ])
+
+        XCTAssertEqual(store.all().map(\.kind), [.metrics])
+        XCTAssertEqual(store.all().first?.kind.ownerLabel, "daily app summary")
+
+        let legacy = try JSONDecoder().decode(ProblemReportKind.self, from: Data(#"{"slug":"unknown","value":"metric"}"#.utf8))
+        XCTAssertEqual(legacy, .metrics)
+    }
+
+    @MainActor
     func testMultiKindPayloadPersistsOneReportWithAllKinds() {
         let store = self.makeStore()
         store.ingest([Self.input(Self.multiKindJSON(), source: .diagnostic, date: Self.date(10))])

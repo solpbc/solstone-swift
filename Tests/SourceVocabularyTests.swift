@@ -485,6 +485,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.problemReportKindDiskWriteException, "app wrote too much to storage")
         XCTAssertEqual(SourceVocabulary.problemReportKindAppLaunch, "app took too long to open")
         XCTAssertEqual(SourceVocabulary.problemReportKindAppExit, "app quit summary")
+        XCTAssertEqual(SourceVocabulary.problemReportKindMetrics, "daily app summary")
         XCTAssertEqual(SourceVocabulary.problemReportKindUnknown, "app issue report")
         XCTAssertEqual(SourceVocabulary.problemReportsShare, "share")
         XCTAssertEqual(SourceVocabulary.problemReportsShareHint, "shares this problem report.")

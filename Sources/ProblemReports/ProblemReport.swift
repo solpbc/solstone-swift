@@ -27,6 +27,7 @@ nonisolated enum ProblemReportKind: Equatable, Hashable, Sendable {
     case diskWriteException
     case appLaunch
     case appExit
+    case metrics
     case unknown(String)
 
     var filenameSlug: String {
@@ -43,6 +44,8 @@ nonisolated enum ProblemReportKind: Equatable, Hashable, Sendable {
             "app-launch"
         case .appExit:
             "app-exit"
+        case .metrics:
+            "metrics"
         case .unknown:
             "unknown"
         }
@@ -62,6 +65,8 @@ nonisolated enum ProblemReportKind: Equatable, Hashable, Sendable {
             SourceVocabulary.problemReportKindAppLaunch
         case .appExit:
             SourceVocabulary.problemReportKindAppExit
+        case .metrics:
+            SourceVocabulary.problemReportKindMetrics
         case .unknown:
             SourceVocabulary.problemReportKindUnknown
         }
@@ -75,6 +80,7 @@ nonisolated enum ProblemReportKind: Equatable, Hashable, Sendable {
             .diskWriteException,
             .appLaunch,
             .appExit,
+            .metrics,
         ]
         for candidate in priority where kinds.contains(candidate) {
             return candidate
@@ -105,8 +111,12 @@ extension ProblemReportKind: Codable {
             self = .appLaunch
         case "app-exit":
             self = .appExit
+        case "metrics":
+            self = .metrics
         case "unknown":
-            self = .unknown(try container.decodeIfPresent(String.self, forKey: .value) ?? "unknown")
+            let value = try container.decodeIfPresent(String.self, forKey: .value) ?? "unknown"
+            // Reports saved before the metrics kind existed carry unknown/metric.
+            self = value == "metric" ? .metrics : .unknown(value)
         default:
             self = .unknown(slug)
         }

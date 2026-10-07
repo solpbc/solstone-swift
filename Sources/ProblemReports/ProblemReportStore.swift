@@ -179,7 +179,7 @@ extension ProblemReportStore {
             if let appExit = object["applicationExitMetrics"] as? [String: Any], !appExit.isEmpty {
                 return [.appExit]
             }
-            return [.unknown("metric")]
+            return [.metrics]
         }
     }
 }

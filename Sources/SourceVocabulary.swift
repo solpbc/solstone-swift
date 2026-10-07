@@ -410,6 +410,7 @@ nonisolated enum SourceVocabulary {
     static let problemReportKindDiskWriteException = "app wrote too much to storage"
     static let problemReportKindAppLaunch = "app took too long to open"
     static let problemReportKindAppExit = "app quit summary"
+    static let problemReportKindMetrics = "daily app summary"
     static let problemReportKindUnknown = "app issue report"
     static let problemReportsShare = "share"
     static let problemReportsShareHint = "shares this problem report."
