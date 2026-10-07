@@ -4,9 +4,8 @@
 import Foundation
 
 nonisolated enum WatchHomePalette {
-    /// The active face's text on brand ink `#1A1A1A`, where the sun arc never draws (founder,
-    /// 2026-09-23, the bi-modal watch: "keep the normal colors we have since there's no
-    /// contrast issues"). On ink: cream 15.08, calm 8.83, live 8.47, in flight 8.75, alert 6.23.
+    /// The active face's text on brand ink `#1A1A1A`, where the sun arc never draws (the bi-modal
+    /// watch, 2026-09-23: the normal colours stay, since there is no contrast issue on ink). On ink: cream 15.08, calm 8.83, live 8.47, in flight 8.75, alert 6.23.
     static let cream = "#F4EEE4"
     static let calm = "#B8B8C0"
     static let liveText = "#F2A457"

@@ -3,8 +3,8 @@
 
 import Foundation
 
-/// The watch face is bi-modal (founder, 2026-09-23): "low-power positional sun mark in reduced
-/// luminance … or visible control/text with no contrast issue." The mode is
+/// The watch face is bi-modal (2026-09-23): a low-power positional sun mark in reduced
+/// luminance, or visible controls and text with no contrast issue. The mode is
 /// `isLuminanceReduced` and nothing else: a notification or Control Center over a raised wrist
 /// is still the active face.
 nonisolated enum WatchFaceMode: Equatable, Sendable {

@@ -6,7 +6,7 @@ import Foundation
 
 /// The sun, all day — time-of-day background pattern.
 ///
-/// Ported from the sun-arc reference implementation (sunarc.js). Founder lock 2026-09-19,
+/// Ported from the sun-arc reference implementation (sunarc.js). Locked by operator approval 2026-09-19,
 /// amended 2026-09-23: the day in both appearances. Vendor the reference math; do not re-derive
 /// it from the token constants alone. Section numbers below (§3, §4, §4a, §6, §7, §8a) refer to
 /// that spec; the 09-23 model is `SUNARC.both()`.
@@ -15,8 +15,8 @@ public nonisolated enum SunArc {
     public static let bow: Double = 0.079_19               // sagitta ÷ chord, §3
     public static let peakOpacityLight: Double = 0.55       // §2 on a light ground
     public static let peakOpacityDark: Double = 0.20        // §8a on a dark ground — the same OKLab step
-    /// The watch's wrist-down face only (sun over pure black): the founder's pick from the
-    /// wrist-down mock, 2026-09-23 — "C, i like C best, D is too far off of our mark." The phone's
+    /// The watch's wrist-down face only (sun over pure black): the option chosen from the
+    /// wrist-down mock, 2026-09-23, as the closest to the mark. The phone's
     /// dark row keeps `peakOpacityDark`; the halo, the twilight glow and true dark are unchanged.
     public static let wristDownSunPeak: Double = 0.50
     public static let envelopeEdge: Double = 0.22           // §4 rise·hold·set
