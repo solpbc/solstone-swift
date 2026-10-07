@@ -6,6 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Added
+
+- when you set up a new iphone or ipad from a backup of your old one, made after this version had connected to your journal, the solstone app keeps its pairing with your journal and asks whether it's the same device or a new one. "same device" carries on with the old device's name and history and ends the old device's access to your journal. "new device" keeps both.
+- after you pair your iphone or ipad with the same journal again and confirm its mark, the app asks whether it's replacing one of your devices. you can choose the device it replaces, or keep both.
+
 ### Changed
 
 - settings no longer shows a label row, and once you've confirmed your journal's mark, the app shows it. the status now says "your journal" and "through the relay" instead of "home" and "remote journal".
@@ -16,9 +21,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 - in the list of problem reports, the summary ios gives the app once a day about how it ran is now called "daily app summary". before, it could be called "app issue report" even when nothing had gone wrong.
 - when you pair your iphone or ipad with a journal again, everything still waiting goes to that journal once you confirm its mark. before, something you'd shared that was partway into your previous journal could show as "in your journal" and be removed from your iphone or ipad without reaching your new journal, and recordings your previous journal had turned away could wait for you to tap "try now".
 - the block on the about solstone page now names your iphone or ipad's architecture as arm64, the same word every other solstone app uses, instead of arm64e.
-- if some audio from your iphone or ipad can't be read, including audio from before this update, for example because the app was shut down while audio was on, the app's status and the widgets now say "audio was interrupted", and the status screen and the list of what's on this device add "some audio hasn't reached your journal." before, they could say everything was caught up.
-- on a slow network, like a café's wifi, connecting to your journal through the relay now gets enough time to finish. before, the app could give up a moment before it would have connected.
-- when your iphone or ipad isn't on the same network as your journal, the addresses tried on the status screen now say "couldn't connect" or "no answer". before, they could say "answered, but couldn't prove it's your journal", which made it sound like something was wrong with your journal.
+- if some audio from your iphone or ipad can't be read, including audio from before this update, for example because the app was shut down while audio was on, the app's status and the widgets now say "audio was interrupted" where they would have said everything was caught up, and the status screen adds "some audio hasn't reached your journal." before, they could say everything was caught up.
+- on a slow network, like a café's wifi, connecting to your journal through the relay now gets more time before the app gives up.
+- when an address refuses the connection or doesn't answer, the status screen now says "couldn't connect" or "no answer" for it. before, it could say "answered, but couldn't prove it's your journal", which made it sound like something was wrong with your journal.
 
 ## [2.0.6 (119)] - 2026-10-03
 
