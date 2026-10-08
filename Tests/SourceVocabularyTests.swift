@@ -209,17 +209,17 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.openJournalLink, "open journal ↗")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneJournalHintSaved,
-            "this was added to your journal automatically. open it to read the full thing."
+            "this was added to your journal automatically."
         )
-        XCTAssertEqual(SourceVocabulary.onThisPhoneJournalHintLocationSaved, "open it to see these places on a map.")
+        XCTAssertEqual(SourceVocabulary.onThisPhoneJournalHintLocationSaved, "these places were added to your journal automatically.")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneJournalHintPending,
-            "not in your journal yet — it'll appear once it's sent."
+            "not in your journal yet. it's waiting to go in."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneJournalHintUnreachable, "connect a journal first.")
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneJournalHintLocationUnreachable,
-            "connect a journal to see these places on a map."
+            "connect a journal to add these places to it."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropFromPhone, "drop from this device")
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropConfirmTitle, "drop this from this device?")
