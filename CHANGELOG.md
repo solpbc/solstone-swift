@@ -6,24 +6,25 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.7 (123)] - 2026-10-08
+
 ### Added
 
-- when you set up a new iphone or ipad from a backup of your old one, made after this version had connected to your journal, the solstone app keeps its pairing with your journal and asks whether it's the same device or a new one. "same device" carries on with the old device's name and history and ends the old device's access to your journal. "new device" keeps both.
+- when you set up a new iphone or ipad from an icloud backup or an encrypted backup on your computer taken after this version had connected your old one to your journal, the solstone app keeps its pairing with your journal and asks whether it's the same device or a new one. "same device" carries on with the old device's name and history and ends the old device's access to your journal. "new device" keeps both.
 - after you pair your iphone or ipad and confirm your journal's mark, the app checks which devices your journal has paired. if it lists another device, the app asks whether this one replaces it. you can choose the device it replaces, or keep both.
 
 ### Changed
 
 - when a source is off and a journal is paired, its page now reads "intake is off. turn it on any time." when you've paused it, it reads "you paused this. resume to start intake again." before, both lines talked about sending to your journal.
-- settings no longer shows a label row, and once you've confirmed your journal's mark, the app shows it. the status now says "your journal" and "through the relay" instead of "home" and "remote journal".
-- forgetting a journal, unpairing this device, pairing a new journal, or stopping a pairing at the mark check no longer warns you that your journal didn't confirm the unpair. your iphone or ipad tells your journal when it can, and forgets the journal either way.
+- settings no longer shows a label row, and the app names your journal by its mark once you've confirmed it. the status now says "your journal" and "through the relay" instead of "home" and "remote journal".
+- forgetting a journal, unpairing this device, pairing a new journal, or stopping a pairing when it asks you to confirm the mark no longer warns you that your journal didn't confirm the unpair. your iphone or ipad tells your journal if it can reach it right then, and forgets the journal either way.
 
 ### Fixed
 
+- when you pair your iphone or ipad with a journal again, everything still waiting goes to that journal once you confirm its mark. before, something you'd shared that was partway into your previous journal could show as "in your journal" and be removed from your iphone or ipad without reaching your new journal, and recordings your previous journal had turned away could wait for you to tap "try now".
+- if some audio from your iphone or ipad can't be read, for example because the app was shut down while audio was on, including audio from before this update, the app's status and the widgets now say "audio was interrupted" where they would have said everything was caught up, and the status screen adds "some audio hasn't reached your journal."
 - once your iphone or ipad is paired, tapping your journal in the app always opens it, showing the connection until it's connected. before, if it wasn't connected, the same tap could open "where your journal lives" instead.
 - in the list of problem reports, the summary ios gives the app once a day about how it ran is now called "daily app summary". before, it could be called "app issue report" even when nothing had gone wrong. the problem reports screen now mentions these summaries too.
-- when you pair your iphone or ipad with a journal again, everything still waiting goes to that journal once you confirm its mark. before, something you'd shared that was partway into your previous journal could show as "in your journal" and be removed from your iphone or ipad without reaching your new journal, and recordings your previous journal had turned away could wait for you to tap "try now".
-- the block on the about solstone page now names your iphone or ipad's architecture as arm64, the same word every other solstone app uses, instead of arm64e.
-- if some audio from your iphone or ipad can't be read, including audio from before this update, for example because the app was shut down while audio was on, the app's status and the widgets now say "audio was interrupted" where they would have said everything was caught up, and the status screen adds "some audio hasn't reached your journal." before, they could say everything was caught up.
 - on a slow network, like a café's wifi, connecting to your journal through the relay now gets more time before the app gives up.
 - when an address refuses the connection or doesn't answer, the status screen now says "couldn't connect" or "no answer" for it. before, it could say "answered, but couldn't prove it's your journal", which made it sound like something was wrong with your journal.
 
