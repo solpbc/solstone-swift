@@ -108,10 +108,18 @@ nonisolated struct RefusedItemExportRecord: Equatable, Sendable {
         case storedDetail
     }
 
-    /// The item's current observer-ingest key.
+    /// The item's current observer-ingest key, and the segment it was stored under when the spool
+    /// has since rewritten it (see `TransferSegmentRepair`).
     struct IngestKey: Equatable, Sendable {
         let day: String
         let segment: String
+        let segmentRepairedFrom: String?
+
+        init(day: String, segment: String, segmentRepairedFrom: String? = nil) {
+            self.day = day
+            self.segment = segment
+            self.segmentRepairedFrom = segmentRepairedFrom
+        }
     }
 
     let itemID: UUID
@@ -131,7 +139,9 @@ nonisolated struct RefusedItemExportRecord: Equatable, Sendable {
         self.itemID = manifest.itemID
         self.refusedAt = attention.movedAt
         self.appVersion = manifest.appVersion
-        self.ingestKey = manifest.observerIngest.map { IngestKey(day: $0.day, segment: $0.segment) }
+        self.ingestKey = manifest.observerIngest.map {
+            IngestKey(day: $0.day, segment: $0.segment, segmentRepairedFrom: $0.segmentRepairedFrom)
+        }
         self.reasonCode = code
         self.codeOrigin = origin
     }
@@ -214,10 +224,63 @@ nonisolated struct RefusedItemsExport: Equatable, Sendable {
         if let key = refusal.ingestKey {
             fields.append("day " + DiagnosticExportText.delimited(key.day))
             fields.append("segment " + DiagnosticExportText.delimited(key.segment))
+            if let original = key.segmentRepairedFrom {
+                fields.append("repaired from " + DiagnosticExportText.delimited(original))
+            }
         } else {
             fields.append("no ingest metadata")
         }
         fields.append("reason " + refusal.reasonLabel)
         return fields
+    }
+}
+
+/// The export's account of segment names written in the 12-hour form: what the spool has
+/// rewritten and failed to rewrite (from its persistent tally), and how many attention items still
+/// hold a name that is not in the wire form (recomputed from the items as they are). Counts and
+/// relative ages only: nothing here names an item, a day or a segment.
+nonisolated struct SegmentRepairExport: Equatable, Sendable {
+    var tally: SegmentRepairTally
+    var unrepaired: UnrepairedSegmentNameCounts
+
+    init(tally: SegmentRepairTally = .empty, unrepaired: UnrepairedSegmentNameCounts = UnrepairedSegmentNameCounts()) {
+        self.tally = tally
+        self.unrepaired = unrepaired
+    }
+
+    var isEmpty: Bool { self.tally.isEmpty && self.unrepaired.isEmpty }
+
+    /// Nothing when there is nothing to say. Count first, then the label, as in the refused-items
+    /// block: a line of the form `key: value` is what the export's secret redaction rewrites.
+    func lines(now: Date) -> [String] {
+        guard !self.isEmpty else { return [] }
+        var lines = ["  segment names stored in the 12-hour form:"]
+        if self.tally.repaired > 0 {
+            var detail = TransferSegmentRepair.DayPeriod.allCases.compactMap { period -> String? in
+                let count = self.tally.repairedByForm[period.rawValue, default: 0]
+                return count > 0 ? "\(period.rawValue) \(count)" : nil
+            }.joined(separator: ", ")
+            var ages: [String] = []
+            if let first = self.tally.firstRepairedAt {
+                ages.append("first \(age(from: first, to: now)) ago")
+            }
+            if let last = self.tally.lastRepairedAt {
+                ages.append("last \(age(from: last, to: now)) ago")
+            }
+            if !ages.isEmpty {
+                detail += (detail.isEmpty ? "" : "; ") + ages.joined(separator: ", ")
+            }
+            lines.append("    \(self.tally.repaired) × repaired" + (detail.isEmpty ? "" : " (\(detail))"))
+        }
+        if self.tally.failures > 0 {
+            lines.append("    \(self.tally.failures) × repair failures")
+        }
+        if self.unrepaired.noTwelveHourMatch > 0 {
+            lines.append("    \(self.unrepaired.noTwelveHourMatch) × not repaired, no 12-hour match")
+        }
+        if self.unrepaired.sanityCheckFailed > 0 {
+            lines.append("    \(self.unrepaired.sanityCheckFailed) × not repaired, sanity check failed")
+        }
+        return lines
     }
 }

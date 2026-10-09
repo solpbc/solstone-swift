@@ -514,7 +514,10 @@ actor TransferEngine {
         for diagnostic in staged.recoveryDiagnostics {
             self.emitRecoveryDiagnostic(diagnostic)
         }
-        let committed = try self.spool.commitStagedItem(itemID: staged.item.manifest.itemID)
+        let committed = try self.spool.commitStagedItem(
+            itemID: staged.item.manifest.itemID,
+            now: self.clock.wallNow()
+        )
         self.queuedItems[committed.manifest.itemID] = committed
         self.counters.queuedCount += 1
         self.updateSourceState(committed.manifest.sourceKey) { state in
@@ -849,6 +852,13 @@ actor TransferEngine {
             sources: self.sourceSnapshots(now: now),
             aggregateBytesPerSecond: self.aggregateByteWindow.bytesPerSecond(now: now)
         )
+    }
+
+    /// What the spool has done about segment names written in the 12-hour form: counts and two
+    /// times, read from the one small file that outlives the items. Reads that file, so it is for
+    /// the diagnostics export, not for a UI refresh.
+    func segmentRepairTally() -> SegmentRepairTally {
+        self.spool.segmentRepairTally()
     }
 
     /// Returns the in-memory snapshot for one queued, attention, or in-flight

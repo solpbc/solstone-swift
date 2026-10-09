@@ -160,6 +160,11 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
     var ingestProtocolVersion: Int?
     var tz: String?
     var utcOffsetSeconds: Int?
+    /// The segment name this item was stored under before the spool rewrote it into the form the
+    /// wire takes (a 12-hour clock written by an older build). Phone only: the request body
+    /// builder copies the wire fields one by one and never reads this. `nil` for every item that
+    /// was not rewritten, and then the key is not encoded at all.
+    var segmentRepairedFrom: String?
 
     init(
         platform: String = "ios",
@@ -178,7 +183,8 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         powerSampledAt: Date? = nil,
         ingestProtocolVersion: Int? = nil,
         tz: String? = nil,
-        utcOffsetSeconds: Int? = nil
+        utcOffsetSeconds: Int? = nil,
+        segmentRepairedFrom: String? = nil
     ) {
         self.platform = platform
         self.segment = segment
@@ -197,6 +203,7 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         self.ingestProtocolVersion = ingestProtocolVersion
         self.tz = tz
         self.utcOffsetSeconds = utcOffsetSeconds
+        self.segmentRepairedFrom = segmentRepairedFrom
     }
 }
 

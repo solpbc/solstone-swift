@@ -14,6 +14,11 @@ nonisolated struct SourceSyncStateDetail: Sendable {
     let mostRecentAttentionRetryCount: Int
     let mostRecentAttentionLastRetriedAt: Date?
     let refusedItems: RefusedItemsExport
+    /// Attention items on this source whose segment name is not in the wire form, by why the
+    /// repair left them alone.
+    var unrepairedSegmentNames = UnrepairedSegmentNameCounts()
+    /// The spool-wide tally of segment names rewritten. Every source reads the same spool.
+    var segmentRepairTally = SegmentRepairTally.empty
 
     static func build(from transferEngine: TransferEngine, sourceKey: String) async -> SourceSyncStateDetail {
         let snapshots = await transferEngine.itemSnapshots(sourceKey: sourceKey)
@@ -33,7 +38,9 @@ nonisolated struct SourceSyncStateDetail: Sendable {
             attentionItemCount: attentionSnapshots.count,
             mostRecentAttentionRetryCount: representative?.manifest.retryCount ?? 0,
             mostRecentAttentionLastRetriedAt: representative?.manifest.lastRetriedAt,
-            refusedItems: RefusedItemsExport(manifests: attentionSnapshots.map(\.manifest))
+            refusedItems: RefusedItemsExport(manifests: attentionSnapshots.map(\.manifest)),
+            unrepairedSegmentNames: UnrepairedSegmentNameCounts(manifests: attentionSnapshots.map(\.manifest)),
+            segmentRepairTally: await transferEngine.segmentRepairTally()
         )
     }
 }
@@ -125,6 +132,13 @@ nonisolated func syncStateSummaryLines(rows: [SourceSyncStateLine], now: Date) -
     if lines.count == 1 {
         lines.append("(nothing waiting on any source)")
     }
+    // The tally is the spool's and every source reads the same one; the unrepaired counts are
+    // per source and add up. Not tied to which sources have anything waiting: the tally outlives
+    // the items it counts.
+    lines.append(contentsOf: SegmentRepairExport(
+        tally: rows.map(\.detail.segmentRepairTally).first { !$0.isEmpty } ?? .empty,
+        unrepaired: rows.reduce(UnrepairedSegmentNameCounts()) { $0 + $1.detail.unrepairedSegmentNames }
+    ).lines(now: now))
     if listedRefusedItems {
         lines.append(RefusedItemsExport.appVersionNote)
     }

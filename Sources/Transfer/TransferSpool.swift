@@ -199,6 +199,7 @@ nonisolated struct TransferSpool: Sendable {
     static let manifestFilename = "manifest.json"
     static let bodyUploadFilename = "body.upload"
     static let followedPairingFilename = "followed-pairing"
+    static let segmentRepairTallyFilename = "segment-repair-tally.json"
 
     let rootURL: URL
     private let fileSystem: any TransferFileSystem
@@ -287,6 +288,7 @@ nonisolated struct TransferSpool: Sendable {
         )
         queued.append(contentsOf: stagedRecovery.promoted)
         attention.append(contentsOf: stagedRecovery.attention)
+        self.repairTwelveHourSegmentNames(queued: &queued, attention: &attention, now: now)
         recoveryDiagnostics.append(contentsOf: conflictedItemIDs.sorted { $0.uuidString < $1.uuidString }.map {
             TransferRecoveryDiagnostic(
                 source: self.rootURL.path,
@@ -410,7 +412,7 @@ nonisolated struct TransferSpool: Sendable {
         )
     }
 
-    func commitStagedItem(itemID: UUID) throws -> TransferStoredItem {
+    func commitStagedItem(itemID: UUID, now: Date = Date()) throws -> TransferStoredItem {
         try self.ensureRootDirectories()
         let sourceURL = self.stagingDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
         let destinationURL = self.queuedDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
@@ -421,16 +423,25 @@ nonisolated struct TransferSpool: Sendable {
             self.readManifest(in: sourceURL),
             in: sourceURL
         )
-        return try self.moveStagedItemToQueued(
+        // A segment name in the 12-hour form is committed as the 24-hour name. The manifest is
+        // written once, by the move, so there is nothing to undo if the repair cannot be made: the
+        // item is committed as it is and the next launch repairs it.
+        let repair = self.repairedStagedManifest(manifest, in: sourceURL)
+        let committed = try self.moveStagedItemToQueued(
             sourceURL: sourceURL,
             destinationURL: destinationURL,
-            manifest: manifest
+            manifest: repair?.manifest ?? manifest
         )
+        if let repair {
+            self.recordSegmentRepair(dayPeriod: repair.dayPeriod, at: now)
+        }
+        return committed
     }
 
     /// Ownership comparison round-trips both manifests through the spool codec,
     /// then ignores fields rewritten by spool/engine state transitions: disk state,
     /// retry deadline, attention, save/start state, app version, and staged byte counts.
+    /// A segment name the spool rewrote is compared by the name the item was stored under.
     func verifyOwnership(
         expectedManifest: TransferManifest,
         expectedPayloadSourceURLs: [String: URL]
@@ -607,6 +618,142 @@ nonisolated struct TransferSpool: Sendable {
         let url = self.bodyCacheURL(for: item)
         guard self.fileSystem.fileExists(atPath: url.path) else { return }
         try self.fileSystem.removeItem(at: url)
+    }
+
+    // MARK: - segment name repair
+
+    /// Rewrites every queued and attention item whose segment name is in the 12-hour form (see
+    /// `TransferSegmentRepair`). Runs once per launch over the items the scans returned, after
+    /// staged items have been recovered; an item in both `queued/` and `attention/` was never
+    /// returned and is not touched.
+    ///
+    /// Each item is its own unit: whatever goes wrong with one is caught, counted, logged and left
+    /// for the next launch, and the rest are still repaired. Nothing here can make `initialize`
+    /// throw.
+    private func repairTwelveHourSegmentNames(
+        queued: inout [TransferStoredItem],
+        attention: inout [TransferStoredItem],
+        now: Date
+    ) {
+        for index in queued.indices {
+            if let repaired = self.repairSegmentName(of: queued[index], now: now) {
+                queued[index] = repaired
+            }
+        }
+        for index in attention.indices {
+            if let repaired = self.repairSegmentName(of: attention[index], now: now) {
+                attention[index] = repaired
+            }
+        }
+    }
+
+    /// The item with its segment name rewritten in place, or `nil` when it is left as it was
+    /// (nothing to repair, or the repair failed).
+    ///
+    /// The cached request body is deleted first, with the throwing delete: a body built under the
+    /// old name must never be sent after the manifest names the new one. If that delete fails the
+    /// manifest is not touched. Then the manifest is replaced atomically, so a failed write leaves
+    /// the old manifest as it was, and the item stays where it is: nothing here goes through a
+    /// call that changes the disk state, the attention record or the directory.
+    private func repairSegmentName(of item: TransferStoredItem, now: Date) -> TransferStoredItem? {
+        guard let ingest = item.manifest.observerIngest,
+              case .repairable(let repair) = TransferSegmentRepair.verdict(for: ingest),
+              self.fileSystem.fileExists(atPath: item.directoryURL.path)
+        else {
+            return nil
+        }
+        let itemID = item.manifest.itemID.uuidString
+        do {
+            try self.removeBodyCacheForNormalization(for: item)
+        } catch {
+            transferSpoolLog.error(
+                "transfer segment repair cache drop failed \(itemID, privacy: .public) \(String(describing: error), privacy: .public)"
+            )
+            self.recordSegmentRepairFailure()
+            return nil
+        }
+        let manifest = Self.manifest(item.manifest, rewritten: repair)
+        do {
+            try self.writeManifestAtomically(manifest, in: item.directoryURL)
+        } catch {
+            transferSpoolLog.error(
+                "transfer segment repair write failed \(itemID, privacy: .public) \(String(describing: error), privacy: .public)"
+            )
+            self.recordSegmentRepairFailure()
+            return nil
+        }
+        self.recordSegmentRepair(dayPeriod: repair.dayPeriod, at: now)
+        transferSpoolLog.notice("transfer segment name repaired \(itemID, privacy: .public)")
+        return TransferStoredItem(manifest: manifest, directoryURL: item.directoryURL)
+    }
+
+    /// A staged manifest with its segment name rewritten, or `nil` when it is committed as it is.
+    /// The staged directory is not written to: the manifest goes out with the commit's own move.
+    private func repairedStagedManifest(
+        _ manifest: TransferManifest,
+        in directoryURL: URL
+    ) -> (manifest: TransferManifest, dayPeriod: TransferSegmentRepair.DayPeriod)? {
+        guard let ingest = manifest.observerIngest,
+              case .repairable(let repair) = TransferSegmentRepair.verdict(for: ingest)
+        else {
+            return nil
+        }
+        do {
+            try self.removeBodyCacheForNormalization(for: TransferStoredItem(manifest: manifest, directoryURL: directoryURL))
+        } catch {
+            transferSpoolLog.error(
+                "transfer segment repair cache drop failed \(manifest.itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)"
+            )
+            self.recordSegmentRepairFailure()
+            return nil
+        }
+        return (Self.manifest(manifest, rewritten: repair), repair.dayPeriod)
+    }
+
+    /// The manifest with the segment name rewritten and the name it was stored under kept. Nothing
+    /// else in the manifest changes.
+    private static func manifest(_ manifest: TransferManifest, rewritten repair: TransferSegmentRepair.Repair) -> TransferManifest {
+        var rewritten = manifest
+        guard var ingest = rewritten.observerIngest else { return manifest }
+        ingest.segmentRepairedFrom = ingest.segmentRepairedFrom ?? ingest.segment
+        ingest.segment = repair.segment
+        rewritten.observerIngest = ingest
+        return rewritten
+    }
+
+    /// The persistent tally of repairs. A missing or unreadable file reads as nothing counted.
+    func segmentRepairTally() -> SegmentRepairTally {
+        guard let data = try? self.fileSystem.data(contentsOf: self.segmentRepairTallyURL),
+              let tally = try? Self.decoder().decode(SegmentRepairTally.self, from: data)
+        else {
+            return .empty
+        }
+        return tally
+    }
+
+    private func recordSegmentRepair(dayPeriod: TransferSegmentRepair.DayPeriod, at date: Date) {
+        self.updateSegmentRepairTally { $0.noteRepair(dayPeriod: dayPeriod, at: date) }
+    }
+
+    private func recordSegmentRepairFailure() {
+        self.updateSegmentRepairTally { $0.noteFailure() }
+    }
+
+    /// Read, change, write, for each event, so a count is on disk as soon as the repair or the
+    /// failure it counts. A tally that cannot be written is logged and never fails the repair.
+    private func updateSegmentRepairTally(_ change: (inout SegmentRepairTally) -> Void) {
+        var tally = self.segmentRepairTally()
+        change(&tally)
+        do {
+            try self.fileSystem.createDirectory(at: self.rootURL, withIntermediateDirectories: true)
+            try self.fileSystem.write(try Self.encoder().encode(tally), to: self.segmentRepairTallyURL, options: .atomic)
+        } catch {
+            transferSpoolLog.error("transfer segment repair tally not written \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private var segmentRepairTallyURL: URL {
+        self.rootURL.appendingPathComponent(Self.segmentRepairTallyFilename, isDirectory: false)
     }
 
     func removeCommittedItem(_ item: TransferStoredItem) throws {
@@ -998,6 +1145,13 @@ nonisolated struct TransferSpool: Sendable {
             var part = part
             part.byteCount = nil
             return part
+        }
+        // A rewritten segment name is compared by the name it was stored under, so a producer's
+        // copy that still carries the old name is still the same item. Applied to both sides.
+        if var ingest = normalized.observerIngest, let original = ingest.segmentRepairedFrom {
+            ingest.segment = original
+            ingest.segmentRepairedFrom = nil
+            normalized.observerIngest = ingest
         }
         return normalized
     }
