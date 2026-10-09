@@ -871,6 +871,12 @@ actor TransferEngine {
     /// a source in the order it was captured and something just captured never
     /// goes ahead of older items of its source. An item still retrying holds
     /// newer ones back until it has failed `orderedRetryLimit` times.
+    ///
+    /// Failures count both ways an item can fail: attempts made since launch
+    /// (a timeout, a server error or a lost connection backs it off without
+    /// leaving the queue) and earlier returns from attention. Counting only the
+    /// second would let one item that keeps failing in place hold its source
+    /// indefinitely.
     private func orderedCandidates(wallNow: Date) -> [TransferStoredItem] {
         let waiting = self.queuedItems.values
             .filter { !self.inFlight.contains($0.manifest.itemID) }
@@ -887,12 +893,16 @@ actor TransferEngine {
                     candidates.append(item)
                     break
                 }
-                if item.manifest.retryCount < Self.orderedRetryLimit {
+                if self.orderedFailureCount(for: item) < Self.orderedRetryLimit {
                     break
                 }
             }
         }
         return candidates
+    }
+
+    private func orderedFailureCount(for item: TransferStoredItem) -> Int {
+        item.manifest.retryCount + self.attemptCountByItemID[item.manifest.itemID, default: 0]
     }
 
     private func nextEligibleItem() async -> TransferStoredItem? {

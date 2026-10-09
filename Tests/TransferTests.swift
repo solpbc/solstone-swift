@@ -1769,6 +1769,53 @@ nonisolated final class TransferTests: XCTestCase {
         }
     }
 
+    func testAnItemFailingInPlaceStopsHoldingItsSourceAfterTheLimit() async throws {
+        // Server errors back an item off without moving it through attention, so
+        // its stored retry count never rises. On one lane, the hold has to count
+        // those attempts or the newer item never goes.
+        let stuck = Self.uuid(721)
+        let newer = Self.uuid(722)
+        TransferURLProtocol.handler = { request, body in
+            if Self.boundaryItemID(from: request) == stuck {
+                return (Self.response(for: request, statusCode: 503), Data())
+            }
+            return (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        let engine = self.makeEngine(
+            clock: clock,
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [60], maxDelay: 300, jitterSalt: 1)),
+            maxConcurrent: 1
+        )
+        try await engine.start()
+        await engine.pause()
+        _ = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: stuck, createdAt: Self.baseDate.addingTimeInterval(-600)),
+            payloads: self.audioPayloads()
+        )
+        _ = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: newer, createdAt: Self.baseDate.addingTimeInterval(-300)),
+            payloads: self.audioPayloads()
+        )
+        await engine.resume()
+
+        @Sendable func sends(of itemID: UUID) -> Int {
+            TransferURLProtocol.requests.compactMap(Self.boundaryItemID).filter { $0 == itemID }.count
+        }
+        for attempt in 1..<TransferEngine.orderedRetryLimit {
+            try await self.waitFor("failed attempt \(attempt)") { sends(of: stuck) == attempt }
+            try await self.waitFor("retry wait \(attempt)") { clock.sleepDurations.count >= attempt }
+            XCTAssertEqual(sends(of: newer), 0, "a retrying item holds its source")
+            clock.advanceWall(by: 300)
+            clock.resumeSleeps()
+        }
+        try await self.waitFor("failed attempt \(TransferEngine.orderedRetryLimit)") {
+            sends(of: stuck) == TransferEngine.orderedRetryLimit
+        }
+        try await self.waitFor("newer item sent once the stuck one reached the limit") { sends(of: newer) == 1 }
+        await engine.pause()
+    }
+
     func testFreshBandBoundaryAtFifteenMinutes() async throws {
         TransferURLProtocol.handler = { request, _ in TransferURLProtocol.hold(request) }
         let clock = FakeTransferClock(wall: Self.baseDate)
