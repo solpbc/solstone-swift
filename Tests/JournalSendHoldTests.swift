@@ -137,6 +137,7 @@ nonisolated final class JournalSendHoldTests: XCTestCase {
             endpointResolver: resolver,
             pacer: pacer
         )
+        self.addTeardownBlock { await engine.pause() }
 
         let itemID1 = UUID()
         let itemID2 = UUID()
@@ -193,13 +194,10 @@ nonisolated final class JournalSendHoldTests: XCTestCase {
         XCTAssertTrue(didConfirm)
         XCTAssertTrue(appConfig.journalSendConfirmed)
 
-        // Wait for both items to POST
-        let deadline = ContinuousClock.now + .seconds(3)
-        while ContinuousClock.now < deadline {
-            if TransferURLProtocol.requests.count >= 2 {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(20))
+        // POST admission precedes receipt verification and the delivered state.
+        try await transferTestWaitFor("both confirmed items delivered") {
+            let snapshot = await engine.snapshot()
+            return snapshot.counters.deliveredCount == 2 && snapshot.counters.inFlightCount == 0
         }
 
         XCTAssertEqual(TransferURLProtocol.requests.count, 2)

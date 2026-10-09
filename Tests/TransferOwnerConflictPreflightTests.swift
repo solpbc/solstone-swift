@@ -62,6 +62,8 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
                 sessionConfiguration: makeTransferTestURLSessionConfiguration(),
                 endpointResolver: AvailableOwnerConflictEndpointResolver()
             )
+            let engine = harness.engine
+            self.addTeardownBlock { await engine.pause() }
             try await harness.engine.initialize()
             await harness.engine.enableDispatch()
             XCTAssertEqual(TransferURLProtocol.requests.count, 0, "variant=\(variant.rawValue)")
@@ -70,8 +72,9 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
     }
 
     func testEngineFailsClosedForConflictWhileUnrelatedItemsDropRetryAndDeliver() async throws {
-        TransferURLProtocol.handler = { request, _ in
-            (transferTestResponse(for: request, statusCode: 204), Data())
+        TransferURLProtocol.handler = { request, body in
+            (transferTestResponse(for: request, statusCode: 200),
+             transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let spool = TransferSpool(rootURL: self.rootURL.appendingPathComponent("engine", isDirectory: true))
         let conflict = try self.seedConflict(variant: .identicalComplete, spool: spool)
@@ -90,6 +93,8 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
             sessionConfiguration: makeTransferTestURLSessionConfiguration(),
             endpointResolver: AvailableOwnerConflictEndpointResolver()
         )
+        let engine = harness.engine
+        self.addTeardownBlock { await engine.pause() }
         try await harness.engine.initialize()
         await harness.engine.drop(itemID: conflict.itemID)
         try await harness.engine.retryAttention(itemID: conflict.itemID)
@@ -104,9 +109,11 @@ final class TransferOwnerConflictPreflightTests: XCTestCase {
         XCTAssertNil(droppedSnapshot)
 
         await harness.engine.enableDispatch()
-        try await transferTestWaitFor("unrelated owners dispatch") {
-            TransferURLProtocol.requests.count == 2
+        try await transferTestWaitFor("unrelated owners delivered") {
+            let snapshot = await engine.snapshot()
+            return snapshot.counters.deliveredCount == 2 && snapshot.counters.inFlightCount == 0
         }
+        XCTAssertEqual(TransferURLProtocol.requests.count, 2)
         let deliveredIDs = Set(TransferURLProtocol.requests.compactMap(transferTestBoundaryItemID(from:)))
         XCTAssertEqual(deliveredIDs, Set([deliverID, retryID]))
         XCTAssertFalse(deliveredIDs.contains(conflict.itemID))
