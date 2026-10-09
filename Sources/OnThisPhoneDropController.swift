@@ -168,10 +168,10 @@ func makeRetryCommit(
     switch itemID {
     case .share(let id):
         return { await share.retryShare(itemID: id) }
-    case .mobileSegment:
+    case .mobileSegment(let segmentID, _):
         return {
             await mobileSegmentUploader.resolveFinalizeFailurePile()
-            return true
+            return !mobileSegmentUploader.isFinalizeFailureHeld(segmentID: segmentID)
         }
     case .mobileSegmentTransfer(let itemID, _):
         return {

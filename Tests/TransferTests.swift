@@ -387,6 +387,8 @@ nonisolated final class TransferTests: XCTestCase {
             #"{"error":"","detail":"cid 0f3a9c"}"#,
             #"{"error":7,"detail":"cid 0f3a9c"}"#,
             "{",
+            #"[{"detail":"cid 0f3a9c"}]"#,
+            "\u{FEFF}" + #"{"detail":"cid 0f3a9c"}"#,
         ]
         for detail in stored {
             let info = TransferAttentionInfo(reason: "http_client_error", shortDetail: detail, movedAt: now)

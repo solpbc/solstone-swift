@@ -415,12 +415,12 @@ nonisolated extension TransferAttentionInfo {
         guard self.reason == TransferAttentionReason.httpClientErrorCode else {
             return "\(self.reason): \(self.shortDetail)"
         }
-        let detail = self.shortDetail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = self.shortDetail.trimmingCharacters(in: Self.storedBodyPadding)
         guard !detail.isEmpty else { return self.reason }
         if detail.hasPrefix("reason_code=") || detail.range(of: #"^http \d{3}$"#, options: .regularExpression) != nil {
             return SourceVocabulary.onThisPhoneFailureReasonServer
         }
-        if detail.hasPrefix("{") {
+        if detail.hasPrefix("{") || detail.hasPrefix("[") {
             guard let object = try? JSONSerialization.jsonObject(with: Data(detail.utf8)) as? [String: Any],
                   let sentence = object["error"] as? String,
                   !sentence.isEmpty
@@ -431,4 +431,6 @@ nonisolated extension TransferAttentionInfo {
         }
         return detail
     }
+
+    private static let storedBodyPadding = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}"))
 }

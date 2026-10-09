@@ -118,6 +118,7 @@ final class FinishSyncingCoordinator {
     private(set) var lastOutcome: Outcome?
 
     @ObservationIgnored private let totals: () -> (failed: Int, pending: Int)
+    @ObservationIgnored private let heldTotals: () -> (failed: Int, pending: Int)
     @ObservationIgnored private let inFlight: () -> Int
     @ObservationIgnored private let backoff: () -> TransferBackoffStatus
     @ObservationIgnored private let drive: () async -> Void
@@ -129,8 +130,12 @@ final class FinishSyncingCoordinator {
     @ObservationIgnored private let settleInterval: Duration
     @ObservationIgnored private var expired = false
 
+    /// `totals` is what a run can send, and drives progress and the stop condition. `heldTotals`
+    /// is everything still on this device and decides the outcome, so a run whose items the
+    /// journal turned away never reads as done. It defaults to `totals`.
     init(
         totals: @escaping () -> (failed: Int, pending: Int),
+        heldTotals: (() -> (failed: Int, pending: Int))? = nil,
         inFlight: @escaping () -> Int,
         backoff: @escaping () -> TransferBackoffStatus,
         drive: @escaping () async -> Void,
@@ -142,6 +147,7 @@ final class FinishSyncingCoordinator {
         settleInterval: Duration = .seconds(2)
     ) {
         self.totals = totals
+        self.heldTotals = heldTotals ?? totals
         self.inFlight = inFlight
         self.backoff = backoff
         self.drive = drive
@@ -271,7 +277,7 @@ final class FinishSyncingCoordinator {
         } else {
             finishSyncingLog.info("finish-syncing: clean quiesce (in-flight \(exitInFlight, privacy: .public))")
         }
-        let final = self.totals()
+        let final = self.heldTotals()
         let remaining = final.failed + final.pending
         let success = remaining == 0
         if success {

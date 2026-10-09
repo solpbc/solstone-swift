@@ -504,6 +504,13 @@ struct SolstoneSwiftApp: App {
                     share: shareTransferHolder
                 )
             },
+            heldTotals: {
+                uploadTotals(
+                    mobileSegment: mobileSegmentTransferHolder,
+                    watch: watchUploaderHolder,
+                    share: shareTransferHolder
+                )
+            },
             inFlight: {
                 uploadInFlight(
                     mobileSegment: mobileSegmentTransferHolder,

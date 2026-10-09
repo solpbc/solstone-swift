@@ -734,7 +734,7 @@ actor TransferEngine {
 
     /// Moves one attention item back to queued, resets its in-memory attempts,
     /// and clears its persisted retry deadline. Missing item IDs are treated as
-    /// a no-op that still kicks the engine and answer `true`: the item is no longer held.
+    /// a no-op that still kicks the engine and answers `true`: the item is no longer held.
     /// A conflicted item stays held and answers `false`; a move that fails (its cached body
     /// cannot be dropped, say) throws and leaves the item held too.
     @discardableResult
@@ -1601,7 +1601,8 @@ private extension TransferEngine {
 
     func sourceSnapshots(now: Date) -> [String: TransferSourceStatusSnapshot] {
         var pacedBySource: [String: Int] = [:]
-        for item in self.attentionItems.values where self.refusalVerdict(for: item, now: now) == .paced {
+        for item in self.attentionItems.values
+        where item.manifest.attention?.refusedUnder != nil && self.refusalVerdict(for: item, now: now) == .paced {
             pacedBySource[item.manifest.sourceKey, default: 0] += 1
         }
         return Dictionary(uniqueKeysWithValues: self.sourceStates.map { sourceKey, state in

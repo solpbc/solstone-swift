@@ -204,6 +204,9 @@ private extension OnThisPhoneItemDetailView {
                 let sent = await self.onRequestRetry(self.item)
                 self.isRetrying = false
                 self.retryFailed = !sent
+                if !sent {
+                    AccessibilityNotification.Announcement(SourceVocabulary.onThisPhoneTryNowFailed).post()
+                }
             }
         } label: {
             Text(self.isRetrying ? "trying…" : SourceVocabulary.tryNow)

@@ -317,6 +317,37 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         XCTAssertEqual(handle.titleUpdates.last?.title, SourceVocabulary.finishSyncingSystemDoneTitle)
     }
 
+    /// A run whose items the journal turns away has nothing left to send, but they are still on
+    /// this device: it stops, and the outcome counts them rather than reading as done.
+    @MainActor
+    func testARunWhoseItemsAreTurnedAwayIsNotDone() async {
+        let sendable = FinishSyncingTotalsBox(failed: 0, pending: 40)
+        let held = FinishSyncingTotalsBox(failed: 0, pending: 40)
+        let handle = SpyFinishSyncingTaskHandle()
+        let coordinator = FinishSyncingCoordinator(
+            totals: { sendable.snapshot },
+            heldTotals: { held.snapshot },
+            inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
+            drive: {
+                sendable.pending = 0
+                held.pending = 0
+                held.failed = 40
+            },
+            setPacingMode: { _ in },
+            isConnected: { true },
+            disconnect: {},
+            scheduling: SpyFinishSyncingScheduling(),
+            clock: MockObserverClock()
+        )
+
+        await coordinator.runTask(handle)
+
+        XCTAssertEqual(handle.completedSuccess, false)
+        XCTAssertEqual(coordinator.lastOutcome, .interrupted(remaining: 40))
+        XCTAssertNotEqual(handle.titleUpdates.last?.title, SourceVocabulary.finishSyncingSystemDoneTitle)
+    }
+
     @MainActor
     func testNoForwardProgressGivesOneSettleGraceThenInterruptsWithLiveRemaining() async {
         let totals = FinishSyncingTotalsBox(failed: 0, pending: 3)

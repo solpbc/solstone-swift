@@ -841,6 +841,11 @@ final class MobileSegmentUploader {
         self.refreshCounts()
     }
 
+    /// Whether this segment is still in the finalize-failure pile.
+    func isFinalizeFailureHeld(segmentID: UUID) -> Bool {
+        FileManager.default.fileExists(atPath: self.store.segmentDirectoryURL(.failed, segmentID: segmentID).path)
+    }
+
     func resolveFinalizeFailurePile() async {
         guard self.guardStorageAvailable() else { return }
         let failed: [URL]
