@@ -99,6 +99,41 @@ struct SolstoneSwiftApp: App {
 #endif
     }
 
+    /// The app build a settled journal refusal is recorded under.
+    static var refusalAppBuild: String? {
+        let build = AppVersion.build
+        return build == "?" ? nil : build
+    }
+
+    /// The journal version's change slot holds one closure, so it does both jobs: the watch link
+    /// publishes the version to the watch, and the transfer engine learns of it (a new version
+    /// offers refusals made under the old one again).
+    static func wireJournalVersion(
+        _ metadata: JournalVersionMetadata,
+        watchLink: WatchLink,
+        transferEngine: TransferEngine
+    ) {
+        watchLink.journalVersionProvider = { [metadata] in
+            (
+                identity: metadata.identity,
+                version: metadata.version,
+                current: metadata.isCurrent,
+                versionObservedAt: metadata.versionObservedAt,
+                journalOS: metadata.journalOS,
+                journalOSVersion: metadata.journalOSVersion,
+                journalArch: metadata.journalArch,
+                journalBuild: metadata.journalBuild
+            )
+        }
+        metadata.onChange = { [weak watchLink, weak metadata] in
+            watchLink?.publishJournalVersion()
+            let version = metadata?.version
+            Task {
+                await transferEngine.noteJournalVersion(version)
+            }
+        }
+    }
+
     static func shouldRunLaunchMaintenance(scenePhase: ScenePhase) -> Bool {
         guard scenePhase == .active else { return false }
         return !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest
@@ -303,7 +338,9 @@ struct SolstoneSwiftApp: App {
                 }
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             },
-            heardReporter: connectionHeardReporter
+            heardReporter: connectionHeardReporter,
+            appBuild: Self.refusalAppBuild,
+            journalVersion: appConfig.journalVersion.version
         )
         let transferEnqueuer = ObserverAudioTransferEnqueuer(engine: transferEngine)
         let mobileSegmentUploader = MobileSegmentUploader(
@@ -341,21 +378,7 @@ struct SolstoneSwiftApp: App {
         let watchSegmentLedger = watchPipeline.watchSegmentLedger
         let phoneSessionHistoryStore = watchPipeline.phoneSessionHistoryStore
         let watchLink = watchPipeline.watchLink
-        watchLink.journalVersionProvider = { [metadata = appConfig.journalVersion] in
-            (
-                identity: metadata.identity,
-                version: metadata.version,
-                current: metadata.isCurrent,
-                versionObservedAt: metadata.versionObservedAt,
-                journalOS: metadata.journalOS,
-                journalOSVersion: metadata.journalOSVersion,
-                journalArch: metadata.journalArch,
-                journalBuild: metadata.journalBuild
-            )
-        }
-        appConfig.journalVersion.onChange = { [weak watchLink] in
-            watchLink?.publishJournalVersion()
-        }
+        Self.wireJournalVersion(appConfig.journalVersion, watchLink: watchLink, transferEngine: transferEngine)
         let shareImportStore = ShareImportStore(
             ledgerDropSink: { droppedCount in
                 log.append(

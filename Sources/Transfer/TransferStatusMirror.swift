@@ -40,6 +40,11 @@ nonisolated struct TransferItemSnapshot: Codable, Equatable, Sendable {
     var manifest: TransferManifest
     var state: TransferRuntimeState
     var attempts: Int
+    /// The journal turned this item away for its own envelope and nothing it was refused under
+    /// has changed: the round on a new connection skips it until a day has passed, the app or
+    /// journal is updated, or the owner retries it. Decided by the engine; screens read it and
+    /// never work it out themselves.
+    var refusalPaced: Bool
 
     var itemID: UUID {
         self.manifest.itemID

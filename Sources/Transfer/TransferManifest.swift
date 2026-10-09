@@ -356,12 +356,44 @@ nonisolated struct TransferAttentionInfo: Codable, Equatable, Sendable {
     /// carry device identifiers or forwarded library errors. `nil` for every other attention
     /// reason, and for records stored before this field existed.
     var journalReasonCode: String?
+    /// Present only for a settled refusal: one the journal gave from the item's own envelope,
+    /// decided when the refusal was received. It records what the refusal was made under, and
+    /// while all of it still holds the round on each new connection skips the item for a day.
+    /// `nil` for every other attention, and for refusals stored before this field existed.
+    var refusedUnder: TransferRefusalConditions?
 
-    init(reason: String, shortDetail: String, movedAt: Date, journalReasonCode: String? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case reason
+        case shortDetail
+        case movedAt
+        case journalReasonCode
+        case refusedUnder
+    }
+
+    /// A `refusedUnder` that cannot be read is dropped rather than failing the record: an
+    /// unreadable manifest is skipped by the spool's scan, and pacing must never be able to
+    /// hide an item. Without it the item is simply offered on every connection, as before.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.reason = try container.decode(String.self, forKey: .reason)
+        self.shortDetail = try container.decode(String.self, forKey: .shortDetail)
+        self.movedAt = try container.decode(Date.self, forKey: .movedAt)
+        self.journalReasonCode = try container.decodeIfPresent(String.self, forKey: .journalReasonCode)
+        self.refusedUnder = (try? container.decodeIfPresent(TransferRefusalConditions.self, forKey: .refusedUnder)) ?? nil
+    }
+
+    init(
+        reason: String,
+        shortDetail: String,
+        movedAt: Date,
+        journalReasonCode: String? = nil,
+        refusedUnder: TransferRefusalConditions? = nil
+    ) {
         self.reason = reason
         self.shortDetail = shortDetail
         self.movedAt = movedAt
         self.journalReasonCode = journalReasonCode
+        self.refusedUnder = refusedUnder
     }
 }
 

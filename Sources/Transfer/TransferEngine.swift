@@ -227,6 +227,14 @@ actor TransferEngine {
     private let maxConcurrent: Int
     private let bodyBuilder: TransferBodyBuilder
     private let heardReporter: ConnectionHeardReporter
+    /// This app's build, recorded with a settled refusal. `nil` when not known.
+    private let appBuild: String?
+    /// The journal's last known version, recorded with a settled refusal. An unknown value
+    /// never replaces a known one.
+    private var journalVersion: String?
+    /// The pairing the spool last followed, read at launch and kept current, so the pairing a
+    /// refusal was made under is known even before a connection names its own.
+    private var followedPairingIdentity: String?
 
     private var queuedItems: [UUID: TransferStoredItem] = [:]
     private var attentionItems: [UUID: TransferStoredItem] = [:]
@@ -269,7 +277,9 @@ actor TransferEngine {
         dispatchPolicy: TransferDispatchPolicy = TransferDispatchPolicy(),
         maxConcurrent: Int = 3,
         bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build,
-        heardReporter: ConnectionHeardReporter = ConnectionHeardReporter()
+        heardReporter: ConnectionHeardReporter = ConnectionHeardReporter(),
+        appBuild: String? = nil,
+        journalVersion: String? = nil
     ) {
         self.spool = spool
         self.transport = transport
@@ -283,6 +293,8 @@ actor TransferEngine {
         self.maxConcurrent = max(1, maxConcurrent)
         self.bodyBuilder = bodyBuilder
         self.heardReporter = heardReporter
+        self.appBuild = appBuild.flatMap { $0.isEmpty ? nil : $0 }
+        self.journalVersion = TransferRefusalConditions.normalizedJournalVersion(journalVersion)
     }
 
     func initialize() throws {
@@ -330,6 +342,7 @@ actor TransferEngine {
             self.emitRecoveryDiagnostic(diagnostic)
         }
         self.scheduleStatusUpdate(summary: "queued")
+        self.followedPairingIdentity = self.spool.followedPairing()
         self.initializedForLaunch = true
         self.followPairingIfChanged()
     }
@@ -555,6 +568,27 @@ actor TransferEngine {
         transferLog.notice("transfer attention retry armed")
     }
 
+    /// The journal's version, forwarded whenever the app's record of it changes. `nil` (not
+    /// known now) keeps the last known version. A different version arms another round, so a
+    /// refusal made under the earlier version is offered again on the connection that learned
+    /// of the change rather than the next one.
+    func noteJournalVersion(_ version: String?) {
+        guard let version = TransferRefusalConditions.normalizedJournalVersion(version),
+              version != self.journalVersion
+        else {
+            return
+        }
+        self.journalVersion = version
+        self.attentionRetryArmed = true
+        transferLog.notice("transfer journal version changed; attention retry armed")
+        self.scheduleWork()
+    }
+
+    /// The journal version a refusal made now is recorded under.
+    var knownJournalVersion: String? {
+        self.journalVersion
+    }
+
     /// Everything held goes to the journal the device is paired with now, so
     /// after a pairing change nothing an earlier journal said decides what is
     /// sent. Every item waiting in attention is queued again, whatever that
@@ -589,6 +623,7 @@ actor TransferEngine {
                 )
             }
             try self.spool.recordFollowedPairing(identity)
+            self.followedPairingIdentity = identity
             transferLog.notice("transfer pairing changed; held items follow it")
         } catch {
             transferLog.error("transfer pairing change incomplete \(String(describing: error), privacy: .public)")
@@ -624,13 +659,37 @@ actor TransferEngine {
         self.deliveredHooks[sourceKey] = hook
     }
 
+    /// The round a new connection runs: every attention item is evaluated, and each eligible
+    /// one goes back to the queue. A settled refusal whose conditions all still hold is skipped
+    /// for this round only; it stays in attention for the next.
     func retryAttention(source: String? = nil) throws {
         let now = self.clock.wallNow()
+        var paced = 0
+        var reofferCounts: [TransferRefusalReoffer: Int] = [:]
         let items = self.attentionItems.values
             .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
             .filter { source == nil || $0.manifest.sourceKey == source }
-            .filter { self.isAttentionItemEligibleForBulkRetry($0, now: now) }
-            .sorted { $0.manifest.createdAt < $1.manifest.createdAt }
+            .filter { item in
+                switch self.refusalVerdict(for: item, now: now) {
+                case .paced:
+                    paced += 1
+                    return false
+                case .reoffered(let reasons):
+                    for reason in reasons {
+                        reofferCounts[reason, default: 0] += 1
+                    }
+                    return true
+                case .unsettled:
+                    return self.isAttentionItemEligibleForBulkRetry(item, now: now)
+                }
+            }
+            .sorted(by: self.itemSort)
+        let reoffers = TransferRefusalReoffer.logOrder
+            .compactMap { reason in reofferCounts[reason].map { "\(reason.logName)=\($0)" } }
+            .joined(separator: " ")
+        transferLog.notice(
+            "transfer attention round offered=\(items.count, privacy: .public) paced=\(paced, privacy: .public) reoffered \(reoffers.isEmpty ? "none" : reoffers, privacy: .public)"
+        )
         try self.moveAttentionItemsToQueued(items)
     }
 
@@ -672,11 +731,24 @@ actor TransferEngine {
         try self.moveAttentionItemsToQueued([item])
     }
 
+    /// An item that cannot be moved (its cached body cannot be dropped, say) stays in attention
+    /// and the rest still move. The first failure is thrown once all are tried, so a caller that
+    /// must finish everything (a pairing change) tries again later.
     private func moveAttentionItemsToQueued(_ items: [TransferStoredItem]) throws {
         let now = self.clock.wallNow()
+        var firstError: (any Error)?
         for item in items {
             guard !self.conflictedItemIDs.contains(item.manifest.itemID) else { continue }
-            let moved = try self.spool.moveAttentionItemToQueued(item, now: now)
+            let moved: TransferStoredItem
+            do {
+                moved = try self.spool.moveAttentionItemToQueued(item, now: now)
+            } catch {
+                transferLog.error(
+                    "transfer attention item stays held \(item.manifest.itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)"
+                )
+                firstError = firstError ?? error
+                continue
+            }
             self.attentionItems.removeValue(forKey: item.manifest.itemID)
             self.queuedItems[moved.manifest.itemID] = moved
             self.counters.attentionCount -= 1
@@ -701,6 +773,9 @@ actor TransferEngine {
         }
         self.scheduleStatusUpdate(summary: "queued")
         self.scheduleWork()
+        if let firstError {
+            throw firstError
+        }
     }
 
     func drop(itemID: UUID) {
@@ -1157,7 +1232,10 @@ actor TransferEngine {
                 self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
                 let detail = self.shortDetail(for: reason)
                 self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
-                self.moveToAttention(item: item, reason: reason, detail: detail)
+                let refusedUnder = TransferRefusalPacing.isSettled(reason, phase: phase)
+                    ? self.currentRefusalConditions(for: item.manifest)
+                    : nil
+                self.moveToAttention(item: item, reason: reason, detail: detail, refusedUnder: refusedUnder)
                 transferLog.notice("transfer item needs attention \(itemID.uuidString, privacy: .public)")
             }
         case .transientRetry(let reason):
@@ -1402,13 +1480,19 @@ actor TransferEngine {
         }
     }
 
-    private func moveToAttention(item: TransferStoredItem, reason: TransferAttentionReason, detail: String) {
+    private func moveToAttention(
+        item: TransferStoredItem,
+        reason: TransferAttentionReason,
+        detail: String,
+        refusedUnder: TransferRefusalConditions? = nil
+    ) {
         guard self.queuedItems[item.manifest.itemID] != nil else { return }
         if let moved = try? self.spool.moveQueuedItemToAttention(
             item,
             reason: self.reasonCode(for: reason),
             detail: detail,
             journalReasonCode: reason.journalReasonCode,
+            refusedUnder: refusedUnder,
             now: self.clock.wallNow()
         ) {
             self.queuedItems.removeValue(forKey: item.manifest.itemID)
@@ -1603,10 +1687,38 @@ private extension TransferEngine {
         } else {
             state = .queued
         }
+        let refusalPaced = state == .attention
+            && self.refusalVerdict(for: item, now: self.clock.wallNow()) == .paced
         return TransferItemSnapshot(
             manifest: item.manifest,
             state: state,
-            attempts: self.attemptCountByItemID[item.manifest.itemID, default: 0]
+            attempts: self.attemptCountByItemID[item.manifest.itemID, default: 0],
+            refusalPaced: refusalPaced
+        )
+    }
+
+    /// What a refusal of this item received now would be recorded under. `nil` for an item
+    /// without observer-ingest metadata, which is never a settled refusal.
+    func currentRefusalConditions(for manifest: TransferManifest) -> TransferRefusalConditions? {
+        guard let ingest = manifest.observerIngest else { return nil }
+        return TransferRefusalConditions(
+            appBuild: self.appBuild,
+            pairingIdentity: self.connectedPairingIdentity ?? self.followedPairingIdentity,
+            journalVersion: self.journalVersion,
+            endpointPath: manifest.endpoint.path,
+            source: manifest.source,
+            day: ingest.day,
+            segment: ingest.segment,
+            ingestProtocolVersion: ingest.ingestProtocolVersion
+        )
+    }
+
+    func refusalVerdict(for item: TransferStoredItem, now: Date) -> TransferRefusalPacing.Verdict {
+        guard let attention = item.manifest.attention else { return .unsettled }
+        return TransferRefusalPacing.verdict(
+            for: attention,
+            current: self.currentRefusalConditions(for: item.manifest),
+            now: now
         )
     }
 

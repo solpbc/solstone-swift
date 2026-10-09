@@ -495,7 +495,8 @@ nonisolated enum ObserverAudioTransferSnapshotMapper {
                 failureAttemptCount: snapshot.attempts > 0 ? snapshot.attempts : nil,
                 sourceLabel: source.sourceLabel,
                 retryAvailable: snapshot.state == .attention,
-                lastAttemptAt: attention?.movedAt
+                lastAttemptAt: attention?.movedAt,
+                refusalPaced: snapshot.refusalPaced
             ))
         }
         return items
@@ -541,7 +542,8 @@ nonisolated enum ObserverAudioTransferSnapshotMapper {
                     failureAttemptCount: snapshot.attempts > 0 ? snapshot.attempts : nil,
                     sourceLabel: nil,
                     retryAvailable: snapshot.state == .attention,
-                    lastAttemptAt: attention?.movedAt
+                    lastAttemptAt: attention?.movedAt,
+                    refusalPaced: snapshot.refusalPaced
                 ))
             }
         }

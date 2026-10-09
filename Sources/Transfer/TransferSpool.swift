@@ -486,6 +486,7 @@ nonisolated struct TransferSpool: Sendable {
         reason: String,
         detail: String,
         journalReasonCode: String? = nil,
+        refusedUnder: TransferRefusalConditions? = nil,
         now: Date
     ) throws -> TransferStoredItem {
         try self.ensureRootDirectories()
@@ -495,7 +496,8 @@ nonisolated struct TransferSpool: Sendable {
             reason: reason,
             shortDetail: detail,
             movedAt: now,
-            journalReasonCode: journalReasonCode
+            journalReasonCode: journalReasonCode,
+            refusedUnder: refusedUnder
         )
         try self.writeManifestAtomically(manifest, in: item.directoryURL)
         let destinationURL = self.attentionDirectoryURL.appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
@@ -506,6 +508,10 @@ nonisolated struct TransferSpool: Sendable {
         return TransferStoredItem(manifest: manifest, directoryURL: destinationURL)
     }
 
+    /// Every move back to queued drops the item's cached request body first, so what is sent
+    /// next is rebuilt from the manifest and payloads as they are now, never from the body an
+    /// earlier attempt sent. If the cache cannot be deleted this throws and the item stays in
+    /// attention, untouched.
     func moveAttentionItemToQueued(_ item: TransferStoredItem, now: Date) throws -> TransferStoredItem {
         try self.ensureRootDirectories()
         let normalized: TransferManifest
@@ -514,6 +520,14 @@ nonisolated struct TransferSpool: Sendable {
         } catch {
             transferSpoolLog.error(
                 "transfer attention requeue normalization failed \(item.manifest.itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)"
+            )
+            throw error
+        }
+        do {
+            try self.removeBodyCacheForNormalization(for: item)
+        } catch {
+            transferSpoolLog.error(
+                "transfer attention requeue cache drop failed \(item.manifest.itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)"
             )
             throw error
         }
@@ -587,6 +601,8 @@ nonisolated struct TransferSpool: Sendable {
         try? self.fileSystem.removeItem(at: self.bodyCacheURL(for: item))
     }
 
+    /// The throwing delete of an item's cached request body: absent is fine, a failed delete
+    /// throws. Used wherever a stale body must never be sent.
     private func removeBodyCacheForNormalization(for item: TransferStoredItem) throws {
         let url = self.bodyCacheURL(for: item)
         guard self.fileSystem.fileExists(atPath: url.path) else { return }

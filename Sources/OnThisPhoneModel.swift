@@ -150,6 +150,9 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
     let sourceLabel: String?
     let retryAvailable: Bool
     let lastAttemptAt: Date?
+    /// The journal turned this away and it is not sent again on every reconnect: the transfer
+    /// engine's own decision, carried through unchanged.
+    let refusalPaced: Bool
 
     init(
         id: String,
@@ -174,7 +177,8 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         failureAttemptCount: Int? = nil,
         sourceLabel: String? = nil,
         retryAvailable: Bool = false,
-        lastAttemptAt: Date? = nil
+        lastAttemptAt: Date? = nil,
+        refusalPaced: Bool = false
     ) {
         self.id = id
         self.dropGroupID = dropGroupID
@@ -199,6 +203,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         self.sourceLabel = sourceLabel
         self.retryAvailable = retryAvailable
         self.lastAttemptAt = lastAttemptAt
+        self.refusalPaced = refusalPaced
     }
 
     var hasLocalRaw: Bool {

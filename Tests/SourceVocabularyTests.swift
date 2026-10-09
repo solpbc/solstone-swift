@@ -817,6 +817,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     private var emDashCheckedOwnerVisibleStrings: [String] {
         [
+            SourceVocabulary.onThisPhoneRefusalPacedMessage,
             SourceVocabulary.audioEnrollmentValuePaired,
             SourceVocabulary.magicMomentShownBodyPaired,
             SourceVocabulary.recentUnavailable(isJournalPaired: true),
@@ -882,6 +883,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     private var lodeCOwnerVisibleStrings: [String] {
         [
+            SourceVocabulary.onThisPhoneRefusalPacedMessage,
             SourceVocabulary.onThisPhoneSourceLabel,
             SourceVocabulary.onThisPhoneFailureReasonLabel,
             SourceVocabulary.onThisPhoneFailureStatusLabel,
@@ -939,6 +941,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     private var allOwnerVisibleStrings: [String] {
         [
+            SourceVocabulary.onThisPhoneRefusalPacedMessage,
             SourceVocabulary.audioEnrollmentValuePaired,
             SourceVocabulary.magicMomentShownBodyPaired,
             SourceVocabulary.recentUnavailable(isJournalPaired: true),

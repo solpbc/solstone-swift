@@ -251,7 +251,9 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
         guard shouldExplain else { return nil }
 
         let message: String
-        if item.retryAvailable {
+        if item.retryAvailable, item.refusalPaced {
+            message = SourceVocabulary.onThisPhoneRefusalPacedMessage
+        } else if item.retryAvailable {
             if let failureAttemptCount = item.failureAttemptCount {
                 message = SourceVocabulary.onThisPhoneFailureRetryableMessage(count: failureAttemptCount)
             } else {

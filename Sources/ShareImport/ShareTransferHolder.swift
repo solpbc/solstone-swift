@@ -141,7 +141,8 @@ nonisolated enum ShareTransferSnapshotMapper {
                 failureReason: failureReason,
                 failureAttemptCount: snapshot.attempts > 0 ? snapshot.attempts : nil,
                 retryAvailable: snapshot.state == .attention,
-                lastAttemptAt: attention?.movedAt
+                lastAttemptAt: attention?.movedAt,
+                refusalPaced: snapshot.refusalPaced
             ))
         }
         return OnThisPhoneItemSort.newestFirst(items)
