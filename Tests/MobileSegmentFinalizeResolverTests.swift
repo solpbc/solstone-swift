@@ -10,21 +10,43 @@ import XCTest
 final class MobileSegmentFinalizeResolverTests: XCTestCase {
     private var tempDirectory: URL!
     private var clock: MockObserverClock!
+    private var engines: [TransferEngine] = []
+    private var testID: String!
 
     override func setUp() {
         super.setUp()
-        MobileSegmentFinalizeResolverURLProtocol.reset()
+        MobileSegmentFinalizeResolverURLProtocol.assertNoLateRequests()
+        self.testID = UUID().uuidString
+        MobileSegmentFinalizeResolverURLProtocol.beginTest(id: self.testID)
         self.tempDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("MobileSegmentFinalizeResolverTests-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
         self.clock = MockObserverClock(now: Date(timeIntervalSince1970: 1_780_480_800))
     }
 
-    override func tearDown() {
-        try? FileManager.default.removeItem(at: self.tempDirectory)
-        self.tempDirectory = nil
+    override func tearDown() async throws {
+        // Stop every engine before waiting: some tests recreate an uploader
+        // with a second engine while the original one still owns work.
+        for engine in self.engines {
+            await engine.pause()
+        }
+        let deadline = ContinuousClock.now + .seconds(5)
+        for engine in self.engines {
+            while await engine.snapshot().counters.inFlightCount > 0, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            let snapshot = await engine.snapshot()
+            XCTAssertEqual(snapshot.counters.inFlightCount, 0, "Transfer requests did not finish before teardown")
+        }
         MobileSegmentFinalizeResolverURLProtocol.reset()
-        super.tearDown()
+        await Task.yield()
+        MobileSegmentFinalizeResolverURLProtocol.assertNoLateRequests()
+        self.engines.removeAll()
+        try FileManager.default.removeItem(at: self.tempDirectory)
+        self.tempDirectory = nil
+        self.clock = nil
+        self.testID = nil
+        try await super.tearDown()
     }
 
     private func audioRecoveryFixtureURL(named filename: String) throws -> URL {
@@ -1520,6 +1542,7 @@ private extension MobileSegmentFinalizeResolverTests {
     func makeHarness(connected: Bool = true, maxAttempts: Int = 1, diagnosticLog: DiagnosticLog? = nil) async throws -> Harness {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [MobileSegmentFinalizeResolverURLProtocol.self]
+        configuration.httpAdditionalHeaders = [MobileSegmentFinalizeResolverURLProtocol.testIDHeader: self.testID!]
         _ = maxAttempts
         let transferHarness = makeTransferCutoverHarness(
             rootURL: self.tempDirectory.appendingPathComponent("transfer-\(UUID().uuidString)", isDirectory: true),
@@ -1528,6 +1551,7 @@ private extension MobileSegmentFinalizeResolverTests {
                 ? TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
                 : TransferCutoverEndpointResolver()
         )
+        self.engines.append(transferHarness.engine)
         try await transferHarness.engine.start()
         let store = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MobileSegment", isDirectory: true))
         let uploader = MobileSegmentUploader(transferEngine: transferHarness.engine, store: store, clock: self.clock, diagnosticLog: diagnosticLog)
@@ -1703,27 +1727,47 @@ private extension MobileSegmentFinalizeResolverTests {
 private final class MobileSegmentFinalizeResolverURLProtocol: URLProtocol, @unchecked Sendable {
     typealias Handler = @Sendable (URLRequest) throws -> (HTTPURLResponse, Data)
 
-    private static let handlerBox = OSAllocatedUnfairLock<Handler?>(initialState: nil)
-    private static let callCountBox = OSAllocatedUnfairLock<Int>(initialState: 0)
-    private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
+    static let testIDHeader = "X-Finalize-Resolver-Test-ID"
+
+    private struct State {
+        var testID: String?
+        var handler: Handler?
+        var callCount = 0
+        var bodies: [Data] = []
+        var lateRequests: [String] = []
+    }
+
+    private static let state = OSAllocatedUnfairLock(initialState: State())
 
     static var handler: Handler? {
-        get { self.handlerBox.withLock { $0 } }
-        set { self.handlerBox.withLock { $0 = newValue } }
+        get { self.state.withLock { $0.handler } }
+        set { self.state.withLock { $0.handler = newValue } }
     }
 
     static var callCount: Int {
-        self.callCountBox.withLock { $0 }
+        self.state.withLock { $0.callCount }
     }
 
     static var receivedBodies: [Data] {
-        self.bodiesBox.withLock { $0 }
+        self.state.withLock { $0.bodies }
+    }
+
+    static func beginTest(id: String) {
+        self.state.withLock { $0 = State(testID: id) }
     }
 
     static func reset() {
-        self.handler = nil
-        self.callCountBox.withLock { $0 = 0 }
-        self.bodiesBox.withLock { $0 = [] }
+        self.state.withLock {
+            $0.testID = nil
+            $0.handler = nil
+            $0.callCount = 0
+            $0.bodies = []
+        }
+    }
+
+    static func assertNoLateRequests(file: StaticString = #filePath, line: UInt = #line) {
+        let requests = self.state.withLock { $0.lateRequests }
+        XCTAssertTrue(requests.isEmpty, "Requests reached the protocol after teardown: \(requests)", file: file, line: line)
     }
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -1741,10 +1785,24 @@ private final class MobileSegmentFinalizeResolverURLProtocol: URLProtocol, @unch
             ObserverServerURL.ingestProtocolVersion
         )
         let body = Self.bodyData(from: self.request)
-        Self.bodiesBox.withLock { $0.append(body) }
-        Self.callCountBox.withLock { $0 += 1 }
-        guard let handler = Self.handler else {
+        let requestTestID = self.request.value(forHTTPHeaderField: Self.testIDHeader)
+        let admission = Self.state.withLock { state -> (Handler?, Bool) in
+            guard let requestTestID, requestTestID == state.testID else {
+                state.lateRequests.append(requestTestID ?? "missing test ID")
+                return (nil, false)
+            }
+            state.bodies.append(body)
+            state.callCount += 1
+            return (state.handler, true)
+        }
+        guard admission.1 else {
+            XCTFail("Request outlived its test and reached MobileSegmentFinalizeResolverURLProtocol after reset()")
+            self.client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+            return
+        }
+        guard let handler = admission.0 else {
             XCTFail("MobileSegmentFinalizeResolverURLProtocol handler not set")
+            self.client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
             return
         }
         do {

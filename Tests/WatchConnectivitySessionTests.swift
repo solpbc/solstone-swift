@@ -14,7 +14,7 @@ final class WatchConnectivitySessionTests: XCTestCase {
 
     private struct StubSendError: Error {}
 
-    func testSendMessageErrorHandlerRunsOffMainActorWithoutTrapping() throws {
+    func testSendMessageErrorHandlerRunsOffMainActorWithoutTrapping() async throws {
         var captured: ((any Error) -> Void)?
         let session = LiveWatchConnectivitySession(messageSend: { _, errorHandler in
             captured = errorHandler
@@ -28,7 +28,7 @@ final class WatchConnectivitySessionTests: XCTestCase {
             box.handler(StubSendError())
             done.fulfill()
         }
-        wait(for: [done], timeout: 5)
+        await fulfillment(of: [done], timeout: 5)
     }
 
     func testFileTransferCompletionPreservesLegacyMetadataAsMissingOptionalTags() throws {
