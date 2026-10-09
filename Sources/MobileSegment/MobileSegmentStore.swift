@@ -64,6 +64,31 @@ final class MobileSegmentStore {
         directory.appendingPathComponent("audio.m4a", isDirectory: false)
     }
 
+    func audioWriterReceiptURL(in directory: URL) -> URL {
+        directory.appendingPathComponent("audio-writer.json", isDirectory: false)
+    }
+
+    func writeAudioWriterReceipt(_ receipt: PhoneAudioWriterReceipt, in directory: URL) throws {
+        let url = self.audioWriterReceiptURL(in: directory)
+        let data = try self.encoder.encode(receipt)
+        try data.write(to: url, options: .atomic)
+    }
+
+    func readAudioWriterReceipt(in directory: URL, expectedSegmentID: UUID) -> PhoneAudioWriterReceiptReadResult {
+        let url = self.audioWriterReceiptURL(in: directory)
+        var isDir: ObjCBool = false
+        guard self.fileManager.fileExists(atPath: url.path, isDirectory: &isDir) else {
+            return .absent
+        }
+        if isDir.boolValue {
+            return .unusable
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            return .unusable
+        }
+        return PhoneAudioWriterReceipt.parse(data: data, expectedSegmentID: expectedSegmentID)
+    }
+
     func locationURL(in directory: URL) -> URL {
         directory.appendingPathComponent("location.jsonl", isDirectory: false)
     }

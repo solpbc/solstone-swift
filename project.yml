@@ -424,6 +424,7 @@ targets:
         buildPhase: resources
     resources:
       - Tests/Fixtures/ShareImportBodies
+      - Tests/Fixtures/AudioRecovery
       - Tests/Fixtures/IntegrationGate
       - Tests/Fixtures/WatchCaptureStoragePreActor
       - Tests/Fixtures/PushEnvelope

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import AVFoundation
 import Crypto
 import Foundation
 import Observation
@@ -8,6 +9,59 @@ import os
 
 private let mobileSegmentUploadLog = Logger(subsystem: "app.solstone.swift", category: "mobile-segment")
 private let mobileSegmentTransferTempRootName = "MobileSegmentTransferEnqueue"
+
+nonisolated enum PhoneAudioInspectionResult: Sendable, Equatable {
+    case duration(TimeInterval)
+    case missingDuration
+    case permanent(domain: String, code: Int)
+    case transient(domain: String, code: Int)
+}
+
+nonisolated struct PhoneAudioInspector: Sendable {
+    var inspect: @Sendable (URL) async -> PhoneAudioInspectionResult
+
+    static let live = PhoneAudioInspector { url in
+        let verdict = await MobileSegmentDuration.classifyAudioContainer(at: url)
+        switch verdict {
+        case .permanentlyUndecodable(let domain, let code):
+            return .permanent(domain: domain, code: code)
+        case .unknownOrTransient(let domain, let code):
+            return .transient(domain: domain, code: code)
+        case .decodable(let duration):
+            guard let duration, duration.isFinite, duration > 0 else {
+                return .missingDuration
+            }
+            do {
+                let file = try AVAudioFile(forReading: url)
+                let length = file.length
+                guard length > 0 else {
+                    return .transient(domain: "AVFoundationErrorDomain", code: -1)
+                }
+                let format = file.processingFormat
+                let chunkSize: AVAudioFrameCount = 4096
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunkSize) else {
+                    return .transient(domain: "AVFoundationErrorDomain", code: -1)
+                }
+                var remaining = length
+                while remaining > 0 {
+                    let toRead = AVAudioFrameCount(min(Int64(chunkSize), remaining))
+                    try file.read(into: buffer, frameCount: toRead)
+                    if buffer.frameLength == 0 {
+                        return .transient(domain: "AVFoundationErrorDomain", code: -1)
+                    }
+                    remaining -= Int64(buffer.frameLength)
+                }
+                return .duration(duration)
+            } catch {
+                let nsError = error as NSError
+                if nsError.domain == AVFoundationErrorDomain, nsError.code == -11829 {
+                    return .permanent(domain: nsError.domain, code: nsError.code)
+                }
+                return .transient(domain: nsError.domain, code: nsError.code)
+            }
+        }
+    }
+}
 
 private enum MobileSegmentUploaderError: Error, CustomStringConvertible {
     case storageUnavailable(String)
@@ -50,7 +104,7 @@ final class MobileSegmentUploader {
     var lastUploadAt: Date?
     var lastError: String?
     private(set) var recentErrorCount = 0
-    private static let finalizeFailureStages: Set<String> = [
+    static let finalizeFailureStages: Set<String> = [
         "source-finalize",
         "segment-finalize",
         "schedule-gate",
@@ -68,6 +122,9 @@ final class MobileSegmentUploader {
     @ObservationIgnored private var needsFollowUpReconcileActive = false
     @ObservationIgnored var onReconcileStep: (@Sendable () async -> Void)?
     @ObservationIgnored var heldScreencastAdoptionSkipSegmentID: (@MainActor @Sendable () -> UUID?)?
+    @ObservationIgnored var audioInspector: PhoneAudioInspector
+    @ObservationIgnored var testFileDateOverride: ((URL) -> Date?)?
+    @ObservationIgnored var testEnqueueError: (any Error)?
 
     init(
         transferEngine: TransferEngine? = nil,
@@ -75,7 +132,8 @@ final class MobileSegmentUploader {
         clock: any ObserverClock = SystemObserverClock(),
         storageDisabledReason: String? = nil,
         cooperator: MaintenanceCooperator = MaintenanceCooperator(),
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        audioInspector: PhoneAudioInspector = .live
     ) {
         self.transferEngine = transferEngine
         self.store = store
@@ -83,6 +141,7 @@ final class MobileSegmentUploader {
         self.storageDisabledReason = storageDisabledReason
         self.cooperator = cooperator
         self.diagnosticLog = diagnosticLog
+        self.audioInspector = audioInspector
         if let storageDisabledReason {
             self.lastError = storageDisabledReason
             return
@@ -818,6 +877,102 @@ final class MobileSegmentUploader {
         case resolved
         case missingFile
         case liveOrDeferred
+        case retryableUnresolved
+    }
+
+    @discardableResult
+    private func syncTopLevelAudioDurationAndSegment(manifest: inout MobileSegmentManifest) -> Bool {
+        guard manifest.audio.state == .finalizedArtifact,
+              let audioDuration = manifest.audio.durationS,
+              audioDuration.isFinite,
+              audioDuration > 0,
+              manifest.audio.reason != MobileSegmentManifest.promotedScreenAudioReason
+        else {
+            return false
+        }
+
+        let newDuration = min(audioDuration, MobileSegmentDuration.rotationCeiling)
+        let roundedSuffix = max(1, Int(newDuration.rounded()))
+
+        let newSegment: String?
+        if let existingSegment = manifest.segment {
+            let parts = existingSegment.split(separator: "_")
+            if !parts.isEmpty {
+                let prefix = String(parts[0])
+                newSegment = "\(prefix)_\(roundedSuffix)"
+            } else {
+                newSegment = existingSegment
+            }
+        } else {
+            let zone: TimeZone? = {
+                if let tz = manifest.tz, let timeZone = TimeZone(identifier: tz) {
+                    return timeZone
+                } else if let offset = manifest.utcOffsetSeconds, let timeZone = TimeZone(secondsFromGMT: offset) {
+                    return timeZone
+                } else {
+                    return nil
+                }
+            }()
+            if let zone {
+                newSegment = ChunkSidecar.segmentString(for: manifest.startedAt, durationSeconds: newDuration, timeZone: zone)
+            } else {
+                newSegment = manifest.segment
+            }
+        }
+
+        let changed = manifest.durationS != newDuration || manifest.segment != newSegment
+        manifest.durationS = newDuration
+        manifest.segment = newSegment
+        return changed
+    }
+
+    private func publishAudioArtifact(
+        appleDuration: TimeInterval,
+        audioURL: URL,
+        directory: URL,
+        manifest: inout MobileSegmentManifest,
+        now: Date
+    ) throws -> AudioDeriveResult {
+        let cappedDuration = min(appleDuration, MobileSegmentDuration.rotationCeiling)
+        let finalized = MobileSegmentSourceResolution(
+            state: .finalizedArtifact,
+            artifactFilename: audioURL.lastPathComponent,
+            bytes: self.store.fileSize(at: audioURL),
+            startedAt: manifest.startedAt,
+            endedAt: now,
+            durationS: cappedDuration,
+            mode: manifest.resolution(for: .audio).mode
+        )
+        manifest.setResolution(finalized, for: .audio, now: now)
+        self.syncTopLevelAudioDurationAndSegment(manifest: &manifest)
+        try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
+        return .resolved
+    }
+
+    private func removeAudioArtifactPermanent(
+        reason: String,
+        domain: String,
+        code: Int,
+        audioURL: URL,
+        directory: URL,
+        manifest: inout MobileSegmentManifest,
+        now: Date
+    ) throws -> AudioDeriveResult {
+        try self.store.writeAudioInterruption(
+            segmentID: manifest.segmentID,
+            reason: reason,
+            now: now
+        )
+        self.store.removeIfExists(audioURL)
+        let resolution = MobileSegmentSourceResolution(
+            state: .removed,
+            reason: reason,
+            stage: "\(domain) \(code)",
+            lastAttemptAt: now,
+            mode: manifest.resolution(for: .audio).mode
+        )
+        try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: now)
+        return .resolved
     }
 
     private func deriveAudioArtifact(
@@ -829,6 +984,11 @@ final class MobileSegmentUploader {
         guard self.store.fileExists(audioURL) else {
             return .missingFile
         }
+
+        if PhoneAudioWriterLease.isHeld(manifest.segmentID) {
+            return .liveOrDeferred
+        }
+
         let mtime = self.fileDate(audioURL, fileManager: .default)
         let isFresh: Bool
         if let mtime {
@@ -839,43 +999,84 @@ final class MobileSegmentUploader {
         if isFresh {
             return .liveOrDeferred
         }
-        let verdict = await MobileSegmentDuration.classifyAudioContainer(at: audioURL)
-        switch verdict {
-        case .decodable(let duration):
-            let finalized = MobileSegmentSourceResolution(
-                state: .finalizedArtifact,
-                artifactFilename: audioURL.lastPathComponent,
-                bytes: self.store.fileSize(at: audioURL),
-                startedAt: manifest.startedAt,
-                endedAt: now,
-                durationS: MobileSegmentDuration.bounded(
-                    container: duration,
-                    elapsed: now.timeIntervalSince(manifest.startedAt)
-                ),
-                mode: manifest.resolution(for: .audio).mode
-            )
-            try self.store.writeOutcome(finalized, source: .audio, manifest: &manifest, in: directory, now: now)
-            return .resolved
-        case .permanentlyUndecodable(let domain, let code):
-            // The loss is recorded before the recording is removed. If the record cannot be
-            // written, the recording stays and a later pass tries again.
-            try self.store.writeAudioInterruption(
-                segmentID: manifest.segmentID,
-                reason: Self.undecodableAudioReason,
-                now: now
-            )
-            self.store.removeIfExists(audioURL)
-            let resolution = MobileSegmentSourceResolution(
-                state: .removed,
-                reason: "audio_undecodable_container",
-                stage: "\(domain) \(code)",
-                lastAttemptAt: now,
-                mode: manifest.resolution(for: .audio).mode
-            )
-            try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: now)
-            return .resolved
-        case .unknownOrTransient:
-            return .liveOrDeferred
+
+        let receiptResult = self.store.readAudioWriterReceipt(in: directory, expectedSegmentID: manifest.segmentID)
+        if case .unusable = receiptResult {
+            return .retryableUnresolved
+        }
+
+        let inspection = await self.audioInspector.inspect(audioURL)
+
+        switch receiptResult {
+        case .absent:
+            switch inspection {
+            case .duration(let dur) where dur.isFinite && dur > 0:
+                return try self.publishAudioArtifact(appleDuration: dur, audioURL: audioURL, directory: directory, manifest: &manifest, now: now)
+            case .missingDuration, .duration:
+                return .retryableUnresolved
+            case .permanent(let domain, let code):
+                return try self.removeAudioArtifactPermanent(reason: Self.undecodableAudioReason, domain: domain, code: code, audioURL: audioURL, directory: directory, manifest: &manifest, now: now)
+            case .transient:
+                return .retryableUnresolved
+            }
+
+        case .unusable:
+            return .retryableUnresolved
+
+        case .valid(let receipt):
+            switch receipt.phase {
+            case .writing:
+                switch inspection {
+                case .duration(let dur) where dur.isFinite && dur > 0:
+                    try self.store.writeAudioInterruption(
+                        segmentID: manifest.segmentID,
+                        reason: "audio_capture_unfinished",
+                        now: now
+                    )
+                    return try self.publishAudioArtifact(appleDuration: dur, audioURL: audioURL, directory: directory, manifest: &manifest, now: now)
+                case .permanent(let domain, let code):
+                    return try self.removeAudioArtifactPermanent(reason: "audio_capture_unfinished", domain: domain, code: code, audioURL: audioURL, directory: directory, manifest: &manifest, now: now)
+                case .missingDuration, .duration, .transient:
+                    return .retryableUnresolved
+                }
+
+            case .faulted:
+                let faultReason = receipt.reason ?? "audio_writer_failed"
+                switch inspection {
+                case .duration(let dur) where dur.isFinite && dur > 0:
+                    try self.store.writeAudioInterruption(
+                        segmentID: manifest.segmentID,
+                        reason: faultReason,
+                        now: now
+                    )
+                    return try self.publishAudioArtifact(appleDuration: dur, audioURL: audioURL, directory: directory, manifest: &manifest, now: now)
+                case .permanent(let domain, let code):
+                    return try self.removeAudioArtifactPermanent(reason: faultReason, domain: domain, code: code, audioURL: audioURL, directory: directory, manifest: &manifest, now: now)
+                case .missingDuration, .duration, .transient:
+                    return .retryableUnresolved
+                }
+
+            case .completed:
+                guard receipt.acceptedFrames > 0 else {
+                    return .retryableUnresolved
+                }
+                switch inspection {
+                case .duration(let dur) where dur.isFinite && dur > 0:
+                    let appleDuration = dur
+                    let frameDuration = Double(receipt.acceptedFrames) / Double(receipt.sampleRate)
+                    let tolerance = 1.0 / Double(receipt.sampleRate)
+                    if abs(appleDuration - frameDuration) > tolerance {
+                        try self.store.writeAudioInterruption(
+                            segmentID: manifest.segmentID,
+                            reason: "audio_writer_duration_mismatch",
+                            now: now
+                        )
+                    }
+                    return try self.publishAudioArtifact(appleDuration: dur, audioURL: audioURL, directory: directory, manifest: &manifest, now: now)
+                case .permanent, .missingDuration, .duration, .transient:
+                    return .retryableUnresolved
+                }
+            }
         }
     }
 
@@ -1015,6 +1216,20 @@ final class MobileSegmentUploader {
                     try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: now)
                 case .liveOrDeferred:
                     deferredAudio = true
+                case .retryableUnresolved:
+                    deferredAudio = true
+                    let existingFailure = self.store.loadFailure(in: directory)
+                    if existingFailure == nil || !Self.finalizeFailureStages.contains(existingFailure!.stage) {
+                        let updatedFailure = MobileSegmentFailureSidecar(
+                            reason: existingFailure?.reason ?? "audio_retryable_unresolved",
+                            httpStatus: existingFailure?.httpStatus,
+                            transportError: existingFailure?.transportError,
+                            attemptCount: existingFailure?.attemptCount ?? 1,
+                            stage: "reconcile",
+                            lastAttemptAt: now
+                        )
+                        try self.store.writeFailure(updatedFailure, in: directory)
+                    }
                 case .resolved:
                     break
                 }
@@ -1512,7 +1727,10 @@ private extension MobileSegmentUploader {
     }
 
     func fileDate(_ url: URL, fileManager: FileManager) -> Date? {
-        (try? fileManager.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? nil
+        if let override = self.testFileDateOverride {
+            return override(url)
+        }
+        return (try? fileManager.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? nil
     }
 
     func isDirectory(_ url: URL) -> Bool {
@@ -1595,6 +1813,10 @@ private extension MobileSegmentUploader {
                 }
             }
 
+            if self.syncTopLevelAudioDurationAndSegment(manifest: &manifest) {
+                try self.store.writeManifest(manifest, in: directory)
+            }
+
             let declaredParts = try self.declaredTransferParts(
                 manifest: manifest,
                 directory: directory,
@@ -1617,6 +1839,10 @@ private extension MobileSegmentUploader {
             for part in declaredParts {
                 payloadFileURLs[part.descriptor.partID] = tempDirectory
                     .appendingPathComponent(part.descriptor.relativePath, isDirectory: false)
+            }
+            if let error = self.testEnqueueError {
+                self.testEnqueueError = nil
+                throw error
             }
             _ = try await transferEngine.enqueueIfAbsent(
                 manifest: transferManifest,
@@ -1945,6 +2171,14 @@ private extension MobileSegmentUploader {
                     case .liveOrDeferred:
                         hasLiveUnresolvedAudio = true
                         continue
+                    case .retryableUnresolved:
+                        let failed = MobileSegmentSourceResolution(
+                            state: .failedToFinalize,
+                            reason: "audio_retryable_unresolved",
+                            stage: "reconcile",
+                            lastAttemptAt: now
+                        )
+                        try self.store.writeOutcome(failed, source: .audio, manifest: &manifest, in: directory, now: now)
                     case .resolved:
                         break
                     }

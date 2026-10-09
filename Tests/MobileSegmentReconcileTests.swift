@@ -170,14 +170,24 @@ final class MobileSegmentReconcileTests: XCTestCase {
             try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: audioURL.path)
         }
 
+        let countBefore = harness.store.audioInterruptionCount()
         await harness.uploader.resumeFromDisk()
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.path))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
+        let failedDir = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
+        let failedAudioURL = harness.store.audioURL(in: failedDir)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedDir.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedAudioURL.path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.failed, segmentID: segmentID).path))
         let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
         XCTAssertFalse(FileManager.default.fileExists(atPath: tombstoneURL.path))
+        XCTAssertEqual(harness.store.audioInterruptionCount(), countBefore)
+
+        let failure = try XCTUnwrap(harness.store.loadFailure(in: failedDir))
+        XCTAssertTrue(MobileSegmentUploader.finalizeFailureStages.contains(failure.stage))
+
+        let newUploader = MobileSegmentUploader(store: harness.store, clock: self.clock)
+        XCTAssertGreaterThan(newUploader.finalizeFailedCount, 0)
     }
 
     // AC6: Undecodable audio dropped, location uploads, diagnostic log emitted [.audio, .location]
@@ -1258,6 +1268,271 @@ final class MobileSegmentReconcileTests: XCTestCase {
         let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
         XCTAssertFalse(FileManager.default.fileExists(atPath: tombstoneURL.path))
     }
+
+    func testLeasedAndYoungAndNilMtimeAudioSegmentsReturnBeforeInspect() async throws {
+        let harness = try await self.makeHarness()
+        let leasedID = UUID()
+        let unleashedID = UUID()
+        let youngID = UUID()
+        let nilMtimeID = UUID()
+
+        try self.writeActiveAudio(segmentID: leasedID, store: harness.store, state: .unresolved, includeFile: true, readable: true)
+        try self.writeActiveAudio(segmentID: unleashedID, store: harness.store, state: .unresolved, includeFile: true, readable: true)
+        try self.writeActiveAudio(segmentID: youngID, store: harness.store, state: .unresolved, includeFile: true, readable: true)
+        try self.writeActiveAudio(segmentID: nilMtimeID, store: harness.store, state: .unresolved, includeFile: true, readable: true)
+
+        let leasedAudioURL = harness.store.audioURL(in: harness.store.segmentDirectoryURL(.active, segmentID: leasedID))
+        let unleashedAudioURL = harness.store.audioURL(in: harness.store.segmentDirectoryURL(.active, segmentID: unleashedID))
+        let youngAudioURL = harness.store.audioURL(in: harness.store.segmentDirectoryURL(.active, segmentID: youngID))
+        let nilMtimeAudioURL = harness.store.audioURL(in: harness.store.segmentDirectoryURL(.active, segmentID: nilMtimeID))
+
+        try MobileSegmentTestFixtures.setAudioModificationDate(at: leasedAudioURL, offset: -400, clock: self.clock)
+        try MobileSegmentTestFixtures.setAudioModificationDate(at: unleashedAudioURL, offset: -400, clock: self.clock)
+        try MobileSegmentTestFixtures.setAudioModificationDate(at: youngAudioURL, offset: -10, clock: self.clock)
+        try MobileSegmentTestFixtures.setAudioModificationDate(at: nilMtimeAudioURL, offset: -400, clock: self.clock)
+
+        PhoneAudioWriterLease.acquire(leasedID)
+        defer { PhoneAudioWriterLease.release(leasedID) }
+
+        harness.uploader.testFileDateOverride = { url in
+            if url == nilMtimeAudioURL {
+                return nil
+            }
+            return (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? nil
+        }
+
+        let inspectedURLs = OSAllocatedUnfairLock<[URL]>(initialState: [])
+        harness.uploader.audioInspector = PhoneAudioInspector { url in
+            if url == leasedAudioURL {
+                XCTFail("Leased segment should return before inspect")
+            }
+            if url == youngAudioURL {
+                XCTFail("Young segment should return before inspect")
+            }
+            if url == nilMtimeAudioURL {
+                XCTFail("nil mtime segment should return before inspect")
+            }
+            inspectedURLs.withLock { $0.append(url) }
+            return .duration(12.0)
+        }
+
+        MobileSegmentReconcileURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"status":"ok"}"#.utf8)
+            )
+        }
+
+        await harness.uploader.resumeFromDisk()
+
+        let recordedURLs = inspectedURLs.withLock { $0 }
+        XCTAssertTrue(recordedURLs.contains(unleashedAudioURL))
+        XCTAssertFalse(recordedURLs.contains(leasedAudioURL))
+        XCTAssertFalse(recordedURLs.contains(youngAudioURL))
+        XCTAssertFalse(recordedURLs.contains(nilMtimeAudioURL))
+
+        // Assert leased, young, and nil-mtime directories are still active, and the unleashed id is not still active
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.active, segmentID: leasedID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.active, segmentID: youngID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.active, segmentID: nilMtimeID).path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.active, segmentID: unleashedID).path))
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(leasedID.uuidString).json").path))
+
+        if let engine = harness.engine {
+            try await self.waitFor("unleashed delivery", timeout: .seconds(5)) {
+                MobileSegmentReconcileURLProtocol.callCount >= 1
+            }
+            await engine.pause()
+        }
+    }
+
+    func testActiveAgedSegmentWithMalformedReceiptParksToFailedAndRecoversCleanly() async throws {
+        let harness = try await self.makeHarness()
+        let cleanFixtureURL = try self.audioRecoveryFixtureURL(named: "clean12.m4a")
+
+        let interruptedID = UUID()
+        try harness.store.writeAudioInterruption(segmentID: interruptedID, reason: "audio_capture_unfinished", now: self.clock.now())
+
+        let malformedID = UUID()
+        try self.writeActiveAudio(segmentID: malformedID, store: harness.store, state: .unresolved, includeFile: true, readable: true)
+        let malformedDir = harness.store.segmentDirectoryURL(.active, segmentID: malformedID)
+        try Data("not a valid json receipt".utf8).write(to: malformedDir.appendingPathComponent("audio-writer.json"), options: .atomic)
+
+        // Second aged readable active segment, leased
+        let leasedID = UUID()
+        try self.writeActiveAudio(segmentID: leasedID, store: harness.store, state: .unresolved, includeFile: true, readable: true)
+        let leasedAudioURL = harness.store.audioURL(in: harness.store.segmentDirectoryURL(.active, segmentID: leasedID))
+        try MobileSegmentTestFixtures.setAudioModificationDate(at: leasedAudioURL, offset: -400, clock: self.clock)
+        PhoneAudioWriterLease.acquire(leasedID)
+        defer { PhoneAudioWriterLease.release(leasedID) }
+
+        await harness.uploader.resumeFromDisk()
+
+        let failedDir = harness.store.segmentDirectoryURL(.failed, segmentID: malformedID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: failedDir.path))
+        let failure = try XCTUnwrap(harness.store.loadFailure(in: failedDir))
+        XCTAssertTrue(MobileSegmentUploader.finalizeFailureStages.contains(failure.stage))
+
+        let uploader1 = MobileSegmentUploader(store: harness.store, clock: self.clock)
+        XCTAssertEqual(uploader1.finalizeFailedCount, 1)
+
+        // Interruption for pre-written audio_capture_unfinished id still reads back
+        let interruptionBefore = try harness.store.readTombstone(
+            at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(interruptedID.uuidString).json")
+        )
+        XCTAssertEqual(interruptionBefore.reason, "audio_capture_unfinished")
+        XCTAssertEqual(harness.store.audioInterruptionCount(), 1)
+
+        // While finalizeFailedCount > 0, pill and widgets are not caughtUp (backlog beats interruption headline)
+        let backlog = uploader1.finalizeFailedCount
+        let pillWithBacklog = HomeStatusPillState.resolve(
+            isPaired: true,
+            status: .connectedIdle,
+            hasBacklog: backlog > 0,
+            isStalled: false,
+            awaitingMarkConfirmation: false,
+            hasAudioInterruption: harness.store.audioInterruptionCount() > 0
+        )
+        XCTAssertNotEqual(pillWithBacklog, .caughtUp)
+
+        let leadWithBacklog = StatusPaneLead.resolve(
+            pillState: pillWithBacklog,
+            waitingTotal: backlog,
+            showsConnectionDetails: true,
+            hasAudioInterruption: harness.store.audioInterruptionCount() > 0
+        )
+        _ = leadWithBacklog
+
+        let headlineWithBacklog = onThisPhoneHeadline(
+            migration: OnThisPhoneMigration(onThisPhone: backlog, needsAttention: 0),
+            isPaired: true,
+            isConnected: true,
+            awaitingMarkConfirmation: false,
+            isStalled: false,
+            connectionStatus: .connectedIdle,
+            hasAudioInterruption: harness.store.audioInterruptionCount() > 0
+        )
+        XCTAssertNotEqual(headlineWithBacklog.role, .upToDate)
+        XCTAssertEqual(onThisPhoneEmptyInviteBranch(isJournalPaired: true, hasWelcomeFraming: false, hasAudioInterruption: true), .audioInterrupted)
+
+        let widgetSnapshotWithBacklog = self.makeSnapshot(backlogCount: backlog, audioInterrupted: harness.store.audioInterruptionCount() > 0)
+        XCTAssertNotEqual(ObserverStatusPresentations.small(snapshot: widgetSnapshotWithBacklog, sourceKind: .observer), .caughtUp)
+        XCTAssertNotEqual(ObserverStatusPresentations.medium(snapshot: widgetSnapshotWithBacklog), .caughtUp)
+        XCTAssertNotEqual(ObserverStatusPresentations.circular(snapshot: widgetSnapshotWithBacklog), .caughtUp)
+
+        // A zero-backlog call with audioInterruptionCount > 0 is .audioInterrupted on the pill and on small, medium, and circular
+        let zeroBacklogPill = HomeStatusPillState.resolve(
+            isPaired: true,
+            status: .connectedIdle,
+            hasBacklog: false,
+            isStalled: false,
+            awaitingMarkConfirmation: false,
+            hasAudioInterruption: true
+        )
+        XCTAssertEqual(zeroBacklogPill, .audioInterrupted)
+        let zeroBacklogSnapshot = self.makeSnapshot(backlogCount: 0, audioInterrupted: true)
+        XCTAssertEqual(ObserverStatusPresentations.small(snapshot: zeroBacklogSnapshot, sourceKind: .observer), .audioInterrupted)
+        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: zeroBacklogSnapshot), .audioInterrupted)
+        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: zeroBacklogSnapshot), .audioInterrupted)
+
+        // Overwrite the generated audio with the bundle fixture clean12.m4a and set mtime offset -400
+        let audioInFailed = harness.store.audioURL(in: failedDir)
+        try Data(contentsOf: cleanFixtureURL).write(to: audioInFailed, options: .atomic)
+        try MobileSegmentTestFixtures.setAudioModificationDate(at: audioInFailed, offset: -400, clock: self.clock)
+
+        // Replace receipt with valid completed receipt
+        let validReceipt = PhoneAudioWriterReceipt(
+            version: 1,
+            segmentID: malformedID,
+            phase: .completed,
+            sampleRate: 16000,
+            acceptedFrames: 192000
+        )
+        try harness.store.writeAudioWriterReceipt(validReceipt, in: failedDir)
+
+        MobileSegmentReconcileURLProtocol.handler = { request in
+            (
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+                Data(#"{"status":"ok"}"#.utf8)
+            )
+        }
+
+        let recoveryUploader = MobileSegmentUploader(transferEngine: harness.engine, store: harness.store, clock: self.clock)
+        await recoveryUploader.resumeFromDisk()
+
+        // Exactly one transfer snapshot for that segment id
+        if let engine = harness.engine {
+            let snapshots = await engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+            let matching = snapshots.filter { $0.manifest.itemID == malformedID }
+            XCTAssertEqual(matching.count, 1)
+            try await self.waitFor("recovery delivery", timeout: .seconds(5)) {
+                MobileSegmentReconcileURLProtocol.callCount >= 1
+            }
+            await engine.pause()
+        }
+
+        XCTAssertEqual(recoveryUploader.finalizeFailedCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: failedDir.path))
+
+        // Leased segment is still active
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.active, segmentID: leasedID).path))
+
+        // Original interruption record remains
+        let interruptionAfter = try harness.store.readTombstone(
+            at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(interruptedID.uuidString).json")
+        )
+        XCTAssertEqual(interruptionAfter.reason, "audio_capture_unfinished")
+        XCTAssertEqual(harness.store.audioInterruptionCount(), 1)
+
+        // The zero-backlog pill/widgets are .audioInterrupted, not .caughtUp
+        let finalZeroBacklogPill = HomeStatusPillState.resolve(
+            isPaired: true,
+            status: .connectedIdle,
+            hasBacklog: false,
+            isStalled: false,
+            awaitingMarkConfirmation: false,
+            hasAudioInterruption: harness.store.audioInterruptionCount() > 0
+        )
+        XCTAssertEqual(finalZeroBacklogPill, .audioInterrupted)
+        let finalSnapshot = self.makeSnapshot(backlogCount: 0, audioInterrupted: harness.store.audioInterruptionCount() > 0)
+        XCTAssertEqual(ObserverStatusPresentations.small(snapshot: finalSnapshot, sourceKind: .observer), .audioInterrupted)
+        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: finalSnapshot), .audioInterrupted)
+        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: finalSnapshot), .audioInterrupted)
+    }
+
+    private func audioRecoveryFixtureURL(named filename: String) throws -> URL {
+        let resourceURL = try XCTUnwrap(Bundle(for: Self.self).resourceURL, "test bundle resources are unavailable")
+        let candidates = [
+            resourceURL.appendingPathComponent(filename, isDirectory: false),
+            resourceURL.appendingPathComponent("AudioRecovery", isDirectory: true).appendingPathComponent(filename, isDirectory: false),
+            resourceURL.appendingPathComponent("Fixtures/AudioRecovery", isDirectory: true).appendingPathComponent(filename, isDirectory: false),
+        ]
+        for candidate in candidates where FileManager.default.fileExists(atPath: candidate.path) {
+            return candidate
+        }
+        XCTFail("Missing audio recovery fixture \(filename) in bundle at \(resourceURL.path)")
+        throw NSError(domain: "AudioRecoveryFixture", code: 404)
+    }
+
+    private func makeSnapshot(
+        isPaired: Bool = true,
+        backlogCount: Int = 0,
+        awaitingMarkConfirmation: Bool = false,
+        audioInterrupted: Bool
+    ) -> AppGroupMirror.Snapshot {
+        AppGroupMirror.Snapshot(
+            schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion,
+            writtenAt: Date(),
+            pairing: AppGroupMirror.PairingSnapshot(journalName: isPaired ? "sol" : nil, isPaired: isPaired),
+            microphonePermission: .granted,
+            session: .notLive,
+            sourceStates: [.observer: .active],
+            backlogCount: backlogCount,
+            awaitingMarkConfirmation: awaitingMarkConfirmation,
+            audioInterrupted: audioInterrupted
+        )
+    }
 }
 
 private extension MobileSegmentReconcileTests {
@@ -1270,6 +1545,7 @@ private extension MobileSegmentReconcileTests {
     struct Harness {
         let uploader: MobileSegmentUploader
         let store: MobileSegmentStore
+        let engine: TransferEngine?
     }
 
     var liveLocation: MobileSegmentLiveLocationTestSupport {
@@ -1289,12 +1565,14 @@ private extension MobileSegmentReconcileTests {
             try await transferHarness.engine.start()
             return Harness(
                 uploader: MobileSegmentUploader(transferEngine: transferHarness.engine, store: store, clock: self.clock, diagnosticLog: diagnosticLog),
-                store: store
+                store: store,
+                engine: transferHarness.engine
             )
         }
         return Harness(
             uploader: MobileSegmentUploader(store: store, clock: self.clock, diagnosticLog: diagnosticLog),
-            store: store
+            store: store,
+            engine: nil
         )
     }
 
