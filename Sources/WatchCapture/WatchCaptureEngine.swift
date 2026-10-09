@@ -1418,7 +1418,7 @@ extension WatchCaptureEngine {
             }
         } else {
             let stem = manifest.segment.components(separatedBy: "_").first ?? manifest.segment
-            let durationSuffix = "\(max(1, Int(manifest.duration.rounded())))"
+            let durationSuffix = "\(SegmentWireTimeFormatter.durationSuffix(seconds: manifest.duration))"
             let (finalDay, finalSegment) = await self.bumpSegment(
                 day: manifest.day,
                 stem: stem,

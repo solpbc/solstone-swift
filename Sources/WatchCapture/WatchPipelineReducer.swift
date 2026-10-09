@@ -1421,7 +1421,7 @@ extension WatchPipelineReducer {
     }
 
     nonisolated static func secondsText(_ seconds: TimeInterval) -> String {
-        "\(Int(max(0, seconds).rounded()))s"
+        "\(max(0, Int(exactly: seconds.rounded()) ?? 0))s"
     }
 
     nonisolated static func stuck(_ input: WatchPipelineInput) -> WatchPipelineStuck {

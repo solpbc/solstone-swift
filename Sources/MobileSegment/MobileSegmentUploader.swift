@@ -894,7 +894,7 @@ final class MobileSegmentUploader {
         }
 
         let newDuration = min(audioDuration, MobileSegmentDuration.rotationCeiling)
-        let roundedSuffix = max(1, Int(newDuration.rounded()))
+        let roundedSuffix = SegmentWireTimeFormatter.durationSuffix(seconds: newDuration)
 
         let newSegment: String?
         if let existingSegment = manifest.segment {

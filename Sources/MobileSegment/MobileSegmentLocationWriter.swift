@@ -107,7 +107,7 @@ nonisolated enum MobileSegmentLocationWriter {
                 tier: self.tier,
                 accuracy: self.accuracy,
                 segmentStart: self.segmentStart,
-                coveredSeconds: Swift.max(0, Int(endedAt.timeIntervalSince(self.segmentStart).rounded())),
+                coveredSeconds: Swift.max(0, Int(exactly: endedAt.timeIntervalSince(self.segmentStart).rounded()) ?? 0),
                 fixes: self.fixes,
                 visits: self.visits,
                 gap: self.gap

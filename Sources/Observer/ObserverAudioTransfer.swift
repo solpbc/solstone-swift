@@ -147,8 +147,9 @@ nonisolated enum ObserverAudioTransferDiagnostics {
             "to=\(event.nextState.rawValue)",
             "attempt=\(event.attempt)",
         ]
-        if let elapsed = event.elapsedSinceFirstAttempt {
-            parts.append("elapsedSinceFirstAttemptMs=\(Int((elapsed * 1_000).rounded(.towardZero)))")
+        if let elapsed = event.elapsedSinceFirstAttempt,
+           let elapsedMs = Int(exactly: (elapsed * 1_000).rounded(.towardZero)) {
+            parts.append("elapsedSinceFirstAttemptMs=\(elapsedMs)")
         }
         parts.append("detail=\(event.shortDetail)")
         return parts.joined(separator: " ")

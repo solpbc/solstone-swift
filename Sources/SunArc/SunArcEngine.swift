@@ -346,7 +346,7 @@ public nonisolated enum SunArcOKLab {
     }
 
     public static func hex(fromRGB rgb: RGB) -> String {
-        func byte(_ v: Double) -> Int { max(0, min(255, Int((v * 255).rounded()))) }
+        func byte(_ v: Double) -> Int { max(0, min(255, Int(exactly: (v * 255).rounded()) ?? (v > 0 ? 255 : 0))) }
         return String(format: "#%02X%02X%02X", byte(rgb.r), byte(rgb.g), byte(rgb.b))
     }
 

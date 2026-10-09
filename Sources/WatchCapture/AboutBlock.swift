@@ -36,9 +36,9 @@ nonisolated enum AboutBlock {
         if !arch.isEmpty {
             result += " · \(normalizedArch(arch))"
         }
-        if !isCurrent, let observedAt {
-            let seconds = max(0, Int((now.timeIntervalSince1970 - observedAt).rounded(.down)))
-            result += " · last seen \(relativeInterval(seconds))"
+        if !isCurrent, let observedAt,
+           let elapsed = Int(exactly: (now.timeIntervalSince1970 - observedAt).rounded(.down)) {
+            result += " · last seen \(relativeInterval(max(0, elapsed)))"
         }
         return result
     }

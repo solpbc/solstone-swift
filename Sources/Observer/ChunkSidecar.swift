@@ -29,6 +29,6 @@ nonisolated struct ChunkSidecar: Codable, Equatable, Sendable {
         SegmentWireTimeFormatter.configure(formatter)
         formatter.timeZone = timeZone
         formatter.dateFormat = "HHmmss"
-        return "\(formatter.string(from: date))_\(max(1, Int(durationSeconds.rounded())))"
+        return "\(formatter.string(from: date))_\(SegmentWireTimeFormatter.durationSuffix(seconds: durationSeconds))"
     }
 }

@@ -1028,7 +1028,7 @@ final class MobileSegmentEngine {
             tier: buffer.tier,
             accuracy: buffer.accuracy,
             segmentStart: buffer.startedAt,
-            coveredSeconds: max(0, Int(endedAt.timeIntervalSince(buffer.startedAt).rounded())),
+            coveredSeconds: max(0, Int(exactly: endedAt.timeIntervalSince(buffer.startedAt).rounded()) ?? 0),
             fixes: buffer.fixes,
             visits: buffer.visits,
             gap: buffer.gap
