@@ -7,6 +7,7 @@ struct OnThisPhoneItemDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(AppConfig.self) private var appConfig
     @Environment(ObserverManager.self) private var observerManager
 
     let item: OnThisPhoneItem
@@ -126,6 +127,7 @@ private extension OnThisPhoneItemDetailView {
         let availability = OnThisPhoneItemDetailPresentation.journalAvailability(
             sendState: self.item.sendState,
             hasConveyURL: conveyURL != nil,
+            isJournalPaired: self.appConfig.isPaired,
             sourceKind: self.item.sourceKind
         )
 

@@ -216,10 +216,13 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneJournalHintPending,
             "not in your journal yet. it's waiting to go in."
         )
-        XCTAssertEqual(SourceVocabulary.onThisPhoneJournalHintUnreachable, "connect a journal first.")
+        XCTAssertEqual(
+            SourceVocabulary.onThisPhoneJournalHintUnreachable,
+            "this was added to your journal. you can open your journal from here when it reconnects."
+        )
         XCTAssertEqual(
             SourceVocabulary.onThisPhoneJournalHintLocationUnreachable,
-            "connect a journal to add these places to it."
+            "these places were added to your journal. you can open your journal from here when it reconnects."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropFromPhone, "drop from this device")
         XCTAssertEqual(SourceVocabulary.onThisPhoneDropConfirmTitle, "drop this from this device?")

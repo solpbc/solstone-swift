@@ -352,6 +352,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneItemDetailPresentation.journalAvailability(
                 sendState: .savedOnThisPhone,
                 hasConveyURL: true,
+                isJournalPaired: true,
                 sourceKind: .audio
             ),
             OnThisPhoneJournalAvailability(
@@ -363,6 +364,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneItemDetailPresentation.journalAvailability(
                 sendState: .sending,
                 hasConveyURL: true,
+                isJournalPaired: true,
                 sourceKind: .share
             ),
             OnThisPhoneJournalAvailability(
@@ -374,6 +376,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneItemDetailPresentation.journalAvailability(
                 sendState: .needsAttention,
                 hasConveyURL: true,
+                isJournalPaired: true,
                 sourceKind: .location
             ),
             OnThisPhoneJournalAvailability(
@@ -385,6 +388,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneItemDetailPresentation.journalAvailability(
                 sendState: .inYourJournal,
                 hasConveyURL: true,
+                isJournalPaired: true,
                 sourceKind: .share
             ),
             OnThisPhoneJournalAvailability(
@@ -396,6 +400,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneItemDetailPresentation.journalAvailability(
                 sendState: .inYourJournal,
                 hasConveyURL: true,
+                isJournalPaired: true,
                 sourceKind: .location
             ),
             OnThisPhoneJournalAvailability(
@@ -407,6 +412,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneItemDetailPresentation.journalAvailability(
                 sendState: .inYourJournal,
                 hasConveyURL: false,
+                isJournalPaired: true,
                 sourceKind: .audio
             ),
             OnThisPhoneJournalAvailability(
@@ -418,11 +424,36 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             OnThisPhoneItemDetailPresentation.journalAvailability(
                 sendState: .inYourJournal,
                 hasConveyURL: false,
+                isJournalPaired: true,
                 sourceKind: .location
             ),
             OnThisPhoneJournalAvailability(
                 enabled: false,
                 hint: SourceVocabulary.onThisPhoneJournalHintLocationUnreachable
+            )
+        )
+        XCTAssertEqual(
+            OnThisPhoneItemDetailPresentation.journalAvailability(
+                sendState: .inYourJournal,
+                hasConveyURL: false,
+                isJournalPaired: false,
+                sourceKind: .audio
+            ),
+            OnThisPhoneJournalAvailability(
+                enabled: false,
+                hint: SourceVocabulary.onThisPhoneJournalHintSaved
+            )
+        )
+        XCTAssertEqual(
+            OnThisPhoneItemDetailPresentation.journalAvailability(
+                sendState: .inYourJournal,
+                hasConveyURL: false,
+                isJournalPaired: false,
+                sourceKind: .location
+            ),
+            OnThisPhoneJournalAvailability(
+                enabled: false,
+                hint: SourceVocabulary.onThisPhoneJournalHintLocationSaved
             )
         )
     }

@@ -288,6 +288,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 onRequestRetry: { _ in },
                 onRequestDrop: { _ in }
             )
+                .environment(appConfig)
                 .environment(shareImportStore)
                 .environment(shareTransferHolder)
                 .environment(observerManager)

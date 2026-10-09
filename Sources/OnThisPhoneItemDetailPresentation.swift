@@ -287,6 +287,7 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
     static func journalAvailability(
         sendState: OnThisPhoneSendState,
         hasConveyURL: Bool,
+        isJournalPaired: Bool,
         sourceKind: OnThisPhoneSourceKind
     ) -> OnThisPhoneJournalAvailability {
         guard sendState == .inYourJournal else {
@@ -296,13 +297,15 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
             )
         }
 
+        let savedHint = sourceKind == .location
+            ? SourceVocabulary.onThisPhoneJournalHintLocationSaved
+            : SourceVocabulary.onThisPhoneJournalHintSaved
         if hasConveyURL {
-            return OnThisPhoneJournalAvailability(
-                enabled: true,
-                hint: sourceKind == .location
-                    ? SourceVocabulary.onThisPhoneJournalHintLocationSaved
-                    : SourceVocabulary.onThisPhoneJournalHintSaved
-            )
+            return OnThisPhoneJournalAvailability(enabled: true, hint: savedHint)
+        }
+        // A forgotten journal never reconnects, so an unpaired device only says where it went.
+        guard isJournalPaired else {
+            return OnThisPhoneJournalAvailability(enabled: false, hint: savedHint)
         }
 
         return OnThisPhoneJournalAvailability(

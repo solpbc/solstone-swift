@@ -14,9 +14,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - your apple watch now passes its audio to your iphone one recording at a time, oldest first, and on your iphone or ipad each source's audio goes to your journal oldest first. new audio no longer jumps ahead of older audio from the same source, unless that older audio keeps failing to go through.
 
-- on a location item's page, the hint above "open journal" now says the places were added to your journal automatically, or "connect a journal to add these places to it." if none is connected. on any item's page, the "not in your journal yet" hint now ends "it's waiting to go in."
+- on a location item's page, the hint above "open journal" now says the places were added to your journal automatically. on any item's page, the "not in your journal yet" hint now ends "it's waiting to go in."
 
 ### Fixed
+
+- when an item is already in your journal but your journal can't be opened from this device right now, the hint above "open journal" now says the item was added, instead of asking you to connect a journal.
 
 - opening audio from "what is waiting" on the status screen no longer closes the app. before, on an iphone, it did this every time.
 
