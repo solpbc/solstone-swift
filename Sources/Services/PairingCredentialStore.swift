@@ -567,6 +567,34 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
         }
     }
 
+    /// Saves the journal's current direct addresses on the current pairing. Not an access change:
+    /// the relay enrollment and both generations stay as they are.
+    @discardableResult
+    func replaceLocalEndpoints(
+        _ endpoints: [LocalEndpoint],
+        pairingGen: UInt64,
+        mayPublish: @escaping @Sendable () -> Bool = { true }
+    ) async throws -> Bool {
+        try await self.performMutation(mayPublish: mayPublish) {
+            let snap = self.snapshot()
+            guard !endpoints.isEmpty,
+                  snap.pairingGeneration == pairingGen,
+                  let current = snap.pairing,
+                  self.ownsCurrentCredential(snap, pairing: current) else { return false }
+            let updated = Self.replacingEndpoints(current, with: endpoints)
+            do {
+                try self.savePairingClosure(updated)
+            } catch {
+                storeLog.error("journal address persistence failed")
+                return false
+            }
+            self.lock.withLock {
+                self.state.pairing = updated
+            }
+            return true
+        }
+    }
+
     @discardableResult
     func persistRefreshedPairing(
         _ updated: StoredPairing,
@@ -586,6 +614,8 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
                   current.caChainPEM == updated.caChainPEM,
                   self.ownsCurrentCredential(snap, pairing: current),
                   Self.isUnexpired(Self.expiry(of: updated.relayEnrollment)) else { return false }
+            // why: `updated` was built before this mutation; keep any addresses saved since.
+            let updated = Self.replacingEndpoints(updated, with: current.localEndpoints)
             do {
                 try self.savePairingClosure(updated)
             } catch {
@@ -809,6 +839,21 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
             caChainPEM: pairing.caChainPEM,
             relayEnrollment: enrollment,
             localEndpoints: pairing.localEndpoints,
+            pairedAt: pairing.pairedAt
+        )
+    }
+
+    private static func replacingEndpoints(_ pairing: StoredPairing, with endpoints: [LocalEndpoint]) -> StoredPairing {
+        StoredPairing(
+            instanceID: pairing.instanceID,
+            homeLabel: pairing.homeLabel,
+            relayEndpoint: pairing.relayEndpoint,
+            fingerprint: pairing.fingerprint,
+            clientCertPEM: pairing.clientCertPEM,
+            clientKeyPEM: pairing.clientKeyPEM,
+            caChainPEM: pairing.caChainPEM,
+            relayEnrollment: pairing.relayEnrollment,
+            localEndpoints: endpoints,
             pairedAt: pairing.pairedAt
         )
     }

@@ -40,7 +40,7 @@ private final class EndpointURLProtocol: URLProtocol, @unchecked Sendable {
 
 /// Answers only after a delay, so a test can change the pairing while a refresh is awaiting.
 private final class SlowEndpointURLProtocol: URLProtocol, @unchecked Sendable {
-    static let body = Data(#"{"local_endpoints":[{"ip":"3.19.73.183","port":7657,"scope":"public"}]}"#.utf8)
+    static let body = Data(#"{"v":2,"endpoints":[{"ip":"3.19.73.183","port":7657,"scope":"lan"}],"ttl_s":3600,"generated_at":"2026-10-08T22:00:00Z"}"#.utf8)
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -96,24 +96,49 @@ nonisolated final class EndpointCacheTests: XCTestCase {
         XCTAssertEqual(endpoints, [])
     }
 
-    func testRefreshMergesByEndpointKey() async throws {
+    func testRefreshReturnsTheJournalsListAndLeavesTheCacheToThePairing() async throws {
         let fileURL = Self.tempFileURL()
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [EndpointURLProtocol.self]
         EndpointURLProtocol.configure(responseData: """
-        {"local_endpoints":[{"ip":"10.0.0.2","port":9443,"scope":"wifi"},{"ip":"fd00::1","port":9443,"scope":"ula"}]}
+        {"v":2,"endpoints":[{"ip":"203.0.113.7","port":7657,"scope":"lan"},{"ip":"10.0.0.3","port":7657,"scope":"vpn"}],"ttl_s":3600,"generated_at":"2026-10-08T22:00:00Z"}
         """.data(using: .utf8)!)
         let cache = EndpointCache(fileURL: fileURL, session: URLSession(configuration: config))
         await cache.bootstrap(from: Self.pairing(endpoints: [
-            LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")
+            LocalEndpoint(host: "10.0.0.2", port: 7657, scope: "lan")
         ]))
 
-        try await cache.refresh(viaLoopbackPort: 54321)
+        let fetched = try await cache.refresh(viaLoopbackPort: 54321)
         let endpoints = await cache.endpoints()
 
-        XCTAssertTrue(endpoints.contains(.lan(host: "10.0.0.2", port: 9443, scope: "wifi")))
-        XCTAssertTrue(endpoints.contains(.lan(host: "fd00::1", port: 9443, scope: "ula")))
-        XCTAssertEqual(endpoints.count, 2)
+        XCTAssertEqual(fetched, [
+            LocalEndpoint(host: "203.0.113.7", port: 7657, scope: "lan"),
+            LocalEndpoint(host: "10.0.0.3", port: 7657, scope: "vpn"),
+        ])
+        XCTAssertEqual(endpoints, [.lan(host: "10.0.0.2", port: 7657, scope: "lan")])
+    }
+
+    func testRefreshIgnoresAnOlderJournalsList() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [EndpointURLProtocol.self]
+        EndpointURLProtocol.configure(responseData: Data(#"{"v":1,"endpoints":[{"ip":"10.0.0.3","port":7657,"scope":"lan"}],"ttl_s":3600,"generated_at":"2026-10-08T22:00:00Z"}"#.utf8))
+        let cache = EndpointCache(fileURL: Self.tempFileURL(), session: URLSession(configuration: config))
+
+        let fetched = try await cache.refresh(viaLoopbackPort: 54321)
+
+        XCTAssertNil(fetched)
+    }
+
+    func testRefreshRejectsAnErrorStatus() async {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [EndpointURLProtocol.self]
+        EndpointURLProtocol.configure(responseData: Data(), statusCode: 404)
+        let cache = EndpointCache(fileURL: Self.tempFileURL(), session: URLSession(configuration: config))
+
+        do {
+            _ = try await cache.refresh(viaLoopbackPort: 54321)
+            XCTFail("a 404 is not an address list")
+        } catch {}
     }
 
     /// Forgetting a journal while a refresh of its addresses is still out must not let that
@@ -128,7 +153,9 @@ nonisolated final class EndpointCacheTests: XCTestCase {
         let refresh = Task { try await cache.refresh(viaLoopbackPort: 54321) }
         try await Task.sleep(nanoseconds: 200_000_000)
         await cache.wipe()
-        try await refresh.value
+        let fetched = try await refresh.value
+
+        XCTAssertNil(fetched)
 
         let endpoints = await cache.endpoints()
         XCTAssertEqual(endpoints, [])

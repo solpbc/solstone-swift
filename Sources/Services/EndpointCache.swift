@@ -23,12 +23,12 @@ public actor EndpointCache {
         }
     }
 
+    /// The journal's `/app/network/local-endpoints` body: `{"v":2,"endpoints":[{ip,port,scope}],...}`.
+    /// From `v` 2 the list carries the journal's configured address, so it can replace the saved set;
+    /// an older journal's list leaves that address out and is not used.
     private struct RefreshResponse: Decodable {
-        let localEndpoints: [LocalEndpoint]
-
-        enum CodingKeys: String, CodingKey {
-            case localEndpoints = "local_endpoints"
-        }
+        let v: Int?
+        let endpoints: [LocalEndpoint]
     }
 
     /// The app's one cache. The pairing, the tunnel and the pair flow all read and write the same
@@ -69,7 +69,10 @@ public actor EndpointCache {
         try? persist()
     }
 
-    public func refresh(viaLoopbackPort port: Int) async throws {
+    /// Reads the journal's current direct addresses over the tunnel. The caller saves them on the
+    /// pairing and re-bootstraps this cache from it; nil when the pairing changed meanwhile or the
+    /// journal is too old to list its configured address.
+    public func refresh(viaLoopbackPort port: Int) async throws -> [LocalEndpoint]? {
         try loadIfNeeded()
         let startedGeneration = generation
         let url = URL(string: "http://127.0.0.1:\(port)/app/network/local-endpoints")!
@@ -82,10 +85,13 @@ public actor EndpointCache {
         let decoded = try JSONDecoder().decode(RefreshResponse.self, from: data)
         guard generation == startedGeneration else {
             log.info("dropped a LAN endpoint refresh that started before the pairing changed")
-            return
+            return nil
         }
-        merge(decoded.localEndpoints, seenAt: Date())
-        try persist()
+        guard (decoded.v ?? 0) >= 2 else {
+            log.info("journal address list predates its configured address; keeping the saved addresses")
+            return nil
+        }
+        return decoded.endpoints
     }
 
     public func endpoints() async -> [TransportEndpoint] {
@@ -102,20 +108,6 @@ public actor EndpointCache {
         entries = []
         loaded = true
         try? FileManager.default.removeItem(at: fileURL)
-    }
-
-    private func merge(_ endpoints: [LocalEndpoint], seenAt: Date) {
-        var merged = Dictionary(uniqueKeysWithValues: entries.map { (key(for: $0.localEndpoint), $0) })
-        for endpoint in endpoints {
-            merged[key(for: endpoint)] = Entry(
-                host: endpoint.host,
-                port: endpoint.port,
-                scope: endpoint.scope,
-                lastSeen: seenAt
-            )
-        }
-        entries = Array(merged.values)
-        pruneExpired()
     }
 
     private func pruneExpired() {

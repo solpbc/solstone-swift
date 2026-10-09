@@ -266,6 +266,7 @@ final class TunnelManager {
                 homeJobs?.disconnected()
                 journalVersion?.disconnected()
                 self.connectedAddress = nil
+                self.connectedDirectEndpoint = nil
             }
             switch state {
             case .error, .waitingForHome:
@@ -279,6 +280,8 @@ final class TunnelManager {
     private(set) var lastFailedDial: TriedAddresses?
     /// The address the current connection won through, or "the relay".
     private(set) var connectedAddress: String?
+    /// The direct address the current connection won through; nil through the relay.
+    @ObservationIgnored private var connectedDirectEndpoint: LocalEndpoint?
     private var ordinaryAdmissionClosed = false
     private(set) var migrationRecoveryState: DeviceMigrationRecoveryState?
     static let connectedThroughRelay = "the relay"
@@ -748,12 +751,15 @@ final class TunnelManager {
             self.completeStage(.raceCandidates)
             if self.candidateTelemetry[event.ordinal] != nil {
                 switch self.candidateEndpoint(ordinal: event.ordinal, route: event.route) {
-                case .lan(let host, let port, _, _):
+                case .lan(let host, let port, let scope, _):
                     self.connectedAddress = JournalAddress.display(host: host, port: port)
+                    self.connectedDirectEndpoint = LocalEndpoint(host: host, port: port, scope: scope)
                 case .relay:
                     self.connectedAddress = Self.connectedThroughRelay
+                    self.connectedDirectEndpoint = nil
                 case nil:
                     self.connectedAddress = nil
+                    self.connectedDirectEndpoint = nil
                 }
             }
             self.lastFailedDial = nil
@@ -932,6 +938,7 @@ final class TunnelManager {
                 self.reconnectBackoff.reset()
                 self.cancelReconnect()
                 let attemptEpoch = epoch
+                let connectedDirect = endpoint == .lan ? self.connectedDirectEndpoint : nil
                 Task { @MainActor [weak self] in
                     guard let self, self.isCurrentAttempt(attemptEpoch) else { return }
 #if DEBUG && targetEnvironment(simulator)
@@ -940,7 +947,13 @@ final class TunnelManager {
                         return
                     }
 #endif
-                    try? await self.endpointCache.refresh(viaLoopbackPort: localPort)
+                    do {
+                        guard let fetched = try await self.endpointCache.refresh(viaLoopbackPort: localPort),
+                              self.isCurrentAttempt(attemptEpoch) else { return }
+                        await self.adoptJournalAddresses(fetched, keeping: connectedDirect)
+                    } catch {
+                        log.info("[solstone-swift] journal address refresh failed; keeping the saved addresses")
+                    }
                 }
             } catch is CancellationError {
                 guard self.isCurrentAttempt(epoch) else { return }
@@ -1076,6 +1089,7 @@ final class TunnelManager {
         self.telemetryCompleteness = .unavailable
         self.lastFailedDial = nil
         self.connectedAddress = nil
+        self.connectedDirectEndpoint = nil
         self.appendStage(.prepareCandidates)
         let pairingForIdentity: StoredPairing
         if let pairingOverride {
@@ -1221,6 +1235,7 @@ final class TunnelManager {
         self.connectionStages = []
         self.lastFailedDial = nil
         self.connectedAddress = nil
+        self.connectedDirectEndpoint = nil
         let connecting = self.connectTask
         connecting?.cancel()
         self.connectTask = nil
@@ -1665,6 +1680,27 @@ final class TunnelManager {
             lines.append("connected through: \(connectedAddress)")
         }
         return lines
+    }
+
+    /// Saves the journal's current direct addresses on the pairing, so later dials use them after a
+    /// restart or days offline. The address this connection came through is kept even when the
+    /// list leaves it out; an empty result changes nothing.
+    private func adoptJournalAddresses(_ fetched: [LocalEndpoint], keeping connected: LocalEndpoint?) async {
+        var addresses = fetched
+        if let connected,
+           !addresses.contains(where: { $0.host == connected.host && $0.port == connected.port }) {
+            addresses.append(connected)
+        }
+        let snap = self.store.snapshot()
+        guard !addresses.isEmpty, let pairing = snap.pairing, addresses != pairing.localEndpoints else { return }
+        guard (try? await self.store.replaceLocalEndpoints(addresses, pairingGen: snap.pairingGeneration)) == true,
+              let updated = self.store.snapshot().pairing else { return }
+        await self.endpointCache.bootstrap(from: updated)
+        self.diagnosticLog?.append(
+            category: .tunnel,
+            message: "journal addresses updated",
+            detail: addresses.map { JournalAddress.display(host: $0.host, port: $0.port) }.joined(separator: ", ")
+        )
     }
 
     /// The paired journal's direct endpoints, and the relay host only when the next dial

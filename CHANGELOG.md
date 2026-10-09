@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- the app now saves your journal's current addresses each time it connects, so once it has connected after your journal's address changes, it keeps using the new one without pairing again. before, it kept using the addresses from when you paired.
+
 ## [2.0.7 (123)] - 2026-10-08
 
 ### Added

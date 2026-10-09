@@ -82,7 +82,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
                 headerFields: nil
             )!
             let body = Data("""
-            {"local_endpoints":[{"ip":"10.0.0.30","port":7657,"scope":"local"}]}
+            {"v":2,"endpoints":[{"ip":"10.0.0.30","port":7657,"scope":"local"}],"ttl_s":3600,"generated_at":"2026-10-08T22:00:00Z"}
             """.utf8)
             return (response, body)
         }
@@ -132,7 +132,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
                 headerFields: nil
             )!
             let body = Data("""
-            {"local_endpoints":[{"ip":"10.0.0.30","port":7657,"scope":"local"}]}
+            {"v":2,"endpoints":[{"ip":"10.0.0.30","port":7657,"scope":"local"}],"ttl_s":3600,"generated_at":"2026-10-08T22:00:00Z"}
             """.utf8)
             return (response, body)
         }
@@ -162,6 +162,74 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(requestCount.withLock { $0 }, 1)
         let cachedEndpoints = await Self.cachedLanEndpoints(in: cache)
         XCTAssertTrue(cachedEndpoints.contains(refreshedEndpoint))
+        await manager.disconnect()
+    }
+
+    func testPostConnectRefreshSavesTheJournalsAddressesOnThePairing() async throws {
+        IntegrationGateRelayOnlyURLProtocol.reset()
+        defer { IntegrationGateRelayOnlyURLProtocol.reset() }
+        IntegrationGateRelayOnlyURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data(#"{"v":2,"endpoints":[{"ip":"203.0.113.7","port":7657,"scope":"lan"},{"ip":"10.0.0.30","port":7657,"scope":"vpn"}],"ttl_s":3600,"generated_at":"2026-10-08T22:00:00Z"}"#.utf8))
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [IntegrationGateRelayOnlyURLProtocol.self]
+        let saved = OSAllocatedUnfairLock<StoredPairing?>(initialState: nil)
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plViaSpl
+        let pairing = Self.pairing(localEndpoints: [
+            LocalEndpoint(host: "10.0.0.10", port: 7657, scope: "lan"),
+        ])
+        let manager = TunnelManager(
+            transport: transport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL(), session: URLSession(configuration: configuration)),
+            loadPairing: { pairing },
+            savePairing: { updated in saved.withLock { $0 = updated } },
+            deletePairing: {}
+        )
+
+        await manager.connect()
+
+        let expected = [
+            LocalEndpoint(host: "203.0.113.7", port: 7657, scope: "lan"),
+            LocalEndpoint(host: "10.0.0.30", port: 7657, scope: "vpn"),
+        ]
+        for _ in 0..<100 where saved.withLock({ $0 }) == nil {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        // why: the retired 10.0.0.10 drops out; reaching the journal through the relay keeps nothing extra.
+        XCTAssertEqual(saved.withLock { $0 }?.localEndpoints, expected)
+        XCTAssertEqual(manager.pairedJournalAddresses().endpoints, expected)
+        await manager.disconnect()
+    }
+
+    func testAnEmptyAddressListKeepsTheSavedAddresses() async throws {
+        IntegrationGateRelayOnlyURLProtocol.reset()
+        defer { IntegrationGateRelayOnlyURLProtocol.reset() }
+        let requestCount = OSAllocatedUnfairLock(initialState: 0)
+        let configuration = Self.emptyLocalEndpointsConfiguration(requestCount: requestCount)
+        let saved = OSAllocatedUnfairLock(initialState: false)
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plViaSpl
+        let original = [LocalEndpoint(host: "10.0.0.10", port: 7657, scope: "lan")]
+        let pairing = Self.pairing(localEndpoints: original)
+        let manager = TunnelManager(
+            transport: transport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL(), session: URLSession(configuration: configuration)),
+            loadPairing: { pairing },
+            savePairing: { _ in saved.withLock { $0 = true } },
+            deletePairing: {}
+        )
+
+        await manager.connect()
+
+        for _ in 0..<100 where requestCount.withLock({ $0 }) == 0 {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 200_000_000)
+        XCTAssertEqual(requestCount.withLock { $0 }, 1)
+        XCTAssertFalse(saved.withLock { $0 })
+        XCTAssertEqual(manager.pairedJournalAddresses().endpoints, original)
         await manager.disconnect()
     }
 
@@ -367,7 +435,7 @@ final class IntegrationGateRelayOnlyTests: XCTestCase {
                 httpVersion: nil,
                 headerFields: nil
             )!
-            return (response, Data(#"{"local_endpoints":[]}"#.utf8))
+            return (response, Data(#"{"v":2,"endpoints":[],"ttl_s":3600,"generated_at":"2026-10-08T22:00:00Z"}"#.utf8))
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [IntegrationGateRelayOnlyURLProtocol.self]
