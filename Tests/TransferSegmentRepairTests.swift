@@ -386,6 +386,70 @@ nonisolated final class TransferSegmentRepairTests: XCTestCase {
         XCTAssertEqual(plain.segmentRepairTally(), .empty)
     }
 
+    func testATallyThatIsGarbageOrAtItsLimitNeverStopsARepair() throws {
+        let tallyName = TransferSpool.segmentRepairTallyFilename
+        let stored = [Data("not a tally".utf8), Data(#"{"repaired":9223372036854775807,"failures":-4}"#.utf8)]
+        for (index, bytes) in stored.enumerated() {
+            let root = self.tempDirectory.appendingPathComponent("tally-stored-\(index)", isDirectory: true)
+            let spool = TransferSpool(rootURL: root)
+            try Self.seedAttention(spool, Self.fixtures[0], Self.uuid(331 + index))
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try bytes.write(to: root.appendingPathComponent(tallyName))
+
+            let snapshot = try TransferSpool(rootURL: root).initialize(now: Self.launch)
+
+            XCTAssertEqual(Self.segments(in: snapshot.attention)[Self.uuid(331 + index)], Self.fixtures[0].repaired)
+            let tally = spool.segmentRepairTally()
+            XCTAssertEqual(tally.repaired, index == 0 ? 1 : Int.max, "garbage starts over; a count at its limit stays there")
+            XCTAssertGreaterThanOrEqual(tally.failures, 0)
+        }
+    }
+
+    func testATallyThatCannotBeReadIsNotOverwritten() throws {
+        let root = self.tempDirectory.appendingPathComponent("tally-unreadable", isDirectory: true)
+        let plain = TransferSpool(rootURL: root)
+        try Self.seedAttention(plain, Self.fixtures[0], Self.uuid(341))
+        try Self.seedAttention(plain, Self.fixtures[1], Self.uuid(342))
+        _ = try plain.initialize(now: Self.launch)
+        let tallyURL = root.appendingPathComponent(TransferSpool.segmentRepairTallyFilename)
+        let before = try Data(contentsOf: tallyURL)
+        try Self.seedAttention(plain, Self.fixtures[2], Self.uuid(343))
+        let faults = RepairFaultFileSystem()
+        faults.failTallyRead(true)
+
+        let snapshot = try TransferSpool(rootURL: root, fileSystem: faults).initialize(now: Self.launch.addingTimeInterval(60))
+
+        XCTAssertEqual(Self.segments(in: snapshot.attention)[Self.uuid(343)], Self.fixtures[2].repaired)
+        XCTAssertEqual(try Data(contentsOf: tallyURL), before, "an unreadable tally keeps its earlier counts")
+        XCTAssertEqual(plain.segmentRepairTally().repaired, 2)
+    }
+
+    func testAFailedManifestReplaceLeavesNoTemporaryFileBehind() throws {
+        let root = self.tempDirectory.appendingPathComponent("replace-temp", isDirectory: true)
+        let plain = TransferSpool(rootURL: root)
+        let victim = Self.uuid(351)
+        let item = try Self.seedAttention(plain, Self.fixtures[0], victim)
+        let faults = RepairFaultFileSystem()
+        faults.failManifestReplace(for: [victim])
+
+        _ = try TransferSpool(rootURL: root, fileSystem: faults).initialize(now: Self.launch)
+
+        let leftovers = try FileManager.default.contentsOfDirectory(atPath: item.directoryURL.path).filter { $0.hasSuffix(".tmp") }
+        XCTAssertEqual(leftovers, [])
+    }
+
+    func testEachRepairCountReachesItsOwnExportLine() throws {
+        let tally = try TransferSpool.decoder().decode(SegmentRepairTally.self, from: Data(#"{"repaired":7,"failures":2}"#.utf8))
+        let export = SegmentRepairExport(tally: tally, unrepaired: UnrepairedSegmentNameCounts(noTwelveHourMatch: 5, sanityCheckFailed: 3))
+
+        let lines = export.lines(now: Self.launch)
+
+        for count in [7, 2, 5, 3] {
+            XCTAssertEqual(lines.filter { $0.contains("\(count) ") }.count, 1, "count \(count) appears on exactly one line: \(lines)")
+        }
+        XCTAssertTrue(SegmentRepairExport().lines(now: Self.launch).isEmpty)
+    }
+
     // MARK: - attention stays attention
 
     func testARepairedAttentionItemStaysInAttentionWithItsRecordUntouched() async throws {
@@ -957,6 +1021,7 @@ nonisolated final class RepairFaultFileSystem: TransferFileSystem, @unchecked Se
         var bodyDelete: Set<UUID> = []
         var manifestReplace: Set<UUID> = []
         var tallyWrite = false
+        var tallyRead = false
     }
 
     private let base = FoundationTransferFileSystem()
@@ -965,6 +1030,7 @@ nonisolated final class RepairFaultFileSystem: TransferFileSystem, @unchecked Se
     func failBodyDelete(for itemIDs: Set<UUID>) { self.faults.withLock { $0.bodyDelete = itemIDs } }
     func failManifestReplace(for itemIDs: Set<UUID>) { self.faults.withLock { $0.manifestReplace = itemIDs } }
     func failTallyWrite(_ fails: Bool) { self.faults.withLock { $0.tallyWrite = fails } }
+    func failTallyRead(_ fails: Bool) { self.faults.withLock { $0.tallyRead = fails } }
 
     private func itemID(containing url: URL) -> UUID? {
         UUID(uuidString: url.deletingLastPathComponent().lastPathComponent)
@@ -998,7 +1064,12 @@ nonisolated final class RepairFaultFileSystem: TransferFileSystem, @unchecked Se
         }
         try self.base.write(data, to: url, options: options)
     }
-    func data(contentsOf url: URL) throws -> Data { try self.base.data(contentsOf: url) }
+    func data(contentsOf url: URL) throws -> Data {
+        if url.lastPathComponent == TransferSpool.segmentRepairTallyFilename, self.faults.withLock({ $0.tallyRead }) {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        return try self.base.data(contentsOf: url)
+    }
     func byteCount(at url: URL) throws -> Int { try self.base.byteCount(at: url) }
     func readChunks(at url: URL, chunkSize: Int, _ consume: (Data) throws -> Void) throws {
         try self.base.readChunks(at: url, chunkSize: chunkSize, consume)

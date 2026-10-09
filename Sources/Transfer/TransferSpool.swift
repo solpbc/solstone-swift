@@ -485,10 +485,15 @@ nonisolated struct TransferSpool: Sendable {
         let manifestURL = self.manifestURL(in: directoryURL)
         let tempURL = directoryURL.appendingPathComponent(".manifest-\(UUID().uuidString).tmp", isDirectory: false)
         try self.fileSystem.write(data, to: tempURL, options: .atomic)
-        if self.fileSystem.fileExists(atPath: manifestURL.path) {
-            try self.fileSystem.replaceItem(at: manifestURL, withItemAt: tempURL)
-        } else {
-            try self.fileSystem.moveItem(at: tempURL, to: manifestURL)
+        do {
+            if self.fileSystem.fileExists(atPath: manifestURL.path) {
+                try self.fileSystem.replaceItem(at: manifestURL, withItemAt: tempURL)
+            } else {
+                try self.fileSystem.moveItem(at: tempURL, to: manifestURL)
+            }
+        } catch {
+            try? self.fileSystem.removeItem(at: tempURL)
+            throw error
         }
     }
 
@@ -742,7 +747,16 @@ nonisolated struct TransferSpool: Sendable {
     /// Read, change, write, for each event, so a count is on disk as soon as the repair or the
     /// failure it counts. A tally that cannot be written is logged and never fails the repair.
     private func updateSegmentRepairTally(_ change: (inout SegmentRepairTally) -> Void) {
-        var tally = self.segmentRepairTally()
+        // A file that exists but cannot be read now is left alone: writing over it would replace
+        // every earlier count with this one event. A file that reads but does not decode starts over.
+        var tally = SegmentRepairTally.empty
+        if self.fileSystem.fileExists(atPath: self.segmentRepairTallyURL.path) {
+            guard let data = try? self.fileSystem.data(contentsOf: self.segmentRepairTallyURL) else {
+                transferSpoolLog.error("transfer segment repair tally not read; this event is not counted")
+                return
+            }
+            tally = (try? Self.decoder().decode(SegmentRepairTally.self, from: data)) ?? .empty
+        }
         change(&tally)
         do {
             try self.fileSystem.createDirectory(at: self.rootURL, withIntermediateDirectories: true)

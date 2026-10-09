@@ -267,9 +267,9 @@ nonisolated struct SegmentRepairTally: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.repaired = try container.decodeIfPresent(Int.self, forKey: .repaired) ?? 0
-        self.repairedByForm = try container.decodeIfPresent([String: Int].self, forKey: .repairedByForm) ?? [:]
-        self.failures = try container.decodeIfPresent(Int.self, forKey: .failures) ?? 0
+        self.repaired = Swift.max(0, try container.decodeIfPresent(Int.self, forKey: .repaired) ?? 0)
+        self.repairedByForm = (try container.decodeIfPresent([String: Int].self, forKey: .repairedByForm) ?? [:]).mapValues { Swift.max(0, $0) }
+        self.failures = Swift.max(0, try container.decodeIfPresent(Int.self, forKey: .failures) ?? 0)
         self.firstRepairedAt = try container.decodeIfPresent(Date.self, forKey: .firstRepairedAt)
         self.lastRepairedAt = try container.decodeIfPresent(Date.self, forKey: .lastRepairedAt)
     }
@@ -277,13 +277,19 @@ nonisolated struct SegmentRepairTally: Codable, Equatable, Sendable {
     var isEmpty: Bool { self.repaired == 0 && self.failures == 0 }
 
     mutating func noteRepair(dayPeriod: TransferSegmentRepair.DayPeriod, at date: Date) {
-        self.repaired += 1
-        self.repairedByForm[dayPeriod.rawValue, default: 0] += 1
+        self.repaired = Self.counted(self.repaired)
+        self.repairedByForm[dayPeriod.rawValue] = Self.counted(self.repairedByForm[dayPeriod.rawValue, default: 0])
         self.firstRepairedAt = Swift.min(self.firstRepairedAt ?? date, date)
         self.lastRepairedAt = Swift.max(self.lastRepairedAt ?? date, date)
     }
 
     mutating func noteFailure() {
-        self.failures += 1
+        self.failures = Self.counted(self.failures)
+    }
+
+    /// One more, without ever trapping: the tally is read back from a file, and a count in it that
+    /// is negative or already at the largest value must not stop the launch that repairs an item.
+    private static func counted(_ value: Int) -> Int {
+        value >= Int.max ? Int.max : Swift.max(0, value) + 1
     }
 }
