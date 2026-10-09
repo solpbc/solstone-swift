@@ -8,7 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Changed
 
-- the event log you can export from the status screen now gives your journal's reason for anything it turned away and, for the most recent audio, the date and time it was named with. when you send it to ask for help, it shows what happened.
+- the event log you can export from the status screen now gives your journal's reason for anything it turned away and, for the audio it turned away most recently, the date and time it was named with. when you send it to ask for help, it shows what happened.
 
 - when your journal turns audio away because of how it was labelled, the app no longer tries it again every time your iphone or ipad reconnects. that audio stays on your iphone or ipad, and the app tries it again about once a day, after the app or your journal updates, or when you tap "try now" on it.
 
@@ -20,7 +20,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - opening audio from "what is waiting" on the status screen no longer closes the app. before, on an iphone, it did this every time.
 
-- on an iphone or ipad set to a region that normally uses a 24-hour clock, with 24-hour time turned off, older versions of the app named audio with a 12-hour time your journal can't accept, so it never went in. the app now renames that audio to the same date and time written the 24-hour way, so it can go into your journal.
+- on an iphone or ipad set to a region that normally uses a 24-hour clock, with 24-hour time turned off, older versions of the app named audio with a 12-hour time your journal can't accept, so it never went in. the app now renames audio whose time it can confirm to the same date and time written the 24-hour way, so it can go into your journal.
 
 - if the app closes while audio is on, it can now recover the playable part of a recording with its actual duration, which can then go into your journal. audio that was interrupted stays marked as interrupted.
 
