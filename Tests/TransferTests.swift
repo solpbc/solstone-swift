@@ -377,6 +377,23 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(bare.ownerFailureReason, "removed_in_journal")
     }
 
+    /// Builds before refusals were parsed stored up to 200 characters of the body. A body cut
+    /// short, or one with no `error`, never reaches the owner's item page as stored JSON.
+    func testOwnerFailureReasonNeverShowsAStoredBody() {
+        let now = Date(timeIntervalSince1970: 1_780_480_800)
+        let stored = [
+            #"{"detail":"linked device required: cid 0f3a9c spki MCowBQYDK2VwAyEA","reason_code":"linked_device_required"}"#,
+            #"{"error":"not found","reason_code":"not_found","detail":"linked device required: cid 0f3a9c spki MCowBQYDK2Vw"#,
+            #"{"error":"","detail":"cid 0f3a9c"}"#,
+            #"{"error":7,"detail":"cid 0f3a9c"}"#,
+            "{",
+        ]
+        for detail in stored {
+            let info = TransferAttentionInfo(reason: "http_client_error", shortDetail: detail, movedAt: now)
+            XCTAssertEqual(info.ownerFailureReason, SourceVocabulary.onThisPhoneFailureReasonServer, detail)
+        }
+    }
+
     func testOutcomeClassifierTable() {
         let saveResult = TransferSaveThenStartState(
             phase: .startPending,
