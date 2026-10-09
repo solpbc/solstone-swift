@@ -151,29 +151,35 @@ func makeDropCommit(
     }
 }
 
+/// The owner's "try now" on one item. The commit answers whether the item was sent back to the
+/// queue: `false` means it is still held (its cached body could not be dropped, say), and the
+/// item's page says so rather than leaving the tap unanswered.
 @MainActor
 func makeRetryCommit(
     for item: OnThisPhoneItem,
     share: ShareTransferHolder,
     transferEngine: TransferEngine,
     mobileSegmentUploader: MobileSegmentUploader
-) -> (@MainActor () async -> Void)? {
+) -> (@MainActor () async -> Bool)? {
     guard let itemID = OnThisPhoneItemID(sourceKind: item.sourceKind, id: item.id) else {
         return nil
     }
 
     switch itemID {
     case .share(let id):
-        return { try? await share.retryShare(itemID: id) }
+        return { await share.retryShare(itemID: id) }
     case .mobileSegment:
-        return { await mobileSegmentUploader.resolveFinalizeFailurePile() }
+        return {
+            await mobileSegmentUploader.resolveFinalizeFailurePile()
+            return true
+        }
     case .mobileSegmentTransfer(let itemID, _):
         return {
-            try? await transferEngine.retryAttention(itemID: itemID)
+            (try? await transferEngine.retryAttention(itemID: itemID)) ?? false
         }
     case .transfer(let itemID, _):
         return {
-            try? await transferEngine.retryAttention(itemID: itemID)
+            (try? await transferEngine.retryAttention(itemID: itemID)) ?? false
         }
     }
 }

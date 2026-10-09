@@ -78,8 +78,10 @@ final class ShareTransferHolder {
         }
     }
 
-    func retryShare(itemID: UUID) async {
-        try? await self.transferEngine.retryAttention(itemID: itemID)
+    /// `false` when the item is still held after the attempt.
+    @discardableResult
+    func retryShare(itemID: UUID) async -> Bool {
+        (try? await self.transferEngine.retryAttention(itemID: itemID)) ?? false
     }
 
     func onThisPhoneSourceSnapshot() async -> OnThisPhoneSourceResult {

@@ -11,15 +11,16 @@ struct OnThisPhoneItemDetailView: View {
     @Environment(ObserverManager.self) private var observerManager
 
     let item: OnThisPhoneItem
-    let onRequestRetry: @MainActor (OnThisPhoneItem) async -> Void
+    let onRequestRetry: @MainActor (OnThisPhoneItem) async -> Bool
     let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
     @State private var showingDropConfirm = false
     @State private var showingJournal = false
     @State private var isRetrying = false
+    @State private var retryFailed = false
 
     init(
         item: OnThisPhoneItem,
-        onRequestRetry: @escaping @MainActor (OnThisPhoneItem) async -> Void,
+        onRequestRetry: @escaping @MainActor (OnThisPhoneItem) async -> Bool,
         onRequestDrop: @escaping @MainActor (OnThisPhoneItem) -> Void
     ) {
         self.item = item
@@ -183,6 +184,13 @@ private extension OnThisPhoneItemDetailView {
         VStack(alignment: .leading, spacing: 12) {
             if self.item.retryAvailable {
                 self.retryButton
+                if self.retryFailed {
+                    Text(SourceVocabulary.onThisPhoneTryNowFailed)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("onThisPhone.retry.failed")
+                }
             }
             self.dropButton
         }
@@ -191,9 +199,11 @@ private extension OnThisPhoneItemDetailView {
     var retryButton: some View {
         Button {
             Task { @MainActor in
+                self.retryFailed = false
                 self.isRetrying = true
-                await self.onRequestRetry(self.item)
+                let sent = await self.onRequestRetry(self.item)
                 self.isRetrying = false
+                self.retryFailed = !sent
             }
         } label: {
             Text(self.isRetrying ? "trying…" : SourceVocabulary.tryNow)

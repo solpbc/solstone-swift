@@ -839,16 +839,16 @@ private extension OnThisPhoneMomentsView {
         )
     }
 
-    private func requestRetry(_ item: OnThisPhoneItem) async {
+    private func requestRetry(_ item: OnThisPhoneItem) async -> Bool {
         guard let commit = makeRetryCommit(
             for: item,
             share: self.shareTransferHolder,
             transferEngine: self.mobileSegmentTransferHolder.transferEngine,
             mobileSegmentUploader: self.mobileSegmentUploader
         ) else {
-            return
+            return false
         }
-        await commit()
+        return await commit()
     }
 
     func loadSnapshot(trigger: LoadTrigger) async {
@@ -910,7 +910,7 @@ private extension OnThisPhoneMomentsView {
 private struct SwipeToDropRow: View {
     let item: OnThisPhoneItem
     @Binding var openRowID: String?
-    let onRequestRetry: @MainActor (OnThisPhoneItem) async -> Void
+    let onRequestRetry: @MainActor (OnThisPhoneItem) async -> Bool
     let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
     let onDrop: @MainActor (OnThisPhoneItem) -> Void
     @State private var offset: CGFloat = 0

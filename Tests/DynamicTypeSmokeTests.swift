@@ -285,7 +285,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         let onThisPhoneItemDetailView = NavigationStack {
             OnThisPhoneItemDetailView(
                 item: Self.onThisPhoneItem(),
-                onRequestRetry: { _ in },
+                onRequestRetry: { _ in true },
                 onRequestDrop: { _ in }
             )
                 .environment(appConfig)

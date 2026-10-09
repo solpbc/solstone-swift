@@ -734,15 +734,19 @@ actor TransferEngine {
 
     /// Moves one attention item back to queued, resets its in-memory attempts,
     /// and clears its persisted retry deadline. Missing item IDs are treated as
-    /// a no-op that still kicks the engine.
-    func retryAttention(itemID: UUID) throws {
-        guard !self.conflictedItemIDs.contains(itemID) else { return }
+    /// a no-op that still kicks the engine and answer `true`: the item is no longer held.
+    /// A conflicted item stays held and answers `false`; a move that fails (its cached body
+    /// cannot be dropped, say) throws and leaves the item held too.
+    @discardableResult
+    func retryAttention(itemID: UUID) throws -> Bool {
+        guard !self.conflictedItemIDs.contains(itemID) else { return false }
         guard let item = self.attentionItems[itemID] else {
             self.scheduleStatusUpdate(summary: self.lastEventSummary)
             self.scheduleWork()
-            return
+            return true
         }
         try self.moveAttentionItemsToQueued([item])
+        return true
     }
 
     /// An item that cannot be moved (its cached body cannot be dropped, say) stays in attention

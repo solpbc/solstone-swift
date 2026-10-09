@@ -761,6 +761,7 @@ nonisolated enum SourceVocabulary {
     static let onThisPhoneFailureReasonNetwork = "the connection wasn't available"
     static let onThisPhoneFailureReasonTimeout = "the connection took too long"
     static let onThisPhoneFailureReasonServer = "your journal couldn't accept it"
+    static let onThisPhoneTryNowFailed = "couldn't try this again. it's still on this device."
     static let onThisPhoneFailureReasonUnknown = "something got in the way"
 
     static func onThisPhoneFailureLastTried(datePhrase: String) -> String {

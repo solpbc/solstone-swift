@@ -465,10 +465,67 @@ final class OnThisPhoneDropControllerTests: XCTestCase {
             transferEngine: retryEngine,
             mobileSegmentUploader: mobileSegmentUploader
         ))
-        await watchCommit()
+        let sent = await watchCommit()
 
+        XCTAssertTrue(sent)
         let retriedSnapshot = await retryEngine.itemSnapshot(itemID: transferItemID)
         XCTAssertEqual(retriedSnapshot?.state, .queued)
+    }
+
+    /// A "try now" that leaves the item held answers `false`, so the item's page can say so; the
+    /// item is still in attention with its cached body, and a later tap that can move it does.
+    func testTryNowThatLeavesTheItemHeldAnswersFalse() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OnThisPhoneHeldRetryTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let faults = RepairFaultFileSystem()
+        let transferSpool = TransferSpool(
+            rootURL: root.appendingPathComponent("RetryTransfer", isDirectory: true),
+            fileSystem: faults
+        )
+        let transferItemID = UUID()
+        let staged = try transferSpool.stage(
+            manifest: Self.mobileTransferManifest(itemID: transferItemID, segmentID: UUID()),
+            payloads: ["audio": Data("audio".utf8)]
+        )
+        let queued = try transferSpool.commitStagedItem(itemID: staged.item.manifest.itemID)
+        let held = try transferSpool.moveQueuedItemToAttention(
+            queued,
+            reason: "needs_attention",
+            detail: "held",
+            now: Date(timeIntervalSince1970: 1_780_480_800)
+        )
+        let cacheURL = try transferSpool.writeBodyCache(Data("refused body".utf8), for: held)
+        faults.failBodyDelete(for: [transferItemID])
+        let retryEngine = TransferEngine(
+            spool: transferSpool,
+            transport: TransferTransport(),
+            endpointResolver: TransferCutoverEndpointResolver()
+        )
+        try await retryEngine.start()
+        let commit = try XCTUnwrap(makeRetryCommit(
+            for: Self.item(
+                id: OnThisPhoneItemID.mobileSegmentTransferIDString(itemID: transferItemID, facet: .audio),
+                sourceKind: .audio
+            ),
+            share: Self.shareHolder(root: root, transferEngine: retryEngine, mirror: TransferStatusMirror()),
+            transferEngine: retryEngine,
+            mobileSegmentUploader: Self.mobileSegmentUploader(root: root)
+        ))
+
+        let firstTap = await commit()
+
+        XCTAssertFalse(firstTap)
+        let stillHeld = await retryEngine.itemSnapshot(itemID: transferItemID)
+        XCTAssertEqual(stillHeld?.state, .attention)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: cacheURL.path))
+
+        faults.failBodyDelete(for: [])
+        let sent = await commit()
+
+        XCTAssertTrue(sent)
+        let retried = await retryEngine.itemSnapshot(itemID: transferItemID)
+        XCTAssertEqual(retried?.state, .queued)
     }
 
     func testWatchAudioDropAlsoRemovesStagingDirectory() async throws {
