@@ -10,11 +10,13 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - your apple watch now passes its audio to your iphone one recording at a time, oldest first, and on your iphone or ipad each source's audio goes to your journal oldest first. new audio no longer jumps ahead of older audio from the same source, unless that older audio keeps failing to go through.
 
+- on a location item's page, the hint above "open journal" now says the places were added to your journal automatically, or "connect a journal to add these places to it." if none is connected. on any item's page, the "not in your journal yet" hint now ends "it's waiting to go in."
+
 ### Fixed
 
 - if the app closes while audio is on, it can now recover the playable part of a recording with its actual duration, which can then go into your journal. audio that was interrupted stays marked as interrupted.
 
-- the app now saves your journal's current addresses each time it connects, so once it has connected after your journal's address changes, it keeps using the new one without pairing again. before, it kept using the addresses from when you paired.
+- the app now saves your journal's current addresses each time it connects, so once it has connected after your journal's address changes, it keeps using the new one without pairing again. before, it kept using the addresses from when you paired. this needs your journal to be up to date too.
 
 ## [2.0.7 (123)] - 2026-10-08
 
@@ -25,7 +27,6 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Changed
 
-- on a location page, the hint under "open in journal" now says the places were added to your journal automatically, or "connect a journal to add these places to it." if none is connected. the "not in your journal yet" hint now reads "it's waiting to go in."
 - when a source is off and a journal is paired, its page now reads "intake is off. turn it on any time." when you've paused it, it reads "you paused this. resume to start intake again." before, both lines talked about sending to your journal.
 - settings no longer shows a label row, and the app names your journal by its mark once you've confirmed it. the status now says "your journal" and "through the relay" instead of "home" and "remote journal".
 - forgetting a journal, unpairing this device, pairing a new journal, or stopping a pairing when it asks you to confirm the mark no longer warns you that your journal didn't confirm the unpair. your iphone or ipad tells your journal if it can reach it right then, and forgets the journal either way.
