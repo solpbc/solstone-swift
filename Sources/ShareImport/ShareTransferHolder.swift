@@ -33,6 +33,11 @@ final class ShareTransferHolder {
         self.status.attentionCount + self.store.failedCount
     }
 
+    /// Held refusals the engine is pacing. Counted in `failedCount`; see `sendableUploadTotals`.
+    var refusalPacedCount: Int {
+        self.status.refusalPacedCount
+    }
+
     var inFlightCount: Int {
         self.status.inFlightCount
     }

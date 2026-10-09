@@ -1596,8 +1596,14 @@ private extension TransferEngine {
     }
 
     func sourceSnapshots(now: Date) -> [String: TransferSourceStatusSnapshot] {
-        Dictionary(uniqueKeysWithValues: self.sourceStates.map { sourceKey, state in
-            (sourceKey, state.snapshot(now: now))
+        var pacedBySource: [String: Int] = [:]
+        for item in self.attentionItems.values where self.refusalVerdict(for: item, now: now) == .paced {
+            pacedBySource[item.manifest.sourceKey, default: 0] += 1
+        }
+        return Dictionary(uniqueKeysWithValues: self.sourceStates.map { sourceKey, state in
+            var snapshot = state.snapshot(now: now)
+            snapshot.refusalPacedCount = pacedBySource[sourceKey, default: 0]
+            return (sourceKey, snapshot)
         })
     }
 

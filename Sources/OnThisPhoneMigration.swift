@@ -23,6 +23,14 @@ nonisolated struct OnThisPhoneMigration: Equatable, Sendable {
     var isEmpty: Bool { self.total == 0 }
 }
 
+/// What finish-syncing offers to send: everything waiting, less the refusals the engine is pacing,
+/// which a finish-syncing run would not send.
+nonisolated func finishSyncingBacklogCount(snapshot: OnThisPhoneAggregateSnapshot) -> Int {
+    let migration = onThisPhoneMigration(snapshot: snapshot)
+    let paced = snapshot.items.filter { $0.sendState == .needsAttention && $0.refusalPaced }.count
+    return migration.onThisPhone + migration.needsAttention - paced
+}
+
 nonisolated func onThisPhoneMigration(
     snapshot: OnThisPhoneAggregateSnapshot
 ) -> OnThisPhoneMigration {

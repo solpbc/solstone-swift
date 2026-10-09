@@ -15,6 +15,19 @@ func uploadTotals(
     )
 }
 
+/// What the background drain and finish-syncing wait on: `uploadTotals` less the refusals the
+/// engine is pacing, which no drain sends. The owner's held count stays `uploadTotals`.
+@MainActor
+func sendableUploadTotals(
+    mobileSegment: MobileSegmentTransferHolder,
+    watch: WatchUploaderHolder,
+    share: ShareTransferHolder
+) -> (failed: Int, pending: Int) {
+    let totals = uploadTotals(mobileSegment: mobileSegment, watch: watch, share: share)
+    let paced = mobileSegment.refusalPacedCount + watch.refusalPacedCount + share.refusalPacedCount
+    return (failed: max(0, totals.failed - paced), pending: totals.pending)
+}
+
 @MainActor
 func captureUploadTotals(
     mobileSegment: MobileSegmentTransferHolder,

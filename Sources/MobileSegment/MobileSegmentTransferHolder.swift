@@ -50,6 +50,11 @@ final class MobileSegmentTransferHolder {
         self.status.attentionCount + self.uploader.finalizeFailedCount
     }
 
+    /// Held refusals the engine is pacing. Counted in `failedCount`; see `sendableUploadTotals`.
+    var refusalPacedCount: Int {
+        self.status.refusalPacedCount
+    }
+
     /// Some owner audio never reached the journal. This is history, not backlog: it never
     /// adds to the waiting count and stays after the queue drains.
     var hasAudioInterruption: Bool {

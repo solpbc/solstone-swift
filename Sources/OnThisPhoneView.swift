@@ -538,8 +538,7 @@ private extension OnThisPhoneMomentsView {
 
     private var finishSyncingBacklog: Int {
         guard let displayAggregate = self.displayAggregate else { return 0 }
-        let migration = onThisPhoneMigration(snapshot: displayAggregate)
-        return migration.onThisPhone + migration.needsAttention
+        return finishSyncingBacklogCount(snapshot: displayAggregate)
     }
 
     private var finishSyncingCardState: FinishSyncingCoordinator.CardState {

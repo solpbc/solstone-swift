@@ -881,6 +881,102 @@ extension TransferRefusalPacingTests {
         let paced = await engine.itemSnapshots(sourceKey: source).filter(\.refusalPaced).count
         XCTAssertEqual(paced, count)
     }
+
+    /// Paced refusals are held, not backlog: going to the background takes no background time on
+    /// their account and finish-syncing is not offered for them, while the owner's held count
+    /// still counts every one.
+    @MainActor
+    func testPacedRefusalsAloneTakeNoBackgroundTimeAndOfferNoFinishSyncing() async throws {
+        let count = 160
+        let root = self.tempDirectory.appendingPathComponent("drain-backlog", isDirectory: true)
+        let ids = try self.seedSettledRefusals(
+            spool: TransferSpool(rootURL: root),
+            count: count,
+            source: ObserverAudioTransferSource.mobileSegment
+        )
+        TransferURLProtocol.handler = Self.refusing(ids)
+        let mirror = TransferStatusMirror()
+        let engine = self.makeEngine(spool: TransferSpool(rootURL: root), statusMirror: mirror)
+        self.pauseAtTeardown(engine)
+        try await engine.start()
+        let uploader = MobileSegmentUploader(
+            transferEngine: engine,
+            store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("mobile-store", isDirectory: true)),
+            clock: MockObserverClock()
+        )
+        let mobile = MobileSegmentTransferHolder(transferEngine: engine, mirror: mirror, uploader: uploader)
+        let watch = WatchUploaderHolder(transferEngine: engine, mirror: mirror)
+        let share = ShareTransferHolder(
+            transferEngine: engine,
+            mirror: mirror,
+            store: ShareImportStore(cacheRootURL: self.tempDirectory.appendingPathComponent("share", isDirectory: true))
+        )
+
+        try await self.connect(engine, attentionCount: count, sentIDs: ids)
+        XCTAssertEqual(Self.sends(of: ids), 0, "all paced")
+        try await self.waitFor("paced count published") {
+            await MainActor.run { mobile.refusalPacedCount == count }
+        }
+
+        let held = uploadTotals(mobileSegment: mobile, watch: watch, share: share)
+        XCTAssertEqual(held.failed, count, "the owner's held count is unchanged")
+        let sendable = sendableUploadTotals(mobileSegment: mobile, watch: watch, share: share)
+        XCTAssertEqual(sendable.failed, 0)
+        XCTAssertEqual(sendable.pending, 0)
+
+        let asserter = CountingBackgroundTaskAsserter()
+        var driven = 0
+        var disconnected = 0
+        await BackgroundDrainCoordinator(
+            totals: { sendableUploadTotals(mobileSegment: mobile, watch: watch, share: share) },
+            inFlight: { uploadInFlight(mobileSegment: mobile, watch: watch, share: share) },
+            backoff: { uploadBackoff(mirror: mirror) },
+            isSustaining: { false },
+            isConnected: { true },
+            drive: { driven += 1 },
+            disconnect: { disconnected += 1 },
+            asserter: asserter,
+            clock: MockObserverClock()
+        ).run()
+        XCTAssertEqual(asserter.beginCount, 0, "no background time for paced refusals")
+        XCTAssertEqual(driven, 0)
+        XCTAssertEqual(disconnected, 1)
+
+        let aggregate = await OnThisPhoneSnapshotAggregator.snapshot(
+            share: share,
+            mobileSegmentUploader: uploader,
+            transferEngine: engine
+        )
+        XCTAssertEqual(onThisPhoneMigration(snapshot: aggregate).needsAttention, count, "still listed on this phone")
+        let backlog = finishSyncingBacklogCount(snapshot: aggregate)
+        XCTAssertEqual(backlog, 0)
+        XCTAssertEqual(
+            FinishSyncingCoordinator.cardState(
+                isPaired: true,
+                isConnected: true,
+                isSustaining: false,
+                isCapable: true,
+                backlog: backlog,
+                isFinishing: false,
+                lastOutcome: nil,
+                threshold: FinishSyncingCoordinator.backlogThreshold,
+                awaitingMarkConfirmation: false
+            ),
+            .hidden
+        )
+    }
+}
+
+@MainActor
+private final class CountingBackgroundTaskAsserter: BackgroundTaskAsserting {
+    private(set) var beginCount = 0
+
+    func begin(expirationHandler: @escaping @MainActor () -> Void) -> Bool {
+        self.beginCount += 1
+        return true
+    }
+
+    func end() {}
 }
 
 // MARK: - what the owner reads, and the app's own wiring

@@ -498,7 +498,7 @@ struct SolstoneSwiftApp: App {
         ObserverManagerDependencyRegistrationWitness.recordRegistration(of: observerManager)
         let finishSyncing = FinishSyncingCoordinator(
             totals: {
-                uploadTotals(
+                sendableUploadTotals(
                     mobileSegment: mobileSegmentTransferHolder,
                     watch: watchUploaderHolder,
                     share: shareTransferHolder
@@ -864,7 +864,7 @@ struct SolstoneSwiftApp: App {
                 }
                 let coordinator = BackgroundDrainCoordinator(
                     totals: {
-                        uploadTotals(
+                        sendableUploadTotals(
                             mobileSegment: self.mobileSegmentTransferHolder,
                             watch: self.watchUploaderHolder,
                             share: self.shareTransferHolder

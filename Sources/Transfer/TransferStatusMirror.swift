@@ -32,6 +32,10 @@ nonisolated struct TransferSourceStatusSnapshot: Codable, Equatable, Sendable {
     var lastErrorDetail: String?
     var recentErrorCount: Int
     var bytesPerSecond: Double
+    /// Of `attentionCount`, the refusals the engine is pacing: nothing sends them until a new
+    /// connection's round offers them again, so a drain has nothing to wait for on their account.
+    /// They stay in `attentionCount`, which is what the owner sees as held.
+    var refusalPacedCount = 0
 }
 
 /// In-memory status for one queued, attention, or in-flight item. The manifest

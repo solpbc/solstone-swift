@@ -30,6 +30,11 @@ final class WatchUploaderHolder {
         self.status.attentionCount
     }
 
+    /// Held refusals the engine is pacing. Counted in `failedCount`; see `sendableUploadTotals`.
+    var refusalPacedCount: Int {
+        self.status.refusalPacedCount
+    }
+
     var inFlightCount: Int {
         self.status.inFlightCount
     }
