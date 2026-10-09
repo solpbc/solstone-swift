@@ -245,6 +245,19 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
                 phase: &failPhase
             )
         )
+        XCTAssertTrue(writer.hasFaulted)
+
+        // Second write must be dropped due to latched fault
+        writer.write(
+            ObserverRecorderTestSupport.sineBuffer(
+                sampleRate: 48_000,
+                channels: 1,
+                frames: 48_000,
+                hertz: 1_000,
+                phase: &failPhase
+            )
+        )
+        XCTAssertTrue(writer.hasFaulted)
         let chunk = writer.finalizeAndReset()
         XCTAssertEqual(chunk?.duration ?? 0, 0, accuracy: 0.0001)
         if let written = try? AVAudioFile(forReading: out) {

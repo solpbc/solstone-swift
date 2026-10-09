@@ -38,7 +38,7 @@ final class MobileSegmentEngine {
     @ObservationIgnored private var screencastSessionID: UUID?
     @ObservationIgnored private var screencastScheduleAnchorMs: Int64 = 0
     @ObservationIgnored private var screencastSchedulePeriodSeconds: Int = 300
-    @ObservationIgnored var rotateAudio: (@MainActor @Sendable (URL) async throws -> ObserverRecordedChunk?)?
+    @ObservationIgnored var rotateAudio: (@MainActor @Sendable (URL, UUID) async throws -> ObserverRecordedChunk?)?
     @ObservationIgnored var screencastRolloverHandler: (@MainActor @Sendable (MobileSegmentScreencastHandoffRecord) -> Bool)?
 
     var heldScreencastAdoptionSkipSegmentID: UUID? {
@@ -796,10 +796,14 @@ final class MobileSegmentEngine {
                 self.syncLocationLivenessTask()
             }
 
+            var activeNextSegmentID: UUID? = nextSegmentID
+            var activeNextStartedAt: Date? = nextStartedAt
+            var activeNextSources = nextSources
+
             if oldSources.contains(.audio), nextSources.contains(.audio), let nextSegmentID {
                 do {
                     let nextAudioURL = self.segmentUploader.activeAudioURL(segmentID: nextSegmentID)
-                    let finalized = try await self.rotateAudio?(nextAudioURL)
+                    let finalized = try await self.rotateAudio?(nextAudioURL, nextSegmentID)
                     if let mode = oldAudioMode, let startedAt = oldAudioStartedAt {
                         try self.segmentUploader.recordAudioFinalized(
                             segmentID: segmentID,
@@ -811,13 +815,78 @@ final class MobileSegmentEngine {
                         )
                     }
                 } catch {
-                    if let mode = oldAudioMode, let startedAt = oldAudioStartedAt {
+                    let priorChunk: ObserverRecordedChunk?
+                    if let handoffFailure = error as? PhoneAudioRotationHandoffFailure {
+                        priorChunk = handoffFailure.priorChunk
+                    } else {
+                        priorChunk = nil
+                    }
+
+                    if let priorChunk, let mode = oldAudioMode, let startedAt = oldAudioStartedAt {
+                        try? self.segmentUploader.recordAudioFinalized(
+                            segmentID: segmentID,
+                            finalized: priorChunk,
+                            startedAt: startedAt,
+                            endedAt: now,
+                            mode: mode,
+                            minimumDuration: 0.1
+                        )
+                    } else if let mode = oldAudioMode, let startedAt = oldAudioStartedAt {
                         try? self.segmentUploader.recordAudioFinalizeFailed(
                             segmentID: segmentID,
                             startedAt: startedAt,
                             endedAt: now,
                             mode: mode,
                             reason: String(describing: error)
+                        )
+                    }
+
+                    self.audioMode = nil
+                    self.audioSegmentStartedAt = nil
+                    activeNextSources.remove(.audio)
+                    candidateSegmentIDToRemoveOnRollback = nil
+
+                    // Only discard a candidate proven to contain no audio or
+                    // writer receipt. Failed or ambiguous media stays recoverable.
+                    let store = self.segmentUploader.storeForTransferMigration
+                    let candidateDir = store.segmentDirectoryURL(.active, segmentID: nextSegmentID)
+                    let names = try? FileManager.default.contentsOfDirectory(atPath: candidateDir.path)
+                    let hasAudioEvidence = PhoneAudioWriterLease.isHeld(nextSegmentID)
+                        || names == nil
+                        || names!.contains(store.audioURL(in: candidateDir).lastPathComponent)
+                        || names!.contains(store.audioWriterReceiptURL(in: candidateDir).lastPathComponent)
+                    if hasAudioEvidence, let mode = oldAudioMode, let nextStartedAt {
+                        try self.segmentUploader.recordAudioFinalizeFailed(
+                            segmentID: nextSegmentID, startedAt: nextStartedAt,
+                            endedAt: now, mode: mode, reason: "audio_finalize_failed"
+                        )
+                    }
+
+                    if activeNextSources.isEmpty {
+                        if hasAudioEvidence {
+                            if !PhoneAudioWriterLease.isHeld(nextSegmentID) {
+                                _ = try store.move(segmentID: nextSegmentID, from: .active, to: .failed)
+                            }
+                        } else {
+                            try store.remove(candidateDir)
+                        }
+                        candidateSegmentIDToRemoveOnRollback = nil
+                        activeNextSegmentID = nil
+                        activeNextStartedAt = nil
+                        self.state = .finalizing(
+                            segmentID: segmentID,
+                            activeSegmentID: nil,
+                            activeSources: [],
+                            activeStartedAt: nil,
+                            pendingNextSourceSet: nil
+                        )
+                    } else {
+                        self.state = .finalizing(
+                            segmentID: segmentID,
+                            activeSegmentID: nextSegmentID,
+                            activeSources: activeNextSources,
+                            activeStartedAt: nextStartedAt,
+                            pendingNextSourceSet: nil
                         )
                     }
                 }
@@ -833,31 +902,31 @@ final class MobileSegmentEngine {
             let pendingAt = self.pendingBoundaryAt ?? now
             self.pendingBoundaryAt = nil
 
-            if let nextSegmentID, let nextStartedAt {
-                if let pendingNextSources, pendingNextSources != nextSources {
+            if let activeNextSegmentID, let activeNextStartedAt {
+                if let pendingNextSources, pendingNextSources != activeNextSources {
                     self.activateSegment(
-                        segmentID: nextSegmentID,
-                        sources: nextSources,
-                        startedAt: nextStartedAt,
+                        segmentID: activeNextSegmentID,
+                        sources: activeNextSources,
+                        startedAt: activeNextStartedAt,
                         startTimer: false,
-                        preservePendingAudio: true,
+                        preservePendingAudio: false,
                         preservePendingLocation: true
                     )
                     try await self.performBoundary(
-                        segmentID: nextSegmentID,
-                        oldSources: nextSources,
-                        oldStartedAt: nextStartedAt,
+                        segmentID: activeNextSegmentID,
+                        oldSources: activeNextSources,
+                        oldStartedAt: activeNextStartedAt,
                         nextSources: pendingNextSources,
                         at: pendingAt,
                         applyPendingFollowUp: false
                     )
                 } else {
                     self.activateSegment(
-                        segmentID: nextSegmentID,
-                        sources: nextSources,
-                        startedAt: nextStartedAt,
+                        segmentID: activeNextSegmentID,
+                        sources: activeNextSources,
+                        startedAt: activeNextStartedAt,
                         startTimer: true,
-                        preservePendingAudio: true,
+                        preservePendingAudio: false,
                         preservePendingLocation: true
                     )
                 }

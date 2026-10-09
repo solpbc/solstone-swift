@@ -197,7 +197,7 @@ final class MobileSegmentEngineScreencastTests: XCTestCase {
         var rotateCallNextURL: URL?
         var rotateCallOldBytes: Data?
         var rotateCallNextURLExists: Bool?
-        harness.engine.rotateAudio = { nextURL in
+        harness.engine.rotateAudio = { nextURL, _ in
             rotateCallNextURL = nextURL
             rotateCallNextURLExists = FileManager.default.fileExists(atPath: nextURL.path)
             rotateCallOldBytes = try? Data(contentsOf: oldAudioURL)
@@ -239,7 +239,7 @@ final class MobileSegmentEngineScreencastTests: XCTestCase {
         let initialHandoff = try await harness.engine.startScreencast(at: self.clock.now())
         self.clock.advance(by: 30)
 
-        harness.engine.rotateAudio = { nextURL in
+        harness.engine.rotateAudio = { nextURL, _ in
             try? Data("audio".utf8).write(to: nextURL, options: .atomic)
             return nil
         }
@@ -560,7 +560,7 @@ private extension MobileSegmentEngineScreencastTests {
 
     func open(sources: Set<MobileSegmentSource>, harness: Harness) async throws {
         var currentAudioURL: URL?
-        harness.engine.rotateAudio = { nextURL in
+        harness.engine.rotateAudio = { nextURL, _ in
             if let finalizedURL = currentAudioURL {
                 try Data("rotated-audio".utf8).write(to: nextURL, options: .atomic)
                 let finalized = ObserverRecordedChunk(url: finalizedURL, duration: 1)

@@ -504,6 +504,7 @@ final class MobileSegmentUploader {
 
     func finalizeActiveSegment(segmentID: UUID, endedAt: Date) async {
         guard self.guardStorageAvailable() else { return }
+        guard !PhoneAudioWriterLease.isHeld(segmentID) else { return }
         let directory = self.activeDirectory(segmentID: segmentID)
         do {
             var manifest = try self.store.readManifest(in: directory)
@@ -763,6 +764,7 @@ final class MobileSegmentUploader {
                 }
             }
 
+            guard !PhoneAudioWriterLease.isHeld(segmentID) else { return }
             if manifest.isEmptyResolved {
                 manifest.upload = .empty
                 try self.store.writeManifest(manifest, in: directory)
@@ -981,6 +983,16 @@ final class MobileSegmentUploader {
         now: Date
     ) async throws -> AudioDeriveResult {
         let audioURL = self.store.audioURL(in: directory)
+        if PhoneAudioWriterLease.isHeld(manifest.segmentID) { return .liveOrDeferred }
+        // A killed cancellation can leave its retained inode under this name.
+        // Restore it before missing-file classification; never retire on I/O error.
+        let retained = audioURL.appendingPathExtension("retained")
+        do {
+            let names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+            if !names.contains(audioURL.lastPathComponent), names.contains(retained.lastPathComponent) {
+                try FileManager.default.moveItem(at: retained, to: audioURL)
+            }
+        } catch { return .retryableUnresolved }
         guard self.store.fileExists(audioURL) else {
             return .missingFile
         }
@@ -1006,6 +1018,10 @@ final class MobileSegmentUploader {
         }
 
         let inspection = await self.audioInspector.inspect(audioURL)
+
+        if PhoneAudioWriterLease.isHeld(manifest.segmentID) {
+            return .liveOrDeferred
+        }
 
         switch receiptResult {
         case .absent:

@@ -745,6 +745,96 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
         XCTAssertEqual(self.defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
     }
+
+    @MainActor
+    func testFirstBufferFaultWhileStartingRefusesStart() async {
+        self.recorder.onStartCall = { [weak self] segmentID, sessionID in
+            self?.recorder.emitPhoneAudioFault(PhoneAudioWriterFault(
+                segmentID: segmentID,
+                sessionID: sessionID,
+                reason: "audio_writer_failed"
+            ))
+            await self?.drainManagerTasks()
+        }
+
+        let outcome = await self.manager.startSession(mode: .meeting)
+
+        XCTAssertEqual(outcome, .refused(.error(.unavailable(reason: "audio input unavailable"))))
+        guard case .error(let err) = self.manager.state else {
+            return XCTFail("expected error state")
+        }
+        XCTAssertEqual(err, .unavailable(reason: "audio input unavailable"))
+    }
+
+    @MainActor
+    func testDelayedFaultFromOldSessionAfterReplacementDoesNotStopNewSession() async throws {
+        let outcome1 = await self.manager.startSession(mode: .meeting)
+        XCTAssertEqual(outcome1, .started)
+        let oldSegmentID = try XCTUnwrap(self.recorder.lastStartSegmentID)
+        let oldSessionID = try XCTUnwrap(self.recorder.lastStartSessionID)
+
+        let stopOutcome = await self.manager.stopSession()
+        XCTAssertEqual(stopOutcome, .stopped)
+
+        let outcome2 = await self.manager.startSession(mode: .meeting)
+        XCTAssertEqual(outcome2, .started)
+        let newSessionID = try XCTUnwrap(self.recorder.lastStartSessionID)
+        XCTAssertNotEqual(oldSessionID, newSessionID)
+
+        // Delayed fault from old session
+        self.recorder.emitPhoneAudioFault(PhoneAudioWriterFault(
+            segmentID: oldSegmentID,
+            sessionID: oldSessionID,
+            reason: "audio_writer_failed"
+        ))
+
+        await self.drainManagerTasks()
+
+        // New session must still be active
+        guard case .active(let session) = self.manager.state else {
+            return XCTFail("expected new session to stay active")
+        }
+        XCTAssertEqual(session.sessionID, newSessionID)
+    }
+
+    @MainActor
+    func testDelayedSuccessFromOldSessionAfterReplacementDoesNotMutateNewSession() async {
+        let outcome1 = await self.manager.startSession(mode: .voiceMemo)
+        XCTAssertEqual(outcome1, .started)
+
+        let stopOutcome = await self.manager.stopSession()
+        XCTAssertEqual(stopOutcome, .stopped)
+
+        let outcome2 = await self.manager.startSession(mode: .meeting)
+        XCTAssertEqual(outcome2, .started)
+
+        // Delayed meter callback simulating silence from old voiceMemo session
+        self.recorder.emitMeter(level: -60, duration: 4.0)
+
+        await self.drainManagerTasks()
+
+        // Meeting mode session does not terminate on silence
+        guard case .active(let session) = self.manager.state else {
+            return XCTFail("expected session to remain active")
+        }
+        XCTAssertEqual(session.mode, .meeting)
+    }
+
+    @MainActor
+    func testOwnerStopThenCancellationDoesNotRestartCapture() async {
+        let outcome = await self.manager.startSession(mode: .meeting)
+        XCTAssertEqual(outcome, .started)
+
+        let stopOutcome = await self.manager.stopSession()
+        XCTAssertEqual(stopOutcome, .stopped)
+        XCTAssertEqual(self.manager.state, .idle)
+
+        // Attempting to cancel or trigger another stop does not restart capture
+        let repeatStop = await self.manager.stopSession()
+        XCTAssertEqual(repeatStop, .alreadyStopped)
+        XCTAssertEqual(self.manager.state, .idle)
+        XCTAssertEqual(self.recorder.startCallCount, 1)
+    }
 }
 
 private enum ObserverManagerTestError: Error {
