@@ -590,7 +590,7 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(state, .transferring)
     }
 
-    func testAC2FullQueueHandoffDrainsAllQueuedAtOnce() async throws {
+    func testAC2FullQueueHandoffSendsOneAtATimeOldestFirst() async throws {
         let storage = try self.makeStorage("backlog-watch")
         let stagingRoot = self.tempDirectory.appendingPathComponent("backlog-staging", isDirectory: true)
         let ids = [UUID(), UUID(), UUID()]
@@ -606,16 +606,23 @@ final class WatchRelayTests: XCTestCase {
         watchSession.activate()
         await sender.requestDrain(trigger: .testDirect)
 
-        XCTAssertEqual(watchSession.transferredFiles.count, 3)
-        XCTAssertEqual(Set(watchSession.transferredFiles.compactMap { $0.1["id"] as? String }), Set(ids.map(\.uuidString)))
-        for id in ids {
+        // One recording at a time, oldest first: the next goes once the
+        // current one has reached the phone.
+        for (position, id) in ids.enumerated() {
+            await self.drain(until: { watchSession.transferredFiles.count == position + 1 })
+            XCTAssertEqual(watchSession.transferredFiles.count, position + 1)
+            XCTAssertEqual(watchSession.transferredFiles.last?.1["id"] as? String, id.uuidString)
             let state = try await self.manifestState(storage: storage, id: id)
             XCTAssertEqual(state, .transferring)
+            for later in ids.dropFirst(position + 1) {
+                let laterState = try await self.manifestState(storage: storage, id: later)
+                XCTAssertEqual(laterState, .queued)
+            }
+            try await self.deliverTransfer(from: watchSession, index: position, to: phoneSession)
+            watchSession.finishTransfer(id: id, failure: nil)
+            await self.settleConnectivityCallback()
         }
-
-        for index in watchSession.transferredFiles.indices {
-            try await self.deliverTransfer(from: watchSession, index: index, to: phoneSession)
-        }
+        XCTAssertEqual(watchSession.transferredFiles.compactMap { $0.1["id"] as? String }, ids.map(\.uuidString))
         XCTAssertEqual(phoneSession.transferredUserInfos.count, 3)
         for ack in phoneSession.transferredUserInfos.reversed() {
             watchSession.deliverUserInfo(ack)
@@ -977,7 +984,8 @@ final class WatchRelayTests: XCTestCase {
 
         await sender.requestDrain(trigger: .testDirect)
 
-        XCTAssertEqual(session.transferredFiles.count, 2)
+        // The oldest is sent; its sibling waits its turn, which is not a failure.
+        XCTAssertEqual(session.transferredFiles.count, 1)
         let drain = try XCTUnwrap(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end })
         XCTAssertEqual(drain.fields.result, .completed)
         XCTAssertEqual(drain.fields.failureCount, 0)
@@ -1359,6 +1367,28 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertTrue(sessionE.transferredFiles.isEmpty)
     }
 
+    func testARecordingThatKeepsFailingStopsHoldingNewerOnesBack() async throws {
+        let storage = try self.makeStorage("keeps-failing")
+        let storageActor = self.storageActor(for: storage)
+        let stuckID = UUID()
+        let nextID = UUID()
+        _ = try await self.writeSegment(storage: storage, id: stuckID, index: 0)
+        _ = try await self.writeSegment(storage: storage, id: nextID, index: 1)
+        var stuck = (await storageActor.scanCatalog(transactionClass: .captureSafety)).entries.first { $0.manifest.id == stuckID }!.manifest
+        stuck.relayDeliveryAttemptCount = WatchRelaySender.orderedAttemptLimit
+        _ = try await storageActor.writeManifest(stuck, ensuringDirectory: false, transactionClass: .captureSafety)
+        let session = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session)
+        session.activate()
+
+        await sender.requestDrain(trigger: .testDirect)
+
+        XCTAssertEqual(
+            session.transferredFiles.compactMap { $0.1["id"] as? String },
+            [stuckID.uuidString, nextID.uuidString]
+        )
+    }
+
     func testAC7ActivationGateAndExactlyOnce() async throws {
         let storage = try self.makeStorage("ac7-activation")
         let queuedID = UUID()
@@ -1381,12 +1411,21 @@ final class WatchRelayTests: XCTestCase {
         await sender.requestDrain(trigger: .testDirect)
         await sender.requestDrain(trigger: .testDirect)
 
-        XCTAssertEqual(watchSession.transferredFiles.count, 2)
-        XCTAssertEqual(Set(watchSession.transferredFiles.compactMap { $0.1["id"] as? String }), Set([queuedID.uuidString, transferringID.uuidString]))
+        // The oldest goes first, once; the next waits for it.
+        XCTAssertEqual(watchSession.transferredFiles.compactMap { $0.1["id"] as? String }, [queuedID.uuidString])
         let queuedTransferState = try await self.manifestState(storage: storage, id: queuedID)
         XCTAssertEqual(queuedTransferState, .transferring)
         let transferringTransferState = try await self.manifestState(storage: storage, id: transferringID)
         XCTAssertEqual(transferringTransferState, .transferring)
+
+        watchSession.finishTransfer(id: queuedID, failure: nil)
+        await self.settleConnectivityCallback()
+        await self.drain(until: { watchSession.transferredFiles.count == 2 })
+        await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(
+            watchSession.transferredFiles.compactMap { $0.1["id"] as? String },
+            [queuedID.uuidString, transferringID.uuidString]
+        )
     }
 
     func testDrainSignpostKeepsInactiveEmptyMaintenanceCompleted() async throws {
@@ -1618,6 +1657,12 @@ final class WatchRelayTests: XCTestCase {
         session.activate()
 
         await sender.requestDrain(trigger: .testDirect)
+        XCTAssertEqual(session.transferredFiles.count, 1)
+        // The pass that fell back reports itself partial.
+        XCTAssertEqual(sink.events.last { $0.boundary == .relayDrain && $0.kind == .end }?.fields.result, .partial)
+        session.finishTransfer(id: firstID, failure: nil)
+        await self.settleConnectivityCallback()
+        await self.drain(until: { session.transferredFiles.count == 2 })
 
         XCTAssertEqual(session.transferredFiles.count, 2)
         XCTAssertNil(session.transferredFiles[0].1["generation"])
@@ -1629,7 +1674,6 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertTrue(sink.events.contains {
             $0.boundary == .relayAttemptPersistence && $0.kind == .end && $0.fields.result == .failed
         })
-        XCTAssertEqual(sink.events.last?.fields.result, .partial)
     }
 
     func testRelayDurablyWritesBundleBeforeTransferFile() async throws {
@@ -2161,6 +2205,12 @@ final class WatchRelayTests: XCTestCase {
         for _ in 0..<10 {
             await unreachableSender.requestDrain(trigger: .testDirect)
         }
+        // The older segment is offered again first; the newer waits its turn.
+        XCTAssertGreaterThanOrEqual(self.transferFileCount(in: unreachableSession, id: idAge), 1)
+        XCTAssertEqual(self.transferFileCount(in: unreachableSession, id: idUnreachable), 0)
+        unreachableSession.finishTransfer(id: idAge, failure: nil)
+        await self.settleConnectivityCallback()
+        await self.drain(until: { self.transferFileCount(in: unreachableSession, id: idUnreachable) >= 1 })
         let stateUnreachable = try await self.manifestState(storage: storage, id: idUnreachable)
         XCTAssertTrue(
             stateUnreachable == .queued || stateUnreachable == .transferring,

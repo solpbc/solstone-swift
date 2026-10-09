@@ -32,6 +32,8 @@ final class WatchRelaySender {
     // One constant, no config.
     private static let deliveredDeadline: TimeInterval = 900
     private static let livenessStallThreshold: TimeInterval = 1800
+    /// Delivery attempts after which a recording stops holding newer ones back.
+    static let orderedAttemptLimit = 3
     private static let abandonedRetention: TimeInterval = 7 * 24 * 60 * 60 // 7 days
 
     var onStateChanged: (@MainActor () -> Void)?
@@ -314,6 +316,10 @@ final class WatchRelaySender {
                 manifestStatesByID[entry.manifest.id] = entry.manifest.state
             }
 
+            // Recordings go to the phone one at a time, oldest first, so the
+            // phone receives them in the order they were captured. A recording
+            // that keeps failing stops holding the rest back.
+            var holdsLine = false
             for entry in refreshedEntries {
                 let group = outstanding.grouped[entry.manifest.id] ?? []
                 let transition = self.signposter.begin(.relaySegmentTransition)
@@ -363,18 +369,27 @@ final class WatchRelaySender {
                         }
 
                         let activeGroup = group.filter { !$0.snapshot.progress.isCancelled }
+                        let keepsFailing = (currentEntry.manifest.relayDeliveryAttemptCount ?? 0) >= Self.orderedAttemptLimit
                         if currentEntry.manifest.state == .queued {
                             if activeGroup.isEmpty {
-                                try await self.promoteAndTransfer(entry: currentEntry, accounting: &accounting)
+                                if !holdsLine {
+                                    try await self.promoteAndTransfer(entry: currentEntry, accounting: &accounting)
+                                    holdsLine = !keepsFailing
+                                }
                             } else {
                                 try await self.adoptAsTransferring(currentEntry)
                                 self.cancelRedundant(group)
+                                holdsLine = holdsLine || !keepsFailing
                             }
                         } else if currentEntry.manifest.state == .transferring {
                             if activeGroup.isEmpty {
-                                try await self.transfer(entry: currentEntry, accounting: &accounting)
+                                if !holdsLine {
+                                    try await self.transfer(entry: currentEntry, accounting: &accounting)
+                                    holdsLine = !keepsFailing
+                                }
                             } else {
                                 self.cancelRedundant(group)
+                                holdsLine = holdsLine || !keepsFailing
                             }
                         }
                     case .delivered, .captured, .persisted, .finalized, .acked, .safeToDelete:
@@ -502,6 +517,8 @@ private extension WatchRelaySender {
                 at: self.clock()
             )
             self.notifyStateChanged()
+            // The next recording goes once this one has reached the phone.
+            await self.requestDrain(trigger: .transferFinished)
         } catch {
             watchRelaySenderLog.error("watch relay finish handling failed: \(String(describing: error), privacy: .public)")
         }

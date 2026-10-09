@@ -863,21 +863,44 @@ actor TransferEngine {
         }
     }
 
+    /// How many failed attempts an item makes before newer items of its source
+    /// may go ahead of it while it waits to retry.
+    static let orderedRetryLimit = 3
+
+    /// Each source's next item: its oldest waiting one, so the journal receives
+    /// a source in the order it was captured and something just captured never
+    /// goes ahead of older items of its source. An item still retrying holds
+    /// newer ones back until it has failed `orderedRetryLimit` times.
+    private func orderedCandidates(wallNow: Date) -> [TransferStoredItem] {
+        let waiting = self.queuedItems.values
+            .filter { !self.inFlight.contains($0.manifest.itemID) }
+            .filter { !self.droppedItemIDs.contains($0.manifest.itemID) }
+            .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
+        var candidates: [TransferStoredItem] = []
+        for items in Dictionary(grouping: waiting, by: { $0.manifest.sourceKey }).values {
+            for item in items.sorted(by: self.itemSort) {
+                if TransferClockMath.retryEligible(
+                    nextAttemptAt: item.manifest.nextAttemptAt,
+                    wallNow: wallNow,
+                    maxDelay: self.pacer.defaults.maxDelay
+                ) {
+                    candidates.append(item)
+                    break
+                }
+                if item.manifest.retryCount < Self.orderedRetryLimit {
+                    break
+                }
+            }
+        }
+        return candidates
+    }
+
     private func nextEligibleItem() async -> TransferStoredItem? {
         let wallNow = self.clock.wallNow()
+        let candidates = self.orderedCandidates(wallNow: wallNow)
         for band in TransferPriorityBand.allCases {
-            let bandItems = self.queuedItems.values
+            let bandItems = candidates
                 .filter { self.band(for: $0.manifest, wallNow: wallNow) == band }
-                .filter { !self.inFlight.contains($0.manifest.itemID) }
-                .filter { !self.droppedItemIDs.contains($0.manifest.itemID) }
-                .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
-                .filter {
-                    TransferClockMath.retryEligible(
-                        nextAttemptAt: $0.manifest.nextAttemptAt,
-                        wallNow: wallNow,
-                        maxDelay: self.pacer.defaults.maxDelay
-                    )
-                }
             guard !bandItems.isEmpty else { continue }
             let grouped = Dictionary(grouping: bandItems, by: { $0.manifest.sourceKey })
             let sources = grouped.keys.sorted()

@@ -10,6 +10,7 @@ nonisolated enum RelayTrigger: String, CaseIterable, Sendable {
     case connectivityActivation
     case connectivityReachability
     case durableACK
+    case transferFinished
     case testDirect
 }
 

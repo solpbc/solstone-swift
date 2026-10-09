@@ -1217,8 +1217,8 @@ nonisolated final class TransferTests: XCTestCase {
         try await engine.start()
         let thirdID = Self.uuid(620)
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(618)), payloads: self.audioPayloads())
-        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(619)), payloads: self.audioPayloads())
-        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: thirdID), payloads: self.audioPayloads())
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(619), source: "beta"), payloads: self.audioPayloads())
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: thirdID, source: "gamma"), payloads: self.audioPayloads())
 
         try await self.waitFor("two in flight") {
             let snapshot = await engine.snapshot()
@@ -1299,7 +1299,7 @@ nonisolated final class TransferTests: XCTestCase {
         try await engine.start()
         await engine.pause()
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(630)), payloads: self.audioPayloads())
-        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(631)), payloads: self.audioPayloads())
+        _ = try await engine.enqueue(manifest: self.makeManifest(itemID: Self.uuid(631), source: "beta"), payloads: self.audioPayloads())
         await engine.resume()
 
         try await self.waitFor("first dispatch before delay") {
@@ -1700,6 +1700,75 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertEqual(snapshot.counters.attentionCount, 0)
     }
 
+    func testOneSourceSendsOldestFirstEvenPastTheFreshBand() async throws {
+        TransferURLProtocol.handler = { request, _ in TransferURLProtocol.hold(request) }
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        let engine = self.makeEngine(clock: clock, maxConcurrent: 2)
+        try await engine.start()
+        await engine.pause()
+
+        // A backlog captured hours ago, then something just captured on the
+        // same source, and something just captured on another source.
+        let backlog = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(701), createdAt: Self.baseDate.addingTimeInterval(-3 * 3600)),
+            payloads: self.audioPayloads()
+        )
+        let justCaptured = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(702), createdAt: Self.baseDate.addingTimeInterval(-60)),
+            payloads: self.audioPayloads()
+        )
+        let otherSource = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(703), source: "beta", createdAt: Self.baseDate.addingTimeInterval(-60)),
+            payloads: self.audioPayloads()
+        )
+
+        await engine.resume()
+        try await self.waitFor("two dispatches") {
+            TransferURLProtocol.requests.count == 2
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        let dispatched = Set(TransferURLProtocol.requests.compactMap(Self.boundaryItemID))
+        XCTAssertEqual(dispatched, Set([backlog, otherSource]))
+        XCTAssertFalse(dispatched.contains(justCaptured))
+    }
+
+    func testAnItemWaitingToRetryHoldsItsSourceUntilItKeepsFailing() async throws {
+        try await self.assertRetryingItemHoldsItsSource(retryCount: 0, newerGoes: false)
+    }
+
+    func testAnItemThatKeepsFailingStopsHoldingItsSource() async throws {
+        try await self.assertRetryingItemHoldsItsSource(retryCount: TransferEngine.orderedRetryLimit, newerGoes: true)
+    }
+
+    private func assertRetryingItemHoldsItsSource(retryCount: Int, newerGoes: Bool) async throws {
+        TransferURLProtocol.handler = { request, _ in TransferURLProtocol.hold(request) }
+        let clock = FakeTransferClock(wall: Self.baseDate)
+        let engine = self.makeEngine(clock: clock, maxConcurrent: 2)
+        try await engine.start()
+        await engine.pause()
+        var waiting = self.makeManifest(
+            itemID: Self.uuid(711),
+            createdAt: Self.baseDate.addingTimeInterval(-600),
+            nextAttemptAt: Self.baseDate.addingTimeInterval(60)
+        )
+        waiting.retryCount = retryCount
+        _ = try await engine.enqueue(manifest: waiting, payloads: self.audioPayloads())
+        let newer = try await engine.enqueue(
+            manifest: self.makeManifest(itemID: Self.uuid(712), createdAt: Self.baseDate.addingTimeInterval(-300)),
+            payloads: self.audioPayloads()
+        )
+        await engine.resume()
+        if newerGoes {
+            try await self.waitFor("newer item dispatched") {
+                TransferURLProtocol.requests.count == 1
+            }
+            XCTAssertEqual(TransferURLProtocol.requests.compactMap(Self.boundaryItemID), [newer])
+        } else {
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertTrue(TransferURLProtocol.requests.isEmpty, "a retrying item holds its source")
+        }
+    }
+
     func testFreshBandBoundaryAtFifteenMinutes() async throws {
         TransferURLProtocol.handler = { request, _ in TransferURLProtocol.hold(request) }
         let clock = FakeTransferClock(wall: Self.baseDate)
@@ -1720,11 +1789,11 @@ nonisolated final class TransferTests: XCTestCase {
             payloads: self.audioPayloads()
         )
         let fresh = try await engine.enqueue(
-            manifest: self.makeManifest(itemID: Self.uuid(52), createdAt: Self.baseDate.addingTimeInterval(-899)),
+            manifest: self.makeManifest(itemID: Self.uuid(52), source: "beta", createdAt: Self.baseDate.addingTimeInterval(-899)),
             payloads: self.audioPayloads()
         )
         let exact = try await engine.enqueue(
-            manifest: self.makeManifest(itemID: Self.uuid(53), createdAt: Self.baseDate.addingTimeInterval(-900)),
+            manifest: self.makeManifest(itemID: Self.uuid(53), source: "gamma", createdAt: Self.baseDate.addingTimeInterval(-900)),
             payloads: self.audioPayloads()
         )
         _ = stale
@@ -1746,7 +1815,7 @@ nonisolated final class TransferTests: XCTestCase {
             payloads: self.audioPayloads()
         ).item.manifest.itemID)
         _ = try spool.commitStagedItem(itemID: spool.stage(
-            manifest: self.makeManifest(itemID: Self.uuid(62), nextAttemptAt: Self.baseDate.addingTimeInterval(600)),
+            manifest: self.makeManifest(itemID: Self.uuid(62), source: "beta", nextAttemptAt: Self.baseDate.addingTimeInterval(600)),
             payloads: self.audioPayloads()
         ).item.manifest.itemID)
 

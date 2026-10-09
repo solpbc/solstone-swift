@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Changed
+
+- your apple watch now passes its audio to your iphone one recording at a time, oldest first, and on your iphone or ipad each source's audio goes to your journal oldest first. new audio no longer jumps ahead of older audio from the same source, unless that older audio keeps failing to go through.
+
 ### Fixed
 
 - the app now saves your journal's current addresses each time it connects, so once it has connected after your journal's address changes, it keeps using the new one without pairing again. before, it kept using the addresses from when you paired.

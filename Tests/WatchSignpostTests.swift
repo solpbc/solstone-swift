@@ -49,6 +49,7 @@ final class WatchSignpostTests: XCTestCase {
             .connectivityActivation,
             .connectivityReachability,
             .durableACK,
+            .transferFinished,
             .testDirect,
         ])
         XCTAssertEqual(RelayResult.allCases, [
