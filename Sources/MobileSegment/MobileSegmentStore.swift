@@ -68,25 +68,37 @@ final class MobileSegmentStore {
         directory.appendingPathComponent("audio-writer.json", isDirectory: false)
     }
 
+    var testAudioWriterReceiptProbeError: (any Error)?
+
     func writeAudioWriterReceipt(_ receipt: PhoneAudioWriterReceipt, in directory: URL) throws {
         let url = self.audioWriterReceiptURL(in: directory)
-        let data = try self.encoder.encode(receipt)
+        try Self.writeAudioWriterReceiptAtomic(receipt, to: url)
+    }
+
+    nonisolated static func writeAudioWriterReceiptAtomic(_ receipt: PhoneAudioWriterReceipt, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(receipt)
         try data.write(to: url, options: .atomic)
     }
 
     func readAudioWriterReceipt(in directory: URL, expectedSegmentID: UUID) -> PhoneAudioWriterReceiptReadResult {
+        if self.testAudioWriterReceiptProbeError != nil {
+            self.testAudioWriterReceiptProbeError = nil
+            return .unusable
+        }
+        // Listing the parent establishes true name absence without following a
+        // broken symlink. A failed lookup/read never becomes legacy recovery.
         let url = self.audioWriterReceiptURL(in: directory)
-        var isDir: ObjCBool = false
-        guard self.fileManager.fileExists(atPath: url.path, isDirectory: &isDir) else {
-            return .absent
-        }
-        if isDir.boolValue {
+        do {
+            let names = try self.fileManager.contentsOfDirectory(atPath: directory.path)
+            guard names.contains(url.lastPathComponent) else { return .absent }
+            let data = try Data(contentsOf: url)
+            return PhoneAudioWriterReceipt.parse(data: data, expectedSegmentID: expectedSegmentID)
+        } catch {
             return .unusable
         }
-        guard let data = try? Data(contentsOf: url) else {
-            return .unusable
-        }
-        return PhoneAudioWriterReceipt.parse(data: data, expectedSegmentID: expectedSegmentID)
     }
 
     func locationURL(in directory: URL) -> URL {
@@ -283,12 +295,30 @@ final class MobileSegmentStore {
     }
 
     func writeAudioInterruption(segmentID: UUID, reason: String, now: Date) throws {
-        let directory = self.audioInterruptionDirectory()
-        try self.fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let url = directory.appendingPathComponent("\(segmentID.uuidString).json", isDirectory: false)
-        guard !self.fileManager.fileExists(atPath: url.path) else { return }
+        try Self.writeAudioInterruptionAtomic(
+            segmentID: segmentID,
+            reason: reason,
+            now: now,
+            in: self.audioInterruptionDirectory(),
+            fileManager: self.fileManager
+        )
+    }
+
+    nonisolated static func writeAudioInterruptionAtomic(
+        segmentID: UUID,
+        reason: String,
+        now: Date,
+        in audioInterruptionDirectory: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        try fileManager.createDirectory(at: audioInterruptionDirectory, withIntermediateDirectories: true)
+        let url = audioInterruptionDirectory.appendingPathComponent("\(segmentID.uuidString).json", isDirectory: false)
+        guard !fileManager.fileExists(atPath: url.path) else { return }
         let record = MobileSegmentTombstone(segmentID: segmentID, reason: reason, recordedAt: now)
-        try self.encoder.encode(record).write(to: url, options: .atomic)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        try encoder.encode(record).write(to: url, options: .atomic)
     }
 
     func audioInterruptionCount() -> Int {

@@ -10,6 +10,7 @@ final class IntegrationTestObserverRecorder: ObserverRecording {
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)?
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
     var onEngineFault: (@Sendable (ObserverEngineFault) -> Void)?
+    var onPhoneAudioFault: (@Sendable (PhoneAudioWriterFault) -> Void)?
 
     private let session: any ObserverAudioSession
     private let permissionGranted: Bool
@@ -29,7 +30,7 @@ final class IntegrationTestObserverRecorder: ObserverRecording {
         self.permissionGranted
     }
 
-    func start(url: URL, mode _: ObserverMode) async throws -> ObserverRecordingStartResult {
+    func start(url: URL, segmentID _: UUID, sessionID _: UUID, mode _: ObserverMode) async throws -> ObserverRecordingStartResult {
         self.didActivateSession = try ObserverAudioActivator.ensureActiveRecordSession(self.session)
 
         try Self.writePlaceholderFile(to: url)
@@ -38,7 +39,7 @@ final class IntegrationTestObserverRecorder: ObserverRecording {
         return ObserverRecordingStartResult(didActivateSession: self.didActivateSession)
     }
 
-    func rotate(to url: URL) async throws -> ObserverRecordedChunk? {
+    func rotate(to url: URL, segmentID _: UUID, sessionID _: UUID) async throws -> ObserverRecordedChunk? {
         let finalized = self.finalizeCurrentChunk()
         try Self.writePlaceholderFile(to: url)
         self.currentURL = url

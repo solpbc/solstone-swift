@@ -56,7 +56,7 @@ final class MobileSegmentEngineTests: XCTestCase {
         let gate = AsyncGate()
         var rotateURLs: [URL] = []
         var currentAudioURL: URL?
-        harness.engine.rotateAudio = { nextURL in
+        harness.engine.rotateAudio = { nextURL, _ in
             rotateURLs.append(nextURL)
             let finalizedURL = try XCTUnwrap(currentAudioURL)
             try Data("next-audio-\(rotateURLs.count)".utf8).write(to: nextURL, options: .atomic)
@@ -207,7 +207,7 @@ final class MobileSegmentEngineTests: XCTestCase {
 
     func testAudioFinalizerFailureCreatesFailedMarkerAndNoUploadRequest() async throws {
         let harness = self.makeHarness()
-        harness.engine.rotateAudio = { _ in
+        harness.engine.rotateAudio = { _, _ in
             throw TestError.audioFinalizeFailed
         }
         let audioURL = try await harness.engine.startAudio(mode: .meeting)
@@ -225,6 +225,9 @@ final class MobileSegmentEngineTests: XCTestCase {
         XCTAssertEqual(manifest.audio.stage, "source-finalize")
         XCTAssertTrue(manifest.audio.reason?.contains("audioFinalizeFailed") == true)
         XCTAssertEqual(try harness.store.list(.pending).count, 0)
+        XCTAssertEqual(harness.engine.state, .idle)
+        XCTAssertNil(harness.engine.currentSegmentID)
+        XCTAssertEqual(try harness.store.list(.active).count, 0)
     }
 
     func testBoundaryCreateFailureKeepsOldSegmentOpenAndStopFinalizesIt() async throws {
