@@ -12,6 +12,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - when your journal turns audio away because of how it was labelled, the app no longer tries it again every time your iphone or ipad reconnects. that audio stays on your iphone or ipad, and the app tries it again about once a day, after the app or your journal updates, or when you tap "try now" on it.
 
+- when everything waiting on your iphone or ipad is audio your journal turned away for how it was labelled, the app no longer keeps working in the background for it after you leave the app, and doesn't show "still syncing to your journal" for it. that audio still shows as waiting.
+
 - your apple watch now passes its audio to your iphone one recording at a time, oldest first, and on your iphone or ipad each source's audio goes to your journal oldest first. new audio no longer jumps ahead of older audio from the same source, unless that older audio keeps failing to go through.
 
 - on a location item's page, the hint above "open journal" now says the places were added to your journal automatically. on any item's page, the "not in your journal yet" hint now ends "it's waiting to go in."
@@ -21,6 +23,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 - when an item is already in your journal but your journal can't be opened from this device right now, the hint above "open journal" now says the item was added, instead of asking you to connect a journal.
 
 - opening audio from "what is waiting" on the status screen no longer closes the app. before, on an iphone, it did this every time.
+
+- when "try now" on an item can't try it again, the item's page now says so. before, nothing happened.
+
+- an item's page no longer shows the raw reply your journal sent to an older version of the app. it says "your journal couldn't accept it" instead.
 
 - on an iphone or ipad set to a region that normally uses a 24-hour clock, with 24-hour time turned off, older versions of the app named audio with a 12-hour time your journal can't accept, so it never went in. the app now renames audio whose time it can confirm to the same date and time written the 24-hour way, so it can go into your journal.
 
