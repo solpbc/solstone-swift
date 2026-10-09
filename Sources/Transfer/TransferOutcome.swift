@@ -44,7 +44,8 @@ nonisolated enum TransferSuccessKind: Equatable, Sendable {
 }
 
 nonisolated enum TransferAttentionReason: Equatable, Sendable {
-    case httpClientError(statusCode: Int, detail: String?)
+    /// A journal refusal. `journalReasonCode` is the refusal body's `reason_code`, when it has one.
+    case httpClientError(statusCode: Int, detail: String?, journalReasonCode: String? = nil)
     case decodeFailed(String)
     case missingPayload(String)
     case malformedManifest(String)
@@ -117,6 +118,12 @@ nonisolated extension TransferAttentionReason {
     /// The stored reason token for a journal refusal (a 4xx).
     static let httpClientErrorCode = "http_client_error"
 
+    /// The journal's own reason code, for a refusal that carried one.
+    var journalReasonCode: String? {
+        guard case .httpClientError(_, _, let code) = self else { return nil }
+        return code
+    }
+
     /// Detail retained for a terminal attention state.
     ///
     /// Runtime-provided text is bounded before storage because the detail fans out
@@ -124,7 +131,7 @@ nonisolated extension TransferAttentionReason {
     /// each need to remember how to make a server response or NSError safe to share.
     var ownerSafeDetail: String {
         switch self {
-        case .httpClientError(let statusCode, let detail):
+        case .httpClientError(let statusCode, let detail, _):
             Self.boundedRuntimeDetail(detail, fallback: "http \(statusCode)")
         case .decodeFailed(let detail):
             detail
@@ -188,6 +195,17 @@ nonisolated enum TransferHTTPClassifier {
     /// reused for *different* content, which is a real conflict, so the detail decides.
     private static let contentAlreadyImportedDetail = "content already imported"
 
+    /// Longest journal reason code kept on a record. Every code the journal defines is far
+    /// shorter; the bound only stops an unexpected body from growing the record.
+    static let journalReasonCodeMaxLength = 64
+
+    /// The refusal body's `reason_code` as stored on the attention record: `nil` when absent or
+    /// empty, otherwise the code itself, bounded.
+    static func storedJournalReasonCode(_ code: String?) -> String? {
+        guard let code, !code.isEmpty else { return nil }
+        return String(code.prefix(Self.journalReasonCodeMaxLength))
+    }
+
     private struct ObserverIngestResponse: Decodable {
         let status: String
         let reasonCode: String?
@@ -248,14 +266,22 @@ nonisolated enum TransferHTTPClassifier {
         }
 
         if 400..<500 ~= statusCode {
-            // Never store the JSON. An import refusal's `error` is a sentence written for the
-            // owner; an ingest refusal's is a generic one, so its reason code is kept for the
-            // sync-state export and turned into owner words only where it is shown.
+            // Never store the JSON, and never the body's `detail`: some details carry device
+            // identifiers, others forward library error text. An import refusal's `error` is a
+            // sentence written for the owner; an ingest refusal's is a generic one, so its reason
+            // code is kept and turned into owner words only where it is shown. The code itself is
+            // also kept on its own, whatever the phase. A body that is not the journal's JSON
+            // envelope (a proxy's plain-text page, say) is kept as text, bounded later.
             let reasonCode = refusal?.reasonCode.map { "reason_code=\($0)" }
+            let unparsedBody = refusal == nil ? String(data: result.data, encoding: .utf8) : nil
             let detail = endpointPhase == .observerIngest
-                ? reasonCode ?? refusal?.error ?? String(data: result.data, encoding: .utf8)
-                : refusal?.error ?? reasonCode ?? String(data: result.data, encoding: .utf8)
-            return .terminalAttention(.httpClientError(statusCode: statusCode, detail: detail))
+                ? reasonCode ?? refusal?.error ?? unparsedBody
+                : refusal?.error ?? reasonCode ?? unparsedBody
+            return .terminalAttention(.httpClientError(
+                statusCode: statusCode,
+                detail: detail,
+                journalReasonCode: Self.storedJournalReasonCode(refusal?.reasonCode)
+            ))
         }
 
         if 500..<600 ~= statusCode {
@@ -288,7 +314,11 @@ nonisolated enum TransferHTTPClassifier {
             } else {
                 detail = "ingest status \(response.status) without reason_code"
             }
-            return .terminalAttention(.httpClientError(statusCode: statusCode, detail: detail))
+            return .terminalAttention(.httpClientError(
+                statusCode: statusCode,
+                detail: detail,
+                journalReasonCode: Self.storedJournalReasonCode(response.reasonCode)
+            ))
         default:
             return .terminalAttention(.decodeFailed("unknown ingest status \(response.status)"))
         }

@@ -46,10 +46,11 @@ struct DiagnosticEvent: Identifiable, Sendable {
         category: DiagnosticCategory,
         severity: DiagnosticSeverity = .info,
         message: String,
-        detail: String? = nil
+        detail: String? = nil,
+        timestamp: Date = Date()
     ) {
         self.id = UUID()
-        self.timestamp = Date()
+        self.timestamp = timestamp
         self.category = category
         self.severity = severity
         self.message = message

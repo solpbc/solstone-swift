@@ -329,9 +329,14 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         }
     }
 
+    /// Total for every `Double`: NaN, an infinity, or a value whose rounding does not fit in
+    /// `Int` returns `nil` rather than trapping. Durations come from stored metadata and from
+    /// segment keys a journal sends, so none of them is trusted to be in range.
     static func formattedDuration(_ duration: Double?) -> String? {
-        guard let duration else { return nil }
-        let totalSeconds = max(Int(duration.rounded()), 0)
+        guard let duration, duration.isFinite,
+              let wholeSeconds = Int(exactly: duration.rounded())
+        else { return nil }
+        let totalSeconds = max(wholeSeconds, 0)
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         if minutes > 0 {

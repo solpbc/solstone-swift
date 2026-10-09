@@ -69,7 +69,10 @@ final class DiagnosticLog {
     }
 
     func snapshot(tunnel: TunnelManager, syncState: [String] = []) -> String {
+        // Pinned like the segment writers: the phone's own clock preferences (a forced 12-hour
+        // clock, a non-Gregorian calendar) otherwise rewrite this fixed format.
         let formatter = DateFormatter()
+        SegmentWireTimeFormatter.configure(formatter)
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss zzz"
 
         var lines: [String] = []

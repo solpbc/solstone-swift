@@ -485,12 +485,18 @@ nonisolated struct TransferSpool: Sendable {
         _ item: TransferStoredItem,
         reason: String,
         detail: String,
+        journalReasonCode: String? = nil,
         now: Date
     ) throws -> TransferStoredItem {
         try self.ensureRootDirectories()
         var manifest = item.manifest.replacingDiskState(.attention)
         manifest.nextAttemptAt = nil
-        manifest.attention = TransferAttentionInfo(reason: reason, shortDetail: detail, movedAt: now)
+        manifest.attention = TransferAttentionInfo(
+            reason: reason,
+            shortDetail: detail,
+            movedAt: now,
+            journalReasonCode: journalReasonCode
+        )
         try self.writeManifestAtomically(manifest, in: item.directoryURL)
         let destinationURL = self.attentionDirectoryURL.appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
         if self.fileSystem.fileExists(atPath: destinationURL.path) {
@@ -1043,14 +1049,14 @@ nonisolated struct TransferSpool: Sendable {
         }
     }
 
-    private static func encoder() -> JSONEncoder {
+    static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
         return encoder
     }
 
-    private static func decoder() -> JSONDecoder {
+    static func decoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder

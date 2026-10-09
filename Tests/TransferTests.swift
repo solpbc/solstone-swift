@@ -404,12 +404,12 @@ nonisolated final class TransferTests: XCTestCase {
             (
                 TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"failed","reason_code":"envelope_invalid"}"#.utf8)),
                 .observerIngest,
-                .terminalAttention(.httpClientError(statusCode: 200, detail: "reason_code=envelope_invalid"))
+                .terminalAttention(.httpClientError(statusCode: 200, detail: "reason_code=envelope_invalid", journalReasonCode: "envelope_invalid"))
             ),
             (
                 TransferHTTPResult(statusCode: 200, data: Data(#"{"status":"conflict","reason_code":"content_conflict"}"#.utf8)),
                 .observerIngest,
-                .terminalAttention(.httpClientError(statusCode: 200, detail: "reason_code=content_conflict"))
+                .terminalAttention(.httpClientError(statusCode: 200, detail: "reason_code=content_conflict", journalReasonCode: "content_conflict"))
             ),
             (
                 TransferHTTPResult(statusCode: 204),
@@ -444,12 +444,12 @@ nonisolated final class TransferTests: XCTestCase {
             (
                 TransferHTTPResult(statusCode: 426, data: Data(#"{"status":"failed","reason_code":"protocol_version_legacy"}"#.utf8)),
                 .observerIngest,
-                .terminalAttention(.httpClientError(statusCode: 426, detail: "reason_code=protocol_version_legacy"))
+                .terminalAttention(.httpClientError(statusCode: 426, detail: "reason_code=protocol_version_legacy", journalReasonCode: "protocol_version_legacy"))
             ),
             (
                 TransferHTTPResult(statusCode: 409, data: Data(#"{"error":"Ingest request failed","reason_code":"segment_conflict"}"#.utf8)),
                 .observerIngest,
-                .terminalAttention(.httpClientError(statusCode: 409, detail: "reason_code=segment_conflict"))
+                .terminalAttention(.httpClientError(statusCode: 409, detail: "reason_code=segment_conflict", journalReasonCode: "segment_conflict"))
             ),
             (
                 TransferHTTPResult(statusCode: 400, data: Data(#"{"error":"that action isn't available in the current state.","reason_code":"invalid_operation_for_state","detail":"content already imported"}"#.utf8)),
@@ -459,12 +459,20 @@ nonisolated final class TransferTests: XCTestCase {
             (
                 TransferHTTPResult(statusCode: 400, data: Data(#"{"error":"that action isn't available in the current state.","reason_code":"invalid_operation_for_state","detail":"client_item_id already staged for different content; use a new client_item_id"}"#.utf8)),
                 .save,
-                .terminalAttention(.httpClientError(statusCode: 400, detail: "that action isn't available in the current state."))
+                .terminalAttention(.httpClientError(
+                    statusCode: 400,
+                    detail: "that action isn't available in the current state.",
+                    journalReasonCode: "invalid_operation_for_state"
+                ))
             ),
             (
                 TransferHTTPResult(statusCode: 413, data: Data(#"{"error":"that file is too large to bring in.","reason_code":"multipart_part_too_large"}"#.utf8)),
                 .save,
-                .terminalAttention(.httpClientError(statusCode: 413, detail: "that file is too large to bring in."))
+                .terminalAttention(.httpClientError(
+                    statusCode: 413,
+                    detail: "that file is too large to bring in.",
+                    journalReasonCode: "multipart_part_too_large"
+                ))
             ),
             (
                 TransferHTTPResult(statusCode: 503),

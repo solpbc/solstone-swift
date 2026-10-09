@@ -13,6 +13,7 @@ nonisolated struct SourceSyncStateDetail: Sendable {
     let attentionItemCount: Int
     let mostRecentAttentionRetryCount: Int
     let mostRecentAttentionLastRetriedAt: Date?
+    let refusedItems: RefusedItemsExport
 
     static func build(from transferEngine: TransferEngine, sourceKey: String) async -> SourceSyncStateDetail {
         let snapshots = await transferEngine.itemSnapshots(sourceKey: sourceKey)
@@ -31,7 +32,8 @@ nonisolated struct SourceSyncStateDetail: Sendable {
             mostRecentAttention: representative?.manifest.attention,
             attentionItemCount: attentionSnapshots.count,
             mostRecentAttentionRetryCount: representative?.manifest.retryCount ?? 0,
-            mostRecentAttentionLastRetriedAt: representative?.manifest.lastRetriedAt
+            mostRecentAttentionLastRetriedAt: representative?.manifest.lastRetriedAt,
+            refusedItems: RefusedItemsExport(manifests: attentionSnapshots.map(\.manifest))
         )
     }
 }
@@ -66,25 +68,33 @@ func syncStateSummaryLines(
     share: ShareTransferHolder,
     now: Date = Date()
 ) async -> [String] {
-    let rows: [(name: String, pending: Int, inFlight: Int, attention: Int, delivered: Int, lastUploadAt: Date?, recentErrorCount: Int, recentErrorDetail: String?, detail: SourceSyncStateDetail)] = await [
-        (
-            "audio", mobileSegment.pendingCount, mobileSegment.inFlightCount, mobileSegment.failedCount,
-            mobileSegment.deliveredCount, mobileSegment.lastUploadAt, mobileSegment.recentErrorCount,
-            mobileSegment.lastError, mobileSegment.syncStateDetail()
+    let rows: [SourceSyncStateLine] = await [
+        SourceSyncStateLine(
+            name: "audio", pending: mobileSegment.pendingCount, inFlight: mobileSegment.inFlightCount,
+            attention: mobileSegment.failedCount, delivered: mobileSegment.deliveredCount,
+            lastUploadAt: mobileSegment.lastUploadAt, recentErrorCount: mobileSegment.recentErrorCount,
+            recentErrorDetail: mobileSegment.lastError, detail: mobileSegment.syncStateDetail()
         ),
-        (
-            "watch", watch.pendingCount, watch.inFlightCount, watch.failedCount,
-            watch.deliveredCount, watch.lastUploadAt, watch.recentErrorCount,
-            watch.lastError, watch.syncStateDetail()
+        SourceSyncStateLine(
+            name: "watch", pending: watch.pendingCount, inFlight: watch.inFlightCount,
+            attention: watch.failedCount, delivered: watch.deliveredCount,
+            lastUploadAt: watch.lastUploadAt, recentErrorCount: watch.recentErrorCount,
+            recentErrorDetail: watch.lastError, detail: watch.syncStateDetail()
         ),
-        (
-            "share", share.pendingCount, share.inFlightCount, share.failedCount,
-            share.deliveredCount, share.lastUploadAt, share.recentErrorCount,
-            share.lastError, share.syncStateDetail()
+        SourceSyncStateLine(
+            name: "share", pending: share.pendingCount, inFlight: share.inFlightCount,
+            attention: share.failedCount, delivered: share.deliveredCount,
+            lastUploadAt: share.lastUploadAt, recentErrorCount: share.recentErrorCount,
+            recentErrorDetail: share.lastError, detail: share.syncStateDetail()
         ),
     ]
+    return syncStateSummaryLines(rows: rows, now: now)
+}
 
+/// The "sync state by source" block, one entry per source with anything to report.
+nonisolated func syncStateSummaryLines(rows: [SourceSyncStateLine], now: Date) -> [String] {
     var lines: [String] = ["--- sync state by source ---"]
+    var listedRefusedItems = false
     for row in rows where row.pending + row.inFlight + row.attention + row.delivered > 0 {
         var line = "\(row.name): pending=\(row.pending) inFlight=\(row.inFlight)"
             + " attention=\(row.attention) delivered=\(row.delivered)"
@@ -108,9 +118,15 @@ func syncStateSummaryLines(
         } else if let recentError = row.recentErrorDetail, row.recentErrorCount > 0 {
             lines.append("  \(row.name) recent retry error: \(recentError) (\(row.recentErrorCount) recent)")
         }
+
+        lines.append(contentsOf: row.detail.refusedItems.lines(sourceName: row.name, now: now))
+        listedRefusedItems = listedRefusedItems || !row.detail.refusedItems.listed.isEmpty
     }
     if lines.count == 1 {
         lines.append("(nothing waiting on any source)")
+    }
+    if listedRefusedItems {
+        lines.append(RefusedItemsExport.appVersionNote)
     }
     return lines
 }

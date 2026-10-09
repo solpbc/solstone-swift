@@ -1408,6 +1408,7 @@ actor TransferEngine {
             item,
             reason: self.reasonCode(for: reason),
             detail: detail,
+            journalReasonCode: reason.journalReasonCode,
             now: self.clock.wallNow()
         ) {
             self.queuedItems.removeValue(forKey: item.manifest.itemID)

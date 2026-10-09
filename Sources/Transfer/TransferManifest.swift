@@ -351,11 +351,17 @@ nonisolated struct TransferAttentionInfo: Codable, Equatable, Sendable {
     var reason: String
     var shortDetail: String
     var movedAt: Date
+    /// The journal's own `reason_code` for a refusal, exactly as the journal sent it (bounded).
+    /// Only the code is kept: the journal's `detail` text is never stored, because some details
+    /// carry device identifiers or forwarded library errors. `nil` for every other attention
+    /// reason, and for records stored before this field existed.
+    var journalReasonCode: String?
 
-    init(reason: String, shortDetail: String, movedAt: Date) {
+    init(reason: String, shortDetail: String, movedAt: Date, journalReasonCode: String? = nil) {
         self.reason = reason
         self.shortDetail = shortDetail
         self.movedAt = movedAt
+        self.journalReasonCode = journalReasonCode
     }
 }
 
