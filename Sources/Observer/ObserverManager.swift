@@ -74,6 +74,9 @@ final class ObserverManager {
     @ObservationIgnored private var watchdogTask: Task<Void, Never>?
     @ObservationIgnored private var interruptionStartedAt: Date?
     @ObservationIgnored private var currentSessionID: UUID?
+    @ObservationIgnored private var currentSegmentID: UUID?
+    @ObservationIgnored private var startingSessionID: UUID?
+    @ObservationIgnored private var startingSegmentID: UUID?
     @ObservationIgnored private var sessionStartedAt: Date?
     @ObservationIgnored private var currentChunkIndex = 0
     @ObservationIgnored private var silenceWindowStart: TimeInterval?
@@ -97,9 +100,17 @@ final class ObserverManager {
         self.clock = clock
         self.liveActivity = liveActivity
         self.defaults = defaults
-        self.mobileSegmentEngine.rotateAudio = { [weak recorder] url in
-            guard let recorder else { return nil }
-            return try await recorder.rotate(to: url)
+        self.mobileSegmentEngine.rotateAudio = { [weak self, weak recorder] url, nextSegmentID in
+            guard let self, let recorder, let sessionID = self.currentSessionID else { return nil }
+            self.currentSegmentID = nextSegmentID
+            do {
+                return try await recorder.rotate(to: url, segmentID: nextSegmentID, sessionID: sessionID)
+            } catch {
+                self.resetRuntime()
+                self.state = .error(.unavailable(reason: "audio input unavailable"))
+                await self.liveActivity.end(sessionID: sessionID)
+                throw error
+            }
         }
         self.recorder.onMeter = { [weak self] level, duration in
             Task { @MainActor [weak self] in
@@ -114,6 +125,11 @@ final class ObserverManager {
         self.recorder.onEngineFault = { [weak self] fault in
             Task { @MainActor [weak self] in
                 await self?.handleEngineFault(fault)
+            }
+        }
+        self.recorder.onPhoneAudioFault = { [weak self] fault in
+            Task { @MainActor [weak self] in
+                await self?.handlePhoneAudioFault(fault)
             }
         }
     }
@@ -143,6 +159,7 @@ final class ObserverManager {
 
         let sessionID = UUID()
         let startedAt = self.clock.now()
+        self.startingSessionID = sessionID
 
         var didOpenAudioSegment = false
         do {
@@ -152,9 +169,16 @@ final class ObserverManager {
                 await self.mobileSegmentEngine.stopAudio(finalized: nil)
                 return .refused(.cancelled)
             }
+            guard let segmentID = self.mobileSegmentEngine.currentSegmentID else {
+                throw ObserverError.unavailable(reason: "missing segment ID")
+            }
+            self.startingSegmentID = segmentID
 
-            _ = try await self.recorder.start(url: chunkURL, mode: mode)
+            _ = try await self.recorder.start(url: chunkURL, segmentID: segmentID, sessionID: sessionID, mode: mode)
             guard self.isCurrentStart(startGeneration) else {
+                if case .error(let error) = self.state {
+                    return .refused(.error(error))
+                }
                 let stopResult = await self.stopRecorder()
                 await self.mobileSegmentEngine.stopAudio(finalized: stopResult.finalized)
                 if let failure = stopResult.failure {
@@ -164,6 +188,9 @@ final class ObserverManager {
             }
 
             self.currentSessionID = sessionID
+            self.currentSegmentID = segmentID
+            self.startingSessionID = nil
+            self.startingSegmentID = nil
             self.sessionStartedAt = startedAt
             self.currentChunkIndex = 0
             self.silenceWindowStart = nil
@@ -182,20 +209,33 @@ final class ObserverManager {
             self.defaults.set(true, forKey: AudioStorageKey.enrolled)
             await self.liveActivity.start(mode: mode, sessionID: sessionID, startedAt: startedAt)
             guard self.isCurrentStart(startGeneration) else {
+                if case .error(let error) = self.state {
+                    return .refused(.error(error))
+                }
                 return .refused(.cancelled)
             }
             self.startElapsedTask()
             self.startWatchdogTask()
             return .started
         } catch let observerError as ObserverError {
+            self.startingSessionID = nil
+            self.startingSegmentID = nil
             guard self.isCurrentStart(startGeneration) else {
+                if case .error(let error) = self.state {
+                    return .refused(.error(error))
+                }
                 return .refused(.cancelled)
             }
             await self.releaseFailedAudioStart(didOpenAudioSegment)
             self.state = .error(observerError)
             return .refused(.error(observerError))
         } catch {
+            self.startingSessionID = nil
+            self.startingSegmentID = nil
             guard self.isCurrentStart(startGeneration) else {
+                if case .error(let error) = self.state {
+                    return .refused(.error(error))
+                }
                 return .refused(.cancelled)
             }
             await self.releaseFailedAudioStart(didOpenAudioSegment)
@@ -469,10 +509,38 @@ private extension ObserverManager {
         self.interruptionDeadlineTask = nil
     }
 
+    func handlePhoneAudioFault(_ fault: PhoneAudioWriterFault) async {
+        if case .starting = self.state,
+           fault.sessionID == self.startingSessionID,
+           fault.segmentID == self.startingSegmentID {
+            managerLog.error("observer: starting writer faulted: \(fault.reason, privacy: .public)")
+            self.startGeneration &+= 1
+            self.startingSessionID = nil
+            self.startingSegmentID = nil
+            await self.releaseFailedAudioStart(true)
+            self.state = .error(.unavailable(reason: "audio input unavailable"))
+            return
+        }
+
+        guard case .active(let session) = self.state,
+              fault.sessionID == session.sessionID,
+              fault.segmentID == self.currentSegmentID else {
+            managerLog.info("observer: ignoring stale audio writer fault")
+            return
+        }
+
+        managerLog.error("observer: active writer faulted: \(fault.reason, privacy: .public)")
+        _ = await self.stopSession()
+        self.state = .error(.unavailable(reason: "audio input unavailable"))
+    }
+
     func resetRuntime() {
         self.cancelTasks()
         self.interruptionStartedAt = nil
         self.currentSessionID = nil
+        self.currentSegmentID = nil
+        self.startingSessionID = nil
+        self.startingSegmentID = nil
         self.sessionStartedAt = nil
         self.currentChunkIndex = 0
         self.silenceWindowStart = nil

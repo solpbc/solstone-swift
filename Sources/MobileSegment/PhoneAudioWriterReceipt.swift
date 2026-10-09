@@ -3,19 +3,19 @@
 
 import Foundation
 
-enum PhoneAudioWriterReceiptPhase: String, Codable, Sendable, Equatable {
+nonisolated enum PhoneAudioWriterReceiptPhase: String, Codable, Sendable, Equatable {
     case writing
     case completed
     case faulted
 }
 
-enum PhoneAudioWriterReceiptReadResult: Sendable, Equatable {
+nonisolated enum PhoneAudioWriterReceiptReadResult: Sendable, Equatable {
     case absent
     case valid(PhoneAudioWriterReceipt)
     case unusable
 }
 
-struct PhoneAudioWriterReceipt: Codable, Sendable, Equatable {
+nonisolated struct PhoneAudioWriterReceipt: Codable, Sendable, Equatable {
     static let expectedVersion: Int = 1
     static let expectedSampleRate: Int = 16_000
     static let allowedFaultReasons: Set<String> = [

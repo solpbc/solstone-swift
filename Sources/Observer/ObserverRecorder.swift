@@ -31,10 +31,11 @@ protocol ObserverRecording: AnyObject {
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)? { get set }
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)? { get set }
     var onEngineFault: (@Sendable (ObserverEngineFault) -> Void)? { get set }
+    var onPhoneAudioFault: (@Sendable (PhoneAudioWriterFault) -> Void)? { get set }
 
     func requestPermission() async -> Bool
-    func start(url: URL, mode: ObserverMode) async throws -> ObserverRecordingStartResult
-    func rotate(to url: URL) async throws -> ObserverRecordedChunk?
+    func start(url: URL, segmentID: UUID, sessionID: UUID, mode: ObserverMode) async throws -> ObserverRecordingStartResult
+    func rotate(to url: URL, segmentID: UUID, sessionID: UUID) async throws -> ObserverRecordedChunk?
     func stop() async throws -> ObserverRecordedChunk?
     func pause() async
     func resume() async throws
@@ -85,12 +86,20 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
 
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
     var onEngineFault: (@Sendable (ObserverEngineFault) -> Void)?
+    var onPhoneAudioFault: (@Sendable (PhoneAudioWriterFault) -> Void)?
 
     private let engine: AVAudioEngine
+    private let captureNode: AVAudioNode?
     private let session: any ObserverAudioSession
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
+    private let clock: any ObserverClock
+    private let interruptionDirectory: URL
     private let tapState = ObserverTapWriter()
+
+    private var writer: PhoneAudioFragmentWriter?
+    private var workerTask: Task<Void, Never>?
+    private var currentSegmentID: UUID?
     private var didActivateSession = false
     private var interruptionObserver: NSObjectProtocol?
     private var configurationChangeObserver: NSObjectProtocol?
@@ -98,14 +107,21 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
 
     init(
         engine: AVAudioEngine = AVAudioEngine(),
+        captureNode: AVAudioNode? = nil,
         session: any ObserverAudioSession = AVAudioSession.sharedInstance(),
         fileManager: FileManager = .default,
-        notificationCenter: NotificationCenter = .default
+        notificationCenter: NotificationCenter = .default,
+        clock: any ObserverClock = SystemObserverClock(),
+        interruptionDirectory: URL? = nil
     ) {
         self.engine = engine
+        self.captureNode = captureNode
         self.session = session
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
+        self.clock = clock
+        self.interruptionDirectory = interruptionDirectory
+            ?? MobileSegmentStore(fileManager: fileManager).audioInterruptionDirectory()
         super.init()
     }
 
@@ -126,10 +142,46 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         }
     }
 
-    func start(url: URL, mode _: ObserverMode) async throws -> ObserverRecordingStartResult {
-        self.didActivateSession = try ObserverAudioActivator.ensureActiveRecordSession(self.session)
+    func start(url: URL, segmentID: UUID, sessionID: UUID, mode _: ObserverMode) async throws -> ObserverRecordingStartResult {
+        guard self.writer == nil else { throw ObserverError.unavailable(reason: "audio input unavailable") }
+        if let workerTask {
+            _ = await workerTask.result
+        }
 
-        try self.installTap(initialURL: url)
+        self.didActivateSession = try ObserverAudioActivator.ensureActiveRecordSession(self.session)
+        guard let format = Self.validatedTapFormat(self.recordingFormat),
+              Self.isValidRecordingFormat(format)
+        else {
+            self.deactivateOwnedSession()
+            throw ObserverError.unavailable(reason: "audio input unavailable")
+        }
+
+        PhoneAudioWriterLease.acquire(segmentID)
+
+        let writer: PhoneAudioFragmentWriter
+        do {
+            writer = try PhoneAudioFragmentWriter(
+                url: url,
+                segmentID: segmentID,
+                sessionID: sessionID,
+                sourceFormat: format,
+                clock: self.clock,
+                interruptionDirectory: self.interruptionDirectory,
+                onPhoneAudioFault: self.onPhoneAudioFault
+            )
+            try await writer.start()
+        } catch {
+            PhoneAudioWriterLease.release(segmentID)
+            self.deactivateOwnedSession()
+            throw error
+        }
+
+        self.writer = writer
+        self.currentSegmentID = segmentID
+        self.workerTask = Task { await writer.runWorkerLoop() }
+        self.tapState.setQueue(writer.queue)
+
+        try self.installTap(format: format)
         self.installInterruptionObserver()
         self.installEngineFaultObservers()
         do {
@@ -137,32 +189,121 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
                 self.engine.prepare()
                 try self.engine.start()
             }
+            try await writer.checkStartup()
         } catch {
-            self.removeInterruptionObserver()
-            self.removeEngineFaultObservers()
-            self.engine.inputNode.removeTap(onBus: 0)
+            _ = try? await self.stop()
             throw error
         }
         return ObserverRecordingStartResult(didActivateSession: self.didActivateSession)
     }
 
-    func rotate(to url: URL) async throws -> ObserverRecordedChunk? {
-        try self.prepareFile(at: url)
+    func rotate(to url: URL, segmentID: UUID, sessionID: UUID) async throws -> ObserverRecordedChunk? {
+        guard let format = Self.validatedTapFormat(self.recordingFormat),
+              Self.isValidRecordingFormat(format)
+        else {
+            throw ObserverError.unavailable(reason: "unsupported audio format")
+        }
+
+        self.engine.pause()
+        self.tapState.setQueue(nil)
+        let priorWriter = self.writer
+        let priorSegmentID = self.currentSegmentID
+
+        let priorChunk: ObserverRecordedChunk?
+        do {
+            priorChunk = try await priorWriter?.stop()
+        } catch {
+            _ = try? await self.stop()
+            throw PhoneAudioRotationHandoffFailure(priorChunk: nil)
+        }
+
+        if let priorSegmentID {
+            PhoneAudioWriterLease.release(priorSegmentID)
+        }
+
+        PhoneAudioWriterLease.acquire(segmentID)
+
+        let nextWriter: PhoneAudioFragmentWriter
+        do {
+            nextWriter = try PhoneAudioFragmentWriter(
+                url: url,
+                segmentID: segmentID,
+                sessionID: sessionID,
+                sourceFormat: format,
+                clock: self.clock,
+                interruptionDirectory: self.interruptionDirectory,
+                onPhoneAudioFault: self.onPhoneAudioFault
+            )
+            try await nextWriter.start()
+        } catch {
+            PhoneAudioWriterLease.release(segmentID)
+            _ = try? await self.stop()
+            throw PhoneAudioRotationHandoffFailure(priorChunk: priorChunk)
+        }
+
+        self.writer = nextWriter
+        self.currentSegmentID = segmentID
+        self.workerTask = Task { await nextWriter.runWorkerLoop() }
+        self.tapState.setQueue(nextWriter.queue)
+
+        do {
+            self.engine.prepare()
+            try self.engine.start()
+            try await nextWriter.checkStartup()
+        } catch {
+            _ = try? await self.stop()
+            throw PhoneAudioRotationHandoffFailure(priorChunk: priorChunk)
+        }
+
+        return priorChunk
     }
 
     func stop() async throws -> ObserverRecordedChunk? {
-        self.engine.inputNode.removeTap(onBus: 0)
+        self.recordingNode.removeTap(onBus: 0)
         self.engine.stop()
         self.removeInterruptionObserver()
         self.removeEngineFaultObservers()
 
-        let finalized = self.tapState.finalizeAndReset()
+        self.tapState.setQueue(nil)
+        let writer = self.writer
+        let segmentID = self.currentSegmentID
+
+        var stopError: (any Error)?
+        let chunk: ObserverRecordedChunk?
+        if let writer {
+            do {
+                chunk = try await writer.stop()
+            } catch {
+                stopError = error
+                chunk = nil
+            }
+        } else {
+            chunk = self.tapState.finalizeAndReset()
+        }
+
+        if let workerTask {
+            _ = await workerTask.result
+            self.workerTask = nil
+        }
+
+        let stoppedWriting: Bool
+        if let writer { stoppedWriting = await writer.hasStoppedWriting }
+        else { stoppedWriting = true }
+        if stoppedWriting {
+            self.writer = nil
+            self.currentSegmentID = nil
+            if let segmentID { PhoneAudioWriterLease.release(segmentID) }
+        }
 
         if self.didActivateSession {
             try? self.session.setActive(false, options: [])
         }
         self.didActivateSession = false
-        return finalized
+
+        if let stopError {
+            throw stopError
+        }
+        return chunk
     }
 
     func pause() async {
@@ -177,10 +318,12 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
     }
 
     func restart() async throws {
-        self.engine.inputNode.removeTap(onBus: 0)
+        self.recordingNode.removeTap(onBus: 0)
         self.engine.stop()
-        let inputNode = self.engine.inputNode
-        guard let format = Self.validatedTapFormat(inputNode.inputFormat(forBus: 0)) else {
+        let inputNode = self.recordingNode
+        guard let format = Self.validatedTapFormat(self.recordingFormat),
+              Self.isValidRecordingFormat(format)
+        else {
             throw ObserverError.unavailable(reason: "audio input unavailable")
         }
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: self.tapState.makeTapBlock())
@@ -192,15 +335,28 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         guard let format, format.sampleRate > 0, format.channelCount > 0 else { return nil }
         return format
     }
+
+    nonisolated static func isValidRecordingFormat(_ format: AVAudioFormat) -> Bool {
+        format.commonFormat == .pcmFormatFloat32
+            && format.sampleRate >= 8_000 && format.sampleRate <= 192_000
+            && format.channelCount >= 1 && format.channelCount <= 8
+    }
 }
 
 private extension LiveObserverRecorder {
-    func installTap(initialURL: URL) throws {
-        _ = try self.prepareFile(at: initialURL)
-        let inputNode = self.engine.inputNode
-        guard let format = Self.validatedTapFormat(inputNode.inputFormat(forBus: 0)) else {
-            throw ObserverError.unavailable(reason: "audio input unavailable")
-        }
+    var recordingNode: AVAudioNode { self.captureNode ?? self.engine.inputNode }
+    var recordingFormat: AVAudioFormat {
+        if let captureNode { return captureNode.outputFormat(forBus: 0) }
+        return self.engine.inputNode.inputFormat(forBus: 0)
+    }
+
+    func deactivateOwnedSession() {
+        if self.didActivateSession { try? self.session.setActive(false, options: []) }
+        self.didActivateSession = false
+    }
+
+    func installTap(format: AVAudioFormat) throws {
+        let inputNode = self.recordingNode
         inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: self.tapState.makeTapBlock())
     }
@@ -308,6 +464,7 @@ private extension LiveObserverRecorder {
 
 nonisolated final class ObserverTapWriter: Sendable {
     private struct State {
+        var queue: PhoneAudioPCMQueue?
         var file: AVAudioFile?
         var url: URL?
         var duration: TimeInterval = 0
@@ -316,9 +473,14 @@ nonisolated final class ObserverTapWriter: Sendable {
         var cachedConverter: AVAudioConverter?
         var cachedSourceFormat: AVAudioFormat?
         var convertOverride: (@Sendable (AVAudioPCMBuffer, AVAudioFormat) -> AVAudioPCMBuffer?)?
+        var hasFaulted: Bool = false
     }
 
     private let lock = OSAllocatedUnfairLock(uncheckedState: State())
+
+    var hasFaulted: Bool {
+        self.lock.withLockUnchecked { $0.hasFaulted }
+    }
 
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)? {
         get { self.lock.withLockUnchecked { $0.onMeter } }
@@ -332,6 +494,17 @@ nonisolated final class ObserverTapWriter: Sendable {
         set { self.lock.withLockUnchecked { $0.convertOverride = newValue } }
     }
 
+    func setQueue(_ queue: PhoneAudioPCMQueue?) {
+        self.lock.withLockUnchecked { state in
+            state.queue = queue
+            if queue != nil {
+                state.hasFaulted = false
+                state.duration = 0
+                state.lastReportedDuration = 0
+            }
+        }
+    }
+
     /// Installs a freshly created file as the active chunk target and returns the
     /// previously active chunk (if any) so the caller can hand it off (rotate).
     func swap(to file: AVAudioFile, url: URL) -> ObserverRecordedChunk? {
@@ -343,6 +516,7 @@ nonisolated final class ObserverTapWriter: Sendable {
             state.lastReportedDuration = 0
             state.cachedConverter = nil
             state.cachedSourceFormat = nil
+            state.hasFaulted = false
             return prior
         }
     }
@@ -351,12 +525,14 @@ nonisolated final class ObserverTapWriter: Sendable {
     func finalizeAndReset() -> ObserverRecordedChunk? {
         self.lock.withLockUnchecked { state in
             let chunk = Self.chunk(from: state)
+            state.queue = nil
             state.file = nil
             state.url = nil
             state.duration = 0
             state.lastReportedDuration = 0
             state.cachedConverter = nil
             state.cachedSourceFormat = nil
+            state.hasFaulted = false
             return chunk
         }
     }
@@ -365,11 +541,35 @@ nonisolated final class ObserverTapWriter: Sendable {
     func write(_ buffer: AVAudioPCMBuffer) {
         let pending: (@Sendable (Float, TimeInterval) -> Void, Float, TimeInterval)? =
             self.lock.withLockUnchecked { state in
+                if state.hasFaulted { return nil }
+
+                if let queue = state.queue {
+                    let level = LiveObserverRecorder.decibels(for: buffer)
+                    let pushResult = queue.push(buffer: buffer)
+                    if case .faulted = pushResult {
+                        state.hasFaulted = true
+                        return nil
+                    }
+                    if case .closed = pushResult {
+                        return nil
+                    }
+                    let sampleRate = buffer.format.sampleRate
+                    if sampleRate > 0 {
+                        state.duration += Double(buffer.frameLength) / sampleRate
+                    }
+                    let duration = state.duration
+                    guard duration - state.lastReportedDuration >= 0.25 else { return nil }
+                    state.lastReportedDuration = duration
+                    guard let meter = state.onMeter else { return nil }
+                    return (meter, level, duration)
+                }
+
                 guard let file = state.file else { return nil }
                 let target = file.processingFormat
                 let toWrite: AVAudioPCMBuffer
                 if let override = state.convertOverride {
                     guard let converted = override(buffer, target) else {
+                        state.hasFaulted = true
                         observerLog.error("observer buffer convert failed")
                         return nil
                     }
@@ -379,14 +579,15 @@ nonisolated final class ObserverTapWriter: Sendable {
                 } else if let converted = Self.convert(buffer, to: target, state: &state) {
                     toWrite = converted
                 } else {
+                    state.hasFaulted = true
                     observerLog.error("observer buffer convert failed")
                     return nil
                 }
                 do {
                     try file.write(from: toWrite)
-                    let sampleRate = buffer.format.sampleRate
+                    let sampleRate = target.sampleRate
                     if sampleRate > 0 {
-                        state.duration += Double(buffer.frameLength) / sampleRate
+                        state.duration += Double(toWrite.frameLength) / sampleRate
                     }
                     let duration = state.duration
                     guard duration - state.lastReportedDuration >= 0.25 else { return nil }

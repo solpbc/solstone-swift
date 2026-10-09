@@ -585,7 +585,7 @@ final class ScreencastDeadSessionTests: XCTestCase {
 
         // Open engine with audio + screencast at T0
         var currentAudioURL: URL?
-        engine.rotateAudio = { nextURL in
+        engine.rotateAudio = { nextURL, _ in
             if let finalizedURL = currentAudioURL {
                 try Data("rotated-audio".utf8).write(to: nextURL, options: .atomic)
                 currentAudioURL = nextURL

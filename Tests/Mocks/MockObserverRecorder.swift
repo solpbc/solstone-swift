@@ -10,6 +10,7 @@ final class MockObserverRecorder: ObserverRecording {
     var onMeter: (@Sendable (Float, TimeInterval) -> Void)?
     var onInterruption: (@Sendable (ObserverInterruptionEvent) -> Void)?
     var onEngineFault: (@Sendable (ObserverEngineFault) -> Void)?
+    var onPhoneAudioFault: (@Sendable (PhoneAudioWriterFault) -> Void)?
     var permissionGranted = true
     var permissionDelay: Duration?
     var startCallCount = 0
@@ -25,9 +26,14 @@ final class MockObserverRecorder: ObserverRecording {
     var resumeError: (any Error)?
     var restartError: (any Error)?
     var lastStartURL: URL?
+    var lastStartSegmentID: UUID?
+    var lastStartSessionID: UUID?
     var lastRotateURL: URL?
+    var lastRotateSegmentID: UUID?
+    var lastRotateSessionID: UUID?
     var currentURL: URL?
     var nextChunkDuration: TimeInterval = 5
+    var onStartCall: ((UUID, UUID) async -> Void)?
 
     func requestPermission() async -> Bool {
         if let permissionDelay {
@@ -36,18 +42,23 @@ final class MockObserverRecorder: ObserverRecording {
         return self.permissionGranted
     }
 
-    func start(url: URL, mode: ObserverMode) async throws -> ObserverRecordingStartResult {
+    func start(url: URL, segmentID: UUID, sessionID: UUID, mode: ObserverMode) async throws -> ObserverRecordingStartResult {
         self.startCallCount += 1
         self.lastStartURL = url
+        self.lastStartSegmentID = segmentID
+        self.lastStartSessionID = sessionID
         self.currentURL = url
+        await self.onStartCall?(segmentID, sessionID)
         if let startError { throw startError }
         try Data("audio".utf8).write(to: url)
         return ObserverRecordingStartResult(didActivateSession: self.didActivateSession)
     }
 
-    func rotate(to url: URL) async throws -> ObserverRecordedChunk? {
+    func rotate(to url: URL, segmentID: UUID, sessionID: UUID) async throws -> ObserverRecordedChunk? {
         self.rotateCallCount += 1
         self.lastRotateURL = url
+        self.lastRotateSegmentID = segmentID
+        self.lastRotateSessionID = sessionID
         if let rotateError { throw rotateError }
         let finalized = self.currentURL.map { ObserverRecordedChunk(url: $0, duration: self.nextChunkDuration) }
         self.currentURL = url
@@ -86,5 +97,9 @@ final class MockObserverRecorder: ObserverRecording {
 
     func emitEngineFault(_ fault: ObserverEngineFault) {
         self.onEngineFault?(fault)
+    }
+
+    func emitPhoneAudioFault(_ fault: PhoneAudioWriterFault) {
+        self.onPhoneAudioFault?(fault)
     }
 }
