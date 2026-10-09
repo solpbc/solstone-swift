@@ -752,7 +752,7 @@ nonisolated enum SourceVocabulary {
     }
 
     /// For an item the journal turned away that is not sent again on every reconnect.
-    static let onThisPhoneRefusalPacedMessage = "your journal turned this away. it stays on this device and is tried again once a day, after an update, or when you tap \(tryNow)."
+    static let onThisPhoneRefusalPacedMessage = "your journal turned this away. it stays on this device and tries again about once a day, after the app or your journal updates, or when you tap \(tryNow)."
 
     static func onThisPhoneFailurePermanentMessage(reason: String) -> String {
         "this can't go to your journal. \(reason). you can remove it from this device."

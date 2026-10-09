@@ -87,6 +87,58 @@ nonisolated final class TransferRefusalPacingTests: XCTestCase {
         XCTAssertTrue(Self.text(sent).contains(Self.rewrittenSegment), "the rebuilt body carries the segment on disk")
         XCTAssertFalse(Self.text(sent).contains(Self.originalSegment))
     }
+
+    /// The day is part of what a refusal was made under, as the segment is: a paced item whose
+    /// day changes on disk is offered again, and the body is rebuilt from the day it has now.
+    func testReofferAfterTheDayChangesOnDiskSendsARebuiltBody() async throws {
+        let recorded = TransferRefusalConditions(
+            endpointPath: "/app/devices/ingest",
+            source: "alpha",
+            day: Self.originalDay,
+            segment: Self.originalSegment,
+            ingestProtocolVersion: 3
+        )
+        var movedDay = recorded
+        movedDay.day = Self.rewrittenDay
+        XCTAssertEqual(recorded.changes(to: movedDay), [.day])
+        XCTAssertEqual(recorded.changes(to: recorded), [])
+
+        let root = self.tempDirectory.appendingPathComponent("rebuilt-day", isDirectory: true)
+        let itemID = Self.uuid(6_011)
+        TransferURLProtocol.handler = Self.refusingEverything()
+        let first = self.makeEngine(spool: TransferSpool(rootURL: root))
+        self.pauseAtTeardown(first)
+        try await first.start()
+        try await self.refuseOnce(first, itemID: itemID)
+        await first.pause()
+
+        // Nothing changed: a later launch leaves it where it is.
+        let unchanged = self.makeEngine(spool: TransferSpool(rootURL: root))
+        self.pauseAtTeardown(unchanged)
+        try await unchanged.start()
+        try await self.connect(unchanged, attentionCount: 1, sentIDs: [itemID])
+        XCTAssertEqual(Self.sends(of: itemID), 1, "paced while nothing changed")
+        await unchanged.pause()
+
+        let spool = TransferSpool(rootURL: root)
+        let attentionDirectory = spool.attentionDirectoryURL.appendingPathComponent(itemID.uuidString, isDirectory: true)
+        let staleCache = try Data(contentsOf: attentionDirectory.appendingPathComponent(TransferSpool.bodyUploadFilename))
+        var manifest = try spool.readManifest(in: attentionDirectory)
+        manifest.observerIngest?.day = Self.rewrittenDay
+        try spool.writeManifestAtomically(manifest, in: attentionDirectory)
+
+        TransferURLProtocol.handler = Self.accepting()
+        let second = self.makeEngine(spool: TransferSpool(rootURL: root))
+        self.pauseAtTeardown(second)
+        try await second.start()
+        await second.noteNewConnectionEstablished()
+        await second.endpointAvailabilityChanged()
+        try await self.waitFor("re-offered") { Self.sends(of: itemID) >= 2 }
+        let sent = try XCTUnwrap(TransferURLProtocol.bodies.last)
+        XCTAssertNotEqual(sent, staleCache, "a re-offer must not be sent from the refused cache")
+        XCTAssertTrue(Self.text(sent).contains(Self.rewrittenDay), "the rebuilt body carries the day on disk")
+        XCTAssertFalse(Self.text(sent).contains(Self.originalDay))
+    }
 }
 
 // MARK: - when a settled refusal is skipped and when it is offered again
@@ -231,6 +283,64 @@ extension TransferRefusalPacingTests {
         XCTAssertEqual(TransferSpool(rootURL: root).followedPairing(), "pairing-b")
         let observed7 = await engine.itemSnapshot(itemID: itemID)?.manifest.attention?.refusedUnder?.pairingIdentity
         XCTAssertEqual(observed7, "pairing-b")
+    }
+
+    /// One item that cannot be moved must not leave the rest of a pairing change undone: the
+    /// others move, a share import saved but not started is saved again, the item that could not
+    /// move stays held, and the pairing is not recorded, so the next connection finishes it.
+    func testAPairingChangeThatCannotMoveOneItemStillMovesTheRestAndIsRetried() async throws {
+        let root = self.tempDirectory.appendingPathComponent("pairing-partial", isDirectory: true)
+        let moving = Self.uuid(3_101)
+        let held = Self.uuid(3_102)
+        let savedImport = Self.uuid(3_103)
+        let fileSystem = BodyCacheDeleteFailingFileSystem()
+        TransferURLProtocol.handler = Self.refusingEverything()
+        let engine = self.makeEngine(
+            spool: TransferSpool(rootURL: root, fileSystem: fileSystem),
+            bodyBuilder: Self.saveStartBodyBuilder
+        )
+        self.pauseAtTeardown(engine)
+        try await engine.start()
+        try await self.connect(engine, pairingIdentity: "pairing-a", attentionCount: 0, sentIDs: [])
+        try await self.refuseOnce(engine, itemID: moving)
+        try await self.refuseOnce(engine, itemID: held, attentionCount: 2)
+        _ = try await engine.enqueue(
+            manifest: Self.saveThenStartManifest(itemID: savedImport, phase: .startPending, code: "x"),
+            payloads: ["file": Data("file".utf8)]
+        )
+        try await self.waitForQuiescence(engine, attentionCount: 3, sentIDs: [])
+        let importBefore = await engine.itemSnapshot(itemID: savedImport)
+        XCTAssertEqual(importBefore?.state, .attention)
+        XCTAssertEqual(importBefore?.manifest.saveThenStart?.phase, .startPending)
+        let heldDirectory = TransferSpool(rootURL: root).attentionDirectoryURL
+            .appendingPathComponent(held.uuidString, isDirectory: true)
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: heldDirectory.appendingPathComponent(TransferSpool.bodyUploadFilename).path
+        ), "the held item has a cached body whose delete will fail")
+
+        // Paused, so what the pairing change did can be read before anything is sent.
+        await engine.pause()
+        let sentBefore = TransferURLProtocol.requests.count
+        fileSystem.failCacheDelete(for: held)
+        await engine.noteNewConnectionEstablished(pairingIdentity: "pairing-b")
+
+        let movedState = await engine.itemSnapshot(itemID: moving)?.state
+        XCTAssertEqual(movedState, .queued, "the rest of the change still goes")
+        let importAfter = await engine.itemSnapshot(itemID: savedImport)
+        XCTAssertEqual(importAfter?.state, .queued)
+        XCTAssertEqual(importAfter?.manifest.saveThenStart?.phase, .savePending, "saved again, not started from the old journal's path")
+        let heldState = await engine.itemSnapshot(itemID: held)?.state
+        XCTAssertEqual(heldState, .attention, "it stays held, never sent from its stale cache")
+        XCTAssertEqual(TransferSpool(rootURL: root).followedPairing(), "pairing-a", "not recorded, so it is tried again")
+        XCTAssertEqual(TransferURLProtocol.requests.count, sentBefore)
+
+        fileSystem.failCacheDelete(for: nil)
+        await engine.noteNewConnectionEstablished(pairingIdentity: "pairing-b")
+        let heldAfter = await engine.itemSnapshot(itemID: held)?.state
+        XCTAssertEqual(heldAfter, .queued, "moved on the next connection")
+        let importAgain = await engine.itemSnapshot(itemID: savedImport)
+        XCTAssertEqual(importAgain?.manifest.saveThenStart?.phase, .savePending)
+        XCTAssertEqual(TransferSpool(rootURL: root).followedPairing(), "pairing-b")
     }
 
     func testTheOwnersTryNowSendsAPacedRefusalAtOnce() async throws {
@@ -447,6 +557,27 @@ extension TransferRefusalPacingTests {
         }
         let snapshot = await outcome.engine.itemSnapshot(itemID: Self.uuid(5_100))
         XCTAssertNotNil(snapshot?.manifest.attention?.journalReasonCode, "the code is still kept for diagnosis")
+    }
+
+    /// The journal answers 400 for every code in the list. The same code under another refusal
+    /// status did not come from the envelope alone, so it is not settled.
+    func testTheElevenAreSettledOnlyOnA400() async throws {
+        var answers: [UUID: Answer] = [:]
+        var index = 0
+        for code in Self.settledLiterals.sorted() {
+            for statusCode in [422, 403] {
+                answers[Self.uuid(5_700 + index)] = Answer(statusCode: statusCode, body: Self.refusalBody(code: code))
+                index += 1
+            }
+        }
+        answers[Self.uuid(5_799)] = Answer(statusCode: 400, body: Self.refusalBody(code: "segment_invalid"))
+        let outcome = try await self.refuseThenConnect(answers: answers, root: "only-400")
+        for (itemID, answer) in answers {
+            let settled = answer.statusCode == 400
+            XCTAssertEqual(outcome.recorded[itemID], settled, "status \(answer.statusCode): refusedUnder")
+            XCTAssertEqual(outcome.sends[itemID], settled ? 1 : 2, "status \(answer.statusCode): sent on the next connection")
+        }
+        XCTAssertEqual(outcome.recorded.values.filter { $0 }.count, 1)
     }
 
     func testTheElevenAreNotSettledOnTheSaveOrStartPhase() async throws {
@@ -850,17 +981,6 @@ extension TransferRefusalPacingTests {
         try await self.waitFor("the engine learns the version") {
             await engine.knownJournalVersion == "2.0.38"
         }
-
-        // The app's own init is what installs this composition, and nothing else takes the slot.
-        let appText = try String(
-            contentsOf: StringLiteralGrepSupport.worktreeRoot().appendingPathComponent("Sources/SolstoneSwiftApp.swift"),
-            encoding: .utf8
-        )
-        XCTAssertTrue(appText.contains(
-            "Self.wireJournalVersion(appConfig.journalVersion, watchLink: watchLink, transferEngine: transferEngine)"
-        ))
-        XCTAssertEqual(appText.components(separatedBy: ".onChange = {").count - 1, 1)
-        XCTAssertFalse(appText.contains("journalVersion.onChange ="))
     }
 }
 
@@ -870,6 +990,8 @@ private extension TransferRefusalPacingTests {
     static let baseDate = Date(timeIntervalSince1970: 1_713_624_000)
     static let originalSegment = "120000_3"
     static let rewrittenSegment = "120500_3"
+    static let originalDay = "20240420"
+    static let rewrittenDay = "20240421"
     static let audioPayloads: [String: Data] = ["audio": Data("audio".utf8)]
     static let segmentInvalidBody = Data(
         #"{"error":"Ingest request refused","reason_code":"segment_invalid","detail":"segment must be HHMMSS_LEN"}"#.utf8

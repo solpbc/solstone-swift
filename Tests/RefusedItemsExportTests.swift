@@ -151,6 +151,164 @@ nonisolated final class RefusedItemsExportTests: XCTestCase {
         )
     }
 
+    /// Whatever a JSON body holds, none of it is kept as text: not when a field has a type the
+    /// envelope does not expect, and not when the body is an array.
+    func testAJSONRefusalBodyIsNeverStoredRawWhateverTypesItsFieldsHave() {
+        struct Row {
+            let phase: TransferEndpointPhase
+            let status: Int
+            let body: String
+            let code: String?
+            let stored: String
+        }
+        let rows: [Row] = [
+            Row(
+                phase: .observerIngest, status: 400,
+                body: #"{"error":"Ingest request refused","reason_code":"segment_invalid","detail":{"cid":"sha256:aaaa","leaf_spki":[48,89]}}"#,
+                code: "segment_invalid", stored: "reason_code=segment_invalid"
+            ),
+            Row(
+                phase: .observerIngest, status: 404,
+                body: #"[{"reason_code":"not_found","detail":"cid sha256:aaaa"}]"#,
+                code: nil, stored: "http 404"
+            ),
+            Row(
+                phase: .observerIngest, status: 400,
+                body: #"{"error":{"text":"sha256:aaaa"},"reason_code":42,"detail":["leaf_spki"]}"#,
+                code: nil, stored: "http 400"
+            ),
+            Row(
+                phase: .save, status: 422,
+                body: #"{"error":"that file is too large to bring in.","reason_code":["a"],"detail":{"x":"sha256:aaaa"}}"#,
+                code: nil, stored: "that file is too large to bring in."
+            ),
+            Row(
+                phase: .start(saveResult: nil), status: 400,
+                body: #"{"error":null,"reason_code":null,"detail":{"leaf_spki":[48,89]}}"#,
+                code: nil, stored: "http 400"
+            ),
+            Row(
+                phase: .save, status: 409,
+                body: #"{"error":"already there","reason_code":"content_conflict","detail":{"cid":"sha256:aaaa"}}"#,
+                code: "content_conflict", stored: "already there"
+            ),
+            Row(phase: .observerIngest, status: 400, body: "{}", code: nil, stored: "http 400"),
+            Row(phase: .observerIngest, status: 400, body: "[]", code: nil, stored: "http 400"),
+        ]
+        for row in rows {
+            let outcome = TransferHTTPClassifier.classify(
+                result: TransferHTTPResult(statusCode: row.status, data: Data(row.body.utf8)),
+                endpointPhase: row.phase
+            )
+            let reason = Self.attentionReason(outcome)
+            XCTAssertEqual(reason?.journalReasonCode, row.code, row.body)
+            XCTAssertEqual(reason?.ownerSafeDetail, row.stored, row.body)
+            for needle in ["sha256:", "leaf_spki", "{", "["] {
+                XCTAssertFalse(reason?.ownerSafeDetail.contains(needle) ?? true, "\(needle) kept from \(row.body)")
+            }
+        }
+    }
+
+    /// A body that is not JSON keeps today's behaviour: kept as text, bounded.
+    func testAPlainTextRefusalBodyIsStillKeptBounded() {
+        let outcome = { (text: String) in
+            Self.attentionReason(TransferHTTPClassifier.classify(
+                result: TransferHTTPResult(statusCode: 404, data: Data(text.utf8)),
+                endpointPhase: .observerIngest
+            ))
+        }
+        XCTAssertEqual(outcome("missing")?.ownerSafeDetail, "missing")
+        XCTAssertNil(outcome("missing")?.journalReasonCode)
+        let long = String(repeating: "x", count: 500)
+        XCTAssertEqual(outcome(long)?.ownerSafeDetail.count, WatchTransferFailureFormatter.maxDescriptionLength)
+        XCTAssertEqual(outcome("")?.ownerSafeDetail, "http 404")
+    }
+
+    // MARK: - refusals stored as a whole response body
+
+    /// Builds before 2.0.5 (110) stored a refusal's whole response body, bounded, as the
+    /// detail. Such a record can still be on a phone, and its detail text can name the device.
+    @MainActor
+    func testRefusalsStoredAsAWholeBodyAreCountedByTheirCodeAndNeverPrinted() async throws {
+        let full = Self.storedBodyWithDeviceDetail
+        let cutAt = try XCTUnwrap(full.range(of: "sha256:aa")).upperBound
+        let cutThroughDetail = String(full[..<cutAt])
+        let cutThroughCode = #"{"error":"Ingest request refused","reason_code":"segment_inv"#
+        let longCode = String(repeating: "x", count: 100)
+        let seeds: [(Int, String)] = [
+            (60, full),
+            (61, cutThroughDetail),
+            (62, cutThroughCode),
+            (63, #"{"reason_code":"\#(longCode)"}"#),
+            (64, "   " + full),
+        ]
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("stored-bodies", isDirectory: true))
+        for (index, (id, stored)) in seeds.enumerated() {
+            try self.seedAttention(
+                spool: spool,
+                manifest: Self.ingestManifest(itemID: Self.uuid(id), segment: "13000\(index)_3"),
+                reason: TransferAttentionReason.httpClientErrorCode,
+                detail: stored,
+                journalReasonCode: nil,
+                movedAt: Self.baseDate.addingTimeInterval(Double(index))
+            )
+        }
+        let engine = self.makeEngine(spool: spool, resolver: TransferEndpointResolverStub(.unavailable("held")))
+        try await engine.start()
+        let export = try await self.exportText(engine: engine, now: Self.baseDate.addingTimeInterval(600))
+        await engine.pause()
+
+        let block = try Self.syncStateSection(of: export).joined(separator: "\n")
+        XCTAssertTrue(block.contains("\n    3 × not_found (from stored detail)\n"), block)
+        XCTAssertTrue(block.contains("\n    1 × \(String(repeating: "x", count: 64)) (from stored detail)\n"), block)
+        XCTAssertFalse(block.contains(String(repeating: "x", count: 65)), "the code is bounded")
+        XCTAssertTrue(block.contains("of 4 refusals"), "a body cut inside the code names none: \(block)")
+        for needle in Self.deviceNeedles + ["Ingest request refused", "segment_inv", #"{"error""#, #""reason_code""#] {
+            XCTAssertFalse(export.contains(needle), "export leaked \(needle):\n\(export)")
+        }
+        let stuck = try XCTUnwrap(block.components(separatedBy: "\n").first { $0.contains(" stuck: ") }, block)
+        XCTAssertTrue(stuck.hasPrefix("  audio stuck: http_client_error, "), stuck)
+    }
+
+    /// The `stuck:` line prints what the journal's reason code was, never a stored body.
+    func testTheStuckLineNeverPrintsAStoredResponseBody() {
+        let now = Self.baseDate.addingTimeInterval(3_600)
+        func stuckLine(_ info: TransferAttentionInfo) -> String {
+            sourceSyncStuckLine(name: "audio", info: info, retryCount: 0, lastRetriedAt: nil, attentionItemCount: 1, now: now)
+        }
+        func info(_ detail: String, code: String? = nil, reason: String = TransferAttentionReason.httpClientErrorCode) -> TransferAttentionInfo {
+            TransferAttentionInfo(reason: reason, shortDetail: detail, movedAt: Self.baseDate, journalReasonCode: code)
+        }
+
+        let full = Self.storedBodyWithDeviceDetail
+        let throughDevice = String(full[..<full.range(of: "sha256:aa")!.upperBound])
+        for stored in [full, throughDevice, "  " + full] {
+            let line = stuckLine(info(stored))
+            XCTAssertTrue(line.hasPrefix("  audio stuck: http_client_error, reason_code=not_found ("), line)
+            for needle in Self.deviceNeedles + ["{", "Not Found"] {
+                XCTAssertFalse(line.contains(needle), "stuck line leaked \(needle): \(line)")
+            }
+        }
+        let recorded = stuckLine(info(full, code: "day_invalid"))
+        XCTAssertTrue(recorded.hasPrefix("  audio stuck: http_client_error, reason_code=day_invalid ("), recorded)
+
+        let codeless = stuckLine(info(#"{"detail":"cid sha256:aaaa leaf_spki"}"#))
+        for needle in Self.deviceNeedles + ["{", "cid"] {
+            XCTAssertFalse(codeless.contains(needle), "stuck line leaked \(needle): \(codeless)")
+        }
+        let sentence = stuckLine(info(#"{"error":"that file is too large to bring in.","detail":"cid sha256:aaaa"}"#))
+        XCTAssertTrue(sentence.contains("that file is too large to bring in."), sentence)
+        XCTAssertFalse(sentence.contains("sha256:"), sentence)
+
+        // What current builds store is printed as it always was.
+        XCTAssertEqual(
+            stuckLine(info("reason_code=segment_invalid", code: "segment_invalid")),
+            "  audio stuck: http_client_error, reason_code=segment_invalid (1h0m ago, 1 item(s))"
+        )
+        XCTAssertTrue(stuckLine(info("that file is too large to bring in.")).contains(", that file is too large to bring in. ("))
+        XCTAssertTrue(stuckLine(info("source file", reason: "missing_payload")).hasPrefix("  audio stuck: missing_payload, source file ("))
+    }
+
     // MARK: - grouping
 
     func testRefusalsAreGroupedByReasonAndOtherAttentionIsNotCounted() async throws {
@@ -179,9 +337,9 @@ nonisolated final class RefusedItemsExportTests: XCTestCase {
 
         XCTAssertEqual(detail.attentionItemCount, 5)
         let lines = detail.refusedItems.lines(sourceName: "audio", now: Self.baseDate.addingTimeInterval(600))
-        XCTAssertTrue(lines.contains("    segment_invalid: 2"), lines.joined(separator: "\n"))
-        XCTAssertTrue(lines.contains("    day_invalid: 1"), lines.joined(separator: "\n"))
-        XCTAssertTrue(lines.contains("    segment_invalid (from stored detail): 1"), lines.joined(separator: "\n"))
+        XCTAssertTrue(lines.contains("    2 × segment_invalid"), lines.joined(separator: "\n"))
+        XCTAssertTrue(lines.contains("    1 × day_invalid"), lines.joined(separator: "\n"))
+        XCTAssertTrue(lines.contains("    1 × segment_invalid (from stored detail)"), lines.joined(separator: "\n"))
         XCTAssertFalse(lines.contains { $0.contains("removed") }, lines.joined(separator: "\n"))
         XCTAssertEqual(detail.refusedItems.refusals.count, 4)
         XCTAssertFalse(detail.refusedItems.refusals.contains { $0.itemID == Self.uuid(14) })
@@ -382,6 +540,69 @@ nonisolated final class RefusedItemsExportTests: XCTestCase {
         XCTAssertEqual(export.components(separatedBy: RefusedItemsExport.appVersionNote).count, 2, "the note appears once")
     }
 
+    // MARK: - redaction
+
+    /// The export is redacted for secrets after it is built, and that pass reads `key: value`.
+    /// A reason code that happens to contain a word it looks for must not cost the count.
+    @MainActor
+    func testReasonCodesThatLookLikeSecretsKeepTheirCountsThroughRedaction() {
+        let codes = [
+            "token_expired", "secret_mismatch", "credential_rejected",
+            ["pass", "word_wrong"].joined(), "apikey_invalid", "ingest_key_unknown",
+            "key_token_credential_secret",
+        ]
+        var manifests: [TransferManifest] = []
+        for (codeIndex, code) in codes.enumerated() {
+            for copy in 0..<2 {
+                var manifest = Self.ingestManifest(itemID: Self.uuid(100 + codeIndex * 10 + copy), segment: "11000\(copy)_3")
+                manifest.diskState = .attention
+                manifest.attention = TransferAttentionInfo(
+                    reason: TransferAttentionReason.httpClientErrorCode,
+                    shortDetail: "reason_code=\(code)",
+                    movedAt: Self.baseDate.addingTimeInterval(Double(codeIndex * 10 + copy)),
+                    journalReasonCode: code
+                )
+                manifests.append(manifest)
+            }
+        }
+        // Older records are counted from their stored detail, with the same label.
+        var stored = Self.ingestManifest(itemID: Self.uuid(190), segment: "110005_3")
+        stored.diskState = .attention
+        stored.attention = TransferAttentionInfo(
+            reason: TransferAttentionReason.httpClientErrorCode,
+            shortDetail: "reason_code=token_expired",
+            movedAt: Self.baseDate
+        )
+        manifests.append(stored)
+
+        let now = Self.baseDate.addingTimeInterval(3_600)
+        var lines = RefusedItemsExport(manifests: manifests).lines(sourceName: "audio", now: now)
+        for code in codes {
+            lines.append(sourceSyncStuckLine(
+                name: "audio",
+                info: TransferAttentionInfo(
+                    reason: TransferAttentionReason.httpClientErrorCode,
+                    shortDetail: "reason_code=\(code)",
+                    movedAt: Self.baseDate,
+                    journalReasonCode: code
+                ),
+                retryCount: 0,
+                lastRetriedAt: nil,
+                attentionItemCount: 1,
+                now: now
+            ))
+        }
+        let text = lines.joined(separator: "\n")
+        let redacted = DiagnosticLog.redact(text)
+
+        XCTAssertEqual(redacted, text, "redaction rewrote part of the refused-items block")
+        XCTAssertFalse(redacted.contains("‹redacted›"))
+        for code in codes {
+            XCTAssertTrue(redacted.contains("    2 × \(code)\n"), "no count line for \(code):\n\(redacted)")
+        }
+        XCTAssertTrue(redacted.contains("    1 × token_expired (from stored detail)"), redacted)
+    }
+
     // MARK: - persistence
 
     func testAttentionRecordRoundTripsThroughTheSpoolCoder() throws {
@@ -404,26 +625,12 @@ nonisolated final class RefusedItemsExportTests: XCTestCase {
 
     @MainActor
     func testExportTimesStay24HourUnderAForced12HourClock() async throws {
-        let probeInstant = Date(timeIntervalSince1970: 1_713_628_644)
-        func probe() -> String {
-            let formatter = DateFormatter()
-            formatter.timeZone = TimeZone(secondsFromGMT: 0)
-            formatter.dateFormat = "HH"
-            return formatter.string(from: probeInstant)
-        }
-        let key = "AppleICUForce12HourTime"
-        let previous = UserDefaults.standard.object(forKey: key)
-        defer {
-            if let previous {
-                UserDefaults.standard.set(previous, forKey: key)
-            } else {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-            Self.postClockPreferencesChanged()
-        }
-        UserDefaults.standard.set(true, forKey: key)
+        // Registered before anything is changed, so a failed assertion or a thrown error
+        // below still puts the preference back, and the next test starts on a 24-hour clock.
+        self.restoreClockPreferenceAtTeardown()
+        UserDefaults.standard.set(true, forKey: Self.forced12HourKey)
         Self.postClockPreferencesChanged()
-        let forced = await Self.waitUntil { probe() != "15" }
+        let forced = await Self.waitUntil { Self.probeHour() != Self.probeHour24 }
         guard forced else {
             return XCTFail("a forced 12-hour clock was not applied, so this test would prove nothing")
         }
@@ -445,10 +652,6 @@ nonisolated final class RefusedItemsExportTests: XCTestCase {
         XCTAssertTrue(eventLine.hasPrefix("[2024-04-20 13:37:24 "), eventLine)
         XCTAssertTrue(eventLine.unicodeScalars.allSatisfy(\.isASCII), eventLine)
         XCTAssertTrue(header.unicodeScalars.allSatisfy(\.isASCII), header)
-
-        UserDefaults.standard.removeObject(forKey: key)
-        Self.postClockPreferencesChanged()
-        _ = await Self.waitUntil { probe() == "15" }
     }
 
     // MARK: - duration totality
@@ -470,6 +673,12 @@ private extension RefusedItemsExportTests {
     static let sourceKey = "audio"
     static let shareSourceKey = "share"
     static let audioPayloads = ["audio": Data("audio".utf8)]
+
+    /// The shape an earlier build stored as a refusal's detail: the whole response body.
+    static let storedBodyWithDeviceDetail =
+        #"{"error":"Not Found","reason_code":"not_found","detail":"LinkedDevice { carrier: ViaSpl, cid: LinkedDeviceCid(\"sha256:aaaa\"), leaf_spki: [48, 89] }"}"#
+    /// Text from a stored body's detail that must never reach the exported file.
+    static let deviceNeedles = ["sha256:", "leaf_spki", "LinkedDevice", "ViaSpl"]
 
     static func uuid(_ value: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", value))!
@@ -624,6 +833,40 @@ private extension RefusedItemsExportTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("Timed out waiting for \(label)")
+    }
+
+    static let forced12HourKey = "AppleICUForce12HourTime"
+    /// The probe instant is 15:37 in UTC, so a 24-hour `HH` renders this.
+    static let probeHour24 = "15"
+    static let probeInstant = Date(timeIntervalSince1970: 1_713_628_644)
+
+    /// The hour a fresh formatter renders for the probe instant under the clock preferences now.
+    static func probeHour() -> String {
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "HH"
+        return formatter.string(from: Self.probeInstant)
+    }
+
+    /// Puts the forced-12-hour preference back as this process's own app domain had it, whatever
+    /// the test does, and does not return until a fresh formatter renders 24-hour again.
+    ///
+    /// Only the app domain is looked at, not the value `UserDefaults` resolves across every
+    /// domain: a value that comes from elsewhere must not be copied into this one, and a key that
+    /// was not there is removed rather than set.
+    func restoreClockPreferenceAtTeardown() {
+        let domain = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let previous = UserDefaults.standard.persistentDomain(forName: domain)?[Self.forced12HourKey] as? Bool
+        self.addTeardownBlock {
+            if let previous {
+                UserDefaults.standard.set(previous, forKey: Self.forced12HourKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.forced12HourKey)
+            }
+            Self.postClockPreferencesChanged()
+            let restored = await Self.waitUntil(timeout: .seconds(10)) { Self.probeHour() == Self.probeHour24 }
+            XCTAssertTrue(restored, "the clock preference did not return to 24-hour after the test")
+        }
     }
 
     /// The system's own signal that clock preferences changed; the process re-reads them.

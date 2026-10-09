@@ -139,7 +139,7 @@ nonisolated func sourceSyncStuckLine(
     attentionItemCount: Int,
     now: Date
 ) -> String {
-    var line = "  \(name) stuck: \(info.reason), \(info.shortDetail)"
+    var line = "  \(name) stuck: \(info.reason), \(info.exportedDetail)"
         + " (\(age(from: info.movedAt, to: now)) ago, \(attentionItemCount) item(s))"
     if retryCount > 0, let lastRetriedAt {
         line += ", retried \(retryCount)x, last retry \(age(from: lastRetriedAt, to: now)) ago"

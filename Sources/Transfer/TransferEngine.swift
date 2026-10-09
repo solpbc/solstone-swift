@@ -600,7 +600,10 @@ actor TransferEngine {
     /// confirms the new journal's mark.
     ///
     /// The new pairing is recorded only after the items are reset, so a failure
-    /// part way through is finished on the next connection.
+    /// part way through is finished on the next connection. An item that cannot
+    /// be moved does not stop the rest: the others still move, and the imports
+    /// among them are still saved again, before that failure is carried on and
+    /// the pairing is left unrecorded.
     private func followPairingIfChanged() {
         guard self.initializedForLaunch,
               let identity = self.connectedPairingIdentity,
@@ -608,12 +611,17 @@ actor TransferEngine {
         else {
             return
         }
+        var moveError: (any Error)?
         do {
             try self.moveAttentionItemsToQueued(
                 self.attentionItems.values
                     .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
                     .sorted(by: self.itemSort)
             )
+        } catch {
+            moveError = error
+        }
+        do {
             for item in self.queuedItems.values where item.manifest.saveThenStart?.phase == .startPending {
                 var manifest = item.manifest.replacingNextAttemptAt(nil)
                 manifest.saveThenStart = TransferSaveThenStartState(phase: .savePending)
@@ -621,6 +629,9 @@ actor TransferEngine {
                     manifest,
                     directoryURL: item.directoryURL
                 )
+            }
+            if let moveError {
+                throw moveError
             }
             try self.spool.recordFollowedPairing(identity)
             self.followedPairingIdentity = identity

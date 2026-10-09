@@ -136,17 +136,18 @@ nonisolated enum TransferRefusalPacing {
         "source_invalid_character",
     ]
 
-    /// Statuses that say "not now" rather than "not this", whatever reason code they carry.
-    static let unsettledClientStatuses: Set<Int> = [408, 426, 429]
+    /// The one status the journal answers every code in `settledReasonCodes` with. The same code
+    /// under any other status (a 4xx that says "not now", a 2xx carrying a failed status, a
+    /// status a proxy or a later journal chose) did not come from the envelope alone.
+    static let settledStatusCode = 400
 
-    /// Whether a refusal is settled, decided where it is received: an observer-ingest 4xx (not a
-    /// 2xx carrying a failed status, and not a "not now" status) whose reason code is one the
-    /// journal derives only from the envelope.
+    /// Whether a refusal is settled, decided where it is received: an observer-ingest 400 (not a
+    /// 2xx carrying a failed status, and not any other refusal status) whose reason code is one
+    /// the journal derives only from the envelope.
     static func isSettled(_ reason: TransferAttentionReason, phase: TransferEndpointPhase) -> Bool {
         guard phase == .observerIngest,
               case .httpClientError(let statusCode, _, let journalReasonCode) = reason,
-              400..<500 ~= statusCode,
-              !Self.unsettledClientStatuses.contains(statusCode),
+              statusCode == Self.settledStatusCode,
               let journalReasonCode
         else {
             return false

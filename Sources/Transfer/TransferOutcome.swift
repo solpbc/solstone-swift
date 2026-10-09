@@ -178,15 +178,22 @@ nonisolated enum TransferHTTPClassifier {
 
     /// The journal's refusal envelope: `error` is its own owner-safe sentence, `reason_code` and
     /// `detail` are for machines.
-    private struct StartErrorResponse: Decodable {
+    ///
+    /// Read leniently: a field is used only when it is a string, and any other value (an object
+    /// in `detail`, a number in `reason_code`) is ignored rather than failing the whole read. That
+    /// keeps a body that is JSON, in whatever shape, from ever being taken for plain text.
+    private struct RefusalEnvelope {
         let error: String?
         let reasonCode: String?
         let detail: String?
 
-        enum CodingKeys: String, CodingKey {
-            case error
-            case reasonCode = "reason_code"
-            case detail
+        /// `nil` when the body is not JSON. A JSON array is JSON, and has no fields to read.
+        init?(body: Data) {
+            guard let parsed = try? JSONSerialization.jsonObject(with: body) else { return nil }
+            let object = parsed as? [String: Any]
+            self.error = object?["error"] as? String
+            self.reasonCode = object?["reason_code"] as? String
+            self.detail = object?["detail"] as? String
         }
     }
 
@@ -244,18 +251,17 @@ nonisolated enum TransferHTTPClassifier {
             }
         }
 
+        let refusal = 400..<500 ~= statusCode ? RefusalEnvelope(body: result.data) : nil
+
         if statusCode == 400,
            case .start(let saveResult) = endpointPhase,
-           let response = try? JSONDecoder().decode(StartErrorResponse.self, from: result.data),
-           response.reasonCode == TransferReasonCodes.invalidOperationForState
+           refusal?.reasonCode == TransferReasonCodes.invalidOperationForState
         {
             return .terminalSuccess(.alreadyStartedOrComplete(
                 serverPath: saveResult?.savedPath,
                 serverTimestamp: saveResult?.savedTimestamp
             ))
         }
-
-        let refusal = try? JSONDecoder().decode(StartErrorResponse.self, from: result.data)
 
         if statusCode == 400,
            endpointPhase == .save,
@@ -266,21 +272,25 @@ nonisolated enum TransferHTTPClassifier {
         }
 
         if 400..<500 ~= statusCode {
-            // Never store the JSON, and never the body's `detail`: some details carry device
-            // identifiers, others forward library error text. An import refusal's `error` is a
-            // sentence written for the owner; an ingest refusal's is a generic one, so its reason
-            // code is kept and turned into owner words only where it is shown. The code itself is
-            // also kept on its own, whatever the phase. A body that is not the journal's JSON
-            // envelope (a proxy's plain-text page, say) is kept as text, bounded later.
-            let reasonCode = refusal?.reasonCode.map { "reason_code=\($0)" }
-            let unparsedBody = refusal == nil ? String(data: result.data, encoding: .utf8) : nil
+            // Never store a JSON body as text, and never its `detail`: some details carry device
+            // identifiers, others forward library error text. Only the string `error` and
+            // `reason_code` are read from it, whatever else it holds or however its other fields
+            // are typed; with neither, the item says only `http <status>`. An import refusal's
+            // `error` is a sentence written for the owner; an ingest refusal's is a generic one,
+            // so its reason code is kept and turned into owner words only where it is shown. The
+            // code itself is also kept on its own, whatever the phase. A body that is not JSON (a
+            // proxy's plain-text page, say) is kept as text, bounded later.
+            let journalReasonCode = Self.storedJournalReasonCode(refusal?.reasonCode)
+            let reasonCodeDetail = journalReasonCode.map { "reason_code=\($0)" }
+            let sentence = refusal?.error.flatMap { $0.isEmpty ? nil : $0 }
+            let plainText = refusal == nil ? String(data: result.data, encoding: .utf8) : nil
             let detail = endpointPhase == .observerIngest
-                ? reasonCode ?? refusal?.error ?? unparsedBody
-                : refusal?.error ?? reasonCode ?? unparsedBody
+                ? reasonCodeDetail ?? sentence ?? plainText
+                : sentence ?? reasonCodeDetail ?? plainText
             return .terminalAttention(.httpClientError(
                 statusCode: statusCode,
                 detail: detail,
-                journalReasonCode: Self.storedJournalReasonCode(refusal?.reasonCode)
+                journalReasonCode: journalReasonCode
             ))
         }
 

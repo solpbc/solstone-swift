@@ -38,6 +38,62 @@ nonisolated enum DiagnosticExportText {
     }
 }
 
+nonisolated extension TransferAttentionInfo {
+    private static let storedDetailPrefix = "reason_code="
+    private static let storedBodyReasonCodePattern = #""reason_code"\s*:\s*"([^"\\]+)""#
+
+    /// Whether `shortDetail` is a response body an earlier build stored whole.
+    ///
+    /// Builds before 2.0.5 (110) kept a 4xx's body, cut to 200 characters, as the detail of
+    /// `http_client_error`. The body can name the linked device, and a cut body is often not valid
+    /// JSON, so it is recognised by its first character alone.
+    var storesResponseBody: Bool {
+        self.reason == TransferAttentionReason.httpClientErrorCode
+            && self.shortDetail.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
+    }
+
+    /// The journal's reason code for a refusal, and where it was read from: the record's own
+    /// field; else a `reason_code=<code>` detail; else the `"reason_code":"<code>"` of a body
+    /// stored whole. The last is matched textually, not parsed, because the stored body may have
+    /// been cut off. A code cut off before its closing quote is not a code. The code is bounded.
+    var refusalReasonCode: (code: String, origin: RefusedItemExportRecord.CodeOrigin)? {
+        if let code = self.journalReasonCode, !code.isEmpty {
+            return (code, .recorded)
+        }
+        guard self.reason == TransferAttentionReason.httpClientErrorCode else { return nil }
+        if self.shortDetail.hasPrefix(Self.storedDetailPrefix) {
+            return Self.storedCode(String(self.shortDetail.dropFirst(Self.storedDetailPrefix.count)))
+        }
+        guard self.storesResponseBody,
+              let regex = try? NSRegularExpression(pattern: Self.storedBodyReasonCodePattern),
+              let match = regex.firstMatch(
+                  in: self.shortDetail,
+                  range: NSRange(self.shortDetail.startIndex..<self.shortDetail.endIndex, in: self.shortDetail)
+              ),
+              let range = Range(match.range(at: 1), in: self.shortDetail)
+        else { return nil }
+        return Self.storedCode(String(self.shortDetail[range]))
+    }
+
+    private static func storedCode(_ code: String) -> (code: String, origin: RefusedItemExportRecord.CodeOrigin)? {
+        guard !code.isEmpty else { return nil }
+        return (String(code.prefix(TransferHTTPClassifier.journalReasonCodeMaxLength)), .storedDetail)
+    }
+
+    /// The detail as the diagnostics export prints it. A body stored whole is never printed: the
+    /// reason code stands for it, or, with none, the journal's own `error` sentence when it has one.
+    var exportedDetail: String {
+        guard self.storesResponseBody else { return self.shortDetail }
+        if let code = self.refusalReasonCode?.code {
+            return "reason_code=\(code)"
+        }
+        let sentence = self.ownerFailureReason
+        return sentence.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
+            ? "stored response not shown"
+            : sentence
+    }
+}
+
 /// One refused item, reduced to the fields the diagnostics export may print.
 ///
 /// Built by allowlist: the refusal time, the short app version, the observer-ingest `day` and
@@ -47,7 +103,8 @@ nonisolated struct RefusedItemExportRecord: Equatable, Sendable {
     enum CodeOrigin: Equatable, Sendable {
         /// The attention record's own `journalReasonCode`.
         case recorded
-        /// A record stored before that field existed, whose detail was `reason_code=<code>`.
+        /// A record stored before that field existed, whose detail was `reason_code=<code>`, or
+        /// the refusal's whole response body (see `TransferAttentionInfo.refusalReasonCode`).
         case storedDetail
     }
 
@@ -56,8 +113,6 @@ nonisolated struct RefusedItemExportRecord: Equatable, Sendable {
         let day: String
         let segment: String
     }
-
-    static let storedDetailPrefix = "reason_code="
 
     let itemID: UUID
     let refusedAt: Date
@@ -71,7 +126,7 @@ nonisolated struct RefusedItemExportRecord: Equatable, Sendable {
     /// reason code, or an older refusal record whose stored detail names it.
     init?(manifest: TransferManifest) {
         guard let attention = manifest.attention,
-              let (code, origin) = Self.reasonCode(of: attention)
+              let (code, origin) = attention.refusalReasonCode
         else { return nil }
         self.itemID = manifest.itemID
         self.refusedAt = attention.movedAt
@@ -79,18 +134,6 @@ nonisolated struct RefusedItemExportRecord: Equatable, Sendable {
         self.ingestKey = manifest.observerIngest.map { IngestKey(day: $0.day, segment: $0.segment) }
         self.reasonCode = code
         self.codeOrigin = origin
-    }
-
-    private static func reasonCode(of attention: TransferAttentionInfo) -> (String, CodeOrigin)? {
-        if let code = attention.journalReasonCode, !code.isEmpty {
-            return (code, .recorded)
-        }
-        guard attention.reason == TransferAttentionReason.httpClientErrorCode,
-              attention.shortDetail.hasPrefix(Self.storedDetailPrefix)
-        else { return nil }
-        let code = String(attention.shortDetail.dropFirst(Self.storedDetailPrefix.count))
-        guard !code.isEmpty else { return nil }
-        return (code, .storedDetail)
     }
 
     /// The reason code as printed, with its origin when it was read from a stored detail.
@@ -150,7 +193,9 @@ nonisolated struct RefusedItemsExport: Equatable, Sendable {
             ]
         }
         var lines = ["  \(sourceName) refused by reason:"]
-        lines += self.countsByReason.map { "    \($0.label): \($0.count)" }
+        // Count first, then the code: a line of the form `key: value` is what the export's secret
+        // redaction rewrites, and a reason code may contain a word it looks for.
+        lines += self.countsByReason.map { "    \($0.count) × \($0.label)" }
         let total = self.refusals.count
         lines.append(
             "  \(sourceName) refused items (\(self.listed.count) most recently refused of \(total) "
