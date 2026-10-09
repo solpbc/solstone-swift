@@ -122,6 +122,29 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
+    func testStatusBreakdownRoutesWaitingAudioToAudio() throws {
+        // The audio screen reads state the shell shares with its sheets. Reached from
+        // the status sheet it must open, not stop the app.
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "--ui-test",
+            "--ui-test-shell-disconnected",
+            "--ui-test-seed-audio-magic",
+            "--ui-test-open-pane=status",
+        ]
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
+
+        let audio = app.descendants(matching: .any)["shell.pane.status.waiting.audio"]
+        XCTAssertTrue(audio.waitForExistence(timeout: 10))
+        audio.tap()
+        XCTAssertTrue(app.navigationBars["audio"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any)["source.listen"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.state, .runningForeground)
+    }
+
+    @MainActor
     func testShelfPresentsFromOpener() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test"]

@@ -113,7 +113,6 @@ struct RootShellView: View {
             value: self.presentedPane
         )
         .containerShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .environment(self.observerSourcePauseState)
         .task {
             await self.crossFadePreference.observe()
         }
@@ -133,7 +132,6 @@ struct RootShellView: View {
         }
         .sheet(isPresented: self.$showingSources) {
             SourcesView()
-                .environment(self.observerSourcePauseState)
         }
         .sheet(isPresented: self.$showingJournalLives) {
             JournalLivesSheet(isPresented: self.$showingJournalLives)
@@ -165,6 +163,10 @@ struct RootShellView: View {
     var body: some View {
         self.sunArcShell
         .modifier(DeviceMigrationInitialPrompt())
+        // Injected here, above every sheet and presentation the shell declares, so a
+        // source screen opened from inside one of them finds it too. Injected lower,
+        // the status sheet's audio screen could not find it and the app stopped.
+        .environment(self.observerSourcePauseState)
         .task(id: self.tunnelManager.activeConnection?.port) {
             await self.fetchJournalMark()
         }
