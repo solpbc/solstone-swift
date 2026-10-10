@@ -30,6 +30,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - on an iphone or ipad set to a region that normally uses a 24-hour clock, with 24-hour time turned off, older versions of the app named audio with a 12-hour time your journal can't accept, so it never went in. the app now renames audio whose time it can confirm to the same date and time written the 24-hour way, so it can go into your journal.
 
+- older versions of the app could also name audio in an earlier form your journal can't accept, so it never went in. when the audio still on your iphone or ipad matches the length the app saved for it, the app now renames it to the same date and time in the form your journal accepts, so it can go in. audio it can't confirm stays on your iphone or ipad.
+
 - if the app closes while audio is on, it can now recover the playable part of a recording with its actual duration, which can then go into your journal. audio that was interrupted stays marked as interrupted.
 
 - the app now saves your journal's current addresses each time it connects, so once it has connected after your journal's address changes, it keeps using the new one without pairing again. before, it kept using the addresses from when you paired. this needs your journal to be up to date too.
