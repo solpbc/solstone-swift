@@ -206,6 +206,56 @@ nonisolated final class TransferSegmentRepairTests: XCTestCase {
         XCTAssertEqual(try Self.byteMap(of: root), byteMap)
     }
 
+    func testLegacyInspectionIssueSurvivesOrdinaryRefusalAndManualRetry() async throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("issue-retry"))
+        let id = Self.uuid(923)
+        _ = try Self.seedQueued(spool: spool, manifest: Self.manifest(itemID: id, segment: Self.day + "-085000"))
+        TransferURLProtocol.handler = Self.faithfulJournal()
+        let engine = self.makeEngine(spool: spool, audioInspector: PhoneAudioInspector { _ in .duration(12) })
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        await engine.pause()
+        await engine.enableDispatch()
+        var counts = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(counts.legacyAudioIssues[.durationMismatch], 1)
+        await engine.resume()
+        try await self.waitFor("unrepaired legacy refusal") { (await engine.snapshot()).counters.attentionCount == 1 }
+        counts = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(counts.legacyAudioIssues[.durationMismatch], 1)
+        XCTAssertNil(counts.legacyAudioIssues[.needsVerification])
+        await engine.pause()
+        _ = try await engine.retryAttention(itemID: id)
+        counts = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(counts.legacyAudioIssues[.durationMismatch], 1)
+        await engine.resume()
+        try await self.waitFor("unrepaired legacy refusal after retry") { (await engine.snapshot()).counters.attentionCount == 1 }
+        counts = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(counts.legacyAudioIssues[.durationMismatch], 1)
+        XCTAssertEqual(TransferURLProtocol.bodies.count, 2)
+        let retained = await engine.itemSnapshot(itemID: id)
+        XCTAssertEqual(retained?.manifest.observerIngest?.segment, Self.day + "-085000")
+        XCTAssertEqual(spool.segmentRepairTally(), .empty)
+    }
+
+    func testNewLegacyAdmissionClearsPriorInspectionEvidence() async throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("issue-admission"))
+        let manifest = Self.manifest(itemID: Self.uuid(924), segment: Self.day + "-085000")
+        let original = try Self.seedQueued(spool: spool, manifest: manifest)
+        let engine = self.makeEngine(spool: spool, audioInspector: PhoneAudioInspector { _ in .duration(12) })
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        await engine.pause()
+        await engine.enableDispatch()
+        let before = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(before.legacyAudioIssues[.durationMismatch], 1)
+        // Model replacement storage being admitted while this actor still holds its old snapshot.
+        try spool.removeCommittedItem(original)
+        _ = try await engine.enqueue(manifest: manifest, payloads: Self.audioPayloads)
+        let after = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(after.legacyAudioIssues[.needsVerification], 1)
+        XCTAssertNil(after.legacyAudioIssues[.durationMismatch])
+    }
+
     func testConcurrentEnablementWaitsForInspectionAndIncludesNewAdmissions() async throws {
         let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("barrier"))
         _ = try Self.seedQueued(spool: spool, manifest: Self.manifest(itemID: Self.uuid(930), segment: Self.day + "-085000"))
@@ -276,6 +326,8 @@ nonisolated final class TransferSegmentRepairTests: XCTestCase {
         await enabling
         XCTAssertEqual(try spool.readManifest(in: directory), changed)
         XCTAssertEqual(spool.segmentRepairTally(), .empty)
+        let unverified = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(unverified.legacyAudioIssues[.needsVerification], 1)
         let next = self.makeEngine(spool: spool, audioInspector: PhoneAudioInspector { _ in .duration(14) })
         self.pauseAtTeardown(next)
         try await next.initialize()

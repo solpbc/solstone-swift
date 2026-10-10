@@ -588,6 +588,7 @@ actor TransferEngine {
             itemID: staged.item.manifest.itemID,
             now: self.clock.wallNow()
         )
+        self.legacyAudioIssues.removeValue(forKey: committed.manifest.itemID)
         self.queuedItems[committed.manifest.itemID] = committed
         self.counters.queuedCount += 1
         self.updateSourceState(committed.manifest.sourceKey) { state in
@@ -936,18 +937,29 @@ actor TransferEngine {
         self.spool.segmentRepairTally()
     }
 
-    /// Issues are meaningful only for the exact current item inspected this launch. Newly
-    /// admitted/replaced items default to needing verification, never inherit an old failure.
+    /// Ordinary retry bookkeeping does not change inspected material. Every other manifest
+    /// field must agree; a new admission clears the old issue before entering the queue.
     func unrepairedSegmentNameCounts(sourceKey: String) -> UnrepairedSegmentNameCounts {
         let items = (Array(self.queuedItems.values) + Array(self.attentionItems.values))
             .filter { $0.manifest.sourceKey == sourceKey && !self.conflictedItemIDs.contains($0.manifest.itemID) }
         var issues: [UUID: TransferSegmentRepair.AudioIssue] = [:]
         for item in items {
-            if let record = self.legacyAudioIssues[item.manifest.itemID], record.item == item {
+            if let record = self.legacyAudioIssues[item.manifest.itemID],
+               Self.legacyInspectionIdentity(record.item.manifest) == Self.legacyInspectionIdentity(item.manifest) {
                 issues[item.manifest.itemID] = record.issue
             }
         }
         return UnrepairedSegmentNameCounts(manifests: items.map(\.manifest), audioIssues: issues)
+    }
+
+    private static func legacyInspectionIdentity(_ manifest: TransferManifest) -> TransferManifest {
+        var identity = manifest
+        identity.diskState = .queued
+        identity.nextAttemptAt = nil
+        identity.attention = nil
+        identity.retryCount = 0
+        identity.lastRetriedAt = nil
+        return identity
     }
 
     /// Returns the in-memory snapshot for one queued, attention, or in-flight
