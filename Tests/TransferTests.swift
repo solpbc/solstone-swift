@@ -373,8 +373,8 @@ nonisolated final class TransferTests: XCTestCase {
         let other = TransferAttentionInfo(reason: "missing_payload", shortDetail: "source file", movedAt: now)
         XCTAssertEqual(other.ownerFailureReason, "missing_payload: source file")
 
-        let bare = TransferAttentionInfo(reason: "removed_in_journal", shortDetail: "removed_in_journal", movedAt: now)
-        XCTAssertEqual(bare.ownerFailureReason, "removed_in_journal")
+        let bare = TransferAttentionInfo(reason: "payload_unreadable", shortDetail: "payload_unreadable", movedAt: now)
+        XCTAssertEqual(bare.ownerFailureReason, "payload_unreadable")
     }
 
     /// Builds before refusals were parsed stored up to 200 characters of the body. A body cut
@@ -492,6 +492,16 @@ nonisolated final class TransferTests: XCTestCase {
                     detail: "that file is too large to bring in.",
                     journalReasonCode: "multipart_part_too_large"
                 ))
+            ),
+            (
+                TransferHTTPResult(statusCode: 500, data: Data(#"{"status":"failed","error":"Ingest request failed","reason_code":"segment_removed"}"#.utf8)),
+                .observerIngest,
+                .terminalSuccess(.removedInJournal)
+            ),
+            (
+                TransferHTTPResult(statusCode: 500, data: Data(#"{"status":"failed","reason_code":"segment_removed"}"#.utf8)),
+                .save,
+                .transientRetry(.httpServerError(statusCode: 500))
             ),
             (
                 TransferHTTPResult(statusCode: 503),
@@ -3539,7 +3549,7 @@ nonisolated final class TransferTests: XCTestCase {
         }
     }
 
-    func testObserverIngest500SegmentRemovedMovesToAttention() async throws {
+    func testObserverIngest500SegmentRemovedConfirmsAndDeletesTheCopy() async throws {
         let root = self.tempDirectory.appendingPathComponent("segment-removed", isDirectory: true)
         let spool = TransferSpool(rootURL: root)
         let itemID = Self.uuid(860)
@@ -3551,29 +3561,30 @@ nonisolated final class TransferTests: XCTestCase {
             )
         }
 
-        let delivered = OSAllocatedUnfairLock<[UUID]>(initialState: [])
+        let delivered = OSAllocatedUnfairLock<[UUID: TransferSuccessKind]>(initialState: [:])
         let engine = self.makeEngine(spool: spool)
-        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, _ in
-            delivered.withLock { $0.append(manifest.itemID) }
+        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, successKind in
+            delivered.withLock { $0[manifest.itemID] = successKind }
         }
         try await engine.start()
 
         _ = try await engine.enqueue(manifest: self.makeManifest(itemID: itemID), payloads: self.audioPayloads())
-        try await self.waitFor("moved to attention on segment_removed") {
-            guard let item = await engine.itemSnapshot(itemID: itemID) else { return false }
-            return item.state == .attention
+        try await self.waitFor("segment_removed confirms the item") {
+            delivered.withLock { $0[itemID] != nil }
         }
 
+        XCTAssertEqual(delivered.withLock { $0[itemID] }, .removedInJournal)
         let snapshot = await engine.snapshot()
-        XCTAssertEqual(snapshot.counters.deliveredCount, 0)
-        XCTAssertFalse(delivered.withLock { $0.contains(itemID) })
-
-        let itemSnapshotValue = await engine.itemSnapshot(itemID: itemID)
-        let itemSnapshot = try XCTUnwrap(itemSnapshotValue)
-        XCTAssertEqual(itemSnapshot.manifest.attention?.reason, "removed_in_journal")
-        XCTAssertEqual(itemSnapshot.manifest.attention?.shortDetail, "the part of your journal this recording belongs to was removed. it's still on your phone.")
-        let payloadURL = root.appendingPathComponent("attention/\(itemID.uuidString)/audio.m4a")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: payloadURL.path))
+        XCTAssertEqual(snapshot.counters.deliveredCount, 1)
+        XCTAssertEqual(snapshot.counters.attentionCount, 0)
+        XCTAssertEqual(snapshot.counters.queuedCount, 0)
+        let itemSnapshot = await engine.itemSnapshot(itemID: itemID)
+        XCTAssertNil(itemSnapshot)
+        for state in ["queued", "attention"] {
+            let itemURL = root.appendingPathComponent("\(state)/\(itemID.uuidString)")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: itemURL.path), state)
+        }
+        XCTAssertEqual(TransferURLProtocol.requests.count, 1)
 
         // HTTP 200 {"status":"conflict","reason_code":"segment_removed"} stays http_client_error with detail reason_code=segment_removed
         let conflict200ID = Self.uuid(861)
@@ -3767,47 +3778,52 @@ nonisolated final class TransferTests: XCTestCase {
         XCTAssertFalse(delivered.withLock { $0.contains(itemID) })
     }
 
-    func testObserverIngestRemovedInJournalManualRetryDispatches() async throws {
-        let root = self.tempDirectory.appendingPathComponent("removed-manual-retry", isDirectory: true)
+    /// Earlier builds parked a segment the journal answered `segment_removed` in attention with
+    /// its payload. On launch it is removed and its delivered hook runs; nothing is sent, and
+    /// every other held item, a refusal or a receipt mismatch, keeps its payload.
+    func testParkedRemovedInJournalItemsAreDeletedOnLaunchAndOtherHeldItemsStay() async throws {
+        let root = self.tempDirectory.appendingPathComponent("removed-parked-purge", isDirectory: true)
         let spool = TransferSpool(rootURL: root)
-        let itemID = Self.uuid(910)
-
-        _ = try self.seedAttentionItem(
-            spool: spool,
-            itemID: itemID,
-            createdAt: Self.baseDate,
-            now: Self.baseDate
-        )
-        // Set attention reason to removed_in_journal
-        let stored = try spool.initialize(now: Self.baseDate).attention.first { $0.manifest.itemID == itemID }!
-        _ = try spool.moveQueuedItemToAttention(
-            spool.moveAttentionItemToQueued(stored, now: Self.baseDate),
-            reason: "removed_in_journal",
-            detail: "the part of your journal this recording belongs to was removed. it's still on your phone.",
-            now: Self.baseDate
-        )
+        let removedID = Self.uuid(910)
+        let receiptID = Self.uuid(911)
+        let refusedID = Self.uuid(912)
+        try self.seedJournalVerdict(spool: spool, itemID: removedID, reason: TransferEngine.removedInJournalReason)
+        try self.seedJournalVerdict(spool: spool, itemID: receiptID, reason: "receipt_sha256")
+        try self.seedJournalVerdict(spool: spool, itemID: refusedID, reason: TransferAttentionReason.httpClientErrorCode)
 
         TransferURLProtocol.handler = { request, body in
             (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
-
+        let delivered = OSAllocatedUnfairLock<[UUID: TransferSuccessKind]>(initialState: [:])
         let resolver = TransferEndpointResolverStub(.unavailable("held"))
         let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
-        try await engine.start()
-
-        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
-        await engine.noteNewConnectionEstablished()
-        await engine.endpointAvailabilityChanged()
-
-        try await Task.sleep(for: .milliseconds(80))
-        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
-        let snapshot = await engine.snapshot()
-        XCTAssertEqual(snapshot.counters.attentionCount, 1)
-
-        try await engine.retryAttention(itemID: itemID)
-        try await self.waitFor("manual retry delivered") {
-            (await engine.snapshot()).counters.deliveredCount == 1
+        await engine.registerDeliveredHook(sourceKey: "alpha") { manifest, successKind in
+            delivered.withLock { $0[manifest.itemID] = successKind }
         }
+
+        try await engine.initialize()
+        let parked = await engine.snapshot()
+        XCTAssertEqual(parked.counters.attentionCount, 3)
+
+        await engine.enableDispatch()
+
+        XCTAssertEqual(delivered.withLock { $0 }, [removedID: .removedInJournal])
+        let snapshot = await engine.snapshot()
+        XCTAssertEqual(snapshot.counters.attentionCount, 2)
+        let removedSnapshot = await engine.itemSnapshot(itemID: removedID)
+        XCTAssertNil(removedSnapshot)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("attention/\(removedID.uuidString)").path))
+        for keptID in [receiptID, refusedID] {
+            let payloadURL = root.appendingPathComponent("attention/\(keptID.uuidString)/audio.m4a")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: payloadURL.path), keptID.uuidString)
+        }
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+
+        // A later launch finds nothing left to remove.
+        let relaunched = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
+        try await relaunched.start()
+        let relaunchedSnapshot = await relaunched.snapshot()
+        XCTAssertEqual(relaunchedSnapshot.counters.attentionCount, 2)
     }
 
     func testAttentionAutoRetryEligibleWhenLastRetriedAtOver24HoursInPastOrFuture() async throws {
@@ -3857,12 +3873,14 @@ nonisolated final class TransferTests: XCTestCase {
         }
     }
 
-    func testItemsAnEarlierJournalTurnedAwayGoToNewlyPairedJournalAfterConfirm() async throws {
+    /// A segment a journal answered `segment_removed` is never sent to a newly paired journal,
+    /// even when the pairing changes at launch before the parked copy is removed.
+    func testItemsAnEarlierJournalTurnedAwayGoToNewlyPairedJournalButARemovedSegmentNever() async throws {
         let root = self.tempDirectory.appendingPathComponent("verdicts-follow-pairing", isDirectory: true)
         let spool = TransferSpool(rootURL: root)
         let removedID = Self.uuid(960)
         let receiptID = Self.uuid(961)
-        try self.seedJournalVerdict(spool: spool, itemID: removedID, reason: "removed_in_journal")
+        try self.seedJournalVerdict(spool: spool, itemID: removedID, reason: TransferEngine.removedInJournalReason)
         try self.seedJournalVerdict(spool: spool, itemID: receiptID, reason: "receipt_sha256")
         try spool.recordFollowedPairing("pairing-a")
         TransferURLProtocol.handler = { request, body in
@@ -3870,39 +3888,44 @@ nonisolated final class TransferTests: XCTestCase {
         }
         let resolver = TransferEndpointResolverStub(.unavailable("journal-send-held"))
         let engine = self.makeEngine(spool: TransferSpool(rootURL: root), resolver: resolver)
-        try await engine.start()
+        try await engine.initialize()
 
         await engine.noteNewConnectionEstablished(pairingIdentity: "pairing-b")
+        let followed = await engine.snapshot()
+        XCTAssertEqual(followed.counters.attentionCount, 1, "the removed segment does not follow the pairing")
+        XCTAssertEqual(followed.counters.queuedCount, 1)
+        let removedSnapshot = await engine.itemSnapshot(itemID: removedID)
+        XCTAssertEqual(removedSnapshot?.state, .attention)
+        XCTAssertEqual(spool.followedPairing(), "pairing-b")
+
+        await engine.enableDispatch()
         await engine.endpointAvailabilityChanged()
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(TransferURLProtocol.requests.count, 0, "nothing is sent before the new journal's mark is confirmed")
         let held = await engine.snapshot()
         XCTAssertEqual(held.counters.attentionCount, 0)
-        XCTAssertEqual(held.counters.queuedCount, 2)
-        XCTAssertEqual(spool.followedPairing(), "pairing-b")
+        XCTAssertEqual(held.counters.queuedCount, 1)
 
         resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
         await engine.endpointAvailabilityChanged()
-        try await self.waitFor("both delivered to the new journal") {
-            (await engine.snapshot()).counters.deliveredCount == 2
+        try await self.waitFor("the held item delivered to the new journal") {
+            (await engine.snapshot()).counters.deliveredCount == 1
         }
-        XCTAssertEqual(Set(TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:))), [removedID, receiptID])
+        XCTAssertEqual(TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:)), [receiptID])
     }
 
     func testReconnectingToSamePairingKeepsJournalVerdicts() async throws {
         let root = self.tempDirectory.appendingPathComponent("verdicts-same-pairing", isDirectory: true)
         let spool = TransferSpool(rootURL: root)
-        try self.seedJournalVerdict(spool: spool, itemID: Self.uuid(962), reason: "removed_in_journal")
+        try self.seedJournalVerdict(spool: spool, itemID: Self.uuid(962), reason: "receipt_sha256")
         try spool.recordFollowedPairing("pairing-a")
         TransferURLProtocol.handler = { request, body in
             (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
         }
         let engine = self.makeEngine(spool: TransferSpool(rootURL: root))
-        try await engine.start()
+        try await engine.initialize()
 
         await engine.noteNewConnectionEstablished(pairingIdentity: "pairing-a")
-        await engine.endpointAvailabilityChanged()
-        try await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(TransferURLProtocol.requests.count, 0)
         let snapshot = await engine.snapshot()
         XCTAssertEqual(snapshot.counters.attentionCount, 1)

@@ -138,7 +138,6 @@ nonisolated final class RefusedItemsExportTests: XCTestCase {
             XCTAssertFalse(detail.contains("limit 1"), detail)
             XCTAssertFalse(detail.contains("sha256:"), detail)
         }
-        XCTAssertNil(TransferAttentionReason.removedInJournal.journalReasonCode)
 
         let longCode = String(repeating: "x", count: 500)
         let bounded = TransferHTTPClassifier.classify(
@@ -318,7 +317,7 @@ nonisolated final class RefusedItemsExportTests: XCTestCase {
             (11, TransferAttentionReason.httpClientErrorCode, "reason_code=segment_invalid", "segment_invalid"),
             (12, TransferAttentionReason.httpClientErrorCode, "reason_code=day_invalid", "day_invalid"),
             (13, TransferAttentionReason.httpClientErrorCode, "reason_code=segment_invalid", nil),
-            (14, "removed_in_journal", "removed", nil),
+            (14, "missing_payload", "source file", nil),
         ]
         for (index, (id, reason, detail, code)) in seeds.enumerated() {
             try self.seedAttention(

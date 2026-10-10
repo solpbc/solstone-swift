@@ -308,6 +308,8 @@ extension ShareImportStore {
         case .delivered(let serverPath, let serverTimestamp),
              .alreadyStartedOrComplete(let serverPath, let serverTimestamp):
             return (serverPath, serverTimestamp)
+        case .removedInJournal:
+            return (nil, nil)
         }
     }
 

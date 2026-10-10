@@ -354,6 +354,7 @@ actor TransferEngine {
 
     func enableDispatch() async {
         guard self.dispatchSuspendedForLaunch else { return }
+        await self.retireRemovedInJournalItems()
         if self.legacyRepairTask == nil {
             self.legacyRepairTask = Task { await self.repairDatePrefixedAudioNames() }
         }
@@ -367,6 +368,66 @@ actor TransferEngine {
     func start() async throws {
         try self.initialize()
         await self.enableDispatch()
+    }
+
+    /// Attention reason earlier builds stored when the journal answered `segment_removed`.
+    static let removedInJournalReason = "removed_in_journal"
+    static let removedInJournalDetail = "removed in journal"
+
+    /// Earlier builds kept a segment the journal answered `segment_removed` in attention, with
+    /// its payload. That answer is confirmation, so on launch each such item goes the way a
+    /// delivered one does: its spool copy is removed and its source's delivered hook runs, which
+    /// clears the producer's own copy. Runs after producer recovery, so every hook is registered,
+    /// and before dispatch. Only that exact reason is touched; every other attention item stays.
+    /// An item whose removal fails stays in attention and is retried on the next launch.
+    private func retireRemovedInJournalItems() async {
+        let items = self.attentionItems.values
+            .filter { $0.manifest.attention?.reason == Self.removedInJournalReason }
+            .sorted(by: self.itemSort)
+        for item in items {
+            let itemID = item.manifest.itemID
+            do {
+                try self.spool.removeCommittedItem(item)
+            } catch {
+                transferLog.error(
+                    "transfer removed-in-journal item stays held \(itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)"
+                )
+                continue
+            }
+            self.attentionItems.removeValue(forKey: itemID)
+            self.counters.attentionCount -= 1
+            self.updateSourceState(item.manifest.sourceKey) { state in
+                state.counters.attentionCount -= 1
+            }
+            self.emit(
+                item: item,
+                previousState: .attention,
+                nextState: .delivered,
+                outcome: .delivered,
+                attempt: 0,
+                detail: Self.removedInJournalDetail
+            )
+            transferLog.notice("transfer removed-in-journal item retired \(itemID.uuidString, privacy: .public)")
+            if let hook = self.deliveredHooks[item.manifest.sourceKey] {
+                do {
+                    try await hook(item.manifest, .removedInJournal)
+                } catch {
+                    self.diagnosticsSink(TransferDiagnosticEvent(
+                        source: item.manifest.sourceKey,
+                        itemID: itemID,
+                        previousState: .delivered,
+                        nextState: .delivered,
+                        outcome: .hookFailed,
+                        attempt: 0,
+                        shortDetail: "hook failed",
+                        at: self.clock.wallNow()
+                    ))
+                }
+            }
+        }
+        if !items.isEmpty {
+            self.scheduleStatusUpdate(summary: self.lastEventSummary)
+        }
     }
 
     /// Producer recovery finishes before dispatch enablement. Inspect only exact legacy
@@ -666,7 +727,8 @@ actor TransferEngine {
     /// Everything held goes to the journal the device is paired with now, so
     /// after a pairing change nothing an earlier journal said decides what is
     /// sent. Every item waiting in attention is queued again, whatever that
-    /// journal's verdict was, and an import that journal saved but did not
+    /// journal's verdict was, except a segment a journal answered was removed:
+    /// that answer confirmed it, so it is never sent to any journal again. An import that journal saved but did not
     /// start is saved again, because the saved path it returned means nothing
     /// to another journal. `client_item_id` keeps a re-save to the same journal
     /// idempotent. A SAVE never reads the body cache, and the START that
@@ -690,6 +752,7 @@ actor TransferEngine {
             try self.moveAttentionItemsToQueued(
                 self.attentionItems.values
                     .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
+                    .filter { $0.manifest.attention?.reason != Self.removedInJournalReason }
                     .sorted(by: self.itemSort)
             )
         } catch {
@@ -780,7 +843,7 @@ actor TransferEngine {
 
     private func isAttentionItemEligibleForBulkRetry(_ item: TransferStoredItem, now: Date) -> Bool {
         guard let reason = item.manifest.attention?.reason else { return true }
-        if reason == "removed_in_journal" {
+        if reason == Self.removedInJournalReason {
             return false
         }
         let receiptTokens: Set<String> = [
@@ -1260,7 +1323,8 @@ actor TransferEngine {
         let outcome = TransferHTTPClassifier.classify(result: result, endpointPhase: phase)
         switch outcome {
         case .terminalSuccess(let successKind):
-            if phase == .observerIngest {
+            // `segment_removed` carries no receipt; the answer itself confirms the segment.
+            if phase == .observerIngest, successKind != .removedInJournal {
                 let receiptOutcome = await self.verifyObserverIngestReceipt(item: item, data: result.data)
                 guard await self.endpointResolver.isCurrent(endpoint) else {
                     self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
@@ -1333,7 +1397,7 @@ actor TransferEngine {
                 nextState: .delivered,
                 outcome: .delivered,
                 attempt: self.attemptCountByItemID[itemID, default: 0],
-                detail: "delivered"
+                detail: successKind == .removedInJournal ? Self.removedInJournalDetail : "delivered"
             )
             self.firstAttemptAtByItemID.removeValue(forKey: itemID)
             transferLog.notice("transfer item delivered \(itemID.uuidString, privacy: .public)")
@@ -1343,23 +1407,14 @@ actor TransferEngine {
                 attempt: self.attemptCountByItemID[itemID, default: 0]
             )
         case .terminalAttention(let reason):
-            if reason == .removedInJournal {
-                self.transitionQueuedToAttentionThrowing(
-                    item: item,
-                    reason: "removed_in_journal",
-                    detail: reason.ownerSafeDetail,
-                    transientOutcome: .httpServerError(statusCode: result.statusCode ?? 500)
-                )
-            } else {
-                self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
-                let detail = self.shortDetail(for: reason)
-                self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
-                let refusedUnder = TransferRefusalPacing.isSettled(reason, phase: phase)
-                    ? self.currentRefusalConditions(for: item.manifest)
-                    : nil
-                self.moveToAttention(item: item, reason: reason, detail: detail, refusedUnder: refusedUnder)
-                transferLog.notice("transfer item needs attention \(itemID.uuidString, privacy: .public)")
-            }
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+            let detail = self.shortDetail(for: reason)
+            self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
+            let refusedUnder = TransferRefusalPacing.isSettled(reason, phase: phase)
+                ? self.currentRefusalConditions(for: item.manifest)
+                : nil
+            self.moveToAttention(item: item, reason: reason, detail: detail, refusedUnder: refusedUnder)
+            transferLog.notice("transfer item needs attention \(itemID.uuidString, privacy: .public)")
         case .transientRetry(let reason):
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             let attempt = self.attemptCountByItemID[itemID, default: 1]
@@ -2097,8 +2152,6 @@ private extension TransferEngine {
             return "missing_payload"
         case .malformedManifest:
             return "malformed_manifest"
-        case .removedInJournal:
-            return "removed_in_journal"
         }
     }
 

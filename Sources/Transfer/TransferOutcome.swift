@@ -41,6 +41,9 @@ nonisolated enum TransferOutcome: Equatable, Sendable {
 nonisolated enum TransferSuccessKind: Equatable, Sendable {
     case delivered(serverPath: String?, serverTimestamp: String?)
     case alreadyStartedOrComplete(serverPath: String?, serverTimestamp: String?)
+    /// The journal answered `segment_removed`: the owner removed this segment there, so the
+    /// journal had received it. That answer is the confirmation, and the phone's copy goes.
+    case removedInJournal
 }
 
 nonisolated enum TransferAttentionReason: Equatable, Sendable {
@@ -49,7 +52,6 @@ nonisolated enum TransferAttentionReason: Equatable, Sendable {
     case decodeFailed(String)
     case missingPayload(String)
     case malformedManifest(String)
-    case removedInJournal
 }
 
 nonisolated struct ObserverIngestReceiptDescriptor: Decodable, Sendable {
@@ -139,8 +141,6 @@ nonisolated extension TransferAttentionReason {
             Self.boundedRuntimeDetail(detail, fallback: "missing source details")
         case .malformedManifest(let detail):
             detail
-        case .removedInJournal:
-            "the part of your journal this recording belongs to was removed. it's still on your phone."
         }
     }
 
@@ -295,11 +295,13 @@ nonisolated enum TransferHTTPClassifier {
         }
 
         if 500..<600 ~= statusCode {
+            // Each key is unique within its stream, so a journal that removed this segment had
+            // received it. The phone still holding it only means its receipt was lost.
             if endpointPhase == .observerIngest,
                let response = try? JSONDecoder().decode(ObserverIngestResponse.self, from: result.data),
                response.reasonCode == "segment_removed"
             {
-                return .terminalAttention(.removedInJournal)
+                return .terminalSuccess(.removedInJournal)
             }
             return .transientRetry(.httpServerError(statusCode: statusCode))
         }
