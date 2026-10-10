@@ -20,6 +20,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
+- when your journal replies that you removed the part of it a recording belongs to, that means your journal already had the recording, so the app now removes its copy from your iphone or ipad, including audio from your apple watch. before, the app kept the recording as needing attention, offered to try it again, and it could go to a journal you paired with later. recordings older versions kept this way are removed when you update.
+
 - when an item is already in your journal but your journal can't be opened from this device right now, the hint above "open journal" now says the item was added, instead of asking you to connect a journal.
 
 - opening audio from "what is waiting" on the status screen no longer closes the app. before, on an iphone, it did this every time.
