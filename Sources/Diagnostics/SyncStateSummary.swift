@@ -14,7 +14,7 @@ nonisolated struct SourceSyncStateDetail: Sendable {
     let mostRecentAttentionRetryCount: Int
     let mostRecentAttentionLastRetriedAt: Date?
     let refusedItems: RefusedItemsExport
-    /// Attention items on this source whose segment name is not in the wire form, by why the
+    /// Retained items on this source whose segment name is not in the wire form, by why the
     /// repair left them alone.
     var unrepairedSegmentNames = UnrepairedSegmentNameCounts()
     /// The spool-wide tally of segment names rewritten. Every source reads the same spool.
@@ -39,7 +39,7 @@ nonisolated struct SourceSyncStateDetail: Sendable {
             mostRecentAttentionRetryCount: representative?.manifest.retryCount ?? 0,
             mostRecentAttentionLastRetriedAt: representative?.manifest.lastRetriedAt,
             refusedItems: RefusedItemsExport(manifests: attentionSnapshots.map(\.manifest)),
-            unrepairedSegmentNames: UnrepairedSegmentNameCounts(manifests: attentionSnapshots.map(\.manifest)),
+            unrepairedSegmentNames: await transferEngine.unrepairedSegmentNameCounts(sourceKey: sourceKey),
             segmentRepairTally: await transferEngine.segmentRepairTally()
         )
     }

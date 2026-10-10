@@ -235,7 +235,7 @@ nonisolated struct RefusedItemsExport: Equatable, Sendable {
     }
 }
 
-/// The export's account of segment names written in the 12-hour form: what the spool has
+/// The export's account of old stored segment names: what the spool has
 /// rewritten and failed to rewrite (from its persistent tally), and how many attention items still
 /// hold a name that is not in the wire form (recomputed from the items as they are). Counts and
 /// relative ages only: nothing here names an item, a day or a segment.
@@ -254,12 +254,16 @@ nonisolated struct SegmentRepairExport: Equatable, Sendable {
     /// block: a line of the form `key: value` is what the export's secret redaction rewrites.
     func lines(now: Date) -> [String] {
         guard !self.isEmpty else { return [] }
-        var lines = ["  segment names stored in the 12-hour form:"]
+        var lines = ["  segment name repairs:"]
         if self.tally.repaired > 0 {
             var detail = TransferSegmentRepair.DayPeriod.allCases.compactMap { period -> String? in
                 let count = self.tally.repairedByForm[period.rawValue, default: 0]
                 return count > 0 ? "\(period.rawValue) \(count)" : nil
             }.joined(separator: ", ")
+            let legacy = self.tally.repairedByForm["date-prefixed", default: 0]
+            if legacy > 0 {
+                detail += (detail.isEmpty ? "" : ", ") + "date-prefixed \(legacy)"
+            }
             var ages: [String] = []
             if let first = self.tally.firstRepairedAt {
                 ages.append("first \(age(from: first, to: now)) ago")
@@ -273,13 +277,22 @@ nonisolated struct SegmentRepairExport: Equatable, Sendable {
             lines.append("    \(self.tally.repaired) × repaired" + (detail.isEmpty ? "" : " (\(detail))"))
         }
         if self.tally.failures > 0 {
-            lines.append("    \(self.tally.failures) × repair failures")
+            lines.append("    \(self.tally.failures) × repair failures across launches")
         }
         if self.unrepaired.noTwelveHourMatch > 0 {
-            lines.append("    \(self.unrepaired.noTwelveHourMatch) × not repaired, no 12-hour match")
+            lines.append("    \(self.unrepaired.noTwelveHourMatch) × not repaired, unsupported stored name")
         }
         if self.unrepaired.sanityCheckFailed > 0 {
             lines.append("    \(self.unrepaired.sanityCheckFailed) × not repaired, sanity check failed")
+        }
+        if self.unrepaired.legacySanityCheckFailed > 0 {
+            lines.append("    \(self.unrepaired.legacySanityCheckFailed) × date-prefixed name not repaired, date or start time disagrees")
+        }
+        for issue in TransferSegmentRepair.AudioIssue.allCases {
+            let count = self.unrepaired.legacyAudioIssues[issue, default: 0]
+            if count > 0 {
+                lines.append("    \(count) × date-prefixed name not repaired, \(issue.rawValue)")
+            }
         }
         return lines
     }

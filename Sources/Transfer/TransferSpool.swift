@@ -667,6 +667,12 @@ nonisolated struct TransferSpool: Sendable {
         else {
             return nil
         }
+        return self.rewriteSegmentName(of: item, to: repair.segment, form: repair.dayPeriod.rawValue, now: now)
+    }
+
+    /// The caller supplies an inspected legacy key or the pure 12-hour repair. No suspension
+    /// occurs between invalidating the old request body and replacing the manifest.
+    func rewriteSegmentName(of item: TransferStoredItem, to segment: String, form: String, now: Date) -> TransferStoredItem? {
         let itemID = item.manifest.itemID.uuidString
         do {
             try self.removeBodyCacheForNormalization(for: item)
@@ -677,7 +683,7 @@ nonisolated struct TransferSpool: Sendable {
             self.recordSegmentRepairFailure()
             return nil
         }
-        let manifest = Self.manifest(item.manifest, rewritten: repair)
+        let manifest = Self.manifest(item.manifest, rewrittenSegment: segment)
         do {
             try self.writeManifestAtomically(manifest, in: item.directoryURL)
         } catch {
@@ -687,7 +693,7 @@ nonisolated struct TransferSpool: Sendable {
             self.recordSegmentRepairFailure()
             return nil
         }
-        self.recordSegmentRepair(dayPeriod: repair.dayPeriod, at: now)
+        self.updateSegmentRepairTally { $0.noteRepair(form: form, at: now) }
         transferSpoolLog.notice("transfer segment name repaired \(itemID, privacy: .public)")
         return TransferStoredItem(manifest: manifest, directoryURL: item.directoryURL)
     }
@@ -718,10 +724,14 @@ nonisolated struct TransferSpool: Sendable {
     /// The manifest with the segment name rewritten and the name it was stored under kept. Nothing
     /// else in the manifest changes.
     private static func manifest(_ manifest: TransferManifest, rewritten repair: TransferSegmentRepair.Repair) -> TransferManifest {
+        Self.manifest(manifest, rewrittenSegment: repair.segment)
+    }
+
+    private static func manifest(_ manifest: TransferManifest, rewrittenSegment segment: String) -> TransferManifest {
         var rewritten = manifest
         guard var ingest = rewritten.observerIngest else { return manifest }
         ingest.segmentRepairedFrom = ingest.segmentRepairedFrom ?? ingest.segment
-        ingest.segment = repair.segment
+        ingest.segment = segment
         rewritten.observerIngest = ingest
         return rewritten
     }

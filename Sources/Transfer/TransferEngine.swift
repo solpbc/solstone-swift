@@ -260,6 +260,9 @@ actor TransferEngine {
     private var workPassRunning = false
     private var dispatchSuspendedForLaunch = true
     private var initializedForLaunch = false
+    private var legacyRepairTask: Task<Void, Never>?
+    private let audioInspector: PhoneAudioInspector
+    private var legacyAudioIssues: [UUID: (item: TransferStoredItem, issue: TransferSegmentRepair.AudioIssue)] = [:]
     private var lastEventSummary: String?
     private var lastLoggedDispatchDecision: TransferDispatchLogState?
     private var pendingStatusSnapshot: TransferStatusSnapshot?
@@ -279,7 +282,8 @@ actor TransferEngine {
         bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build,
         heardReporter: ConnectionHeardReporter = ConnectionHeardReporter(),
         appBuild: String? = nil,
-        journalVersion: String? = nil
+        journalVersion: String? = nil,
+        audioInspector: PhoneAudioInspector = .live
     ) {
         self.spool = spool
         self.transport = transport
@@ -295,6 +299,7 @@ actor TransferEngine {
         self.heardReporter = heardReporter
         self.appBuild = appBuild.flatMap { $0.isEmpty ? nil : $0 }
         self.journalVersion = TransferRefusalConditions.normalizedJournalVersion(journalVersion)
+        self.audioInspector = audioInspector
     }
 
     func initialize() throws {
@@ -347,15 +352,80 @@ actor TransferEngine {
         self.followPairingIfChanged()
     }
 
-    func enableDispatch() {
+    func enableDispatch() async {
+        guard self.dispatchSuspendedForLaunch else { return }
+        if self.legacyRepairTask == nil {
+            self.legacyRepairTask = Task { await self.repairDatePrefixedAudioNames() }
+        }
+        await self.legacyRepairTask?.value
+        self.legacyRepairTask = nil
         guard self.dispatchSuspendedForLaunch else { return }
         self.dispatchSuspendedForLaunch = false
         self.scheduleWork()
     }
 
-    func start() throws {
+    func start() async throws {
         try self.initialize()
-        self.enableDispatch()
+        await self.enableDispatch()
+    }
+
+    /// Producer recovery finishes before dispatch enablement. Inspect only exact legacy
+    /// candidates, including ones admitted while another candidate's inspection suspended us.
+    private func repairDatePrefixedAudioNames() async {
+        var inspected: Set<UUID> = []
+        while let candidate = (Array(self.queuedItems.values) + Array(self.attentionItems.values))
+            .first(where: { item in
+                guard !inspected.contains(item.manifest.itemID),
+                      !self.conflictedItemIDs.contains(item.manifest.itemID),
+                      let ingest = item.manifest.observerIngest,
+                      case .needsAudioInspection = TransferSegmentRepair.verdict(for: ingest)
+                else { return false }
+                return true
+            }) {
+            let itemID = candidate.manifest.itemID
+            inspected.insert(itemID)
+            let issue = await self.inspectAndRepairDatePrefixedItem(candidate)
+            // A drop or re-admission during inspection must not leave a stale diagnostic.
+            if let issue, self.currentLegacyItem(itemID) == candidate {
+                self.legacyAudioIssues[itemID] = (candidate, issue)
+            } else {
+                self.legacyAudioIssues.removeValue(forKey: itemID)
+            }
+        }
+    }
+
+    private func currentLegacyItem(_ itemID: UUID) -> TransferStoredItem? {
+        guard !self.droppedItemIDs.contains(itemID), !self.conflictedItemIDs.contains(itemID),
+              !self.inFlight.contains(itemID) else { return nil }
+        return self.queuedItems[itemID] ?? self.attentionItems[itemID]
+    }
+
+    private func inspectAndRepairDatePrefixedItem(_ item: TransferStoredItem) async -> TransferSegmentRepair.AudioIssue? {
+        guard let ingest = item.manifest.observerIngest,
+              case .needsAudioInspection(let clock) = TransferSegmentRepair.verdict(for: ingest)
+        else { return nil }
+        guard let storedLength = TransferSegmentRepair.verifiedDurationSuffix(ingest.durationS) else { return .invalidDuration }
+        let audio = item.manifest.payloadParts.filter { $0.kind == .audio }
+        guard audio.count == 1,
+              let url = try? self.spool.existingPayloadURL(for: audio[0], in: item)
+        else { return .missingAudio }
+        let result = await self.audioInspector.inspect(url)
+        guard self.currentLegacyItem(item.manifest.itemID) == item,
+              (try? self.spool.readManifest(in: item.directoryURL)) == item.manifest
+        else { return nil }
+        if case .missingDuration = result { return .invalidDuration }
+        guard case .duration(let seconds) = result else { return .unreadableAudio }
+        guard let measuredLength = TransferSegmentRepair.verifiedDurationSuffix(seconds) else { return .invalidDuration }
+        guard measuredLength == storedLength else { return .durationMismatch }
+        guard let repaired = self.spool.rewriteSegmentName(
+            of: item, to: "\(clock)_\(measuredLength)", form: "date-prefixed", now: self.clock.wallNow()
+        ) else { return .writeFailure }
+        if self.queuedItems[item.manifest.itemID] == item {
+            self.queuedItems[item.manifest.itemID] = repaired
+        } else if self.attentionItems[item.manifest.itemID] == item {
+            self.attentionItems[item.manifest.itemID] = repaired
+        }
+        return nil
     }
 
     /// Declare only parts that physically exist at enqueue time. A part that is
@@ -798,6 +868,7 @@ actor TransferEngine {
 
     func drop(itemID: UUID) {
         guard !self.conflictedItemIDs.contains(itemID) else { return }
+        self.legacyAudioIssues.removeValue(forKey: itemID)
         self.droppedItemIDs.insert(itemID)
         if let item = self.queuedItems.removeValue(forKey: itemID) {
             self.counters.queuedCount -= 1
@@ -863,6 +934,20 @@ actor TransferEngine {
     /// the diagnostics export, not for a UI refresh.
     func segmentRepairTally() -> SegmentRepairTally {
         self.spool.segmentRepairTally()
+    }
+
+    /// Issues are meaningful only for the exact current item inspected this launch. Newly
+    /// admitted/replaced items default to needing verification, never inherit an old failure.
+    func unrepairedSegmentNameCounts(sourceKey: String) -> UnrepairedSegmentNameCounts {
+        let items = (Array(self.queuedItems.values) + Array(self.attentionItems.values))
+            .filter { $0.manifest.sourceKey == sourceKey && !self.conflictedItemIDs.contains($0.manifest.itemID) }
+        var issues: [UUID: TransferSegmentRepair.AudioIssue] = [:]
+        for item in items {
+            if let record = self.legacyAudioIssues[item.manifest.itemID], record.item == item {
+                issues[item.manifest.itemID] = record.issue
+            }
+        }
+        return UnrepairedSegmentNameCounts(manifests: items.map(\.manifest), audioIssues: issues)
     }
 
     /// Returns the in-memory snapshot for one queued, attention, or in-flight

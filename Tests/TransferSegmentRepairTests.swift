@@ -6,7 +6,7 @@ import Foundation
 import os
 import XCTest
 
-/// Items the phone stored under a segment name written in the 12-hour form are rewritten, once,
+/// Items the phone stored under a supported legacy segment name are rewritten, once,
 /// into the 24-hour name of the same date and time, and then reach the journal. Everything the
 /// rewrite is not certain about is left exactly as it was, and counted.
 nonisolated final class TransferSegmentRepairTests: XCTestCase {
@@ -28,6 +28,339 @@ nonisolated final class TransferSegmentRepairTests: XCTestCase {
     }
 
     // MARK: - through the engine
+
+    func testDatePrefixedAudioIsRepairedBeforeDispatchAndDelivered() async throws {
+        let root = self.tempDirectory.appendingPathComponent("date-wire", isDirectory: true)
+        let audioURL = self.tempDirectory.appendingPathComponent("synthetic.m4a")
+        try await MainActor.run {
+            try MobileSegmentTestFixtures.writeReadableAudio(at: audioURL, seconds: 13)
+        }
+        let audio = try Data(contentsOf: audioURL)
+        let spool = TransferSpool(rootURL: root)
+        let original = Self.day + "-085000"
+        let queued = try Self.seedQueued(
+            spool: spool,
+            manifest: Self.manifest(itemID: Self.uuid(900), segment: original),
+            payloads: ["audio": audio]
+        )
+        let held = try spool.moveQueuedItemToAttention(
+            queued, reason: TransferAttentionReason.httpClientErrorCode,
+            detail: "reason_code=segment_invalid", journalReasonCode: "segment_invalid", now: Self.launch
+        )
+        let oldBody = try XCTUnwrap(Self.builtBody(of: held, spool: spool))
+        _ = try spool.writeBodyCache(oldBody, for: held)
+        TransferURLProtocol.handler = Self.faithfulJournal()
+        let engine = self.makeEngine(spool: spool)
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        await engine.pause()
+        await engine.enableDispatch()
+        let snapshots = await engine.itemSnapshots(sourceKey: "alpha")
+        let repaired = try XCTUnwrap(snapshots.first?.manifest)
+        XCTAssertEqual(repaired.observerIngest?.segment, "085000_13")
+        XCTAssertEqual(repaired.observerIngest?.segmentRepairedFrom, original)
+        var normalized = repaired
+        normalized.observerIngest?.segment = original
+        normalized.observerIngest?.segmentRepairedFrom = nil
+        XCTAssertEqual(normalized, held.manifest)
+        XCTAssertEqual(try spool.payloadData(for: repaired.payloadParts[0], in: held), audio)
+        XCTAssertFalse(spool.bodyCacheExists(for: held))
+        await engine.resume()
+        try await engine.retryAttention()
+        try await self.waitFor("date-prefixed delivered") { (await engine.snapshot()).counters.deliveredCount == 1 }
+        XCTAssertEqual(TransferURLProtocol.bodies.count, 1)
+        XCTAssertEqual(Self.envelopeSegment(in: try XCTUnwrap(TransferURLProtocol.bodies.first)), "085000_13")
+        XCTAssertEqual(spool.segmentRepairTally().repairedByForm["date-prefixed"], 1)
+        let sent = try XCTUnwrap(TransferURLProtocol.bodies.first)
+        for (name, data) in [("legacy-date-repaired.multipart", sent), ("legacy-date-original.multipart", oldBody), ("legacy-date-audio.m4a", audio)] {
+            let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.data")
+            attachment.name = name
+            attachment.lifetime = .keepAlways
+            self.add(attachment)
+        }
+        let contentType = XCTAttachment(string: try XCTUnwrap(TransferURLProtocol.requests.first?.value(forHTTPHeaderField: "Content-Type")))
+        contentType.name = "legacy-date-content-type"
+        contentType.lifetime = .keepAlways
+        self.add(contentType)
+    }
+
+    func testDatePrefixedClassificationPreservesClockAndRejectsUnsafeInputs() {
+        var ingest = Self.ingest(segment: Self.day + "-085000", pinnedClock: "085000", offset: -25_200)
+        XCTAssertEqual(TransferSegmentRepair.verdict(for: ingest), .needsAudioInspection(clock: "085000"))
+        for offset in [-43_200, 50_400, 0, 19_800] {
+            ingest.startedAt = Self.instant(day: Self.day, clock: "085000", offset: offset)
+            XCTAssertEqual(TransferSegmentRepair.verdict(for: ingest), .needsAudioInspection(clock: "085000"))
+        }
+        for offset in [-43_201, 50_401, 86_400, -86_400, 420] {
+            ingest.startedAt = Self.instant(day: Self.day, clock: "085000", offset: offset)
+            XCTAssertEqual(TransferSegmentRepair.verdict(for: ingest), .legacySanityCheckFailed)
+        }
+        ingest.startedAt = Self.startedAt
+        ingest.day = "20260106"
+        XCTAssertEqual(TransferSegmentRepair.verdict(for: ingest), .legacySanityCheckFailed)
+        for clock in ["000000", "235959"] {
+            let midnight = Self.ingest(segment: Self.day + "-" + clock, pinnedClock: clock, offset: -25_200)
+            XCTAssertEqual(TransferSegmentRepair.verdict(for: midnight), .needsAudioInspection(clock: clock))
+        }
+        for name in [Self.day + "-085000\n", "2026010-085000", "202601050-085000", "２０２６０１０５-085000", "20260105-٠٨٥٠٠٠", "20260105_085000", "20260105-240000", "20260105-086000", "20260105-085060"] {
+            ingest.segment = name
+            XCTAssertEqual(TransferSegmentRepair.verdict(for: ingest), .noTwelveHourMatch, name)
+        }
+        ingest.segment = "20260230-085000"
+        ingest.day = "20260230"
+        XCTAssertEqual(TransferSegmentRepair.verdict(for: ingest), .legacySanityCheckFailed)
+        for duration in [0.0, -1, .nan, .infinity, -.infinity, Double.greatestFiniteMagnitude, Double(Int.max)] {
+            XCTAssertNil(TransferSegmentRepair.verifiedDurationSuffix(duration))
+        }
+        for (duration, suffix) in [(0.1, 1), (1.49, 1), (1.5, 2), (299.9, 300), (301.0, 301)] {
+            XCTAssertEqual(TransferSegmentRepair.verifiedDurationSuffix(duration), suffix)
+        }
+    }
+
+    func testLegacyInspectionFailuresAreVisibleForQueuedItemsAndDisappearOnDrop() async throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("issues"))
+        let cases: [(id: Int, stored: Double, expected: TransferSegmentRepair.AudioIssue)] = [
+            (910, 13, .durationMismatch), (911, 13, .unreadableAudio),
+            (912, 0, .invalidDuration), (913, Double.greatestFiniteMagnitude, .invalidDuration),
+            (914, 13, .missingAudio), (915, 13, .invalidDuration), (916, 13, .invalidDuration),
+        ]
+        for entry in cases {
+            var manifest = Self.manifest(itemID: Self.uuid(entry.id), segment: Self.day + "-085000")
+            manifest.observerIngest?.durationS = entry.stored
+            let item = try Self.seedQueued(spool: spool, manifest: manifest)
+            if entry.id == 914 {
+                try FileManager.default.removeItem(at: item.directoryURL.appendingPathComponent("audio.m4a"))
+            }
+        }
+        let inspector = PhoneAudioInspector { url in
+            switch url.deletingLastPathComponent().lastPathComponent {
+            case Self.uuid(910).uuidString: return .duration(12)
+            case Self.uuid(911).uuidString: return .transient(domain: "test", code: 1)
+            case Self.uuid(915).uuidString: return .missingDuration
+            case Self.uuid(916).uuidString: return .duration(.nan)
+            default: return .duration(0.1) // Huge finite stored duration must not match fallback one.
+            }
+        }
+        let engine = self.makeEngine(spool: spool, audioInspector: inspector)
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        await engine.pause()
+        let before = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(before.legacyAudioIssues[.needsVerification], cases.count)
+        await engine.enableDispatch()
+        let after = await SourceSyncStateDetail.build(from: engine, sourceKey: "alpha")
+        for issue in Set(cases.map(\.expected)) {
+            XCTAssertEqual(after.unrepairedSegmentNames.legacyAudioIssues[issue], cases.filter { $0.expected == issue }.count)
+        }
+        XCTAssertEqual(after.unrepairedSegmentNames.noTwelveHourMatch, 0)
+        let retained = await engine.itemSnapshots(sourceKey: "alpha")
+        XCTAssertEqual(retained.count, cases.count)
+        XCTAssertTrue(retained.allSatisfy { $0.manifest.observerIngest?.segment == Self.day + "-085000" })
+        for entry in cases { await engine.drop(itemID: Self.uuid(entry.id)) }
+        let dropped = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertTrue(dropped.isEmpty)
+    }
+
+    func testLegacyWriteFailuresRetryIndependentlyAndThenStayIdempotent() async throws {
+        let root = self.tempDirectory.appendingPathComponent("legacy-faults")
+        let faults = RepairFaultFileSystem()
+        let spool = TransferSpool(rootURL: root, fileSystem: faults)
+        var originals: [TransferStoredItem] = []
+        for id in 920...922 {
+            let item = try Self.seedAttention(spool: spool, manifest: Self.manifest(itemID: Self.uuid(id), segment: Self.day + "-085000"))
+            _ = try spool.writeBodyCache(Data("old-body".utf8), for: item)
+            originals.append(item)
+        }
+        faults.failBodyDelete(for: [Self.uuid(920)])
+        faults.failManifestReplace(for: [Self.uuid(921)])
+        let inspector = PhoneAudioInspector { _ in .duration(13) }
+        let engine = self.makeEngine(spool: spool, audioInspector: inspector)
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        await engine.pause()
+        await engine.enableDispatch()
+        XCTAssertEqual(try spool.readManifest(in: originals[0].directoryURL), originals[0].manifest)
+        XCTAssertEqual(try spool.readManifest(in: originals[1].directoryURL), originals[1].manifest)
+        XCTAssertTrue(spool.bodyCacheExists(for: originals[0]))
+        XCTAssertFalse(spool.bodyCacheExists(for: originals[1]))
+        XCTAssertEqual(spool.segmentRepairTally().repaired, 1)
+        XCTAssertEqual(spool.segmentRepairTally().failures, 2)
+        let issues = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(issues.legacyAudioIssues[.writeFailure], 2)
+        faults.failBodyDelete(for: [])
+        faults.failManifestReplace(for: [])
+        let next = self.makeEngine(spool: spool, audioInspector: inspector)
+        self.pauseAtTeardown(next)
+        try await next.initialize()
+        await next.pause()
+        await next.enableDispatch()
+        XCTAssertEqual(spool.segmentRepairTally().repaired, 3)
+        let cleared = await next.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertTrue(cleared.isEmpty)
+        let byteMap = try Self.byteMap(of: root)
+        let third = self.makeEngine(spool: spool, audioInspector: inspector)
+        self.pauseAtTeardown(third)
+        try await third.initialize()
+        await third.pause()
+        await third.enableDispatch()
+        XCTAssertEqual(try Self.byteMap(of: root), byteMap)
+    }
+
+    func testConcurrentEnablementWaitsForInspectionAndIncludesNewAdmissions() async throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("barrier"))
+        _ = try Self.seedQueued(spool: spool, manifest: Self.manifest(itemID: Self.uuid(930), segment: Self.day + "-085000"))
+        let barrier = LegacyAudioInspectionBarrier()
+        let inspector = PhoneAudioInspector { url in
+            if url.deletingLastPathComponent().lastPathComponent == Self.uuid(930).uuidString {
+                return await barrier.inspect()
+            }
+            return .duration(13)
+        }
+        TransferURLProtocol.handler = Self.faithfulJournal()
+        let engine = self.makeEngine(spool: spool, audioInspector: inspector)
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        async let first: Void = engine.enableDispatch()
+        async let second: Void = engine.enableDispatch()
+        try await self.waitFor("inspector entered") { await barrier.entered }
+        _ = try await engine.enqueue(manifest: Self.manifest(itemID: Self.uuid(931), segment: Self.day + "-085000"), payloads: Self.audioPayloads)
+        await engine.endpointAvailabilityChanged()
+        XCTAssertEqual(TransferURLProtocol.bodies.count, 0)
+        await barrier.release()
+        _ = await (first, second)
+        try await self.waitFor("both corrected admissions delivered") { (await engine.snapshot()).counters.deliveredCount == 2 }
+        XCTAssertEqual(TransferURLProtocol.bodies.count, 2)
+        XCTAssertTrue(TransferURLProtocol.bodies.allSatisfy { Self.envelopeSegment(in: $0) == "085000_13" })
+        XCTAssertEqual(spool.segmentRepairTally().repaired, 2)
+    }
+
+    func testDropDuringLegacyInspectionCannotResurrectTheItem() async throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("drop-barrier"))
+        let item = try Self.seedQueued(spool: spool, manifest: Self.manifest(itemID: Self.uuid(940), segment: Self.day + "-085000"))
+        let barrier = LegacyAudioInspectionBarrier()
+        let engine = self.makeEngine(spool: spool, audioInspector: PhoneAudioInspector { _ in await barrier.inspect() })
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        async let enabling: Void = engine.enableDispatch()
+        try await self.waitFor("drop inspector entered") { await barrier.entered }
+        await engine.drop(itemID: item.manifest.itemID)
+        await barrier.release()
+        await enabling
+        let snapshots = await engine.itemSnapshots()
+        XCTAssertTrue(snapshots.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: item.directoryURL.path))
+        XCTAssertEqual(spool.segmentRepairTally(), .empty)
+        let cleared = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertTrue(cleared.isEmpty)
+        XCTAssertEqual(TransferURLProtocol.bodies.count, 0)
+    }
+
+    func testStagedLegacyRecoveryAndChangedDiskManifestAreSafe() async throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("staged-barrier"))
+        let staged = try spool.stage(manifest: Self.manifest(itemID: Self.uuid(950), segment: Self.day + "-085000"), payloads: Self.audioPayloads)
+        let barrier = LegacyAudioInspectionBarrier()
+        let engine = self.makeEngine(spool: spool, audioInspector: PhoneAudioInspector { _ in await barrier.inspect() })
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        await engine.pause()
+        let recoveredItems = await engine.itemSnapshots()
+        let recovered = try XCTUnwrap(recoveredItems.first)
+        XCTAssertEqual(recovered.manifest.itemID, staged.item.manifest.itemID)
+        let directory = spool.queuedDirectoryURL.appendingPathComponent(recovered.manifest.itemID.uuidString)
+        async let enabling: Void = engine.enableDispatch()
+        try await self.waitFor("replacement inspector entered") { await barrier.entered }
+        var changed = recovered.manifest
+        changed.observerIngest?.durationS = 14
+        try spool.writeManifestAtomically(changed, in: directory)
+        await barrier.release()
+        await enabling
+        XCTAssertEqual(try spool.readManifest(in: directory), changed)
+        XCTAssertEqual(spool.segmentRepairTally(), .empty)
+        let next = self.makeEngine(spool: spool, audioInspector: PhoneAudioInspector { _ in .duration(14) })
+        self.pauseAtTeardown(next)
+        try await next.initialize()
+        await next.pause()
+        await next.enableDispatch()
+        let verified = await next.itemSnapshots()
+        XCTAssertEqual(verified.first?.manifest.observerIngest?.segment, "085000_14")
+    }
+
+    func testLiveLegacyInspectorDoesNotRepairUnreadableOrShortenedAudio() async throws {
+        let resource = try XCTUnwrap(Bundle(for: Self.self).resourceURL)
+        let relativePaths = ["tail-cut-mdat.m4a", "AudioRecovery/tail-cut-mdat.m4a", "Fixtures/AudioRecovery/tail-cut-mdat.m4a"]
+        let prefix = try XCTUnwrap(relativePaths.map { resource.appendingPathComponent($0) }.first { FileManager.default.fileExists(atPath: $0.path) })
+        let bad = self.tempDirectory.appendingPathComponent("ftyp-only.m4a")
+        try await MainActor.run { try MobileSegmentTestFixtures.writeFtypOnlyAudio(at: bad) }
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("live-failures"))
+        var items: [TransferStoredItem] = []
+        for (id, url) in [(960, prefix), (961, bad)] {
+            items.append(try Self.seedQueued(
+                spool: spool, manifest: Self.manifest(itemID: Self.uuid(id), segment: Self.day + "-085000"),
+                payloads: ["audio": try Data(contentsOf: url)]
+            ))
+        }
+        let before = try items.map { try Self.byteMap(of: $0.directoryURL) }
+        let engine = self.makeEngine(spool: spool)
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        await engine.pause()
+        await engine.enableDispatch()
+        XCTAssertEqual(try items.map { try Self.byteMap(of: $0.directoryURL) }, before)
+        let issues = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertEqual(issues.legacyAudioIssues[.durationMismatch], 1)
+        XCTAssertEqual(issues.legacyAudioIssues[.unreadableAudio], 1)
+        XCTAssertEqual(spool.segmentRepairTally(), .empty)
+    }
+
+    func testDatePrefixedRepairKeepsProducerOwnershipAndRejectsDifferentPayloads() async throws {
+        for state in [TransferDiskState.queued, .attention] {
+            let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("legacy-ownership-\(state.rawValue)"))
+            let original = Self.manifest(itemID: Self.uuid(state == .queued ? 970 : 971), segment: Self.day + "-085000")
+            if state == .queued {
+                _ = try Self.seedQueued(spool: spool, manifest: original)
+            } else {
+                _ = try Self.seedAttention(spool: spool, manifest: original)
+            }
+            let engine = self.makeEngine(spool: spool, audioInspector: PhoneAudioInspector { _ in .duration(13) })
+            self.pauseAtTeardown(engine)
+            try await engine.initialize()
+            await engine.pause()
+            await engine.enableDispatch()
+            let matching = self.tempDirectory.appendingPathComponent("matching-\(state.rawValue).m4a")
+            try Self.audioPayloads["audio"]!.write(to: matching)
+            let expected: TransferOwnershipVerdict = state == .queued ? .ownedInQueued : .ownedInAttention
+            XCTAssertEqual(try spool.verifyOwnership(expectedManifest: original, expectedPayloadSourceURLs: ["audio": matching]), expected)
+            let different = self.tempDirectory.appendingPathComponent("different-\(state.rawValue).m4a")
+            let bytes = Data("different owner audio".utf8)
+            try bytes.write(to: different)
+            XCTAssertEqual(try spool.verifyOwnership(expectedManifest: original, expectedPayloadSourceURLs: ["audio": different]), .conflict(.payloadMismatch))
+            XCTAssertEqual(try Data(contentsOf: different), bytes)
+            let snapshots = await engine.itemSnapshots()
+            XCTAssertEqual(snapshots.count, 1)
+            XCTAssertEqual(snapshots.first?.manifest.observerIngest?.segment, "085000_13")
+        }
+    }
+
+    func testDatePrefixedConflictedOwnersAreNotInspectedOrMutated() async throws {
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent("legacy-conflict"))
+        let item = try Self.seedQueued(spool: spool, manifest: Self.manifest(itemID: Self.uuid(980), segment: Self.day + "-085000"))
+        let attention = spool.attentionDirectoryURL.appendingPathComponent(item.manifest.itemID.uuidString)
+        try FileManager.default.copyItem(at: item.directoryURL, to: attention)
+        let before = try Self.byteMap(of: item.directoryURL)
+        let engine = self.makeEngine(spool: spool, audioInspector: PhoneAudioInspector { _ in
+            XCTFail("conflicted ownership must never be inspected")
+            return .duration(13)
+        })
+        self.pauseAtTeardown(engine)
+        try await engine.initialize()
+        await engine.pause()
+        await engine.enableDispatch()
+        XCTAssertEqual(try Self.byteMap(of: item.directoryURL), before)
+        XCTAssertEqual(try Self.byteMap(of: attention), before)
+        XCTAssertEqual(spool.segmentRepairTally(), .empty)
+        let counts = await engine.unrepairedSegmentNameCounts(sourceKey: "alpha")
+        XCTAssertTrue(counts.isEmpty)
+    }
 
     func testRepairedKeyReachesTheWireThroughTheEngine() async throws {
         let root = self.tempDirectory.appendingPathComponent("wire", isDirectory: true)
@@ -1368,7 +1701,8 @@ extension TransferSegmentRepairTests {
     func makeEngine(
         spool: TransferSpool,
         clock: FakeTransferClock = FakeTransferClock(wall: TransferSegmentRepairTests.launch),
-        appBuild: String? = nil
+        appBuild: String? = nil,
+        audioInspector: PhoneAudioInspector = .live
     ) -> TransferEngine {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [TransferURLProtocol.self]
@@ -1380,7 +1714,8 @@ extension TransferSegmentRepairTests {
             ))),
             pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
             clock: clock,
-            appBuild: appBuild
+            appBuild: appBuild,
+            audioInspector: audioInspector
         )
     }
 
@@ -1405,5 +1740,23 @@ extension TransferSegmentRepairTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         XCTFail("Timed out waiting for \(label)", file: file, line: line)
+    }
+}
+
+private actor LegacyAudioInspectionBarrier {
+    private(set) var entered = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func inspect() async -> PhoneAudioInspectionResult {
+        await withCheckedContinuation { continuation in
+            self.continuation = continuation
+            self.entered = true
+        }
+        return .duration(13)
+    }
+
+    func release() {
+        self.continuation?.resume()
+        self.continuation = nil
     }
 }

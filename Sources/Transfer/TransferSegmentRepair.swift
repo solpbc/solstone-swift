@@ -3,17 +3,17 @@
 
 import Foundation
 
-/// Rewrites a segment name an older build stored in the 12-hour form into the 24-hour name of the
-/// same date and time.
+/// Classifies old stored segment names for repair into the wire form at the same date and time.
 ///
 /// Builds up to 2.0.6 (115) formatted a segment's clock with the device's locale. With the 12-hour
 /// preference forced on, that gave `85000<U+202F>AM_13` for 08:50:00 and 13 seconds: a clock with
 /// no leading zero, a narrow no-break space, and a day-period marker. The journal refuses such a
 /// name, and every later build sent the stored name again as it was. The day is unaffected.
 ///
-/// Nothing here guesses. A name is rewritten only when it matches the 12-hour form exactly, its
-/// day is eight ASCII digits, and the item's own start instant agrees with the rewritten clock to
-/// within a plausible time zone offset. Everything else is left as it is, and counted.
+/// Earlier writers used `YYYYMMDD-HHMMSS`, with no duration. This classifier checks its day and
+/// clock; the engine must inspect retained audio before supplying the missing duration.
+/// Both supported forms require the item's start instant to agree within a plausible zone offset.
+/// Everything else is left as it is, and counted.
 nonisolated enum TransferSegmentRepair {
     /// The day-period marker as it was stored. The case is kept because the persistent tally
     /// counts each form separately.
@@ -36,8 +36,10 @@ nonisolated enum TransferSegmentRepair {
         /// The segment already has the wire form `^[0-9]{6}_[0-9]+$`. Nothing to do.
         case wireForm
         case repairable(Repair)
-        /// The segment is not in the wire form and is not exactly the 12-hour form either (or the
-        /// 12-hour form has a day that is not eight ASCII digits).
+        /// The older date-prefixed form has no duration; only inspected audio can supply it.
+        case needsAudioInspection(clock: String)
+        case legacySanityCheckFailed
+        /// Neither supported legacy grammar matches. The case name predates date-prefixed repair.
         case noTwelveHourMatch
         /// The segment is in the 12-hour form, but its date and time do not fit the item's start
         /// instant at any plausible zone offset.
@@ -56,6 +58,16 @@ nonisolated enum TransferSegmentRepair {
         let segment = Array(ingest.segment.unicodeScalars)
         if Self.isWireForm(segment) {
             return .wireForm
+        }
+        if let legacy = Self.parseDatePrefixed(segment) {
+            guard legacy.day == ingest.day,
+                  let day = Self.parseDay(legacy.day),
+                  let offset = Self.offsetSeconds(
+                    day: day, hour: legacy.hour, minute: legacy.minute, second: legacy.second,
+                    startedAt: ingest.startedAt
+                  ), Self.isPlausibleOffset(offset)
+            else { return .legacySanityCheckFailed }
+            return .needsAudioInspection(clock: legacy.clock)
         }
         guard let day = Self.parseDay(ingest.day),
               let twelveHour = Self.parseTwelveHour(segment)
@@ -128,6 +140,46 @@ nonisolated enum TransferSegmentRepair {
     }
 
     // MARK: - grammar
+
+    struct DatePrefixed {
+        let day: String
+        let clock: String
+        let hour: Int
+        let minute: Int
+        let second: Int
+    }
+
+    static func parseDatePrefixed(_ scalars: [Unicode.Scalar]) -> DatePrefixed? {
+        guard scalars.count == 15, scalars[8] == "-",
+              scalars[..<8].allSatisfy({ Self.digit($0) != nil }),
+              scalars[9...].allSatisfy({ Self.digit($0) != nil })
+        else { return nil }
+        let digits = scalars[9...].compactMap(Self.digit)
+        let hour = digits[0] * 10 + digits[1]
+        let minute = digits[2] * 10 + digits[3]
+        let second = digits[4] * 10 + digits[5]
+        guard hour < 24, minute < 60, second < 60 else { return nil }
+        return DatePrefixed(
+            day: String(String.UnicodeScalarView(scalars[..<8])),
+            clock: String(String.UnicodeScalarView(scalars[9...])),
+            hour: hour, minute: minute, second: second
+        )
+    }
+
+    /// Unlike the capture formatter's fallback, repair must reject overflow and absent length.
+    static func verifiedDurationSuffix(_ seconds: TimeInterval) -> Int? {
+        guard seconds.isFinite, seconds > 0, let rounded = Int(exactly: seconds.rounded()) else { return nil }
+        return max(1, rounded)
+    }
+
+    enum AudioIssue: String, CaseIterable, Hashable, Sendable {
+        case needsVerification = "audio needs verification"
+        case missingAudio = "audio missing or ambiguous"
+        case unreadableAudio = "audio could not be read"
+        case invalidDuration = "duration invalid"
+        case durationMismatch = "audio and stored durations disagree"
+        case writeFailure = "repair could not be saved"
+    }
 
     struct TwelveHour: Equatable, Sendable {
         let hour: Int
@@ -205,35 +257,46 @@ nonisolated enum TransferSegmentRepair {
     }
 }
 
-/// How many attention items keep a segment name that is not in the wire form, split by why the
+/// How many retained queued and attention items keep a non-wire segment name, split by why the
 /// repair left them alone. Recomputed from the items as they are, never stored.
 nonisolated struct UnrepairedSegmentNameCounts: Equatable, Sendable {
     var noTwelveHourMatch = 0
     var sanityCheckFailed = 0
+    var legacySanityCheckFailed = 0
+    var legacyAudioIssues: [TransferSegmentRepair.AudioIssue: Int] = [:]
 
     init(noTwelveHourMatch: Int = 0, sanityCheckFailed: Int = 0) {
         self.noTwelveHourMatch = noTwelveHourMatch
         self.sanityCheckFailed = sanityCheckFailed
     }
 
-    init(manifests: [TransferManifest]) {
+    init(manifests: [TransferManifest], audioIssues: [UUID: TransferSegmentRepair.AudioIssue] = [:]) {
         for manifest in manifests {
             guard let ingest = manifest.observerIngest else { continue }
             switch TransferSegmentRepair.verdict(for: ingest) {
             case .noTwelveHourMatch: self.noTwelveHourMatch += 1
             case .sanityCheckFailed: self.sanityCheckFailed += 1
+            case .legacySanityCheckFailed: self.legacySanityCheckFailed += 1
+            case .needsAudioInspection:
+                self.legacyAudioIssues[audioIssues[manifest.itemID] ?? .needsVerification, default: 0] += 1
             case .wireForm, .repairable: break
             }
         }
     }
 
-    var isEmpty: Bool { self.noTwelveHourMatch == 0 && self.sanityCheckFailed == 0 }
+    var isEmpty: Bool {
+        self.noTwelveHourMatch == 0 && self.sanityCheckFailed == 0
+            && self.legacySanityCheckFailed == 0 && self.legacyAudioIssues.isEmpty
+    }
 
     static func + (lhs: Self, rhs: Self) -> Self {
-        Self(
+        var combined = Self(
             noTwelveHourMatch: lhs.noTwelveHourMatch + rhs.noTwelveHourMatch,
             sanityCheckFailed: lhs.sanityCheckFailed + rhs.sanityCheckFailed
         )
+        combined.legacySanityCheckFailed = lhs.legacySanityCheckFailed + rhs.legacySanityCheckFailed
+        combined.legacyAudioIssues = lhs.legacyAudioIssues.merging(rhs.legacyAudioIssues, uniquingKeysWith: +)
+        return combined
     }
 }
 
@@ -277,8 +340,12 @@ nonisolated struct SegmentRepairTally: Codable, Equatable, Sendable {
     var isEmpty: Bool { self.repaired == 0 && self.failures == 0 }
 
     mutating func noteRepair(dayPeriod: TransferSegmentRepair.DayPeriod, at date: Date) {
+        self.noteRepair(form: dayPeriod.rawValue, at: date)
+    }
+
+    mutating func noteRepair(form: String, at date: Date) {
         self.repaired = Self.counted(self.repaired)
-        self.repairedByForm[dayPeriod.rawValue] = Self.counted(self.repairedByForm[dayPeriod.rawValue, default: 0])
+        self.repairedByForm[form] = Self.counted(self.repairedByForm[form, default: 0])
         self.firstRepairedAt = Swift.min(self.firstRepairedAt ?? date, date)
         self.lastRepairedAt = Swift.max(self.lastRepairedAt ?? date, date)
     }
