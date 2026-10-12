@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.8 (128)] - 2026-10-12
+
 ### Changed
 
 - the event log you can export from the status screen now gives your journal's reason for anything it turned away and, for the audio it turned away most recently, the date and time it was named with. when you send it to ask for help, it shows what happened.
@@ -20,7 +22,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
-- when your journal replies that you removed the part of it a recording belongs to, that means your journal already had the recording, so the app now removes its copy from your iphone or ipad, including audio from your apple watch. before, the app kept the recording as needing attention, offered to try it again, and it could go to a journal you paired with later. recordings older versions kept this way are removed when you update.
+- when your journal replies that you removed the segment a recording belongs to, that means your journal already had the recording, so the app now removes its copy from your iphone or ipad, including audio from your apple watch. before, the app kept the recording as needing attention, offered to try it again, and it could go to a journal you paired with later. recordings older versions kept this way are removed when you update.
 
 - when an item is already in your journal but your journal can't be opened from this device right now, the hint above "open journal" now says the item was added, instead of asking you to connect a journal.
 
