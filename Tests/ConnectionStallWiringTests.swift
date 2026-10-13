@@ -82,8 +82,10 @@ nonisolated final class ConnectionStallWiringTests: XCTestCase {
         super.tearDown()
     }
 
+    /// Every wait here expects its condition to come true, so the deadline only bounds a real
+    /// failure. Two seconds starved under host load (four probe round-trips, load average 41).
     private static func waitUntil(
-        timeout: Duration = .seconds(2),
+        timeout: Duration = .seconds(10),
         interval: Duration = .milliseconds(20),
         _ condition: () async -> Bool
     ) async -> Bool {

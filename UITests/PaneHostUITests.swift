@@ -121,6 +121,55 @@ nonisolated final class PaneHostUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["screen"].waitForExistence(timeout: 10))
     }
 
+    /// One queued segment can carry several sources. The aggregate counts it once; the rows
+    /// say which sources are waiting and carry no number, so nothing on the pane can fail to
+    /// add up to the one count (mobile-shell contract § 2.2).
+    @MainActor
+    func testStatusRowsNameMultiSourceSegmentWithoutRecountingIt() throws {
+        continueAfterFailure = true  // each fixture reports, and attaches its pixels, on its own
+        let cases: [(seed: String, rows: [String])] = [
+            ("audio,location", ["audio", "location"]),
+            ("audio,location,screencast", ["audio", "location", "screencast"]),
+        ]
+        for (seed, rows) in cases {
+            let app = XCUIApplication()
+            app.launchArguments = [
+                "--ui-test",
+                "--ui-test-no-journal",
+                "--ui-test-seed-mixed-backlog=\(seed)",
+            ]
+            app.launch()
+            XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+            try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
+            XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 15))
+
+            let pill = app.buttons["dayHome.statusPill"]
+            XCTAssertTrue(pill.waitForExistence(timeout: 10))
+            pill.tap()
+            let lead = app.descendants(matching: .any)["shell.pane.status.lead"]
+            XCTAssertTrue(lead.waitForExistence(timeout: 10))
+            for row in rows {
+                XCTAssertTrue(
+                    app.descendants(matching: .any)["shell.pane.status.waiting.\(row)"].waitForExistence(timeout: 10),
+                    "\(row) row missing for \(seed)"
+                )
+            }
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "status-\(seed)"
+            shot.lifetime = .keepAlways
+            add(shot)
+
+            XCTAssertNotNil(lead.label.range(of: #"^1\D"#, options: .regularExpression), "lead reads \(lead.label) for \(seed)")
+            for row in rows {
+                let element = app.descendants(matching: .any)["shell.pane.status.waiting.\(row)"]
+                let value = element.value as? String ?? ""
+                XCTAssertTrue(value.contains("waiting to sync"), "\(row) row for \(seed) reads \(value)")
+                XCTAssertNil(value.range(of: #"\d"#, options: .regularExpression), "\(row) row for \(seed) reads \(value)")
+            }
+            app.terminate()
+        }
+    }
+
     @MainActor
     func testStatusBreakdownRoutesWaitingAudioToAudio() throws {
         // The audio screen reads state the shell shares with its sheets. Reached from

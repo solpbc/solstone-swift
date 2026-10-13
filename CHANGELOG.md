@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- the status screen no longer shows a number beside each source under "what is waiting". one item can hold audio, location and screen together, so those numbers could add up to more than the waiting count above them. that count is the one to go by.
+
 ## [2.0.8 (128)] - 2026-10-12
 
 ### Changed

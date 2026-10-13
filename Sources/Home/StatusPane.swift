@@ -429,6 +429,10 @@ struct StatusPane: View {
 
     /// Every waiting row opens that source, so the breakdown is a way in rather than
     /// a dead end. Only sources actually holding something appear.
+    ///
+    /// ⛔ A row carries no number. One segment can hold audio, location and screen at once,
+    /// so per-source numbers count it once per source and need not add up to the lead count,
+    /// which is the only number (mobile-shell contract § 2.2; Android's rows match).
     @ViewBuilder
     private var whatIsWaitingSection: some View {
         if !self.waitingRows.isEmpty {
@@ -444,13 +448,10 @@ struct StatusPane: View {
                             Text(row.name)
                                 .font(ShellFont.tileName)
                             Spacer(minLength: 8)
-                            Text("\(row.count)")
-                                .font(.subheadline.monospacedDigit().weight(.semibold))
-                                .foregroundStyle(.secondary)
                         }
                         .frame(minHeight: 44)
                         .accessibilityLabel(row.name)
-                        .accessibilityValue("\(row.count) \(SourceVocabulary.waitingToSync)")
+                        .accessibilityValue(SourceVocabulary.waitingToSync)
                     }
                     .accessibilityIdentifier("shell.pane.status.waiting.\(row.route.id)")
                     .hoverEffect(.highlight)
