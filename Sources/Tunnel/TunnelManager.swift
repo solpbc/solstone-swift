@@ -404,7 +404,7 @@ final class TunnelManager {
         self.homeJobs = homeJobs
         self.migrationCoordinator = migrationCoordinator
         self.journalVersion = journalVersion
-        self.transport = transport ?? CFTunnelTransport(loadPairing: { try effectiveStore.load() })
+        self.transport = transport ?? CFTunnelTransport(diagnosticLog: diagnosticLog, loadPairing: { try effectiveStore.load() })
         self.endpointCache = endpointCache
         self.pathMonitor = pathMonitor
         self.loadPairing = { try effectiveStore.load() }

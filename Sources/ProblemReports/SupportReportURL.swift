@@ -6,7 +6,7 @@ import Foundation
 nonisolated enum SupportReportURL {
     static let help = URL(string: "https://support.solstone.app")!
 
-    static func make(version: String, build: String, osVersion: String, state: String, about: String) -> URL {
+    static func make(version: String, build: String, osVersion: String, state: String, about: String, recent: String = "") -> URL {
         var fields = [
             ("report", "v1"),
             ("app", "solstone for ios"),
@@ -25,6 +25,9 @@ nonisolated enum SupportReportURL {
             fields.append(("state", String(state.prefix(500))))
         }
         fields.append(("about", about))
+        if !recent.isEmpty {
+            fields.append(("recent", String(recent.prefix(2000))))
+        }
         let fragment = fields.map { key, value in
             "\(formEncode(key))=\(formEncode(value))"
         }.joined(separator: "&")

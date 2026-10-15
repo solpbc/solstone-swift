@@ -15,10 +15,38 @@ final class DiagnosticLog {
     private(set) var events: [DiagnosticEvent] = []
     private let capacity: Int
     private let protectedFloor: Int
+    private let defaults: UserDefaults?
+    private static let journalLinkKey = "diagnostics.journalLinkEvents"
+    private var journalLinkEvents: [JournalLinkEvent]
 
-    init(capacity: Int = 200, protectedFloor: Int = 40) {
+    init(capacity: Int = 200, protectedFloor: Int = 40, defaults: UserDefaults? = nil) {
         self.capacity = capacity
         self.protectedFloor = protectedFloor
+        self.defaults = defaults
+        self.journalLinkEvents = defaults?.data(forKey: Self.journalLinkKey)
+            .flatMap { try? JSONDecoder().decode([JournalLinkEvent].self, from: $0) } ?? []
+    }
+
+    /// Keep only the latest observation of each kind, independently of proxy lifetime
+    /// and the noisy in-memory event ring. These are history, never a current diagnosis.
+    func noteJournalLinkEvent(_ kind: JournalLinkEventKind, at timestamp: Date = Date()) {
+        if self.journalLinkEvents.contains(where: { $0.kind == kind && $0.timestamp > timestamp }) { return }
+        self.journalLinkEvents = self.recentJournalLinkEvents(now: timestamp)
+            .filter { $0.kind != kind }
+        self.journalLinkEvents.append(JournalLinkEvent(kind: kind, timestamp: timestamp))
+        if let data = try? JSONEncoder().encode(self.journalLinkEvents) {
+            self.defaults?.set(data, forKey: Self.journalLinkKey)
+        }
+    }
+
+    func recentJournalLinkEvents(now: Date = Date()) -> [JournalLinkEvent] {
+        let cutoff = now.addingTimeInterval(-7 * 24 * 60 * 60)
+        return self.journalLinkEvents.filter { $0.timestamp >= cutoff }
+            .sorted { $0.timestamp > $1.timestamp }
+    }
+
+    func journalLinkReport(now: Date = Date()) -> String {
+        self.recentJournalLinkEvents(now: now).map(\.reportLine).joined(separator: "\n")
     }
 
     func append(_ event: DiagnosticEvent) {
@@ -59,6 +87,8 @@ final class DiagnosticLog {
 
     func clear() {
         self.events.removeAll()
+        self.journalLinkEvents.removeAll()
+        self.defaults?.removeObject(forKey: Self.journalLinkKey)
     }
 
     func filtered(by categories: Set<DiagnosticCategory>) -> [DiagnosticEvent] {
@@ -92,6 +122,11 @@ final class DiagnosticLog {
                 .joined(separator: ", ")
         lines.append("tunnel inbound-closed faults: \(inboundFaultBreakdown)")
         lines.append(contentsOf: tunnel.diagnosticSnapshotLines())
+        let linkReport = self.journalLinkReport()
+        if !linkReport.isEmpty {
+            lines.append("recent journal link events (last 7 days):")
+            lines.append(linkReport)
+        }
 
         let network: String
         switch tunnel.currentInterfaceIsWiFi {

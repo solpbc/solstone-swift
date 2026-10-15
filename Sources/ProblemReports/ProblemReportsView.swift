@@ -9,6 +9,7 @@ struct ProblemReportsView: View {
     @Environment(ProblemReportsManager.self) private var manager
     @Environment(AppConfig.self) private var appConfig
     @Environment(WatchLink.self) private var watchLink
+    @Environment(DiagnosticLog.self) private var diagnosticLog
 
     @State private var shareAllURL: URL?
     @State private var showingDeleteAllConfirm = false
@@ -58,7 +59,8 @@ struct ProblemReportsView: View {
                             about: PhoneAboutBlock.block(
                                 journalVersion: self.appConfig.journalVersion,
                                 watchFacts: self.watchLink.aboutWatchFacts
-                            )
+                            ),
+                            recent: self.diagnosticLog.journalLinkReport()
                         )
                     )
                     self.supportRow(

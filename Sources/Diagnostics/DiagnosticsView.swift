@@ -54,6 +54,7 @@ struct DiagnosticsView: View {
     var body: some View {
         List {
             self.lifecycleSection(migration: self.lifecycleMigration)
+            self.journalLinkSection
             self.eventRows
         }
         .navigationTitle("diagnostics")
@@ -115,6 +116,9 @@ struct DiagnosticsView: View {
         .onChange(of: self.log.events.count) {
             Task { await self.refreshDiagnosticsExport() }
         }
+        .onChange(of: self.log.recentJournalLinkEvents()) {
+            Task { await self.refreshDiagnosticsExport() }
+        }
         .task {
             await self.refreshLifecycle()
         }
@@ -124,8 +128,30 @@ struct DiagnosticsView: View {
     }
 
     @ViewBuilder
+    private var journalLinkSection: some View {
+        let events = self.log.recentJournalLinkEvents()
+        if !events.isEmpty {
+            Section("recent journal link events") {
+                ForEach(events) { event in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(event.kind.summary)
+                            .font(.subheadline)
+                        Text(event.kind.detail)
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                        Text(event.timestamp, format: .dateTime.year().month().day().hour().minute().second())
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.primary)
+                    }
+                    .accessibilityIdentifier("diagnostics.journalLink.\(event.kind.rawValue)")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
     private var eventRows: some View {
-        if self.log.events.isEmpty {
+        if self.log.events.isEmpty && self.log.recentJournalLinkEvents().isEmpty {
             Section {
                 self.emptyEventsView
             }

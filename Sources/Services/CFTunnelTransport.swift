@@ -100,6 +100,8 @@ final class CFTunnelTransport: Transporting {
     @ObservationIgnored
     private let appConfig: AppConfig?
     @ObservationIgnored
+    private let diagnosticLog: DiagnosticLog?
+    @ObservationIgnored
     private let loadPairing: @Sendable () throws -> StoredPairing?
     @ObservationIgnored
     private let makeSession: @Sendable (StoredPairing) -> any TunnelSessioning & MuxStreamOpening
@@ -121,11 +123,13 @@ final class CFTunnelTransport: Transporting {
 
     init(
         appConfig: AppConfig? = nil,
+        diagnosticLog: DiagnosticLog? = nil,
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         makeSession: @escaping @Sendable (StoredPairing) -> any TunnelSessioning & MuxStreamOpening = CFTunnelTransport.makeProductionSession,
         attemptUpdatesDrainDeadline: Duration = CFTunnelTransport.defaultAttemptUpdatesDrainDeadline
     ) {
         self.appConfig = appConfig
+        self.diagnosticLog = diagnosticLog
         self.loadPairing = loadPairing
         self.makeSession = makeSession
         self.attemptUpdatesDrainDeadline = attemptUpdatesDrainDeadline
@@ -256,7 +260,13 @@ final class CFTunnelTransport: Transporting {
         onStageChange(.tlsHandshaking)
         onStageChange(.muxReady)
 
-        let proxy = LoopbackProxy(opener: session)
+        let proxy = LoopbackProxy(opener: session, onPeerStreamReset: { [diagnosticLog] reason in
+            let kind = JournalLinkEventKind(peerReset: reason)
+            let timestamp = Date()
+            Task { @MainActor in
+                diagnosticLog?.noteJournalLinkEvent(kind, at: timestamp)
+            }
+        })
         let port: Int
         do {
             port = Int(try await proxy.start())
@@ -319,8 +329,14 @@ final class CFTunnelTransport: Transporting {
                 guard !Task.isCancelled, self.sessionEpoch == epoch else { return }
                 switch state {
                 case .disconnected:
+                    if self.generationSnapshot.activeGeneration != nil {
+                        self.diagnosticLog?.noteJournalLinkEvent(.transportClosed)
+                    }
                     onDisconnect(nil)
                 case .failed(let error):
+                    if self.generationSnapshot.activeGeneration != nil {
+                        self.diagnosticLog?.noteJournalLinkEvent(.transportClosed)
+                    }
                     onDisconnect(error)
                 case .awaitingBroker:
                     onStageChange(.awaitingBroker)

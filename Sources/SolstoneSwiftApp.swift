@@ -248,13 +248,13 @@ struct SolstoneSwiftApp: App {
             Self.resetOnboardingIntegrationState()
         }
 #endif
-        let log = DiagnosticLog()
+        let log = DiagnosticLog(defaults: .standard)
         let appGroupMirror = AppGroupMirror()
         let watchBacklogSnapshotWriter = WatchBacklogSnapshotWriter()
         let appConfig = AppConfig(store: SPLRuntime.pairingStore, appGroupMirror: appGroupMirror)
         let observerClock = SystemObserverClock()
         let onboardingFlow = OnboardingFlow()
-        let transport = CFTunnelTransport(appConfig: appConfig)
+        let transport = CFTunnelTransport(appConfig: appConfig, diagnosticLog: log)
 #if DEBUG
         OnThisPhoneUITestSeeder.runIfRequested()
         ProblemReportsUITestSeeder.runIfRequested()
