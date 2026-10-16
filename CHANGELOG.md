@@ -6,9 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
-### Fixed
+### Changed
 
-- the event log reached from status now tells you when your journal turned a request away because it was busy, separately from a lost connection. the latest of each kind stays visible for seven days, including after reconnecting or reopening the app, and goes into a problem report when you choose to send one.
+- the event log on the status screen now tells you when your journal turned a request away because it was busy, separately from a lost connection. the latest of each kind stays visible for seven days, including after reconnecting or reopening the app, and is filled in when you choose "report a problem" in help.
+
+### Fixed
 
 - the status screen no longer shows a number beside each source under "what is waiting". one item can hold audio, location and screen together, so those numbers could add up to more than the waiting count above them. that count is the one to go by.
 
