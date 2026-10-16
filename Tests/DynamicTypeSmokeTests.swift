@@ -254,6 +254,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             ImportView()
                 .environment(appConfig)
                 .environment(shareImportStore)
+                .environment(ForegroundDrainGate(drive: {}))
                 .environment(shareTransferHolder)
                 .environment(observerManager)
                 .environment(mobileSegmentTransferHolder)

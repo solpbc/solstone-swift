@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Added
+
+- import now lets you choose photos and files from inside the app, without going to the share sheet. you can also drag them onto the import screen. choosing photos this way doesn't give the app access to your photo library.
+
 ### Changed
 
 - the event log on the status screen now tells you when your journal turned a request away because it was busy, separately from a lost connection. the latest of each kind stays visible for seven days, including after reconnecting or reopening the app, and is filled in when you choose "report a problem" in help.
