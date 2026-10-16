@@ -516,7 +516,11 @@ nonisolated enum SourceVocabulary {
         isJournalPaired ? Self.audioEnrollmentValuePaired : Self.audioEnrollmentValue
     }
     static let turnOnAudio = "turn on audio"
-    static let importerWhatItAdds = "adds PDFs, audio, and images you send from the share sheet."
+    static let importerWhatItAdds = "adds PDFs, audio, and images you choose here or send from the share sheet."
+    static let importPhotosRow = "photos"
+    static let importPhotosHint = "Choose photos to import."
+    static let importFilesRow = "files"
+    static let importFilesHint = "Choose files to import."
     static let onThisPhone = "on this device"
     // The row that opens the list, named for what it shows rather than for the
     // section it sits in.
