@@ -4,7 +4,7 @@
 import SPLTunnel
 
 nonisolated enum SPLRuntime {
-    static let clientInfo = SPLClientInfo(userAgent: "solstone-ios/\(AppVersion.shortVersion)")
+    static let clientInfo = SPLClientInfo(userAgent: "solstone-ios/\(AppVersion.shortVersion)", platform: .ios)
 
     static let keychainPolicy = KeychainPolicy(
         service: "app.solstone.observer.spl",
