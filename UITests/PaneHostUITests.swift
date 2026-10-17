@@ -385,7 +385,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
     }
 
     @MainActor
-    func testJournalPaneShowsRetryWhenDisconnected() throws {
+    func testUnpairedJournalPaneShowsSetupRoute() throws {
         let app = XCUIApplication()
         app.launchArguments = [
             "--ui-test",

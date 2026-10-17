@@ -44,6 +44,7 @@ struct JournalLivesSheet: View {
 struct JournalLivesPane: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AccessibilityFocusState private var headingFocused: Bool
 
     var body: some View {
@@ -121,22 +122,26 @@ struct JournalLivesPane: View {
         current: Bool,
         @ViewBuilder trailing: () -> Trailing
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(title)
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier(rowID)
-
-                if current {
-                    Text(Image(systemName: "checkmark.circle.fill"))
-                        .foregroundStyle(Color.solOrange)
-                        .accessibilityLabel("current")
-                        .accessibilityIdentifier("\(rowID).current")
-                }
-
+        let heading = Text(title)
+            .font(.headline)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier(rowID)
+        return VStack(alignment: .leading, spacing: 4) {
+            if self.dynamicTypeSize.isAccessibilitySize && !current {
+                heading
                 trailing()
-                    .fixedSize(horizontal: true, vertical: false)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    heading
+                    if current {
+                        Text(Image(systemName: "checkmark.circle.fill"))
+                            .foregroundStyle(Color.solOrange)
+                            .accessibilityLabel("current")
+                            .accessibilityIdentifier("\(rowID).current")
+                    }
+                    trailing()
+                        .fixedSize(horizontal: true, vertical: false)
+                }
             }
 
             Text(body)

@@ -371,7 +371,13 @@ struct InAppJournalView: View {
             ScrollView {
                 JournalSetupRoute {
                     Button {
-                        self.pairFlowRouter.present(.ceremony)
+                        if self.presentation.isPhoneModal {
+                            let router = self.pairFlowRouter
+                            self.dismiss()
+                            Task { @MainActor in router.present(.ceremony) }
+                        } else {
+                            self.pairFlowRouter.present(.ceremony)
+                        }
                     } label: {
                         JournalSetupPairLabel()
                     }

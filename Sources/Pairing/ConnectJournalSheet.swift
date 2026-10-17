@@ -10,6 +10,7 @@ struct ConnectJournalSheet: View {
 
     @Binding var isPresented: Bool
     @Environment(TunnelManager.self) private var tunnelManager
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var path: [Destination] = []
     @State private var showingJournalLives = false
 
@@ -46,13 +47,17 @@ struct ConnectJournalSheet: View {
 
                         Spacer(minLength: 0)
 
-                        Text(SourceVocabulary.journalLivesComingLater)
-                            .font(.subheadline.weight(.semibold))
-                            .fixedSize(horizontal: true, vertical: false)
-                            .accessibilityIdentifier("connectJournal.onYourPhone.comingLater")
+                        if !self.dynamicTypeSize.isAccessibilitySize {
+                            self.comingLater
+                                .fixedSize(horizontal: true, vertical: false)
+                        }
                     }
                     .padding(.vertical, 6)
                     .foregroundStyle(.secondary)
+                    if self.dynamicTypeSize.isAccessibilitySize {
+                        self.comingLater
+                            .foregroundStyle(.secondary)
+                    }
 
                     Text(SourceVocabulary.connectJournalFloorLine)
                         .font(.footnote)
@@ -94,5 +99,10 @@ struct ConnectJournalSheet: View {
         }
     }
 
+    private var comingLater: some View {
+        Text(SourceVocabulary.journalLivesComingLater)
+            .font(.subheadline.weight(.semibold))
+            .accessibilityIdentifier("connectJournal.onYourPhone.comingLater")
+    }
 
 }

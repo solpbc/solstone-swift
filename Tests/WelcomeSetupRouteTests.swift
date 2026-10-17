@@ -42,29 +42,6 @@ final class WelcomeSetupRouteTests: XCTestCase {
     }
 
     @MainActor
-    func testSetOneUpShareLinkAndCancelPairingLeaveStateUnchanged() {
-        let (onboarding, appConfig, defaults, suiteName) = self.makeIsolatedEnvironment()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let setURL = WelcomeSetup.setOneUp(onboarding: onboarding, appConfig: appConfig)
-        XCTAssertEqual(setURL, JournalSetupLink.installURL)
-        XCTAssertFalse(onboarding.isCompleted)
-        XCTAssertFalse(appConfig.isPaired)
-        XCTAssertFalse(appConfig.journalSendConfirmed)
-
-        let shareURL = WelcomeSetup.shareLink(onboarding: onboarding, appConfig: appConfig)
-        XCTAssertEqual(shareURL, JournalSetupLink.installURL)
-        XCTAssertFalse(onboarding.isCompleted)
-        XCTAssertFalse(appConfig.isPaired)
-        XCTAssertFalse(appConfig.journalSendConfirmed)
-
-        WelcomeSetup.cancelPairing(onboarding: onboarding)
-        XCTAssertFalse(onboarding.isCompleted)
-        XCTAssertFalse(appConfig.isPaired)
-        XCTAssertFalse(appConfig.journalSendConfirmed)
-    }
-
-    @MainActor
     func testNotNowSetsIsCompleted() {
         let (onboarding, _, defaults, suiteName) = self.makeIsolatedEnvironment()
         defer { defaults.removePersistentDomain(forName: suiteName) }

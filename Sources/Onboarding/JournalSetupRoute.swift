@@ -18,11 +18,13 @@ struct JournalSetupRoute<PairControl: View>: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.leading)
 
-            Button("set one up") {
+            Button {
                 self.openURL(JournalSetupLink.installURL)
+            } label: {
+                Text("set one up")
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             }
-            .buttonStyle(.borderless)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .buttonStyle(.borderedProminent)
             .accessibilityIdentifier("journalSetup.setOneUp")
 
             ShareLink(item: JournalSetupLink.installURL) {

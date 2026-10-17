@@ -5,8 +5,10 @@ import Foundation
 import SPLTunnel
 
 enum PairingHandoffPresentation {
-    nonisolated static func shouldPresent(pairURL: PairURL?, pairURLError: PairURLError?) -> Bool {
-        pairURL != nil || pairURLError != nil
+    nonisolated static func shouldPresent(
+        pairURL: PairURL?, pairURLError: PairURLError?, stagedDraft: String? = nil, presenceCount: Int = 0
+    ) -> Bool {
+        presenceCount == 0 && (pairURL != nil || pairURLError != nil || stagedDraft != nil)
     }
 }
 
@@ -42,10 +44,11 @@ extension ExternalPairLinkIntake {
     static func handle(
         url: URL,
         pairingHandoff: PairingHandoffState,
+        appConfig: AppConfig,
         pendingObserverCommand: PendingObserverCommandState = PendingObserverCommandState(),
         pendingJournalOpen: PendingJournalOpenState = PendingJournalOpenState()
     ) {
-        if pairingHandoff.stageExternalLink(url) {
+        if pairingHandoff.stageExternalLink(url, awaitingMarkConfirmation: appConfig.awaitingMarkConfirmation) {
             return
         }
         switch SolstoneDeepLink.parse(url) {
@@ -62,30 +65,33 @@ extension ExternalPairLinkIntake {
 @MainActor
 extension PairingHandoffState {
     @discardableResult
-    func stageExternalLink(_ url: URL) -> Bool {
-        if self.externalLinkAttemptInFlight || self.heldMarkConfirmation || self.pairingInProgress {
+    func stageExternalLink(_ url: URL, awaitingMarkConfirmation: Bool = false) -> Bool {
+        if awaitingMarkConfirmation || self.externalLinkAttemptInFlight || self.heldMarkConfirmation || self.pairingInProgress {
             return false
         }
 
         let rawString = url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if let scheme = url.scheme, scheme.caseInsensitiveCompare("solstone") == .orderedSame {
-            guard let canonical = PairAliasNormalizer.canonicalURL(from: rawString) else {
-                return false
-            }
-            guard case .success = UniversalLinkRouter.route(canonical) else {
-                return false
-            }
-            self.stagedDraft = rawString
-            return true
+        let isAlias = url.scheme?.lowercased() == "solstone" && url.host?.lowercased() == "pair"
+        let result: Result<PairURL, PairURLError>?
+        if isAlias {
+            result = PairAliasNormalizer.canonicalURL(from: rawString).flatMap(UniversalLinkRouter.route)
+                ?? .failure(.malformedOuterURL)
+        } else {
+            result = UniversalLinkRouter.route(url)
         }
-
-        if case .success = UniversalLinkRouter.route(url) {
+        switch result {
+        case .success:
             self.stagedDraft = rawString
+            self.pairURLError = nil
             return true
+        case .failure(let error):
+            self.stagedDraft = nil
+            self.pairURLError = error
+            return true
+        case nil:
+            return false
         }
-
-        return false
     }
 
     @discardableResult

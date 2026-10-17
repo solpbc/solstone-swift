@@ -7,11 +7,6 @@ import XCTest
 
 @MainActor
 final class ExternalPairLinkStagingTests: XCTestCase {
-    override func setUp() {
-        super.setUp()
-        _ = ExternalPairLinkQueue.shared.drain()
-    }
-
     private func makeIsolatedEnvironment() -> (OnboardingFlow, AppConfig, UserDefaults, String) {
         let suiteName = "ExternalPairLinkStagingTests-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -69,6 +64,8 @@ final class ExternalPairLinkStagingTests: XCTestCase {
     }
 
     func testColdCollectAndStageThenWarmIntakeLeavesOneDraftAndPairURLNil() {
+        let (_, appConfig, defaults, suiteName) = self.makeIsolatedEnvironment()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
         _ = ExternalPairLinkQueue.shared.drain()
         let handoff = PairingHandoffState()
         let aliasURL = URL(string: "solstone://pair#\(UniversalLinkRouterTests.canonicalBlob)")!
@@ -80,12 +77,12 @@ final class ExternalPairLinkStagingTests: XCTestCase {
         let drained = ExternalPairLinkQueue.shared.drain()
 
         for url in drained {
-            ExternalPairLinkIntake.handle(url: url, pairingHandoff: handoff)
+            ExternalPairLinkIntake.handle(url: url, pairingHandoff: handoff, appConfig: appConfig)
         }
         XCTAssertEqual(handoff.stagedDraft, aliasURL.absoluteString)
         XCTAssertNil(handoff.pairURL)
 
-        ExternalPairLinkIntake.handle(url: aliasURL, pairingHandoff: handoff)
+        ExternalPairLinkIntake.handle(url: aliasURL, pairingHandoff: handoff, appConfig: appConfig)
         XCTAssertEqual(handoff.stagedDraft, aliasURL.absoluteString)
         XCTAssertNil(handoff.pairURL)
     }
@@ -134,12 +131,37 @@ final class ExternalPairLinkStagingTests: XCTestCase {
         XCTAssertEqual(SolstoneDeepLink.parse(stopURL), .observerStop)
     }
 
-    func testPercentEncodedAliasRejectedAndNotStored() {
+    func testPercentEncodedAliasShowsErrorWithoutStoringDraft() {
         let handoff = PairingHandoffState()
         let badAlias = URL(string: "solstone://pair#%30" + UniversalLinkRouterTests.canonicalBlob.dropFirst())!
 
-        XCTAssertFalse(handoff.stageExternalLink(badAlias))
+        XCTAssertTrue(handoff.stageExternalLink(badAlias))
         XCTAssertNil(handoff.stagedDraft)
         XCTAssertNil(handoff.pairURL)
+        XCTAssertNotNil(handoff.pairURLError)
+    }
+
+    func testPersistedUnansweredMarkRejectsArrivalAfterPresentationFlagsClear() throws {
+        let (_, appConfig, defaults, suiteName) = self.makeIsolatedEnvironment()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let pairing = StoredPairing(
+            instanceID: "held-journal", homeLabel: "Home", relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:\(String(repeating: "a", count: 64))",
+            clientCertPEM: CertlessTrustConstants.leafPEM, clientKeyPEM: "key",
+            caChainPEM: CertlessTrustConstants.caPEM, relayEnrollment: .unavailable,
+            localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 7071, scope: "")], pairedAt: Date()
+        )
+        try appConfig.applyPairing(pairing)
+        XCTAssertTrue(appConfig.awaitingMarkConfirmation)
+        let handoff = PairingHandoffState()
+        ExternalPairLinkIntake.handle(
+            url: URL(string: "solstone://pair#\(UniversalLinkRouterTests.canonicalBlob)")!,
+            pairingHandoff: handoff, appConfig: appConfig
+        )
+        XCTAssertNil(handoff.stagedDraft)
+        XCTAssertNil(handoff.pairURL)
+        XCTAssertNil(handoff.pairURLError)
+        XCTAssertTrue(appConfig.awaitingMarkConfirmation)
+        XCTAssertEqual(appConfig.loadStoredPairing()?.instanceID, pairing.instanceID)
     }
 }

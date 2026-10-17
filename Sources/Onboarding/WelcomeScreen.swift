@@ -39,7 +39,7 @@ struct WelcomeScreen: View {
                 Button("not now") {
                     WelcomeSetup.notNow(onboarding: self.onboardingFlow)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
                 .controlSize(.large)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityIdentifier("welcome.notNow")
@@ -50,7 +50,6 @@ struct WelcomeScreen: View {
             PairFlowView(
                 onBack: {
                     self.isShowingPairFlow = false
-                    WelcomeSetup.cancelPairing(onboarding: self.onboardingFlow)
                 },
                 onComplete: {
                     WelcomeSetup.finishIfMarkConfirmed(

@@ -720,6 +720,7 @@ struct SolstoneSwiftApp: App {
                     ExternalPairLinkIntake.handle(
                         url: url,
                         pairingHandoff: self.pairingHandoff,
+                        appConfig: self.appConfig,
                         pendingObserverCommand: self.pendingObserverCommand,
                         pendingJournalOpen: self.pendingJournalOpen
                     )

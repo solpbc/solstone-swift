@@ -205,11 +205,13 @@ struct PairFlowView: View {
     @State private var completionGate = PairFlowCompletionGate()
     @State private var phase: PairFlowPhase
     @State private var flowTask: Task<Void, Never>?
+    @State private var flowGeneration = 0
     @State private var mode: EntryMode = .scan
     @State private var pastedURL = ""
     @State private var errorMessage: String?
     @State private var cameraDenied = false
     @State private var linkAttemptInFlight = false
+    @State private var isDismissing = false
 
     init(
         startMode: PairFlowStart = .ceremony,
@@ -304,15 +306,16 @@ struct PairFlowView: View {
             }
         }
         .onChange(of: self.handoff.pairURL) { _, pairURL in
-            guard let pairURL else { return }
+            guard !self.isDismissing, let pairURL else { return }
             self.fallbackTimer.cancel()
             self.linkAttemptInFlight = true
             self.handoff.pairURL = nil
             self.startPairing(pairURL)
         }
         .onChange(of: self.handoff.pairURLError) { _, pairURLError in
-            guard let pairURLError else { return }
+            guard !self.isDismissing, let pairURLError else { return }
             self.fallbackTimer.cancel()
+            self.mode = .paste
             self.errorMessage = PairFlowCoordinator.message(for: pairURLError, targetAddress: nil, interfaces: [])
             self.handoff.pairURLError = nil
         }
@@ -393,12 +396,11 @@ struct PairFlowView: View {
 
     @ViewBuilder
     private var pairingContent: some View {
-        let _ = self.onScanPhaseMounted?()
         VStack(alignment: .leading, spacing: 16) {
             Picker(
                 "pairing method",
                 selection: Binding(
-                    get: { self.mode },
+                    get: { self.entryMode },
                     set: { self.selectMode($0) }
                 )
             ) {
@@ -407,7 +409,7 @@ struct PairFlowView: View {
             }
             .pickerStyle(.segmented)
 
-            switch self.mode {
+            switch self.entryMode {
             case .scan:
                 QRScannerView(
                     onURL: { url in
@@ -422,6 +424,7 @@ struct PairFlowView: View {
                     }
                 )
                 .frame(minHeight: 320)
+                .onAppear { self.onScanPhaseMounted?() }
             case .paste:
                 TextField("https://go.solstone.app/p#...", text: self.$pastedURL, axis: .vertical)
                     .textInputAutocapitalization(.never)
@@ -469,7 +472,7 @@ struct PairFlowView: View {
             Button("back") {
                 self.cancelFlowTask()
                 self.fallbackTimer.cancel()
-                self.onBack()
+                self.goBack()
             }
             .frame(minWidth: 44, minHeight: 44)
         }
@@ -482,7 +485,7 @@ struct PairFlowView: View {
             Button("back") {
                 self.cancelFlowTask()
                 self.fallbackTimer.cancel()
-                self.onBack()
+                self.goBack()
             }
             .frame(minWidth: 44, minHeight: 44)
         }
@@ -586,7 +589,7 @@ struct PairFlowView: View {
     private var scaffoldTitle: String {
         switch self.displayedPhase {
         case .pairing:
-            return Self.pairingTitle(for: self.mode)
+            return Self.pairingTitle(for: self.entryMode)
         case .connecting:
             return SourceVocabulary.journalMarkConnecting
         case .confirm:
@@ -615,14 +618,22 @@ struct PairFlowView: View {
 
     private func startPairing(_ url: URL) {
         self.cancelFlowTask()
+        let generation = self.flowGeneration
         self.flowTask = Task { @MainActor in
+            defer {
+                if self.flowGeneration == generation { self.flowTask = nil }
+            }
             await self.handle(url)
         }
     }
 
     private func startPairing(_ pairURL: PairURL) {
         self.cancelFlowTask()
+        let generation = self.flowGeneration
         self.flowTask = Task { @MainActor in
+            defer {
+                if self.flowGeneration == generation { self.flowTask = nil }
+            }
             await self.handle(pairURL)
         }
     }
@@ -650,7 +661,8 @@ struct PairFlowView: View {
     }
 
     private func prefillStagedDraftIfNeeded() {
-        guard !self.linkAttemptInFlight,
+        guard !self.isDismissing,
+              !self.linkAttemptInFlight,
               !self.isHeldMarkPhase,
               !self.coordinator.state.isPairingInputInProgress,
               self.flowTask == nil,
@@ -658,19 +670,30 @@ struct PairFlowView: View {
         else { return }
         self.pastedURL = draft
         self.mode = .paste
+        self.errorMessage = nil
+        self.fallbackTimer.cancel()
+        self.handoff.stagedDraft = nil
     }
 
     private func startPastedURL() {
         self.handoff.stagedDraft = nil
         self.cancelFlowTask()
+        let generation = self.flowGeneration
         self.flowTask = Task { @MainActor in
+            defer {
+                if self.flowGeneration == generation { self.flowTask = nil }
+            }
             await self.handlePastedURL()
         }
     }
 
     private func startMismatchTeardown() {
         self.cancelFlowTask()
+        let generation = self.flowGeneration
         self.flowTask = Task { @MainActor in
+            defer {
+                if self.flowGeneration == generation { self.flowTask = nil }
+            }
             let didTearDown = await tearDownMismatchedPairing(
                 appConfig: self.appConfig,
                 tunnelManager: self.tunnelManager,
@@ -683,7 +706,11 @@ struct PairFlowView: View {
 
     private func startCouldNotVerifyCancel() {
         self.cancelFlowTask()
+        let generation = self.flowGeneration
         self.flowTask = Task { @MainActor in
+            defer {
+                if self.flowGeneration == generation { self.flowTask = nil }
+            }
             let didTearDown = await tearDownMismatchedPairing(
                 appConfig: self.appConfig,
                 tunnelManager: self.tunnelManager,
@@ -695,8 +722,20 @@ struct PairFlowView: View {
     }
 
     private func cancelFlowTask() {
+        self.flowGeneration &+= 1
         self.flowTask?.cancel()
         self.flowTask = nil
+    }
+
+    private func goBack() {
+        self.isDismissing = true
+        self.handoff.stagedDraft = nil
+        self.handoff.pairURLError = nil
+        self.onBack()
+    }
+
+    private var entryMode: EntryMode {
+        self.handoff.stagedDraft != nil || self.handoff.pairURLError != nil ? .paste : self.mode
     }
 
     private func completeOnce() {
@@ -735,7 +774,7 @@ struct PairFlowView: View {
     }
 
     private var subtitleForMode: String {
-        switch self.mode {
+        switch self.entryMode {
         case .scan:
             return "on your computer, open your journal's dashboard, go to the network app, and choose \"pair a device\"."
         case .paste:
@@ -799,6 +838,7 @@ struct PairFlowView: View {
             self.phase = applicator.phase
             self.linkAttemptInFlight = false
         } catch {
+            guard !Task.isCancelled else { return }
             if case .failed(let message) = self.coordinator.state {
                 self.errorMessage = message
             } else {
@@ -812,7 +852,11 @@ struct PairFlowView: View {
     private func startConfirmHeldJournal() {
         self.cancelFlowTask()
         self.phase = .connecting
+        let generation = self.flowGeneration
         self.flowTask = Task { @MainActor in
+            defer {
+                if self.flowGeneration == generation { self.flowTask = nil }
+            }
             let fetcher = JournalIdentityFetcher()
             let expectedInstanceID = self.appConfig.loadStoredPairing()?.instanceID
             let outcome = await resolveConfirmation(

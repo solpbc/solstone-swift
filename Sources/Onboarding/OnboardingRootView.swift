@@ -73,6 +73,7 @@ struct OnboardingScaffold<Content: View>: View {
 
                 self.content
             }
+            .frame(maxWidth: self.isCentered ? 600 : .infinity, alignment: self.frameAlignment)
             .frame(maxWidth: .infinity, alignment: self.frameAlignment)
             .padding(24)
         }

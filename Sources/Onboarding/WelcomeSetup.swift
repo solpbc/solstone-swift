@@ -5,18 +5,6 @@ import Foundation
 
 @MainActor
 enum WelcomeSetup {
-    static func setOneUp(onboarding: OnboardingFlow, appConfig: AppConfig) -> URL {
-        JournalSetupLink.installURL
-    }
-
-    static func shareLink(onboarding: OnboardingFlow, appConfig: AppConfig) -> URL {
-        JournalSetupLink.installURL
-    }
-
-    static func cancelPairing(onboarding: OnboardingFlow) {
-        // writes nothing (does not set isCompleted)
-    }
-
     static func notNow(onboarding: OnboardingFlow) {
         onboarding.completeOnboarding()
     }

@@ -143,7 +143,6 @@ struct ContentView: View {
             }
         }
         .environment(self.shellStatusContext)
-        .environment(self.pairFlowRouter)
         .safeAreaInset(edge: .top, spacing: 0) {
             if self.appConfig.isPaired && self.isRevoked {
                 RePairBanner {
@@ -167,6 +166,7 @@ struct ContentView: View {
                 )
             }
         }
+        .environment(self.pairFlowRouter)
         .onChange(of: self.scenePhase) { _, newPhase in
             if newPhase == .active {
                 self.drainExternalPairLinks()
@@ -224,7 +224,9 @@ struct ContentView: View {
         }
         .task(id: PairingHandoffPresentation.shouldPresent(
             pairURL: self.pairingHandoff.pairURL,
-            pairURLError: self.pairingHandoff.pairURLError
+            pairURLError: self.pairingHandoff.pairURLError,
+            stagedDraft: self.pairingHandoff.stagedDraft,
+            presenceCount: self.pairFlowPresence.count
         )) {
             self.presentPairingIfHandoffPending()
         }
@@ -277,7 +279,7 @@ struct ContentView: View {
 
                 if let raw = arguments.first(where: { $0.hasPrefix("--ui-test-pair-link=") }),
                    let url = URL(string: String(raw.dropFirst("--ui-test-pair-link=".count))) {
-                    self.pairingHandoff.stageExternalLink(url)
+                    self.pairingHandoff.stageExternalLink(url, awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation)
                 }
 
                 if arguments.contains("--ui-test-mark-confirm") {
@@ -412,6 +414,7 @@ private extension ContentView {
     func clearPairingHandoff() {
         self.pairingHandoff.pairURL = nil
         self.pairingHandoff.pairURLError = nil
+        self.pairingHandoff.stagedDraft = nil
     }
 
     func dismissPairing() {
@@ -425,6 +428,7 @@ private extension ContentView {
             ExternalPairLinkIntake.handle(
                 url: url,
                 pairingHandoff: self.pairingHandoff,
+                appConfig: self.appConfig,
                 pendingObserverCommand: self.pendingObserverCommand,
                 pendingJournalOpen: self.pendingJournalOpen
             )
@@ -434,7 +438,9 @@ private extension ContentView {
     func presentPairingIfHandoffPending() {
         if PairingHandoffPresentation.shouldPresent(
             pairURL: self.pairingHandoff.pairURL,
-            pairURLError: self.pairingHandoff.pairURLError
+            pairURLError: self.pairingHandoff.pairURLError,
+            stagedDraft: self.pairingHandoff.stagedDraft,
+            presenceCount: self.pairFlowPresence.count
         ) {
             self.pairFlowRouter.present(.ceremony)
         }

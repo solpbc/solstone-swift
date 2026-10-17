@@ -7,6 +7,11 @@ import SPLTunnel
 import XCTest
 
 nonisolated final class PairingHandoffPresentationTests: XCTestCase {
+    func testStagedDraftRequestsPresentationOnlyWithoutAnExistingFlow() {
+        XCTAssertTrue(PairingHandoffPresentation.shouldPresent(pairURL: nil, pairURLError: nil, stagedDraft: "draft"))
+        XCTAssertFalse(PairingHandoffPresentation.shouldPresent(pairURL: nil, pairURLError: nil, stagedDraft: "draft", presenceCount: 1))
+    }
+
     @MainActor
     func testPresentsWhenPairURLExists() throws {
         let url = try XCTUnwrap(URL(string: Self.canonicalPairingLink))
