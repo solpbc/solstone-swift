@@ -167,6 +167,7 @@ struct ContentView: View {
             }
         }
         .environment(self.pairFlowRouter)
+        .tint(Color.solOrangeAdaptive)
         .onChange(of: self.scenePhase) { _, newPhase in
             if newPhase == .active {
                 self.drainExternalPairLinks()

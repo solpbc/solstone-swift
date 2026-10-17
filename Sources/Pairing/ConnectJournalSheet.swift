@@ -22,6 +22,7 @@ struct ConnectJournalSheet: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                .listRowBackground(Color.deckSurface)
 
                 Section {
                     JournalSetupRoute {
@@ -72,7 +73,10 @@ struct ConnectJournalSheet: View {
                     .foregroundStyle(Color.orangeInk)
                     .accessibilityIdentifier("connectJournal.howJournalsWork")
                 }
+                .listRowBackground(Color.deckSurface)
             }
+            .scrollContentBackground(.hidden)
+            .background(Color.deckGround)
             .accessibilityIdentifier("connectJournal.sheet")
             .navigationTitle("connect a journal")
             .navigationDestination(for: Destination.self) { destination in

@@ -55,6 +55,7 @@ struct JournalLivesPane: View {
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("journalLives.promise")
             }
+            .listRowBackground(Color.deckSurface)
 
             Section {
                 if !self.appConfig.isPaired {
@@ -100,7 +101,10 @@ struct JournalLivesPane: View {
                         .accessibilityIdentifier("journalLives.cachedLine")
                 }
             }
+            .listRowBackground(Color.deckSurface)
         }
+        .scrollContentBackground(.hidden)
+        .background(Color.deckGround)
         .navigationTitle(SourceVocabulary.journalLivesTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
