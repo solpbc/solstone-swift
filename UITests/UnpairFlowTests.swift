@@ -40,7 +40,7 @@ nonisolated final class UnpairFlowTests: XCTestCase {
         XCTAssertTrue(confirmButton.waitForExistence(timeout: 5))
         confirmButton.tap()
 
-        XCTAssertTrue(app.buttons["get started"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["not now"].waitForExistence(timeout: 10))
     }
 }
 

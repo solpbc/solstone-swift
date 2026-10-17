@@ -93,8 +93,29 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
         XCTAssertNil(UniversalLinkRouter.route(URL(string: "http://go.solstone.app/p#\(Self.canonicalBlob)")!))
     }
 
-    private static let canonicalBlob = "0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
-    private static let wellKnownRelayBlob = "0R0J6HB7H6NWVVR1VTPVXVYAZTXBW0938NKRKAYDXW00"
+    @MainActor
+    func testSolstonePairAliasesReturnNilFromRouter() {
+        XCTAssertNil(UniversalLinkRouter.route(URL(string: "solstone://pair#\(Self.canonicalBlob)")!))
+        XCTAssertNil(UniversalLinkRouter.route(URL(string: "solstone://pair/#\(Self.wellKnownRelayBlob)")!))
+    }
+
+    @MainActor
+    func testPairAliasNormalizerCanonicalURLRoutesSuccessfully() throws {
+        let directAlias = "solstone://pair#\(Self.canonicalBlob)"
+        let directCanonical = try XCTUnwrap(PairAliasNormalizer.canonicalURL(from: directAlias))
+        let directResult = try XCTUnwrap(UniversalLinkRouter.route(directCanonical))
+        let httpsDirectResult = try XCTUnwrap(UniversalLinkRouter.route(Self.canonicalURL()))
+        XCTAssertEqual(directResult, httpsDirectResult)
+
+        let relayAlias = "solstone://pair/#\(Self.wellKnownRelayBlob)"
+        let relayCanonical = try XCTUnwrap(PairAliasNormalizer.canonicalURL(from: relayAlias))
+        let relayResult = try XCTUnwrap(UniversalLinkRouter.route(relayCanonical))
+        let httpsRelayResult = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.wellKnownRelayBlob)))
+        XCTAssertEqual(relayResult, httpsRelayResult)
+    }
+
+    static let canonicalBlob = "0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
+    static let wellKnownRelayBlob = "0R0J6HB7H6NWVVR1VTPVXVYAZTXBW0938NKRKAYDXW00"
     private static let canonicalBytes: [UInt8] = [
         0x04, 0x01, 0xC0, 0x00, 0x02, 0x2A, 0x1B, 0x9E,
         0xA1, 0xB2, 0xC3, 0xD4, 0xE5, 0xF6, 0x07, 0x18,

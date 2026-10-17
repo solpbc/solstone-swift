@@ -611,6 +611,19 @@ struct StatusPane: View {
         List {
             self.leadSection
             self.whatIsWaitingSection
+            if !self.appConfig.isPaired {
+                Section {
+                    JournalSetupRoute {
+                        Button {
+                            self.pairFlowRouter.present(.ceremony)
+                        } label: {
+                            JournalSetupPairLabel()
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("status.alreadyHaveOne")
+                    }
+                }
+            }
             Section {
                 if self.pillState == .stalled {
                     let stalledRows = StatusPaneStallJournal.rows(

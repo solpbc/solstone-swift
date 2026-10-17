@@ -307,8 +307,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             foregroundDrainGate: ForegroundDrainGate(drive: {})
         )
 
+        let onboardingDefaults = UserDefaults(suiteName: "DynamicTypeSmokeTests-\(UUID().uuidString)")!
+        let onboardingFlow = OnboardingFlow(defaults: onboardingDefaults)
         try self.assertHosted(
-            WelcomeScreen(onGetStarted: {})
+            WelcomeScreen()
+                .environment(onboardingFlow)
+                .environment(appConfig)
                 .environment(\.dynamicTypeSize, .accessibility3)
         )
         let statusPane = NavigationStack {

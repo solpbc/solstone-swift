@@ -7,7 +7,9 @@ import os
 private let onboardingWelcomeLog = Logger(subsystem: "app.solstone.swift", category: "onboarding")
 
 struct WelcomeScreen: View {
-    let onGetStarted: () -> Void
+    @Environment(OnboardingFlow.self) private var onboardingFlow
+    @Environment(AppConfig.self) private var appConfig
+    @State private var isShowingPairFlow = false
     @State private var didAutoAdvance = false
 
     var body: some View {
@@ -24,12 +26,39 @@ struct WelcomeScreen: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                Button("get started", action: self.onGetStarted)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .accessibilityHint("finishes setup and opens your day")
+                JournalSetupRoute {
+                    Button {
+                        self.isShowingPairFlow = true
+                    } label: {
+                        JournalSetupPairLabel()
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityIdentifier("welcome.alreadyHaveOne")
+                }
+
+                Button("not now") {
+                    WelcomeSetup.notNow(onboarding: self.onboardingFlow)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .accessibilityIdentifier("welcome.notNow")
+                .accessibilityHint("opens your day without connecting a journal")
             }
+        }
+        .navigationDestination(isPresented: self.$isShowingPairFlow) {
+            PairFlowView(
+                onBack: {
+                    self.isShowingPairFlow = false
+                    WelcomeSetup.cancelPairing(onboarding: self.onboardingFlow)
+                },
+                onComplete: {
+                    WelcomeSetup.finishIfMarkConfirmed(
+                        onboarding: self.onboardingFlow,
+                        appConfig: self.appConfig
+                    )
+                }
+            )
         }
         .navigationTitle("")
         .onAppear {
@@ -37,7 +66,7 @@ struct WelcomeScreen: View {
             guard ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") else { return }
             self.didAutoAdvance = true
             onboardingWelcomeLog.info("onboarding auto-advancing welcome")
-            self.onGetStarted()
+            WelcomeSetup.notNow(onboarding: self.onboardingFlow)
         }
     }
 }

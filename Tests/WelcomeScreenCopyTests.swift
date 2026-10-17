@@ -16,7 +16,8 @@ nonisolated final class WelcomeScreenCopyTests: XCTestCase {
         XCTAssertLessThan(line2.lowerBound, line3.lowerBound)
         XCTAssertFalse(text.contains("private by design"))
         XCTAssertFalse(text.contains("no ads, no analytics"))
-        XCTAssertTrue(text.contains("finishes setup and opens your day"))
+        XCTAssertFalse(text.contains("finishes setup and opens your day"))
+        XCTAssertTrue(text.contains("opens your day without connecting a journal"))
     }
 }
 

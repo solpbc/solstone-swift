@@ -717,17 +717,12 @@ struct SolstoneSwiftApp: App {
                 .environment(self.appDelegate.pushManager)
                 .environment(self.appDelegate.pendingRoute)
                 .onOpenURL { url in
-                    if self.pairingHandoff.applyUniversalLink(url) {
-                        return
-                    }
-                    switch SolstoneDeepLink.parse(url) {
-                    case .observerStop:
-                        self.pendingObserverCommand.command = .stopRequested
-                    case .journal:
-                        self.pendingJournalOpen.isOpenRequested = true
-                    case nil:
-                        break
-                    }
+                    ExternalPairLinkIntake.handle(
+                        url: url,
+                        pairingHandoff: self.pairingHandoff,
+                        pendingObserverCommand: self.pendingObserverCommand,
+                        pendingJournalOpen: self.pendingJournalOpen
+                    )
                 }
                 .onChange(of: self.pendingObserverCommand.command) { _, command in
                     guard command == .stopRequested else { return }

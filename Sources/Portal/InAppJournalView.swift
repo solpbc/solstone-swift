@@ -286,6 +286,7 @@ struct InAppJournalView: View {
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
+    @Environment(PairFlowRouter.self) private var pairFlowRouter
     @Environment(\.dismiss) private var dismiss
     @AccessibilityFocusState private var headingFocused: Bool
     @State private var loadState: JournalWebPresentation.LoadState = .loading
@@ -366,42 +367,57 @@ struct InAppJournalView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch InAppJournalPresentation.content(
-            journalSendConfirmed: self.appConfig.journalSendConfirmed,
-            resolvedURL: self.resolvedURL,
-            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-            status: self.connectionSyncModel.status,
-            isStalled: self.connectionStallMonitor.isStalled
-        ) {
-        case .web:
-            if let url = self.resolvedURL {
-                ZStack {
-                    JournalWebView(
-                        url: url,
-                        reloadToken: self.reloadToken,
-                        loadState: self.$loadState,
-                        diagnosticLog: self.diagnosticLog
-                    )
-                    self.stateOverlay
+        if !self.appConfig.isPaired {
+            ScrollView {
+                JournalSetupRoute {
+                    Button {
+                        self.pairFlowRouter.present(.ceremony)
+                    } label: {
+                        JournalSetupPairLabel()
+                    }
+                    .accessibilityIdentifier("journal.alreadyHaveOne")
                 }
-            } else {
+                .padding(24)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            switch InAppJournalPresentation.content(
+                journalSendConfirmed: self.appConfig.journalSendConfirmed,
+                resolvedURL: self.resolvedURL,
+                awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+                status: self.connectionSyncModel.status,
+                isStalled: self.connectionStallMonitor.isStalled
+            ) {
+            case .web:
+                if let url = self.resolvedURL {
+                    ZStack {
+                        JournalWebView(
+                            url: url,
+                            reloadToken: self.reloadToken,
+                            loadState: self.$loadState,
+                            diagnosticLog: self.diagnosticLog
+                        )
+                        self.stateOverlay
+                    }
+                } else {
+                    self.waitingView
+                }
+            case .awaitingMarkConfirmation:
+                VStack(spacing: 8) {
+                    Text(SourceVocabulary.awaitingMarkConfirmationLine)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
+                    Text(SourceVocabulary.awaitingMarkConfirmationSubline)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .connectionLost:
                 self.waitingView
             }
-        case .awaitingMarkConfirmation:
-            VStack(spacing: 8) {
-                Text(SourceVocabulary.awaitingMarkConfirmationLine)
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .multilineTextAlignment(.center)
-                Text(SourceVocabulary.awaitingMarkConfirmationSubline)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        case .connectionLost:
-            self.waitingView
         }
     }
 

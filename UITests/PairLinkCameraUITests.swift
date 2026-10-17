@@ -14,8 +14,6 @@ nonisolated final class PairLinkCameraUITests: XCTestCase {
     /// camera: a scanner that mounts there reports itself unavailable and flips the screen to paste,
     /// and the pasted-link controls then stay up for the rest of the attempt. Seeing the scan/paste
     /// chooser or the "scan a code instead" button while a link pairs means the pairing screen showed.
-    /// The link names four unreachable private addresses: each candidate's dial is bounded at 5 s,
-    /// so the attempt stays out for about 20 s, well past this test's window.
     @MainActor
     func testLinkPairingNeverShowsThePairingScreen() throws {
         let app = XCUIApplication()
@@ -26,7 +24,7 @@ nonisolated final class PairLinkCameraUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
 
-        XCTAssertTrue(app.buttons["back"].waitForExistence(timeout: 10), "the pairing sheet never opened")
+        XCTAssertFalse(app.buttons["back"].waitForExistence(timeout: 2), "the pairing sheet unexpectedly opened")
 
         let deadline = Date().addingTimeInterval(4)
         repeat {

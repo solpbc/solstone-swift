@@ -23,14 +23,13 @@ struct ConnectJournalSheet: View {
                 }
 
                 Section {
-                    NavigationLink(value: Destination.ownJournal) {
-                        self.doorRow(
-                            label: SourceVocabulary.connectDoorOwnTitle,
-                            subtitle: SourceVocabulary.connectDoorOwnSubtitle,
-                            systemImage: "desktopcomputer"
-                        )
+                    JournalSetupRoute {
+                        NavigationLink(value: Destination.ownJournal) {
+                            JournalSetupPairLabel()
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("connectJournal.ownJournal")
                     }
-                    .accessibilityIdentifier("connectJournal.ownJournal")
 
                     HStack(spacing: 12) {
                         Image(systemName: "iphone")
@@ -95,22 +94,5 @@ struct ConnectJournalSheet: View {
         }
     }
 
-    private func doorRow(label: String, subtitle: String, systemImage: String) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(Color.solOrange)
-                .frame(width: 28)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(label)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 6)
-    }
 }

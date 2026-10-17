@@ -605,8 +605,8 @@ nonisolated enum SourceVocabulary {
     static let connectJournalIntro = "your memories are on this device. connect a journal and everything you've shared so far flows in."
     static let connectDoorOwnTitle = "your own journal"
     static let connectDoorOwnSubtitle = "pair this device to your journal running on your computer."
-    static let connectDoorOnYourPhoneTitle = "on this device"
-    static let connectDoorOnYourPhoneBody = "your journal as its own app, right on this device."
+    static let connectDoorOnYourPhoneTitle = "on a dedicated phone or tablet"
+    static let connectDoorOnYourPhoneBody = "your journal as its own app on a device you dedicate to it."
     static let connectJournalFloorLine = "no journal yet? that's fine. everything the solstone app takes in is on this device."
     static let connectJournalHowJournalsWork = "how journals work →"
     // VPX: functional placeholders pending product voice review.
@@ -639,8 +639,8 @@ nonisolated enum SourceVocabulary {
     static let journalLivesPromise = "your journal is always private, only yours."
     static let journalLivesOwnTitle = "your own journal"
     static let journalLivesOwnBody = "pair to your journal on your computer. everything you've shared so far flows in."
-    static let journalLivesOnYourPhoneTitle = "on this device"
-    static let journalLivesOnYourPhoneBody = "your journal as its own app, right on this device."
+    static let journalLivesOnYourPhoneTitle = connectDoorOnYourPhoneTitle
+    static let journalLivesOnYourPhoneBody = connectDoorOnYourPhoneBody
     static let journalLivesCachedLine = "right now, just your memories are on this device, waiting to be processed."
     static let journalLivesComingLater = "coming later"
     static let journalLivesConnectAction = "connect"

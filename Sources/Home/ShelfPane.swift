@@ -286,6 +286,7 @@ struct JournalSettingsPane: View {
     @State private var showingForgetConfirm = false
     @State private var showingPairNewConfirm = false
     @State private var showingPairFlow = false
+    @State private var showingJournalLives = false
     @AccessibilityFocusState private var headingFocused: Bool
 
     private var conveyURL: URL? {
@@ -351,7 +352,11 @@ struct JournalSettingsPane: View {
                 .disabled(!self.appConfig.isPaired)
 
                 Button("pair a new journal") {
-                    self.showingPairNewConfirm = true
+                    if self.appConfig.isPaired {
+                        self.showingPairNewConfirm = true
+                    } else {
+                        self.showingJournalLives = true
+                    }
                 }
             }
         }
@@ -385,6 +390,9 @@ struct JournalSettingsPane: View {
             }
         } message: {
             Text("this forgets the current journal first. anything still waiting goes to the journal you pair next.")
+        }
+        .sheet(isPresented: self.$showingJournalLives) {
+            JournalLivesSheet(isPresented: self.$showingJournalLives)
         }
         .sheet(isPresented: self.$showingPairFlow) {
             NavigationStack {

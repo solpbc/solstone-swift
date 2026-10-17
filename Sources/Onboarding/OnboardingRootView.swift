@@ -13,9 +13,7 @@ struct OnboardingRootView: View {
         NavigationStack {
             switch self.onboardingFlow.step {
             case .welcome:
-                WelcomeScreen {
-                    self.onboardingFlow.completeOnboarding()
-                }
+                WelcomeScreen()
             case .done:
                 Color.clear
             }

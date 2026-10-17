@@ -97,6 +97,8 @@ struct ContentView: View {
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(PushNotificationManager.self) private var pushManager
     @Environment(PairingHandoffState.self) private var pairingHandoff
+    @Environment(PendingObserverCommandState.self) private var pendingObserverCommand
+    @Environment(PendingJournalOpenState.self) private var pendingJournalOpen
     @Environment(JournalSendRelease.self) private var journalSendRelease
     @Environment(PairFlowPresence.self) private var pairFlowPresence
     @Environment(\.scenePhase) private var scenePhase
@@ -167,6 +169,7 @@ struct ContentView: View {
         }
         .onChange(of: self.scenePhase) { _, newPhase in
             if newPhase == .active {
+                self.drainExternalPairLinks()
                 self.presentHeldJournalReAskIfNeeded()
             }
         }
@@ -226,6 +229,7 @@ struct ContentView: View {
             self.presentPairingIfHandoffPending()
         }
         .onAppear {
+            self.drainExternalPairLinks()
 #if DEBUG
             let arguments = ProcessInfo.processInfo.arguments
             if arguments.contains("--ui-test") {
@@ -273,7 +277,7 @@ struct ContentView: View {
 
                 if let raw = arguments.first(where: { $0.hasPrefix("--ui-test-pair-link=") }),
                    let url = URL(string: String(raw.dropFirst("--ui-test-pair-link=".count))) {
-                    self.pairingHandoff.applyUniversalLink(url)
+                    self.pairingHandoff.stageExternalLink(url)
                 }
 
                 if arguments.contains("--ui-test-mark-confirm") {
@@ -413,6 +417,18 @@ private extension ContentView {
     func dismissPairing() {
         self.pairFlowRouter.dismiss()
         self.clearPairingHandoff()
+    }
+
+    private func drainExternalPairLinks() {
+        let urls = ExternalPairLinkQueue.shared.drain()
+        for url in urls {
+            ExternalPairLinkIntake.handle(
+                url: url,
+                pairingHandoff: self.pairingHandoff,
+                pendingObserverCommand: self.pendingObserverCommand,
+                pendingJournalOpen: self.pendingJournalOpen
+            )
+        }
     }
 
     func presentPairingIfHandoffPending() {

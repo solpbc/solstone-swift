@@ -177,6 +177,37 @@ nonisolated final class PairFlowViewTests: XCTestCase {
         }
     }
 
+    nonisolated func testClassifyPastedLinkAcceptsAliasesAndRejectsInvalid() {
+        let canonicalBlob = UniversalLinkRouterTests.canonicalBlob
+        let wellKnownRelayBlob = UniversalLinkRouterTests.wellKnownRelayBlob
+        let directExpected = PairFlowView.classifyPastedLink("https://go.solstone.app/p#\(canonicalBlob)")
+
+        XCTAssertEqual(
+            PairFlowView.classifyPastedLink("solstone://pair#\(canonicalBlob)"),
+            directExpected
+        )
+        XCTAssertEqual(
+            PairFlowView.classifyPastedLink("solstone://pair/#\(wellKnownRelayBlob)"),
+            PairFlowView.classifyPastedLink("https://go.solstone.app/p#\(wellKnownRelayBlob)")
+        )
+        XCTAssertEqual(
+            PairFlowView.classifyPastedLink("SoLsToNe://PAIR#\(canonicalBlob)"),
+            directExpected
+        )
+        XCTAssertEqual(
+            PairFlowView.classifyPastedLink("  solstone://pair#\(canonicalBlob)\n  "),
+            directExpected
+        )
+
+        // Refusals return .invalid and do not throw:
+        XCTAssertEqual(PairFlowView.classifyPastedLink(canonicalBlob), .invalid)
+        XCTAssertEqual(PairFlowView.classifyPastedLink("solstone://pair?payload=1"), .invalid)
+        XCTAssertEqual(PairFlowView.classifyPastedLink("solstone://journal"), .invalid)
+
+        let percentEncodedOutcome = PairFlowView.classifyPastedLink("solstone://pair#%30" + canonicalBlob.dropFirst())
+        XCTAssertNotEqual(percentEncodedOutcome, directExpected)
+    }
+
     private static let canonicalPairingLink = "https://go.solstone.app/p#0G0W000258DSX8DJRFAEBXG7308J4CT4ANK7F26YNPZEZJQYQAZ028T5CY4TQKFF"
 
     /// The nil-router set is not only stray QR codes: it also holds a genuine pairing link minted

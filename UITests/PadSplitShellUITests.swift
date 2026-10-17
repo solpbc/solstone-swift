@@ -401,7 +401,7 @@ final class PadSplitShellUITests: XCTestCase {
     @MainActor
     func testMenuShellDestinationsStayInactiveDuringOnboarding() throws {
         let app = try self.launchPad(["--ui-test-onboarding-step=welcome"])
-        let onboarding = app.buttons["get started"]
+        let onboarding = app.buttons["not now"]
         XCTAssertTrue(onboarding.waitForExistence(timeout: 10))
 
         // No menu key is enabled during onboarding. Wait past the measured menu

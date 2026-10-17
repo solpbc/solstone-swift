@@ -13,6 +13,10 @@ import UIKit
 final class PairingHandoffState {
     var pairURL: PairURL?
     var pairURLError: PairURLError?
+    var stagedDraft: String?
+    var externalLinkAttemptInFlight = false
+    var heldMarkConfirmation = false
+    var pairingInProgress = false
 }
 
 @MainActor
@@ -125,10 +129,15 @@ struct PairFlowView: View {
         if isLoopbackHost(trimmed) {
             return .loopback
         }
-        guard let url = URL(string: trimmed) else {
+        let urlToRoute: URL
+        if let canonical = PairAliasNormalizer.canonicalURL(from: trimmed) {
+            urlToRoute = canonical
+        } else if let url = URL(string: trimmed) {
+            urlToRoute = url
+        } else {
             return .invalid
         }
-        switch UniversalLinkRouter.route(url) {
+        switch UniversalLinkRouter.route(urlToRoute) {
         case nil:
             return .invalid
         case .success(let pairURL):
@@ -230,6 +239,7 @@ struct PairFlowView: View {
         }
         .onAppear {
             self.presence.increment()
+            self.updateHandoffFlags()
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--ui-test-mark-confirm") {
                 self.cancelFlowTask()
@@ -256,6 +266,7 @@ struct PairFlowView: View {
                 self.handoff.pairURL = nil
                 self.startPairing(pairURL)
             } else {
+                self.prefillStagedDraftIfNeeded()
                 self.startFallbackTimerIfNeeded()
             }
         }
@@ -264,6 +275,19 @@ struct PairFlowView: View {
             self.cancelFlowTask()
             self.fallbackTimer.cancel()
             self.stillTryingTimer.reset()
+            self.clearHandoffFlags()
+        }
+        .onChange(of: self.linkAttemptInFlight) { _, _ in
+            self.updateHandoffFlags()
+        }
+        .onChange(of: self.phase) { _, _ in
+            self.updateHandoffFlags()
+        }
+        .onChange(of: self.coordinator.state) { _, _ in
+            self.updateHandoffFlags()
+        }
+        .onChange(of: self.handoff.stagedDraft) { _, _ in
+            self.prefillStagedDraftIfNeeded()
         }
         .onChange(of: self.isWaitingOnPairRequest, initial: true) { _, isWaiting in
             if isWaiting {
@@ -603,7 +627,41 @@ struct PairFlowView: View {
         }
     }
 
+    private var isHeldMarkPhase: Bool {
+        if self.startMode == .confirmHeldJournal { return true }
+        switch self.phase {
+        case .confirm, .couldNotVerify:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func updateHandoffFlags() {
+        self.handoff.externalLinkAttemptInFlight = self.linkAttemptInFlight
+        self.handoff.heldMarkConfirmation = self.isHeldMarkPhase
+        self.handoff.pairingInProgress = self.coordinator.state.isPairingInputInProgress
+    }
+
+    private func clearHandoffFlags() {
+        self.handoff.externalLinkAttemptInFlight = false
+        self.handoff.heldMarkConfirmation = false
+        self.handoff.pairingInProgress = false
+    }
+
+    private func prefillStagedDraftIfNeeded() {
+        guard !self.linkAttemptInFlight,
+              !self.isHeldMarkPhase,
+              !self.coordinator.state.isPairingInputInProgress,
+              self.flowTask == nil,
+              let draft = self.handoff.stagedDraft
+        else { return }
+        self.pastedURL = draft
+        self.mode = .paste
+    }
+
     private func startPastedURL() {
+        self.handoff.stagedDraft = nil
         self.cancelFlowTask()
         self.flowTask = Task { @MainActor in
             await self.handlePastedURL()

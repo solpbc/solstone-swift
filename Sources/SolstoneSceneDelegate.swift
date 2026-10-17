@@ -40,6 +40,16 @@ final class SolstoneSceneDelegate: NSObject, UIWindowSceneDelegate {
         sceneLog.info(
             "connected role=\(session.role.rawValue, privacy: .public) size-restrictions=\(hadSizeRestrictions) applied-min=\(appliedMinDescription, privacy: .public)"
         )
+
+        let urlContextURLs = Array(connectionOptions.urlContexts.map(\.url))
+        let browsingWebURLs = connectionOptions.userActivities.compactMap { activity in
+            activity.activityType == NSUserActivityTypeBrowsingWeb ? activity.webpageURL : nil
+        }
+        let collected = ExternalPairLinkIntake.collect(
+            urlContextURLs: urlContextURLs,
+            browsingWebURLs: browsingWebURLs
+        )
+        ExternalPairLinkQueue.shared.enqueue(collected)
     }
 
     func preferredWindowingControlStyle(

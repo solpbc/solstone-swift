@@ -108,10 +108,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         )
         XCTAssertEqual(SourceVocabulary.connectDoorOwnTitle, "your own journal")
         XCTAssertEqual(SourceVocabulary.connectDoorOwnSubtitle, "pair this device to your journal running on your computer.")
-        XCTAssertEqual(SourceVocabulary.connectDoorOnYourPhoneTitle, "on this device")
+        XCTAssertEqual(SourceVocabulary.connectDoorOnYourPhoneTitle, "on a dedicated phone or tablet")
         XCTAssertEqual(
             SourceVocabulary.connectDoorOnYourPhoneBody,
-            "your journal as its own app, right on this device."
+            "your journal as its own app on a device you dedicate to it."
         )
         XCTAssertEqual(
             SourceVocabulary.connectJournalFloorLine,
@@ -125,10 +125,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.journalLivesOwnBody,
             "pair to your journal on your computer. everything you've shared so far flows in."
         )
-        XCTAssertEqual(SourceVocabulary.journalLivesOnYourPhoneTitle, "on this device")
+        XCTAssertEqual(SourceVocabulary.journalLivesOnYourPhoneTitle, "on a dedicated phone or tablet")
         XCTAssertEqual(
             SourceVocabulary.journalLivesOnYourPhoneBody,
-            "your journal as its own app, right on this device."
+            "your journal as its own app on a device you dedicate to it."
         )
         XCTAssertEqual(
             SourceVocabulary.journalLivesCachedLine,

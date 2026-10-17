@@ -56,19 +56,29 @@ struct JournalLivesPane: View {
             }
 
             Section {
-                NavigationLink(value: ShellDestination.pairFlow) {
-                    self.positionRow(
-                        rowID: "journalLives.ownJournal",
-                        title: SourceVocabulary.journalLivesOwnTitle,
-                        body: SourceVocabulary.journalLivesOwnBody,
-                        current: self.appConfig.isPaired
-                    ) {
-                        Text(SourceVocabulary.journalLivesAction(isPaired: self.appConfig.isPaired))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(self.colorScheme == .dark ? Color.primary : Color.textOrangeAA)
+                if !self.appConfig.isPaired {
+                    JournalSetupRoute {
+                        NavigationLink(value: ShellDestination.pairFlow) {
+                            JournalSetupPairLabel()
+                        }
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("journalLives.ownJournal")
                     }
+                } else {
+                    NavigationLink(value: ShellDestination.pairFlow) {
+                        self.positionRow(
+                            rowID: "journalLives.ownJournal",
+                            title: SourceVocabulary.journalLivesOwnTitle,
+                            body: SourceVocabulary.journalLivesOwnBody,
+                            current: true
+                        ) {
+                            Text(SourceVocabulary.journalLivesAction(isPaired: true))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(self.colorScheme == .dark ? Color.primary : Color.textOrangeAA)
+                        }
+                    }
+                    .accessibilityIdentifier("journalLives.ownJournal")
                 }
-                .accessibilityIdentifier("journalLives.ownJournal")
 
                 self.positionRow(
                     rowID: "journalLives.onYourPhone",

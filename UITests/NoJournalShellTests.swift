@@ -46,8 +46,8 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         app.launchArguments = ["--ui-test", "--ui-test-no-journal", "--ui-test-onboarding-step=welcome"]
         app.launch()
 
-        XCTAssertTrue(app.buttons["get started"].waitForExistence(timeout: 10))
-        app.buttons["get started"].tap()
+        XCTAssertTrue(app.buttons["not now"].waitForExistence(timeout: 10))
+        app.buttons["not now"].tap()
 
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
     }
@@ -88,7 +88,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         app.buttons["onThisPhone.connectJournalButton"].tap()
         XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["your own journal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["today, your journal lives on a computer you own."].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["connectJournal.onYourPhone"].waitForExistence(timeout: 5))
         XCTAssertEqual(
             app.descendants(matching: .any)["connectJournal.onYourPhone.comingLater"].label,
@@ -177,10 +177,10 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertTrue(promise.exists)
         XCTAssertEqual(promise.label, "your journal is always private, only yours.")
 
-        XCTAssertTrue(app.staticTexts["your own journal"].exists)
-        XCTAssertTrue(app.staticTexts["pair to your journal on your computer. everything you've shared so far flows in."].exists)
+        XCTAssertTrue(app.staticTexts["today, your journal lives on a computer you own."].exists)
+        XCTAssertTrue(app.staticTexts["i already have one"].exists)
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.onYourPhone"].exists)
-        XCTAssertTrue(app.staticTexts["your journal as its own app, right on this device."].exists)
+        XCTAssertTrue(app.staticTexts["your journal as its own app on a device you dedicate to it."].exists)
         XCTAssertTrue(app.staticTexts["right now, just your memories are on this device, waiting to be processed."].exists)
         XCTAssertFalse(app.staticTexts["your memories rest here, yours and nowhere else."].exists)
 

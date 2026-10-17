@@ -382,7 +382,7 @@ private extension ShellPaneShotTests {
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
         XCTAssertTrue(
-            app.buttons["get started"].waitForExistence(timeout: 15),
+            app.buttons["not now"].waitForExistence(timeout: 15),
             "splash CTA missing"
         )
         XCTAssertTrue(

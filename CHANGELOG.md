@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Added
+
+- if you open solstone before setting up a journal, you can now open the setup page, send yourself its link, or connect a journal you already have. what you share waits on this device meanwhile.
+
 ## [2.0.9 (131)] - 2026-10-17
 
 ### Added

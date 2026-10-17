@@ -28,8 +28,8 @@ private extension OnboardingAccessibilityTests {
         app.launchArguments = ["--ui-test", "--ui-test-onboarding-step=welcome"]
         app.launch()
 
-        let getStarted = app.buttons["get started"]
-        self.assertMetadata(for: getStarted, in: app)
+        let notNow = app.buttons["not now"]
+        self.assertMetadata(for: notNow, in: app)
     }
 
     func assertShelfAccessibility() throws {
