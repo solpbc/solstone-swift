@@ -65,7 +65,7 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
                 XCTAssertEqual(state, .stalled)
                 XCTAssertEqual(
                     state.label(hasBacklog: hasBacklog),
-                    hasBacklog ? SourceVocabulary.stallWaitingLabel : SourceVocabulary.stallNotConnectedLabel
+                    hasBacklog ? String(localized: SourceVocabulary.stallWaitingLabel) : String(localized: SourceVocabulary.stallNotConnectedLabel)
                 )
 
                 let unpairedState = HomeStatusPillState.resolve(
@@ -143,7 +143,7 @@ nonisolated final class HomeStatusPillStateTests: XCTestCase {
                 isStalled: false,
                 awaitingMarkConfirmation: false
             )
-            XCTAssertEqual(state.label, SourceVocabulary.statusConnectingLabel)
+            XCTAssertEqual(state.label, String(localized: SourceVocabulary.statusConnectingLabel))
             XCTAssertNotEqual(state.label, status.statusLine)
         }
     }

@@ -12,42 +12,46 @@ nonisolated func screencastSourcePresentation(
 ) -> Source {
     let state = screencastSourceState(for: managerState, enrolled: enrolled)
     let subtextOverride: String?
+    var subtextOverrideRepeatsStateLabel = false
     let attention: SourceAttention?
 
     switch managerState {
     case .off:
         if let systemEndedAt,
            now.timeIntervalSince(systemEndedAt) <= ScreencastManager.systemEndedVisibleWindowSeconds {
-            subtextOverride = SourceVocabulary.screencastSystemEndedSubtext
+            subtextOverride = String(localized: SourceVocabulary.screencastSystemEndedSubtext)
         } else {
             // Screen always supplies its own sub-line, so it never reaches the shared
             // fall-through — which means a never-set-up source would read
             // `ready to set up` over `off`. It gets no sub-line instead.
-            subtextOverride = enrolled ? SourceVocabulary.screencastOffSubtext : nil
+            subtextOverride = enrolled ? String(localized: SourceVocabulary.screencastOffSubtext) : nil
+            subtextOverrideRepeatsStateLabel = enrolled
         }
         attention = nil
     case .starting:
-        subtextOverride = SourceVocabulary.screencastStartingSubtext
+        subtextOverride = String(localized: SourceVocabulary.screencastStartingSubtext)
         attention = nil
     case .active:
-        subtextOverride = SourceVocabulary.screencastActiveSubtext
+        subtextOverride = String(localized: SourceVocabulary.screencastActiveSubtext)
         attention = nil
     case .needsAttention(let reason):
-        subtextOverride = SourceVocabulary.screencastAttentionSubtext
+        subtextOverride = String(localized: SourceVocabulary.screencastAttentionSubtext)
+        subtextOverrideRepeatsStateLabel = true
         attention = SourceAttention(message: screencastAttentionMessage(reason))
     case .unavailable:
-        subtextOverride = SourceVocabulary.screencastUnavailableSubtext
-        attention = SourceAttention(message: SourceVocabulary.screencastUnavailableText)
+        subtextOverride = String(localized: SourceVocabulary.screencastUnavailableSubtext)
+        attention = SourceAttention(message: String(localized: SourceVocabulary.screencastUnavailableText))
     }
 
     return Source(
         id: "screencast",
-        displayName: SourceVocabulary.screencastDisplayName,
+        displayName: String(localized: SourceVocabulary.screencastDisplayName),
         kind: .screencast,
         state: state,
         isJournalPaired: isJournalPaired,
-        activeSubtext: SourceVocabulary.screencastActiveSubtext,
+        activeSubtext: String(localized: SourceVocabulary.screencastActiveSubtext),
         subtextOverride: subtextOverride,
+        subtextOverrideRepeatsStateLabel: subtextOverrideRepeatsStateLabel,
         attention: attention,
         pendingStatus: .nonePending
     )
@@ -56,13 +60,13 @@ nonisolated func screencastSourcePresentation(
 nonisolated func screencastAttentionMessage(_ attention: ScreencastAttention) -> String {
     switch attention {
     case .storageLow:
-        SourceVocabulary.screencastStorageLowText
+        String(localized: SourceVocabulary.screencastStorageLowText)
     case .noVideo:
-        SourceVocabulary.screencastNoVideoText
+        String(localized: SourceVocabulary.screencastNoVideoText)
     case .finalizeFailed:
-        SourceVocabulary.screencastFinalizeFailedText
+        String(localized: SourceVocabulary.screencastFinalizeFailedText)
     case .appGroupUnavailable:
-        SourceVocabulary.screencastUnavailableText
+        String(localized: SourceVocabulary.screencastUnavailableText)
     }
 }
 
@@ -70,18 +74,18 @@ extension SourceVocabulary {
     static func screencastPrimerBody(state: ScreencastManager.State) -> String {
         switch state {
         case .active:
-            screencastPrimerBodyActive
+            String(localized: screencastPrimerBodyActive)
         default:
-            screencastPrimerBodyOff
+            String(localized: screencastPrimerBodyOff)
         }
     }
 
     static func screencastActionTitle(state: ScreencastManager.State) -> String {
         switch state {
         case .active:
-            screencastOpenSystemSheet
+            String(localized: screencastOpenSystemSheet)
         default:
-            screencastStartButton
+            String(localized: screencastStartButton)
         }
     }
 }

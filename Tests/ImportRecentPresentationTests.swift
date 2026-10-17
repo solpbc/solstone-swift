@@ -16,7 +16,7 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
                 connectionStatus: .connectedIdle,
                 isStalled: false
             ),
-            SourceVocabulary.shareSendingProgress
+            String(localized: SourceVocabulary.shareSendingProgress)
         )
     }
 
@@ -30,7 +30,7 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
                 connectionStatus: .connectedIdle,
                 isStalled: false
             ),
-            SourceVocabulary.shareDeliveredProgress
+            String(localized: SourceVocabulary.shareDeliveredProgress)
         )
     }
 
@@ -44,7 +44,7 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
             isStalled: false
         )
 
-        XCTAssertEqual(text, SourceVocabulary.onThisPhoneWaitingExplain)
+        XCTAssertEqual(text, String(localized: SourceVocabulary.onThisPhoneWaitingExplain))
         XCTAssertNotEqual(text, SourceVocabulary.needsAttentionSubtext)
     }
 
@@ -99,7 +99,7 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
                 connectionStatus: .connectedIdle,
                 isStalled: false
             ),
-            SourceVocabulary.shareDeliveredProgress
+            String(localized: SourceVocabulary.shareDeliveredProgress)
         )
 
         // Empty

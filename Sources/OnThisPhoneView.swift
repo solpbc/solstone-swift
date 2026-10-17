@@ -591,8 +591,8 @@ private extension OnThisPhoneMomentsView {
             self.finishSyncingCardChrome(icon: "info.circle") {
                 Text(
                     remaining > 0
-                        ? SourceVocabulary.finishSyncingInterrupted(count: remaining)
-                        : SourceVocabulary.finishSyncingInterruptedFallback
+                        ? SourceVocabulary.finishSyncingInterrupted(count: remaining).rendered
+                        : String(localized: SourceVocabulary.finishSyncingInterruptedFallback)
                 )
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
@@ -609,14 +609,14 @@ private extension OnThisPhoneMomentsView {
             VStack(alignment: .leading, spacing: 4) {
                 Text(SourceVocabulary.finishSyncingCardHeadline)
                     .font(.subheadline.weight(.semibold))
-                Text(SourceVocabulary.finishSyncingCardBody(count: self.finishSyncingBacklog))
+                Text(SourceVocabulary.finishSyncingCardBody(count: self.finishSyncingBacklog).rendered)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         } trailing: {
             VStack(alignment: .trailing, spacing: 6) {
-                Button(SourceVocabulary.finishSyncingButton) {
+                Button(String(localized: SourceVocabulary.finishSyncingButton)) {
                     self.finishSyncingCoordinator.submit()
                 }
                 .buttonStyle(.borderedProminent)

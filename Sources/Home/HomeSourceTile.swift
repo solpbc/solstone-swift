@@ -124,10 +124,13 @@ struct HomeSourceTile: View {
     /// `off` renders the tile as "off / off"; a sub-line that restates the line above
     /// it is noise, so it falls through to the state's own compact text.
     private var subtext: String? {
-        if let override = self.source.subtextOverride, override != self.source.state.label {
+        if let override = self.source.subtextOverride, !self.source.subtextOverrideRepeatsStateLabel {
             return override
         }
-        return self.source.state.compactSubtext(activeSubtext: self.source.activeSubtext)
+        return self.source.state.compactSubtext(
+            activeSubtext: self.source.activeSubtext,
+            repeatsStateLabel: self.source.activeSubtextRepeatsStateLabel
+        )
     }
 
     @ViewBuilder

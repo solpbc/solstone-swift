@@ -681,7 +681,17 @@ struct SolstoneSwiftApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                #if DEBUG
+                if CommandLine.arguments.contains("--i18n-pilot-gallery") {
+                    I18nPilotGallery()
+                } else {
+                    ContentView()
+                }
+                #else
+                ContentView()
+                #endif
+            }
                 .environment(self.appConfig)
                 .environment(self.appGroupMirror)
                 .environment(self.watchBacklogSnapshotWriter)

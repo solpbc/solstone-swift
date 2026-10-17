@@ -178,7 +178,7 @@ struct ImportView: View {
             EmptyView()
         case .working:
             ProgressView()
-                .accessibilityLabel(SourceVocabulary.shareSendingProgress)
+                .accessibilityLabel(String(localized: SourceVocabulary.shareSendingProgress))
                 .accessibilityIdentifier("import.intake.working")
         case .finished(let text):
             Text(text)

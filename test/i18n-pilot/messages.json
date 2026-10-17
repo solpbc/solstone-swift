@@ -1,0 +1,1814 @@
+[
+  {
+    "symbol": "finishSyncingCardHeadline",
+    "id": "ios.sourceSync.finishSyncingCardHeadline",
+    "english": "still syncing to your journal",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingCardHeadline; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingCardHeadline",
+      "end": 207,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"still syncing to your journal\"",
+      "start": 176
+    },
+    "source_hash": "2ca2fabe5e8c82d5d0266680d0105523e261db5523b8213aab153cbd5cb84ff1",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingButton",
+    "id": "ios.sourceSync.finishSyncingButton",
+    "english": "enable background for this sync",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingButton; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingButton",
+      "end": 666,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"enable background for this sync\"",
+      "start": 633
+    },
+    "source_hash": "b5ed63151970223c8ff656ef531e2f740fb2f7e4477c7a55377e259d43022e3b",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingInProgress",
+    "id": "ios.sourceSync.finishSyncingInProgress",
+    "english": "finishing up in the background. you can switch away. the solstone app keeps syncing for as long as ios allows.",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingInProgress; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingInProgress",
+      "end": 832,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"finishing up in the background. you can switch away. the solstone app keeps syncing for as long as ios allows.\"",
+      "start": 720
+    },
+    "source_hash": "72aa772dfd031cc092691c01f514137770cfc55b7bbcf5fa85d70942ad2a82f8",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingCompleted",
+    "id": "ios.sourceSync.finishSyncingCompleted",
+    "english": "done. everything is in your journal.",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingCompleted; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingCompleted",
+      "end": 923,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"done. everything is in your journal.\"",
+      "start": 885
+    },
+    "source_hash": "9488a681ce2f7c4620aba4fd793b74cc90f6df635c3b2e0b9e49097cdd7b7327",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingInterruptedFallback",
+    "id": "ios.sourceSync.finishSyncingInterruptedFallback",
+    "english": "stopped before everything synced. what's left is on this device and keeps trying whenever the solstone app is open.",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingInterruptedFallback; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingInterruptedFallback",
+      "end": 1455,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"stopped before everything synced. what's left is on this device and keeps trying whenever the solstone app is open.\"",
+      "start": 1338
+    },
+    "source_hash": "3b733e7a5161909cbbc5acb9bde63777a0ea8e5cb4eb7e45b85e526d13cba180",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingUnavailableUnavailable",
+    "id": "ios.sourceSync.finishSyncingUnavailableUnavailable",
+    "english": "background syncing isn't available right now.",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingUnavailableUnavailable; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingUnavailableUnavailable",
+      "end": 1568,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"background syncing isn't available right now.\"",
+      "start": 1521
+    },
+    "source_hash": "4e73a6051179e887ca67567c586e109c658b68ac070ded69fb38850b3f582c3b",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingUnavailableNotPermitted",
+    "id": "ios.sourceSync.finishSyncingUnavailableNotPermitted",
+    "english": "ios isn't allowing finish syncing right now.",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingUnavailableNotPermitted; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingUnavailableNotPermitted",
+      "end": 1681,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"ios isn't allowing finish syncing right now.\"",
+      "start": 1635
+    },
+    "source_hash": "4a7a79694cac8a85aa65b955ddf4880c15d5949200ab62cab76593f2e0656b0b",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingUnavailableTooManyPending",
+    "id": "ios.sourceSync.finishSyncingUnavailableTooManyPending",
+    "english": "ios already has too many background tasks waiting.",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingUnavailableTooManyPending; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingUnavailableTooManyPending",
+      "end": 1802,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"ios already has too many background tasks waiting.\"",
+      "start": 1750
+    },
+    "source_hash": "2a9a02138ea8618712dbf1ec325677eeb4ab022f6003989dd89c66c6c2a1c964",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingUnavailableImmediateIneligible",
+    "id": "ios.sourceSync.finishSyncingUnavailableImmediateIneligible",
+    "english": "ios can't start finish syncing right now.",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingUnavailableImmediateIneligible; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingUnavailableImmediateIneligible",
+      "end": 1919,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"ios can't start finish syncing right now.\"",
+      "start": 1876
+    },
+    "source_hash": "106bee1e9c8a94802801bcffcf8a42618475efa968acb2e9523af7ba4308a690",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingUnavailableFallback",
+    "id": "ios.sourceSync.finishSyncingUnavailableFallback",
+    "english": "finish syncing couldn't start.",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingUnavailableFallback; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingUnavailableFallback",
+      "end": 2014,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"finish syncing couldn't start.\"",
+      "start": 1982
+    },
+    "source_hash": "7bbe4237651d232971dcdd4763764353ae73d230d9c1e761a236dda3352351ce",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingSystemTitle",
+    "id": "ios.sourceSync.finishSyncingSystemTitle",
+    "english": "finishing sync",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingSystemTitle; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingSystemTitle",
+      "end": 2085,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"finishing sync\"",
+      "start": 2069
+    },
+    "source_hash": "73953268a0f33ba290bae004f924e6b5e7ee20d458c3d32e452419b6e7e8ff97",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingSystemDoneTitle",
+    "id": "ios.sourceSync.finishSyncingSystemDoneTitle",
+    "english": "sync finished",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingSystemDoneTitle; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingSystemDoneTitle",
+      "end": 2159,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"sync finished\"",
+      "start": 2144
+    },
+    "source_hash": "aee39294508751d0132bd95695e70032c8d17459f1e2362c2f2c870be20e824f",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingSystemPausedTitle",
+    "id": "ios.sourceSync.finishSyncingSystemPausedTitle",
+    "english": "sync paused",
+    "args": {},
+    "description": "Background-sync status or control: finishSyncingSystemPausedTitle; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "finishSyncingSystemPausedTitle",
+      "end": 2233,
+      "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"sync paused\"",
+      "start": 2220
+    },
+    "source_hash": "348bf0be641550cecea7d84fc476d035c3e6d2d21c05a61dfe6733bc01ee44b5",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "shareSendingProgress",
+    "id": "ios.sourceSync.shareSendingProgress",
+    "english": "sending to your journal…",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: shareSendingProgress.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "shareSendingProgress",
+      "end": 6159,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"sending to your journal…\"",
+      "start": 6131
+    },
+    "source_hash": "9eb19828f4254f144891f20837c2db0c5af7463f6ff7a06bfc90e6fb908fe258",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "shareDeliveredProgress",
+    "id": "ios.sourceSync.shareDeliveredProgress",
+    "english": "saved to your journal",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: shareDeliveredProgress.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "shareDeliveredProgress",
+      "end": 6223,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"saved to your journal\"",
+      "start": 6200
+    },
+    "source_hash": "326d14d7e2fed40bba749a8e720579dbce8dd8107a5b5103447da472790ed2f2",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "sendStateSaved",
+    "id": "ios.sourceSync.sendStateSaved",
+    "english": "on this device",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: sendStateSaved.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "sendStateSaved",
+      "end": 6272,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"on this device\"",
+      "start": 6256
+    },
+    "source_hash": "c2dee8a0bda70beae7efce2676615af51d7f4ef126fe38b2806a913e1faa8d69",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "sendStateSending",
+    "id": "ios.sourceSync.sendStateSending",
+    "english": "sending",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: sendStateSending.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "sendStateSending",
+      "end": 6316,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"sending\"",
+      "start": 6307
+    },
+    "source_hash": "9df0e90c78c022213a0a996f01e54aa6b7203220949dae54ae309d456ab9e4b0",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "sendStateCompactSaved",
+    "id": "ios.sourceSync.sendStateCompactSaved",
+    "english": "waiting to sync",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: sendStateCompactSaved.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "sendStateCompactSaved",
+      "end": 6373,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"waiting to sync\"",
+      "start": 6356
+    },
+    "source_hash": "e51ea874c877ef60163e5a6bda84f46fc306043d689eea5e4e20c653edaef46e",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "sendStateCompactOnTheWay",
+    "id": "ios.sourceSync.sendStateCompactOnTheWay",
+    "english": "on the way",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: sendStateCompactOnTheWay.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "sendStateCompactOnTheWay",
+      "end": 6428,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"on the way\"",
+      "start": 6416
+    },
+    "source_hash": "646c23a9b8df6fec5d6ac89a76cbc3de525a10e9423e7c8d98819c8330b300c0",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "sendStateCompactInJournal",
+    "id": "ios.sourceSync.sendStateCompactInJournal",
+    "english": "in your journal",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: sendStateCompactInJournal.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "sendStateCompactInJournal",
+      "end": 6489,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"in your journal\"",
+      "start": 6472
+    },
+    "source_hash": "22906add6bb95ab977d6ff561ee1d6aed307669fa8b2ec8106256a924c43f903",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "onThisPhoneWaitingExplain",
+    "id": "ios.sourceSync.onThisPhoneWaitingExplain",
+    "english": "still on this device. syncing to your journal continues automatically. you don't have to do anything.",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: onThisPhoneWaitingExplain.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "onThisPhoneWaitingExplain",
+      "end": 6636,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"still on this device. syncing to your journal continues automatically. you don't have to do anything.\"",
+      "start": 6533
+    },
+    "source_hash": "d9bbb69010a2d5ed8e397a1f93f466fd42a85addaa6f49a4968d9d50d1224804",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "tryNow",
+    "id": "ios.sourceSync.tryNow",
+    "english": "try now",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: tryNow.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "tryNow",
+      "end": 6670,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"try now\"",
+      "start": 6661
+    },
+    "source_hash": "4f7a8dc3e9ad038eab7054cbaf1ed361ab59bf7047184f983f5427e7e72ced80",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastDisplayName",
+    "id": "ios.sourceSync.screencastDisplayName",
+    "english": "screen",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastDisplayName",
+      "end": 6771,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen\"",
+      "start": 6763
+    },
+    "source_hash": "39d0b2febb3cf1396bf2c5e1861c4a9b7c0f619797f8f5413de6b8e7a526fa63",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastActiveSubtext",
+    "id": "ios.sourceSync.screencastActiveSubtext",
+    "english": "sharing your screen",
+    "args": {},
+    "description": "Screen source status, error or control; this label is sharing your screen.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastActiveSubtext",
+      "end": 6834,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"sharing your screen\"",
+      "start": 6813
+    },
+    "source_hash": "8bbc764e373ccf258a617bc774a19f43f10118ce888f3b9bd3acafa6e18bf45d",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastStartingSubtext",
+    "id": "ios.sourceSync.screencastStartingSubtext",
+    "english": "waiting for the system sheet",
+    "args": {},
+    "description": "Screen source status, error or control; this label is waiting for the system sheet.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastStartingSubtext",
+      "end": 6908,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"waiting for the system sheet\"",
+      "start": 6878
+    },
+    "source_hash": "4a350ef1b63dacc84230db62ef148710e1bcd04acdcb232bca3f5cd393234c1d",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastOffSubtext",
+    "id": "ios.sourceSync.screencastOffSubtext",
+    "english": "off",
+    "args": {},
+    "description": "Screen source status, error or control; this label is off.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastOffSubtext",
+      "end": 6952,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"off\"",
+      "start": 6947
+    },
+    "source_hash": "9f3becba6e4b1583b3e19441dde4d59622537d9bd54a94d22262785e485384d0",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastAttentionSubtext",
+    "id": "ios.sourceSync.screencastAttentionSubtext",
+    "english": "needs attention",
+    "args": {},
+    "description": "Screen source status, error or control; this label is needs attention.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastAttentionSubtext",
+      "end": 7014,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"needs attention\"",
+      "start": 6997
+    },
+    "source_hash": "a065521c231032b1e3658a7c359965ab69d86877cbfe02e12cfecb107143f986",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastUnavailableSubtext",
+    "id": "ios.sourceSync.screencastUnavailableSubtext",
+    "english": "unavailable",
+    "args": {},
+    "description": "Screen source status, error or control; this label is unavailable.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastUnavailableSubtext",
+      "end": 7074,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"unavailable\"",
+      "start": 7061
+    },
+    "source_hash": "ec833b19d159ba681e50bda3b3397116bad0053bb383e42149b8ac22a17a580f",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastDetailTitle",
+    "id": "ios.sourceSync.screencastDetailTitle",
+    "english": "screen",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastDetailTitle",
+      "end": 7122,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen\"",
+      "start": 7114
+    },
+    "source_hash": "39d0b2febb3cf1396bf2c5e1861c4a9b7c0f619797f8f5413de6b8e7a526fa63",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastStateTitle",
+    "id": "ios.sourceSync.screencastStateTitle",
+    "english": "state",
+    "args": {},
+    "description": "Screen source status, error or control; this label is state.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastStateTitle",
+      "end": 7168,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"state\"",
+      "start": 7161
+    },
+    "source_hash": "55af5b1d18b0d9ddda33273d987fd0579ef9b07af3a077c79d0accb6c8f17127",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastRecentTitle",
+    "id": "ios.sourceSync.screencastRecentTitle",
+    "english": "recent",
+    "args": {},
+    "description": "Screen source status, error or control; this label is recent.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastRecentTitle",
+      "end": 7216,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"recent\"",
+      "start": 7208
+    },
+    "source_hash": "0efb433dce7da49ec487eceeb6d88d5cb3a8792dd2d13ec63a507e1ca47d7db5",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastDeliveryTitle",
+    "id": "ios.sourceSync.screencastDeliveryTitle",
+    "english": "delivery",
+    "args": {},
+    "description": "Screen source status, error or control; this label is delivery.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastDeliveryTitle",
+      "end": 7268,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"delivery\"",
+      "start": 7258
+    },
+    "source_hash": "07474afa53a08ba5eb86a9f068ff446a4f394b3c0c6b29d924e3833c3542801e",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastStartButton",
+    "id": "ios.sourceSync.screencastStartButton",
+    "english": "start screen",
+    "args": {},
+    "description": "Screen source status, error or control; this label is start screen.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastStartButton",
+      "end": 7322,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"start screen\"",
+      "start": 7308
+    },
+    "source_hash": "4e1e74e5749bd7cf4b5fee6df48b3a1b78a6e2e6478d4e13f32e04554ad66afb",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastStopButton",
+    "id": "ios.sourceSync.screencastStopButton",
+    "english": "stop screen",
+    "args": {},
+    "description": "Screen source status, error or control; this label is stop screen.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastStopButton",
+      "end": 7374,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"stop screen\"",
+      "start": 7361
+    },
+    "source_hash": "b749d2973703ebbb740dc7f5fd3b7346530cd516a36db12d2b54c5e2fc7ca16e",
+    "liveness": "legacy-unused"
+  },
+  {
+    "symbol": "screencastOpenSystemSheet",
+    "id": "ios.sourceSync.screencastOpenSystemSheet",
+    "english": "open system sheet",
+    "args": {},
+    "description": "Screen source status, error or control; this label is open system sheet.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastOpenSystemSheet",
+      "end": 7437,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"open system sheet\"",
+      "start": 7418
+    },
+    "source_hash": "74201351dce2593d2ddbca1fb8bff91cb648adafdbed983d6934dd4a4721b86f",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastReadyText",
+    "id": "ios.sourceSync.screencastReadyText",
+    "english": "screen is ready",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen is ready.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastReadyText",
+      "end": 7492,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen is ready\"",
+      "start": 7475
+    },
+    "source_hash": "ba0a54d8711292cc089970502e198e9353186c0ffa076dcd3b064862012663a0",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastStartingText",
+    "id": "ios.sourceSync.screencastStartingText",
+    "english": "waiting for the system sheet",
+    "args": {},
+    "description": "Screen source status, error or control; this label is waiting for the system sheet.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastStartingText",
+      "end": 7563,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"waiting for the system sheet\"",
+      "start": 7533
+    },
+    "source_hash": "4a350ef1b63dacc84230db62ef148710e1bcd04acdcb232bca3f5cd393234c1d",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastActiveText",
+    "id": "ios.sourceSync.screencastActiveText",
+    "english": "screen is active",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen is active.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastActiveText",
+      "end": 7620,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen is active\"",
+      "start": 7602
+    },
+    "source_hash": "8f08471c3361ac365cc25748c925ab5a71e1d8079b970bfc70188e9ed805180d",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastUnavailableText",
+    "id": "ios.sourceSync.screencastUnavailableText",
+    "english": "screen is unavailable",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen is unavailable.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastUnavailableText",
+      "end": 7687,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen is unavailable\"",
+      "start": 7664
+    },
+    "source_hash": "f600141f72ee2db6e9def2743ceee8e656b69771a5610719a9f1134637b03855",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastNoVideoText",
+    "id": "ios.sourceSync.screencastNoVideoText",
+    "english": "no screen video was saved",
+    "args": {},
+    "description": "Screen source status, error or control; this label is no screen video was saved.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastNoVideoText",
+      "end": 7754,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"no screen video was saved\"",
+      "start": 7727
+    },
+    "source_hash": "3d4d3363209a814b3d26ee479159392556d6726187025ac23617908e58b2bbcb",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastFinalizeFailedText",
+    "id": "ios.sourceSync.screencastFinalizeFailedText",
+    "english": "screen video could not be saved",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen video could not be saved.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastFinalizeFailedText",
+      "end": 7834,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen video could not be saved\"",
+      "start": 7801
+    },
+    "source_hash": "3d59e8b588974d25a6dc0cbc0eac0cefaffbd3f3addae865c7cf508e6b500718",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastFinalizeTimeoutText",
+    "id": "ios.sourceSync.screencastFinalizeTimeoutText",
+    "english": "screen video timed out while saving",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen video timed out while saving.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastFinalizeTimeoutText",
+      "end": 7919,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen video timed out while saving\"",
+      "start": 7882
+    },
+    "source_hash": "f2e3dd7112ac0b0f1639030df8ab43f4417858d3d3017118999e2a16fc048705",
+    "liveness": "legacy-unused"
+  },
+  {
+    "symbol": "screencastFilesystemFailedText",
+    "id": "ios.sourceSync.screencastFilesystemFailedText",
+    "english": "screen video could not be stored",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen video could not be stored.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastFilesystemFailedText",
+      "end": 8002,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen video could not be stored\"",
+      "start": 7968
+    },
+    "source_hash": "96a5e0fb2e882f2bc62f818e8cc137e777a15186581e49fee3b38db98d0a3a80",
+    "liveness": "legacy-unused"
+  },
+  {
+    "symbol": "screencastStorageLowText",
+    "id": "ios.sourceSync.screencastStorageLowText",
+    "english": "screen stopped. this device is low on storage.",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen stopped. this device is low on storage..",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastStorageLowText",
+      "end": 8093,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen stopped. this device is low on storage.\"",
+      "start": 8045
+    },
+    "source_hash": "cae1c4615838b6c99b07b44e7b1fbe040c3b0d8d78e587169a2a30fc00b47f75",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastSystemEndedSubtext",
+    "id": "ios.sourceSync.screencastSystemEndedSubtext",
+    "english": "screen sharing ended",
+    "args": {},
+    "description": "Screen source status, error or control; this label is screen sharing ended.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastSystemEndedSubtext",
+      "end": 8162,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"screen sharing ended\"",
+      "start": 8140
+    },
+    "source_hash": "97d2bd963a44212bbba6f3337644fb09cf0358ebc3f7a09486f9e5b135aa6d66",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastPrimerBodyActive",
+    "id": "ios.sourceSync.screencastPrimerBodyActive",
+    "english": "to stop sharing your screen, tap \"Stop Broadcast\" in the sheet that comes up.",
+    "args": {},
+    "description": "Screen-sharing instructions for the active or stopped state; quoted Apple sheet button names stay recognizable.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastPrimerBodyActive",
+      "end": 8288,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"to stop sharing your screen, tap \\\"Stop Broadcast\\\" in the sheet that comes up.\"",
+      "start": 8207
+    },
+    "source_hash": "c3d1be5c9ce42582e21c009444c37b1684bb2451dd4b116490d237fb1549891e",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "screencastPrimerBodyOff",
+    "id": "ios.sourceSync.screencastPrimerBodyOff",
+    "english": "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks.",
+    "args": {},
+    "description": "Screen-sharing instructions for the active or stopped state; quoted Apple sheet button names stay recognizable.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "screencastPrimerBodyOff",
+      "end": 8484,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"what's on your screen goes into your journal. tap \\\"Start Broadcast\\\" in the sheet that comes up. the system ends screen sharing when this device locks.\"",
+      "start": 8330
+    },
+    "source_hash": "29cc813d6a0234e5c3a4f0c33f6d8e9684210397ba718eadfa54deae3d4b9aa7",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "connectedLabel",
+    "id": "ios.sourceSync.connectedLabel",
+    "english": "connected",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: connectedLabel.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "connectedLabel",
+      "end": 8743,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"connected\"",
+      "start": 8732
+    },
+    "source_hash": "db92b56e8026955f0f85f3cf8dc3375cfa272e3cc4fe1ceed7f8463bd8c62c4b",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "syncingLabel",
+    "id": "ios.sourceSync.syncingLabel",
+    "english": "syncing",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: syncingLabel.",
+    "risk": "routine",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "syncingLabel",
+      "end": 8783,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"syncing\"",
+      "start": 8774
+    },
+    "source_hash": "1871b98cff3122473b9f54d0a28a864563cd4e98dbd18bf58c6386b7ea83e243",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "statusConnectingLabel",
+    "id": "ios.sourceSync.statusConnectingLabel",
+    "english": "connecting…",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: statusConnectingLabel.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "statusConnectingLabel",
+      "end": 8838,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"connecting…\"",
+      "start": 8823
+    },
+    "source_hash": "46bd64dece6c4921c3474ad16ca9dffb3f2cbf623874bf5d701f9d2a8161e5c4",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "statusOfflineLabel",
+    "id": "ios.sourceSync.statusOfflineLabel",
+    "english": "offline",
+    "args": {},
+    "description": "Source delivery status or control shown on the device: statusOfflineLabel.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "statusOfflineLabel",
+      "end": 8884,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"offline\"",
+      "start": 8875
+    },
+    "source_hash": "c866b7bf3478c1248961bc693bdbca181c516f5651f58d53ebb4a842a56b65e7",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "stallWaitingLabel",
+    "id": "ios.sourceSync.stallWaitingLabel",
+    "english": "waiting",
+    "args": {},
+    "description": "Connection recovery state or action; this explains stallWaitingLabel without promising a successful reconnect.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "stallWaitingLabel",
+      "end": 8929,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"waiting\"",
+      "start": 8920
+    },
+    "source_hash": "71ce8ff4c179188015b1c36fa4d86d9581a3e9f2b2fad8a879d8cc2538d6b475",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "stallNotConnectedLabel",
+    "id": "ios.sourceSync.stallNotConnectedLabel",
+    "english": "not connected",
+    "args": {},
+    "description": "Connection recovery state or action; this explains stallNotConnectedLabel without promising a successful reconnect.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "stallNotConnectedLabel",
+      "end": 8985,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"not connected\"",
+      "start": 8970
+    },
+    "source_hash": "70a16104625a4dffb25039039a4fc3d1d4220b7d7ef72fa2fa9327be343a4258",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "stallCantReachYourJournal",
+    "id": "ios.sourceSync.stallCantReachYourJournal",
+    "english": "can't reach your journal",
+    "args": {},
+    "description": "Connection recovery state or action; this explains stallCantReachYourJournal without promising a successful reconnect.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "stallCantReachYourJournal",
+      "end": 9055,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"can't reach your journal\"",
+      "start": 9029
+    },
+    "source_hash": "242a378e273d2a728fb896be729c028b6a11e1da1231276c6577aa7e0480c005",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "stallTryAgainLabel",
+    "id": "ios.sourceSync.stallTryAgainLabel",
+    "english": "try again",
+    "args": {},
+    "description": "Connection recovery state or action; this explains stallTryAgainLabel without promising a successful reconnect.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "stallTryAgainLabel",
+      "end": 9103,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"try again\"",
+      "start": 9092
+    },
+    "source_hash": "b06df74bea407413f768d6f1196e2b5dbfb50df5487ba8dd419969747fd2f1cf",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "stallTriesEveryAddress",
+    "id": "ios.sourceSync.stallTriesEveryAddress",
+    "english": "tries every address your journal gave this phone.",
+    "args": {},
+    "description": "Connection recovery state or action; this explains stallTriesEveryAddress without promising a successful reconnect.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "stallTriesEveryAddress",
+      "end": 9195,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"tries every address your journal gave this phone.\"",
+      "start": 9144
+    },
+    "source_hash": "f1f093cea15a25c07a1bc8e745d9ecbca4b89f4d50238fc0f49af3da7f4c4d1d",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "stallTryingLabel",
+    "id": "ios.sourceSync.stallTryingLabel",
+    "english": "trying…",
+    "args": {},
+    "description": "Connection recovery state or action; this explains stallTryingLabel without promising a successful reconnect.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "stallTryingLabel",
+      "end": 9241,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"trying…\"",
+      "start": 9230
+    },
+    "source_hash": "1ec766f2db69a764f671f6c6c25b9bbf630bf0849415650a8ddd79e4971bad38",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "stallPairAgainLabel",
+    "id": "ios.sourceSync.stallPairAgainLabel",
+    "english": "pair again",
+    "args": {},
+    "description": "Connection recovery state or action; this explains stallPairAgainLabel without promising a successful reconnect.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "stallPairAgainLabel",
+      "end": 9291,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"pair again\"",
+      "start": 9279
+    },
+    "source_hash": "7baef09229765f5854771f373a8d090df3157ce98eb58113aa37b31083a21a49",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "stallPairAgainDetail",
+    "id": "ios.sourceSync.stallPairAgainDetail",
+    "english": "if your journal's computer is on and this keeps happening, your journal may have new addresses. pairing again gives this phone the current ones.",
+    "args": {},
+    "description": "Connection recovery state or action; this explains stallPairAgainDetail without promising a successful reconnect.",
+    "risk": "account",
+    "surfaces": [
+      "app",
+      "share",
+      "liveActivity",
+      "watch",
+      "watchWidget"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "origin": {
+      "declaration": "stallPairAgainDetail",
+      "end": 9476,
+      "file": "Sources/SourceVocabulary.swift",
+      "kind": "literal",
+      "segments": 1,
+      "source": "\"if your journal's computer is on and this keeps happening, your journal may have new addresses. pairing again gives this phone the current ones.\"",
+      "start": 9330
+    },
+    "source_hash": "c2a53e546ed70a0475d06f56620038da9143474e1fd81e79ea9fdbb754fbf98e",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingCardBody",
+    "id": "ios.sourceSync.finishSyncingCardBody",
+    "english": "%1$lld segments haven't landed yet. tap to keep this syncing in the background after you switch away from the solstone app.",
+    "plural": {
+      "one": "%1$lld segment hasn't landed yet. tap to keep this syncing in the background after you switch away from the solstone app.",
+      "other": "%1$lld segments haven't landed yet. tap to keep this syncing in the background after you switch away from the solstone app."
+    },
+    "args": {
+      "count": "Int"
+    },
+    "description": "Background-sync status or control: finishSyncingCardBody; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "source_hash": "85d90a35351073276309b4eac209938478e6ed970fe3b71dd37ee7a78f59901d",
+    "number_style": "legacy ungrouped for en_US; native locale format elsewhere",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingInterrupted",
+    "id": "ios.sourceSync.finishSyncingInterrupted",
+    "english": "stopped. %1$lld still waiting. they're on this device and will keep syncing whenever the solstone app is open.",
+    "plural": {
+      "one": "stopped. %1$lld still waiting. it's on this device and will keep syncing whenever the solstone app is open.",
+      "other": "stopped. %1$lld still waiting. they're on this device and will keep syncing whenever the solstone app is open."
+    },
+    "args": {
+      "count": "Int"
+    },
+    "description": "Background-sync status or control: finishSyncingInterrupted; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "source_hash": "ff8aca773c3bf3a5883a4341461fb52b8866e63f792d028b75909d14f45e59a9",
+    "number_style": "legacy ungrouped for en_US; native locale format elsewhere",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "finishSyncingSystemSubtitle",
+    "id": "ios.sourceSync.finishSyncingSystemSubtitle",
+    "english": "%1$lld items still waiting for your journal",
+    "plural": {
+      "one": "%1$lld item still waiting for your journal",
+      "other": "%1$lld items still waiting for your journal"
+    },
+    "args": {
+      "remaining": "Int"
+    },
+    "description": "Background-sync status or control: finishSyncingSystemSubtitle; counts refer to items still on this device.",
+    "risk": "routine",
+    "surfaces": [
+      "app"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "source_hash": "7c924b76aedde4ef06c18ba155d7ceef60f94ca299eeb1c0482a79862a02d6ba",
+    "number_style": "legacy ungrouped for en_US; native locale format elsewhere",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "standingSyncFootnoteSustaining",
+    "id": "ios.sourceSync.standingSyncFootnoteSustaining",
+    "english": "syncs while the solstone app is open, and keeps going in the background while location is on.",
+    "args": {},
+    "description": "Sync availability footnote; sustaining means background location can extend syncing.",
+    "risk": "routine",
+    "surfaces": [
+      "app"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "source_hash": "fe74087c45793ecd2b8541ed1c853471b5a34434c37b1b0a0b9f486e165ed389",
+    "liveness": "production-copy"
+  },
+  {
+    "symbol": "standingSyncFootnoteLimited",
+    "id": "ios.sourceSync.standingSyncFootnoteLimited",
+    "english": "the solstone app syncs to your journal while it's open, and keeps going in the background for as long as ios allows. with location on, that lasts longer.",
+    "args": {},
+    "description": "Sync availability footnote; sustaining means background location can extend syncing.",
+    "risk": "routine",
+    "surfaces": [
+      "app"
+    ],
+    "max_length": null,
+    "screenshot_refs": [],
+    "source_revision": "1d4da7f431be014ea7cf115ba4dddbd60f73b56f",
+    "source_hash": "a87eb636aa7e896722fe08f9b65f585dd025dcfbe7fe45e747e85adfa55bb265",
+    "liveness": "production-copy"
+  }
+]

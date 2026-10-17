@@ -16,15 +16,15 @@ struct ScreencastSourceDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                SourceDetailBlock(title: SourceVocabulary.screencastStateTitle) {
+                SourceDetailBlock(title: String(localized: SourceVocabulary.screencastStateTitle)) {
                     self.stateBlock
                 }
 
-                SourceDetailBlock(title: SourceVocabulary.screencastRecentTitle) {
+                SourceDetailBlock(title: String(localized: SourceVocabulary.screencastRecentTitle)) {
                     ObserverManifestRecentList(result: self.recentResult, isJournalPaired: self.appConfig.isPaired)
                 }
 
-                SourceDetailBlock(title: SourceVocabulary.screencastDeliveryTitle) {
+                SourceDetailBlock(title: String(localized: SourceVocabulary.screencastDeliveryTitle)) {
                     self.deliveryBlock
                 }
 
@@ -37,7 +37,7 @@ struct ScreencastSourceDetailView: View {
         .sheet(isPresented: self.$showingScreencastPrimer) {
             ScreencastPrimerSheet()
         }
-        .navigationTitle(SourceVocabulary.screencastDetailTitle)
+        .navigationTitle(String(localized: SourceVocabulary.screencastDetailTitle))
         .navigationBarTitleDisplayMode(.inline)
         .task(id: self.recentKey) {
             await self.loadRecent()
@@ -116,18 +116,18 @@ private extension ScreencastSourceDetailView {
         case .off:
             if let systemEndedAt = self.screencastManager.systemEndedAt,
                Date().timeIntervalSince(systemEndedAt) <= ScreencastManager.systemEndedVisibleWindowSeconds {
-                SourceVocabulary.screencastSystemEndedSubtext
+                String(localized: SourceVocabulary.screencastSystemEndedSubtext)
             } else {
-                SourceVocabulary.screencastReadyText
+                String(localized: SourceVocabulary.screencastReadyText)
             }
         case .starting:
-            SourceVocabulary.screencastStartingText
+            String(localized: SourceVocabulary.screencastStartingText)
         case .active:
-            SourceVocabulary.screencastActiveText
+            String(localized: SourceVocabulary.screencastActiveText)
         case .needsAttention(let attention):
             screencastAttentionMessage(attention)
         case .unavailable:
-            SourceVocabulary.screencastUnavailableText
+            String(localized: SourceVocabulary.screencastUnavailableText)
         }
     }
 }

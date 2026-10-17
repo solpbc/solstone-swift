@@ -257,7 +257,7 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
             if let failureAttemptCount = item.failureAttemptCount {
                 message = SourceVocabulary.onThisPhoneFailureRetryableMessage(count: failureAttemptCount)
             } else {
-                message = SourceVocabulary.onThisPhoneWaitingExplain
+                message = String(localized: SourceVocabulary.onThisPhoneWaitingExplain)
             }
         } else {
             let bucket = self.failureBucket(for: item.failureReason)

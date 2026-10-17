@@ -75,9 +75,9 @@ nonisolated final class SendStateStyleTests: XCTestCase {
     @MainActor
     func testSendStateStyleMappingsUseLockedVocabulary() {
         let cases: [(OnThisPhoneSendState, String, String)] = [
-            (.savedOnThisPhone, SourceVocabulary.sendStateCompactSaved, "internaldrive"),
-            (.sending, SourceVocabulary.sendStateCompactOnTheWay, "arrow.up.circle"),
-            (.inYourJournal, SourceVocabulary.sendStateCompactInJournal, "checkmark.circle"),
+            (.savedOnThisPhone, String(localized: SourceVocabulary.sendStateCompactSaved), "internaldrive"),
+            (.sending, String(localized: SourceVocabulary.sendStateCompactOnTheWay), "arrow.up.circle"),
+            (.inYourJournal, String(localized: SourceVocabulary.sendStateCompactInJournal), "checkmark.circle"),
             (.needsAttention, SourceVocabulary.needsAttention, "exclamationmark.triangle"),
         ]
 

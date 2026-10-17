@@ -1,0 +1,8 @@
+[
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "body",
+    "source": "\"--i18n-pilot-gallery\"",
+    "reason": "Debug-only test launch argument, not owner-visible copy."
+  }
+]

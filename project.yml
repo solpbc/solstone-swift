@@ -4,6 +4,8 @@ options:
   deploymentTarget:
     iOS: "26.0"
   createIntermediateGroups: true
+  developmentLanguage: en
+  knownRegions: [en, en-XA]
 
 schemes:
   SolstoneWatch:
@@ -39,6 +41,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - Localization/Pilot.xcstrings
     configFiles:
       Debug: config/BuildMetadata.generated.xcconfig
       Release: config/BuildMetadata.generated.xcconfig
@@ -77,6 +80,8 @@ targets:
       properties:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Experimental test declarations: there are no real translations here.
+        CFBundleLocalizations: [en, en-XA, tr, de, ar]
         solstoneTeamPrefix: "$(AppIdentifierPrefix)"
         # The brand face is registered HERE, and only here. It was previously declared
         # as an INFOPLIST_KEY_UIAppFonts build setting, but INFOPLIST_KEY_* settings are
@@ -170,6 +175,8 @@ targets:
       - Sources/Observer/ObserverAudioTransferSource.swift
       - Sources/Observer/ObserverServerURL.swift
       - Sources/SourceVocabulary.swift
+      - Sources/PilotCopy.swift
+      - Localization/Pilot.xcstrings
       - Sources/Design/Colors.swift
       - Sources/ShareImport/ShareImportCoordinator.swift
     entitlements:
@@ -246,6 +253,8 @@ targets:
       - Sources/Services/AppGroupContainer.swift
       - Sources/SourceModels.swift
       - Sources/SourceVocabulary.swift
+      - Sources/PilotCopy.swift
+      - Localization/Pilot.xcstrings
       - Sources/Widgets/ObserverStatusPresentation.swift
       - Sources/AppIntents/ObserverWidgetConfigurationIntent.swift
       - Sources/AppIntents/ObserverCaptureIntent.swift
@@ -299,6 +308,8 @@ targets:
       - Sources/Observer/ObserverError.swift
       - Sources/Services/AppGroupContainer.swift
       - Sources/SourceVocabulary.swift
+      - Sources/PilotCopy.swift
+      - Localization/Pilot.xcstrings
       - Sources/SourceModels.swift
     entitlements:
       path: Watch/SolstoneWatch.entitlements
@@ -335,6 +346,8 @@ targets:
     sources:
       - SolstoneWatchComplication
       - Sources/SourceVocabulary.swift
+      - Sources/PilotCopy.swift
+      - Localization/Pilot.xcstrings
       - Sources/WatchCapture/WatchFacePresentation.swift
       - Sources/WatchCapture/WatchCaptureModels.swift
       - Sources/WatchCapture/WatchComplicationSnapshot.swift
@@ -379,6 +392,8 @@ targets:
       - SolstoneWatchComplication/ComplicationViews.swift
       - SolstoneWatchComplication/WatchComplicationPalette.swift
       - Sources/SourceVocabulary.swift
+      - Sources/PilotCopy.swift
+      - Localization/Pilot.xcstrings
       - path: Sources/SunArc
       - path: Sources/WatchCapture
         excludes:
@@ -421,6 +436,8 @@ targets:
           - Fixtures/LinkedDeviceIngest
       - path: Tests/Fixtures/LinkedDeviceIngest
         type: folder
+        buildPhase: resources
+      - path: test/i18n-pilot/english-before.json
         buildPhase: resources
     resources:
       - Tests/Fixtures/ShareImportBodies

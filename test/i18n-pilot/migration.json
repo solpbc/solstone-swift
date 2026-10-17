@@ -1,0 +1,691 @@
+{
+  "edits": {
+    "constant": 59,
+    "plural": 3,
+    "select": 1,
+    "string-boundary": 158,
+    "assertion": 34,
+    "select-boundary": 7,
+    "plural-boundary": 13
+  },
+  "files": 34,
+  "english_pins": [
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLifecycleWaitingLabelDoesNotUseNeedsAttentionCopy",
+      "end": 1741,
+      "file": "Tests/DiagnosticsFiltersTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.waitingToSync, \"waiting to sync\")",
+      "start": 1676
+    },
+    {
+      "callee": "XCTAssertTrue",
+      "declaration": "testScreencastPrimerSheetIdentifiersAndVocabulary",
+      "end": 2486,
+      "file": "Tests/HomeSourceTileAccessibilityTests.swift",
+      "kind": "call",
+      "source": "XCTAssertTrue(primerText.contains(\"SourceVocabulary.screencastPrimerBody(state:\"))",
+      "start": 2404
+    },
+    {
+      "callee": "XCTAssertTrue",
+      "declaration": "testScreencastPrimerSheetIdentifiersAndVocabulary",
+      "end": 2575,
+      "file": "Tests/HomeSourceTileAccessibilityTests.swift",
+      "kind": "call",
+      "source": "XCTAssertTrue(primerText.contains(\"SourceVocabulary.screencastOpenSystemSheet\"))",
+      "start": 2495
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 287,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastDisplayName, \"screen\")",
+      "start": 223
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 375,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastActiveSubtext, \"sharing your screen\")",
+      "start": 296
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 474,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStartingSubtext, \"waiting for the system sheet\")",
+      "start": 384
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 543,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastOffSubtext, \"off\")",
+      "start": 483
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 630,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastAttentionSubtext, \"needs attention\")",
+      "start": 552
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 715,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastUnavailableSubtext, \"unavailable\")",
+      "start": 639
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 788,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastDetailTitle, \"screen\")",
+      "start": 724
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 859,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStateTitle, \"state\")",
+      "start": 797
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 932,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastRecentTitle, \"recent\")",
+      "start": 868
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1009,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastDeliveryTitle, \"delivery\")",
+      "start": 941
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1088,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStartButton, \"start screen\")",
+      "start": 1018
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1165,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStopButton, \"stop screen\")",
+      "start": 1097
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1253,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastOpenSystemSheet, \"open system sheet\")",
+      "start": 1174
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1333,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastReadyText, \"screen is ready\")",
+      "start": 1262
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1429,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStartingText, \"waiting for the system sheet\")",
+      "start": 1342
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1511,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastActiveText, \"screen is active\")",
+      "start": 1438
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1603,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastUnavailableText, \"screen is unavailable\")",
+      "start": 1520
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1695,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastNoVideoText, \"no screen video was saved\")",
+      "start": 1612
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1800,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastFinalizeFailedText, \"screen video could not be saved\")",
+      "start": 1704
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1910,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastFinalizeTimeoutText, \"screen video timed out while saving\")",
+      "start": 1809
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2018,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastFilesystemFailedText, \"screen video could not be stored\")",
+      "start": 1919
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2134,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStorageLowText, \"screen stopped. this device is low on storage.\")",
+      "start": 2027
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2228,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastSystemEndedSubtext, \"screen sharing ended\")",
+      "start": 2143
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2480,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(\n            SourceVocabulary.screencastPrimerBody,\n            \"what's on your screen goes into your journal. tap \\\"Start Broadcast\\\" in the sheet that comes up. the system ends screen sharing when this device locks.\"\n        )",
+      "start": 2237
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2665,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(\n            SourceVocabulary.screencastPrimerBodyActive,\n            \"to stop sharing your screen, tap \\\"Stop Broadcast\\\" in the sheet that comes up.\"\n        )",
+      "start": 2489
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2920,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(\n            SourceVocabulary.screencastPrimerBodyOff,\n            \"what's on your screen goes into your journal. tap \\\"Start Broadcast\\\" in the sheet that comes up. the system ends screen sharing when this device locks.\"\n        )",
+      "start": 2674
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testAnActiveSubLineNeverRepeatsTheStateWord",
+      "end": 9251,
+      "file": "Tests/SourceStateMappingTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(\n            SourceState.active.voiceOverText(activeSubtext: SourceVocabulary.screencastActiveSubtext, isJournalPaired: true),\n            \"on. sharing your screen.\"\n        )",
+      "start": 9061
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 3050,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.shareSendingProgress, \"sending to your journal…\")",
+      "start": 2967
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 3139,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, \"saved to your journal\")",
+      "start": 3059
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4199,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, \"waiting to sync\")",
+      "start": 4126
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4279,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay, \"on the way\")",
+      "start": 4208
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4365,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.sendStateCompactInJournal, \"in your journal\")",
+      "start": 4288
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4424,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.tryNow, \"try now\")",
+      "start": 4374
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4498,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.waitingToSync, \"waiting to sync\")",
+      "start": 4433
+    },
+    {
+      "callee": "XCTAssertTrue",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4672,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertTrue(SourceVocabulary.onThisPhoneWaitingExplain.contains(\"still on this device\"))",
+      "start": 4582
+    },
+    {
+      "callee": "SourceVocabulary.onThisPhoneWaitingExplain.contains",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4671,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "SourceVocabulary.onThisPhoneWaitingExplain.contains(\"still on this device\")",
+      "start": 4596
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testThePacedFlagSelectsTheDetailLineWithAndWithoutAttempts",
+      "end": 53924,
+      "file": "Tests/TransferRefusalPacingTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(elapsed.message, SourceVocabulary.onThisPhoneWaitingExplain, \"today's line\")",
+      "start": 53833
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testThePacedFlagSelectsTheDetailLineWithAndWithoutAttempts",
+      "end": 54320,
+      "file": "Tests/TransferRefusalPacingTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(rebuilt.message, SourceVocabulary.onThisPhoneWaitingExplain, \"today's line\")",
+      "start": 54229
+    }
+  ],
+  "migrated": [
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLifecycleWaitingLabelDoesNotUseNeedsAttentionCopy",
+      "end": 1741,
+      "file": "Tests/DiagnosticsFiltersTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.waitingToSync, \"waiting to sync\")",
+      "start": 1676
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 287,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastDisplayName, \"screen\")",
+      "start": 223
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 375,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastActiveSubtext, \"sharing your screen\")",
+      "start": 296
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 474,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStartingSubtext, \"waiting for the system sheet\")",
+      "start": 384
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 543,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastOffSubtext, \"off\")",
+      "start": 483
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 630,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastAttentionSubtext, \"needs attention\")",
+      "start": 552
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 715,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastUnavailableSubtext, \"unavailable\")",
+      "start": 639
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 788,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastDetailTitle, \"screen\")",
+      "start": 724
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 859,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStateTitle, \"state\")",
+      "start": 797
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 932,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastRecentTitle, \"recent\")",
+      "start": 868
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1009,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastDeliveryTitle, \"delivery\")",
+      "start": 941
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1088,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStartButton, \"start screen\")",
+      "start": 1018
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1165,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStopButton, \"stop screen\")",
+      "start": 1097
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1253,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastOpenSystemSheet, \"open system sheet\")",
+      "start": 1174
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1333,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastReadyText, \"screen is ready\")",
+      "start": 1262
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1429,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStartingText, \"waiting for the system sheet\")",
+      "start": 1342
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1511,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastActiveText, \"screen is active\")",
+      "start": 1438
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1603,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastUnavailableText, \"screen is unavailable\")",
+      "start": 1520
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1695,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastNoVideoText, \"no screen video was saved\")",
+      "start": 1612
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1800,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastFinalizeFailedText, \"screen video could not be saved\")",
+      "start": 1704
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 1910,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastFinalizeTimeoutText, \"screen video timed out while saving\")",
+      "start": 1809
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2018,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastFilesystemFailedText, \"screen video could not be stored\")",
+      "start": 1919
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2134,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastStorageLowText, \"screen stopped. this device is low on storage.\")",
+      "start": 2027
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2228,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.screencastSystemEndedSubtext, \"screen sharing ended\")",
+      "start": 2143
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2480,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(\n            SourceVocabulary.screencastPrimerBody,\n            \"what's on your screen goes into your journal. tap \\\"Start Broadcast\\\" in the sheet that comes up. the system ends screen sharing when this device locks.\"\n        )",
+      "start": 2237
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2665,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(\n            SourceVocabulary.screencastPrimerBodyActive,\n            \"to stop sharing your screen, tap \\\"Stop Broadcast\\\" in the sheet that comes up.\"\n        )",
+      "start": 2489
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testExactScreencastCopy",
+      "end": 2920,
+      "file": "Tests/ScreencastCopyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(\n            SourceVocabulary.screencastPrimerBodyOff,\n            \"what's on your screen goes into your journal. tap \\\"Start Broadcast\\\" in the sheet that comes up. the system ends screen sharing when this device locks.\"\n        )",
+      "start": 2674
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 3050,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.shareSendingProgress, \"sending to your journal…\")",
+      "start": 2967
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 3139,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, \"saved to your journal\")",
+      "start": 3059
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4199,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, \"waiting to sync\")",
+      "start": 4126
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4279,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay, \"on the way\")",
+      "start": 4208
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4365,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.sendStateCompactInJournal, \"in your journal\")",
+      "start": 4288
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4424,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.tryNow, \"try now\")",
+      "start": 4374
+    },
+    {
+      "callee": "XCTAssertEqual",
+      "declaration": "testLockedOwnerSourceCopy",
+      "end": 4498,
+      "file": "Tests/SourceVocabularyTests.swift",
+      "kind": "call",
+      "source": "XCTAssertEqual(SourceVocabulary.waitingToSync, \"waiting to sync\")",
+      "start": 4433
+    }
+  ]
+}

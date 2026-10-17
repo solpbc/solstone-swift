@@ -59,10 +59,10 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
 
     /// The sub-line under `ready to set up` is absent, ⛔ never the source's running line.
     func testReadyToSetUpHasNoSubLine() {
-        XCTAssertNil(SourceState.readyToSetUp.subtext(activeSubtext: "on", isJournalPaired: true))
-        XCTAssertNil(SourceState.readyToSetUp.compactSubtext(activeSubtext: "on"))
+        XCTAssertNil(SourceState.readyToSetUp.subtext(activeSubtext: "on", repeatsStateLabel: true, isJournalPaired: true))
+        XCTAssertNil(SourceState.readyToSetUp.compactSubtext(activeSubtext: "on", repeatsStateLabel: true))
         XCTAssertEqual(
-            SourceState.readyToSetUp.voiceOverText(activeSubtext: "on", isJournalPaired: true),
+            SourceState.readyToSetUp.voiceOverText(activeSubtext: "on", repeatsStateLabel: true, isJournalPaired: true),
             SourceVocabulary.sourceStateReadyToSetUpLabel
         )
     }
@@ -104,9 +104,9 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
     }
 
     func testOnThisPhoneSendStateLabels() {
-        XCTAssertEqual(OnThisPhoneSendState.savedOnThisPhone.label, SourceVocabulary.sendStateSaved)
-        XCTAssertEqual(OnThisPhoneSendState.sending.label, SourceVocabulary.sendStateSending)
-        XCTAssertEqual(OnThisPhoneSendState.inYourJournal.label, SourceVocabulary.shareDeliveredProgress)
+        XCTAssertEqual(OnThisPhoneSendState.savedOnThisPhone.label, String(localized: SourceVocabulary.sendStateSaved))
+        XCTAssertEqual(OnThisPhoneSendState.sending.label, String(localized: SourceVocabulary.sendStateSending))
+        XCTAssertEqual(OnThisPhoneSendState.inYourJournal.label, String(localized: SourceVocabulary.shareDeliveredProgress))
         XCTAssertEqual(OnThisPhoneSendState.needsAttention.label, SourceVocabulary.needsAttention)
     }
 
@@ -163,15 +163,17 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
     }
 
     func testAnActiveSubLineNeverRepeatsTheStateWord() {
-        XCTAssertNil(SourceState.active.compactSubtext(activeSubtext: SourceVocabulary.observerActiveSubtext))
-        XCTAssertNil(SourceState.active.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true))
-        XCTAssertEqual(SourceState.active.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true), "on.")
+        XCTAssertNil(SourceState.active.compactSubtext(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true))
+        XCTAssertNil(SourceState.active.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: true))
+        XCTAssertEqual(SourceState.active.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: true), "on.")
         XCTAssertEqual(
-            SourceState.active.compactSubtext(activeSubtext: SourceVocabulary.screencastActiveSubtext),
-            SourceVocabulary.screencastActiveSubtext
+            SourceState.active.compactSubtext(activeSubtext: String(localized: SourceVocabulary.screencastActiveSubtext), repeatsStateLabel: false),
+            String(localized: SourceVocabulary.screencastActiveSubtext)
         )
+        var englishScreenCopy = SourceVocabulary.screencastActiveSubtext
+        englishScreenCopy.locale = Locale(identifier: "en_US")
         XCTAssertEqual(
-            SourceState.active.voiceOverText(activeSubtext: SourceVocabulary.screencastActiveSubtext, isJournalPaired: true),
+            SourceState.active.voiceOverText(activeSubtext: String(localized: englishScreenCopy), repeatsStateLabel: false, isJournalPaired: true),
             "on. sharing your screen."
         )
     }

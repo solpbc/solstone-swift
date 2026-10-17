@@ -32,12 +32,12 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     func testStandingSyncFootnoteCopyReflectsSustainingState() {
         XCTAssertEqual(
-            SourceVocabulary.standingSyncFootnote(sustaining: true),
-            "syncs while the solstone app is open, and keeps going in the background while location is on."
+            SourceVocabulary.standingSyncFootnote(sustaining: true).key,
+            "ios.sourceSync.standingSyncFootnoteSustaining"
         )
         XCTAssertEqual(
-            SourceVocabulary.standingSyncFootnote(sustaining: false),
-            "the solstone app syncs to your journal while it's open, and keeps going in the background for as long as ios allows. with location on, that lasts longer."
+            SourceVocabulary.standingSyncFootnote(sustaining: false).key,
+            "ios.sourceSync.standingSyncFootnoteLimited"
         )
     }
 
@@ -63,8 +63,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     func testLockedOwnerSourceCopy() {
         XCTAssertEqual(SourceVocabulary.trustLineConfigured, "syncs only to your journal")
-        XCTAssertEqual(SourceVocabulary.shareSendingProgress, "sending to your journal…")
-        XCTAssertEqual(SourceVocabulary.shareDeliveredProgress, "saved to your journal")
+        XCTAssertEqual(SourceVocabulary.shareSendingProgress.key, "ios.sourceSync.shareSendingProgress")
+        XCTAssertEqual(SourceVocabulary.shareDeliveredProgress.key, "ios.sourceSync.shareDeliveredProgress")
         XCTAssertEqual(SourceVocabulary.addMoreTitle, "add more")
         XCTAssertEqual(SourceVocabulary.addMoreSubline, "sources")
         XCTAssertEqual(SourceVocabulary.importTitle, "import")
@@ -81,13 +81,13 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             "adds PDFs, audio, images, and text you choose here or send from the share sheet."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneSourceName(for: .share), "import")
-        XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "waiting to sync")
-        XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay, "on the way")
-        XCTAssertEqual(SourceVocabulary.sendStateCompactInJournal, "in your journal")
-        XCTAssertEqual(SourceVocabulary.tryNow, "try now")
-        XCTAssertEqual(SourceVocabulary.waitingToSync, "waiting to sync")
-        XCTAssertFalse(SourceVocabulary.onThisPhoneWaitingExplain.isEmpty)
-        XCTAssertTrue(SourceVocabulary.onThisPhoneWaitingExplain.contains("still on this device"))
+        XCTAssertEqual(SourceVocabulary.sendStateCompactSaved.key, "ios.sourceSync.sendStateCompactSaved")
+        XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay.key, "ios.sourceSync.sendStateCompactOnTheWay")
+        XCTAssertEqual(SourceVocabulary.sendStateCompactInJournal.key, "ios.sourceSync.sendStateCompactInJournal")
+        XCTAssertEqual(SourceVocabulary.tryNow.key, "ios.sourceSync.tryNow")
+        XCTAssertEqual(SourceVocabulary.waitingToSync.key, "ios.sourceSync.sendStateCompactSaved")
+        XCTAssertFalse(String(localized: SourceVocabulary.onThisPhoneWaitingExplain).isEmpty)
+        XCTAssertEqual(SourceVocabulary.onThisPhoneWaitingExplain.key, "ios.sourceSync.onThisPhoneWaitingExplain")
         XCTAssertEqual(
             SourceVocabulary.audioEnrollmentValue,
             "what you say and the sound around you, on this device until you connect a journal. turn it on only when you want to share audio."
@@ -542,49 +542,49 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
 
     func testSourceStateSubtextsUseJournalPairingForVisibleAndVoiceOverText() {
         XCTAssertEqual(
-            SourceState.off.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: false),
+            SourceState.off.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: false),
             "turn it on any time."
         )
         XCTAssertEqual(
-            SourceState.off.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: false),
+            SourceState.off.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: false),
             "off. turn it on any time."
         )
         XCTAssertEqual(
-            SourceState.off.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            SourceState.off.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: true),
             "intake is off. turn it on any time."
         )
         XCTAssertEqual(
-            SourceState.off.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            SourceState.off.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: true),
             "off. intake is off. turn it on any time."
         )
         XCTAssertEqual(
-            SourceState.enrolling.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: false),
+            SourceState.enrolling.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: false),
             "getting ready…"
         )
         XCTAssertEqual(
-            SourceState.enrolling.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: false),
+            SourceState.enrolling.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: false),
             "setting up. getting ready…"
         )
         XCTAssertEqual(
-            SourceState.enrolling.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            SourceState.enrolling.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: true),
             "getting ready. connecting to your journal."
         )
         XCTAssertEqual(
-            SourceState.enrolling.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            SourceState.enrolling.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: true),
             "setting up. getting ready. connecting to your journal."
         )
         XCTAssertNil(SourceState.readyToSetUp.universalSubtext(isJournalPaired: true))
         // ⛔ The state word is the whole message. It used to speak the source's *running*
         // line underneath it — "ready to set up. on." — which is the defect, not the spec.
-        XCTAssertNil(SourceState.readyToSetUp.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true))
-        XCTAssertNil(SourceState.readyToSetUp.compactSubtext(activeSubtext: SourceVocabulary.observerActiveSubtext))
+        XCTAssertNil(SourceState.readyToSetUp.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: true))
+        XCTAssertNil(SourceState.readyToSetUp.compactSubtext(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true))
         XCTAssertEqual(
-            SourceState.readyToSetUp.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            SourceState.readyToSetUp.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: true),
             "ready to set up"
         )
         XCTAssertNil(SourceState.checking.universalSubtext(isJournalPaired: true))
         XCTAssertEqual(
-            SourceState.checking.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            SourceState.checking.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, repeatsStateLabel: true, isJournalPaired: true),
             "checking."
         )
     }
@@ -873,8 +873,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.watchPresenceLastHeard(relative: "1m ago"),
             SourceVocabulary.watchTodayHandedLine(2),
             SourceVocabulary.watchSteadyDetailsSummary(watchWaiting: 2, phoneWaiting: 3),
-            SourceVocabulary.standingSyncFootnote(sustaining: true),
-            SourceVocabulary.standingSyncFootnote(sustaining: false),
+            String(localized: SourceVocabulary.standingSyncFootnote(sustaining: true)),
+            String(localized: SourceVocabulary.standingSyncFootnote(sustaining: false)),
             LocationVocabulary.activeSubtext(isJournalPaired: false),
             LocationVocabulary.preEnrollmentValue(isJournalPaired: false),
         ]
@@ -900,8 +900,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.offSubtext(isJournalPaired: true),
             SourceVocabulary.enrollingSubtext(isJournalPaired: false),
             SourceVocabulary.enrollingSubtext(isJournalPaired: true),
-            SourceVocabulary.standingSyncFootnote(sustaining: true),
-            SourceVocabulary.standingSyncFootnote(sustaining: false),
+            String(localized: SourceVocabulary.standingSyncFootnote(sustaining: true)),
+            String(localized: SourceVocabulary.standingSyncFootnote(sustaining: false)),
             SourceVocabulary.dayLocalityNoJournal,
             SourceVocabulary.connectJournalIntro,
             SourceVocabulary.connectDoorOnYourPhoneTitle,
@@ -936,6 +936,12 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         ]
     }
 
+    private static func english(_ resource: LocalizedStringResource) -> String {
+        var english = resource
+        english.locale = Locale(identifier: "en_US")
+        return String(localized: english)
+    }
+
     private var allOwnerVisibleStrings: [String] {
         [
             SourceVocabulary.onThisPhoneRefusalPacedMessage,
@@ -963,13 +969,13 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.needsAttention,
             SourceVocabulary.observerActiveSubtext,
             SourceVocabulary.onThisPhoneSourceName(for: .share),
-            SourceVocabulary.shareSendingProgress,
-            SourceVocabulary.shareDeliveredProgress,
-            SourceVocabulary.sendStateSaved,
-            SourceVocabulary.sendStateSending,
-            SourceVocabulary.sendStateCompactSaved,
-            SourceVocabulary.sendStateCompactOnTheWay,
-            SourceVocabulary.sendStateCompactInJournal,
+            Self.english(SourceVocabulary.shareSendingProgress),
+            Self.english(SourceVocabulary.shareDeliveredProgress),
+            Self.english(SourceVocabulary.sendStateSaved),
+            Self.english(SourceVocabulary.sendStateSending),
+            Self.english(SourceVocabulary.sendStateCompactSaved),
+            Self.english(SourceVocabulary.sendStateCompactOnTheWay),
+            Self.english(SourceVocabulary.sendStateCompactInJournal),
             SourceVocabulary.addMoreTitle,
             SourceVocabulary.addMoreSubline,
             SourceVocabulary.importTitle,

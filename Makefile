@@ -694,6 +694,47 @@ test-release-helper:
 ci-selftest:
 	bash test/run_ci_tests.sh --selftest
 
+i18n-pilot-scan:
+	bash tools/i18n-pilot/scan.sh
+
+i18n-pilot-lint: i18n-pilot-scan
+	python3 tools/i18n-pilot/lint.py
+
+i18n-pilot-test: deps
+	python3 tools/i18n-pilot/run.py --language '$(or $(I18N_LANGUAGE),en)' --region '$(or $(I18N_REGION),US)' $(I18N_EXTRA)
+
+i18n-pilot-matrix: deps
+	python3 tools/i18n-pilot/matrix.py $(I18N_EXTRA)
+
+i18n-pilot-final:
+	$(MAKE) i18n-pilot-selftest
+	$(MAKE) i18n-pilot-test I18N_EXTRA=--only-pilot
+	$(MAKE) i18n-pilot-test I18N_LANGUAGE=ar I18N_REGION=SA I18N_EXTRA=--only-pilot
+	$(MAKE) i18n-pilot-test I18N_EXTRA=--gallery
+	$(MAKE) ci
+
+i18n-pilot-collect:
+	python3 tools/i18n-pilot/collect.py
+
+i18n-pilot-gallery-export:
+	python3 tools/i18n-pilot/collect.py --gallery-only
+
+i18n-pilot-selftest: i18n-pilot-scan
+	python3 tools/i18n-pilot/lint.py --selftest
+
+i18n-pilot-format-spike:
+	cp test/i18n-pilot/format-main.swift build/i18n-pilot/main.swift
+	xcrun swiftc Sources/PilotCopy.swift build/i18n-pilot/main.swift -o build/i18n-pilot/format-spike
+	build/i18n-pilot/format-spike
+
+i18n-pilot-baseline:
+	mkdir -p build/i18n-pilot
+	cp test/i18n-pilot/baseline-main.swift build/i18n-pilot/main.swift
+	git show 1d4da7f:Sources/SourceVocabulary.swift > build/i18n-pilot/BeforeVocabulary.swift
+	git show 1d4da7f:Sources/SourceVocabulary+FinishSyncing.swift > build/i18n-pilot/BeforeFinish.swift
+	xcrun swiftc -D SOLSTONE_LIVE_ACTIVITY_WIDGET build/i18n-pilot/BeforeVocabulary.swift build/i18n-pilot/BeforeFinish.swift build/i18n-pilot/main.swift -o build/i18n-pilot/baseline
+	build/i18n-pilot/baseline -AppleLocale en_US -AppleLanguages '(en)' > test/i18n-pilot/english-before.json
+
 test-one: deps
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \

@@ -68,11 +68,11 @@ nonisolated enum OnThisPhoneSendState: Equatable, Sendable {
     var label: String {
         switch self {
         case .savedOnThisPhone:
-            SourceVocabulary.sendStateSaved
+            String(localized: SourceVocabulary.sendStateSaved)
         case .sending:
-            SourceVocabulary.sendStateSending
+            String(localized: SourceVocabulary.sendStateSending)
         case .inYourJournal:
-            SourceVocabulary.shareDeliveredProgress
+            String(localized: SourceVocabulary.shareDeliveredProgress)
         case .needsAttention:
             SourceVocabulary.needsAttention
         }

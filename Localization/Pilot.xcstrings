@@ -1,0 +1,1230 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "ios.sourceSync.finishSyncingCardHeadline": {
+      "comment": "Background-sync status or control: finishSyncingCardHeadline; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "still syncing to your journal"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šţíľľ šýñçíñğ ţó ýóúř ĵóúřñàľ~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingButton": {
+      "comment": "Background-sync status or control: finishSyncingButton; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "enable background for this sync"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[éñàƀľé ƀàçķğřóúñď ƒóř ţħíš šýñç~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingInProgress": {
+      "comment": "Background-sync status or control: finishSyncingInProgress; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finishing up in the background. you can switch away. the solstone app keeps syncing for as long as ios allows."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ƒíñíšħíñğ úƥ íñ ţħé ƀàçķğřóúñď. ýóú çàñ šŵíţçħ àŵàý. ţħé šóľšţóñé àƥƥ ķééƥš šýñçíñğ ƒóř àš ľóñğ àš íóš àľľóŵš.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingCompleted": {
+      "comment": "Background-sync status or control: finishSyncingCompleted; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "done. everything is in your journal."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ďóñé. éṽéřýţħíñğ íš íñ ýóúř ĵóúřñàľ.~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingInterruptedFallback": {
+      "comment": "Background-sync status or control: finishSyncingInterruptedFallback; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stopped before everything synced. what's left is on this device and keeps trying whenever the solstone app is open."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šţóƥƥéď ƀéƒóřé éṽéřýţħíñğ šýñçéď. ŵħàţ'š ľéƒţ íš óñ ţħíš ďéṽíçé àñď ķééƥš ţřýíñğ ŵħéñéṽéř ţħé šóľšţóñé àƥƥ íš óƥéñ.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingUnavailableUnavailable": {
+      "comment": "Background-sync status or control: finishSyncingUnavailableUnavailable; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "background syncing isn't available right now."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ƀàçķğřóúñď šýñçíñğ íšñ'ţ àṽàíľàƀľé říğħţ ñóŵ.~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingUnavailableNotPermitted": {
+      "comment": "Background-sync status or control: finishSyncingUnavailableNotPermitted; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios isn't allowing finish syncing right now."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[íóš íšñ'ţ àľľóŵíñğ ƒíñíšħ šýñçíñğ říğħţ ñóŵ.~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingUnavailableTooManyPending": {
+      "comment": "Background-sync status or control: finishSyncingUnavailableTooManyPending; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios already has too many background tasks waiting."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[íóš àľřéàďý ħàš ţóó ɱàñý ƀàçķğřóúñď ţàšķš ŵàíţíñğ.~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingUnavailableImmediateIneligible": {
+      "comment": "Background-sync status or control: finishSyncingUnavailableImmediateIneligible; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ios can't start finish syncing right now."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[íóš çàñ'ţ šţàřţ ƒíñíšħ šýñçíñğ říğħţ ñóŵ.~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingUnavailableFallback": {
+      "comment": "Background-sync status or control: finishSyncingUnavailableFallback; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finish syncing couldn't start."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ƒíñíšħ šýñçíñğ çóúľďñ'ţ šţàřţ.~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingSystemTitle": {
+      "comment": "Background-sync status or control: finishSyncingSystemTitle; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finishing sync"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ƒíñíšħíñğ šýñç~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingSystemDoneTitle": {
+      "comment": "Background-sync status or control: finishSyncingSystemDoneTitle; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sync finished"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šýñç ƒíñíšħéď~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingSystemPausedTitle": {
+      "comment": "Background-sync status or control: finishSyncingSystemPausedTitle; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sync paused"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šýñç ƥàúšéď~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.shareSendingProgress": {
+      "comment": "Source delivery status or control shown on the device: shareSendingProgress.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sending to your journal…"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šéñďíñğ ţó ýóúř ĵóúřñàľ…~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.shareDeliveredProgress": {
+      "comment": "Source delivery status or control shown on the device: shareDeliveredProgress.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saved to your journal"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šàṽéď ţó ýóúř ĵóúřñàľ~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.sendStateSaved": {
+      "comment": "Source delivery status or control shown on the device: sendStateSaved.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "on this device"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[óñ ţħíš ďéṽíçé~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.sendStateSending": {
+      "comment": "Source delivery status or control shown on the device: sendStateSending.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sending"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šéñďíñğ~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.sendStateCompactSaved": {
+      "comment": "Source delivery status or control shown on the device: sendStateCompactSaved.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting to sync"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ŵàíţíñğ ţó šýñç~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.sendStateCompactOnTheWay": {
+      "comment": "Source delivery status or control shown on the device: sendStateCompactOnTheWay.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "on the way"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[óñ ţħé ŵàý~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.sendStateCompactInJournal": {
+      "comment": "Source delivery status or control shown on the device: sendStateCompactInJournal.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in your journal"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[íñ ýóúř ĵóúřñàľ~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.onThisPhoneWaitingExplain": {
+      "comment": "Source delivery status or control shown on the device: onThisPhoneWaitingExplain.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "still on this device. syncing to your journal continues automatically. you don't have to do anything."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šţíľľ óñ ţħíš ďéṽíçé. šýñçíñğ ţó ýóúř ĵóúřñàľ çóñţíñúéš àúţóɱàţíçàľľý. ýóú ďóñ'ţ ħàṽé ţó ďó àñýţħíñğ.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.tryNow": {
+      "comment": "Source delivery status or control shown on the device: tryNow.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "try now"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ţřý ñóŵ~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastDisplayName": {
+      "comment": "Screen source status, error or control; this label is screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastActiveSubtext": {
+      "comment": "Screen source status, error or control; this label is sharing your screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sharing your screen"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šħàříñğ ýóúř šçřééñ~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastStartingSubtext": {
+      "comment": "Screen source status, error or control; this label is waiting for the system sheet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting for the system sheet"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ŵàíţíñğ ƒóř ţħé šýšţéɱ šħééţ~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastOffSubtext": {
+      "comment": "Screen source status, error or control; this label is off.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "off"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[óƒƒ~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastAttentionSubtext": {
+      "comment": "Screen source status, error or control; this label is needs attention.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "needs attention"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ñééďš àţţéñţíóñ~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastUnavailableSubtext": {
+      "comment": "Screen source status, error or control; this label is unavailable.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unavailable"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[úñàṽàíľàƀľé~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastDetailTitle": {
+      "comment": "Screen source status, error or control; this label is screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastStateTitle": {
+      "comment": "Screen source status, error or control; this label is state.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "state"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šţàţé~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastRecentTitle": {
+      "comment": "Screen source status, error or control; this label is recent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "recent"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[řéçéñţ~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastDeliveryTitle": {
+      "comment": "Screen source status, error or control; this label is delivery.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "delivery"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ďéľíṽéřý~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastStartButton": {
+      "comment": "Screen source status, error or control; this label is start screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "start screen"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šţàřţ šçřééñ~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastStopButton": {
+      "comment": "Screen source status, error or control; this label is stop screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stop screen"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šţóƥ šçřééñ~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastOpenSystemSheet": {
+      "comment": "Screen source status, error or control; this label is open system sheet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "open system sheet"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[óƥéñ šýšţéɱ šħééţ~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastReadyText": {
+      "comment": "Screen source status, error or control; this label is screen is ready.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen is ready"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ íš řéàďý~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastStartingText": {
+      "comment": "Screen source status, error or control; this label is waiting for the system sheet.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting for the system sheet"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ŵàíţíñğ ƒóř ţħé šýšţéɱ šħééţ~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastActiveText": {
+      "comment": "Screen source status, error or control; this label is screen is active.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen is active"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ íš àçţíṽé~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastUnavailableText": {
+      "comment": "Screen source status, error or control; this label is screen is unavailable.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen is unavailable"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ íš úñàṽàíľàƀľé~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastNoVideoText": {
+      "comment": "Screen source status, error or control; this label is no screen video was saved.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no screen video was saved"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ñó šçřééñ ṽíďéó ŵàš šàṽéď~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastFinalizeFailedText": {
+      "comment": "Screen source status, error or control; this label is screen video could not be saved.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen video could not be saved"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ ṽíďéó çóúľď ñóţ ƀé šàṽéď~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastFinalizeTimeoutText": {
+      "comment": "Screen source status, error or control; this label is screen video timed out while saving.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen video timed out while saving"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ ṽíďéó ţíɱéď óúţ ŵħíľé šàṽíñğ~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastFilesystemFailedText": {
+      "comment": "Screen source status, error or control; this label is screen video could not be stored.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen video could not be stored"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ ṽíďéó çóúľď ñóţ ƀé šţóřéď~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastStorageLowText": {
+      "comment": "Screen source status, error or control; this label is screen stopped. this device is low on storage..",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen stopped. this device is low on storage."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ šţóƥƥéď. ţħíš ďéṽíçé íš ľóŵ óñ šţóřàğé.~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastSystemEndedSubtext": {
+      "comment": "Screen source status, error or control; this label is screen sharing ended.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen sharing ended"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šçřééñ šħàříñğ éñďéď~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastPrimerBodyActive": {
+      "comment": "Screen-sharing instructions for the active or stopped state; quoted Apple sheet button names stay recognizable.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "to stop sharing your screen, tap \"Stop Broadcast\" in the sheet that comes up."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ţó šţóƥ šħàříñğ ýóúř šçřééñ, ţàƥ \"Šţóƥ Ɓřóàďçàšţ\" íñ ţħé šħééţ ţħàţ çóɱéš úƥ.~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.screencastPrimerBodyOff": {
+      "comment": "Screen-sharing instructions for the active or stopped state; quoted Apple sheet button names stay recognizable.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ŵħàţ'š óñ ýóúř šçřééñ ğóéš íñţó ýóúř ĵóúřñàľ. ţàƥ \"Šţàřţ Ɓřóàďçàšţ\" íñ ţħé šħééţ ţħàţ çóɱéš úƥ. ţħé šýšţéɱ éñďš šçřééñ šħàříñğ ŵħéñ ţħíš ďéṽíçé ľóçķš.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.connectedLabel": {
+      "comment": "Source delivery status or control shown on the device: connectedLabel.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connected"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[çóññéçţéď~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.syncingLabel": {
+      "comment": "Source delivery status or control shown on the device: syncingLabel.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "syncing"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šýñçíñğ~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.statusConnectingLabel": {
+      "comment": "Source delivery status or control shown on the device: statusConnectingLabel.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connecting…"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[çóññéçţíñğ…~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.statusOfflineLabel": {
+      "comment": "Source delivery status or control shown on the device: statusOfflineLabel.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "offline"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[óƒƒľíñé~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.stallWaitingLabel": {
+      "comment": "Connection recovery state or action; this explains stallWaitingLabel without promising a successful reconnect.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ŵàíţíñğ~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.stallNotConnectedLabel": {
+      "comment": "Connection recovery state or action; this explains stallNotConnectedLabel without promising a successful reconnect.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not connected"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ñóţ çóññéçţéď~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.stallCantReachYourJournal": {
+      "comment": "Connection recovery state or action; this explains stallCantReachYourJournal without promising a successful reconnect.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "can't reach your journal"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[çàñ'ţ řéàçħ ýóúř ĵóúřñàľ~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.stallTryAgainLabel": {
+      "comment": "Connection recovery state or action; this explains stallTryAgainLabel without promising a successful reconnect.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "try again"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ţřý àğàíñ~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.stallTriesEveryAddress": {
+      "comment": "Connection recovery state or action; this explains stallTriesEveryAddress without promising a successful reconnect.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tries every address your journal gave this phone."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ţříéš éṽéřý àďďřéšš ýóúř ĵóúřñàľ ğàṽé ţħíš ƥħóñé.~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.stallTryingLabel": {
+      "comment": "Connection recovery state or action; this explains stallTryingLabel without promising a successful reconnect.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "trying…"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ţřýíñğ…~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.stallPairAgainLabel": {
+      "comment": "Connection recovery state or action; this explains stallPairAgainLabel without promising a successful reconnect.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pair again"
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ƥàíř àğàíñ~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.stallPairAgainDetail": {
+      "comment": "Connection recovery state or action; this explains stallPairAgainDetail without promising a successful reconnect.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "if your journal's computer is on and this keeps happening, your journal may have new addresses. pairing again gives this phone the current ones."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[íƒ ýóúř ĵóúřñàľ'š çóɱƥúţéř íš óñ àñď ţħíš ķééƥš ħàƥƥéñíñğ, ýóúř ĵóúřñàľ ɱàý ħàṽé ñéŵ àďďřéššéš. ƥàíříñğ àğàíñ ğíṽéš ţħíš ƥħóñé ţħé çúřřéñţ óñéš.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingCardBody": {
+      "comment": "Background-sync status or control: finishSyncingCardBody; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%1$lld segment hasn't landed yet. tap to keep this syncing in the background after you switch away from the solstone app."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%1$lld segments haven't landed yet. tap to keep this syncing in the background after you switch away from the solstone app."
+                }
+              }
+            }
+          }
+        },
+        "en-XA": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "[%1$lld šéğɱéñţ ħàšñ'ţ ľàñďéď ýéţ. ţàƥ ţó ķééƥ ţħíš šýñçíñğ íñ ţħé ƀàçķğřóúñď àƒţéř ýóú šŵíţçħ àŵàý ƒřóɱ ţħé šóľšţóñé àƥƥ.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "[%1$lld šéğɱéñţš ħàṽéñ'ţ ľàñďéď ýéţ. ţàƥ ţó ķééƥ ţħíš šýñçíñğ íñ ţħé ƀàçķğřóúñď àƒţéř ýóú šŵíţçħ àŵàý ƒřóɱ ţħé šóľšţóñé àƥƥ.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingInterrupted": {
+      "comment": "Background-sync status or control: finishSyncingInterrupted; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "stopped. %1$lld still waiting. it's on this device and will keep syncing whenever the solstone app is open."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "stopped. %1$lld still waiting. they're on this device and will keep syncing whenever the solstone app is open."
+                }
+              }
+            }
+          }
+        },
+        "en-XA": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "[šţóƥƥéď. %1$lld šţíľľ ŵàíţíñğ. íţ'š óñ ţħíš ďéṽíçé àñď ŵíľľ ķééƥ šýñçíñğ ŵħéñéṽéř ţħé šóľšţóñé àƥƥ íš óƥéñ.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "[šţóƥƥéď. %1$lld šţíľľ ŵàíţíñğ. ţħéý'řé óñ ţħíš ďéṽíçé àñď ŵíľľ ķééƥ šýñçíñğ ŵħéñéṽéř ţħé šóľšţóñé àƥƥ íš óƥéñ.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ios.sourceSync.finishSyncingSystemSubtitle": {
+      "comment": "Background-sync status or control: finishSyncingSystemSubtitle; counts refer to items still on this device.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%1$lld item still waiting for your journal"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%1$lld items still waiting for your journal"
+                }
+              }
+            }
+          }
+        },
+        "en-XA": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "[%1$lld íţéɱ šţíľľ ŵàíţíñğ ƒóř ýóúř ĵóúřñàľ~~~~~~~~~~~~~~~]"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "[%1$lld íţéɱš šţíľľ ŵàíţíñğ ƒóř ýóúř ĵóúřñàľ~~~~~~~~~~~~~~~~]"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ios.sourceSync.standingSyncFootnoteSustaining": {
+      "comment": "Sync availability footnote; sustaining means background location can extend syncing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "syncs while the solstone app is open, and keeps going in the background while location is on."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[šýñçš ŵħíľé ţħé šóľšţóñé àƥƥ íš óƥéñ, àñď ķééƥš ğóíñğ íñ ţħé ƀàçķğřóúñď ŵħíľé ľóçàţíóñ íš óñ.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    },
+    "ios.sourceSync.standingSyncFootnoteLimited": {
+      "comment": "Sync availability footnote; sustaining means background location can extend syncing.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the solstone app syncs to your journal while it's open, and keeps going in the background for as long as ios allows. with location on, that lasts longer."
+          }
+        },
+        "en-XA": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "[ţħé šóľšţóñé àƥƥ šýñçš ţó ýóúř ĵóúřñàľ ŵħíľé íţ'š óƥéñ, àñď ķééƥš ğóíñğ íñ ţħé ƀàçķğřóúñď ƒóř àš ľóñğ àš íóš àľľóŵš. ŵíţħ ľóçàţíóñ óñ, ţħàţ ľàšţš ľóñğéř.~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

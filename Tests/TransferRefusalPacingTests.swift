@@ -1014,14 +1014,14 @@ extension TransferRefusalPacingTests {
         try await dayLater.initialize()
         let elapsed = try await self.detailMessage(engine: dayLater, itemID: itemID)
         XCTAssertFalse(elapsed.paced)
-        XCTAssertEqual(elapsed.message, SourceVocabulary.onThisPhoneWaitingExplain, "today's line")
+        XCTAssertEqual(elapsed.message, String(localized: SourceVocabulary.onThisPhoneWaitingExplain), "today's line")
 
         let newBuild = self.makeEngine(spool: TransferSpool(rootURL: root), appBuild: "401")
         self.pauseAtTeardown(newBuild)
         try await newBuild.initialize()
         let rebuilt = try await self.detailMessage(engine: newBuild, itemID: itemID)
         XCTAssertFalse(rebuilt.paced)
-        XCTAssertEqual(rebuilt.message, SourceVocabulary.onThisPhoneWaitingExplain, "today's line")
+        XCTAssertEqual(rebuilt.message, String(localized: SourceVocabulary.onThisPhoneWaitingExplain), "today's line")
     }
 
     func testTheDetailLineFollowsOnlyTheFlag() throws {
@@ -1038,7 +1038,7 @@ extension TransferRefusalPacingTests {
             ))
             XCTAssertEqual(
                 unpaced.message,
-                attempts.map(SourceVocabulary.onThisPhoneFailureRetryableMessage(count:)) ?? SourceVocabulary.onThisPhoneWaitingExplain
+                attempts.map(SourceVocabulary.onThisPhoneFailureRetryableMessage(count:)) ?? String(localized: SourceVocabulary.onThisPhoneWaitingExplain)
             )
         }
     }

@@ -73,19 +73,14 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
     /// has nothing to add that the state word did not already say, and the fall-through
     /// below would hand it the source's *running* line — `ready to set up` over `on`.
     /// A source with something of its own to say here supplies a `subtextOverride`.
-    func subtext(activeSubtext: String, isJournalPaired: Bool) -> String? {
+    func subtext(activeSubtext: String, repeatsStateLabel: Bool, isJournalPaired: Bool) -> String? {
         if case .readyToSetUp = self {
             return nil
         }
         if let universal = self.universalSubtext(isJournalPaired: isJournalPaired) {
             return universal
         }
-        return self.saysMoreThanTheStateWord(activeSubtext) ? activeSubtext : nil
-    }
-
-    /// A sub-line never repeats the state word: audio's running line is "on", under "on".
-    private func saysMoreThanTheStateWord(_ line: String) -> Bool {
-        line != self.label
+        return self == .active && repeatsStateLabel ? nil : activeSubtext
     }
 
     /// The deck tile's sub-line.
@@ -99,7 +94,7 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
     /// is a tail, `paused` is the long form's first sentence and `setting up` is its head
     /// clause — the binding rule is that a tile says nothing new, not where the cut falls.
     /// `readyToSetUp` returns `nil`: the state word is the whole message on a tile.
-    func compactSubtext(activeSubtext: String) -> String? {
+    func compactSubtext(activeSubtext: String, repeatsStateLabel: Bool) -> String? {
         switch self {
         case .off:
             SourceVocabulary.offSubtextCompact
@@ -112,11 +107,11 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         case .checking, .readyToSetUp:
             nil
         case .active:
-            self.saysMoreThanTheStateWord(activeSubtext) ? activeSubtext : nil
+            repeatsStateLabel ? nil : activeSubtext
         }
     }
 
-    func voiceOverText(activeSubtext: String, isJournalPaired: Bool) -> String {
+    func voiceOverText(activeSubtext: String, repeatsStateLabel: Bool, isJournalPaired: Bool) -> String {
         switch self {
         case .off:
             "off. \(SourceVocabulary.offSubtext(isJournalPaired: isJournalPaired))"
@@ -127,7 +122,7 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         case .checking:
             "checking."
         case .active:
-            self.saysMoreThanTheStateWord(activeSubtext) ? "on. \(Self.sentence(activeSubtext))" : "on."
+            repeatsStateLabel ? "on." : "on. \(Self.sentence(activeSubtext))"
         case .paused:
             "paused. \(SourceVocabulary.pausedSubtext)"
         case .needsAttention:
@@ -158,57 +153,57 @@ nonisolated enum SourceVocabulary {
 
     static let observerActiveSubtext = "on"
     static let modeExplanation = "meeting keeps going until you stop it. voice memo stops on its own when you go quiet for a few seconds."
-    static let shareSendingProgress = "sending to your journal…"
-    static let shareDeliveredProgress = "saved to your journal"
-    static let sendStateSaved = "on this device"
-    static let sendStateSending = "sending"
-    static let sendStateCompactSaved = "waiting to sync"
-    static let sendStateCompactOnTheWay = "on the way"
-    static let sendStateCompactInJournal = "in your journal"
-    static let onThisPhoneWaitingExplain = "still on this device. syncing to your journal continues automatically. you don't have to do anything."
-    static let tryNow = "try now"
-    static let waitingToSync = sendStateCompactSaved
-    static let screencastDisplayName = "screen"
-    static let screencastActiveSubtext = "sharing your screen"
-    static let screencastStartingSubtext = "waiting for the system sheet"
-    static let screencastOffSubtext = "off"
-    static let screencastAttentionSubtext = "needs attention"
-    static let screencastUnavailableSubtext = "unavailable"
-    static let screencastDetailTitle = "screen"
-    static let screencastStateTitle = "state"
-    static let screencastRecentTitle = "recent"
-    static let screencastDeliveryTitle = "delivery"
-    static let screencastStartButton = "start screen"
-    static let screencastStopButton = "stop screen"
-    static let screencastOpenSystemSheet = "open system sheet"
-    static let screencastReadyText = "screen is ready"
-    static let screencastStartingText = "waiting for the system sheet"
-    static let screencastActiveText = "screen is active"
-    static let screencastUnavailableText = "screen is unavailable"
-    static let screencastNoVideoText = "no screen video was saved"
-    static let screencastFinalizeFailedText = "screen video could not be saved"
-    static let screencastFinalizeTimeoutText = "screen video timed out while saving"
-    static let screencastFilesystemFailedText = "screen video could not be stored"
-    static let screencastStorageLowText = "screen stopped. this device is low on storage."
-    static let screencastSystemEndedSubtext = "screen sharing ended"
-    static let screencastPrimerBodyActive = "to stop sharing your screen, tap \"Stop Broadcast\" in the sheet that comes up."
-    static let screencastPrimerBodyOff = "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."
-    static let screencastPrimerBody = screencastPrimerBodyOff
+    static var shareSendingProgress: LocalizedStringResource { PilotCopy.shareSendingProgress }
+    static var shareDeliveredProgress: LocalizedStringResource { PilotCopy.shareDeliveredProgress }
+    static var sendStateSaved: LocalizedStringResource { PilotCopy.sendStateSaved }
+    static var sendStateSending: LocalizedStringResource { PilotCopy.sendStateSending }
+    static var sendStateCompactSaved: LocalizedStringResource { PilotCopy.sendStateCompactSaved }
+    static var sendStateCompactOnTheWay: LocalizedStringResource { PilotCopy.sendStateCompactOnTheWay }
+    static var sendStateCompactInJournal: LocalizedStringResource { PilotCopy.sendStateCompactInJournal }
+    static var onThisPhoneWaitingExplain: LocalizedStringResource { PilotCopy.onThisPhoneWaitingExplain }
+    static var tryNow: LocalizedStringResource { PilotCopy.tryNow }
+    static var waitingToSync: LocalizedStringResource { sendStateCompactSaved }
+    static var screencastDisplayName: LocalizedStringResource { PilotCopy.screencastDisplayName }
+    static var screencastActiveSubtext: LocalizedStringResource { PilotCopy.screencastActiveSubtext }
+    static var screencastStartingSubtext: LocalizedStringResource { PilotCopy.screencastStartingSubtext }
+    static var screencastOffSubtext: LocalizedStringResource { PilotCopy.screencastOffSubtext }
+    static var screencastAttentionSubtext: LocalizedStringResource { PilotCopy.screencastAttentionSubtext }
+    static var screencastUnavailableSubtext: LocalizedStringResource { PilotCopy.screencastUnavailableSubtext }
+    static var screencastDetailTitle: LocalizedStringResource { PilotCopy.screencastDetailTitle }
+    static var screencastStateTitle: LocalizedStringResource { PilotCopy.screencastStateTitle }
+    static var screencastRecentTitle: LocalizedStringResource { PilotCopy.screencastRecentTitle }
+    static var screencastDeliveryTitle: LocalizedStringResource { PilotCopy.screencastDeliveryTitle }
+    static var screencastStartButton: LocalizedStringResource { PilotCopy.screencastStartButton }
+    static var screencastStopButton: LocalizedStringResource { PilotCopy.screencastStopButton }
+    static var screencastOpenSystemSheet: LocalizedStringResource { PilotCopy.screencastOpenSystemSheet }
+    static var screencastReadyText: LocalizedStringResource { PilotCopy.screencastReadyText }
+    static var screencastStartingText: LocalizedStringResource { PilotCopy.screencastStartingText }
+    static var screencastActiveText: LocalizedStringResource { PilotCopy.screencastActiveText }
+    static var screencastUnavailableText: LocalizedStringResource { PilotCopy.screencastUnavailableText }
+    static var screencastNoVideoText: LocalizedStringResource { PilotCopy.screencastNoVideoText }
+    static var screencastFinalizeFailedText: LocalizedStringResource { PilotCopy.screencastFinalizeFailedText }
+    static var screencastFinalizeTimeoutText: LocalizedStringResource { PilotCopy.screencastFinalizeTimeoutText }
+    static var screencastFilesystemFailedText: LocalizedStringResource { PilotCopy.screencastFilesystemFailedText }
+    static var screencastStorageLowText: LocalizedStringResource { PilotCopy.screencastStorageLowText }
+    static var screencastSystemEndedSubtext: LocalizedStringResource { PilotCopy.screencastSystemEndedSubtext }
+    static var screencastPrimerBodyActive: LocalizedStringResource { PilotCopy.screencastPrimerBodyActive }
+    static var screencastPrimerBodyOff: LocalizedStringResource { PilotCopy.screencastPrimerBodyOff }
+    static var screencastPrimerBody: LocalizedStringResource { screencastPrimerBodyOff }
 
     // The status pill resolves to one of six states and names it in one word or
     // phrase. `connected · syncing` was two of those states at once.
-    static let connectedLabel = "connected"
-    static let syncingLabel = "syncing"
-    static let statusConnectingLabel = "connecting…"
-    static let statusOfflineLabel = "offline"
-    static let stallWaitingLabel = "waiting"
-    static let stallNotConnectedLabel = "not connected"
-    static let stallCantReachYourJournal = "can't reach your journal"
-    static let stallTryAgainLabel = "try again"
-    static let stallTriesEveryAddress = "tries every address your journal gave this phone."
-    static let stallTryingLabel = "trying…"
-    static let stallPairAgainLabel = "pair again"
-    static let stallPairAgainDetail = "if your journal's computer is on and this keeps happening, your journal may have new addresses. pairing again gives this phone the current ones."
+    static var connectedLabel: LocalizedStringResource { PilotCopy.connectedLabel }
+    static var syncingLabel: LocalizedStringResource { PilotCopy.syncingLabel }
+    static var statusConnectingLabel: LocalizedStringResource { PilotCopy.statusConnectingLabel }
+    static var statusOfflineLabel: LocalizedStringResource { PilotCopy.statusOfflineLabel }
+    static var stallWaitingLabel: LocalizedStringResource { PilotCopy.stallWaitingLabel }
+    static var stallNotConnectedLabel: LocalizedStringResource { PilotCopy.stallNotConnectedLabel }
+    static var stallCantReachYourJournal: LocalizedStringResource { PilotCopy.stallCantReachYourJournal }
+    static var stallTryAgainLabel: LocalizedStringResource { PilotCopy.stallTryAgainLabel }
+    static var stallTriesEveryAddress: LocalizedStringResource { PilotCopy.stallTriesEveryAddress }
+    static var stallTryingLabel: LocalizedStringResource { PilotCopy.stallTryingLabel }
+    static var stallPairAgainLabel: LocalizedStringResource { PilotCopy.stallPairAgainLabel }
+    static var stallPairAgainDetail: LocalizedStringResource { PilotCopy.stallPairAgainDetail }
 
     static func stallLastReached(date: Date, now: Date) -> String {
         let formatter = RelativeDateTimeFormatter()
@@ -749,7 +744,7 @@ nonisolated enum SourceVocabulary {
     }
 
     /// For an item the journal turned away that is not sent again on every reconnect.
-    static let onThisPhoneRefusalPacedMessage = "your journal turned this away. it stays on this device and tries again about once a day, after the app or your journal updates, or when you tap \(tryNow)."
+    static var onThisPhoneRefusalPacedMessage: String { "your journal turned this away. it stays on this device and tries again about once a day, after the app or your journal updates, or when you tap \(String(localized: tryNow))." }
 
     static func onThisPhoneFailurePermanentMessage(reason: String) -> String {
         "this can't go to your journal. \(reason). you can remove it from this device."

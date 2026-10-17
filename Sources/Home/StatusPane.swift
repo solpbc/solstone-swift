@@ -32,7 +32,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         switch self {
         case .audio: "audio"
         case .location: "location"
-        case .screencast: SourceVocabulary.screencastDisplayName
+        case .screencast: String(localized: SourceVocabulary.screencastDisplayName)
         case .watch: "watch"
         }
     }
@@ -195,9 +195,9 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
                 lead: .headline(SourceVocabulary.audioInterruptedHeadline),
                 subline: SourceVocabulary.audioInterruptedLine,
                 region: .status(
-                    title: SourceVocabulary.connectedLabel,
+                    title: String(localized: SourceVocabulary.connectedLabel),
                     identifier: "shell.pane.status.connected",
-                    accessibilityValue: SourceVocabulary.connectedLabel
+                    accessibilityValue: String(localized: SourceVocabulary.connectedLabel)
                 ),
                 showsStandingSyncFootnote: showsConnectionDetails
             )
@@ -206,7 +206,7 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
             let lead: Lead = waitingTotal > 0
                 ? .count(
                     count: waitingTotal,
-                    caption: SourceVocabulary.waitingToSync,
+                    caption: String(localized: SourceVocabulary.waitingToSync),
                     statusLine: SourceVocabulary.awaitingMarkConfirmationLine
                 )
                 : .headline(SourceVocabulary.awaitingMarkConfirmationLine)
@@ -241,26 +241,26 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
         if waitingTotal > 0 {
             let statusLine: String = switch pillState {
             case .syncing: SourceVocabulary.syncingToYourJournal
-            case .caughtUp, .audioInterrupted: SourceVocabulary.connectedLabel
-            case .connecting: SourceVocabulary.statusConnectingLabel
+            case .caughtUp, .audioInterrupted: String(localized: SourceVocabulary.connectedLabel)
+            case .connecting: String(localized: SourceVocabulary.statusConnectingLabel)
             case .offline: SourceVocabulary.heldOnThisDevice
             case .notPaired: SourceVocabulary.dayLocalityNoJournal
-            case .stalled: SourceVocabulary.stallCantReachYourJournal
+            case .stalled: String(localized: SourceVocabulary.stallCantReachYourJournal)
             case .awaitingMarkConfirmation: SourceVocabulary.awaitingMarkConfirmationLine
             }
             lead = .count(
                 count: waitingTotal,
-                caption: SourceVocabulary.waitingToSync,
+                caption: String(localized: SourceVocabulary.waitingToSync),
                 statusLine: statusLine
             )
         } else {
             let headline: String = switch pillState {
             case .notPaired: SourceVocabulary.dayLocalityNoJournal
             case .offline: SourceVocabulary.heldOnThisDevice
-            case .connecting: SourceVocabulary.statusConnectingLabel
+            case .connecting: String(localized: SourceVocabulary.statusConnectingLabel)
             case .caughtUp, .syncing: SourceVocabulary.syncedHeadline
             case .audioInterrupted: SourceVocabulary.audioInterruptedHeadline
-            case .stalled: SourceVocabulary.stallCantReachYourJournal
+            case .stalled: String(localized: SourceVocabulary.stallCantReachYourJournal)
             case .awaitingMarkConfirmation: SourceVocabulary.awaitingMarkConfirmationLine
             }
             lead = .headline(headline)
@@ -451,7 +451,7 @@ struct StatusPane: View {
                         }
                         .frame(minHeight: 44)
                         .accessibilityLabel(row.name)
-                        .accessibilityValue(SourceVocabulary.waitingToSync)
+                        .accessibilityValue(String(localized: SourceVocabulary.waitingToSync))
                     }
                     .accessibilityIdentifier("shell.pane.status.waiting.\(row.route.id)")
                     .hoverEffect(.highlight)
@@ -535,7 +535,7 @@ struct StatusPane: View {
             }
         } label: {
             VStack(alignment: .leading, spacing: 2) {
-                Text(mode == .trying ? SourceVocabulary.stallTryingLabel : SourceVocabulary.stallTryAgainLabel)
+                Text(mode == .trying ? String(localized: SourceVocabulary.stallTryingLabel) : String(localized: SourceVocabulary.stallTryAgainLabel))
                     .font(.body)
                 Text(SourceVocabulary.stallTriesEveryAddress)
                     .font(.footnote)
@@ -662,7 +662,7 @@ struct StatusPane: View {
                         }
                         .accessibilityIdentifier("shell.pane.status.transferRate")
                         if self.leadModel.showsStandingSyncFootnote {
-                            Text(SourceVocabulary.standingSyncFootnote(sustaining: self.locationManager.isSustainingBackground))
+                            Text(String(localized: SourceVocabulary.standingSyncFootnote(sustaining: self.locationManager.isSustainingBackground)))
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                                 .accessibilityIdentifier("shell.pane.status.syncFootnote")

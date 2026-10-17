@@ -185,11 +185,11 @@ final class FinishSyncingCoordinator {
 
     nonisolated static func unavailableReason(for code: BGTaskScheduler.Error.Code) -> String {
         switch code {
-        case .unavailable: return SourceVocabulary.finishSyncingUnavailableUnavailable
-        case .notPermitted: return SourceVocabulary.finishSyncingUnavailableNotPermitted
-        case .tooManyPendingTaskRequests: return SourceVocabulary.finishSyncingUnavailableTooManyPending
-        case .immediateRunIneligible: return SourceVocabulary.finishSyncingUnavailableImmediateIneligible
-        @unknown default: return SourceVocabulary.finishSyncingUnavailableFallback
+        case .unavailable: return String(localized: SourceVocabulary.finishSyncingUnavailableUnavailable)
+        case .notPermitted: return String(localized: SourceVocabulary.finishSyncingUnavailableNotPermitted)
+        case .tooManyPendingTaskRequests: return String(localized: SourceVocabulary.finishSyncingUnavailableTooManyPending)
+        case .immediateRunIneligible: return String(localized: SourceVocabulary.finishSyncingUnavailableImmediateIneligible)
+        @unknown default: return String(localized: SourceVocabulary.finishSyncingUnavailableFallback)
         }
     }
 
@@ -215,15 +215,15 @@ final class FinishSyncingCoordinator {
         do {
             try self.scheduling.submit(
                 identifier: identifier,
-                title: SourceVocabulary.finishSyncingSystemTitle,
-                subtitle: SourceVocabulary.finishSyncingSystemSubtitle(remaining: backlog)
+                title: String(localized: SourceVocabulary.finishSyncingSystemTitle),
+                subtitle: SourceVocabulary.finishSyncingSystemSubtitle(remaining: backlog).rendered
             )
             self.isFinishing = true
         } catch let error as BGTaskScheduler.Error {
             self.availability = .unavailable(reason: Self.unavailableReason(for: error.code))
             finishSyncingLog.error("finish-syncing: submit failed: \(String(describing: error), privacy: .public)")
         } catch {
-            self.availability = .unavailable(reason: SourceVocabulary.finishSyncingUnavailableFallback)
+            self.availability = .unavailable(reason: String(localized: SourceVocabulary.finishSyncingUnavailableFallback))
             finishSyncingLog.error("finish-syncing: submit failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -241,8 +241,8 @@ final class FinishSyncingCoordinator {
         handle.setProgressTotal(backlog)
         handle.setProgressCompleted(0)
         handle.updateTitle(
-            SourceVocabulary.finishSyncingSystemTitle,
-            subtitle: SourceVocabulary.finishSyncingSystemSubtitle(remaining: backlog)
+            String(localized: SourceVocabulary.finishSyncingSystemTitle),
+            subtitle: SourceVocabulary.finishSyncingSystemSubtitle(remaining: backlog).rendered
         )
 
         var previous = backlog
@@ -282,14 +282,14 @@ final class FinishSyncingCoordinator {
         let success = remaining == 0
         if success {
             handle.updateTitle(
-                SourceVocabulary.finishSyncingSystemDoneTitle,
-                subtitle: SourceVocabulary.finishSyncingSystemSubtitle(remaining: 0)
+                String(localized: SourceVocabulary.finishSyncingSystemDoneTitle),
+                subtitle: SourceVocabulary.finishSyncingSystemSubtitle(remaining: 0).rendered
             )
             self.lastOutcome = .completed
         } else {
             handle.updateTitle(
-                SourceVocabulary.finishSyncingSystemPausedTitle,
-                subtitle: SourceVocabulary.finishSyncingSystemSubtitle(remaining: remaining)
+                String(localized: SourceVocabulary.finishSyncingSystemPausedTitle),
+                subtitle: SourceVocabulary.finishSyncingSystemSubtitle(remaining: remaining).rendered
             )
             self.lastOutcome = .interrupted(remaining: remaining)
         }

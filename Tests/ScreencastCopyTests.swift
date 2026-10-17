@@ -6,68 +6,59 @@ import XCTest
 
 nonisolated final class ScreencastCopyTests: XCTestCase {
     func testExactScreencastCopy() {
-        XCTAssertEqual(SourceVocabulary.screencastDisplayName, "screen")
-        XCTAssertEqual(SourceVocabulary.screencastActiveSubtext, "sharing your screen")
-        XCTAssertEqual(SourceVocabulary.screencastStartingSubtext, "waiting for the system sheet")
-        XCTAssertEqual(SourceVocabulary.screencastOffSubtext, "off")
-        XCTAssertEqual(SourceVocabulary.screencastAttentionSubtext, "needs attention")
-        XCTAssertEqual(SourceVocabulary.screencastUnavailableSubtext, "unavailable")
-        XCTAssertEqual(SourceVocabulary.screencastDetailTitle, "screen")
-        XCTAssertEqual(SourceVocabulary.screencastStateTitle, "state")
-        XCTAssertEqual(SourceVocabulary.screencastRecentTitle, "recent")
-        XCTAssertEqual(SourceVocabulary.screencastDeliveryTitle, "delivery")
-        XCTAssertEqual(SourceVocabulary.screencastStartButton, "start screen")
-        XCTAssertEqual(SourceVocabulary.screencastStopButton, "stop screen")
-        XCTAssertEqual(SourceVocabulary.screencastOpenSystemSheet, "open system sheet")
-        XCTAssertEqual(SourceVocabulary.screencastReadyText, "screen is ready")
-        XCTAssertEqual(SourceVocabulary.screencastStartingText, "waiting for the system sheet")
-        XCTAssertEqual(SourceVocabulary.screencastActiveText, "screen is active")
-        XCTAssertEqual(SourceVocabulary.screencastUnavailableText, "screen is unavailable")
-        XCTAssertEqual(SourceVocabulary.screencastNoVideoText, "no screen video was saved")
-        XCTAssertEqual(SourceVocabulary.screencastFinalizeFailedText, "screen video could not be saved")
-        XCTAssertEqual(SourceVocabulary.screencastFinalizeTimeoutText, "screen video timed out while saving")
-        XCTAssertEqual(SourceVocabulary.screencastFilesystemFailedText, "screen video could not be stored")
-        XCTAssertEqual(SourceVocabulary.screencastStorageLowText, "screen stopped. this device is low on storage.")
-        XCTAssertEqual(SourceVocabulary.screencastSystemEndedSubtext, "screen sharing ended")
-        XCTAssertEqual(
-            SourceVocabulary.screencastPrimerBody,
-            "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."
-        )
-        XCTAssertEqual(
-            SourceVocabulary.screencastPrimerBodyActive,
-            "to stop sharing your screen, tap \"Stop Broadcast\" in the sheet that comes up."
-        )
-        XCTAssertEqual(
-            SourceVocabulary.screencastPrimerBodyOff,
-            "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."
-        )
+        XCTAssertEqual(SourceVocabulary.screencastDisplayName.key, "ios.sourceSync.screencastDisplayName")
+        XCTAssertEqual(SourceVocabulary.screencastActiveSubtext.key, "ios.sourceSync.screencastActiveSubtext")
+        XCTAssertEqual(SourceVocabulary.screencastStartingSubtext.key, "ios.sourceSync.screencastStartingSubtext")
+        XCTAssertEqual(SourceVocabulary.screencastOffSubtext.key, "ios.sourceSync.screencastOffSubtext")
+        XCTAssertEqual(SourceVocabulary.screencastAttentionSubtext.key, "ios.sourceSync.screencastAttentionSubtext")
+        XCTAssertEqual(SourceVocabulary.screencastUnavailableSubtext.key, "ios.sourceSync.screencastUnavailableSubtext")
+        XCTAssertEqual(SourceVocabulary.screencastDetailTitle.key, "ios.sourceSync.screencastDetailTitle")
+        XCTAssertEqual(SourceVocabulary.screencastStateTitle.key, "ios.sourceSync.screencastStateTitle")
+        XCTAssertEqual(SourceVocabulary.screencastRecentTitle.key, "ios.sourceSync.screencastRecentTitle")
+        XCTAssertEqual(SourceVocabulary.screencastDeliveryTitle.key, "ios.sourceSync.screencastDeliveryTitle")
+        XCTAssertEqual(SourceVocabulary.screencastStartButton.key, "ios.sourceSync.screencastStartButton")
+        XCTAssertEqual(SourceVocabulary.screencastStopButton.key, "ios.sourceSync.screencastStopButton")
+        XCTAssertEqual(SourceVocabulary.screencastOpenSystemSheet.key, "ios.sourceSync.screencastOpenSystemSheet")
+        XCTAssertEqual(SourceVocabulary.screencastReadyText.key, "ios.sourceSync.screencastReadyText")
+        XCTAssertEqual(SourceVocabulary.screencastStartingText.key, "ios.sourceSync.screencastStartingText")
+        XCTAssertEqual(SourceVocabulary.screencastActiveText.key, "ios.sourceSync.screencastActiveText")
+        XCTAssertEqual(SourceVocabulary.screencastUnavailableText.key, "ios.sourceSync.screencastUnavailableText")
+        XCTAssertEqual(SourceVocabulary.screencastNoVideoText.key, "ios.sourceSync.screencastNoVideoText")
+        XCTAssertEqual(SourceVocabulary.screencastFinalizeFailedText.key, "ios.sourceSync.screencastFinalizeFailedText")
+        XCTAssertEqual(SourceVocabulary.screencastFinalizeTimeoutText.key, "ios.sourceSync.screencastFinalizeTimeoutText")
+        XCTAssertEqual(SourceVocabulary.screencastFilesystemFailedText.key, "ios.sourceSync.screencastFilesystemFailedText")
+        XCTAssertEqual(SourceVocabulary.screencastStorageLowText.key, "ios.sourceSync.screencastStorageLowText")
+        XCTAssertEqual(SourceVocabulary.screencastSystemEndedSubtext.key, "ios.sourceSync.screencastSystemEndedSubtext")
+        XCTAssertEqual(SourceVocabulary.screencastPrimerBody.key, "ios.sourceSync.screencastPrimerBodyOff")
+        XCTAssertEqual(SourceVocabulary.screencastPrimerBodyActive.key, "ios.sourceSync.screencastPrimerBodyActive")
+        XCTAssertEqual(SourceVocabulary.screencastPrimerBodyOff.key, "ios.sourceSync.screencastPrimerBodyOff")
     }
 
     func testScreencastPrimerAndActionHelpers() {
         XCTAssertEqual(
             SourceVocabulary.screencastPrimerBody(state: .active(sessionID: UUID(), segmentID: UUID(), startedAt: Date())),
-            SourceVocabulary.screencastPrimerBodyActive
+            String(localized: SourceVocabulary.screencastPrimerBodyActive)
         )
         XCTAssertEqual(
             SourceVocabulary.screencastPrimerBody(state: .off),
-            SourceVocabulary.screencastPrimerBodyOff
+            String(localized: SourceVocabulary.screencastPrimerBodyOff)
         )
         XCTAssertEqual(
             SourceVocabulary.screencastPrimerBody(state: .starting(startedAt: Date(), deadline: Date())),
-            SourceVocabulary.screencastPrimerBodyOff
+            String(localized: SourceVocabulary.screencastPrimerBodyOff)
         )
 
         XCTAssertEqual(
             SourceVocabulary.screencastActionTitle(state: .active(sessionID: UUID(), segmentID: UUID(), startedAt: Date())),
-            SourceVocabulary.screencastOpenSystemSheet
+            String(localized: SourceVocabulary.screencastOpenSystemSheet)
         )
         XCTAssertEqual(
             SourceVocabulary.screencastActionTitle(state: .off),
-            SourceVocabulary.screencastStartButton
+            String(localized: SourceVocabulary.screencastStartButton)
         )
         XCTAssertEqual(
             SourceVocabulary.screencastActionTitle(state: .starting(startedAt: Date(), deadline: Date())),
-            SourceVocabulary.screencastStartButton
+            String(localized: SourceVocabulary.screencastStartButton)
         )
     }
 
@@ -131,32 +122,9 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         }
     }
 
-    private static let screencastCopy = [
-        SourceVocabulary.screencastDisplayName,
-        SourceVocabulary.screencastActiveSubtext,
-        SourceVocabulary.screencastStartingSubtext,
-        SourceVocabulary.screencastOffSubtext,
-        SourceVocabulary.screencastAttentionSubtext,
-        SourceVocabulary.screencastUnavailableSubtext,
-        SourceVocabulary.screencastDetailTitle,
-        SourceVocabulary.screencastStateTitle,
-        SourceVocabulary.screencastRecentTitle,
-        SourceVocabulary.screencastDeliveryTitle,
-        SourceVocabulary.screencastStartButton,
-        SourceVocabulary.screencastStopButton,
-        SourceVocabulary.screencastOpenSystemSheet,
-        SourceVocabulary.screencastReadyText,
-        SourceVocabulary.screencastStartingText,
-        SourceVocabulary.screencastActiveText,
-        SourceVocabulary.screencastUnavailableText,
-        SourceVocabulary.screencastNoVideoText,
-        SourceVocabulary.screencastFinalizeFailedText,
-        SourceVocabulary.screencastFinalizeTimeoutText,
-        SourceVocabulary.screencastFilesystemFailedText,
-        SourceVocabulary.screencastStorageLowText,
-        SourceVocabulary.screencastSystemEndedSubtext,
-        SourceVocabulary.screencastPrimerBody,
-        SourceVocabulary.screencastPrimerBodyActive,
-        SourceVocabulary.screencastPrimerBodyOff,
-    ]
+    private static var screencastCopy: [String] {
+        PilotCopy.resources(locale: Locale(identifier: "en_US"), bundle: .main)
+            .filter { $0.key.hasPrefix("ios.sourceSync.screencast") }
+            .map { String(localized: $0) }
+    }
 }

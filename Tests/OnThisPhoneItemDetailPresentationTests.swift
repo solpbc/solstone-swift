@@ -256,7 +256,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
             for: Self.item(sourceKind: .location, sendState: .savedOnThisPhone, retryAvailable: true),
             now: now
         ))
-        XCTAssertEqual(waiting.message, SourceVocabulary.onThisPhoneWaitingExplain)
+        XCTAssertEqual(waiting.message, String(localized: SourceVocabulary.onThisPhoneWaitingExplain))
     }
 
     func testFailureLegibilityRetryableMessageUsesSingularAndPluralAttempts() throws {

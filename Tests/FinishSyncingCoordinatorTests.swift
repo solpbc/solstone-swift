@@ -314,7 +314,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(handle.completedSuccess, true)
         XCTAssertEqual(coordinator.lastOutcome, .completed)
-        XCTAssertEqual(handle.titleUpdates.last?.title, SourceVocabulary.finishSyncingSystemDoneTitle)
+        XCTAssertEqual(handle.titleUpdates.last?.title, String(localized: SourceVocabulary.finishSyncingSystemDoneTitle))
     }
 
     /// A run whose items the journal turns away has nothing left to send, but they are still on
@@ -345,7 +345,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(handle.completedSuccess, false)
         XCTAssertEqual(coordinator.lastOutcome, .interrupted(remaining: 40))
-        XCTAssertNotEqual(handle.titleUpdates.last?.title, SourceVocabulary.finishSyncingSystemDoneTitle)
+        XCTAssertNotEqual(handle.titleUpdates.last?.title, String(localized: SourceVocabulary.finishSyncingSystemDoneTitle))
     }
 
     @MainActor
@@ -390,7 +390,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.lastOutcome, .interrupted(remaining: 3))
         XCTAssertEqual(totals.snapshot.failed, 0)
         XCTAssertEqual(totals.snapshot.pending, 3)
-        XCTAssertEqual(handle.titleUpdates.last?.title, SourceVocabulary.finishSyncingSystemPausedTitle)
+        XCTAssertEqual(handle.titleUpdates.last?.title, String(localized: SourceVocabulary.finishSyncingSystemPausedTitle))
     }
 
     @MainActor
@@ -619,34 +619,34 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(
             submitCoordinator.availability,
-            .unavailable(reason: SourceVocabulary.finishSyncingUnavailableFallback)
+            .unavailable(reason: String(localized: SourceVocabulary.finishSyncingUnavailableFallback))
         )
         XCTAssertEqual(
             FinishSyncingCoordinator.unavailableReason(for: .unavailable),
-            SourceVocabulary.finishSyncingUnavailableUnavailable
+            String(localized: SourceVocabulary.finishSyncingUnavailableUnavailable)
         )
         XCTAssertEqual(
             FinishSyncingCoordinator.unavailableReason(for: .notPermitted),
-            SourceVocabulary.finishSyncingUnavailableNotPermitted
+            String(localized: SourceVocabulary.finishSyncingUnavailableNotPermitted)
         )
         XCTAssertEqual(
             FinishSyncingCoordinator.unavailableReason(for: .tooManyPendingTaskRequests),
-            SourceVocabulary.finishSyncingUnavailableTooManyPending
+            String(localized: SourceVocabulary.finishSyncingUnavailableTooManyPending)
         )
         XCTAssertEqual(
             FinishSyncingCoordinator.unavailableReason(for: .immediateRunIneligible),
-            SourceVocabulary.finishSyncingUnavailableImmediateIneligible
+            String(localized: SourceVocabulary.finishSyncingUnavailableImmediateIneligible)
         )
     }
 
     @MainActor
     func testSingularAndPluralCopy() async {
-        XCTAssertTrue(SourceVocabulary.finishSyncingCardBody(count: 1).contains("1 segment"))
-        XCTAssertTrue(SourceVocabulary.finishSyncingCardBody(count: 2).contains("2 segments"))
-        XCTAssertTrue(SourceVocabulary.finishSyncingInterrupted(count: 1).contains("1 still waiting"))
-        XCTAssertTrue(SourceVocabulary.finishSyncingInterrupted(count: 2).contains("2 still waiting"))
-        XCTAssertTrue(SourceVocabulary.finishSyncingSystemSubtitle(remaining: 1).contains("1 item"))
-        XCTAssertTrue(SourceVocabulary.finishSyncingSystemSubtitle(remaining: 2).contains("2 items"))
+        XCTAssertEqual(SourceVocabulary.finishSyncingCardBody(count: 1).arguments, ["count": 1])
+        XCTAssertEqual(SourceVocabulary.finishSyncingCardBody(count: 2).arguments, ["count": 2])
+        XCTAssertEqual(SourceVocabulary.finishSyncingInterrupted(count: 1).arguments, ["count": 1])
+        XCTAssertEqual(SourceVocabulary.finishSyncingInterrupted(count: 2).arguments, ["count": 2])
+        XCTAssertEqual(SourceVocabulary.finishSyncingSystemSubtitle(remaining: 1).arguments, ["remaining": 1])
+        XCTAssertEqual(SourceVocabulary.finishSyncingSystemSubtitle(remaining: 2).arguments, ["remaining": 2])
     }
 
     @MainActor
@@ -672,8 +672,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         coordinator.submit()
 
         XCTAssertEqual(coordinator.isFinishing, true)
-        XCTAssertEqual(scheduling.submitTitle, SourceVocabulary.finishSyncingSystemTitle)
-        XCTAssertEqual(scheduling.submitSubtitle, SourceVocabulary.finishSyncingSystemSubtitle(remaining: 1))
+        XCTAssertEqual(scheduling.submitTitle, String(localized: SourceVocabulary.finishSyncingSystemTitle))
+        XCTAssertEqual(scheduling.submitSubtitle, SourceVocabulary.finishSyncingSystemSubtitle(remaining: 1).rendered)
         XCTAssertTrue(scheduling.submitIdentifier?.hasPrefix(FinishSyncingCoordinator.taskIdentifierPrefix + ".") == true)
 
         scheduling.launchHandler?(handle)

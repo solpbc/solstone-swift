@@ -15,13 +15,13 @@ nonisolated enum ObserverStatusPresentation: Equatable, Sendable {
     var label: String {
         switch self {
         case .unavailable:
-            SourceVocabulary.screencastUnavailableSubtext
+            String(localized: SourceVocabulary.screencastUnavailableSubtext)
         case .notPaired:
             SourceVocabulary.notPaired
         case .needsAttention:
             SourceVocabulary.needsAttention
         case .waiting:
-            SourceVocabulary.waitingToSync
+            String(localized: SourceVocabulary.waitingToSync)
         case .awaitingMarkConfirmation:
             SourceVocabulary.confirmTheMarkAction
         case .audioInterrupted:

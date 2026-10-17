@@ -10,9 +10,9 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
         let source = screencastSourcePresentation(managerState: .off, isJournalPaired: true, enrolled: true)
 
         XCTAssertEqual(source.id, "screencast")
-        XCTAssertEqual(source.displayName, SourceVocabulary.screencastDisplayName)
+        XCTAssertEqual(source.displayName, String(localized: SourceVocabulary.screencastDisplayName))
         XCTAssertEqual(source.kind, .screencast)
-        XCTAssertEqual(source.subtext, SourceVocabulary.screencastOffSubtext)
+        XCTAssertEqual(source.subtext, String(localized: SourceVocabulary.screencastOffSubtext))
     }
 
     func testScreencastRowIsPlacedAfterLocationBeforeWatch() throws {
@@ -97,7 +97,7 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
             systemEndedAt: recentEnded,
             now: now
         )
-        XCTAssertEqual(recentSource.subtext, SourceVocabulary.screencastSystemEndedSubtext)
+        XCTAssertEqual(recentSource.subtext, String(localized: SourceVocabulary.screencastSystemEndedSubtext))
 
         let oldSource = screencastSourcePresentation(
             managerState: .off,
@@ -106,7 +106,7 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
             systemEndedAt: oldEnded,
             now: now
         )
-        XCTAssertEqual(oldSource.subtext, SourceVocabulary.screencastOffSubtext)
+        XCTAssertEqual(oldSource.subtext, String(localized: SourceVocabulary.screencastOffSubtext))
 
         let activeSourceWithRecentEnded = screencastSourcePresentation(
             managerState: .active(
@@ -119,7 +119,7 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
             systemEndedAt: recentEnded,
             now: now
         )
-        XCTAssertEqual(activeSourceWithRecentEnded.subtext, SourceVocabulary.screencastActiveSubtext)
+        XCTAssertEqual(activeSourceWithRecentEnded.subtext, String(localized: SourceVocabulary.screencastActiveSubtext))
     }
 
     private static func source(id: String, kind: SourceKind) -> Source {
@@ -130,6 +130,7 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
             state: .off,
             isJournalPaired: true,
             activeSubtext: "on",
+            activeSubtextRepeatsStateLabel: true,
             attention: nil,
             pendingStatus: .nonePending
         )

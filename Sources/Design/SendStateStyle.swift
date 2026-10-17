@@ -18,8 +18,8 @@ struct SendStateStyle {
                 foreground: Color("SendState/SavedOnThisPhone/Foreground"),
                 dot: Color("SendState/SavedOnThisPhone/Dot"),
                 chipBackground: Color("SendState/SavedOnThisPhone/ChipBackground"),
-                compactLabel: SourceVocabulary.sendStateCompactSaved,
-                summaryLabel: SourceVocabulary.sendStateCompactSaved,
+                compactLabel: String(localized: SourceVocabulary.sendStateCompactSaved),
+                summaryLabel: String(localized: SourceVocabulary.sendStateCompactSaved),
                 symbol: "internaldrive"
             )
         case .sending:
@@ -27,8 +27,8 @@ struct SendStateStyle {
                 foreground: Color("SendState/Sending/Foreground"),
                 dot: Color("SendState/Sending/Dot"),
                 chipBackground: Color("SendState/Sending/ChipBackground"),
-                compactLabel: SourceVocabulary.sendStateCompactOnTheWay,
-                summaryLabel: SourceVocabulary.sendStateCompactOnTheWay,
+                compactLabel: String(localized: SourceVocabulary.sendStateCompactOnTheWay),
+                summaryLabel: String(localized: SourceVocabulary.sendStateCompactOnTheWay),
                 symbol: "arrow.up.circle"
             )
         case .inYourJournal:
@@ -36,8 +36,8 @@ struct SendStateStyle {
                 foreground: Color("SendState/InYourJournal/Foreground"),
                 dot: Color("SendState/InYourJournal/Dot"),
                 chipBackground: Color("SendState/InYourJournal/ChipBackground"),
-                compactLabel: SourceVocabulary.sendStateCompactInJournal,
-                summaryLabel: SourceVocabulary.sendStateCompactInJournal,
+                compactLabel: String(localized: SourceVocabulary.sendStateCompactInJournal),
+                summaryLabel: String(localized: SourceVocabulary.sendStateCompactInJournal),
                 symbol: "checkmark.circle"
             )
         case .needsAttention:

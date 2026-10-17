@@ -72,6 +72,7 @@ private extension SourcesViewRowBuilderTests {
             state: .off,
             isJournalPaired: true,
             activeSubtext: "on",
+            activeSubtextRepeatsStateLabel: true,
             attention: nil,
             pendingStatus: .nonePending
         )

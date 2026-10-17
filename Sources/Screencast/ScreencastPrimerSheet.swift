@@ -65,7 +65,7 @@ struct ScreencastPrimerSheet: View {
         .frame(maxWidth: .infinity, minHeight: 44)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("screencast.primer.action")
-        .accessibilityLabel(SourceVocabulary.screencastOpenSystemSheet)
+        .accessibilityLabel(String(localized: SourceVocabulary.screencastOpenSystemSheet))
     }
 }
 

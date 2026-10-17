@@ -1,0 +1,4462 @@
+[
+  {
+    "file": "SolstoneLiveActivityWidget/ObserverStatusSmallWidget.swift",
+    "declaration": "kind",
+    "source": "\"SolstoneObserverStatusSmall\""
+  },
+  {
+    "file": "SolstoneLiveActivityWidget/ObserverStatusSmallWidget.swift",
+    "declaration": "body",
+    "source": "\"one source\""
+  },
+  {
+    "file": "SolstoneLiveActivityWidget/ObserverStatusSmallWidget.swift",
+    "declaration": "body",
+    "source": "\"pick a source and see its state.\""
+  },
+  {
+    "file": "SolstoneLiveActivityWidget/ObserverStatusSmallWidget.swift",
+    "declaration": "placeholder",
+    "source": "\"questionmark.circle\""
+  },
+  {
+    "file": "SolstoneLiveActivityWidget/ObserverStatusSmallWidget.swift",
+    "declaration": "placeholder",
+    "source": "\"audio\""
+  },
+  {
+    "file": "SolstoneLiveActivityWidget/ObserverStatusSmallWidget.swift",
+    "declaration": "placeholder",
+    "source": "\"waiting to sync\""
+  },
+  {
+    "file": "SolstoneLiveActivityWidget/ObserverStatusSmallWidget.swift",
+    "declaration": "content",
+    "source": "\"\\(count)\""
+  },
+  {
+    "file": "SolstoneLiveActivityWidget/ObserverStatusSmallWidget.swift",
+    "declaration": "sourceName",
+    "source": "\"location\""
+  },
+  {
+    "file": "SolstoneShareExtension/ShareViewController.swift",
+    "declaration": "body",
+    "source": "\"checkmark.circle.fill\""
+  },
+  {
+    "file": "SolstoneShareExtension/ShareViewController.swift",
+    "declaration": "body",
+    "source": "\"Closes this message.\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "finishSyncingLog",
+    "source": "\"app.solstone.swift\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "finishSyncingLog",
+    "source": "\"finish-syncing\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "taskIdentifierPrefix",
+    "source": "\"app.solstone.swift.finish-syncing\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "didRegister",
+    "source": "\".*\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "registerLaunchHandler",
+    "source": "\"finish-syncing: registration failed\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "identifier",
+    "source": "\".\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "submit",
+    "source": "\"finish-syncing: submit failed: \\(String(describing: error), privacy: .public)\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "submit",
+    "source": "\"finish-syncing: submit failed: \\(String(describing: error), privacy: .public)\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "runTask",
+    "source": "\"finish-syncing: stopped at expiration with \\(exitInFlight, privacy: .public) in-flight\""
+  },
+  {
+    "file": "Sources/Background/FinishSyncingCoordinator.swift",
+    "declaration": "runTask",
+    "source": "\"finish-syncing: clean quiesce (in-flight \\(exitInFlight, privacy: .public))\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/SavedOnThisPhone/Foreground\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/SavedOnThisPhone/Dot\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/SavedOnThisPhone/ChipBackground\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"internaldrive\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/Sending/Foreground\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/Sending/Dot\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/Sending/ChipBackground\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"arrow.up.circle\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/InYourJournal/Foreground\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/InYourJournal/Dot\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/InYourJournal/ChipBackground\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"checkmark.circle\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/NeedsAttention/Foreground\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/NeedsAttention/Dot\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"SendState/NeedsAttention/ChipBackground\""
+  },
+  {
+    "file": "Sources/Design/SendStateStyle.swift",
+    "declaration": "style",
+    "source": "\"exclamationmark.triangle\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "diagnosticsUploadLog",
+    "source": "\"app.solstone.swift\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "diagnosticsUploadLog",
+    "source": "\"upload\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"diagnostics\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"copied\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"checkmark\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"copy snapshot\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"doc.on.doc\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"export\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"square.and.arrow.up\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"problems only\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"checkmark.circle.fill\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"circle\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"checkmark.circle.fill\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"circle\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"line.3.horizontal.decrease.circle\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"filter and actions\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "journalLinkSection",
+    "source": "\"recent journal link events\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "journalLinkSection",
+    "source": "\"diagnostics.journalLink.\\(event.kind.rawValue)\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "emptyEventsView",
+    "source": "\"no events yet\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "emptyEventsView",
+    "source": "\"clock\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "emptyEventsView",
+    "source": "\"they'll appear as things happen.\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "lifecycleSection",
+    "source": "\"\\(migration.backlog)\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "lifecycleSection",
+    "source": "\"diagnostics.lifecycle.waitingToSync\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "lifecycleSection",
+    "source": "\"diagnostics.lifecycle.yourJournal\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "lifecycleSection",
+    "source": "\"diagnostics.lifecycle.lastSynced\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "lifecycleSection",
+    "source": "\"diagnostics.lifecycle\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "lastSyncedValue",
+    "source": "\"—\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "refreshLifecycle",
+    "source": "\"on-this-phone failed count mismatch raw=\\(rawFailed, privacy: .public) represented=\\(migration.failedRepresented, privacy: .public) delta=\\(delta, privacy: .public)\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "categoryIconName",
+    "source": "\"antenna.radiowaves.left.and.right\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "categoryIconName",
+    "source": "\"wifi\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "categoryIconName",
+    "source": "\"arrow.up.circle\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "categoryIconName",
+    "source": "\"book.pages\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "categoryIconName",
+    "source": "\"doc.text.magnifyingglass\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "severityText",
+    "source": "\"info\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "severityText",
+    "source": "\"warning\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "severityText",
+    "source": "\"error\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"severity: \\(self.severityText)\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"\\(self.event.category.rawValue): \\(self.event.message), \\(self.relativeTime)\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"tap to collapse\""
+  },
+  {
+    "file": "Sources/Diagnostics/DiagnosticsView.swift",
+    "declaration": "body",
+    "source": "\"tap to expand details\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "preferredMode",
+    "source": "\"sense.preferredMode\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "body",
+    "source": "\"dayHome.surface\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "button",
+    "source": "\"dayHome.statusPill\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "label",
+    "source": "\"\\(self.backlogCount.knownCount) \\(SourceVocabulary.waitingToSync)\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "statusPill",
+    "source": "\"dayHome.statusPill.state.\\(self.statusPillState.uiTestStateName)\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "statusPillAccessibilityValue",
+    "source": "\"\\(self.statusPillState.label), \\(count) \\(SourceVocabulary.waitingToSync)\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "statusPillAccessibilityValue",
+    "source": "\"\\(self.statusPillState.label), \\(known) \\(SourceVocabulary.waitingToSync), \\(status)\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "journalPill",
+    "source": "\"dayHome.openInJournal\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "journalPill",
+    "source": "\"dayHome.journalSetup\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "shelfButton",
+    "source": "\"line.3.horizontal\""
+  },
+  {
+    "file": "Sources/Home/DayHomeView.swift",
+    "declaration": "shelfButton",
+    "source": "\"dayHome.yourSolstoneEntry\""
+  },
+  {
+    "file": "Sources/Home/HomeSourceTile.swift",
+    "declaration": "body",
+    "source": "\"dayHome.tile.\\(self.source.id)\""
+  },
+  {
+    "file": "Sources/Home/HomeSourceTile.swift",
+    "declaration": "switchSlot",
+    "source": "\"\""
+  },
+  {
+    "file": "Sources/Home/HomeSourceTile.swift",
+    "declaration": "switchSlot",
+    "source": "\"dayHome.tile.\\(self.source.id).toggle\""
+  },
+  {
+    "file": "Sources/Home/HomeSourceTile.swift",
+    "declaration": "body",
+    "source": "\"plus\""
+  },
+  {
+    "file": "Sources/Home/HomeSourceTile.swift",
+    "declaration": "body",
+    "source": "\"dayHome.sourcesEntry\""
+  },
+  {
+    "file": "Sources/Home/HomeSourceTile.swift",
+    "declaration": "body",
+    "source": "\"square.and.arrow.down\""
+  },
+  {
+    "file": "Sources/Home/HomeSourceTile.swift",
+    "declaration": "body",
+    "source": "\"dayHome.importEntry\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "composedText",
+    "source": "\"\\(SourceVocabulary.confirmTheMarkAction) · \\(count) waiting\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "uiTestStateName",
+    "source": "\"caughtUp\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "uiTestStateName",
+    "source": "\"audioInterrupted\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "uiTestStateName",
+    "source": "\"syncing\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "uiTestStateName",
+    "source": "\"connecting\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "uiTestStateName",
+    "source": "\"offline\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "uiTestStateName",
+    "source": "\"notPaired\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "uiTestStateName",
+    "source": "\"stalled\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "uiTestStateName",
+    "source": "\"awaitingMarkConfirmation\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "countText",
+    "source": "\"\\(count)\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "countText",
+    "source": "\"\\(known)+\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "body",
+    "source": "\"--ui-test\""
+  },
+  {
+    "file": "Sources/Home/HomeStatusPill.swift",
+    "declaration": "body",
+    "source": "\"\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "body",
+    "source": "\"photo.on.rectangle\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "body",
+    "source": "\"import.pickPhotos\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "body",
+    "source": "\"folder\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "body",
+    "source": "\"import.pickFiles\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "body",
+    "source": "\"recent\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "body",
+    "source": "\"chevron.right\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "body",
+    "source": "\"import.onThisDeviceEntry\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "body",
+    "source": "\"Shows what you've sent to your journal.\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "body",
+    "source": "\"shell.pane.import\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "intakeLine",
+    "source": "\"import.intake.working\""
+  },
+  {
+    "file": "Sources/Home/ImportView.swift",
+    "declaration": "intakeLine",
+    "source": "\"import.intake.outcome\""
+  },
+  {
+    "file": "Sources/Home/SourceModelBuilder.swift",
+    "declaration": "makeAudioSource",
+    "source": "\"audio\""
+  },
+  {
+    "file": "Sources/Home/SourceModelBuilder.swift",
+    "declaration": "makeAudioSource",
+    "source": "\"audio\""
+  },
+  {
+    "file": "Sources/Home/SourceModelBuilder.swift",
+    "declaration": "makeLocationSource",
+    "source": "\"location\""
+  },
+  {
+    "file": "Sources/Home/SourceModelBuilder.swift",
+    "declaration": "watchSourceModel",
+    "source": "\"watch\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "name",
+    "source": "\"audio\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "name",
+    "source": "\"location\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "name",
+    "source": "\"watch\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "accessibilityIdentifier",
+    "source": "\"shell.pane.status.stall.reason\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "accessibilityIdentifier",
+    "source": "\"shell.pane.status.stall.tryAgain\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "accessibilityIdentifier",
+    "source": "\"shell.pane.status.stall.pairAgain\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "accessibilityIdentifier",
+    "source": "\"shell.pane.status.addressesTried\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "accessibilityIdentifier",
+    "source": "\"shell.pane.status.degraded\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "resolveLead",
+    "source": "\"shell.pane.status.connected\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "resolveLead",
+    "source": "\"shell.pane.status.awaitingMarkConfirmation\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "identifier",
+    "source": "\"shell.pane.status.connected\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "identifier",
+    "source": "\"shell.pane.status.degraded\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "leadSection",
+    "source": "\"\\(count)\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "leadSection",
+    "source": "\"shell.pane.status.lead\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "leadSection",
+    "source": "\"shell.pane.status.audioInterrupted\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "whatIsWaitingSection",
+    "source": "\"shell.pane.status.waiting.\\(row.route.id)\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "renderTriedAddresses",
+    "source": "\"addresses tried\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "renderTriedAddresses",
+    "source": "\"shell.pane.status.addressesTried\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "renderStalledRow",
+    "source": "\"\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"method\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"local network\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"through the relay\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"your journal's address\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"uptime\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"shell.pane.status.transferRate\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"shell.pane.status.syncFootnote\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"copied\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"long press to copy diagnostic snapshot\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"diagnostics\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"shell.pane.status.problemReports.toggle\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"\\(self.problemReportsManager.reports.count)\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"shell.pane.status.problemReports\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"tunnel reconnects\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"\\(self.tunnelManager.reconnectCount)\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"tunnel reconnect count: \\(self.tunnelManager.reconnectCount)\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"network\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"network: \\(networkStatusText(self.tunnelManager.currentPathStatus))\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"running\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"n/a\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"\\(SourceVocabulary.journalTunnel): \\(self.tunnelManager.state.isConnected ? \"running\" : \"not available\")\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"running\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"not available\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"probing in progress\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"tap to test connection health\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"shell.pane.status.checkConnection\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"event log\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"shell.pane.status.diagnostics\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"done\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"shell.pane.status.heading\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"shell.pane.status\""
+  },
+  {
+    "file": "Sources/Home/StatusPane.swift",
+    "declaration": "paneContent",
+    "source": "\"shell.pane.status.leadState.\\(self.pillState.uiTestStateName)\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "body",
+    "source": "\"location\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "faultActionHint",
+    "source": "\"Changes the detail level to what ios allows.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "faultActionHint",
+    "source": "\"Asks ios for location access.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "faultActionHint",
+    "source": "\"Opens ios settings for location access.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "stateBlock",
+    "source": "\" · \""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "stateBlock",
+    "source": "\", \""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "stateBlock",
+    "source": "\"Resumes location updates to your journal.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "stateBlock",
+    "source": "\"Pauses location updates to your journal.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "recentBlock",
+    "source": "\"\\(item.timeLabel). \\(SourceVocabulary.shareDeliveredProgress)\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "openJournalBlock",
+    "source": "\"opens your journal inside the solstone app.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierButton",
+    "source": "\"checkmark.circle.fill\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierButton",
+    "source": "\"circle\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierButton",
+    "source": "\"Uses places only from now on.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierButton",
+    "source": "\"Uses places plus comings and goings from now on. This is the recommended default.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierButton",
+    "source": "\"Uses the complete picture from now on.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "body",
+    "source": "\"Starts adding location updates to your journal.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "body",
+    "source": "\"Continues to the ios location permission step.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "body",
+    "source": "\"Cancel\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierOption",
+    "source": "\"checkmark.circle.fill\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierOption",
+    "source": "\"circle\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierOption",
+    "source": "\"Chooses places only for location.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierOption",
+    "source": "\"Chooses places plus comings and goings for location. This is the recommended default.\""
+  },
+  {
+    "file": "Sources/Location/LocationSourceDetailView.swift",
+    "declaration": "tierOption",
+    "source": "\"Chooses the complete picture for location.\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "relativeDayLabel",
+    "source": "\"today\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "relativeDayLabel",
+    "source": "\"yesterday\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"timed out\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"timeout\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"time out\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"-1001\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"http 4\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"http 5\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"cannot connect\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"cannot-connect\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"could not connect\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"can't connect\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"cannot find host\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"cannot-find-host\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"could not find host\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"network connection lost\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"connection lost\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"network lost\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"network-lost\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"offline\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"not connected\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"-1003\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"-1004\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"-1005\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "failureBucket",
+    "source": "\"-1009\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "lastTried",
+    "source": "\"\\(relativeDay) at \\(shortTime)\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"com.adobe.pdf\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"application/pdf\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"public.jpeg\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"public.jpg\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"image/jpeg\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"public.png\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"image/png\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"public.heic\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"public.heif\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"image/heic\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"image/heif\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"com.compuserve.gif\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"image/gif\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"org.webmproject.webp\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"public.webp\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"image/webp\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"public.tiff\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailPresentation.swift",
+    "declaration": "isThumbnailContentType",
+    "source": "\"image/tiff\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailView.swift",
+    "declaration": "journalBlock",
+    "source": "\"opens your journal inside the solstone app.\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailView.swift",
+    "declaration": "actionsBlock",
+    "source": "\"onThisPhone.retry.failed\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailView.swift",
+    "declaration": "retryButton",
+    "source": "\"trying…\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailView.swift",
+    "declaration": "retryButton",
+    "source": "\"onThisPhone.retry.button\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailView.swift",
+    "declaration": "dropButton",
+    "source": "\"removes this from this device.\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailView.swift",
+    "declaration": "dropButton",
+    "source": "\"onThisPhone.drop.button\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailView.swift",
+    "declaration": "dropButton",
+    "source": "\"onThisPhone.drop.confirm\""
+  },
+  {
+    "file": "Sources/OnThisPhoneItemDetailView.swift",
+    "declaration": "dropButton",
+    "source": "\"onThisPhone.drop.cancel\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "accessibilityID",
+    "source": "\"audio\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "accessibilityID",
+    "source": "\"location\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "accessibilityID",
+    "source": "\"screencast\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "accessibilityID",
+    "source": "\"share\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "<top>",
+    "source": "\"watch-audio\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "<top>",
+    "source": "\"watch\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "idPrefix",
+    "source": "\"watch\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "stateID",
+    "source": "\"savedOnThisPhone\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "stateID",
+    "source": "\"sending\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "stateID",
+    "source": "\"inYourJournal\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "stateID",
+    "source": "\"needsAttention\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "rowTimestampText",
+    "source": "\"\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "rowDescriptorText",
+    "source": "\"\\(base) · \\(SourceVocabulary.onThisPhoneFailureRowHint)\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "voiceOverText",
+    "source": "\". \""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "rowPayloadText",
+    "source": "\"\\(countText) · \\(itemTime.formatted())\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "formattedDuration",
+    "source": "\"\\(minutes)m \\(seconds)s\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "formattedDuration",
+    "source": "\"\\(seconds)s\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "transferIDString",
+    "source": "\"transfer:\\(source.idPrefix):\\(itemID.uuidString)\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "mobileSegmentTransferIDString",
+    "source": "\"transfer:\\(ObserverAudioTransferSource.mobileSegment):\\(itemID.uuidString):\\(facet.rawValue)\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "mobileSegmentTransferDropGroupID",
+    "source": "\"transfer:\\(ObserverAudioTransferSource.mobileSegment):\\(itemID.uuidString)\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "parts",
+    "source": "\":\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "transferID",
+    "source": "\"transfer\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "parts",
+    "source": "\":\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "mobileSegmentTransferID",
+    "source": "\"transfer\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "parts",
+    "source": "\":\""
+  },
+  {
+    "file": "Sources/OnThisPhoneModel.swift",
+    "declaration": "mobileSegmentID",
+    "source": "\"mobile-segment\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "body",
+    "source": "\"onThisPhone.welcomeFraming\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "body",
+    "source": "\"onThisPhone.swipe.drop.confirm\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "body",
+    "source": "\"onThisPhone.surface\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "statusBlock",
+    "source": "\"SendState/Sending/Foreground\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "statusBlock",
+    "source": "\"SendState/Sending/Foreground\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "statusBlock",
+    "source": "\"onThisPhone.status.headline\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "statusBlock",
+    "source": "\"onThisPhone.status.headline\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "statusBlock",
+    "source": "\"chevron.right\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "statusBlock",
+    "source": "\"onThisPhone.status\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "statusBlock",
+    "source": "\"opens diagnostics\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "statusHero",
+    "source": "\"\\(count)\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "statusHero",
+    "source": "\"onThisPhone.status.headline\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "magicMomentShownCard",
+    "source": "\"checkmark.circle\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "magicMomentShownCard",
+    "source": "\"magicMoment.duration\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "magicMomentShownCard",
+    "source": "\"magicMoment.connectJournal\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "magicMomentShownCard",
+    "source": "\"magicMoment.card\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "magicMomentPendingCard",
+    "source": "\"ear\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "magicMomentPendingCard",
+    "source": "\"magicMoment.card\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "magicMomentDismissButton",
+    "source": "\"xmark\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "magicMomentDismissButton",
+    "source": "\"dismiss\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "magicMomentDismissButton",
+    "source": "\"magicMoment.dismiss\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "notBackedUpNudge",
+    "source": "\"info.circle\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "notBackedUpNudge",
+    "source": "\"onThisPhone.notBackedUp\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "notBackedUpNudge",
+    "source": "\"connect\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "notBackedUpNudge",
+    "source": "\"onThisPhone.connectJournal\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "finishSyncingCard",
+    "source": "\"arrow.up.circle\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "finishSyncingCard",
+    "source": "\"checkmark.circle\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "finishSyncingCard",
+    "source": "\"info.circle\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "finishSyncingIdleCard",
+    "source": "\"arrow.up.circle\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "finishSyncingIdleCard",
+    "source": "\"onThisPhone.finishSyncing.start\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "finishSyncingDismissButton",
+    "source": "\"xmark\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "finishSyncingDismissButton",
+    "source": "\"dismiss\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "finishSyncingDismissButton",
+    "source": "\"onThisPhone.finishSyncing.dismiss\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "finishSyncingCardChrome",
+    "source": "\"onThisPhone.finishSyncing\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "agedBacklogNudge",
+    "source": "\"clock\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "agedBacklogNudge",
+    "source": "\"onThisPhone.agedBacklog\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "agedBacklogNudge",
+    "source": "\"xmark\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "agedBacklogNudge",
+    "source": "\"dismiss\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "agedBacklogNudge",
+    "source": "\"onThisPhone.agedBacklog.dismiss\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "dropSnackbar",
+    "source": "\"onThisPhone.drop.snackbar\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "dropSnackbar",
+    "source": "\"onThisPhone.drop.undo\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "content",
+    "source": "\"SolWordmark\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "content",
+    "source": "\"onThisPhone.allQuiet\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "content",
+    "source": "\"onThisPhone.audioInterrupted\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "emptyInvite",
+    "source": "\"square.stack.3d.up\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "emptyInvite",
+    "source": "\"onThisPhone.turnOnSource\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "emptyInvite",
+    "source": "\"onThisPhone.truthLine\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "emptyInvite",
+    "source": "\"onThisPhone.connectJournalButton\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "loadSnapshot",
+    "source": "\"success\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "dropActionButton",
+    "source": "\"trash\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "dropActionButton",
+    "source": "\"onThisPhone.swipe.drop.\\(self.item.id)\""
+  },
+  {
+    "file": "Sources/OnThisPhoneView.swift",
+    "declaration": "body",
+    "source": "\"onThisPhone.row.\\(self.item.id)\""
+  },
+  {
+    "file": "Sources/Screencast/ScreencastPrimerSheet.swift",
+    "declaration": "body",
+    "source": "\"dismiss\""
+  },
+  {
+    "file": "Sources/Screencast/ScreencastPrimerSheet.swift",
+    "declaration": "body",
+    "source": "\"screencast.primer.sheet\""
+  },
+  {
+    "file": "Sources/Screencast/ScreencastPrimerSheet.swift",
+    "declaration": "actionRow",
+    "source": "\"screencast.primer.action\""
+  },
+  {
+    "file": "Sources/Screencast/ScreencastPrimerSheet.swift",
+    "declaration": "body",
+    "source": "\"screencast.primer.illustration\""
+  },
+  {
+    "file": "Sources/Screencast/ScreencastSourceDetailView.swift",
+    "declaration": "body",
+    "source": "\"screencast\""
+  },
+  {
+    "file": "Sources/Screencast/ScreencastSourceDetailView.swift",
+    "declaration": "stateBlock",
+    "source": "\"source.screencast.start\""
+  },
+  {
+    "file": "Sources/Screencast/ScreencastSourcePresentation.swift",
+    "declaration": "screencastSourcePresentation",
+    "source": "\"screencast\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "isIntegrationTest",
+    "source": "\"--integration-test\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "isIntegrationTestLive",
+    "source": "\"--integration-test-live\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "isUITest",
+    "source": "\"--ui-test\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "isUnitTest",
+    "source": "\"xctestconfigurationfilepath\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "refusalAppBuild",
+    "source": "\"?\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"start failed\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"app-group unavailable\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"migration failed\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"reconciliation failed\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "shouldUseUITestObserverRecorder",
+    "source": "\"--ui-test-observer-recorder\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "shouldUseUITestObserverRecorder",
+    "source": "\"--ui-test-observer-permission-denied\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "uiTestObserverPermissionGranted",
+    "source": "\"--ui-test-observer-permission-denied\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "integrationObserverTapKind",
+    "source": "\"--integration-test-observer-tap=\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "integrationObserverTapKind",
+    "source": "\"--integration-test-observer-tap=\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"--ui-test-hold-launch-screen\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"app.solstone.swift\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"--integration-test-onboarding\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "diagnostic",
+    "source": "\"mobile segment storage unavailable source=app-group\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"app.solstone.swift\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"mobile-segment\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"\\(diagnostic, privacy: .public)\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"mobile-segment-unavailable\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "diagnostic",
+    "source": "\"transfer spool unavailable source=app-group\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"app.solstone.swift\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"transfer\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"\\(diagnostic, privacy: .public)\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"needs attention\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "<top>",
+    "source": "\"transfer-unavailable\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "shareImportStore",
+    "source": "\"share history rotated\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "shareImportStore",
+    "source": "\"dropped_rows=\\(droppedCount)\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "body",
+    "source": "\"sense\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"Observer\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"needs attention\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"source=transfer reason=\\(reason)\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"app.solstone.swift\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"transfer\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "bootstrapTransfer",
+    "source": "\"transfer start failed: \\(String(describing: error), privacy: .public)\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"solstone-swift-identity-key\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"solstone-swift-host-key\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"solstone-swift-pair-identity\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"solstone-swift-pair-session\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"solstone-swift-observer-ingest-key-v2\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"solstone-swift-observer-ingest-prefix\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"solstone-swift-watch-ingest-key-v2\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"solstone-swift-watch-ingest-prefix\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "query",
+    "source": "\"app.solstone.swift\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"app.solstone.swift\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"app-config\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "purgeLegacyKeychainEntries",
+    "source": "\"legacy keychain entries purged\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "resetOnboardingIntegrationState",
+    "source": "\"onboarding.step\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "resetOnboardingIntegrationState",
+    "source": "\"onboarding.completed\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "resetOnboardingIntegrationState",
+    "source": "\"push.pendingRegistrationToken\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "resetOnboardingIntegrationState",
+    "source": "\"push.lastRegisteredToken\""
+  },
+  {
+    "file": "Sources/SolstoneSwiftApp.swift",
+    "declaration": "resetOnboardingIntegrationState",
+    "source": "\"push.lastRegisteredEnvironment\""
+  },
+  {
+    "file": "Sources/SourceModels.swift",
+    "declaration": "voiceOverText",
+    "source": "\"\\(self.state.label). \\(Self.sentence(subtextOverride))\""
+  },
+  {
+    "file": "Sources/SourceModels.swift",
+    "declaration": "sentence",
+    "source": "\".\""
+  },
+  {
+    "file": "Sources/SourceModels.swift",
+    "declaration": "sentence",
+    "source": "\"\\(text).\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingCardHeadline",
+    "source": "\"still syncing to your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingCardBody",
+    "source": "\"1 segment hasn't landed yet. tap to keep this syncing in the background after you switch away from the solstone app.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingCardBody",
+    "source": "\"\\(count) segments haven't landed yet. tap to keep this syncing in the background after you switch away from the solstone app.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingButton",
+    "source": "\"enable background for this sync\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingInProgress",
+    "source": "\"finishing up in the background. you can switch away. the solstone app keeps syncing for as long as ios allows.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingCompleted",
+    "source": "\"done. everything is in your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingInterrupted",
+    "source": "\"stopped. 1 still waiting. it's on this device and will keep syncing whenever the solstone app is open.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingInterrupted",
+    "source": "\"stopped. \\(count) still waiting. they're on this device and will keep syncing whenever the solstone app is open.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingInterruptedFallback",
+    "source": "\"stopped before everything synced. what's left is on this device and keeps trying whenever the solstone app is open.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingUnavailableUnavailable",
+    "source": "\"background syncing isn't available right now.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingUnavailableNotPermitted",
+    "source": "\"ios isn't allowing finish syncing right now.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingUnavailableTooManyPending",
+    "source": "\"ios already has too many background tasks waiting.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingUnavailableImmediateIneligible",
+    "source": "\"ios can't start finish syncing right now.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingUnavailableFallback",
+    "source": "\"finish syncing couldn't start.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingSystemTitle",
+    "source": "\"finishing sync\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingSystemDoneTitle",
+    "source": "\"sync finished\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingSystemPausedTitle",
+    "source": "\"sync paused\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingSystemSubtitle",
+    "source": "\"1 item still waiting for your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "finishSyncingSystemSubtitle",
+    "source": "\"\\(remaining) items still waiting for your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "standingSyncFootnote",
+    "source": "\"syncs while the solstone app is open, and keeps going in the background while location is on.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "declaration": "standingSyncFootnote",
+    "source": "\"the solstone app syncs to your journal while it's open, and keeps going in the background for as long as ios allows. with location on, that lasts longer.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "label",
+    "source": "\"off\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "label",
+    "source": "\"setting up\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "label",
+    "source": "\"on\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "label",
+    "source": "\"paused\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "symbol",
+    "source": "\"power.circle\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "symbol",
+    "source": "\"arrow.triangle.2.circlepath\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "symbol",
+    "source": "\"plus.circle\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "symbol",
+    "source": "\"arrow.triangle.2.circlepath\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "symbol",
+    "source": "\"checkmark.circle\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "symbol",
+    "source": "\"pause.circle\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "symbol",
+    "source": "\"exclamationmark.triangle\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "voiceOverText",
+    "source": "\"off. \\(SourceVocabulary.offSubtext(isJournalPaired: isJournalPaired))\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "voiceOverText",
+    "source": "\"setting up. \\(SourceVocabulary.enrollingSubtext(isJournalPaired: isJournalPaired))\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "voiceOverText",
+    "source": "\"checking.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "voiceOverText",
+    "source": "\"on. \\(Self.sentence(activeSubtext))\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "voiceOverText",
+    "source": "\"on.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "voiceOverText",
+    "source": "\"paused. \\(SourceVocabulary.pausedSubtext)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "voiceOverText",
+    "source": "\"\\(SourceVocabulary.needsAttention). \\(SourceVocabulary.needsAttentionSubtext)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "sentence",
+    "source": "\".\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "sentence",
+    "source": "\"\\(text).\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "offSubtextUnpaired",
+    "source": "\"turn it on any time.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "offSubtextPaired",
+    "source": "\"intake is off. turn it on any time.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "offSubtextCompact",
+    "source": "\"turn it on any time.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "enrollingSubtextCompact",
+    "source": "\"getting ready…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "pausedSubtextCompact",
+    "source": "\"you paused this.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "enrollingSubtextUnpaired",
+    "source": "\"getting ready…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "enrollingSubtextPaired",
+    "source": "\"getting ready. connecting to your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "sourceStateReadyToSetUpLabel",
+    "source": "\"ready to set up\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "sourceStateCheckingLabel",
+    "source": "\"checking…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "pausedSubtext",
+    "source": "\"you paused this. resume to start intake again.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "needsAttentionSubtext",
+    "source": "\"something's not getting through.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "needsAttention",
+    "source": "\"needs attention\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "observerActiveSubtext",
+    "source": "\"on\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "modeExplanation",
+    "source": "\"meeting keeps going until you stop it. voice memo stops on its own when you go quiet for a few seconds.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "shareSendingProgress",
+    "source": "\"sending to your journal…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "shareDeliveredProgress",
+    "source": "\"saved to your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "sendStateSaved",
+    "source": "\"on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "sendStateSending",
+    "source": "\"sending\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "sendStateCompactSaved",
+    "source": "\"waiting to sync\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "sendStateCompactOnTheWay",
+    "source": "\"on the way\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "sendStateCompactInJournal",
+    "source": "\"in your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneWaitingExplain",
+    "source": "\"still on this device. syncing to your journal continues automatically. you don't have to do anything.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "tryNow",
+    "source": "\"try now\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastDisplayName",
+    "source": "\"screen\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastActiveSubtext",
+    "source": "\"sharing your screen\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastStartingSubtext",
+    "source": "\"waiting for the system sheet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastOffSubtext",
+    "source": "\"off\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastAttentionSubtext",
+    "source": "\"needs attention\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastUnavailableSubtext",
+    "source": "\"unavailable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastDetailTitle",
+    "source": "\"screen\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastStateTitle",
+    "source": "\"state\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastRecentTitle",
+    "source": "\"recent\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastDeliveryTitle",
+    "source": "\"delivery\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastStartButton",
+    "source": "\"start screen\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastStopButton",
+    "source": "\"stop screen\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastOpenSystemSheet",
+    "source": "\"open system sheet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastReadyText",
+    "source": "\"screen is ready\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastStartingText",
+    "source": "\"waiting for the system sheet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastActiveText",
+    "source": "\"screen is active\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastUnavailableText",
+    "source": "\"screen is unavailable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastNoVideoText",
+    "source": "\"no screen video was saved\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastFinalizeFailedText",
+    "source": "\"screen video could not be saved\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastFinalizeTimeoutText",
+    "source": "\"screen video timed out while saving\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastFilesystemFailedText",
+    "source": "\"screen video could not be stored\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastStorageLowText",
+    "source": "\"screen stopped. this device is low on storage.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastSystemEndedSubtext",
+    "source": "\"screen sharing ended\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastPrimerBodyActive",
+    "source": "\"to stop sharing your screen, tap \\\"Stop Broadcast\\\" in the sheet that comes up.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "screencastPrimerBodyOff",
+    "source": "\"what's on your screen goes into your journal. tap \\\"Start Broadcast\\\" in the sheet that comes up. the system ends screen sharing when this device locks.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "connectedLabel",
+    "source": "\"connected\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "syncingLabel",
+    "source": "\"syncing\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "statusConnectingLabel",
+    "source": "\"connecting…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "statusOfflineLabel",
+    "source": "\"offline\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallWaitingLabel",
+    "source": "\"waiting\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallNotConnectedLabel",
+    "source": "\"not connected\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallCantReachYourJournal",
+    "source": "\"can't reach your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallTryAgainLabel",
+    "source": "\"try again\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallTriesEveryAddress",
+    "source": "\"tries every address your journal gave this phone.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallTryingLabel",
+    "source": "\"trying…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallPairAgainLabel",
+    "source": "\"pair again\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallPairAgainDetail",
+    "source": "\"if your journal's computer is on and this keeps happening, your journal may have new addresses. pairing again gives this phone the current ones.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallLastReached",
+    "source": "\"en_US_POSIX\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "stallLastReached",
+    "source": "\"last reached \\(relative).\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "addMoreTitle",
+    "source": "\"add more\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "addMoreSubline",
+    "source": "\"sources\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "whatIsWaitingSection",
+    "source": "\"what is waiting\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "syncingToYourJournal",
+    "source": "\"syncing to your journal…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "heldOnThisDevice",
+    "source": "\"on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "addMoreNotOnHome",
+    "source": "\"not on home\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "addMoreAlreadyOnHome",
+    "source": "\"already on home\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "addMoreFooter",
+    "source": "\"open any source to change what it does, and to add or remove its tile.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "addMoreSuggestionsTitle",
+    "source": "\"suggestions\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "addMoreSuggestionsBody",
+    "source": "\"suggest other sources you'd like to have here\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "importTitle",
+    "source": "\"import\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "importSubline",
+    "source": "\"photos and files\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "giveThisATileOnHome",
+    "source": "\"give this a tile on home\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "hidingThisNeverTurnsItOff",
+    "source": "\"taking a tile off home does not turn the source off. it just keeps home to what you actually look at.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "whatItAddsTitle",
+    "source": "\"what it adds\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "openSettings",
+    "source": "\"open ios settings\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "statusTitle",
+    "source": "\"status\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "settingsTitle",
+    "source": "\"settings\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "shelfDismissLabel",
+    "source": "\"close settings\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "waitingGoesToNextJournal",
+    "source": "\"nothing more from this device goes into your journal, and this takes you back to setup. what already reached it stays there, and anything still waiting goes to the journal you pair next.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "deckToggleTitle",
+    "source": "\"toggle deck\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "getHelp",
+    "source": "\"get help\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "reportAProblem",
+    "source": "\"report a problem\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "trustLineConfigured",
+    "source": "\"syncs only to your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchHeadlineOff",
+    "source": "\"off\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchHeadlineEnrolling",
+    "source": "\"setting up\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchHeadlineListening",
+    "source": "\"on\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchHeadlineStopping",
+    "source": "\"stopping\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchMicrophoneUnavailable",
+    "source": "\"microphone unavailable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchAudioStoppedItself",
+    "source": "\"audio stopped itself\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchAudioCouldNotBeSaved",
+    "source": "\"audio could not be saved\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStatusSaveFailed",
+    "source": "\"status could not be saved\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStatusUnreadable",
+    "source": "\"status could not be read\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchManifestScanFailed",
+    "source": "\"saved items could not be checked\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchManifestCatalogPartial",
+    "source": "\"some saved items need attention\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLocationUnavailable",
+    "source": "\"location unavailable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchGenericUnavailable",
+    "source": "\"something went wrong\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStatusAudioOutcomeLabel",
+    "source": "\"audio outcome\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStatusAudioOutcomeOwnerStopped",
+    "source": "\"stopped by you\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeMicrophoneAccessTitle",
+    "source": "\"microphone access needed\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeMicrophoneAccessBody",
+    "source": "\"allow microphone access on your watch, then start again.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeAudioCouldNotStartTitle",
+    "source": "\"audio could not start\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeAudioCouldNotStartBody",
+    "source": "\"open the solstone app on your watch to start again.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeAudioStoppedTitle",
+    "source": "\"audio stopped itself\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeAudioStoppedBody",
+    "source": "\"open the solstone app on your watch to start again.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeAudioCouldNotBeSavedTitle",
+    "source": "\"audio could not be saved\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeAudioCouldNotBeSavedBody",
+    "source": "\"open the solstone app on your watch before your next moment.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeAudioCouldNotBeConfirmedTitle",
+    "source": "\"audio could not be confirmed\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoticeAudioCouldNotBeConfirmedBody",
+    "source": "\"open the solstone app on your watch to check audio.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineSending",
+    "source": "\"sending\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineSaved",
+    "source": "\"saved on your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineUnknown",
+    "source": "\"—\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineConfirming",
+    "source": "\"confirming with your iphone\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineAbandoned",
+    "source": "\"never reached your iphone\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineAbandonedSubtext",
+    "source": "\"the audio was deleted from your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineHandedOff",
+    "source": "\"handed to your iphone\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineRelayStuckReason",
+    "source": "\"your watch has segments saved, but this device has not received anything for a while.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineHandoffStuckReason",
+    "source": "\"segments are on this device and waiting to reach your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineOrphanStuckReason",
+    "source": "\"some segments stalled before they reached your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineReportedGroupLabel",
+    "source": "\"reported by your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineKnownGroupLabel",
+    "source": "\"known on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStuckNoticeTitle",
+    "source": "\"sync needs attention\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineRelayStuckNextStep",
+    "source": "\"keep your watch near this device. open the solstone app on your watch if this does not move.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineHandoffStuckNextStep",
+    "source": "\"keep the solstone app open here while your journal catches up.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineOrphanStuckNextStep",
+    "source": "\"open the solstone app on your watch and keep it near this device so they can come over again.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchWaitingForPhone",
+    "source": "\"waiting for your iphone\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLinkConnected",
+    "source": "\"phone link: in range\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLinkNotConnected",
+    "source": "\"phone link: out of range\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSourceDisplayName",
+    "source": "\"watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchComplicationUnknownHeadline",
+    "source": "\"the solstone app hasn't checked in\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchComplicationUnknownDetail",
+    "source": "\"open the solstone app on your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchComplicationUnknownInline",
+    "source": "\"hasn't checked in\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchActivationFailedSubtext",
+    "source": "\"can't check your watch right now.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNoWatchPairedSubtext",
+    "source": "\"no watch paired with this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchReadyToSetUpSubtext",
+    "source": "\"the solstone app can be on your watch. tap to set it up.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchInstalledNeverOpenedSubtext",
+    "source": "\"installed. now open the solstone app on your watch.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchReceivingNowSubtext",
+    "source": "\"receiving from your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchIdleNowSubtext",
+    "source": "\"start the solstone app on your watch when you want it with you.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchListeningSubtext",
+    "source": "\"on your watch, taking in audio\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSteadyObservingHeadline",
+    "source": "\"on right now\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchObservingSentenceBase",
+    "source": "\"taking in audio on your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSteadyReceivingHeadline",
+    "source": "\"receiving now\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSteadyWatchWaitingHeadline",
+    "source": "\"saved on your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSteadyPhoneSyncingHeadline",
+    "source": "\"on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSteadyCaughtUpSentence",
+    "source": "\"everything from your watch is in your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSteadyQuietHeadline",
+    "source": "\"quiet right now\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPresenceConnectedNow",
+    "source": "\"your watch is connected right now\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPresenceNeverHeard",
+    "source": "\"haven't heard from your watch yet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupHeader",
+    "source": "\"the solstone app on your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupValueLine",
+    "source": "\"the solstone app on your watch takes in what you share from your wrist, hands it to this device, and it all syncs into your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupNoWatchBody",
+    "source": "\"pair an apple watch to this device and the solstone app can come along on your wrist. everything else in solstone works without one.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchCheckingLine",
+    "source": "\"checking your watch…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupInstallTitle",
+    "source": "\"install the solstone app from the Watch app\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupInstallSubline",
+    "source": "\"in My Watch, scroll to Available Apps and tap install next to the solstone app.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupInstallButton",
+    "source": "\"open the Watch app\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupInstallButtonHint",
+    "source": "\"opens the Watch app.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupInstallDisclosureSummary",
+    "source": "\"don't see the solstone app in the list?\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupInstallDisclosureBody",
+    "source": "\"your watch may need watchOS 26 or newer. check Software Update in the Watch app. everything else in solstone works without a watch.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupOpenTitle",
+    "source": "\"open the solstone app on your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupOpenSubline",
+    "source": "\"the solstone app checks in with this device the first time it opens.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupFirstMomentTitle",
+    "source": "\"tap start for your first moment\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupCelebration",
+    "source": "\"your watch's first memory just landed on this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupStepPending",
+    "source": "\"pending\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupStepActive",
+    "source": "\"active\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSetupStepComplete",
+    "source": "\"complete\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStateBlockTitle",
+    "source": "\"state\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsBlockTitle",
+    "source": "\"diagnostics\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchTechnicalDetailTitle",
+    "source": "\"technical detail\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchReceivedLabel",
+    "source": "\"received\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchNotYetInJournalLabel",
+    "source": "\"not yet in your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchHandedToJournalLabel",
+    "source": "\"handed to your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLastSyncLabel",
+    "source": "\"last sync\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLastSyncNever",
+    "source": "\"no sync yet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchActivationLabel",
+    "source": "\"activation\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPairedWithPhoneLabel",
+    "source": "\"paired with this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchInstalledLabel",
+    "source": "\"installed\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLastReceivedLabel",
+    "source": "\"last received\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLastReceivedNever",
+    "source": "\"nothing received yet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLastStagingDetailLabel",
+    "source": "\"last staging detail\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLastLedgerDetailLabel",
+    "source": "\"last ledger detail\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLastSyncDetailLabel",
+    "source": "\"last sync detail\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchLastUploadErrorLabel",
+    "source": "\"last upload error\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStatusLabel",
+    "source": "\"watch status\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchReachableLabel",
+    "source": "\"reachable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDetailNone",
+    "source": "\"none\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchBooleanYes",
+    "source": "\"yes\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchBooleanNo",
+    "source": "\"no\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchActivationActivated",
+    "source": "\"activated\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchActivationInactive",
+    "source": "\"inactive\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchActivationNotActivated",
+    "source": "\"not activated\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchRelativeJustNow",
+    "source": "\"just now\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchShareDiagnosticsLabel",
+    "source": "\"share diagnostics\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchShareDiagnosticsHint",
+    "source": "\"shares watch diagnostics.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPrepareDiagnosticsHint",
+    "source": "\"prepares watch diagnostics.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsExportTitle",
+    "source": "\"watch diagnostics\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsExportFileName",
+    "source": "\"watch-diagnostics.txt\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsStageReportEnvironment",
+    "source": "\"report + iphone environment\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsStageWatchSnapshot",
+    "source": "\"latest watch snapshot\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsStageRetentionAppleQueue",
+    "source": "\"watch retention + Apple queue\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsStageIPhoneStaging",
+    "source": "\"iphone receipt + staging\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsStageJournalHandoff",
+    "source": "\"journal handoff\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsRelayAssessmentLabel",
+    "source": "\"relay assessment\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsWatchUserInfoQueueLabel",
+    "source": "\"Watch → iPhone\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsIPhoneACKQueueLabel",
+    "source": "\"iPhone → Watch durable ACK/control\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsActiveBacklogLabel",
+    "source": "\"active backlog\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsVisibleActiveLabel",
+    "source": "\"visible active\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsOmittedActiveLabel",
+    "source": "\"omitted active\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsEvidenceUnavailableLabel",
+    "source": "\"evidence unavailable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsOmittedObservationsLabel",
+    "source": "\"omitted rows\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsPhoneLedgerLabel",
+    "source": "\"phone ledger\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsPhoneLedgerRetainedEntriesLabel",
+    "source": "\"phone ledger retained entries\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsPhoneLedgerReceivedLabel",
+    "source": "\"phone ledger received\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsPhoneLedgerHandedLabel",
+    "source": "\"phone ledger handed\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsPhoneLedgerDroppedLabel",
+    "source": "\"phone ledger dropped\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsPhoneLedgerHandedAndDroppedLabel",
+    "source": "\"phone ledger handed + dropped\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsIPhoneRecognizedACKLabel",
+    "source": "\"iPhone → Watch recognized ACK\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsIPhoneParseableACKLabel",
+    "source": "\"iPhone → Watch parseable ACK\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsIPhoneDistinctACKIdentitiesLabel",
+    "source": "\"iPhone → Watch distinct ACK identities\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsIPhoneDuplicateACKExtrasLabel",
+    "source": "\"iPhone → Watch duplicate ACK extras\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsIPhoneMalformedMissingACKLabel",
+    "source": "\"iPhone → Watch malformed/missing ACK\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsIPhoneNonACKUserInfoLabel",
+    "source": "\"iPhone → Watch non-ACK user info\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsVisibleActiveClassificationLabel",
+    "source": "\"visible active classification\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsNotProvided",
+    "source": "\"not provided\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsUnavailable",
+    "source": "\"unavailable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchDiagnosticsIndeterminate",
+    "source": "\"indeterminate\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsToggle",
+    "source": "\"keep problem reports\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsToggleHint",
+    "source": "\"keeps app problem reports on this device so you can share them if you choose.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsTitle",
+    "source": "\"problem reports\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsRow",
+    "source": "\"problem reports\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsRowHint",
+    "source": "\"opens problem reports kept on this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsReportRowHint",
+    "source": "\"opens report detail.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsOptedOutTitle",
+    "source": "\"problem reports are off\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsOptedOutBody",
+    "source": "\"turn them on to keep a daily summary of how the app ran on this device, and a report if it quits unexpectedly or gets stuck.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsEmptyTitle",
+    "source": "\"no problem reports yet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsEmptyBody",
+    "source": "\"a daily summary of how the solstone app ran will appear here, and a report if it quits unexpectedly or gets stuck.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportKindCrash",
+    "source": "\"app quit unexpectedly\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportKindHang",
+    "source": "\"app got stuck\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportKindCPUException",
+    "source": "\"app used too much processing time\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportKindDiskWriteException",
+    "source": "\"app wrote too much to storage\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportKindAppLaunch",
+    "source": "\"app took too long to open\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportKindAppExit",
+    "source": "\"app quit summary\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportKindMetrics",
+    "source": "\"daily app summary\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportKindUnknown",
+    "source": "\"app issue report\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsShare",
+    "source": "\"share\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsShareHint",
+    "source": "\"shares this problem report.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsShareAll",
+    "source": "\"share all\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsShareAllHint",
+    "source": "\"shares all problem reports.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsDelete",
+    "source": "\"delete\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsDeleteHint",
+    "source": "\"deletes this problem report.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsDeleteAll",
+    "source": "\"delete all\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsDeleteAllHint",
+    "source": "\"deletes all problem reports.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsDeleteAllConfirmTitle",
+    "source": "\"delete all problem reports?\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsDeleteAllConfirmBody",
+    "source": "\"this removes the reports kept on this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsMissingTitle",
+    "source": "\"problem report unavailable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "problemReportsMissingBody",
+    "source": "\"it may have already been deleted.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPipelineStaleAsOf",
+    "source": "\"as of \\(relative)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStatusAsOf",
+    "source": "\"watch status as of \\(relative)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStatusUnknownSubtext",
+    "source": "\"waiting for your watch to check in\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchStatusUnknownReason",
+    "source": "\"no status from your watch yet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSavedOnWatchCount",
+    "source": "\"\\(n) \\(Self.watchPipelineSaved)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSendingCount",
+    "source": "\"\\(n) \\(Self.watchPipelineSending)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchConfirmingCount",
+    "source": "\"\\(n) \\(Self.watchPipelineConfirming)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchAbandonedCount",
+    "source": "\"\\(n) \\(Self.watchPipelineAbandoned)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchHandedToPhoneCount",
+    "source": "\"\\(n) \\(Self.watchPipelineHandedOff)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchWaitingToSyncFromWatch",
+    "source": "\"\\(n) waiting to sync from your watch\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchObservingSentence",
+    "source": "\"\\(Self.watchObservingSentenceBase) · \\(elapsedMinutes) min\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSteadyWatchWaitingSentence",
+    "source": "\"\\(n) on your watch, waiting to come over. keep your watch nearby.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSteadyPhoneSyncingSentence",
+    "source": "\"\\(n) syncing to your journal…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchPresenceLastHeard",
+    "source": "\"last heard from your watch · \\(relative)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchTodayHandedLine",
+    "source": "\"today · handed \\(n) to your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "watchSteadyDetailsSummary",
+    "source": "\"details · watch \\(watchWaiting) · iphone \\(phoneWaiting) waiting\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "reinstallNoticeTitle",
+    "source": "\"this device is still connected to your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "reinstallNoticeBody",
+    "source": "\"deleting the solstone app doesn't disconnect this device. to disconnect, forget this journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "reinstallNoticeKeep",
+    "source": "\"stay connected\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "reinstallNoticeForget",
+    "source": "\"forget this journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "recentEmpty",
+    "source": "\"nothing recent yet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "recentFailed",
+    "source": "\"couldn't load recent\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "recentUnavailablePaired",
+    "source": "\"shows up here when your journal reconnects.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "recentUnavailableUnpaired",
+    "source": "\"shows up here once you connect a journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "notConnectedRowAffordancePaired",
+    "source": "\"opens when your journal reconnects.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "notConnectedRowAffordanceUnpaired",
+    "source": "\"connect a journal first.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "whatItAdds",
+    "source": "\"adds what you say and nearby sound while this is on.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "pendingSeam",
+    "source": "\"nothing pending right now.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "audioEnrollmentValue",
+    "source": "\"what you say and the sound around you, on this device until you connect a journal. turn it on only when you want to share audio.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "audioEnrollmentValuePaired",
+    "source": "\"what you say and the sound around you, kept in your journal. turn it on only when you want to share audio.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "turnOnAudio",
+    "source": "\"turn on audio\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "importerWhatItAdds",
+    "source": "\"adds PDFs, audio, images, and text you choose here or send from the share sheet.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "importPhotosRow",
+    "source": "\"photos\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "importPhotosHint",
+    "source": "\"Chooses photos to import.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "importFilesRow",
+    "source": "\"files\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "importFilesHint",
+    "source": "\"Chooses files to import.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhone",
+    "source": "\"on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneOpenAction",
+    "source": "\"see what is here\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "greetingMorning",
+    "source": "\"good morning\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "greetingAfternoon",
+    "source": "\"good afternoon\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "greetingEvening",
+    "source": "\"good evening\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "dayLocalityNoJournal",
+    "source": "\"on this device · not paired\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "notPaired",
+    "source": "\"not paired\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalConnected",
+    "source": "\"your journal · connected\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalOffline",
+    "source": "\"your journal · offline\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "dayToday",
+    "source": "\"today\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneScope",
+    "source": "\"everything you've shared, on this device until you connect a journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneScopeConnected",
+    "source": "\"everything you've shared, moving into your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneScopeOfflinePaired",
+    "source": "\"everything you've shared, ready for your journal when it reconnects.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneEmpty",
+    "source": "\"nothing here yet. turn on a source and the solstone app takes in what you share with it, and it goes into your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneTruthLine",
+    "source": "\"your memories are on this device and not processed until you connect a journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneConnectJournalButton",
+    "source": "\"connect journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneAllQuietHeadline",
+    "source": "\"all quiet\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneAllQuietBody",
+    "source": "\"everything you've shared is in your journal. new moments rest here on their way through.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneNotBackedUp",
+    "source": "\"nothing here is backed up yet. connect a journal to keep a copy.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneTurnOnSourceButton",
+    "source": "\"turn on a source\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "migrationStageOnThisPhone",
+    "source": "\"on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "migrationStageOnItsWay",
+    "source": "\"on its way\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "migrationStageInYourJournal",
+    "source": "\"in your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "migrationHeadlineUpToDate",
+    "source": "\"your journal is up to date\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "syncingPulse",
+    "source": "\"syncing to your journal…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "syncedHeadline",
+    "source": "\"all caught up\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "syncedBody",
+    "source": "\"everything is in your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "audioInterruptedHeadline",
+    "source": "\"audio was interrupted\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "audioInterruptedLine",
+    "source": "\"some audio hasn't reached your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "offlineSafeLine",
+    "source": "\"on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "magicMomentShownHeadline",
+    "source": "\"it's on this device now\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "magicMomentShownBody",
+    "source": "\"the solstone app just took in your first memory. it's on this device until you connect a journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "magicMomentShownBodyPaired",
+    "source": "\"the solstone app just took in your first memory. it goes into your journal from here.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "magicMomentShownSecondary",
+    "source": "\"connect a journal whenever →\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "magicMomentPendingHeadline",
+    "source": "\"your first audio memory is getting ready\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "magicMomentPendingBody",
+    "source": "\"when you stop, it will be on this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "yourJournalSection",
+    "source": "\"your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "details",
+    "source": "\"details\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "notProvided",
+    "source": "\"not provided\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "originAppNotProvided",
+    "source": "\"origin app not provided\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "rawOriginalUnavailable",
+    "source": "\"the original is no longer on this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "openJournalLink",
+    "source": "\"open journal ↗\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "openInJournal",
+    "source": "\"open in journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalTunnel",
+    "source": "\"private network\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "transferRateLabel",
+    "source": "\"transfer rate\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "transferRateIdle",
+    "source": "\"idle\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "lastSyncedLabel",
+    "source": "\"last synced\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "checkConnection",
+    "source": "\"check connection\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "probeReachable",
+    "source": "\"reachable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "probeNotReachable",
+    "source": "\"not reachable\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneJournalHintSaved",
+    "source": "\"this was added to your journal automatically.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneJournalHintLocationSaved",
+    "source": "\"these places were added to your journal automatically.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneJournalHintPending",
+    "source": "\"not in your journal yet. it's waiting to go in.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneJournalHintUnreachable",
+    "source": "\"this was added to your journal. you can open your journal from here when it reconnects.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneJournalHintLocationUnreachable",
+    "source": "\"these places were added to your journal. you can open your journal from here when it reconnects.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneDropFromPhone",
+    "source": "\"drop from this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneDropConfirmTitle",
+    "source": "\"drop this from this device?\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFileLabel",
+    "source": "\"file\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneWhenLabel",
+    "source": "\"when\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneObservationsLabel",
+    "source": "\"memories\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneSourceLabel",
+    "source": "\"source\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureReasonLabel",
+    "source": "\"why\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureStatusLabel",
+    "source": "\"status\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneObserverAudioSourceLabel",
+    "source": "\"audio\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneWatchAudioSourceLabel",
+    "source": "\"watch audio\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureRowHint",
+    "source": "\"needs a retry\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "audioPlaybackObserverActiveHint",
+    "source": "\"pause to play this\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "audioPlaybackPlayLabel",
+    "source": "\"play audio\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "audioPlaybackPauseLabel",
+    "source": "\"pause audio\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "audioPlaybackHint",
+    "source": "\"plays this audio from this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "connectJournalIntro",
+    "source": "\"your memories are on this device. connect a journal and everything you've shared so far flows in.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "connectDoorOwnTitle",
+    "source": "\"your own journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "connectDoorOwnSubtitle",
+    "source": "\"pair this device to your journal running on your computer.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "connectDoorOnYourPhoneTitle",
+    "source": "\"on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "connectDoorOnYourPhoneBody",
+    "source": "\"your journal as its own app, right on this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "connectJournalFloorLine",
+    "source": "\"no journal yet? that's fine. everything the solstone app takes in is on this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "connectJournalHowJournalsWork",
+    "source": "\"how journals work →\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "pairingLinked",
+    "source": "\"journal connected\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "pairingAlreadyConnected",
+    "source": "\"this journal is already connected\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "pairingReconnected",
+    "source": "\"journal connection updated\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "pairingStillTrying",
+    "source": "\"still trying to reach your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkConfirmQuestion",
+    "source": "\"does this match your journal?\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkConfirmSubtext",
+    "source": "\"your journal shows this same mark in its network app. it should match, exactly.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkConfirmButton",
+    "source": "\"yes, this is my journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkMismatchButton",
+    "source": "\"that doesn't match\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "awaitingMarkConfirmationLine",
+    "source": "\"waiting for you to confirm your journal's mark\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "awaitingMarkConfirmationSubline",
+    "source": "\"nothing waiting goes into your journal until you do.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "confirmTheMarkAction",
+    "source": "\"confirm the mark\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkConfirmedLine",
+    "source": "\"this is your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkConnecting",
+    "source": "\"connecting…\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkMismatchTitle",
+    "source": "\"not connected\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkMismatchBody",
+    "source": "\"you said this mark doesn't match the one your journal shows, so we didn't connect this device. you may have scanned the wrong code, or something isn't right. try again, or reach us and we'll help.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkMismatchScanAgain",
+    "source": "\"scan again\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkMismatchEmailSupport",
+    "source": "\"email support@solstone.app\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkCouldNotVerifyTitle",
+    "source": "\"couldn't verify\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkCouldNotVerifyBody",
+    "source": "\"the check of your journal's mark didn't finish. that doesn't mean the marks disagree.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkCouldNotVerifyContinue",
+    "source": "\"continue anyway\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkCouldNotVerifyCancel",
+    "source": "\"cancel pairing\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkCouldNotVerifyContinueAccessibility",
+    "source": "\"continue pairing without verifying the journal mark\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalMarkCouldNotVerifyCancelAccessibility",
+    "source": "\"cancel pairing and discard this attempt\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "rePairLine",
+    "source": "\"your journal asked this device to reconnect.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "rePairAction",
+    "source": "\"re-pair\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesTitle",
+    "source": "\"where your journal lives\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesPromise",
+    "source": "\"your journal is always private, only yours.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesOwnTitle",
+    "source": "\"your own journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesOwnBody",
+    "source": "\"pair to your journal on your computer. everything you've shared so far flows in.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesOnYourPhoneTitle",
+    "source": "\"on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesOnYourPhoneBody",
+    "source": "\"your journal as its own app, right on this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesCachedLine",
+    "source": "\"right now, just your memories are on this device, waiting to be processed.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesComingLater",
+    "source": "\"coming later\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesConnectAction",
+    "source": "\"connect\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "journalLivesRepairAction",
+    "source": "\"re-pair\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "transferRateValue",
+    "source": "\"~\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "transferRateValue",
+    "source": "\"/s\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "drop",
+    "source": "\"drop\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "cancel",
+    "source": "\"cancel\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "undo",
+    "source": "\"undo\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "turnOn",
+    "source": "\"turn on\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "pause",
+    "source": "\"pause\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "resume",
+    "source": "\"resume\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneAgedBacklog",
+    "source": "\"1 memory is on this device. connect a journal whenever you're ready.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneAgedBacklog",
+    "source": "\"\\(count) memories are on this device. connect a journal whenever you're ready.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneLocationRowLabel",
+    "source": "\"1 memory\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneLocationRowLabel",
+    "source": "\"\\(count) memories\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneDropSnackbar",
+    "source": "\"dropped “\\(descriptor)”.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneDropAudioDescriptor",
+    "source": "\"\\(duration) of audio\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneDropLocationDescriptor",
+    "source": "\"\\(count) memories\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneDropScreencastDescriptor",
+    "source": "\"screen video\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneNavigationTitle",
+    "source": "\"\\(source) · \\(shortTime)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneAudioSummary",
+    "source": "\"\\(duration) of audio\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneLocationSummary",
+    "source": "\"1 memory\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneLocationSummary",
+    "source": "\"\\(count) memories\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneObservedSummary",
+    "source": "\"on this device\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneObservedSummary",
+    "source": "\"on this device · \\(datePhrase)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneShareSummary",
+    "source": "\"from \\(origin) · \\(datePhrase)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneShareSummary",
+    "source": "\"from \\(origin)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFileDetail",
+    "source": "\"\\(filename) · \\(size)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureAttemptStatus",
+    "source": "\"upload failed after 1 attempt\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureAttemptStatus",
+    "source": "\"upload failed after \\(count) attempts\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureRetryableMessage",
+    "source": "\"hasn't reached your journal yet — tried 1 time. it'll try again automatically when you reconnect.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureRetryableMessage",
+    "source": "\"hasn't reached your journal yet — tried \\(count) times. it'll try again automatically when you reconnect.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneRefusalPacedMessage",
+    "source": "\"your journal turned this away. it stays on this device and tries again about once a day, after the app or your journal updates, or when you tap \\(tryNow).\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailurePermanentMessage",
+    "source": "\"this can't go to your journal. \\(reason). you can remove it from this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureReasonNetwork",
+    "source": "\"the connection wasn't available\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureReasonTimeout",
+    "source": "\"the connection took too long\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureReasonServer",
+    "source": "\"your journal couldn't accept it\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneTryNowFailed",
+    "source": "\"couldn't try this again. it's still on this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureReasonUnknown",
+    "source": "\"something got in the way\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFailureLastTried",
+    "source": "\"last tried \\(datePhrase)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFixCount",
+    "source": "\"1 fix\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneFixCount",
+    "source": "\"\\(count) fixes\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "migrationHeadlineSyncing",
+    "source": "\"syncing 1 segment to your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "migrationHeadlineSyncing",
+    "source": "\"syncing \\(count) segments to your journal\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "lastActiveLine",
+    "source": "\"last active · \\(relative)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "migrationStageCount",
+    "source": "\"\\(count) \\(stage)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneDatePhrase",
+    "source": "\"\\(relativeDay) at \\(shortTime)\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneDropConfirmMessage",
+    "source": "\"this is only on this device. dropping it means it won't reach your journal.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneDropConfirmMessage",
+    "source": "\"this is in your journal. dropping just clears it from this device.\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneSourceName",
+    "source": "\"audio\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneSourceName",
+    "source": "\"location\""
+  },
+  {
+    "file": "Sources/SourceVocabulary.swift",
+    "declaration": "onThisPhoneSourceName",
+    "source": "\"screen\""
+  },
+  {
+    "file": "Sources/Widgets/ObserverStatusPresentation.swift",
+    "declaration": "symbol",
+    "source": "\"questionmark.circle\""
+  },
+  {
+    "file": "Sources/Widgets/ObserverStatusPresentation.swift",
+    "declaration": "symbol",
+    "source": "\"questionmark.circle\""
+  },
+  {
+    "file": "Sources/Widgets/ObserverStatusPresentation.swift",
+    "declaration": "symbol",
+    "source": "\"exclamationmark.triangle\""
+  },
+  {
+    "file": "Sources/Widgets/ObserverStatusPresentation.swift",
+    "declaration": "symbol",
+    "source": "\"arrow.triangle.2.circlepath\""
+  },
+  {
+    "file": "Sources/Widgets/ObserverStatusPresentation.swift",
+    "declaration": "symbol",
+    "source": "\"hand.raised\""
+  },
+  {
+    "file": "Sources/Widgets/ObserverStatusPresentation.swift",
+    "declaration": "symbol",
+    "source": "\"waveform.badge.exclamationmark\""
+  },
+  {
+    "file": "Sources/Widgets/ObserverStatusPresentation.swift",
+    "declaration": "symbol",
+    "source": "\"checkmark.circle\""
+  }
+]

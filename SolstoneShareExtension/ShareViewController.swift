@@ -106,7 +106,7 @@ private struct ShareExtensionView: View {
             switch self.screen {
             case .working:
                 ProgressView()
-                    .accessibilityLabel(SourceVocabulary.shareSendingProgress)
+                    .accessibilityLabel(String(localized: SourceVocabulary.shareSendingProgress))
             case .success(let status):
                 VStack(spacing: 10) {
                     Image(systemName: "checkmark.circle.fill")

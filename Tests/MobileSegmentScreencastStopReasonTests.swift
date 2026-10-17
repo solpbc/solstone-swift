@@ -12,7 +12,7 @@ nonisolated final class MobileSegmentScreencastStopReasonTests: XCTestCase {
         )
         XCTAssertEqual(
             MobileSegmentScreencastStopPolicy.ownerSentence(for: .storageLow),
-            SourceVocabulary.screencastStorageLowText
+            String(localized: SourceVocabulary.screencastStorageLowText)
         )
     }
 

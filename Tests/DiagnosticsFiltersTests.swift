@@ -23,7 +23,7 @@ nonisolated final class DiagnosticsFiltersTests: XCTestCase {
     }
 
     func testLifecycleWaitingLabelDoesNotUseNeedsAttentionCopy() {
-        XCTAssertNotEqual(SourceVocabulary.waitingToSync, SourceVocabulary.needsAttention)
-        XCTAssertEqual(SourceVocabulary.waitingToSync, "waiting to sync")
+        XCTAssertNotEqual(String(localized: SourceVocabulary.waitingToSync), SourceVocabulary.needsAttention)
+        XCTAssertEqual(SourceVocabulary.waitingToSync.key, "ios.sourceSync.sendStateCompactSaved")
     }
 }

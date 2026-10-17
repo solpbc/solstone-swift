@@ -104,6 +104,7 @@ private extension LocationSourceDetailView {
 
             if let subtext = sourceState.subtext(
                 activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: self.appConfig.isPaired),
+                repeatsStateLabel: false,
                 isJournalPaired: self.appConfig.isPaired
             ) {
                 Text(subtext)
@@ -165,7 +166,7 @@ private extension LocationSourceDetailView {
                                 .foregroundStyle(.secondary)
                         }
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(item.timeLabel). \(SourceVocabulary.shareDeliveredProgress)")
+                        .accessibilityLabel("\(item.timeLabel). \(String(localized: SourceVocabulary.shareDeliveredProgress))")
                     }
                 }
             case .loadedEmpty:

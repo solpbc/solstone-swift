@@ -30,7 +30,9 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     let state: SourceState
     let isJournalPaired: Bool
     let activeSubtext: String
+    let activeSubtextRepeatsStateLabel: Bool
     let subtextOverride: String?
+    let subtextOverrideRepeatsStateLabel: Bool
     let attention: SourceAttention?
     let pendingStatus: SourcePendingStatus
     let showsSubtext: Bool
@@ -42,7 +44,9 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         state: SourceState,
         isJournalPaired: Bool,
         activeSubtext: String,
+        activeSubtextRepeatsStateLabel: Bool = false,
         subtextOverride: String? = nil,
+        subtextOverrideRepeatsStateLabel: Bool = false,
         attention: SourceAttention?,
         pendingStatus: SourcePendingStatus,
         showsSubtext: Bool = true
@@ -53,7 +57,9 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         self.state = state
         self.isJournalPaired = isJournalPaired
         self.activeSubtext = activeSubtext
+        self.activeSubtextRepeatsStateLabel = activeSubtextRepeatsStateLabel
         self.subtextOverride = subtextOverride
+        self.subtextOverrideRepeatsStateLabel = subtextOverrideRepeatsStateLabel
         self.attention = attention
         self.pendingStatus = pendingStatus
         self.showsSubtext = showsSubtext
@@ -62,6 +68,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     var subtext: String? {
         self.subtextOverride ?? self.state.subtext(
             activeSubtext: self.activeSubtext,
+            repeatsStateLabel: self.activeSubtextRepeatsStateLabel,
             isJournalPaired: self.isJournalPaired
         )
     }
@@ -73,7 +80,8 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     /// the line above it is noise, not information. Also absent for `readyToSetUp`,
     /// where the state word is the whole message.
     var rowSubtext: String? {
-        guard self.showsSubtext, let subtext = self.subtext, subtext != self.state.label else { return nil }
+        guard self.showsSubtext, let subtext = self.subtext,
+              !self.subtextOverrideRepeatsStateLabel else { return nil }
         return subtext
     }
 
@@ -87,6 +95,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         } else {
             base = self.state.voiceOverText(
                 activeSubtext: self.activeSubtext,
+                repeatsStateLabel: self.activeSubtextRepeatsStateLabel,
                 isJournalPaired: self.isJournalPaired
             )
         }

@@ -21,7 +21,7 @@ nonisolated enum ImportRecentPresentation {
             if pendingCount > 0 {
                 return SourceVocabulary.awaitingMarkConfirmationLine
             } else if lastDeliveredAt != nil {
-                return SourceVocabulary.shareDeliveredProgress
+                return String(localized: SourceVocabulary.shareDeliveredProgress)
             } else if failedCount > 0 {
                 return SourceVocabulary.awaitingMarkConfirmationLine
             } else {
@@ -29,11 +29,11 @@ nonisolated enum ImportRecentPresentation {
             }
         } else {
             if pendingCount > 0 {
-                return SourceVocabulary.shareSendingProgress
+                return String(localized: SourceVocabulary.shareSendingProgress)
             } else if lastDeliveredAt != nil {
-                return SourceVocabulary.shareDeliveredProgress
+                return String(localized: SourceVocabulary.shareDeliveredProgress)
             } else if failedCount > 0 {
-                return SourceVocabulary.onThisPhoneWaitingExplain
+                return String(localized: SourceVocabulary.onThisPhoneWaitingExplain)
             } else {
                 return SourceVocabulary.recentEmpty
             }

@@ -209,13 +209,13 @@ private extension OnThisPhoneItemDetailView {
                 }
             }
         } label: {
-            Text(self.isRetrying ? "trying…" : SourceVocabulary.tryNow)
+            Text(self.isRetrying ? "trying…" : String(localized: SourceVocabulary.tryNow))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(.borderedProminent)
         .disabled(self.isRetrying)
         .accessibilityIdentifier("onThisPhone.retry.button")
-        .accessibilityLabel(SourceVocabulary.tryNow)
+        .accessibilityLabel(String(localized: SourceVocabulary.tryNow))
     }
 
     var dropButton: some View {

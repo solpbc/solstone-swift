@@ -15,6 +15,7 @@ nonisolated func makeAudioSource(
         state: state,
         isJournalPaired: isJournalPaired,
         activeSubtext: SourceVocabulary.observerActiveSubtext,
+        activeSubtextRepeatsStateLabel: true,
         attention: attention,
         pendingStatus: .nonePending
     )

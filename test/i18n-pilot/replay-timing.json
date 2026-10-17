@@ -1,0 +1,30 @@
+{
+  "stale_consumer_control": {
+    "python_optimized": true,
+    "exit": 1,
+    "stderr": "Traceback (most recent call last):\n  File \"/var/tmp/i18n-swift-replay-final-guard-tp757yz0/tools/i18n-pilot/apply.py\", line 75, in <module>\n    raise RuntimeError('stale consumer file: '+filename)\nRuntimeError: stale consumer file: Sources/Home/DayHomeView.swift\n",
+    "production_files_unchanged": true
+  },
+  "generate.py": {
+    "seconds": 0.06230420712381601,
+    "stdout": "generated 64 messages for en + en-XA\n"
+  },
+  "apply.py": {
+    "seconds": 0.8206202047877014,
+    "stdout": "{'constant': 59, 'plural': 3, 'select': 1, 'string-boundary': 158, 'assertion': 34, 'select-boundary': 7, 'plural-boundary': 13} files 34\n"
+  },
+  "mechanical_stages": {
+    "constant_edit_planning": 0.0009191599674522877,
+    "plural_select_edit_planning": 0.0005193669348955154,
+    "assertion_edit_planning": 0.1475302460603416,
+    "boundary_edit_planning": 0.05372364679351449,
+    "file_application": 0.004276037681847811
+  },
+  "construction": "One replay on clean archived 1d4da7f431be014ea7cf115ba4dddbd60f73b56f with the final generator and initial AST-directed apply, including whole-file SHA-256 preflight for every edited consumer. Manual semantic fixes excluded; CPU time is not agent judgment.",
+  "replay_directory": "/var/tmp/i18n-swift-replay-final-guard-tp757yz0",
+  "prepare_control": {
+    "stdout": "{\n  \"selected_literal_nodes\": 69,\n  \"messages\": 64,\n  \"baseline_cases\": 73,\n  \"excluded_declarations\": [\n    \"stallLastReached\"\n  ]\n}\n",
+    "hash_manifest_matches": true,
+    "probe_directory": "/var/tmp/i18n-swift-prepare-probe-t1iygv63"
+  }
+}

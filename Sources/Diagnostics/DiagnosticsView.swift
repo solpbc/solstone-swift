@@ -188,7 +188,7 @@ struct DiagnosticsView: View {
 
     private func lifecycleSection(migration: OnThisPhoneMigration) -> some View {
         return Section(SourceVocabulary.onThisPhone) {
-            LabeledContent(SourceVocabulary.waitingToSync, value: "\(migration.backlog)")
+            LabeledContent(String(localized: SourceVocabulary.waitingToSync), value: "\(migration.backlog)")
                 .accessibilityIdentifier("diagnostics.lifecycle.waitingToSync")
             LabeledContent(
                 SourceVocabulary.yourJournalSection,

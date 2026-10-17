@@ -70,13 +70,13 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
 
     func label(hasBacklog: Bool) -> String {
         switch self {
-        case .caughtUp: SourceVocabulary.connectedLabel
+        case .caughtUp: String(localized: SourceVocabulary.connectedLabel)
         case .audioInterrupted: SourceVocabulary.audioInterruptedHeadline
-        case .syncing: SourceVocabulary.syncingLabel
-        case .connecting: SourceVocabulary.statusConnectingLabel
-        case .offline: SourceVocabulary.statusOfflineLabel
+        case .syncing: String(localized: SourceVocabulary.syncingLabel)
+        case .connecting: String(localized: SourceVocabulary.statusConnectingLabel)
+        case .offline: String(localized: SourceVocabulary.statusOfflineLabel)
         case .notPaired: SourceVocabulary.dayLocalityNoJournal
-        case .stalled: hasBacklog ? SourceVocabulary.stallWaitingLabel : SourceVocabulary.stallNotConnectedLabel
+        case .stalled: hasBacklog ? String(localized: SourceVocabulary.stallWaitingLabel) : String(localized: SourceVocabulary.stallNotConnectedLabel)
         case .awaitingMarkConfirmation: SourceVocabulary.confirmTheMarkAction
         }
     }

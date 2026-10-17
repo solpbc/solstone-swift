@@ -211,7 +211,7 @@ nonisolated final class StatusPaneTests: XCTestCase {
         switch lead3.lead {
         case .count(let count, let caption, let statusLine):
             XCTAssertEqual(count, 3)
-            XCTAssertEqual(caption, SourceVocabulary.waitingToSync)
+            XCTAssertEqual(caption, String(localized: SourceVocabulary.waitingToSync))
             XCTAssertEqual(statusLine, SourceVocabulary.awaitingMarkConfirmationLine)
         case .headline:
             XCTFail("expected count lead for N > 0")

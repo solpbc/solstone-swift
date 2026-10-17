@@ -1,0 +1,623 @@
+[
+  {
+    "declaration": "finishSyncingCardHeadline",
+    "end": 207,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"still syncing to your journal\"",
+    "start": 176
+  },
+  {
+    "declaration": "finishSyncingCardBody",
+    "end": 434,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"1 segment hasn't landed yet. tap to keep this syncing in the background after you switch away from the solstone app.\"",
+    "start": 316
+  },
+  {
+    "declaration": "finishSyncingCardBody",
+    "end": 576,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 3,
+    "source": "\"\\(count) segments haven't landed yet. tap to keep this syncing in the background after you switch away from the solstone app.\"",
+    "start": 449
+  },
+  {
+    "declaration": "finishSyncingButton",
+    "end": 666,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"enable background for this sync\"",
+    "start": 633
+  },
+  {
+    "declaration": "finishSyncingInProgress",
+    "end": 832,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"finishing up in the background. you can switch away. the solstone app keeps syncing for as long as ios allows.\"",
+    "start": 720
+  },
+  {
+    "declaration": "finishSyncingCompleted",
+    "end": 923,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"done. everything is in your journal.\"",
+    "start": 885
+  },
+  {
+    "declaration": "finishSyncingInterrupted",
+    "end": 1139,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"stopped. 1 still waiting. it's on this device and will keep syncing whenever the solstone app is open.\"",
+    "start": 1035
+  },
+  {
+    "declaration": "finishSyncingInterrupted",
+    "end": 1268,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 3,
+    "source": "\"stopped. \\(count) still waiting. they're on this device and will keep syncing whenever the solstone app is open.\"",
+    "start": 1154
+  },
+  {
+    "declaration": "finishSyncingInterruptedFallback",
+    "end": 1455,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"stopped before everything synced. what's left is on this device and keeps trying whenever the solstone app is open.\"",
+    "start": 1338
+  },
+  {
+    "declaration": "finishSyncingUnavailableUnavailable",
+    "end": 1568,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"background syncing isn't available right now.\"",
+    "start": 1521
+  },
+  {
+    "declaration": "finishSyncingUnavailableNotPermitted",
+    "end": 1681,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"ios isn't allowing finish syncing right now.\"",
+    "start": 1635
+  },
+  {
+    "declaration": "finishSyncingUnavailableTooManyPending",
+    "end": 1802,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"ios already has too many background tasks waiting.\"",
+    "start": 1750
+  },
+  {
+    "declaration": "finishSyncingUnavailableImmediateIneligible",
+    "end": 1919,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"ios can't start finish syncing right now.\"",
+    "start": 1876
+  },
+  {
+    "declaration": "finishSyncingUnavailableFallback",
+    "end": 2014,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"finish syncing couldn't start.\"",
+    "start": 1982
+  },
+  {
+    "declaration": "finishSyncingSystemTitle",
+    "end": 2085,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"finishing sync\"",
+    "start": 2069
+  },
+  {
+    "declaration": "finishSyncingSystemDoneTitle",
+    "end": 2159,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"sync finished\"",
+    "start": 2144
+  },
+  {
+    "declaration": "finishSyncingSystemPausedTitle",
+    "end": 2233,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"sync paused\"",
+    "start": 2220
+  },
+  {
+    "declaration": "finishSyncingSystemSubtitle",
+    "end": 2383,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"1 item still waiting for your journal\"",
+    "start": 2344
+  },
+  {
+    "declaration": "finishSyncingSystemSubtitle",
+    "end": 2437,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 3,
+    "source": "\"\\(remaining) items still waiting for your journal\"",
+    "start": 2386
+  },
+  {
+    "declaration": "standingSyncFootnote",
+    "end": 2652,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"syncs while the solstone app is open, and keeps going in the background while location is on.\"",
+    "start": 2557
+  },
+  {
+    "declaration": "standingSyncFootnote",
+    "end": 2822,
+    "file": "Sources/SourceVocabulary+FinishSyncing.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"the solstone app syncs to your journal while it's open, and keeps going in the background for as long as ios allows. with location on, that lasts longer.\"",
+    "start": 2667
+  },
+  {
+    "declaration": "shareSendingProgress",
+    "end": 6159,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"sending to your journal…\"",
+    "start": 6131
+  },
+  {
+    "declaration": "shareDeliveredProgress",
+    "end": 6223,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"saved to your journal\"",
+    "start": 6200
+  },
+  {
+    "declaration": "sendStateSaved",
+    "end": 6272,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"on this device\"",
+    "start": 6256
+  },
+  {
+    "declaration": "sendStateSending",
+    "end": 6316,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"sending\"",
+    "start": 6307
+  },
+  {
+    "declaration": "sendStateCompactSaved",
+    "end": 6373,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"waiting to sync\"",
+    "start": 6356
+  },
+  {
+    "declaration": "sendStateCompactOnTheWay",
+    "end": 6428,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"on the way\"",
+    "start": 6416
+  },
+  {
+    "declaration": "sendStateCompactInJournal",
+    "end": 6489,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"in your journal\"",
+    "start": 6472
+  },
+  {
+    "declaration": "onThisPhoneWaitingExplain",
+    "end": 6636,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"still on this device. syncing to your journal continues automatically. you don't have to do anything.\"",
+    "start": 6533
+  },
+  {
+    "declaration": "tryNow",
+    "end": 6670,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"try now\"",
+    "start": 6661
+  },
+  {
+    "declaration": "screencastDisplayName",
+    "end": 6771,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen\"",
+    "start": 6763
+  },
+  {
+    "declaration": "screencastActiveSubtext",
+    "end": 6834,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"sharing your screen\"",
+    "start": 6813
+  },
+  {
+    "declaration": "screencastStartingSubtext",
+    "end": 6908,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"waiting for the system sheet\"",
+    "start": 6878
+  },
+  {
+    "declaration": "screencastOffSubtext",
+    "end": 6952,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"off\"",
+    "start": 6947
+  },
+  {
+    "declaration": "screencastAttentionSubtext",
+    "end": 7014,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"needs attention\"",
+    "start": 6997
+  },
+  {
+    "declaration": "screencastUnavailableSubtext",
+    "end": 7074,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"unavailable\"",
+    "start": 7061
+  },
+  {
+    "declaration": "screencastDetailTitle",
+    "end": 7122,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen\"",
+    "start": 7114
+  },
+  {
+    "declaration": "screencastStateTitle",
+    "end": 7168,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"state\"",
+    "start": 7161
+  },
+  {
+    "declaration": "screencastRecentTitle",
+    "end": 7216,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"recent\"",
+    "start": 7208
+  },
+  {
+    "declaration": "screencastDeliveryTitle",
+    "end": 7268,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"delivery\"",
+    "start": 7258
+  },
+  {
+    "declaration": "screencastStartButton",
+    "end": 7322,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"start screen\"",
+    "start": 7308
+  },
+  {
+    "declaration": "screencastStopButton",
+    "end": 7374,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"stop screen\"",
+    "start": 7361
+  },
+  {
+    "declaration": "screencastOpenSystemSheet",
+    "end": 7437,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"open system sheet\"",
+    "start": 7418
+  },
+  {
+    "declaration": "screencastReadyText",
+    "end": 7492,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen is ready\"",
+    "start": 7475
+  },
+  {
+    "declaration": "screencastStartingText",
+    "end": 7563,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"waiting for the system sheet\"",
+    "start": 7533
+  },
+  {
+    "declaration": "screencastActiveText",
+    "end": 7620,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen is active\"",
+    "start": 7602
+  },
+  {
+    "declaration": "screencastUnavailableText",
+    "end": 7687,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen is unavailable\"",
+    "start": 7664
+  },
+  {
+    "declaration": "screencastNoVideoText",
+    "end": 7754,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"no screen video was saved\"",
+    "start": 7727
+  },
+  {
+    "declaration": "screencastFinalizeFailedText",
+    "end": 7834,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen video could not be saved\"",
+    "start": 7801
+  },
+  {
+    "declaration": "screencastFinalizeTimeoutText",
+    "end": 7919,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen video timed out while saving\"",
+    "start": 7882
+  },
+  {
+    "declaration": "screencastFilesystemFailedText",
+    "end": 8002,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen video could not be stored\"",
+    "start": 7968
+  },
+  {
+    "declaration": "screencastStorageLowText",
+    "end": 8093,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen stopped. this device is low on storage.\"",
+    "start": 8045
+  },
+  {
+    "declaration": "screencastSystemEndedSubtext",
+    "end": 8162,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"screen sharing ended\"",
+    "start": 8140
+  },
+  {
+    "declaration": "screencastPrimerBodyActive",
+    "end": 8288,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"to stop sharing your screen, tap \\\"Stop Broadcast\\\" in the sheet that comes up.\"",
+    "start": 8207
+  },
+  {
+    "declaration": "screencastPrimerBodyOff",
+    "end": 8484,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"what's on your screen goes into your journal. tap \\\"Start Broadcast\\\" in the sheet that comes up. the system ends screen sharing when this device locks.\"",
+    "start": 8330
+  },
+  {
+    "declaration": "connectedLabel",
+    "end": 8743,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"connected\"",
+    "start": 8732
+  },
+  {
+    "declaration": "syncingLabel",
+    "end": 8783,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"syncing\"",
+    "start": 8774
+  },
+  {
+    "declaration": "statusConnectingLabel",
+    "end": 8838,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"connecting…\"",
+    "start": 8823
+  },
+  {
+    "declaration": "statusOfflineLabel",
+    "end": 8884,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"offline\"",
+    "start": 8875
+  },
+  {
+    "declaration": "stallWaitingLabel",
+    "end": 8929,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"waiting\"",
+    "start": 8920
+  },
+  {
+    "declaration": "stallNotConnectedLabel",
+    "end": 8985,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"not connected\"",
+    "start": 8970
+  },
+  {
+    "declaration": "stallCantReachYourJournal",
+    "end": 9055,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"can't reach your journal\"",
+    "start": 9029
+  },
+  {
+    "declaration": "stallTryAgainLabel",
+    "end": 9103,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"try again\"",
+    "start": 9092
+  },
+  {
+    "declaration": "stallTriesEveryAddress",
+    "end": 9195,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"tries every address your journal gave this phone.\"",
+    "start": 9144
+  },
+  {
+    "declaration": "stallTryingLabel",
+    "end": 9241,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"trying…\"",
+    "start": 9230
+  },
+  {
+    "declaration": "stallPairAgainLabel",
+    "end": 9291,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"pair again\"",
+    "start": 9279
+  },
+  {
+    "declaration": "stallPairAgainDetail",
+    "end": 9476,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"if your journal's computer is on and this keeps happening, your journal may have new addresses. pairing again gives this phone the current ones.\"",
+    "start": 9330
+  },
+  {
+    "declaration": "stallLastReached",
+    "end": 9657,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 1,
+    "source": "\"en_US_POSIX\"",
+    "start": 9644
+  },
+  {
+    "declaration": "stallLastReached",
+    "end": 9858,
+    "file": "Sources/SourceVocabulary.swift",
+    "kind": "literal",
+    "segments": 3,
+    "source": "\"last reached \\(relative).\"",
+    "start": 9831
+  }
+]

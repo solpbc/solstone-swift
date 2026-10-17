@@ -500,7 +500,7 @@ private extension DayHomeView {
 
         if self.statusPillState == .stalled {
             let label = self.backlogCount.knownCount > 0
-                ? "\(self.backlogCount.knownCount) \(SourceVocabulary.waitingToSync)"
+                ? "\(self.backlogCount.knownCount) \(String(localized: SourceVocabulary.waitingToSync))"
                 : self.statusPillState.label(hasBacklog: false)
             button
                 .accessibilityElement(children: .ignore)
@@ -533,14 +533,14 @@ private extension DayHomeView {
         }
         switch self.backlogCount {
         case .known(let count) where count > 0:
-            return "\(self.statusPillState.label), \(count) \(SourceVocabulary.waitingToSync)"
+            return "\(self.statusPillState.label), \(count) \(String(localized: SourceVocabulary.waitingToSync))"
         case .partiallyUnknown(let known, let asOf):
             let status = asOf.map {
                 SourceVocabulary.watchStatusAsOf(
                     WatchPipelineReducer.relativeText(secondsAgo: max(0, self.now.timeIntervalSince($0)))
                 )
             } ?? SourceVocabulary.watchStatusUnknownReason
-            return "\(self.statusPillState.label), \(known) \(SourceVocabulary.waitingToSync), \(status)"
+            return "\(self.statusPillState.label), \(known) \(String(localized: SourceVocabulary.waitingToSync)), \(status)"
         case .known:
             return self.statusPillState.label
         }
