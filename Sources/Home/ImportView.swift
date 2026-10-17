@@ -32,9 +32,6 @@ struct ImportView: View {
                         Text(SourceVocabulary.importerWhatItAdds)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        Text(SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: self.appConfig.isPaired))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
 
                         // The pickers are the way in; a drop onto this pane is the shortcut, never the only path.
                         self.pickRow(

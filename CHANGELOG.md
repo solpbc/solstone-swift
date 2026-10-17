@@ -12,6 +12,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Changed
 
+- "on this device" now labels what you send from the share sheet or choose on the import screen as "import", instead of "share sheet". the import screen also names text among what it takes in, and mentions the share sheet only once.
+
 - the event log on the status screen now tells you when your journal turned a request away because it was busy, separately from a lost connection. the latest of each kind stays visible for seven days, including after reconnecting or reopening the app, and is filled in when you choose "report a problem" in help.
 
 ### Fixed

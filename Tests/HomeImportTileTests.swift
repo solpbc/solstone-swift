@@ -25,7 +25,7 @@ nonisolated final class HomeImportTileTests: XCTestCase {
         XCTAssertFalse(addMore.contains("share sheet"))
         XCTAssertFalse(dayHome.contains("share sheet"))
         let importView = try Self.contents("Sources/Home/ImportView.swift")
-        XCTAssertTrue(importView.contains("shareAlwaysOnExplainer"))
+        XCTAssertTrue(importView.contains("importerWhatItAdds"))
     }
 
     func testAddMoreEndsWithSuggestionsCardLinkingToSupport() throws {

@@ -2,7 +2,7 @@
 
 The solstone app for iphone and ipad, and its apple watch app. [solstone](https://solstone.app) is a personal memory platform: the solstone app takes in what you share with it, and all of it goes into your journal (an open source, local-first memory the agents you use can work from). Your journal is always private, only yours.
 
-Built in SwiftUI. You choose what the app takes in (audio, location and screen, and audio from your apple watch). What it takes in goes into the journal you paired it with, in segments of up to 5 minutes. You can also import files into your journal from the system share sheet.
+Built in SwiftUI. You choose what the app takes in (audio, location and screen, and audio from your apple watch). What it takes in goes into the journal you paired it with, in segments of up to 5 minutes. You can also import photos and files into your journal from inside the app or from the system share sheet.
 
 ## Status
 

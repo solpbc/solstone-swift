@@ -158,9 +158,6 @@ nonisolated enum SourceVocabulary {
 
     static let observerActiveSubtext = "on"
     static let modeExplanation = "meeting keeps going until you stop it. voice memo stops on its own when you go quiet for a few seconds."
-    private static let shareAlwaysOnExplainerUnpaired = "share is on. anything you send from another app is on this device until you connect a journal."
-    private static let shareAlwaysOnExplainerPaired = "share is on. anything you send from the share sheet comes into your journal here."
-    static let shareSheetDisplayName = "share sheet"
     static let shareSendingProgress = "sending to your journal…"
     static let shareDeliveredProgress = "saved to your journal"
     static let sendStateSaved = "on this device"
@@ -516,7 +513,7 @@ nonisolated enum SourceVocabulary {
         isJournalPaired ? Self.audioEnrollmentValuePaired : Self.audioEnrollmentValue
     }
     static let turnOnAudio = "turn on audio"
-    static let importerWhatItAdds = "adds PDFs, audio, and images you choose here or send from the share sheet."
+    static let importerWhatItAdds = "adds PDFs, audio, images, and text you choose here or send from the share sheet."
     static let importPhotosRow = "photos"
     static let importPhotosHint = "Chooses photos to import."
     static let importFilesRow = "files"
@@ -675,10 +672,6 @@ nonisolated enum SourceVocabulary {
         isJournalPaired ? Self.enrollingSubtextPaired : Self.enrollingSubtextUnpaired
     }
 
-    static func shareAlwaysOnExplainer(isJournalPaired: Bool) -> String {
-        isJournalPaired ? Self.shareAlwaysOnExplainerPaired : Self.shareAlwaysOnExplainerUnpaired
-    }
-
     static func onThisPhoneAgedBacklog(count: Int) -> String {
         if count == 1 {
             return "1 memory is on this device. connect a journal whenever you're ready."
@@ -816,8 +809,9 @@ extension SourceVocabulary {
             "location"
         case .screencast:
             "screen"
+        // Shared and picked items both arrive through import, so they carry its name.
         case .share:
-            Self.shareSheetDisplayName
+            Self.importTitle
         }
     }
 }

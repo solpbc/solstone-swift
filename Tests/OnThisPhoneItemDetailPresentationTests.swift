@@ -32,7 +32,7 @@ nonisolated final class OnThisPhoneItemDetailPresentationTests: XCTestCase {
                 locale: Self.locale,
                 timeZone: Self.timeZone
             ),
-            SourceVocabulary.shareSheetDisplayName
+            SourceVocabulary.importTitle
         )
     }
 

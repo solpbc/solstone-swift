@@ -77,13 +77,10 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.whatItAddsTitle, "what it adds")
         XCTAssertEqual(SourceVocabulary.openSettings, "open ios settings")
         XCTAssertEqual(
-            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
-            "share is on. anything you send from another app is on this device until you connect a journal."
+            SourceVocabulary.importerWhatItAdds,
+            "adds PDFs, audio, images, and text you choose here or send from the share sheet."
         )
-        XCTAssertEqual(
-            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
-            "share is on. anything you send from the share sheet comes into your journal here."
-        )
+        XCTAssertEqual(SourceVocabulary.onThisPhoneSourceName(for: .share), "import")
         XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "waiting to sync")
         XCTAssertEqual(SourceVocabulary.sendStateCompactOnTheWay, "on the way")
         XCTAssertEqual(SourceVocabulary.sendStateCompactInJournal, "in your journal")
@@ -844,7 +841,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneConnectJournalButton,
             SourceVocabulary.offSubtext(isJournalPaired: false),
             SourceVocabulary.enrollingSubtext(isJournalPaired: false),
-            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
             SourceVocabulary.watchSetupHeader,
             SourceVocabulary.watchSetupValueLine,
             SourceVocabulary.watchSetupNoWatchBody,
@@ -904,8 +900,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.offSubtext(isJournalPaired: true),
             SourceVocabulary.enrollingSubtext(isJournalPaired: false),
             SourceVocabulary.enrollingSubtext(isJournalPaired: true),
-            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
-            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
             SourceVocabulary.standingSyncFootnote(sustaining: true),
             SourceVocabulary.standingSyncFootnote(sustaining: false),
             SourceVocabulary.dayLocalityNoJournal,
@@ -968,9 +962,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.needsAttentionSubtext,
             SourceVocabulary.needsAttention,
             SourceVocabulary.observerActiveSubtext,
-            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: false),
-            SourceVocabulary.shareAlwaysOnExplainer(isJournalPaired: true),
-            SourceVocabulary.shareSheetDisplayName,
+            SourceVocabulary.onThisPhoneSourceName(for: .share),
             SourceVocabulary.shareSendingProgress,
             SourceVocabulary.shareDeliveredProgress,
             SourceVocabulary.sendStateSaved,
