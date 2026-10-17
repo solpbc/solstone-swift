@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.9 (131)] - 2026-10-17
+
 ### Added
 
 - import now lets you choose photos and files from inside the app, without going to the share sheet. you can also drag them onto the import screen. choosing photos this way doesn't give the app access to your photo library.
