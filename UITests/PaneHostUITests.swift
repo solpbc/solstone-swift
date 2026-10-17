@@ -396,7 +396,9 @@ nonisolated final class PaneHostUITests: XCTestCase {
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.journal"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["try again"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["journal.alreadyHaveOne"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["today, your journal lives on a computer you own."].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["try again"].exists)
         let heading = app.descendants(matching: .any)["shell.pane.journal.heading"]
         XCTAssertTrue(heading.waitForExistence(timeout: 5))
         XCTAssertNotEqual(heading.label, "journal")
