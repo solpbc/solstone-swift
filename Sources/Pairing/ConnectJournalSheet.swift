@@ -41,6 +41,9 @@ struct ConnectJournalSheet: View {
                             Text(SourceVocabulary.connectDoorOnYourPhoneTitle)
                                 .font(.headline)
                                 .accessibilityIdentifier("connectJournal.onYourPhone")
+                            if self.dynamicTypeSize.isAccessibilitySize {
+                                self.comingLater
+                            }
                             Text(SourceVocabulary.connectDoorOnYourPhoneBody)
                                 .font(.subheadline)
                         }
@@ -54,11 +57,6 @@ struct ConnectJournalSheet: View {
                     }
                     .padding(.vertical, 6)
                     .foregroundStyle(.secondary)
-                    if self.dynamicTypeSize.isAccessibilitySize {
-                        self.comingLater
-                            .foregroundStyle(.secondary)
-                    }
-
                     Text(SourceVocabulary.connectJournalFloorLine)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
