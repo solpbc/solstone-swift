@@ -95,8 +95,9 @@ nonisolated final class NoJournalShellTests: XCTestCase {
             "coming later"
         )
         XCTAssertTrue(app.descendants(matching: .any)["connectJournal.noJournalYet"].exists)
-        XCTAssertTrue(app.buttons["connectJournal.howJournalsWork"].exists)
+        self.revealConnectSheetAction(app.buttons["connectJournal.howJournalsWork"], in: app)
 
+        self.revealConnectSheetAction(app.buttons["connectJournal.ownJournal"], in: app)
         app.buttons["connectJournal.ownJournal"].tap()
         self.assertSinglePairFlowMarker(in: app)
     }
@@ -224,6 +225,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
 
         app.buttons["onThisPhone.connectJournalButton"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["connectJournal.sheet"].waitForExistence(timeout: 5))
+        self.revealConnectSheetAction(app.buttons["connectJournal.howJournalsWork"], in: app)
         app.buttons["connectJournal.howJournalsWork"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
 
@@ -450,6 +452,24 @@ private extension NoJournalShellTests {
         let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
         top.press(forDuration: 0.1, thenDragTo: bottom)
         XCTAssertTrue(app.descendants(matching: .any)[missingElementID].waitForNonExistence(timeout: 5))
+    }
+
+    func revealConnectSheetAction(_ element: XCUIElement, in app: XCUIApplication) {
+        let list = app.collectionViews["connectJournal.sheet"].firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 5))
+        let visible = list.frame.intersection(app.frame)
+        for _ in 0..<12 {
+            if element.exists && element.isHittable &&
+                element.frame.minY >= visible.minY + 8 && element.frame.maxY <= visible.maxY - 8 {
+                return
+            }
+            if element.exists && element.frame.minY < visible.minY + 8 {
+                list.swipeDown()
+            } else {
+                list.swipeUp()
+            }
+        }
+        XCTFail("connect-sheet action did not enter the visible list viewport")
     }
 
     func seedAudioRow(in app: XCUIApplication) -> XCUIElement {
