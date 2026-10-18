@@ -216,8 +216,10 @@ sim: deps
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
 		build
 
+# The -json targets report xcodebuild's exit status. xcsift exits 0 even when the
+# build fails, so without pipefail a broken build reads as a pass.
 sim-json: deps
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+	set -o pipefail; xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-derivedDataPath $(DERIVED) \
@@ -233,7 +235,7 @@ sim-ipad: deps
 		build
 
 sim-ipad-json: deps
-	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
+	set -o pipefail; xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
 		-destination 'platform=iOS Simulator,name=$(SIM_IPAD)' \
 		-derivedDataPath $(DERIVED) \
@@ -249,7 +251,7 @@ watch-sim: deps
 		build
 
 watch-sim-json: deps
-	xcodebuild -project $(PROJECT) -scheme SolstoneWatch \
+	set -o pipefail; xcodebuild -project $(PROJECT) -scheme SolstoneWatch \
 		-skipMacroValidation \
 		-destination 'platform=watchOS Simulator,name=$(SIM_WATCH)' \
 		-derivedDataPath $(DERIVED) \
