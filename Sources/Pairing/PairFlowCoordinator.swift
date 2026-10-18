@@ -213,8 +213,7 @@ final class PairFlowCoordinator {
              PairURLError.malformedOuterURL:
             "this doesn't look like a pairing link."
 
-        // Blob-level parse failures — these are the cases this lode is wiring up
-        // through UniversalLinkRouter.
+        // Blob-level parse failures.
         case PairURLError.invalidBase32,
              PairURLError.invalidLength:
             "this pairing link is damaged."

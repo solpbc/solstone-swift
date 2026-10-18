@@ -284,7 +284,7 @@ ui-test: deps
 		-derivedDataPath $(DERIVED)
 
 # Three owned-leaves UITests with a pinned result bundle. `ui-test` has none;
-# `test-one` only sees unit tests. Attachments in DerivedData die with the lode.
+# `test-one` only sees unit tests.
 # SIM_DESTINATION so a private `make sim-create` UDID can dodge a contended
 # `name=iPhone 17 Pro` (kAXErrorAPIDisabled under host load).
 primer-shots: deps
@@ -886,9 +886,9 @@ testflight-release: testflight-upload
 		$$notify_arg
 
 deploy: build
-	@tmux kill-window -t hopper:logs 2>/dev/null || true
+	@tmux kill-window -t :logs 2>/dev/null || true
 	@rm -f $(DEVICE_LOG)
-	@tmux new-window -t hopper: -d -n logs \
+	@tmux new-window -d -n logs \
 		"pymobiledevice3 syslog live --tunnel '' 2>&1 | grep --line-buffered solstone-swift | tee $(DEVICE_LOG)"
 	@sleep 2
 	xcrun devicectl device install app --device $(DEVICE) $(DEV_APP)
@@ -931,7 +931,7 @@ launch-shots: sim
 app-store-shots: sim watch-sim
 	python3 test/capture_app_store.py --derived "$(DERIVED)" $(APP_STORE_SHOTS_ARGS)
 
-# Widget gallery / Lock Screen screenshots use the lode-exclusive output path above.
+# Widget gallery / Lock Screen screenshots use the separate output path above.
 sim-widget-shots: sim
 	WIDGET_SHOTS_APP="$(SIM_APP)" \
 		WIDGET_SHOTS_BUNDLE_ID="$(BUNDLE_ID)" \

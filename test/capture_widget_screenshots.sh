@@ -4,7 +4,7 @@
 #
 # Place the three status widgets with AXe, configure the small widget for a
 # non-watch source, and preserve Home and Lock Screen evidence for the four
-# accessibility/appearance passes used by this lode.
+# accessibility/appearance passes.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

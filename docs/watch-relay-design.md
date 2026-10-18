@@ -414,7 +414,7 @@ Build validation after implementation:
 
 ## Risks And Review Gate Items
 
-- Jer must ratify the corrected sender eligibility rule. Transferring
+- Transferring
   `.captured` or `.persisted` would be unsafe with the current engine.
 - The watch composition refactor is required because storage currently lives
   inside `WatchCaptureModel`; sender and engine must share the same storage.

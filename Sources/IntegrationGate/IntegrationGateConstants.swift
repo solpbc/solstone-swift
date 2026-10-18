@@ -63,7 +63,7 @@ enum IntegrationGateConstants {
     // path, URL, host, or port field. A coordinator can choose which action
     // runs, not where it points.
     //
-    // The extro-tools coordinator provisions the bytes at
+    // The coordinator provisions the bytes at
     // chronicle/20260729/integration-gate/122500_300/ios-spl-gate-260729.m4a
     // on the home under test. The body is deterministic and over 1 MiB so a
     // ranged read crosses `gateMuxInitialCreditBytes`, with a stable content

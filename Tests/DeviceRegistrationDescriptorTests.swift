@@ -10,12 +10,12 @@ nonisolated final class DeviceRegistrationDescriptorTests: XCTestCase {
         let identifier = try XCTUnwrap(UUID(uuidString: "8F14E45F-EA4C-4F4C-AE91-7C3D84B7562A"))
 
         let displayName = DeviceRegistrationDescriptor.displayName(
-            deviceName: "  Jeremie’s iPhone  ",
+            deviceName: "  Owner’s iPhone  ",
             model: "iPhone",
             identifierForVendor: identifier
         )
 
-        XCTAssertEqual(displayName, "Jeremie’s iPhone")
+        XCTAssertEqual(displayName, "Owner’s iPhone")
     }
 
     func testGenericNamesUseShortDisplayFallback() throws {
