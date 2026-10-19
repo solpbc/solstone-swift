@@ -4,7 +4,7 @@
 import SwiftUI
 
 enum JournalSetupLink {
-    static let installURL = URL(string: "https://solstone.app/install")!
+    static let installURL = URL(string: "https://solstone.app/install#start")!
 }
 
 struct JournalSetupRoute<PairControl: View>: View {
