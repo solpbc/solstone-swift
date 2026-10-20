@@ -30,6 +30,7 @@ struct SolstoneSwiftApp: App {
     @State private var transferEnqueuer: ObserverAudioTransferEnqueuer
     @State private var shareImportStore: ShareImportStore
     @State private var shareTransferHolder: ShareTransferHolder
+    @State private var photoLibraryImporter: PhotoLibraryImporter
     @State private var watchSegmentDrain: WatchSegmentDrain?
     @State private var watchRelayReceiver: WatchRelayReceiver?
     @State private var watchSegmentLedger: WatchSegmentLedger
@@ -617,6 +618,22 @@ struct SolstoneSwiftApp: App {
             homeJobs: homeJobs
         )
         let pairFlowPresence = PairFlowPresence()
+        let photoLibraryImporter = PhotoLibraryImporter(
+            library: PhotoKitLibrary(),
+            store: PhotoLibraryImportStore(fileURL: PhotoLibraryImportStore.defaultFileURL()),
+            queue: shareImportStore,
+            dependencies: PhotoLibraryImporter.Dependencies(
+                unsettledItemIDs: {
+                    guard case .loaded(let items) = await shareTransferHolder.onThisPhoneSourceSnapshot() else {
+                        return []
+                    }
+                    return Set(items.filter { $0.sendState == .savedOnThisPhone || $0.sendState == .sending }.map(\.id))
+                },
+                drain: {
+                    await foregroundDrainGate.requestDrain()
+                }
+            )
+        )
         self._appConfig = State(initialValue: appConfig)
         self._appGroupMirror = State(initialValue: appGroupMirror)
         self._watchBacklogSnapshotWriter = State(initialValue: watchBacklogSnapshotWriter)
@@ -636,6 +653,7 @@ struct SolstoneSwiftApp: App {
         self._transferEnqueuer = State(initialValue: transferEnqueuer)
         self._shareImportStore = State(initialValue: shareImportStore)
         self._shareTransferHolder = State(initialValue: shareTransferHolder)
+        self._photoLibraryImporter = State(initialValue: photoLibraryImporter)
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
         self._watchRelayReceiver = State(initialValue: watchRelayReceiver)
         self._watchSegmentLedger = State(initialValue: watchSegmentLedger)
@@ -701,6 +719,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.phoneSessionHistoryStore)
                 .environment(self.shareImportStore)
                 .environment(self.shareTransferHolder)
+                .environment(self.photoLibraryImporter)
                 .environment(self.mobileSegmentUploader)
                 .environment(self.mobileSegmentEngine)
                 .environment(self.locationManager)
@@ -816,6 +835,7 @@ struct SolstoneSwiftApp: App {
                 Task {
                     await self.screencastManager.reconcileScreencast(reason: .foreground)
                 }
+                self.photoLibraryImporter.refreshAccess()
                 if Self.isIntegrationMode || Self.isUITest {
                     return
                 }
@@ -1032,6 +1052,8 @@ struct SolstoneSwiftApp: App {
             reconcile: {
                 await self.mobileSegmentUploader.resumeFromDisk()
                 self.shareImportStore.refreshFromDisk()
+                // A library import the owner started carries on where it was when the app last closed.
+                self.photoLibraryImporter.resumeIfRunning()
             },
             enableDispatch: {
                 await self.transferEngine.enableDispatch()

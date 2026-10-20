@@ -42,6 +42,21 @@ struct ImportView: View {
                         ) {
                             self.isPickingPhotos = true
                         }
+                        NavigationLink {
+                            PhotoLibraryImportView()
+                        } label: {
+                            HStack {
+                                Label(PhotoLibraryVocabulary.importRow, systemImage: "photo.stack")
+                                Spacer(minLength: 8)
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .accessibilityHint(PhotoLibraryVocabulary.importRowHint)
+                        .accessibilityIdentifier("import.photoLibrary")
                         self.pickRow(
                             title: SourceVocabulary.importFilesRow,
                             systemImage: "folder",
@@ -128,7 +143,7 @@ struct ImportView: View {
                 self.isPickingPhotos = false
                 guard !providers.isEmpty else { return }
                 self.take { queue in
-                    await InAppImport.accept(itemProviders: providers, queue: queue)
+                    await InAppImport.accept(itemProviders: providers, queue: queue, originApp: ShareImportOrigin.photos)
                 }
             }
             .ignoresSafeArea()

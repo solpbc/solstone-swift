@@ -132,13 +132,17 @@ nonisolated enum ShareImportResult: Equatable, Sendable {
 @MainActor
 final class ShareImportCoordinator {
     private let queue: any ShareImportQueueing
+    private let originApp: String?
     private let recordEvent: @MainActor @Sendable (ShareImportEvent) -> Void
 
+    /// `originApp` names where every item in this batch came from, when the app knows it (see `ShareImportOrigin`).
     init(
         queue: any ShareImportQueueing,
+        originApp: String? = nil,
         recordEvent: @escaping @MainActor @Sendable (ShareImportEvent) -> Void = { _ in }
     ) {
         self.queue = queue
+        self.originApp = originApp
         self.recordEvent = recordEvent
     }
 
@@ -185,7 +189,7 @@ final class ShareImportCoordinator {
                 delivery: delivery,
                 source: importerSource,
                 targetJournal: "",
-                originApp: nil
+                originApp: self.originApp
             )
             committed = true
             self.emit(.enqueueSucceeded(itemID))
@@ -326,7 +330,7 @@ private extension ShareImportCoordinator {
                 delivery: delivery,
                 source: "quick",
                 targetJournal: "",
-                originApp: nil
+                originApp: self.originApp
             )
             committed = true
             self.emit(.enqueueSucceeded(itemID))

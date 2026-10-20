@@ -14,9 +14,10 @@ enum InAppImport {
 
     static func accept(
         itemProviders: [NSItemProvider],
-        queue: any ShareImportQueueing
+        queue: any ShareImportQueueing,
+        originApp: String? = nil
     ) async -> [ShareImportResult] {
-        let coordinator = ShareImportCoordinator(queue: queue)
+        let coordinator = ShareImportCoordinator(queue: queue, originApp: originApp)
         return await coordinator.accept(providers: itemProviders.map { ShareExtensionItemProvider(provider: $0) })
     }
 

@@ -66,6 +66,7 @@ targets:
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
         INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it, including in the background. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
         INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your journal's pairing code"
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "the solstone app takes in the photos you choose from your library, an album and a range of dates at a time. they go into your journal, or wait on this device until you connect one."
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
