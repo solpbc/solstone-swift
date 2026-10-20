@@ -18,7 +18,12 @@ nonisolated enum PushPresentation {
         let formatLocale: Locale
     }
 
-    private static let signatures: [String: MessageSignature] = Self.loadSignatures()
+    private struct CatalogData: Sendable {
+        let signatures: [String: MessageSignature]
+        let sourceLocale: String?
+    }
+
+    private static let catalog: CatalogData = Self.loadCatalog()
 
     private static func asExactInt64(_ value: Any?) -> Int64? {
         guard let value else { return nil }
@@ -33,12 +38,12 @@ nonisolated enum PushPresentation {
         return number.int64Value
     }
 
-    private static func loadSignatures() -> [String: MessageSignature] {
+    private static func loadCatalog() -> CatalogData {
         guard let irData = Data(base64Encoded: PushCatalogContract.irBase64),
               let historyData = Data(base64Encoded: PushCatalogContract.historyBase64)
         else {
             log.error("unreadable push catalog contract")
-            return [:]
+            return CatalogData(signatures: [:], sourceLocale: nil)
         }
 
         do {
@@ -47,7 +52,7 @@ nonisolated enum PushPresentation {
                   let records = histDict["records"] as? [[String: Any]]
             else {
                 log.error("unreadable push catalog contract")
-                return [:]
+                return CatalogData(signatures: [:], sourceLocale: nil)
             }
 
             var tombstones = Set<String>()
@@ -64,8 +69,10 @@ nonisolated enum PushPresentation {
                   let messages = irDict["messages"] as? [[String: Any]]
             else {
                 log.error("unreadable push catalog contract")
-                return [:]
+                return CatalogData(signatures: [:], sourceLocale: nil)
             }
+
+            let sourceLocale = irDict["source_locale"] as? String
 
             var sigs: [String: MessageSignature] = [:]
             for msg in messages {
@@ -99,10 +106,10 @@ nonisolated enum PushPresentation {
                     }
                 }
             }
-            return sigs
+            return CatalogData(signatures: sigs, sourceLocale: sourceLocale)
         } catch {
             log.error("unreadable push catalog contract")
-            return [:]
+            return CatalogData(signatures: [:], sourceLocale: nil)
         }
     }
 
@@ -122,34 +129,45 @@ nonisolated enum PushPresentation {
         return names
     }
 
-    private static func resolveLprojBundles(in bundle: Bundle, for locale: Locale) -> (candidate: ResolvedTable?, packaged: ResolvedTable?) {
-        var packagedTable: ResolvedTable? = nil
-        if let devLoc = bundle.developmentLocalization,
-           devLoc != "Base",
-           let path = bundle.path(forResource: devLoc, ofType: "lproj"),
-           let b = Bundle(path: path) {
-            packagedTable = ResolvedTable(bundle: b, formatLocale: Locale(identifier: devLoc))
+    private static func resolveLprojBundles(
+        in bundle: Bundle,
+        for locale: Locale
+    ) -> (candidateTables: [ResolvedTable], packagedTables: [ResolvedTable]) {
+        var candidateTables: [ResolvedTable] = []
+        var seenCandidatePaths = Set<String>()
+        for name in self.candidateLprojNames(for: locale) {
+            if let path = bundle.path(forResource: name, ofType: "lproj"),
+               !seenCandidatePaths.contains(path),
+               let b = Bundle(path: path) {
+                seenCandidatePaths.insert(path)
+                candidateTables.append(ResolvedTable(bundle: b, formatLocale: locale))
+            }
         }
-        if packagedTable == nil {
-            for loc in bundle.localizations where loc != "Base" {
-                if let path = bundle.path(forResource: loc, ofType: "lproj"),
-                   let b = Bundle(path: path) {
-                    packagedTable = ResolvedTable(bundle: b, formatLocale: Locale(identifier: loc))
-                    break
+
+        var packagedFolderNames: [String] = []
+        if let devLoc = bundle.developmentLocalization, devLoc != "Base", !devLoc.isEmpty {
+            packagedFolderNames.append(devLoc)
+        }
+        if let sourceLoc = self.catalog.sourceLocale, !sourceLoc.isEmpty {
+            for name in self.candidateLprojNames(for: Locale(identifier: sourceLoc)) {
+                if !packagedFolderNames.contains(name) {
+                    packagedFolderNames.append(name)
                 }
             }
         }
 
-        var candidateTable: ResolvedTable? = nil
-        for name in self.candidateLprojNames(for: locale) {
+        var packagedTables: [ResolvedTable] = []
+        var seenPackagedPaths = Set<String>()
+        for name in packagedFolderNames {
             if let path = bundle.path(forResource: name, ofType: "lproj"),
+               !seenPackagedPaths.contains(path),
                let b = Bundle(path: path) {
-                candidateTable = ResolvedTable(bundle: b, formatLocale: locale)
-                break
+                seenPackagedPaths.insert(path)
+                packagedTables.append(ResolvedTable(bundle: b, formatLocale: Locale(identifier: name)))
             }
         }
 
-        return (candidateTable, packagedTable)
+        return (candidateTables, packagedTables)
     }
 
     static func render(
@@ -169,7 +187,7 @@ nonisolated enum PushPresentation {
         guard let v = self.asExactInt64(dict["v"]), v == 1,
               let epoch = self.asExactInt64(dict["catalog_epoch"]), epoch == 1,
               let messageId = dict["code"] as? String,
-              let signature = self.signatures[messageId]
+              let signature = self.catalog.signatures[messageId]
         else {
             return fallbackEn
         }
@@ -211,24 +229,28 @@ nonisolated enum PushPresentation {
             formatArgs = []
         }
 
-        let (candidateTable, packagedTable) = self.resolveLprojBundles(in: bundle, for: locale)
+        let (candidateTables, packagedTables) = self.resolveLprojBundles(in: bundle, for: locale)
         let sentinel = "\u{0000}__PUSH_SENTINEL__\u{0000}"
         var formatPattern: String? = nil
         var formatLocale: Locale = locale
 
-        if let candidate = candidateTable {
+        for candidate in candidateTables {
             let val = candidate.bundle.localizedString(forKey: resourceKey, value: sentinel, table: "PushMessages")
             if val != sentinel {
                 formatPattern = val
                 formatLocale = candidate.formatLocale
+                break
             }
         }
 
-        if formatPattern == nil, let packaged = packagedTable, packaged.bundle.bundlePath != candidateTable?.bundle.bundlePath {
-            let val = packaged.bundle.localizedString(forKey: resourceKey, value: sentinel, table: "PushMessages")
-            if val != sentinel {
-                formatPattern = val
-                formatLocale = packaged.formatLocale
+        if formatPattern == nil {
+            for packaged in packagedTables {
+                let val = packaged.bundle.localizedString(forKey: resourceKey, value: sentinel, table: "PushMessages")
+                if val != sentinel {
+                    formatPattern = val
+                    formatLocale = packaged.formatLocale
+                    break
+                }
             }
         }
 

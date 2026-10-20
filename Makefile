@@ -1019,9 +1019,11 @@ push-catalog:
 		echo "error: i18n-catalog binary not found or not executable at $$binary" >&2; \
 		exit 1; \
 	fi; \
-	import_dir=$$(mktemp -d /var/tmp/push-import.XXXXXX); \
-	apple_dir=$$(mktemp -d /var/tmp/push-apple.XXXXXX); \
-	trap 'rm -rf "$$import_dir" "$$apple_dir"' EXIT INT TERM; \
+	work=$$(mktemp -d /var/tmp/push-catalog.XXXXXX); \
+	trap 'rm -rf "$$work"' EXIT INT TERM; \
+	import_dir="$$work/import"; \
+	apple_dir="$$work/apple"; \
+	mkdir "$$apple_dir"; \
 	"$$binary" import "$$PUSH_CATALOG_COMPILER/contracts/push-i18n/r2" --dest "$$import_dir"; \
 	lock_manifest=$$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("manifest_sha256", ""))' "$$import_dir/import-lock.json"); \
 	if [ "$$lock_manifest" != "7de4c8d9a0b844e036247363bb9f081234cb29dece3307d4dcd77bb2c95cdd81" ]; then \
