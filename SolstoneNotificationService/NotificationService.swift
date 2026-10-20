@@ -27,7 +27,12 @@ nonisolated final class NotificationService: UNNotificationServiceExtension, @un
 
         let store = PushKeyStore.production()
         do {
-            let mutated = try PushEnvelope.mutateContent(request: request, keyStore: store)
+            let mutated = try PushEnvelope.mutateContent(
+                request: request,
+                keyStore: store,
+                locale: Locale.current,
+                bundle: Bundle(for: NotificationService.self)
+            )
             self.finish(with: mutated)
         } catch let error as PushEnvelopeError {
             log.error("notification unseal failed: \(error.reasonCode, privacy: .public)")

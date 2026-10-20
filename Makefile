@@ -996,3 +996,57 @@ clean:
 # Validate source plists before generation can overwrite them.
 check-versions:
 	python3 scripts/check-versions.py
+
+.PHONY: push-catalog
+push-catalog:
+	@set -eu; \
+	if [ -z "$${PUSH_CATALOG_COMPILER:-}" ]; then \
+		echo "error: PUSH_CATALOG_COMPILER is required" >&2; \
+		exit 1; \
+	fi; \
+	commit=$$(git -C "$$PUSH_CATALOG_COMPILER" rev-parse HEAD 2>/dev/null || true); \
+	if [ "$$commit" != "7b18075aa88fc0a5a3eacde7dccc7d21b5d04110" ]; then \
+		echo "error: PUSH_CATALOG_COMPILER HEAD must be 7b18075aa88fc0a5a3eacde7dccc7d21b5d04110, got $$commit" >&2; \
+		exit 1; \
+	fi; \
+	locales_sha=$$(shasum -a 256 "$$PUSH_CATALOG_COMPILER/tools/i18n/locales.json" | awk '{print $$1}'); \
+	if [ "$$locales_sha" != "4ce9096095be91cb7ba2b79c5c49ffc325ceee0539dce1863acd2e0a59315ab6" ]; then \
+		echo "error: locales.json sha256 mismatch: $$locales_sha" >&2; \
+		exit 1; \
+	fi; \
+	binary="$$PUSH_CATALOG_COMPILER/tools/i18n/target/debug/i18n-catalog"; \
+	if [ ! -x "$$binary" ]; then \
+		echo "error: i18n-catalog binary not found or not executable at $$binary" >&2; \
+		exit 1; \
+	fi; \
+	import_dir=$$(mktemp -d /var/tmp/push-import.XXXXXX); \
+	apple_dir=$$(mktemp -d /var/tmp/push-apple.XXXXXX); \
+	trap 'rm -rf "$$import_dir" "$$apple_dir"' EXIT INT TERM; \
+	"$$binary" import "$$PUSH_CATALOG_COMPILER/contracts/push-i18n/r2" --dest "$$import_dir"; \
+	lock_manifest=$$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("manifest_sha256", ""))' "$$import_dir/import-lock.json"); \
+	if [ "$$lock_manifest" != "7de4c8d9a0b844e036247363bb9f081234cb29dece3307d4dcd77bb2c95cdd81" ]; then \
+		echo "error: import-lock manifest_sha256 mismatch: $$lock_manifest" >&2; \
+		exit 1; \
+	fi; \
+	"$$binary" compile "$$import_dir" --channel production; \
+	"$$binary" emit "$$import_dir" --channel production --out "$$import_dir/ir.json"; \
+	"$$binary" targets "$$import_dir" --channel production --target apple --out "$$apple_dir"; \
+	sh "$$PUSH_CATALOG_COMPILER/tools/i18n/verify-apple-isolation.sh" "$$apple_dir/apple/PushMessages.swift"; \
+	if grep -q "en-GB" "$$apple_dir/apple/PushMessages.xcstrings" "$$apple_dir/cases.json"; then \
+		echo "error: en-GB found in production apple output" >&2; \
+		exit 1; \
+	fi; \
+	if grep -q "\[test\]" "$$apple_dir/apple/PushMessages.xcstrings" "$$apple_dir/cases.json"; then \
+		echo "error: [test] found in production apple output" >&2; \
+		exit 1; \
+	fi; \
+	rm -rf PushCatalog/imported; \
+	mkdir -p PushCatalog/imported PushCatalog/contract Sources/Push; \
+	cp -R "$$import_dir"/* PushCatalog/imported/; \
+	rm -f PushCatalog/imported/ir.json; \
+	cp "$$import_dir/ir.json" PushCatalog/contract/ir.json; \
+	cp "$$apple_dir/cases.json" PushCatalog/contract/cases.json; \
+	cp "$$apple_dir/apple/PushMessages.swift" Sources/Push/PushMessages.swift; \
+	cp "$$apple_dir/apple/PushMessages.xcstrings" Sources/Push/PushMessages.xcstrings; \
+	python3 scripts/embed-push-catalog.py; \
+	echo "push-catalog updated successfully"

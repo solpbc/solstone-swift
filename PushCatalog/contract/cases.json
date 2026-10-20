@@ -1,0 +1,169 @@
+{
+  "cases": [
+    {
+      "bundle": "PushMessages",
+      "call_contract": {
+        "arguments": [
+          {
+            "integer": 0,
+            "type": "integer"
+          },
+          {
+            "string": "0",
+            "type": "string"
+          }
+        ],
+        "bundle": "PushMessages",
+        "entry": "Bundle.localizedString then String(format:locale:arguments:)",
+        "enum_argument": null,
+        "format_passes": 1,
+        "gettext_lookup_key": "push.proof.count\u0004m707573682e70726f6f662e636f756e74",
+        "gettext_plural_key": "m707573682e70726f6f662e636f756e74_plural",
+        "gettext_unsigned_quantity": 0,
+        "locale": "en-US",
+        "message_id": "push.proof.count",
+        "resource_key": "m707573682e70726f6f662e636f756e74",
+        "signed_quantity": 0
+      },
+      "expectation_kind": "resource-golden",
+      "expected": "⁨0⁩ items are ready.",
+      "folder": null,
+      "inputs": {
+        "count": 0
+      },
+      "locale": "en-US",
+      "logical_expected": "⁨0⁩ items are ready.",
+      "message_id": "push.proof.count",
+      "own_reader": "xcstrings",
+      "own_reader_call": "String(format:locale:arguments: \"m707573682e70726f6f662e636f756e74\", 1:Int64(0), 2:String(\"0\"))",
+      "platform_reader": "pending",
+      "resource_key": "m707573682e70726f6f662e636f756e74",
+      "target": "apple"
+    },
+    {
+      "bundle": "PushMessages",
+      "call_contract": {
+        "arguments": [],
+        "bundle": "PushMessages",
+        "entry": "Bundle.localizedString then String(format:locale:arguments:)",
+        "enum_argument": null,
+        "format_passes": 1,
+        "gettext_lookup_key": "push.proof.new\u0004m707573682e70726f6f662e6e6577",
+        "gettext_plural_key": "m707573682e70726f6f662e6e6577_plural",
+        "gettext_unsigned_quantity": null,
+        "locale": "en-US",
+        "message_id": "push.proof.new",
+        "resource_key": "m707573682e70726f6f662e6e6577",
+        "signed_quantity": null
+      },
+      "expectation_kind": "resource-golden",
+      "expected": "a new test message is ready.",
+      "folder": null,
+      "inputs": {},
+      "locale": "en-US",
+      "logical_expected": "a new test message is ready.",
+      "message_id": "push.proof.new",
+      "own_reader": "xcstrings",
+      "own_reader_call": "String(format:locale:arguments: \"m707573682e70726f6f662e6e6577\")",
+      "platform_reader": "pending",
+      "resource_key": "m707573682e70726f6f662e6e6577",
+      "target": "apple"
+    },
+    {
+      "bundle": "PushMessages",
+      "call_contract": {
+        "arguments": [
+          {
+            "string": "waiting",
+            "type": "string"
+          }
+        ],
+        "bundle": "PushMessages",
+        "entry": "Bundle.localizedString then String(format:locale:arguments:)",
+        "enum_argument": "waiting",
+        "format_passes": 1,
+        "gettext_lookup_key": "push.proof.state.waiting\u0004m707573682e70726f6f662e7374617465_v77616974696e67",
+        "gettext_plural_key": "m707573682e70726f6f662e7374617465_v77616974696e67_plural",
+        "gettext_unsigned_quantity": null,
+        "locale": "en-US",
+        "message_id": "push.proof.state",
+        "resource_key": "m707573682e70726f6f662e7374617465_v77616974696e67",
+        "signed_quantity": null
+      },
+      "expectation_kind": "resource-golden",
+      "expected": "waiting for the test.",
+      "folder": null,
+      "inputs": {
+        "state": "waiting"
+      },
+      "locale": "en-US",
+      "logical_expected": "waiting for the test.",
+      "message_id": "push.proof.state",
+      "own_reader": "xcstrings",
+      "own_reader_call": "String(format:locale:arguments: \"m707573682e70726f6f662e7374617465_v77616974696e67\")",
+      "platform_reader": "pending",
+      "resource_key": "m707573682e70726f6f662e7374617465",
+      "target": "apple"
+    },
+    {
+      "bundle": "PushMessages",
+      "call_contract": {
+        "arguments": [],
+        "bundle": "PushMessages",
+        "entry": "Bundle.localizedString then String(format:locale:arguments:)",
+        "enum_argument": null,
+        "format_passes": 1,
+        "gettext_lookup_key": "push.test.body\u0004m707573682e746573742e626f6479",
+        "gettext_plural_key": "m707573682e746573742e626f6479_plural",
+        "gettext_unsigned_quantity": null,
+        "locale": "en-US",
+        "message_id": "push.test.body",
+        "resource_key": "m707573682e746573742e626f6479",
+        "signed_quantity": null
+      },
+      "expectation_kind": "resource-golden",
+      "expected": "test notification from your journal.",
+      "folder": null,
+      "inputs": {},
+      "locale": "en-US",
+      "logical_expected": "test notification from your journal.",
+      "message_id": "push.test.body",
+      "own_reader": "xcstrings",
+      "own_reader_call": "String(format:locale:arguments: \"m707573682e746573742e626f6479\")",
+      "platform_reader": "pending",
+      "resource_key": "m707573682e746573742e626f6479",
+      "target": "apple"
+    },
+    {
+      "bundle": "PushMessages",
+      "call_contract": {
+        "arguments": [],
+        "bundle": "PushMessages",
+        "entry": "Bundle.localizedString then String(format:locale:arguments:)",
+        "enum_argument": null,
+        "format_passes": 1,
+        "gettext_lookup_key": "push.test.title\u0004m707573682e746573742e7469746c65",
+        "gettext_plural_key": "m707573682e746573742e7469746c65_plural",
+        "gettext_unsigned_quantity": null,
+        "locale": "en-US",
+        "message_id": "push.test.title",
+        "resource_key": "m707573682e746573742e7469746c65",
+        "signed_quantity": null
+      },
+      "expectation_kind": "resource-golden",
+      "expected": "solstone",
+      "folder": null,
+      "inputs": {},
+      "locale": "en-US",
+      "logical_expected": "solstone",
+      "message_id": "push.test.title",
+      "own_reader": "xcstrings",
+      "own_reader_call": "String(format:locale:arguments: \"m707573682e746573742e7469746c65\")",
+      "platform_reader": "pending",
+      "resource_key": "m707573682e746573742e7469746c65",
+      "target": "apple"
+    }
+  ],
+  "catalog_version": 1,
+  "channel": "production"
+}

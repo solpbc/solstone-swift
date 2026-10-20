@@ -1,0 +1,6 @@
+repository: solpbc/solstone-journal
+commit: 7b18075aa88fc0a5a3eacde7dccc7d21b5d04110
+path: contracts/push-i18n/r2
+manifest_sha256: 7de4c8d9a0b844e036247363bb9f081234cb29dece3307d4dcd77bb2c95cdd81
+registry_path: tools/i18n/locales.json
+registry_sha256: 4ce9096095be91cb7ba2b79c5c49ffc325ceee0539dce1863acd2e0a59315ab6

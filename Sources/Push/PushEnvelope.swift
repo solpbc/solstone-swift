@@ -56,6 +56,12 @@ extension Data {
     }
 }
 
+extension Bundle {
+    convenience init(for _: PushEnvelope.Type) {
+        self.init(for: PushKeyStore.self)
+    }
+}
+
 nonisolated func isValidOpenPath(_ path: String) -> Bool {
     PushEnvelope.isValidOpenPath(path)
 }
@@ -198,7 +204,9 @@ nonisolated enum PushEnvelope {
 
     static func mutateContent(
         request: UNNotificationRequest,
-        keyStore: PushKeyStore
+        keyStore: PushKeyStore,
+        locale: Locale,
+        bundle: Bundle
     ) throws -> UNMutableNotificationContent {
         guard let envelopeString = request.content.userInfo["e"] as? String else {
             throw PushEnvelopeError.badEnvelope
@@ -227,9 +235,31 @@ nonisolated enum PushEnvelope {
         mutableContent.userInfo.removeValue(forKey: "solstone.open")
         mutableContent.userInfo.removeValue(forKey: "data")
         mutableContent.categoryIdentifier = ""
-        mutableContent.title = payload.title
-        mutableContent.body = payload.body
         mutableContent.threadIdentifier = payload.kind
+
+        var finalTitle = payload.title
+        var finalBody = payload.body
+
+        if let rawJSONData = payload.rawJSON.data(using: .utf8),
+           let jsonObj = try? JSONSerialization.jsonObject(with: rawJSONData),
+           let jsonDict = jsonObj as? [String: Any],
+           let presentation = jsonDict["presentation"] as? [String: Any] {
+            finalTitle = PushPresentation.render(
+                entry: presentation["title"],
+                legacy: payload.title,
+                locale: locale,
+                bundle: bundle
+            )
+            finalBody = PushPresentation.render(
+                entry: presentation["body"],
+                legacy: payload.body,
+                locale: locale,
+                bundle: bundle
+            )
+        }
+
+        mutableContent.title = finalTitle
+        mutableContent.body = finalBody
 
         if let open = payload.open, isValidOpenPath(open) {
             mutableContent.userInfo["solstone.open"] = open

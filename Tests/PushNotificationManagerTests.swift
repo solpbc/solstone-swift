@@ -62,6 +62,7 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         PushManagerURLProtocol.handler = { request in
             XCTAssertEqual(request.httpMethod, "POST")
             XCTAssertEqual(request.url?.path, "/api/push/register")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Solstone-Push-Presentation"), "1")
             let body = try XCTUnwrap(requestBody(from: request))
             let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
             recordedBodies.withLock { $0.append(json) }
@@ -78,6 +79,9 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         }
 
         await manager.submitToken(Data([0xde, 0xad, 0xbe, 0xef]))
+        await MainActor.run {
+            XCTAssertEqual(manager.registrationState, .registered(token: "deadbeef"))
+        }
         let bodies1 = recordedBodies.withLock { $0 }
         XCTAssertEqual(bodies1.count, 1)
         let firstBody = bodies1[0]
@@ -466,10 +470,14 @@ nonisolated final class PushNotificationManagerTests: XCTestCase {
         PushManagerURLProtocol.handler = { request in
             methods.withLock { $0.append(request.httpMethod ?? "") }
             if request.httpMethod == "DELETE" {
+                XCTAssertNil(request.value(forHTTPHeaderField: "X-Solstone-Push-Presentation"))
                 let body = try XCTUnwrap(requestBody(from: request))
                 let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
                 deleteBodies.withLock { $0.append(json) }
                 return (HTTPURLResponse(url: request.url!, statusCode: 204, httpVersion: nil, headerFields: nil)!, Data())
+            }
+            if request.httpMethod == "POST" {
+                XCTAssertEqual(request.value(forHTTPHeaderField: "X-Solstone-Push-Presentation"), "1")
             }
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data())
         }

@@ -558,6 +558,7 @@ private extension PushNotificationManager {
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue("1", forHTTPHeaderField: "X-Solstone-Push-Presentation")
                 request.httpBody = self.registrationBody(token: token, pushKey: pushKey)
 
                 request.attachLoopbackCapability()

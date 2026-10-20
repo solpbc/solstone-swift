@@ -127,6 +127,11 @@ targets:
       - SolstoneNotificationService
       - Sources/Push/PushEnvelope.swift
       - Sources/Push/PushKeyStore.swift
+      - Sources/Push/PushMessages.swift
+      - path: Sources/Push/PushMessages.xcstrings
+        buildPhase: resources
+      - Sources/Push/PushCatalogContract.swift
+      - Sources/Push/PushPresentation.swift
     entitlements:
       path: SolstoneNotificationService/SolstoneNotificationService.entitlements
       properties:

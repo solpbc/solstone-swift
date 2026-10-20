@@ -1,0 +1,88 @@
+{
+  "sourceLanguage": "en-US",
+  "strings": {
+    "m707573682e70726f6f662e636f756e74": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "⁨%2$@⁩ item is ready."
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "⁨%2$@⁩ items are ready."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m707573682e70726f6f662e6e6577": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a new test message is ready."
+          }
+        }
+      }
+    },
+    "m707573682e70726f6f662e7374617465_v7265616479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ready for the test."
+          }
+        }
+      }
+    },
+    "m707573682e70726f6f662e7374617465_v77616974696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting for the test."
+          }
+        }
+      }
+    },
+    "m707573682e746573742e626f6479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "test notification from your journal."
+          }
+        }
+      }
+    },
+    "m707573682e746573742e7469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "solstone"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
