@@ -71,7 +71,7 @@ nonisolated final class ErrorClassificationTests: XCTestCase {
         XCTAssertFalse(mapped.isRetryable)
         XCTAssertEqual(mapped.userMessage, TunnelError.revoked.userMessage)
         XCTAssertEqual(mapped.iconName, TunnelError.revoked.iconName)
-        XCTAssertTrue(TunnelState.error(mapped).asksToPairAgain)
+        XCTAssertTrue(solstone_swift.TunnelState.error(mapped).asksToPairAgain)
     }
 
     // Falsified by showing the revoked copy, or stopping retries, for a refusal the journal
@@ -89,15 +89,15 @@ nonisolated final class ErrorClassificationTests: XCTestCase {
             XCTAssertEqual(mapped, tunnelError, "\(sessionError)")
             XCTAssertTrue(mapped.isRetryable, "\(sessionError)")
             XCTAssertNotEqual(mapped.userMessage, TunnelError.revoked.userMessage, "\(sessionError)")
-            XCTAssertFalse(TunnelState.error(mapped).asksToPairAgain, "\(sessionError)")
+            XCTAssertFalse(solstone_swift.TunnelState.error(mapped).asksToPairAgain, "\(sessionError)")
         }
     }
 
     @MainActor
     func testOnlyAStoppedCredentialAsksToPairAgain() {
-        XCTAssertTrue(TunnelState.error(.revoked).asksToPairAgain)
-        XCTAssertTrue(TunnelState.error(.refusalsExhausted).asksToPairAgain)
-        for state: TunnelState in [
+        XCTAssertTrue(solstone_swift.TunnelState.error(.revoked).asksToPairAgain)
+        XCTAssertTrue(solstone_swift.TunnelState.error(.refusalsExhausted).asksToPairAgain)
+        for state: solstone_swift.TunnelState in [
             .disconnected,
             .connecting,
             .waitingForHome,
