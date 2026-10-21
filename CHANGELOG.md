@@ -16,9 +16,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
-- when your journal turns this iphone away, solstone now shows it right away and asks you to pair again, instead of trying again first.
+- when your journal says your iphone or ipad is no longer paired with it, the app now asks you to pair again right away, instead of saying it can't reach your journal.
 
-- if your journal keeps refusing this iphone, solstone now stops trying to reach it until you pair again.
+- if your journal keeps refusing your iphone or ipad, the app now stops trying to reach it until you pair again.
 
 ## [2.0.9 (133)] - 2026-10-20
 
