@@ -14,6 +14,12 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - photos you pick from the photo picker now show "from Photos" too when you open one from "on this device".
 
+### Fixed
+
+- when your journal turns this iphone away, solstone now shows it right away and asks you to pair again, instead of trying again first.
+
+- if your journal keeps refusing this iphone, solstone now stops trying to reach it until you pair again.
+
 ## [2.0.9 (133)] - 2026-10-20
 
 ### Added
