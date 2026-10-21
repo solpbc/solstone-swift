@@ -1052,7 +1052,9 @@ final class TunnelManager {
             guard permit.isValid, !Task.isCancelled, self.isCurrentAttempt(epoch) else { throw CancellationError() }
             do {
                 return try await self.connectTransportOnce(pairingOverride: retryPairing, epoch: epoch, permit: permit, onPrepared: onPrepared)
-            } catch let error as SessionError where error == .authRefreshRequired || error == .revoked {
+            } catch SessionError.authRefreshRequired {
+                // why: only the relay's own rejection is refreshed. A revoked session is the paired
+                // journal's verified access-denied, so it goes straight to the revoked handling.
                 guard !didAuthRefresh else {
                     // why: a repeat auth challenge after one refresh is retryable unless the refresher confirms revocation.
                     throw SessionError.unreachable

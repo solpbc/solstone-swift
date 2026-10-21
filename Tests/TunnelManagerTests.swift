@@ -2011,6 +2011,41 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
     }
 
+    // Falsified by sending the journal's verified access-denied through the relay token refresh
+    // first: the owner would see a retrying state instead of the re-pair banner, and a refresh
+    // that cannot confirm the revocation would leave them there.
+    @MainActor
+    func testVerifiedAccessDeniedPresentsRevokedWithoutTokenRefresh() async {
+        let didDelete = OSAllocatedUnfairLock(initialState: false)
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.fixturePairing())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [.failure(SessionError.revoked)]
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(),
+            clientInfo: SPLRuntime.clientInfo
+        )
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            didDeletePairing: didDelete,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.revoked))
+        XCTAssertTrue(manager.state.asksToPairAgain)
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 0)
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertNil(manager.reconnectCountdown)
+        // The same handling a refresh-confirmed revocation gets.
+        XCTAssertTrue(didDelete.withLock { $0 })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
     // Falsified by deleting the pairing on a refusal stop (only a new pairing ends it, and the
     // owner's held material waits for that pairing), by scheduling another dial, or by sending
     // the stop through the token refresh meant for an auth challenge.
