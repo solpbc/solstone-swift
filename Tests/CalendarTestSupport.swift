@@ -92,6 +92,7 @@ nonisolated final class FakeCalendarProvider: CalendarAccessProviding, CalendarE
         var seriesLookups = 0
         var mainThreadSeriesLookups = 0
         var onChange: (@MainActor @Sendable () -> Void)?
+        var readGate: (@Sendable () -> Void)?
     }
 
     private let lock = NSLock()
@@ -145,6 +146,13 @@ nonisolated final class FakeCalendarProvider: CalendarAccessProviding, CalendarE
     var workerReads: Int { self.locked { $0.workerReads } }
     var seriesLookups: Int { self.locked { $0.seriesLookups } }
     var mainThreadSeriesLookups: Int { self.locked { $0.mainThreadSeriesLookups } }
+    /// Runs at the start of each event read, on the reading thread. For tests that act while a
+    /// read is under way.
+    var readGate: (@Sendable () -> Void)? {
+        get { self.locked { $0.readGate } }
+        set { self.locked { $0.readGate = newValue } }
+    }
+
     /// The handler the engine registered for iOS's change notices, once set up.
     var onChange: (@MainActor @Sendable () -> Void)? { self.locked { $0.onChange } }
 
@@ -187,6 +195,7 @@ nonisolated final class FakeCalendarProvider: CalendarAccessProviding, CalendarE
 
     func events(from: Date, to: Date, calendarIDs: [String]) -> [CalendarEventRecord] {
         self.noteRead()
+        self.readGate?()
         let (canRead, events) = self.locked { state -> (Bool, [FakeCalendarEvent]) in
             state.eventReads.append((from, to))
             return (state.accessValue.canRead, state.events)

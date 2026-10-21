@@ -47,8 +47,8 @@ final class CalendarBackgroundRefresh {
         self.schedule()
         let engine = self.engine
         let work = Task { @MainActor in
-            await engine.backgroundRefresh()
-            handle.complete(success: !Task.isCancelled)
+            let checked = await engine.backgroundRefresh()
+            handle.complete(success: checked && !Task.isCancelled)
         }
         handle.setExpirationHandler {
             work.cancel()

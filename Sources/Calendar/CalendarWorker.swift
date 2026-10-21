@@ -344,22 +344,26 @@ actor CalendarWorker {
             var entry = old ?? CalendarSentEntry(identity: sighting.identity)
             entry.holders = Self.holders(old?.holders ?? [], seen: sighting.holderKeys, readKeys: readKeys, liveKeys: liveKeys)
             entry.firstMissingAt = nil
+            // The last winner was read: a new calendar name is a rename or a real move between
+            // followed calendars. Not read (switched off, coming in, unreadable): the name alone
+            // is never a change.
+            let lastWinnerRead = old?.winner.map(readKeys.contains) ?? false
+            let renamed = lastWinnerRead && old?.calendar != content.calendar
             let change: CalendarNoteChange?
-            if old?.skipped == fingerprint {
+            if old?.skipped == fingerprint, !renamed {
                 change = nil
             } else if let old, old.wasSent, !old.removed {
-                if old.fingerprint == fingerprint {
-                    change = nil
-                } else if let winner = old.winner, importing.contains(winner), liveKeys.contains(winner) {
-                    // The copy last sent belongs to a calendar still coming in; it decides once in.
-                    change = nil
-                } else {
-                    change = .changed
-                }
+                change = old.fingerprint == fingerprint && !renamed ? nil : .changed
             } else {
                 change = .added
             }
             guard let change else {
+                // A last winner that was not read hands over to this read's winner, so an edit
+                // is never held back waiting on a calendar that is off or still coming in. The
+                // calendar name last sent stands.
+                if let old, old.wasSent, let winner = old.winner, !readKeys.contains(winner) {
+                    entry.winner = sighting.winner.calendar.key
+                }
                 if entry != old {
                     upserts[identityKey] = entry
                 }

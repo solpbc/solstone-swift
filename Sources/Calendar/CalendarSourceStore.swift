@@ -249,6 +249,8 @@ final class CalendarSourceStore {
     private(set) var recordWriteCount = 0
     /// Stops a step at a chosen point, as a kill would. For tests.
     var interruption: ((CalendarStepPoint) throws -> Void)?
+    /// Writes a record line in place of the file handle. For tests of a failed write.
+    var journalWrite: ((FileHandle, Data) throws -> Void)?
 
     init(rootURL: URL, fileManager: FileManager = .default) {
         self.rootURL = rootURL
@@ -362,8 +364,18 @@ final class CalendarSourceStore {
         }
         let handle = try FileHandle(forWritingTo: self.recordJournalURL)
         defer { try? handle.close() }
-        try handle.seekToEnd()
-        try handle.write(contentsOf: line)
+        let offset = try handle.seekToEnd()
+        do {
+            if let journalWrite = self.journalWrite {
+                try journalWrite(handle, line)
+            } else {
+                try handle.write(contentsOf: line)
+            }
+        } catch {
+            // Leave no part of a failed append behind for the next one to land on.
+            try? handle.truncate(atOffset: offset)
+            throw error
+        }
         for (key, entry) in upserts {
             self.recordCache[key] = entry
         }

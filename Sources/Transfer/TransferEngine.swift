@@ -809,18 +809,18 @@ actor TransferEngine {
         self.scheduleWork()
     }
 
-    /// Registers a best-effort delivered hook for one source key. Hooks fire at
-    /// most once after the delivery commit; a crash between commit and hook
-    /// execution skips the hook permanently. Hooks must be idempotent and must
-    /// not be a producer's only durable delivery signal. A throwing or
-    /// cancelled hook is swallowed, emits a `.hookFailed` diagnostic, and never
-    /// mutates engine state.
     /// Registers a best-effort hook for one source key that runs each time one of its items
     /// moves to needs attention, for a producer that paces itself on what is still queued.
     func registerAttentionHook(sourceKey: String, hook: @escaping TransferAttentionHook) {
         self.attentionHooks[sourceKey] = hook
     }
 
+    /// Registers a best-effort delivered hook for one source key. Hooks fire at
+    /// most once after the delivery commit; a crash between commit and hook
+    /// execution skips the hook permanently. Hooks must be idempotent and must
+    /// not be a producer's only durable delivery signal. A throwing or
+    /// cancelled hook is swallowed, emits a `.hookFailed` diagnostic, and never
+    /// mutates engine state.
     func registerDeliveredHook(sourceKey: String, hook: @escaping TransferDeliveredHook) {
         self.deliveredHooks[sourceKey] = hook
     }

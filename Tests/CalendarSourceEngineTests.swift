@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
 /// The calendar engine over a fake calendar that behaves as iOS does, a temporary store and a
@@ -753,7 +754,7 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
         harness.engine.storeChanged()
         harness.engine.foreground()
         harness.engine.storeChanged()
-        async let refresh: Void = harness.engine.backgroundRefresh()
+        async let refresh: Bool = harness.engine.backgroundRefresh()
         async let launched: Void = harness.engine.launch()
         _ = await (refresh, launched)
         await harness.engine.waitUntilIdle()
@@ -1049,11 +1050,12 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
         harness.provider.events = [Self.meeting("BG-1", title: "seen in the background", CalendarFixtures.at(2026, 10, 26, 9, 0), lastModified: "2026-10-20T16:50:00-06:00")]
         harness.rebuild()
         let engine = harness.engine
-        async let refreshed: Void = engine.backgroundRefresh()
+        async let refreshed: Bool = engine.backgroundRefresh()
         try? await Task.sleep(for: .milliseconds(200))
         XCTAssertEqual(engine.checkCount, 0, "nothing runs before the launch finishes")
         await engine.launch()
-        await refreshed
+        let ranCheck = await refreshed
+        XCTAssertTrue(ranCheck)
         await engine.waitUntilIdle()
         XCTAssertEqual(engine.checkCount, 1)
         XCTAssertEqual(harness.delivery.lines(event: "BG-1").count, 1)
@@ -1066,7 +1068,8 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
         harness.settings.launchWait = .milliseconds(300)
         harness.rebuild()
         let started = ContinuousClock.now
-        await harness.engine.backgroundRefresh()
+        let ranCheck = await harness.engine.backgroundRefresh()
+        XCTAssertFalse(ranCheck, "the refresh task completes unsuccessfully")
         XCTAssertLessThan(ContinuousClock.now - started, .seconds(2))
         XCTAssertEqual(harness.engine.checkCount, 0)
     }
@@ -1163,6 +1166,129 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
         let lines = harness.delivery.lines(event: "BOTH-1")
         XCTAssertEqual(lines.map { $0["change"] as? String }, ["added", "changed"])
         XCTAssertEqual(lines.last?["title"] as? String, "parents' evening, room 12")
+    }
+
+    @MainActor
+    func testAnEditToASharedEventIsNotHeldWhileItsWinningCalendarComesBackIn() async {
+        for checkWhileOff in [true, false] {
+            let harness = Self.harness()
+            harness.provider.addCalendar("cal-family", title: "Family")
+            harness.provider.events = [
+                Self.meeting("HELD-1", calendar: "cal-work", title: "school play", CalendarFixtures.at(2026, 10, 29, 18, 0), lastModified: "2026-10-14T10:00:00-06:00"),
+                Self.meeting("HELD-1", calendar: "cal-family", title: "school play", CalendarFixtures.at(2026, 10, 29, 18, 0), lastModified: "2026-10-14T10:00:00-06:00"),
+            ]
+            await harness.setUpAndConfirm()
+            XCTAssertEqual(harness.delivery.lines(event: "HELD-1").map { $0["calendar"] as? String }, ["Family"])
+
+            await harness.engine.setCalendar("cal-family", followed: false)
+            if checkWhileOff {
+                harness.advance(minutes: 5)
+                await harness.check()
+                XCTAssertEqual(harness.delivery.lines(event: "HELD-1").count, 1)
+            }
+            // Back on, and its import left unconfirmed.
+            await harness.engine.setCalendar("cal-family", followed: true)
+            for index in harness.provider.events.indices {
+                harness.provider.events[index].title = "school play, 6:30 start"
+                harness.provider.events[index].lastModified = CalendarFixtures.instant("2026-10-20T16:45:00-06:00")
+            }
+            harness.advance(minutes: 20)
+            await harness.check()
+            let lines = harness.delivery.lines(event: "HELD-1")
+            XCTAssertEqual(lines.map { $0["change"] as? String }, ["added", "changed"], "checked while off: \(checkWhileOff)")
+            XCTAssertEqual(lines.last?["title"] as? String, "school play, 6:30 start")
+        }
+    }
+
+    @MainActor
+    func testAPauseWhileTheWorkerChecksQueuesNothingAndResumeSendsIt() async throws {
+        let harness = Self.harness()
+        harness.provider.events = [Self.meeting("PAUSED-1", title: "dentist", CalendarFixtures.at(2026, 10, 27, 9, 0), lastModified: "2026-10-14T10:00:00-06:00")]
+        await harness.setUpAndConfirm()
+        harness.provider.events = []
+        harness.advance(minutes: 1)
+        await harness.check()
+        harness.advance(minutes: 11)
+        let filesBefore = harness.delivery.files.count
+
+        let reached = OSAllocatedUnfairLock(initialState: false)
+        let release = DispatchSemaphore(value: 0)
+        harness.provider.readGate = {
+            reached.withLock { $0 = true }
+            release.wait()
+        }
+        harness.engine.foreground()
+        while !reached.withLock({ $0 }) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        harness.engine.pause()
+        harness.provider.readGate = nil
+        release.signal()
+        await harness.engine.waitUntilIdle()
+        XCTAssertEqual(harness.delivery.files.count, filesBefore, "nothing is queued after a pause")
+        XCTAssertNotEqual(harness.delivery.lines(event: "PAUSED-1").last?["change"] as? String, "removed")
+
+        await harness.engine.resume()
+        XCTAssertEqual(harness.delivery.lines(event: "PAUSED-1").map { $0["change"] as? String }, ["added", "removed"])
+    }
+
+    @MainActor
+    func testAFailedRecordWriteLeavesNothingForTheNextAppendToLandOn() async throws {
+        let harness = Self.harness()
+        harness.provider.events = (0..<3).map { index in
+            Self.meeting("W-\(index)", title: "item \(index)", CalendarFixtures.at(2026, 10, 22 + index, 9, 0), lastModified: "2026-10-1\(index)T10:00:00-06:00")
+        }
+        await harness.setUpAndConfirm()
+        for index in 0..<3 {
+            harness.provider.events[index].title = "edited \(index)"
+            harness.provider.events[index].lastModified = CalendarFixtures.instant("2026-10-20T16:4\(index):00-06:00")
+        }
+        harness.advance(minutes: 15)
+        // The write gets halfway, then fails.
+        harness.store.journalWrite = { handle, line in
+            try handle.write(contentsOf: line.prefix(line.count / 2))
+            throw CocoaError(.fileWriteOutOfSpace)
+        }
+        await harness.check()
+        harness.store.journalWrite = nil
+        XCTAssertTrue(harness.delivery.lines(event: "W-0").allSatisfy { $0["title"] as? String == "item 0" })
+
+        harness.advance(minutes: 1)
+        await harness.check()
+        harness.rebuild()
+        XCTAssertEqual(harness.store.record.values.compactMap(\.title).sorted(), ["edited 0", "edited 1", "edited 2"])
+        XCTAssertEqual(harness.delivery.lines(event: "W-0").last?["title"] as? String, "edited 0")
+    }
+
+    @MainActor
+    func testRenamingTheWinningCalendarSendsOneChangeWithTheNewName() async {
+        let harness = Self.harness()
+        harness.provider.events = [Self.meeting("RENAME-1", title: "sprint review", CalendarFixtures.at(2026, 10, 28, 15, 0), lastModified: "2026-10-14T10:00:00-06:00")]
+        await harness.setUpAndConfirm()
+        harness.provider.calendarList = [CalendarInfo(identifier: "cal-work", title: "Job", accountName: "iCloud", isBirthdays: false)]
+        harness.advance(minutes: 5)
+        await harness.check()
+        harness.advance(minutes: 5)
+        await harness.check()
+        let lines = harness.delivery.lines(event: "RENAME-1")
+        XCTAssertEqual(lines.map { $0["change"] as? String }, ["added", "changed"])
+        XCTAssertEqual(lines.map { $0["calendar"] as? String }, ["Work", "Job"])
+    }
+
+    @MainActor
+    func testMovingAnEventBetweenTwoFollowedCalendarsSendsOneChange() async {
+        let harness = Self.harness()
+        harness.provider.addCalendar("cal-home", title: "Home")
+        harness.provider.events = [Self.meeting("MOVE-1", title: "plumber", CalendarFixtures.at(2026, 10, 28, 8, 0), lastModified: "2026-10-14T10:00:00-06:00")]
+        await harness.setUpAndConfirm()
+        harness.provider.events[0].calendarID = "cal-home"
+        harness.advance(minutes: 5)
+        await harness.check()
+        harness.advance(minutes: 15)
+        await harness.check()
+        let lines = harness.delivery.lines(event: "MOVE-1")
+        XCTAssertEqual(lines.map { $0["change"] as? String }, ["added", "changed"])
+        XCTAssertEqual(lines.map { $0["calendar"] as? String }, ["Work", "Home"])
     }
 
     @MainActor

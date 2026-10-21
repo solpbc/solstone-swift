@@ -292,8 +292,10 @@ final class CalendarSourceEngine {
 
     /// For background refresh time. iOS may launch the app just for this, before the app has
     /// finished launching; the refresh then waits for the launch, whose own check is the one it
-    /// runs, and gives the time back if the launch does not finish within `launchWait`.
-    func backgroundRefresh() async {
+    /// runs, and gives the time back if the launch does not finish within `launchWait`. `false`
+    /// when it gave the time back without checking.
+    @discardableResult
+    func backgroundRefresh() async -> Bool {
         if !self.launched {
             let deadline = ContinuousClock.now + self.settings.launchWait
             while !self.launched, ContinuousClock.now < deadline, !Task.isCancelled {
@@ -301,15 +303,16 @@ final class CalendarSourceEngine {
             }
             guard self.launched else {
                 calendarEngineLog.notice("calendar refresh ended before the app finished launching")
-                return
+                return false
             }
             await self.waitUntilIdle()
-            return
+            return true
         }
         self.access = self.accessProvider.access()
         self.requestCheck()
         self.requestPump()
         await self.waitUntilIdle()
+        return true
     }
 
     /// A calendar file reached the journal, or went to needs attention, so an import may add
@@ -591,6 +594,8 @@ final class CalendarSourceEngine {
                 room: room,
                 timeZone: self.dependencies.timeZone()
             )
+            // A pause while the worker built the batch stops it here.
+            guard !self.document.paused else { return }
             var document = self.document
             guard let index = document.imports.firstIndex(where: { $0.id == importRecord.id }) else { return }
             guard let batch else {
@@ -638,6 +643,8 @@ final class CalendarSourceEngine {
         ) else {
             return
         }
+        // A pause while the worker checked drops what it found; resuming checks again.
+        guard !self.document.paused else { return }
         do {
             try await self.commit(files: outcome.files, upserts: outcome.upserts, document: outcome.document)
             if !outcome.files.isEmpty {
