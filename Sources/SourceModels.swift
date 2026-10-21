@@ -9,6 +9,7 @@ nonisolated enum SourceKind: Codable, Equatable, Hashable, Sendable {
     case location
     case screencast
     case watch
+    case calendar
 }
 
 nonisolated struct SourceAttention: Equatable, Sendable {

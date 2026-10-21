@@ -50,13 +50,18 @@ struct HomeSourceTile: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(self.source.displayName)
-        .accessibilityValue(self.source.state.label)
+        .accessibilityValue(Self.accessibilityValue(for: self.source))
         .accessibilityIdentifier("dayHome.tile.\(self.source.id)")
         .background(Color.deckSurface, in: ShellMetrics.tileShape)
         .overlay {
             ShellMetrics.tileShape.stroke(Color.deckHairline, lineWidth: 0.5)
         }
         .hoverEffect(.highlight)
+    }
+
+    /// The tile's accessible value: the state word alone.
+    static func accessibilityValue(for source: Source) -> String {
+        source.state.label
     }
 
     /// Glyph and control share the top line. At accessibility sizes the control drops

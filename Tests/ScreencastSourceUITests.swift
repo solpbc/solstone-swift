@@ -21,6 +21,7 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
             location: Self.source(id: "location", kind: .location),
             screencast: Self.source(id: "screen", kind: .screencast),
             watch: Self.source(id: "watch", kind: .watch),
+            calendar: nil,
             hiddenIDs: []
         )
         let routes = rows.map(\.route)

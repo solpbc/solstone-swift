@@ -12,6 +12,7 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
             location: Self.source(id: "location", kind: .location),
             screencast: Self.source(id: "screencast", kind: .screencast),
             watch: nil,
+            calendar: nil,
             hiddenIDs: []
         )
 
@@ -37,10 +38,11 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
             location: Self.source(id: "location", kind: .location),
             screencast: Self.source(id: "screencast", kind: .screencast),
             watch: Self.source(id: "watch", kind: .watch),
+            calendar: Self.source(id: "calendar", kind: .calendar),
             hiddenIDs: []
         )
 
-        XCTAssertEqual(rows.map(\.route), [.audio, .location, .screencast, .watch])
+        XCTAssertEqual(rows.map(\.route), [.audio, .location, .screencast, .calendar, .watch])
     }
 
     func testAddMoreRowsPutHiddenFirstInCanonicalOrder() {
@@ -49,10 +51,11 @@ nonisolated final class SourcesViewRowBuilderTests: XCTestCase {
             location: Self.source(id: "location", kind: .location),
             screencast: Self.source(id: "screencast", kind: .screencast),
             watch: Self.source(id: "watch", kind: .watch),
-            hiddenIDs: ["screencast", "audio"]
+            calendar: Self.source(id: "calendar", kind: .calendar),
+            hiddenIDs: ["screencast", "audio", "calendar"]
         )
 
-        XCTAssertEqual(rows.map(\.source.id), ["audio", "screencast", "location", "watch"])
+        XCTAssertEqual(rows.map(\.source.id), ["audio", "screencast", "calendar", "location", "watch"])
     }
 
     func testAddMoreRowsOmitShareAndHaveNoSwitch() throws {

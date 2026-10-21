@@ -9,6 +9,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
     case location
     case screencast
     case watch
+    case calendar
 
     var route: SourceRoute {
         switch self {
@@ -16,6 +17,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .location: .location
         case .screencast: .screencast
         case .watch: .watch
+        case .calendar: .calendar
         }
     }
 
@@ -25,6 +27,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .location: .location
         case .screencast: .screencast
         case .watch: .watch
+        case .calendar: .calendar
         }
     }
 
@@ -34,6 +37,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .location: "location"
         case .screencast: SourceVocabulary.screencastDisplayName
         case .watch: "watch"
+        case .calendar: CalendarVocabulary.label
         }
     }
 }
@@ -64,6 +68,7 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
             StatusPaneWaitingRow(source: .location, count: locationCount),
             StatusPaneWaitingRow(source: .screencast, count: screencastCount),
             StatusPaneWaitingRow(source: .watch, count: watchCount),
+            StatusPaneWaitingRow(source: .calendar, count: calendarCount),
         ]
         return Self(
             total: mobileAggregateCount + watchCount + calendarCount,

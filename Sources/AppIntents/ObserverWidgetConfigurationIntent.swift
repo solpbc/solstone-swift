@@ -20,7 +20,8 @@ enum ObserverWidgetSource: String, AppEnum {
         ]
     }
 
-    init(sourceKind: SourceKind) {
+    /// `nil` for a source with no widget: calendar has none.
+    init?(sourceKind: SourceKind) {
         switch sourceKind {
         case .observer:
             self = .observer
@@ -30,6 +31,8 @@ enum ObserverWidgetSource: String, AppEnum {
             self = .screencast
         case .watch:
             self = .watch
+        case .calendar:
+            return nil
         }
     }
 

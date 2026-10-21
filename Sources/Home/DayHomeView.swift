@@ -187,6 +187,7 @@ struct DayHomeView: View {
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
+    @Environment(CalendarSourceHandle.self) private var calendarSourceHandle: CalendarSourceHandle?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
@@ -382,6 +383,17 @@ private extension DayHomeView {
                     isOn: self.screencastIsOn
                 )
             }
+            if let handle = self.calendarSourceHandle {
+                let calendar = makeCalendarSource(handle.source, isJournalPaired: self.appConfig.isPaired)
+                if self.isOnHome(calendar.id) {
+                    HomeSourceTile(
+                        source: calendar,
+                        route: .calendar,
+                        control: calendarTileControl(CalendarSourceStatus(state: handle.source.state)),
+                        isOn: self.calendarIsOn(handle.source)
+                    )
+                }
+            }
             if let watch = self.bundle.watch, self.isOnHome(watch.id) {
                 HomeSourceTile(
                     source: watch,
@@ -394,6 +406,18 @@ private extension DayHomeView {
                 self.onOpenSources()
             }
         }
+    }
+
+    /// The calendar tile's switch only pauses and resumes; it never asks for access.
+    func calendarIsOn(_ source: any CalendarSourceControlling) -> Binding<Bool> {
+        Binding(
+            get: { CalendarSourceStatus(state: source.state).sourceState == .active },
+            set: { isOn in
+                Task { @MainActor in
+                    await setCalendarTile(source, on: isOn)
+                }
+            }
+        )
     }
 
     var audioIsOn: Binding<Bool> {

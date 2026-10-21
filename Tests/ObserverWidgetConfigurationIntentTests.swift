@@ -16,8 +16,10 @@ nonisolated final class ObserverWidgetConfigurationIntentTests: XCTestCase {
         XCTAssertEqual(sourceKinds.count, 4)
 
         for sourceKind in sourceKinds {
-            XCTAssertEqual(ObserverWidgetSource(sourceKind: sourceKind).sourceKind, sourceKind)
+            XCTAssertEqual(ObserverWidgetSource(sourceKind: sourceKind)?.sourceKind, sourceKind)
         }
+        // Calendar is a source with no widget.
+        XCTAssertNil(ObserverWidgetSource(sourceKind: .calendar))
     }
 
     @MainActor

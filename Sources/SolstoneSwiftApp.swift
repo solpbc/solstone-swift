@@ -32,6 +32,7 @@ struct SolstoneSwiftApp: App {
     @State private var shareTransferHolder: ShareTransferHolder
     @State private var photoLibraryImporter: PhotoLibraryImporter
     @State private var calendarSource: CalendarSourceEngine
+    @State private var calendarSourceHandle: CalendarSourceHandle
     @State private var calendarTransferHolder: CalendarTransferHolder
     @State private var calendarBackgroundRefresh: CalendarBackgroundRefresh
     @State private var watchSegmentDrain: WatchSegmentDrain?
@@ -395,6 +396,15 @@ struct SolstoneSwiftApp: App {
             )
         )
         let calendarBackgroundRefresh = CalendarBackgroundRefresh(engine: calendarSource)
+        calendarTransferHolder.importFilesNotYetQueued = { [weak calendarSource] in
+            calendarSource?.importFilesNotYetQueued ?? 0
+        }
+#if DEBUG
+        let seededCalendarSource: (any CalendarSourceControlling)? = CalendarUITestSource.seeded()
+        let calendarSourceHandle = CalendarSourceHandle(source: seededCalendarSource ?? calendarSource)
+#else
+        let calendarSourceHandle = CalendarSourceHandle(source: calendarSource)
+#endif
         let mobileSegmentUploader = MobileSegmentUploader(
             transferEngine: transferEngine,
             store: mobileSegmentStore,
@@ -719,6 +729,7 @@ struct SolstoneSwiftApp: App {
         self._shareTransferHolder = State(initialValue: shareTransferHolder)
         self._photoLibraryImporter = State(initialValue: photoLibraryImporter)
         self._calendarSource = State(initialValue: calendarSource)
+        self._calendarSourceHandle = State(initialValue: calendarSourceHandle)
         self._calendarTransferHolder = State(initialValue: calendarTransferHolder)
         self._calendarBackgroundRefresh = State(initialValue: calendarBackgroundRefresh)
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
@@ -788,6 +799,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.shareTransferHolder)
                 .environment(self.photoLibraryImporter)
                 .environment(self.calendarSource)
+                .environment(self.calendarSourceHandle)
                 .environment(self.calendarTransferHolder)
                 .environment(self.mobileSegmentUploader)
                 .environment(self.mobileSegmentEngine)

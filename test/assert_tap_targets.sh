@@ -11,6 +11,7 @@ TARGETS=(
   Sources/Onboarding
   Sources/Home
   Sources/Location
+  Sources/Calendar
 )
 
 status=0

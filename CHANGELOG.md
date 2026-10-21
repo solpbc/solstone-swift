@@ -10,6 +10,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - import can now bring in photos from your library: choose an album and a range of dates, see how many photos that is, then import them. you can pause or stop partway, and the photo library screen shows whether your journal has described the newest ones yet.
 
+- your iphone can now bring your calendar into your journal. you choose how far back it starts, and every event can be found by the day it happens.
+
 ### Changed
 
 - photos you pick from the photo picker now show "from Photos" too when you open one from "on this device".

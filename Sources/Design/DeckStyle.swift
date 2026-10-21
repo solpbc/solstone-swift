@@ -235,6 +235,7 @@ nonisolated extension SourceKind {
         case .location: "mappin.and.ellipse"
         case .screencast: "display"
         case .watch: "applewatch"
+        case .calendar: "calendar"
         }
     }
 }

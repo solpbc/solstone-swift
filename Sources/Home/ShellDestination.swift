@@ -127,6 +127,8 @@ struct ShellDestinationView: View {
             ScreencastSourceDetailView()
         case .source(.watch):
             WatchSourceDetailView()
+        case .source(.calendar):
+            CalendarSourceDetailView()
         case .status:
             StatusPane(presentation: .detail)
         case .journal:
