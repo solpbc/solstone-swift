@@ -38,6 +38,7 @@ private struct CalendarSourcePageView: View {
             .padding()
             .frame(maxWidth: .infinity)
         }
+        .accessibilityIdentifier("calendar.page")
 #if DEBUG
         .overlay(alignment: .topLeading) {
             UITestStateProbe(identifier: "calendar.page.state.\(self.model.mode.rawValue)")
@@ -45,7 +46,6 @@ private struct CalendarSourcePageView: View {
 #endif
         .navigationTitle(CalendarVocabulary.label)
         .navigationBarTitleDisplayMode(.inline)
-        .accessibilityIdentifier("calendar.page")
         .task {
             await self.model.enter()
         }
