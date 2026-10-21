@@ -64,8 +64,17 @@ nonisolated enum CalendarVocabulary {
         "last checked \(time)"
     }
 
-    static func recent(_ kind: CalendarRecentKind, title: String) -> String {
-        "\(kind.rawValue) · \(title)"
+    /// The time of the last check, with its date when that was not today.
+    static func lastCheckedTime(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
+        calendar.isDate(date, inSameDayAs: now)
+            ? date.formatted(date: .omitted, time: .shortened)
+            : date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    /// An event with no title shows the change word alone.
+    static func recent(_ kind: CalendarRecentKind, title: String?) -> String {
+        guard let title, !title.isEmpty else { return kind.rawValue }
+        return "\(kind.rawValue) · \(title)"
     }
 
     static func deliverySending(count: Int) -> String {

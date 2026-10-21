@@ -378,6 +378,50 @@ nonisolated final class CalendarDeliveryTests: XCTestCase {
     }
 
     @MainActor
+    func testFinishSyncingDoesNotWaitOnImportFilesHeldWhilePausedOrUnreadable() async throws {
+        let rig = try await CalendarDeliveryRig(capabilities: ["calendar_notes"])
+        rig.resolver.set(.unavailable("waiting"))
+        rig.addMeetings(count: 7)
+        await rig.harness.setUpAndConfirm()
+        rig.harness.engine.pause()
+        rig.resolver.set(.available(CalendarDeliveryRig.endpoint(credential: "journal-a")))
+        await rig.engine.endpointAvailabilityChanged()
+        try await rig.waitFor("the queued files were sent") { rig.holder.deliveredCount == 3 && rig.holder.inFlightCount == 0 }
+        XCTAssertEqual(rig.holder.pendingCount, 4, "the rest wait in the source's own store")
+        XCTAssertEqual(uploadTotals(mobileSegment: rig.mobile, watch: rig.watch, share: rig.share, calendar: rig.holder).pending, 4)
+        XCTAssertEqual(sendableUploadTotals(mobileSegment: rig.mobile, watch: rig.watch, share: rig.share, calendar: rig.holder).pending, 0)
+
+        let settle = Duration.seconds(5)
+        let handle = CalendarFinishSyncingHandle()
+        let coordinator = FinishSyncingCoordinator(
+            totals: { sendableUploadTotals(mobileSegment: rig.mobile, watch: rig.watch, share: rig.share, calendar: rig.holder) },
+            heldTotals: { uploadTotals(mobileSegment: rig.mobile, watch: rig.watch, share: rig.share, calendar: rig.holder) },
+            inFlight: { uploadInFlight(mobileSegment: rig.mobile, watch: rig.watch, share: rig.share, calendar: rig.holder) },
+            backoff: { uploadBackoff(mirror: rig.mirror) },
+            drive: { await rig.engine.kick() },
+            setPacingMode: { await rig.engine.setPacingMode($0) },
+            isConnected: { true },
+            disconnect: {},
+            scheduling: CalendarNoScheduling(),
+            settleInterval: settle
+        )
+        let started = ContinuousClock.now
+        await coordinator.runTask(handle)
+        XCTAssertLessThan(ContinuousClock.now - started, settle, "nothing it could send was left to wait on")
+        XCTAssertEqual(coordinator.lastOutcome, .interrupted(remaining: 4), "the owner's count keeps them")
+        XCTAssertEqual(handle.completedSuccess, false)
+
+        // The same while the calendar cannot be read.
+        rig.harness.provider.accessValue = .denied
+        await rig.harness.engine.resume()
+        XCTAssertEqual(rig.harness.engine.importFilesHeld, 4)
+        XCTAssertEqual(sendableUploadTotals(mobileSegment: rig.mobile, watch: rig.watch, share: rig.share, calendar: rig.holder).pending, 0)
+        rig.harness.provider.accessValue = .full
+        XCTAssertEqual(rig.harness.engine.importFilesHeld, 0)
+        XCTAssertEqual(sendableUploadTotals(mobileSegment: rig.mobile, watch: rig.watch, share: rig.share, calendar: rig.holder).pending, 4)
+    }
+
+    @MainActor
     func testTheIOSConfigurationAsksForFullAccessOnlyAndPermitsTheRefreshTask() throws {
         let info = Bundle(for: CalendarTransferHolder.self)
         XCTAssertNotNil(info.object(forInfoDictionaryKey: "NSCalendarsFullAccessUsageDescription"))
@@ -480,6 +524,9 @@ final class CalendarDeliveryRig {
             }
         )
         self.harness.provider.addCalendar("cal-work", title: "Work")
+        let harness = self.harness
+        holder.importFilesNotYetQueued = { [weak harness] in harness?.engine.importFilesNotYetQueued ?? 0 }
+        holder.importFilesHeld = { [weak harness] in harness?.engine.importFilesHeld ?? 0 }
         try await self.engine.start()
         await self.engine.registerDeliveredHook(sourceKey: CalendarTransfer.sourceKey) { [weak self] _, _ in
             await MainActor.run {

@@ -85,7 +85,7 @@ final class CalendarUITestSource: CalendarSourceControlling {
         self.state.access
     }
 
-    func chooseSpan(_ span: CalendarSpanChoice) {}
+    func chooseSpan(_ span: CalendarSpanChoice) async {}
 
     func setUp(span: CalendarSpanChoice, calendarIDs: Set<String>?) async {}
 

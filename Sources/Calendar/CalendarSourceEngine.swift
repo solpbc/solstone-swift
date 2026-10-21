@@ -119,6 +119,9 @@ final class CalendarSourceEngine {
     var hasLaunched: Bool { self.launched }
     @ObservationIgnored private var observing = false
     @ObservationIgnored private var debounce: Task<Void, Never>?
+    /// The span the owner asked for last. A count for any other span is superseded and kept
+    /// nowhere.
+    @ObservationIgnored private var latestSpanRequest: CalendarSpanChoice?
     /// Whether `document` has been taken from a loaded store.
     @ObservationIgnored private var storeSynced: Bool
     /// Routine checks that read the calendars. For tests.
@@ -203,19 +206,28 @@ final class CalendarSourceEngine {
 
     /// The setup the owner is choosing, before it is confirmed. Kept in the store, so a new
     /// instance of the engine sees the same span, selection and frozen count.
+    ///
+    /// With a frozen count, `selection` is the calendars that count was made across, so a count
+    /// for another selection never reads as this one's.
     var pendingSetup: CalendarPendingSetup? {
         guard !self.document.everOn, let span = self.document.span else { return nil }
-        return CalendarPendingSetup(
-            span: span,
-            selection: Set(self.document.calendars.filter { $0.followed && $0.present }.map(\.identifier)),
-            count: self.document.imports.first { $0.kind == .setup && !$0.confirmed }?.count
-        )
+        let counted = self.document.imports.first { $0.kind == .setup && !$0.confirmed }
+        let selection = counted?.selection.map(Set.init)
+            ?? Set(self.document.calendars.filter { $0.followed && $0.present }.map(\.identifier))
+        return CalendarPendingSetup(span: span, selection: selection, count: counted?.count)
     }
 
     /// Confirmed calendar files still in the source's own store, waiting to enter the transfer
     /// queue.
     var importFilesNotYetQueued: Int {
         self.document.imports.reduce(0) { $0 + $1.filesNotYetQueued }
+    }
+
+    /// Of `importFilesNotYetQueued`, the files nothing will queue until the owner acts: the
+    /// source is paused, or the calendar cannot be read.
+    var importFilesHeld: Int {
+        guard self.document.paused || !self.accessProvider.access().canRead else { return 0 }
+        return self.importFilesNotYetQueued
     }
 
     /// Set up and not paused: iOS background refresh is worth asking for.
@@ -228,31 +240,28 @@ final class CalendarSourceEngine {
     /// Asks iOS for full calendar access. Never asks for write-only access.
     @discardableResult
     func requestFullAccess() async -> CalendarAccess {
-        self.access = await self.accessProvider.requestFullAccess()
+        self.accessSeen(await self.accessProvider.requestFullAccess())
         return self.access
     }
 
     func refreshAccess() {
-        self.access = self.accessProvider.access()
+        self.accessSeen(self.accessProvider.access())
     }
 
-    /// Saves the span the owner picked, at once: iOS may end the app when a permission changes.
-    /// A different span from the one counted drops that count. Reads nothing.
-    func chooseSpan(_ span: CalendarSpanChoice) {
-        guard self.ensureStore(), !self.document.everOn, self.document.span != span else { return }
-        var document = self.document
-        document.span = span
-        document.imports.removeAll { $0.kind == .setup && !$0.confirmed }
-        self.store.saveDocument(document)
-        self.document = document
-        let referenced = Set(document.imports.map(\.id))
-        Task { await self.worker.removeFrozen(except: referenced) }
+    /// Saves the span the owner picked as soon as the launch has finished: iOS may end the app
+    /// when a permission changes. A different span from the one counted drops that count and
+    /// its frozen set. Reads nothing.
+    func chooseSpan(_ span: CalendarSpanChoice) async {
+        self.latestSpanRequest = span
+        guard await self.untilLaunched() else { return }
+        await self.perform { await self.saveSpan(span) }
     }
 
     /// Reads `span` across the chosen calendars (every calendar when `calendarIDs` is `nil`),
     /// counts what the import will send and freezes it. Nothing is sent until `confirm()`.
     /// Before confirm, a new setup replaces the pending one entirely.
     func setUp(span: CalendarSpanChoice, calendarIDs: Set<String>? = nil) async {
+        self.latestSpanRequest = span
         guard await self.untilLaunched() else { return }
         await self.perform { await self.countSetup(span: span, calendarIDs: calendarIDs) }
     }
@@ -313,7 +322,7 @@ final class CalendarSourceEngine {
     /// queued before anything is sent.
     func launch() async {
         self.started = true
-        self.access = self.accessProvider.access()
+        self.accessSeen(self.accessProvider.access())
         self.delivery.clearStaging()
         await self.perform { _ = await self.finishPendingStep() }
         self.observeChangesIfSetUp()
@@ -324,7 +333,7 @@ final class CalendarSourceEngine {
 
     func foreground() {
         guard self.started else { return }
-        self.access = self.accessProvider.access()
+        self.accessSeen(self.accessProvider.access())
         self.requestPump()
         self.requestCheck()
     }
@@ -359,7 +368,7 @@ final class CalendarSourceEngine {
             await self.waitUntilIdle()
             return true
         }
-        self.access = self.accessProvider.access()
+        self.accessSeen(self.accessProvider.access())
         self.requestCheck()
         self.requestPump()
         await self.waitUntilIdle()
@@ -441,6 +450,44 @@ final class CalendarSourceEngine {
         }
     }
 
+    // MARK: access
+
+    /// Before confirm, a count is only good while the calendar can be read: once it cannot, the
+    /// count and its frozen set are dropped, and the page counts again when access returns.
+    private func accessSeen(_ access: CalendarAccess) {
+        self.access = access
+        guard !access.canRead, !self.document.everOn,
+              self.document.imports.contains(where: { $0.kind == .setup && !$0.confirmed })
+        else {
+            return
+        }
+        self.enqueue { await self.dropUnreadableSetup() }
+    }
+
+    private func dropUnreadableSetup() async {
+        guard await self.finishPendingStep(), !self.document.everOn, !self.accessProvider.access().canRead else { return }
+        await self.dropUnconfirmedSetup()
+    }
+
+    private func dropUnconfirmedSetup() async {
+        guard self.document.imports.contains(where: { $0.kind == .setup && !$0.confirmed }) else { return }
+        var document = self.document
+        document.imports.removeAll { $0.kind == .setup && !$0.confirmed }
+        self.store.saveDocument(document)
+        self.document = document
+        await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
+    }
+
+    private func saveSpan(_ span: CalendarSpanChoice) async {
+        guard await self.finishPendingStep(), !self.document.everOn, self.document.span != span else { return }
+        var document = self.document
+        document.span = span
+        document.imports.removeAll { $0.kind == .setup && !$0.confirmed }
+        self.store.saveDocument(document)
+        self.document = document
+        await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
+    }
+
     // MARK: steps
 
     /// Loads the store, if it could not be read before. The source does nothing until it can.
@@ -511,8 +558,8 @@ final class CalendarSourceEngine {
 
     private func countSetup(span: CalendarSpanChoice, calendarIDs: Set<String>?) async {
         guard await self.finishPendingStep(), !self.document.everOn else { return }
-        self.access = self.accessProvider.access()
-        guard self.access.canRead else { return }
+        self.accessSeen(self.accessProvider.access())
+        guard self.access.canRead, self.latestSpanRequest.map({ $0 == span }) ?? true else { return }
         self.isCountingSetup = true
         defer { self.isCountingSetup = false }
         do {
@@ -523,6 +570,11 @@ final class CalendarSourceEngine {
                 now: self.dependencies.now(),
                 timeZone: self.dependencies.timeZone()
             )
+            // The owner picked another span while this one was counted: it is kept nowhere.
+            guard self.latestSpanRequest.map({ $0 == span }) ?? true else {
+                await self.worker.removeFrozen(except: Set(self.document.imports.map(\.id)))
+                return
+            }
             try self.store.writeDocument(document)
             self.document = document
             await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
@@ -568,10 +620,13 @@ final class CalendarSourceEngine {
         let key = document.calendars[index].key
         document.calendars[index].followed = followed
         if !document.everOn {
+            // The count was for the old selection: it goes in the same save as the switch, and
+            // the new selection is counted again.
+            document.imports.removeAll { $0.kind == .setup && !$0.confirmed }
             self.store.saveDocument(document)
             self.document = document
-            // A change before the setup is confirmed is counted again.
-            if let span = document.span, document.imports.contains(where: { $0.kind == .setup }) {
+            await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
+            if let span = document.span {
                 await self.countSetup(
                     span: span,
                     calendarIDs: Set(document.calendars.filter { $0.followed && $0.present }.map(\.identifier))
@@ -583,17 +638,29 @@ final class CalendarSourceEngine {
         self.store.saveDocument(document)
         self.document = document
         await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
-        if followed {
-            await self.countCalendar(key: key)
+        // A calendar switched on after setup sends nothing until its count is confirmed: with
+        // no count it stays off.
+        if followed, !(await self.countCalendar(key: key)) {
+            self.unfollow(key: key)
         }
     }
 
+    private func unfollow(key: String) {
+        guard let index = self.document.calendars.firstIndex(where: { $0.key == key }), self.document.calendars[index].followed else {
+            return
+        }
+        var document = self.document
+        document.calendars[index].followed = false
+        self.store.saveDocument(document)
+        self.document = document
+    }
+
     /// Counts a calendar switched on after setup over the setup span; nothing is sent until
-    /// `confirmCalendar`.
-    private func countCalendar(key: String) async {
-        guard self.document.everOn else { return }
-        self.access = self.accessProvider.access()
-        guard self.access.canRead else { return }
+    /// `confirmCalendar`. `false` when there is no count.
+    private func countCalendar(key: String) async -> Bool {
+        guard self.document.everOn else { return false }
+        self.accessSeen(self.accessProvider.access())
+        guard self.access.canRead else { return false }
         self.countingCalendarKeys.insert(key)
         defer { self.countingCalendarKeys.remove(key) }
         do {
@@ -604,13 +671,15 @@ final class CalendarSourceEngine {
                 now: self.dependencies.now(),
                 timeZone: self.dependencies.timeZone()
             ) else {
-                return
+                return false
             }
             try self.store.writeDocument(document)
             self.document = document
             await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
+            return true
         } catch {
             calendarEngineLog.error("calendar count failed: \(String(describing: type(of: error)), privacy: .public)")
+            return false
         }
     }
 
@@ -698,7 +767,7 @@ final class CalendarSourceEngine {
 
     private func runCheck() async {
         guard await self.finishPendingStep(), self.isRunning, !self.document.paused else { return }
-        self.access = self.accessProvider.access()
+        self.accessSeen(self.accessProvider.access())
         guard self.access.canRead else { return }
         self.checkCount += 1
         guard let outcome = await self.worker.routineCheck(

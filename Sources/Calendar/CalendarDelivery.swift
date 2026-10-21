@@ -278,6 +278,9 @@ final class CalendarTransferHolder {
     /// Confirmed calendar files still in the source's own store, not yet in the transfer queue.
     /// They wait on the device like queued files, so they count with them.
     var importFilesNotYetQueued: @MainActor () -> Int = { 0 }
+    /// Of those, the files nothing queues while the source is paused or the calendar cannot be
+    /// read.
+    var importFilesHeld: @MainActor () -> Int = { 0 }
 
     var pendingCount: Int { self.status.queuedCount + self.importFilesNotYetQueued() }
     var failedCount: Int { self.status.attentionCount }
@@ -293,6 +296,14 @@ final class CalendarTransferHolder {
     /// read, or when a read failed, they are ordinary waiting files.
     var heldForJournalCount: Int {
         self.capability == .notListed ? max(0, self.pendingCount - self.inFlightCount) : 0
+    }
+
+    /// Waiting files no drain can send: those held for the journal, or, otherwise, import files
+    /// held in the source's own store while it is paused or cannot read the calendar. They stay
+    /// in the owner's count.
+    var unsendableCount: Int {
+        if self.capability == .notListed { return self.heldForJournalCount }
+        return min(self.pendingCount, self.importFilesHeld())
     }
 
     /// The journal was read and does not take calendar notes yet.

@@ -17,8 +17,9 @@ func uploadTotals(
 }
 
 /// What the background drain and finish-syncing wait on: `uploadTotals` less the refusals the
-/// engine is pacing and the calendar notes held until the journal takes them, which no drain
-/// sends. The owner's held count stays `uploadTotals`.
+/// engine is pacing and the calendar files no drain sends: those held until the journal takes
+/// them, and import files held while calendar is paused or cannot read. The owner's held count
+/// stays `uploadTotals`.
 @MainActor
 func sendableUploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
@@ -29,8 +30,8 @@ func sendableUploadTotals(
     let totals = uploadTotals(mobileSegment: mobileSegment, watch: watch, share: share, calendar: calendar)
     let paced = mobileSegment.refusalPacedCount + watch.refusalPacedCount + share.refusalPacedCount
         + (calendar?.refusalPacedCount ?? 0)
-    let heldForJournal = calendar?.heldForJournalCount ?? 0
-    return (failed: max(0, totals.failed - paced), pending: max(0, totals.pending - heldForJournal))
+    let held = calendar?.unsendableCount ?? 0
+    return (failed: max(0, totals.failed - paced), pending: max(0, totals.pending - held))
 }
 
 @MainActor

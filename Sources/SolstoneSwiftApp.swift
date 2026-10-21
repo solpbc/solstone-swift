@@ -399,6 +399,9 @@ struct SolstoneSwiftApp: App {
         calendarTransferHolder.importFilesNotYetQueued = { [weak calendarSource] in
             calendarSource?.importFilesNotYetQueued ?? 0
         }
+        calendarTransferHolder.importFilesHeld = { [weak calendarSource] in
+            calendarSource?.importFilesHeld ?? 0
+        }
 #if DEBUG
         let seededCalendarSource: (any CalendarSourceControlling)? = CalendarUITestSource.seeded()
         let calendarSourceHandle = CalendarSourceHandle(source: seededCalendarSource ?? calendarSource)

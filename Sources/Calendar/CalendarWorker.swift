@@ -119,7 +119,8 @@ actor CalendarWorker {
             count: lines.count,
             fileCount: frozen.files.count,
             cursor: 0,
-            frozenAt: noticed
+            frozenAt: noticed,
+            selection: document.calendars.filter { $0.followed && $0.present }.map(\.identifier).sorted()
         ))
         calendarWorkerLog.notice("calendar setup counted notes=\(lines.count, privacy: .public)")
         return document

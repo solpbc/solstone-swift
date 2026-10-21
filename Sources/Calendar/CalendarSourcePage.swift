@@ -13,7 +13,7 @@ protocol CalendarSourceControlling: AnyObject {
     var pendingSetup: CalendarPendingSetup? { get }
     func refreshAccess()
     func requestFullAccess() async -> CalendarAccess
-    func chooseSpan(_ span: CalendarSpanChoice)
+    func chooseSpan(_ span: CalendarSpanChoice) async
     func setUp(span: CalendarSpanChoice, calendarIDs: Set<String>?) async
     func confirm() async
     func pause()
@@ -53,7 +53,7 @@ nonisolated func calendarSourceModel(state: CalendarSourceState, isJournalPaired
         state: presentation.sourceState,
         isJournalPaired: isJournalPaired,
         activeSubtext: CalendarVocabulary.activeSubtext(isJournalPaired: isJournalPaired),
-        subtextOverride: presentation.showsReadyToSetUpSubline ? CalendarVocabulary.readyToSetUpSubline : nil,
+        subtextOverride: presentation.subtextOverride,
         attention: presentation.attention.map { SourceAttention(message: $0.text) },
         pendingStatus: .nonePending
     )
@@ -85,6 +85,13 @@ nonisolated struct CalendarSourceStatus: Equatable, Sendable {
     let attention: CalendarAttentionReason?
     /// `ready to set up` between the grant and the confirm, and only then.
     let showsReadyToSetUpSubline: Bool
+
+    /// The sub-line in place of the state's own. In needs attention the reason is the whole
+    /// message, so it replaces the generic line.
+    var subtextOverride: String? {
+        if let attention { return attention.text }
+        return self.showsReadyToSetUpSubline ? CalendarVocabulary.readyToSetUpSubline : nil
+    }
 
     init(state: CalendarSourceState) {
         guard state.everOn else {
@@ -185,7 +192,8 @@ final class CalendarPageModel {
     private var finishedCount = 0
     /// A calendar whose switch-on is being counted.
     private(set) var switchingOn: String?
-    private var entered = false
+    /// A calendar whose switch-on could not be counted. It stays off.
+    private(set) var failedSwitchOn: String?
 
     init(source: any CalendarSourceControlling) {
         self.source = source
@@ -287,30 +295,49 @@ final class CalendarPageModel {
         }?.id
     }
 
-    // MARK: actions
-
-    /// Opening the page: with access full and no frozen count for the stored span, counts
-    /// exactly once. A stored count is shown with no call.
-    func enter() async {
-        self.source.refreshAccess()
-        guard !self.entered else { return }
-        self.entered = true
-        guard !self.source.state.everOn, self.source.state.access == .full, self.frozenCount == nil else { return }
-        await self.count()
+    /// Calendars can be switched only while the calendar can be read: a switch-on needs a count.
+    var canChangeCalendars: Bool {
+        self.source.state.access == .full
     }
 
-    /// Access may have changed in iOS Settings while the page was away.
-    func returnedToForeground() async {
-        let before = self.source.state.access
+    /// Pause and resume stay on the page once the source has been on, in needs attention too.
+    var offersPauseResume: Bool {
+        self.source.state.everOn
+    }
+
+    // MARK: actions
+
+    /// Opening the page: a stored count is shown with no call; with none, counts once.
+    func enter() async {
         self.source.refreshAccess()
-        guard !self.source.state.everOn, before != .full, self.source.state.access == .full, self.frozenCount == nil else { return }
+        await self.countIfNeeded()
+    }
+
+    /// Access may have changed in iOS Settings while the page was away, with or without a
+    /// relaunch.
+    func returnedToForeground() async {
+        self.source.refreshAccess()
+        await self.countIfNeeded()
+    }
+
+    /// Before the source has been on, with full access and no count for what is shown, and none
+    /// running, counts. A count that failed waits for `try again`, until access changes.
+    private func countIfNeeded() async {
+        if self.source.state.access != .full {
+            self.countFailed = false
+        }
+        guard !self.source.state.everOn, self.source.state.access == .full, self.frozenCount == nil,
+              !self.isCounting, !self.countFailed
+        else {
+            return
+        }
         await self.count()
     }
 
     func pick(_ span: CalendarSpanChoice) async {
         guard span != self.span else { return }
         self.span = span
-        self.source.chooseSpan(span)
+        await self.source.chooseSpan(span)
         if self.source.state.access == .full {
             await self.count()
         }
@@ -318,7 +345,7 @@ final class CalendarPageModel {
 
     /// The only control that asks iOS for access.
     func turnOn() async {
-        self.source.chooseSpan(self.span)
+        await self.source.chooseSpan(self.span)
         let access = await self.source.requestFullAccess()
         if access == .full {
             await self.count()
@@ -341,11 +368,16 @@ final class CalendarPageModel {
 
     /// After setup, switching a calendar on counts its setup span; off stops its notes.
     func setCalendar(_ identifier: String, on: Bool) async {
-        guard self.pendingSwitchOn == nil || self.pendingSwitchOn == identifier else { return }
+        guard self.canChangeCalendars, self.pendingSwitchOn == nil || self.pendingSwitchOn == identifier else { return }
+        self.failedSwitchOn = nil
         if on {
             self.switchingOn = identifier
             await self.source.setCalendar(identifier, followed: true)
             self.switchingOn = nil
+            let calendar = self.source.calendars.first { $0.id == identifier }
+            if calendar?.followed != true, calendar?.importStep == nil {
+                self.failedSwitchOn = identifier
+            }
         } else {
             await self.source.setCalendar(identifier, followed: false)
         }

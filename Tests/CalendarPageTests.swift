@@ -36,6 +36,8 @@ final class PageFakeCalendarSource: CalendarSourceControlling {
     var failCounts = false
     var holdCounts = false
     var switchOnCount = 5
+    /// A switch-on after setup that cannot be counted leaves the calendar off, as the engine does.
+    var failSwitchOn = false
 
     private(set) var accessRequests = 0
     private(set) var setUpCalls: [CalendarSpanChoice] = []
@@ -61,7 +63,7 @@ final class PageFakeCalendarSource: CalendarSourceControlling {
         return self.state.access
     }
 
-    func chooseSpan(_ span: CalendarSpanChoice) {
+    func chooseSpan(_ span: CalendarSpanChoice) async {
         self.chosenSpans.append(span)
         if self.pendingSetup?.span != span {
             self.pendingSetup = CalendarPendingSetup(span: span, selection: self.selection, count: nil)
@@ -96,9 +98,10 @@ final class PageFakeCalendarSource: CalendarSourceControlling {
         guard let index = self.calendars.firstIndex(where: { $0.id == identifier }) else { return }
         let old = self.calendars[index]
         if self.state.everOn {
+            let counted = followed && !self.failSwitchOn
             self.calendars[index] = CalendarSourceCalendar(
-                id: old.id, title: old.title, accountName: old.accountName, followed: followed,
-                importStep: followed ? .readyToConfirm(count: self.switchOnCount) : nil
+                id: old.id, title: old.title, accountName: old.accountName, followed: counted,
+                importStep: counted ? .readyToConfirm(count: self.switchOnCount) : nil
             )
             return
         }
@@ -325,6 +328,28 @@ nonisolated final class CalendarPageTests: XCTestCase {
     }
 
     @MainActor
+    func testReturningFromSettingsWithoutARelaunchShowsTheCalendarsAndCountsOnce() async {
+        let source = PageFakeCalendarSource()
+        source.accessAfterRequest = .denied
+        let model = CalendarPageModel(source: source)
+        await model.enter()
+        await model.turnOn()
+        XCTAssertEqual(model.enrolAction, .openSettings)
+        XCTAssertTrue(source.setUpCalls.isEmpty)
+
+        // The owner allowed full access in Settings and came back to the same page. The app
+        // read the new access on the way back, before the page did.
+        source.state.access = .full
+        await model.returnedToForeground()
+        XCTAssertEqual(source.setUpCalls, [.last30Days])
+        XCTAssertEqual(model.mode, .confirm)
+        XCTAssertEqual(model.enrolAction, .chooseCalendars(.count(6)))
+        await model.returnedToForeground()
+        await model.enter()
+        XCTAssertEqual(source.setUpCalls, [.last30Days], "exactly one count")
+    }
+
+    @MainActor
     func testAccessRevokedBeforeConfirmReadsReadyToSetUpWithNoConfirmAndNoAttention() async {
         let source = PageFakeCalendarSource()
         source.state.access = .denied
@@ -413,6 +438,84 @@ nonisolated final class CalendarPageTests: XCTestCase {
         XCTAssertNil(source.calendars.first { $0.id == "club" }?.importStep)
         XCTAssertNil(relaunched.pendingSwitchOn)
         XCTAssertEqual(relaunched.followedFact.followed, 2)
+    }
+
+    @MainActor
+    func testASwitchOnThatCannotBeCountedStaysOffAndOffersTryAgain() async {
+        let source = PageFakeCalendarSource()
+        source.state.access = .full
+        source.state.everOn = true
+        source.calendars.append(CalendarSourceCalendar(id: "club", title: "Club", accountName: "Exchange", followed: false, importStep: nil))
+        source.failSwitchOn = true
+        let model = CalendarPageModel(source: source)
+        await model.setCalendar("club", on: true)
+        XCTAssertEqual(model.failedSwitchOn, "club")
+        XCTAssertEqual(source.calendars.first { $0.id == "club" }?.followed, false)
+        XCTAssertNil(model.pendingSwitchOn)
+
+        source.failSwitchOn = false
+        await model.setCalendar("club", on: true)
+        XCTAssertNil(model.failedSwitchOn)
+        XCTAssertEqual(source.calendars.first { $0.id == "club" }?.importStep, .readyToConfirm(count: 5))
+    }
+
+    @MainActor
+    func testCalendarSwitchesWaitForFullAccess() async {
+        for access in [CalendarAccess.denied, .writeOnly, .restricted, .notDetermined] {
+            let source = PageFakeCalendarSource()
+            source.state.access = access
+            source.state.everOn = true
+            source.calendars.append(CalendarSourceCalendar(id: "club", title: "Club", accountName: "Exchange", followed: false, importStep: nil))
+            let model = CalendarPageModel(source: source)
+            XCTAssertFalse(model.canChangeCalendars)
+            await model.setCalendar("club", on: true)
+            await model.setCalendar("work", on: false)
+            XCTAssertEqual(source.calendars.map(\.followed), [true, true, false], "\(access)")
+            XCTAssertNil(model.failedSwitchOn)
+        }
+    }
+
+    @MainActor
+    func testInNeedsAttentionTheReasonIsTheWholeSubLineAndPauseAndResumeStay() async {
+        for (access, reason) in [(CalendarAccess.denied, CalendarAttentionReason.accessRevoked), (.writeOnly, .writeOnly), (.restricted, .restricted)] {
+            let source = PageFakeCalendarSource()
+            source.state.access = access
+            source.state.everOn = true
+            let tile = calendarSourceModel(state: source.state, isJournalPaired: true)
+            XCTAssertEqual(tile.state, .needsAttention)
+            XCTAssertEqual(tile.subtextOverride, reason.text)
+            XCTAssertNotEqual(tile.subtext, SourceVocabulary.needsAttentionSubtext)
+            let model = CalendarPageModel(source: source)
+            XCTAssertTrue(model.offersPauseResume)
+            await model.pauseOrResume()
+            XCTAssertEqual(source.pauses, 1)
+            XCTAssertTrue(model.offersPauseResume)
+            await model.pauseOrResume()
+            XCTAssertEqual(source.resumes, 1)
+        }
+        XCTAssertFalse(CalendarPageModel(source: PageFakeCalendarSource()).offersPauseResume)
+    }
+
+    @MainActor
+    func testAnUntitledChangeShowsTheChangeWordAloneAndLastCheckedHasItsDateWhenNotToday() {
+        for kind in [CalendarRecentKind.added, .moved, .changed, .removed] {
+            XCTAssertEqual(CalendarVocabulary.recent(kind, title: nil), kind.rawValue)
+            XCTAssertEqual(CalendarVocabulary.recent(kind, title: ""), kind.rawValue)
+            XCTAssertTrue(CalendarVocabulary.recent(kind, title: "standup").hasSuffix("standup"))
+        }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 20, hour: 16, minute: 30))!
+        let earlierToday = calendar.date(byAdding: .hour, value: -3, to: now)!
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: now)!
+        XCTAssertEqual(
+            CalendarVocabulary.lastCheckedTime(earlierToday, now: now, calendar: calendar),
+            earlierToday.formatted(date: .omitted, time: .shortened)
+        )
+        XCTAssertEqual(
+            CalendarVocabulary.lastCheckedTime(yesterday, now: now, calendar: calendar),
+            yesterday.formatted(date: .abbreviated, time: .shortened)
+        )
     }
 
     @MainActor

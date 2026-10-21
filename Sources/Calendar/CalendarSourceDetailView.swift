@@ -224,7 +224,8 @@ private struct CalendarSourcePageView: View {
                     self.openSettingsButton
                 }
             }
-            if let subtext = status.sourceState.subtext(
+            // In needs attention the reason above is the whole message.
+            if status.attention == nil, let subtext = status.sourceState.subtext(
                 activeSubtext: CalendarVocabulary.activeSubtext(isJournalPaired: self.appConfig.isPaired),
                 isJournalPaired: self.appConfig.isPaired
             ) {
@@ -233,7 +234,7 @@ private struct CalendarSourcePageView: View {
                     .foregroundStyle(.secondary)
             }
             if let checked = state.lastCompletedCheck {
-                Text(CalendarVocabulary.lastChecked(checked.formatted(date: .omitted, time: .shortened)))
+                Text(CalendarVocabulary.lastChecked(CalendarVocabulary.lastCheckedTime(checked)))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("calendar.page.lastChecked")
@@ -245,7 +246,7 @@ private struct CalendarSourcePageView: View {
             Text(CalendarVocabulary.honestyLine)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            if status.attention == nil {
+            if self.model.offersPauseResume {
                 Button(state.paused ? SourceVocabulary.resume : SourceVocabulary.pause) {
                     Task { await self.model.pauseOrResume() }
                 }
@@ -268,9 +269,21 @@ private struct CalendarSourcePageView: View {
                     ))
                     .tint(.solOrange)
                     .frame(minHeight: 44)
-                    .disabled(pending != nil && pending != calendar.id)
+                    .disabled(!self.model.canChangeCalendars || (pending != nil && pending != calendar.id))
                     .accessibilityHint(CalendarVocabulary.calendarSwitchHint)
                     .accessibilityIdentifier("calendar.calendar.\(calendar.id)")
+
+                    if self.model.failedSwitchOn == calendar.id {
+                        SourceDetailReasonLine(message: CalendarVocabulary.countFailed)
+                            .accessibilityIdentifier("calendar.calendar.\(calendar.id).countFailed")
+                        Button(CalendarVocabulary.tryAgain) {
+                            Task { await self.model.setCalendar(calendar.id, on: true) }
+                        }
+                        .buttonStyle(.bordered)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .disabled(!self.model.canChangeCalendars)
+                        .accessibilityIdentifier("calendar.calendar.\(calendar.id).tryAgain")
+                    }
 
                     switch calendar.importStep {
                     case .readyToConfirm(let count):
@@ -311,7 +324,7 @@ private struct CalendarSourcePageView: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(recent.enumerated()), id: \.offset) { _, note in
-                    Text(CalendarVocabulary.recent(note.kind, title: note.title ?? ""))
+                    Text(CalendarVocabulary.recent(note.kind, title: note.title))
                         .font(.subheadline)
                         .accessibilityIdentifier("calendar.page.recent.\(note.kind.rawValue)")
                 }

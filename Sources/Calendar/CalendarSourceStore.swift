@@ -137,6 +137,9 @@ nonisolated struct CalendarImportRecord: Codable, Equatable, Sendable {
     let frozenAt: Int64
     /// How many of its notes have gone into the transfer queue so far.
     var queuedNotes: Int? = nil
+    /// For the setup import, the calendars it was counted across. The count describes this
+    /// selection and no other.
+    var selection: [String]? = nil
 
     /// Confirmed notes still in the source's own store, not yet in the transfer queue.
     var notesNotYetQueued: Int {

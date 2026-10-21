@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
 /// The engine behaviours the calendar page relies on, over a temporary store and a fake
@@ -24,6 +25,14 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
         return harness
     }
 
+    /// What a relaunch would read from disk.
+    @MainActor
+    private static func storedDocument(_ harness: CalendarHarness) -> CalendarSourceDocument {
+        let store = CalendarSourceStore(rootURL: harness.rootURL)
+        XCTAssertTrue(store.load())
+        return store.document
+    }
+
     @MainActor
     func testPickingAllOfItBeforeConfirmReplacesTheCountAndTheFrozenSet() async {
         let harness = Self.harness()
@@ -31,7 +40,7 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
         await harness.engine.setUp(span: .last30Days)
         XCTAssertEqual(harness.engine.pendingSetup?.count, 2)
 
-        harness.engine.chooseSpan(.everything)
+        await harness.engine.chooseSpan(.everything)
         XCTAssertEqual(harness.engine.pendingSetup?.span, .everything)
         XCTAssertNil(harness.engine.pendingSetup?.count, "a different span drops the earlier count")
         await harness.engine.setUp(span: .everything)
@@ -52,7 +61,7 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
     func testANewEngineSeesTheSpanSelectionFrozenCountAndPendingSwitchOn() async {
         let harness = Self.harness()
         await harness.ensureLaunched()
-        harness.engine.chooseSpan(.last6Months)
+        await harness.engine.chooseSpan(.last6Months)
         harness.rebuild()
         XCTAssertEqual(harness.engine.pendingSetup, CalendarPendingSetup(span: .last6Months, selection: [], count: nil))
 
@@ -96,7 +105,7 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
         let harness = Self.harness()
         harness.provider.accessValue = .full
         await harness.ensureLaunched()
-        harness.engine.chooseSpan(.lastYear)
+        await harness.engine.chooseSpan(.lastYear)
         harness.rebuild()
         await harness.engine.launch()
         harness.engine.foreground()
@@ -130,6 +139,164 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
         XCTAssertEqual(harness.engine.pendingSetup, CalendarPendingSetup(span: .last30Days, selection: ["cal-work", "cal-family"], count: 2))
     }
 
+    @MainActor
+    func testASwitchBeforeConfirmDropsTheCountInTheSameSaveAndARelaunchCountsOnceForWhatIsOn() async {
+        let harness = Self.harness()
+        await harness.ensureLaunched()
+        await harness.engine.setUp(span: .last30Days)
+        XCTAssertEqual(harness.engine.pendingSetup, CalendarPendingSetup(span: .last30Days, selection: ["cal-work", "cal-family"], count: 2))
+
+        // The recount fails: the calendar cannot be read for it.
+        harness.provider.accessValue = .denied
+        await harness.engine.setCalendar("cal-family", followed: false)
+        await harness.engine.waitUntilIdle()
+        XCTAssertNil(harness.engine.pendingSetup?.count)
+        XCTAssertTrue(Self.storedDocument(harness).imports.isEmpty, "the old count went with the switch")
+
+        harness.provider.accessValue = .full
+        harness.rebuild()
+        await harness.ensureLaunched()
+        XCTAssertNil(harness.engine.pendingSetup?.count, "no stale count after a relaunch")
+        let source = CountingCalendarSource(harness.engine)
+        let page = CalendarPageModel(source: source)
+        XCTAssertNotEqual(page.confirmLabel, .count(2))
+        await page.enter()
+        XCTAssertEqual(source.setUpCalls, 1)
+        XCTAssertEqual(harness.engine.pendingSetup, CalendarPendingSetup(span: .last30Days, selection: ["cal-work"], count: 1))
+        XCTAssertEqual(page.confirmLabel, .count(1))
+    }
+
+    @MainActor
+    func testACountForAnotherSelectionNeverReadsAsTheOneShown() async {
+        let harness = Self.harness()
+        await harness.ensureLaunched()
+        await harness.engine.setUp(span: .last30Days, calendarIDs: ["cal-work"])
+        let page = CalendarPageModel(source: harness.engine)
+        XCTAssertEqual(page.confirmLabel, .count(1))
+        // The switches now show Work and Family; the stored count was made for Work alone.
+        var document = harness.store.document
+        if let index = document.calendars.firstIndex(where: { $0.identifier == "cal-family" }) {
+            document.calendars[index].followed = true
+        }
+        harness.store.saveDocument(document)
+        harness.rebuild()
+        await harness.ensureLaunched()
+        XCTAssertEqual(harness.engine.pendingSetup?.selection, ["cal-work"])
+        XCTAssertEqual(CalendarPageModel(source: harness.engine).confirmLabel, .checking)
+    }
+
+    @MainActor
+    func testASwitchOnAfterSetupWithAccessRevokedSendsNothingUntilConfirmed() async {
+        let harness = Self.harness()
+        await harness.setUpAndConfirm(.everything, calendarIDs: ["cal-work"])
+        let sent = harness.delivery.lines.count
+        XCTAssertEqual(sent, 3)
+
+        harness.provider.accessValue = .denied
+        await harness.engine.setCalendar("cal-family", followed: true)
+        var family = harness.engine.calendars.first { $0.id == "cal-family" }
+        XCTAssertEqual(family?.followed, false, "with no count it stays off")
+        XCTAssertNil(family?.importStep)
+
+        harness.provider.accessValue = .full
+        harness.advance(minutes: 10)
+        await harness.check()
+        XCTAssertEqual(harness.delivery.lines.count, sent)
+
+        await harness.engine.setCalendar("cal-family", followed: true)
+        family = harness.engine.calendars.first { $0.id == "cal-family" }
+        XCTAssertEqual(family?.importStep, .readyToConfirm(count: 2))
+        harness.advance(minutes: 10)
+        await harness.check()
+        XCTAssertEqual(harness.delivery.lines.count, sent, "nothing before confirm")
+
+        await harness.engine.confirmCalendar("cal-family")
+        await harness.engine.waitUntilIdle()
+        XCTAssertEqual(harness.delivery.lines.count, sent + 2)
+    }
+
+    @MainActor
+    func testACountFailureLeavesTheCalendarOff() async throws {
+        let harness = Self.harness()
+        await harness.setUpAndConfirm(.everything, calendarIDs: ["cal-work"])
+        let sent = harness.delivery.lines.count
+        // The frozen set cannot be written.
+        let imports = harness.rootURL.appendingPathComponent("imports", isDirectory: true)
+        try? FileManager.default.removeItem(at: imports)
+        try Data().write(to: imports)
+
+        await harness.engine.setCalendar("cal-family", followed: true)
+        let family = harness.engine.calendars.first { $0.id == "cal-family" }
+        XCTAssertEqual(family?.followed, false)
+        XCTAssertNil(family?.importStep)
+        harness.rebuild()
+        await harness.ensureLaunched()
+        XCTAssertEqual(harness.engine.calendars.first { $0.id == "cal-family" }?.followed, false)
+        harness.advance(minutes: 10)
+        await harness.check()
+        XCTAssertEqual(harness.delivery.lines.count, sent)
+    }
+
+    @MainActor
+    func testRevokingAndRegrantingBeforeConfirmCountsOnce() async {
+        let harness = Self.harness()
+        await harness.ensureLaunched()
+        let source = CountingCalendarSource(harness.engine)
+        let page = CalendarPageModel(source: source)
+        await page.enter()
+        XCTAssertEqual(source.setUpCalls, 1)
+        XCTAssertEqual(page.confirmLabel, .count(2))
+
+        harness.provider.accessValue = .denied
+        await page.returnedToForeground()
+        await harness.engine.waitUntilIdle()
+        XCTAssertNil(harness.engine.pendingSetup?.count, "a count is dropped once the calendar cannot be read")
+        XCTAssertTrue(Self.storedDocument(harness).imports.isEmpty)
+        XCTAssertEqual(page.enrolAction, .openSettings)
+
+        harness.provider.accessValue = .full
+        await page.returnedToForeground()
+        await page.returnedToForeground()
+        XCTAssertEqual(source.setUpCalls, 2, "counted once more")
+        XCTAssertEqual(page.confirmLabel, .count(2))
+    }
+
+    @MainActor
+    func testASpanPickedDuringACountLeavesNoConfirmableCountWithoutItsFrozenSet() async throws {
+        let harness = Self.harness()
+        await harness.ensureLaunched()
+        let reached = OSAllocatedUnfairLock(initialState: false)
+        let release = DispatchSemaphore(value: 0)
+        harness.provider.readGate = {
+            reached.withLock { $0 = true }
+            release.wait()
+        }
+        let engine = harness.engine
+        let first = Task { await engine.setUp(span: .last30Days) }
+        while !reached.withLock({ $0 }) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        let second = Task { await engine.chooseSpan(.lastYear) }
+        try await Task.sleep(for: .milliseconds(50))
+        harness.provider.readGate = nil
+        release.signal()
+        await first.value
+        // A kill as soon as the first count has finished.
+        let killed = CalendarSourceStore(rootURL: harness.rootURL)
+        XCTAssertTrue(killed.load())
+        XCTAssertNotEqual(killed.document.span, .last30Days, "a superseded count writes nothing")
+        XCTAssertTrue(killed.document.imports.isEmpty)
+        await second.value
+        await engine.waitUntilIdle()
+
+        harness.rebuild()
+        await harness.ensureLaunched()
+        XCTAssertEqual(harness.engine.pendingSetup, CalendarPendingSetup(span: .lastYear, selection: [], count: nil))
+        let imports = harness.rootURL.appendingPathComponent("imports", isDirectory: true)
+        let frozen = (try? FileManager.default.contentsOfDirectory(atPath: imports.path)) ?? []
+        XCTAssertTrue(frozen.isEmpty, "no frozen set left behind")
+    }
+
     /// Whenever the page says notes are on their way, or that the journal needs an update, the
     /// waiting count and the status breakdown include calendar, including before any of an
     /// import's files enter the transfer queue.
@@ -139,7 +306,6 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
         rig.resolver.set(.unavailable("waiting"))
         rig.harness.settings.importWindow = 0
         rig.harness.rebuild()
-        rig.holder.importFilesNotYetQueued = { [weak rig] in rig?.harness.engine.importFilesNotYetQueued ?? 0 }
         rig.addMeetings(count: 3)
         await rig.harness.setUpAndConfirm()
         let queued = await rig.engine.itemSnapshots(sourceKey: "calendar").count
@@ -149,7 +315,6 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
         self.assertCalendarWaits(rig)
 
         let waiting = try await CalendarDeliveryRig(capabilities: [])
-        waiting.holder.importFilesNotYetQueued = { [weak waiting] in waiting?.harness.engine.importFilesNotYetQueued ?? 0 }
         waiting.addMeetings(count: 2)
         await waiting.harness.setUpAndConfirm()
         try await waiting.waitFor("the journal was read and the queue published") { waiting.holder.waitingForJournalUpdate }
@@ -174,4 +339,34 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
         XCTAssertEqual(presentation.rows.map(\.source), [.calendar], file: file, line: line)
         XCTAssertEqual(presentation.rows.first?.route, .calendar, file: file, line: line)
     }
+}
+
+/// Passes everything to the engine, counting the counts the page asks for.
+@MainActor
+final class CountingCalendarSource: CalendarSourceControlling {
+    private let engine: CalendarSourceEngine
+    private(set) var setUpCalls = 0
+
+    init(_ engine: CalendarSourceEngine) {
+        self.engine = engine
+    }
+
+    var state: CalendarSourceState { self.engine.state }
+    var calendars: [CalendarSourceCalendar] { self.engine.calendars }
+    var pendingSetup: CalendarPendingSetup? { self.engine.pendingSetup }
+    func refreshAccess() { self.engine.refreshAccess() }
+    func requestFullAccess() async -> CalendarAccess { await self.engine.requestFullAccess() }
+    func chooseSpan(_ span: CalendarSpanChoice) async { await self.engine.chooseSpan(span) }
+
+    func setUp(span: CalendarSpanChoice, calendarIDs: Set<String>?) async {
+        self.setUpCalls += 1
+        await self.engine.setUp(span: span, calendarIDs: calendarIDs)
+    }
+
+    func confirm() async { await self.engine.confirm() }
+    func pause() { self.engine.pause() }
+    func resume() async { await self.engine.resume() }
+    func setCalendar(_ identifier: String, followed: Bool) async { await self.engine.setCalendar(identifier, followed: followed) }
+    func cancelCalendar(_ identifier: String) async { await self.engine.cancelCalendar(identifier) }
+    func confirmCalendar(_ identifier: String) async { await self.engine.confirmCalendar(identifier) }
 }
