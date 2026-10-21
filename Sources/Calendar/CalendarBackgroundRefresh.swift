@@ -15,29 +15,49 @@ final class CalendarBackgroundRefresh {
     static let identifier = "app.solstone.swift.calendar-refresh"
     static let interval: TimeInterval = 60 * 60
 
-    private let engine: CalendarSourceEngine
+    typealias Submitter = (BGTaskRequest) throws -> Void
 
-    init(engine: CalendarSourceEngine) {
+    private let engine: CalendarSourceEngine
+    /// Tests stand in for iOS's answer to registration; nil registers with iOS.
+    private let registrationStandIn: (() -> Bool)?
+    private let submitter: Submitter
+    /// iOS refuses, by raising, a request for a task this process never registered. A launch
+    /// that skips registration (test modes do) must therefore never ask for refresh time.
+    private(set) var isRegistered = false
+
+    init(
+        engine: CalendarSourceEngine,
+        registrationStandIn: (() -> Bool)? = nil,
+        submitter: @escaping Submitter = { try BGTaskScheduler.shared.submit($0) }
+    ) {
         self.engine = engine
+        self.registrationStandIn = registrationStandIn
+        self.submitter = submitter
     }
 
     func register() {
-        let registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.identifier, using: .main) { [weak self] task in
-            MainActor.assumeIsolated {
-                self?.run(CalendarRefreshTaskHandle(task))
+        let registered: Bool
+        if let registrationStandIn {
+            registered = registrationStandIn()
+        } else {
+            registered = BGTaskScheduler.shared.register(forTaskWithIdentifier: Self.identifier, using: .main) { [weak self] task in
+                MainActor.assumeIsolated {
+                    self?.run(CalendarRefreshTaskHandle(task))
+                }
             }
         }
+        self.isRegistered = registered
         if !registered {
             calendarRefreshLog.error("calendar refresh registration failed")
         }
     }
 
     func schedule() {
-        guard self.engine.wantsBackgroundRefresh else { return }
+        guard self.isRegistered, self.engine.wantsBackgroundRefresh else { return }
         let request = BGAppRefreshTaskRequest(identifier: Self.identifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: Self.interval)
         do {
-            try BGTaskScheduler.shared.submit(request)
+            try self.submitter(request)
         } catch {
             calendarRefreshLog.notice("calendar refresh not scheduled: \(String(describing: type(of: error)), privacy: .public)")
         }

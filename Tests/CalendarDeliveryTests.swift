@@ -422,6 +422,35 @@ nonisolated final class CalendarDeliveryTests: XCTestCase {
     }
 
     @MainActor
+    func testRefreshTimeIsAskedForOnlyWhenItsRegistrationSucceeded() async throws {
+        let rig = try await CalendarDeliveryRig(capabilities: ["calendar_notes"])
+        rig.addMeetings(count: 1)
+        await rig.harness.setUpAndConfirm()
+        XCTAssertTrue(rig.harness.engine.wantsBackgroundRefresh)
+
+        var submitted = 0
+        let neverRegistered = CalendarBackgroundRefresh(
+            engine: rig.harness.engine, registrationStandIn: { true }, submitter: { _ in submitted += 1 }
+        )
+        neverRegistered.schedule()
+        XCTAssertEqual(submitted, 0, "a launch that never registered asks for nothing")
+
+        let refused = CalendarBackgroundRefresh(
+            engine: rig.harness.engine, registrationStandIn: { false }, submitter: { _ in submitted += 1 }
+        )
+        refused.register()
+        refused.schedule()
+        XCTAssertEqual(submitted, 0, "a registration iOS refused asks for nothing")
+
+        let registered = CalendarBackgroundRefresh(
+            engine: rig.harness.engine, registrationStandIn: { true }, submitter: { _ in submitted += 1 }
+        )
+        registered.register()
+        registered.schedule()
+        XCTAssertEqual(submitted, 1, "a registered refresh is asked for")
+    }
+
+    @MainActor
     func testTheIOSConfigurationAsksForFullAccessOnlyAndPermitsTheRefreshTask() throws {
         let info = Bundle(for: CalendarTransferHolder.self)
         XCTAssertNotNil(info.object(forInfoDictionaryKey: "NSCalendarsFullAccessUsageDescription"))
