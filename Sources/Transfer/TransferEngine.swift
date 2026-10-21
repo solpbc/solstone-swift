@@ -55,6 +55,13 @@ nonisolated enum TransferPriorityBand: Int, CaseIterable, Sendable {
     case low = 3
 }
 
+/// Decides, item by item, whether an item may go to an endpoint now. An item it turns away
+/// just waits: the engine is not held, so every other source's items keep moving. The gate is
+/// asked when an item is chosen and again just before it is sent.
+nonisolated protocol TransferSourceGate: Sendable {
+    func admits(sourceKey: String, endpoint: TransferResolvedEndpoint) async -> Bool
+}
+
 nonisolated enum TransferEnqueueIfAbsentOutcome: Equatable, Sendable {
     case enqueued
     case alreadyPresent
@@ -227,6 +234,7 @@ actor TransferEngine {
     private let maxConcurrent: Int
     private let bodyBuilder: TransferBodyBuilder
     private let heardReporter: ConnectionHeardReporter
+    private let sourceGate: (any TransferSourceGate)?
     /// This app's build, recorded with a settled refusal. `nil` when not known.
     private let appBuild: String?
     /// The journal's last known version, recorded with a settled refusal. An unknown value
@@ -281,6 +289,7 @@ actor TransferEngine {
         maxConcurrent: Int = 3,
         bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build,
         heardReporter: ConnectionHeardReporter = ConnectionHeardReporter(),
+        sourceGate: (any TransferSourceGate)? = nil,
         appBuild: String? = nil,
         journalVersion: String? = nil,
         audioInspector: PhoneAudioInspector = .live
@@ -297,6 +306,7 @@ actor TransferEngine {
         self.maxConcurrent = max(1, maxConcurrent)
         self.bodyBuilder = bodyBuilder
         self.heardReporter = heardReporter
+        self.sourceGate = sourceGate
         self.appBuild = appBuild.flatMap { $0.isEmpty ? nil : $0 }
         self.journalVersion = TransferRefusalConditions.normalizedJournalVersion(journalVersion)
         self.audioInspector = audioInspector
@@ -1185,8 +1195,13 @@ actor TransferEngine {
                 }
                 let resolution = await self.endpointResolver.resolve(item.manifest.endpoint)
                 switch resolution {
-                case .available:
+                case .available(let endpoint):
                     self.markEndpointAvailable()
+                    if let sourceGate = self.sourceGate,
+                       !(await sourceGate.admits(sourceKey: item.manifest.sourceKey, endpoint: endpoint))
+                    {
+                        continue
+                    }
                     self.sourceCursorByBand[band] = sourceIndex + 1
                     return item
                 case .unavailable(let detail):
@@ -1276,6 +1291,22 @@ actor TransferEngine {
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             self.scheduleStatusUpdate(summary: "held")
             self.scheduleWork()
+            return
+        }
+        // Asked again at the last moment: an item chosen for one journal never goes to another
+        // that the gate has not admitted it for. It waits, and the engine is not held.
+        if let sourceGate = self.sourceGate,
+           !(await sourceGate.admits(sourceKey: item.manifest.sourceKey, endpoint: endpoint))
+        {
+            // Not an attempt: the item was never offered to the journal.
+            if attempt > 1 {
+                self.attemptCountByItemID[itemID] = attempt - 1
+            } else {
+                self.attemptCountByItemID.removeValue(forKey: itemID)
+                self.firstAttemptAtByItemID.removeValue(forKey: itemID)
+            }
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+            self.scheduleStatusUpdate(summary: "held")
             return
         }
         Task {
