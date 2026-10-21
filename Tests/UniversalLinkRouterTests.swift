@@ -53,11 +53,25 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
     }
 
     @MainActor
-    func testShortBlobReturnsFailure_invalidLength() throws {
+    func testShortBlobReturnsFailure_truncated() throws {
         let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x04, 0x01]))))
 
-        guard case .failure(.invalidLength(_)) = result else {
-            return XCTFail("expected invalidLength failure, got \(result)")
+        XCTAssertEqual(result, .failure(.truncated(expected: 40, got: 2)))
+    }
+
+    @MainActor
+    func testOverlongBlobReturnsFailure_lengthMismatch() throws {
+        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode(Self.canonicalBytes + [0x00]))))
+
+        XCTAssertEqual(result, .failure(.lengthMismatch(expected: 40, got: 41)))
+    }
+
+    @MainActor
+    func testCandidateCountOutsideOneToFourReturnsFailure_invalidCandidateCount() throws {
+        for count: UInt8 in [0, 5] {
+            let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x05, 0x01, count]))))
+
+            XCTAssertEqual(result, .failure(.invalidCandidateCount(count)))
         }
     }
 
@@ -72,11 +86,21 @@ nonisolated final class UniversalLinkRouterTests: XCTestCase {
 
     @MainActor
     func testUnsupportedAddressTypeReturnsFailure() throws {
+        var bytes = Self.canonicalBytes
+        bytes[1] = 0x02
+        let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode(bytes))))
+
+        XCTAssertEqual(result, .failure(.unsupportedAddrType(0x02)))
+    }
+
+    @MainActor
+    func testShortBlobWithUnsupportedAddressTypeReportsTruncationFirst() throws {
+        // The direct form's length is checked before its address type, so a two-byte blob
+        // no longer reports the address type it names.
         let result = try XCTUnwrap(UniversalLinkRouter.route(Self.url(fragment: Self.encode([0x04, 0x02]))))
 
-        guard case .failure(.unsupportedAddrType(_)) = result else {
-            return XCTFail("expected unsupportedAddrType failure, got \(result)")
-        }
+        XCTAssertNotEqual(result, .failure(.unsupportedAddrType(0x02)))
+        XCTAssertEqual(result, .failure(.truncated(expected: 40, got: 2)))
     }
 
     @MainActor

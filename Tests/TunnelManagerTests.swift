@@ -500,6 +500,45 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await connectTask.value
     }
 
+    // Falsified by naming an unknown journal "no answer" (it answered, as someone else) or by
+    // naming a refusal from the paired journal as a journal it could not prove.
+    @MainActor
+    func testFailedRaceNamesAnUnknownJournalAsUnprovenAndARefusalAsNotConnected() async {
+        let transport = MockCFTunnelTransport()
+        transport.suspendConnectUntilDisconnect = true
+        let manager = makeManager(
+            transport: transport,
+            pairing: Self.fixturePairing(localEndpoints: [
+                LocalEndpoint(host: "192.168.1.20", port: 7657, scope: "lan"),
+                LocalEndpoint(host: "192.168.1.21", port: 7657, scope: "lan"),
+            ]),
+            jitterRandom: { _ in 1.0 }
+        )
+        let connectTask = Task { @MainActor in await manager.connect() }
+        let started = await Self.waitUntil { transport.connectCallCount == 1 }
+        XCTAssertTrue(started)
+
+        // Sorted map: 0 A pinned, 1 B pinned, 2 A unpinned, 3 B unpinned, 4 relay.
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .unknownJournal, milliseconds: 5)
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 1, failure: .refused, milliseconds: 6)
+        Self.emitFailedCandidate(transport, route: .directUnpinned, ordinal: 2, failure: .unreachable, milliseconds: 7)
+        Self.emitFailedCandidate(transport, route: .directUnpinned, ordinal: 3, failure: .certificateUnknown, milliseconds: 8)
+        transport.emitStage(.attemptUpdatesFinished, attempt: 1)
+        await Self.settle()
+        transport.failSuspendedConnect(error: SessionError.unknownJournal)
+        await connectTask.value
+
+        XCTAssertEqual(manager.state, .error(.tlsHandshakeFailed))
+        XCTAssertEqual(manager.lastFailedDial, TriedAddresses(
+            entries: [
+                TriedAddresses.Entry(address: "192.168.1.20:7657", outcome: .couldNotProveJournal),
+                TriedAddresses.Entry(address: "192.168.1.21:7657", outcome: .couldNotConnect),
+            ],
+            omittedCount: 0
+        ))
+        await manager.disconnect()
+    }
+
     @MainActor
     func testFailedRaceNamesEachDirectAddressWithItsOutcome() async {
         let transport = MockCFTunnelTransport()
@@ -1229,6 +1268,44 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    // Falsified by keeping an address where a peer other than the paired journal answered.
+    @MainActor
+    func testUnknownJournalDirectFailureEvictsCachedCandidate() async throws {
+        let cacheEndpoint = Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local")
+        let bootstrapEndpoint = Self.localEndpoint(host: "10.0.0.99", port: 7657, scope: "local")
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing(localEndpoints: [cacheEndpoint]))
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            pairing: Self.fixturePairing(localEndpoints: [bootstrapEndpoint])
+        )
+
+        await manager.connect()
+
+        let cacheCandidate = TransportEndpoint.lan(
+            host: cacheEndpoint.host,
+            port: cacheEndpoint.port,
+            scope: cacheEndpoint.scope
+        )
+        let sortedCandidates = CandidateOrdering.sorted(transport.capturedCandidates, preferredEndpoint: nil)
+        let cacheOrdinal = try XCTUnwrap(sortedCandidates.firstIndex(of: cacheCandidate))
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(
+                route: .directPinned,
+                ordinal: cacheOrdinal,
+                phase: .failed(.unknownJournal, elapsedMilliseconds: 1)
+            )),
+            attempt: 1
+        )
+        await Self.settle()
+
+        let endpoints = await cache.endpoints()
+        XCTAssertFalse(endpoints.contains(cacheCandidate))
+        await manager.disconnect()
+    }
+
     @MainActor
     func testEvictedCandidateExcludedFromNextConnectCycleCandidateList() async throws {
         let cacheEndpoint = Self.localEndpoint(host: "10.0.0.10", port: 7657, scope: "local")
@@ -1305,10 +1382,15 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         )
         let sortedCandidates = CandidateOrdering.sorted(transport.capturedCandidates, preferredEndpoint: nil)
         let cacheOrdinal = try XCTUnwrap(sortedCandidates.firstIndex(of: cacheCandidate))
+        // A refusal, a stop, or a journal that cannot read its device list all came from the
+        // paired journal at this address, so the address is still good.
         let failureClasses: [TunnelAttemptFailureClass] = [
             .authRefreshRequired,
             .notEntitled,
             .revoked,
+            .refused,
+            .certificateUnknown,
+            .refusalsExhausted,
             .other,
         ]
         for failureClass in failureClasses {
@@ -1927,6 +2009,82 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         XCTAssertEqual(manager.state, .error(.revoked))
         XCTAssertTrue(didDelete.withLock { $0 })
         XCTAssertFalse(FileManager.default.fileExists(atPath: fileURL.path))
+    }
+
+    // Falsified by deleting the pairing on a refusal stop (only a new pairing ends it, and the
+    // owner's held material waits for that pairing), by scheduling another dial, or by sending
+    // the stop through the token refresh meant for an auth challenge.
+    @MainActor
+    func testRefusalsExhaustedKeepsPairingAndStopsReconnecting() async {
+        let didDelete = OSAllocatedUnfairLock(initialState: false)
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.fixturePairing())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        let transport = MockCFTunnelTransport()
+        transport.queuedResults = [.failure(SessionError.refusalsExhausted)]
+        let refresher = DeviceTokenRefresher(
+            session: Self.tokenRefreshSession(),
+            clientInfo: SPLRuntime.clientInfo
+        )
+        let manager = makeManager(
+            transport: transport,
+            endpointCache: cache,
+            didDeletePairing: didDelete,
+            deviceTokenRefresher: refresher
+        )
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .error(.refusalsExhausted))
+        XCTAssertTrue(manager.state.asksToPairAgain)
+        XCTAssertFalse(didDelete.withLock { $0 })
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path))
+        XCTAssertNil(manager.reconnectCountdown)
+        XCTAssertEqual(transport.connectCallCount, 1)
+        XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 0)
+    }
+
+    // Falsified by treating a counted refusal, a journal that cannot read its device list, or
+    // a peer that is not the paired journal as a revocation: the pairing must stay and the
+    // manager must keep retrying.
+    @MainActor
+    func testRetryingRefusalsKeepPairingAndScheduleReconnect() async {
+        let cases: [(SessionError, TunnelError)] = [
+            (.refused, .unreachable),
+            (.certificateUnknown, .unreachable),
+            (.unknownJournal, .tlsHandshakeFailed),
+        ]
+        for (sessionError, expected) in cases {
+            let didDelete = OSAllocatedUnfairLock(initialState: false)
+            let fileURL = Self.tempFileURL()
+            let cache = EndpointCache(fileURL: fileURL)
+            await cache.bootstrap(from: Self.fixturePairing())
+            let transport = MockCFTunnelTransport()
+            transport.queuedResults = [.failure(sessionError)]
+            let refresher = DeviceTokenRefresher(
+                session: Self.tokenRefreshSession(),
+                clientInfo: SPLRuntime.clientInfo
+            )
+            let manager = makeManager(
+                transport: transport,
+                endpointCache: cache,
+                didDeletePairing: didDelete,
+                deviceTokenRefresher: refresher,
+                jitterRandom: { _ in 1.0 }
+            )
+
+            await manager.connect()
+
+            XCTAssertEqual(manager.state, .error(expected), "\(sessionError)")
+            XCTAssertFalse(manager.state.asksToPairAgain, "\(sessionError)")
+            XCTAssertFalse(didDelete.withLock { $0 }, "\(sessionError)")
+            XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "\(sessionError)")
+            XCTAssertNotNil(manager.reconnectCountdown, "\(sessionError)")
+            XCTAssertEqual(TunnelTokenRefreshURLProtocol.requestURLs().count, 0, "\(sessionError)")
+            manager.cancelReconnect()
+            await manager.disconnect()
+        }
     }
 
     @MainActor

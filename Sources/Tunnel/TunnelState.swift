@@ -29,6 +29,16 @@ enum TunnelState: Sendable, Equatable, CustomStringConvertible {
         if case .connected = self { return true }
         return false
     }
+
+    /// The journal no longer accepts this device's credential, so only a new pairing helps.
+    var asksToPairAgain: Bool {
+        switch self {
+        case .error(.revoked), .error(.refusalsExhausted):
+            true
+        case .disconnected, .connecting, .waitingForHome, .connected, .error:
+            false
+        }
+    }
 }
 
 enum ConnectionStageKind: String, Sendable, Equatable {

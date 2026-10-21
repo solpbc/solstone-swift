@@ -674,7 +674,7 @@ final class TunnelManager {
             let address = JournalAddress.display(host: host, port: port)
             let outcome: TriedAddressOutcome
             switch failureClass {
-            case .tls: outcome = .couldNotProveJournal
+            case .tls, .unknownJournal: outcome = .couldNotProveJournal
             case .unreachable: outcome = .noAnswer
             default: outcome = .couldNotConnect
             }
@@ -728,8 +728,11 @@ final class TunnelManager {
         if self.candidateTelemetry[event.ordinal] != nil {
             self.diagnosticLog?.append(category: .tunnel, message: self.candidateLine(for: event.ordinal))
         }
+        // why: a refusal came from the paired journal itself, so its address is still good;
+        // a peer that is not the paired journal makes the address as stale as a TLS failure.
         if case .failed(let failureClass, _) = event.phase,
-           failureClass == .tls || failureClass == .unreachable || failureClass == .transport {
+           failureClass == .tls || failureClass == .unknownJournal || failureClass == .unreachable
+            || failureClass == .transport {
             switch event.route {
             case .directPinned, .directUnpinned:
                 if case .lan(let host, let port, let scope, _) = self.candidateEndpointByOrdinal[event.ordinal] {
@@ -2005,7 +2008,13 @@ final class TunnelManager {
                 return .unreachable
             case .revoked:
                 return .revoked
-            case .tlsFailed:
+            case .refusalsExhausted:
+                // why: the credential has stopped; the pairing stays until a new pairing replaces it.
+                return .refusalsExhausted
+            case .refused, .certificateUnknown:
+                // why: the journal answered and refused for now; keep retrying, never the revoked copy.
+                return .unreachable
+            case .tlsFailed, .unknownJournal:
                 return .tlsHandshakeFailed
             case .directKeepaliveMissed, .relayKeepaliveMissed, .notConnected:
                 return .muxTeardown

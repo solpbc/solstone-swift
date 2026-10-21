@@ -432,7 +432,8 @@ final class CFTunnelTransport: Transporting {
                     // is the fix, and its 3s probe timeout bounds a dead-mux hang on resume.
                     runsOnRelayPath: false
                 )
-            )
+            ),
+            refusalStore: SPLRuntime.refusalStore
         )
         // Keep the runtime existential narrow while making an SDK conformance change a compile error.
         let _: any TunnelAttemptObserving = session

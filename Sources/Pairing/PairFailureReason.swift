@@ -31,7 +31,8 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
             return .wrongSolstone
         case PairError.relayInstanceMismatch:
             return .relayInstanceMismatch
-        case PairError.directAddressNotLocal:
+        case PairError.directAddressNotLocal,
+             PairURLError.disallowedDirectAddress:
             return .directAddressNotLocal
         case PairError.lanClosedBeforeResponse:
             return .connectionDropped

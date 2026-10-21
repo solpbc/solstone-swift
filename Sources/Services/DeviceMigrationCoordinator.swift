@@ -36,7 +36,7 @@ nonisolated enum DeviceMigrationRecoveryState: Equatable, Sendable {
         }
         if let tunnelError = error as? TunnelError {
             switch tunnelError {
-            case .revoked, .tlsHandshakeFailed:
+            case .revoked, .refusalsExhausted, .tlsHandshakeFailed:
                 return .keyRefused
             case .unreachable, .muxTeardown:
                 return .offline

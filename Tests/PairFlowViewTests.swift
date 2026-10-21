@@ -137,6 +137,38 @@ nonisolated final class PairFlowViewTests: XCTestCase {
     }
 
     @MainActor
+    func testPairLinkLengthAndCountRefusalsReadAsADamagedLink() {
+        let errors: [PairURLError] = [
+            .truncated(expected: 40, got: 2),
+            .lengthMismatch(expected: 40, got: 41),
+            .invalidCandidateCount(5),
+        ]
+        for error in errors {
+            XCTAssertEqual(
+                PairFlowCoordinator.message(for: error, targetAddress: nil, interfaces: []),
+                "this pairing link is damaged.",
+                "\(error)"
+            )
+        }
+    }
+
+    @MainActor
+    func testPairLinkDisallowedAddressReadsLikeTheNonLocalAddressRefusal() {
+        XCTAssertEqual(
+            PairFlowCoordinator.message(
+                for: PairURLError.disallowedDirectAddress("0.0.0.0"),
+                targetAddress: "0.0.0.0",
+                interfaces: []
+            ),
+            PairFlowCoordinator.message(
+                for: PairError.directAddressNotLocal,
+                targetAddress: "0.0.0.0",
+                interfaces: []
+            )
+        )
+    }
+
+    @MainActor
     func testConnectionDroppedMessageIsDistinctFromPairingWindowClosedMessage() {
         let message = PairFlowCoordinator.message(
             for: PairError.lanClosedBeforeResponse,

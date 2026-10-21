@@ -215,7 +215,9 @@ final class PairFlowCoordinator {
 
         // Blob-level parse failures.
         case PairURLError.invalidBase32,
-             PairURLError.invalidLength:
+             PairURLError.truncated,
+             PairURLError.lengthMismatch,
+             PairURLError.invalidCandidateCount:
             "this pairing link is damaged."
         case PairURLError.invalidVersion:
             "this pairing link is from a newer version of your journal."

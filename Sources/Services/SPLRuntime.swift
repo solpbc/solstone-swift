@@ -21,6 +21,10 @@ nonisolated enum SPLRuntime {
 
     static let keychainStore = SPLKeychainStore(policy: keychainPolicy)
 
+    // why: built from the pairing's own policy, so any launch that can read the pairing,
+    // a background one included, can read the credential's refusal count and stop.
+    static let refusalStore = keychainStore.refusalStore
+
     static let confirmationStore = JournalSendConfirmationStore.production()
 
     static let deviceMigrationStore = DeviceMigrationStore()

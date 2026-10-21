@@ -23,7 +23,7 @@ nonisolated final class PairingHandoffPresentationTests: XCTestCase {
     @MainActor
     func testPresentsWhenPairURLErrorExists() {
         XCTAssertTrue(
-            PairingHandoffPresentation.shouldPresent(pairURL: nil, pairURLError: PairURLError.invalidLength(0))
+            PairingHandoffPresentation.shouldPresent(pairURL: nil, pairURLError: PairURLError.truncated(expected: 1, got: 0))
         )
     }
 

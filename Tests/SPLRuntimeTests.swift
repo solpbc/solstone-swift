@@ -17,6 +17,13 @@ nonisolated final class SPLRuntimeTests: XCTestCase {
         XCTAssertEqual(policy.accessibility, .afterFirstUnlock)
     }
 
+    // Falsified by a refusal store built from its own policy: a background launch that can
+    // read the pairing could then fail to read the credential's stop and dial it again.
+    func testRefusalStoreSharesThePairingPolicy() {
+        XCTAssertEqual(SPLRuntime.refusalStore.pairingPolicy, SPLRuntime.keychainPolicy)
+        XCTAssertEqual(SPLRuntime.refusalStore.pairingPolicy, SPLRuntime.keychainStore.policy)
+    }
+
     func testKeychainStoreRoundTripsStoredPairingWithTestService() throws {
         let store = SPLKeychainStore(
             policy: KeychainPolicy(

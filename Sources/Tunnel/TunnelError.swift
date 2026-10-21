@@ -3,6 +3,9 @@
 
 enum TunnelError: Error, Sendable, Equatable {
     case revoked
+    /// The journal kept refusing this device until the credential stopped. Presented as
+    /// `revoked`, but the pairing is kept: only a new pairing ends the stop.
+    case refusalsExhausted
     case tlsHandshakeFailed
     case muxTeardown
     case unreachable
@@ -10,7 +13,7 @@ enum TunnelError: Error, Sendable, Equatable {
 
     var userMessage: String {
         switch self {
-        case .revoked:
+        case .revoked, .refusalsExhausted:
             return "your journal asked this device to reconnect."
         case .tlsHandshakeFailed:
             return "couldn't verify this journal."
@@ -28,7 +31,7 @@ enum TunnelError: Error, Sendable, Equatable {
 
     var iconName: String {
         switch self {
-        case .revoked:
+        case .revoked, .refusalsExhausted:
             return "person.crop.circle.badge.xmark"
         case .tlsHandshakeFailed:
             return "exclamationmark.shield"
@@ -43,7 +46,7 @@ enum TunnelError: Error, Sendable, Equatable {
 
     var isRetryable: Bool {
         switch self {
-        case .revoked:
+        case .revoked, .refusalsExhausted:
             return false
         case .unreachable, .tlsHandshakeFailed, .muxTeardown, .unknown:
             return true
@@ -54,6 +57,8 @@ enum TunnelError: Error, Sendable, Equatable {
         switch self {
         case .revoked:
             return "revoked"
+        case .refusalsExhausted:
+            return "refusalsExhausted"
         case .tlsHandshakeFailed:
             return "tlsHandshakeFailed"
         case .muxTeardown:

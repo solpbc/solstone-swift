@@ -119,10 +119,7 @@ struct ContentView: View {
     }
 
     private var isRevoked: Bool {
-        if case .error(.revoked) = self.tunnelManager.state {
-            return true
-        }
-        return false
+        self.tunnelManager.state.asksToPairAgain
     }
 
     private var pairingIdentity: ContentPairingIdentity? {
