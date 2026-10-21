@@ -202,6 +202,18 @@ nonisolated enum JournalAboutFetchResult: Sendable, Equatable {
     case failed
 }
 
+/// What a journal's `/api/system/status` said, or that it could not be read.
+nonisolated enum JournalStatusReport: Equatable, Sendable {
+    case read(version: String?, capabilities: [String]?)
+    case failed
+
+    /// Whether this response lists `capability`. A missing or malformed list lists nothing.
+    func lists(_ capability: String) -> Bool {
+        guard case .read(_, let capabilities?) = self else { return false }
+        return capabilities.contains(capability)
+    }
+}
+
 nonisolated final class AuthenticatedHomeClient: Sendable {
     private static let maxBodyBytes = 65_536
 
@@ -270,6 +282,34 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
             return sanitizedJournalVersion(status.version.current)
         } catch {
             return nil
+        }
+    }
+
+    /// The status response's version and the capabilities it lists. A capabilities value that
+    /// is missing or is not an array of strings reads as `nil`; the version is still read.
+    func fetchStatusReport(localPort: Int, timeout: Duration = .seconds(5)) async -> JournalStatusReport {
+        guard (1...65535).contains(localPort),
+              let url = URL(string: "http://127.0.0.1:\(localPort)/api/system/status") else { return .failed }
+        let session = self.sessionFactory(timeout)
+        defer { session.invalidateAndCancel() }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.timeInterval(for: timeout))
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        do {
+            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
+            guard httpResponse.statusCode == 200,
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            else {
+                return .failed
+            }
+            let version = ((object["version"] as? [String: Any])?["current"] as? String).flatMap(sanitizedJournalVersion)
+            var capabilities: [String]?
+            if let values = object["capabilities"] as? [Any] {
+                let strings = values.compactMap { $0 as? String }
+                capabilities = strings.count == values.count ? strings : nil
+            }
+            return .read(version: version, capabilities: capabilities)
+        } catch {
+            return .failed
         }
     }
 
