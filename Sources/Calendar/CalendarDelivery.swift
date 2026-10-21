@@ -275,7 +275,11 @@ final class CalendarTransferHolder {
         self.mirror = mirror
     }
 
-    var pendingCount: Int { self.status.queuedCount }
+    /// Confirmed calendar files still in the source's own store, not yet in the transfer queue.
+    /// They wait on the device like queued files, so they count with them.
+    var importFilesNotYetQueued: @MainActor () -> Int = { 0 }
+
+    var pendingCount: Int { self.status.queuedCount + self.importFilesNotYetQueued() }
     var failedCount: Int { self.status.attentionCount }
     var refusalPacedCount: Int { self.status.refusalPacedCount }
     var inFlightCount: Int { self.status.inFlightCount }

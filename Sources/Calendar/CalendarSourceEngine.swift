@@ -34,6 +34,15 @@ nonisolated struct CalendarSourceCalendar: Equatable, Sendable, Identifiable {
     let importStep: CalendarImportStep?
 }
 
+/// A setup chosen and not yet confirmed: the span, the calendars it covers, and the count
+/// frozen for them, when one has been taken.
+nonisolated struct CalendarPendingSetup: Equatable, Sendable {
+    let span: CalendarSpanChoice
+    /// iOS identifiers of the calendars switched on.
+    let selection: Set<String>
+    let count: Int?
+}
+
 /// What the source's screens show.
 nonisolated struct CalendarSourceState: Equatable, Sendable {
     var setupStep: CalendarSetupStep
@@ -107,6 +116,7 @@ final class CalendarSourceEngine {
     @ObservationIgnored private var pumpQueued = false
     @ObservationIgnored private var started = false
     @ObservationIgnored private var launched = false
+    var hasLaunched: Bool { self.launched }
     @ObservationIgnored private var observing = false
     @ObservationIgnored private var debounce: Task<Void, Never>?
     /// Whether `document` has been taken from a loaded store.
@@ -155,7 +165,7 @@ final class CalendarSourceEngine {
             followedCount: present.filter(\.followed).count,
             calendarCount: present.count,
             recent: self.document.recent,
-            notesWaiting: delivery.waiting,
+            notesWaiting: delivery.waiting + self.document.imports.reduce(0) { $0 + $1.notesNotYetQueued },
             notesNeedingAttention: delivery.attention,
             waitingForJournalUpdate: delivery.waitingForJournalUpdate
         )
@@ -191,6 +201,23 @@ final class CalendarSourceEngine {
             }
     }
 
+    /// The setup the owner is choosing, before it is confirmed. Kept in the store, so a new
+    /// instance of the engine sees the same span, selection and frozen count.
+    var pendingSetup: CalendarPendingSetup? {
+        guard !self.document.everOn, let span = self.document.span else { return nil }
+        return CalendarPendingSetup(
+            span: span,
+            selection: Set(self.document.calendars.filter { $0.followed && $0.present }.map(\.identifier)),
+            count: self.document.imports.first { $0.kind == .setup && !$0.confirmed }?.count
+        )
+    }
+
+    /// Confirmed calendar files still in the source's own store, waiting to enter the transfer
+    /// queue.
+    var importFilesNotYetQueued: Int {
+        self.document.imports.reduce(0) { $0 + $1.filesNotYetQueued }
+    }
+
     /// Set up and not paused: iOS background refresh is worth asking for.
     var wantsBackgroundRefresh: Bool {
         self.document.everOn && !self.document.paused
@@ -209,15 +236,31 @@ final class CalendarSourceEngine {
         self.access = self.accessProvider.access()
     }
 
+    /// Saves the span the owner picked, at once: iOS may end the app when a permission changes.
+    /// A different span from the one counted drops that count. Reads nothing.
+    func chooseSpan(_ span: CalendarSpanChoice) {
+        guard self.ensureStore(), !self.document.everOn, self.document.span != span else { return }
+        var document = self.document
+        document.span = span
+        document.imports.removeAll { $0.kind == .setup && !$0.confirmed }
+        self.store.saveDocument(document)
+        self.document = document
+        let referenced = Set(document.imports.map(\.id))
+        Task { await self.worker.removeFrozen(except: referenced) }
+    }
+
     /// Reads `span` across the chosen calendars (every calendar when `calendarIDs` is `nil`),
     /// counts what the import will send and freezes it. Nothing is sent until `confirm()`.
+    /// Before confirm, a new setup replaces the pending one entirely.
     func setUp(span: CalendarSpanChoice, calendarIDs: Set<String>? = nil) async {
+        guard await self.untilLaunched() else { return }
         await self.perform { await self.countSetup(span: span, calendarIDs: calendarIDs) }
     }
 
     /// Sends the frozen set the owner was shown the count of. Returns once its first files are
     /// queued.
     func confirm() async {
+        guard await self.untilLaunched() else { return }
         await self.perform { await self.confirmSetup() }
         self.requestPump()
         await self.waitUntilIdle()
@@ -233,7 +276,7 @@ final class CalendarSourceEngine {
 
     /// Runs one check covering everything since the last completed check.
     func resume() async {
-        guard self.ensureStore(), self.document.paused else { return }
+        guard await self.untilLaunched(), self.ensureStore(), self.document.paused else { return }
         var document = self.document
         document.paused = false
         self.store.saveDocument(document)
@@ -246,10 +289,18 @@ final class CalendarSourceEngine {
     /// Switches one calendar on or off. Off stops its notes and sends nothing. On, after setup,
     /// counts the calendar's setup span; `confirmCalendar` sends it.
     func setCalendar(_ identifier: String, followed: Bool) async {
+        guard await self.untilLaunched() else { return }
         await self.perform { await self.changeCalendar(identifier, followed: followed) }
     }
 
+    /// Cancels a calendar's pending switch-on: its frozen set is discarded and it is not
+    /// followed.
+    func cancelCalendar(_ identifier: String) async {
+        await self.setCalendar(identifier, followed: false)
+    }
+
     func confirmCalendar(_ identifier: String) async {
+        guard await self.untilLaunched() else { return }
         await self.perform { await self.confirmCalendarImport(identifier) }
         self.requestPump()
         await self.waitUntilIdle()
@@ -313,6 +364,20 @@ final class CalendarSourceEngine {
         self.requestPump()
         await self.waitUntilIdle()
         return true
+    }
+
+    /// Owner operations wait for the launch, so a step a kill interrupted is never replayed
+    /// before launch clears the staging folder and the transfer engine has loaded its queue.
+    /// `false` when the launch did not finish within `launchWait`.
+    private func untilLaunched() async -> Bool {
+        let deadline = ContinuousClock.now + self.settings.launchWait
+        while !self.launched, ContinuousClock.now < deadline, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        if !self.launched {
+            calendarEngineLog.notice("calendar operation ended before the app finished launching")
+        }
+        return self.launched
     }
 
     /// A calendar file reached the journal, or went to needs attention, so an import may add
@@ -608,6 +673,7 @@ final class CalendarSourceEngine {
                 document.imports.remove(at: index)
             } else {
                 document.imports[index].cursor = batch.cursor
+                document.imports[index].queuedNotes = (document.imports[index].queuedNotes ?? 0) + batch.recent.count
             }
             document.noteRecent(batch.recent)
             do {

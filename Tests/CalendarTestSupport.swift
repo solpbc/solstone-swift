@@ -479,8 +479,15 @@ final class CalendarHarness {
 
     /// Sets up with `span`, confirms, and waits for the import and the first check.
     func setUpAndConfirm(_ span: CalendarSpanChoice = .last30Days, calendarIDs: Set<String>? = nil) async {
+        await self.ensureLaunched()
         await self.engine.setUp(span: span, calendarIDs: calendarIDs)
         await self.engine.confirm()
+        await self.engine.waitUntilIdle()
+    }
+
+    /// Owner operations wait for the launch; most tests start from a launched engine.
+    func ensureLaunched() async {
+        guard !self.engine.hasLaunched else { return }
         await self.engine.launch()
         await self.engine.waitUntilIdle()
     }

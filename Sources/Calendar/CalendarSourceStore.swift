@@ -135,6 +135,18 @@ nonisolated struct CalendarImportRecord: Codable, Equatable, Sendable {
     var cursor: Int
     /// When the import's read was made, in whole seconds.
     let frozenAt: Int64
+    /// How many of its notes have gone into the transfer queue so far.
+    var queuedNotes: Int? = nil
+
+    /// Confirmed notes still in the source's own store, not yet in the transfer queue.
+    var notesNotYetQueued: Int {
+        self.confirmed ? max(0, self.count - (self.queuedNotes ?? 0)) : 0
+    }
+
+    /// Confirmed files still in the source's own store, not yet in the transfer queue.
+    var filesNotYetQueued: Int {
+        self.confirmed ? max(0, self.fileCount - self.cursor) : 0
+    }
 
     var isFinished: Bool {
         self.confirmed && self.cursor >= self.fileCount
