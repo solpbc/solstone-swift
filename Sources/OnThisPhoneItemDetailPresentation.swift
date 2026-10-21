@@ -65,7 +65,7 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
         switch sourceKind {
         case .audio:
             return .audioPlayer
-        case .location, .screencast:
+        case .location, .screencast, .calendar:
             return .none
         case .share:
             return self.isThumbnailContentType(contentType) ? .thumbnail : .none
@@ -86,6 +86,8 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
             return item.filename ?? SourceVocabulary.onThisPhoneSourceName(for: .screencast)
         case .share:
             return item.filename ?? SourceVocabulary.onThisPhone
+        case .calendar:
+            return item.filename ?? SourceVocabulary.onThisPhoneSourceName(for: .calendar)
         }
     }
 
@@ -113,7 +115,7 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
         }
 
         switch item.sourceKind {
-        case .audio, .location, .screencast:
+        case .audio, .location, .screencast, .calendar:
             return SourceVocabulary.onThisPhoneObservedSummary(relativeDay: relativeDay, shortTime: shortTime)
         case .share:
             return SourceVocabulary.onThisPhoneShareSummary(
@@ -326,7 +328,7 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
         } ?? SourceVocabulary.notProvided
 
         switch item.sourceKind {
-        case .audio, .screencast, .share:
+        case .audio, .screencast, .share, .calendar:
             var rows = [
                 OnThisPhoneDetailRow(
                     label: SourceVocabulary.onThisPhoneFileLabel,

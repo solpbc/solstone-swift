@@ -186,6 +186,7 @@ struct DayHomeView: View {
     @WatchPipelineInputReader private var watchPipelineInputs
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
+    @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
@@ -472,7 +473,8 @@ private extension DayHomeView {
     var backlogCount: WatchAwareBacklog {
         let totals = captureUploadTotals(
             mobileSegment: self.mobileSegmentTransferHolder,
-            watch: self.watchUploaderHolder
+            watch: self.watchUploaderHolder,
+            calendar: self.calendarTransferHolder
         )
         return .known(totals.pending + totals.failed)
     }

@@ -31,6 +31,9 @@ struct SolstoneSwiftApp: App {
     @State private var shareImportStore: ShareImportStore
     @State private var shareTransferHolder: ShareTransferHolder
     @State private var photoLibraryImporter: PhotoLibraryImporter
+    @State private var calendarSource: CalendarSourceEngine
+    @State private var calendarTransferHolder: CalendarTransferHolder
+    @State private var calendarBackgroundRefresh: CalendarBackgroundRefresh
     @State private var watchSegmentDrain: WatchSegmentDrain?
     @State private var watchRelayReceiver: WatchRelayReceiver?
     @State private var watchSegmentLedger: WatchSegmentLedger
@@ -112,7 +115,8 @@ struct SolstoneSwiftApp: App {
     static func wireJournalVersion(
         _ metadata: JournalVersionMetadata,
         watchLink: WatchLink,
-        transferEngine: TransferEngine
+        transferEngine: TransferEngine,
+        calendarGate: CalendarCapabilityGate? = nil
     ) {
         watchLink.journalVersionProvider = { [metadata] in
             (
@@ -129,8 +133,11 @@ struct SolstoneSwiftApp: App {
         metadata.onChange = { [weak watchLink, weak metadata] in
             watchLink?.publishJournalVersion()
             let version = metadata?.version
+            let identity = metadata?.identity
             Task {
                 await transferEngine.noteJournalVersion(version)
+                // Whether a journal takes calendar notes is read again for a new pairing or version.
+                await calendarGate?.journalChanged(identity: identity, version: version)
             }
         }
     }
@@ -304,6 +311,15 @@ struct SolstoneSwiftApp: App {
             credentials: appConfig.store,
             confirmation: SPLRuntime.confirmationStore
         )
+        let calendarGate = CalendarCapabilityGate(
+            read: { endpoint in
+                guard let port = endpoint.port else { return .failed }
+                return await AuthenticatedHomeClient().fetchStatusReport(localPort: port)
+            },
+            isCurrent: { endpoint in
+                await transferEndpointResolver.isCurrent(endpoint)
+            }
+        )
         let transferStatusMirror = TransferStatusMirror()
         let transferConditionsSource = TransferConditionsSource()
         let transferSpool: TransferSpool
@@ -340,10 +356,44 @@ struct SolstoneSwiftApp: App {
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             },
             heardReporter: connectionHeardReporter,
+            sourceGate: calendarGate,
             appBuild: Self.refusalAppBuild,
             journalVersion: appConfig.journalVersion.version
         )
         let transferEnqueuer = ObserverAudioTransferEnqueuer(engine: transferEngine)
+        let calendarTransferHolder = CalendarTransferHolder(transferEngine: transferEngine, mirror: transferStatusMirror)
+        Task {
+            await calendarGate.connect(
+                wake: { await transferEngine.kick() },
+                publish: { capability in
+                    Task { @MainActor in
+                        calendarTransferHolder.capability = capability
+                    }
+                }
+            )
+        }
+        let calendarStore = CalendarSourceStore(rootURL: CalendarSourceStore.defaultRootURL())
+        let calendarSource = CalendarSourceEngine(
+            provider: EventKitCalendarProvider(),
+            store: calendarStore,
+            delivery: CalendarTransferDelivery(
+                engine: transferEngine,
+                stagingURL: calendarStore.rootURL.appendingPathComponent("staging", isDirectory: true)
+            ),
+            dependencies: CalendarSourceEngine.Dependencies(
+                delivery: {
+                    (
+                        waiting: calendarTransferHolder.notesWaiting,
+                        attention: calendarTransferHolder.notesNeedingAttention,
+                        waitingForJournalUpdate: calendarTransferHolder.waitingForJournalUpdate
+                    )
+                },
+                deliveryChanged: {
+                    Task { await calendarTransferHolder.refreshNoteCounts() }
+                }
+            )
+        )
+        let calendarBackgroundRefresh = CalendarBackgroundRefresh(engine: calendarSource)
         let mobileSegmentUploader = MobileSegmentUploader(
             transferEngine: transferEngine,
             store: mobileSegmentStore,
@@ -379,7 +429,12 @@ struct SolstoneSwiftApp: App {
         let watchSegmentLedger = watchPipeline.watchSegmentLedger
         let phoneSessionHistoryStore = watchPipeline.phoneSessionHistoryStore
         let watchLink = watchPipeline.watchLink
-        Self.wireJournalVersion(appConfig.journalVersion, watchLink: watchLink, transferEngine: transferEngine)
+        Self.wireJournalVersion(
+            appConfig.journalVersion,
+            watchLink: watchLink,
+            transferEngine: transferEngine,
+            calendarGate: calendarGate
+        )
         let shareImportStore = ShareImportStore(
             ledgerDropSink: { droppedCount in
                 log.append(
@@ -426,7 +481,8 @@ struct SolstoneSwiftApp: App {
                 confirmedTransferCount(
                     mobileSegment: mobileSegmentTransferHolder,
                     watch: watchUploaderHolder,
-                    share: shareTransferHolder
+                    share: shareTransferHolder,
+                    calendar: calendarTransferHolder
                 )
             },
             diagnosticLog: log,
@@ -461,7 +517,8 @@ struct SolstoneSwiftApp: App {
             let totals = uploadTotals(
                 mobileSegment: mobileSegmentTransferHolder,
                 watch: watchUploaderHolder,
-                share: shareTransferHolder
+                share: shareTransferHolder,
+                calendar: calendarTransferHolder
             )
             return ConnectionSyncInputs(
                 tunnelState: tunnel.state,
@@ -470,12 +527,14 @@ struct SolstoneSwiftApp: App {
                 confirmedTransferCount: confirmedTransferCount(
                     mobileSegment: mobileSegmentTransferHolder,
                     watch: watchUploaderHolder,
-                    share: shareTransferHolder
+                    share: shareTransferHolder,
+                    calendar: calendarTransferHolder
                 ),
                 recentBytesPerSecond: recentBytesTotal(
                     mobileSegment: mobileSegmentTransferHolder,
                     watch: watchUploaderHolder,
-                    share: shareTransferHolder
+                    share: shareTransferHolder,
+                    calendar: calendarTransferHolder
                 ),
                 backlogPending: totals.pending,
                 backlogFailed: totals.failed,
@@ -502,21 +561,24 @@ struct SolstoneSwiftApp: App {
                 sendableUploadTotals(
                     mobileSegment: mobileSegmentTransferHolder,
                     watch: watchUploaderHolder,
-                    share: shareTransferHolder
+                    share: shareTransferHolder,
+                    calendar: calendarTransferHolder
                 )
             },
             heldTotals: {
                 uploadTotals(
                     mobileSegment: mobileSegmentTransferHolder,
                     watch: watchUploaderHolder,
-                    share: shareTransferHolder
+                    share: shareTransferHolder,
+                    calendar: calendarTransferHolder
                 )
             },
             inFlight: {
                 uploadInFlight(
                     mobileSegment: mobileSegmentTransferHolder,
                     watch: watchUploaderHolder,
-                    share: shareTransferHolder
+                    share: shareTransferHolder,
+                    calendar: calendarTransferHolder
                 )
             },
             backoff: {
@@ -594,6 +656,7 @@ struct SolstoneSwiftApp: App {
         )
         if !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest {
             finishSyncing.registerLaunchHandler()
+            calendarBackgroundRefresh.register()
         }
 #if DEBUG && targetEnvironment(simulator)
         let integrationGateDriver: IntegrationGateDriver?
@@ -654,6 +717,9 @@ struct SolstoneSwiftApp: App {
         self._shareImportStore = State(initialValue: shareImportStore)
         self._shareTransferHolder = State(initialValue: shareTransferHolder)
         self._photoLibraryImporter = State(initialValue: photoLibraryImporter)
+        self._calendarSource = State(initialValue: calendarSource)
+        self._calendarTransferHolder = State(initialValue: calendarTransferHolder)
+        self._calendarBackgroundRefresh = State(initialValue: calendarBackgroundRefresh)
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
         self._watchRelayReceiver = State(initialValue: watchRelayReceiver)
         self._watchSegmentLedger = State(initialValue: watchSegmentLedger)
@@ -720,6 +786,8 @@ struct SolstoneSwiftApp: App {
                 .environment(self.shareImportStore)
                 .environment(self.shareTransferHolder)
                 .environment(self.photoLibraryImporter)
+                .environment(self.calendarSource)
+                .environment(self.calendarTransferHolder)
                 .environment(self.mobileSegmentUploader)
                 .environment(self.mobileSegmentEngine)
                 .environment(self.locationManager)
@@ -836,6 +904,7 @@ struct SolstoneSwiftApp: App {
                     await self.screencastManager.reconcileScreencast(reason: .foreground)
                 }
                 self.photoLibraryImporter.refreshAccess()
+                self.calendarSource.foreground()
                 if Self.isIntegrationMode || Self.isUITest {
                     return
                 }
@@ -877,6 +946,7 @@ struct SolstoneSwiftApp: App {
                 Task {
                     await self.screencastManager.prepareForBackground()
                 }
+                self.calendarBackgroundRefresh.schedule()
                 self.launchMaintenanceCoordinator.cancel()
                 self.integrationObserverStartTask?.cancel()
                 self.integrationObserverStartTask = nil
@@ -890,14 +960,16 @@ struct SolstoneSwiftApp: App {
                         sendableUploadTotals(
                             mobileSegment: self.mobileSegmentTransferHolder,
                             watch: self.watchUploaderHolder,
-                            share: self.shareTransferHolder
+                            share: self.shareTransferHolder,
+                            calendar: self.calendarTransferHolder
                         )
                     },
                     inFlight: {
                         uploadInFlight(
                             mobileSegment: self.mobileSegmentTransferHolder,
                             watch: self.watchUploaderHolder,
-                            share: self.shareTransferHolder
+                            share: self.shareTransferHolder,
+                            calendar: self.calendarTransferHolder
                         )
                     },
                     backoff: {
@@ -1015,6 +1087,14 @@ struct SolstoneSwiftApp: App {
                 try shareImportStore?.recordDelivered(manifest: manifest, successKind: successKind)
             }
         }
+        // A calendar file reaching the journal, or one the owner removed there, leaves room for
+        // an import's next files.
+        await self.transferEngine.registerDeliveredHook(sourceKey: CalendarTransfer.sourceKey) { [calendarSource = self.calendarSource, calendarTransferHolder = self.calendarTransferHolder] _, _ in
+            await MainActor.run {
+                calendarSource.deliveryProgressed()
+            }
+            await calendarTransferHolder.refreshNoteCounts()
+        }
 
         let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         await Self.bootstrapTransfer(
@@ -1054,6 +1134,10 @@ struct SolstoneSwiftApp: App {
                 self.shareImportStore.refreshFromDisk()
                 // A library import the owner started carries on where it was when the app last closed.
                 self.photoLibraryImporter.resumeIfRunning()
+                // The calendar source finishes a step a kill interrupted before anything is sent.
+                // It reads nothing unless the owner has set it up.
+                await self.calendarSource.launch()
+                await self.calendarTransferHolder.refreshNoteCounts()
             },
             enableDispatch: {
                 await self.transferEngine.enableDispatch()

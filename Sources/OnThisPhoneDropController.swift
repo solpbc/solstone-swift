@@ -148,6 +148,9 @@ func makeDropCommit(
                 removeWatchStaging?(segmentID)
             }
         }
+    case .calendarTransfer:
+        // Calendar notes are never deleted on the phone; they wait until the journal has them.
+        return nil
     }
 }
 
@@ -177,7 +180,7 @@ func makeRetryCommit(
         return {
             (try? await transferEngine.retryAttention(itemID: itemID)) ?? false
         }
-    case .transfer(let itemID, _):
+    case .transfer(let itemID, _), .calendarTransfer(let itemID):
         return {
             (try? await transferEngine.retryAttention(itemID: itemID)) ?? false
         }

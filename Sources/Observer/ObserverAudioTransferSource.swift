@@ -5,4 +5,5 @@ nonisolated enum ObserverAudioTransferSource {
     static let watch = "watch-audio"
     static let mobileSegment = "mobile-segment"
     static let share = "share"
+    static let calendar = "calendar"
 }

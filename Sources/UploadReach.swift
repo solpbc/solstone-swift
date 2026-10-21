@@ -7,35 +7,41 @@ import Foundation
 func uploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
     watch: WatchUploaderHolder,
-    share: ShareTransferHolder
+    share: ShareTransferHolder,
+    calendar: CalendarTransferHolder? = nil
 ) -> (failed: Int, pending: Int) {
     (
-        failed: mobileSegment.failedCount + watch.failedCount + share.failedCount,
-        pending: mobileSegment.pendingCount + watch.pendingCount + share.pendingCount
+        failed: mobileSegment.failedCount + watch.failedCount + share.failedCount + (calendar?.failedCount ?? 0),
+        pending: mobileSegment.pendingCount + watch.pendingCount + share.pendingCount + (calendar?.pendingCount ?? 0)
     )
 }
 
 /// What the background drain and finish-syncing wait on: `uploadTotals` less the refusals the
-/// engine is pacing, which no drain sends. The owner's held count stays `uploadTotals`.
+/// engine is pacing and the calendar notes held until the journal takes them, which no drain
+/// sends. The owner's held count stays `uploadTotals`.
 @MainActor
 func sendableUploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
     watch: WatchUploaderHolder,
-    share: ShareTransferHolder
+    share: ShareTransferHolder,
+    calendar: CalendarTransferHolder? = nil
 ) -> (failed: Int, pending: Int) {
-    let totals = uploadTotals(mobileSegment: mobileSegment, watch: watch, share: share)
+    let totals = uploadTotals(mobileSegment: mobileSegment, watch: watch, share: share, calendar: calendar)
     let paced = mobileSegment.refusalPacedCount + watch.refusalPacedCount + share.refusalPacedCount
-    return (failed: max(0, totals.failed - paced), pending: totals.pending)
+        + (calendar?.refusalPacedCount ?? 0)
+    let heldForJournal = calendar?.heldForJournalCount ?? 0
+    return (failed: max(0, totals.failed - paced), pending: max(0, totals.pending - heldForJournal))
 }
 
 @MainActor
 func captureUploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
-    watch: WatchUploaderHolder
+    watch: WatchUploaderHolder,
+    calendar: CalendarTransferHolder? = nil
 ) -> (failed: Int, pending: Int) {
     (
-        failed: mobileSegment.failedCount + watch.failedCount,
-        pending: mobileSegment.pendingCount + watch.pendingCount
+        failed: mobileSegment.failedCount + watch.failedCount + (calendar?.failedCount ?? 0),
+        pending: mobileSegment.pendingCount + watch.pendingCount + (calendar?.pendingCount ?? 0)
     )
 }
 
@@ -43,13 +49,14 @@ func captureUploadTotals(
 func confirmedTransferCount(
     mobileSegment: MobileSegmentTransferHolder,
     watch: WatchUploaderHolder,
-    share: ShareTransferHolder
+    share: ShareTransferHolder,
+    calendar: CalendarTransferHolder? = nil
 ) -> Int {
     confirmedTransferCount(
         mobileSegment: mobileSegment.confirmedActiveTransferCount,
         watch: watch.confirmedActiveTransferCount,
         share: share.confirmedActiveTransferCount
-    )
+    ) + (calendar?.confirmedActiveTransferCount ?? 0)
 }
 
 nonisolated func confirmedTransferCount(
@@ -64,13 +71,14 @@ nonisolated func confirmedTransferCount(
 func recentBytesTotal(
     mobileSegment: MobileSegmentTransferHolder,
     watch: WatchUploaderHolder,
-    share: ShareTransferHolder
+    share: ShareTransferHolder,
+    calendar: CalendarTransferHolder? = nil
 ) -> Double {
     recentBytesTotal(
         mobileSegment: mobileSegment.recentBytesPerSecond,
         watch: watch.recentBytesPerSecond,
         share: share.recentBytesPerSecond
-    )
+    ) + (calendar?.recentBytesPerSecond ?? 0)
 }
 
 nonisolated func recentBytesTotal(
@@ -98,9 +106,10 @@ func uploadBackoff(mirror: TransferStatusMirror) -> TransferBackoffStatus {
 func uploadInFlight(
     mobileSegment: MobileSegmentTransferHolder,
     watch: WatchUploaderHolder,
-    share: ShareTransferHolder
+    share: ShareTransferHolder,
+    calendar: CalendarTransferHolder? = nil
 ) -> Int {
-    mobileSegment.inFlightCount + watch.inFlightCount + share.inFlightCount
+    mobileSegment.inFlightCount + watch.inFlightCount + share.inFlightCount + (calendar?.inFlightCount ?? 0)
 }
 
 @MainActor

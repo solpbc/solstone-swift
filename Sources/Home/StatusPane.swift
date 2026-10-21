@@ -56,7 +56,8 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
         audioCount: Int,
         locationCount: Int,
         screencastCount: Int,
-        watchCount: Int
+        watchCount: Int,
+        calendarCount: Int = 0
     ) -> Self {
         let candidates = [
             StatusPaneWaitingRow(source: .audio, count: audioCount),
@@ -65,7 +66,7 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
             StatusPaneWaitingRow(source: .watch, count: watchCount),
         ]
         return Self(
-            total: mobileAggregateCount + watchCount,
+            total: mobileAggregateCount + watchCount + calendarCount,
             rows: candidates.filter { $0.count > 0 }
         )
     }
@@ -287,6 +288,7 @@ struct StatusPane: View {
     @Environment(ProblemReportsManager.self) private var problemReportsManager
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
+    @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(LocationManager.self) private var locationManager
     @Environment(PairFlowRouter.self) private var pairFlowRouter
@@ -496,7 +498,8 @@ struct StatusPane: View {
             audioCount: audio.pendingCount + audio.failedCount,
             locationCount: location.pendingCount + location.failedCount,
             screencastCount: screencast.pendingCount + screencast.failedCount,
-            watchCount: self.watchUploaderHolder.pendingCount + self.watchUploaderHolder.failedCount
+            watchCount: self.watchUploaderHolder.pendingCount + self.watchUploaderHolder.failedCount,
+            calendarCount: (self.calendarTransferHolder?.pendingCount ?? 0) + (self.calendarTransferHolder?.failedCount ?? 0)
         )
     }
 
@@ -802,7 +805,8 @@ struct StatusPane: View {
             self.transferRate = recentBytesTotal(
                 mobileSegment: self.mobileSegmentTransferHolder,
                 watch: self.watchUploaderHolder,
-                share: self.shareTransferHolder
+                share: self.shareTransferHolder,
+                calendar: self.calendarTransferHolder
             )
             try? await Task.sleep(for: .seconds(2))
         }

@@ -12,6 +12,7 @@ enum OnThisPhoneSnapshotAggregator {
     ) async -> OnThisPhoneAggregateSnapshot {
         let mobileSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
         let watchSnapshots = await transferEngine.itemSnapshots(sourceKey: ObserverAudioTransferSource.watch)
+        let calendarSnapshots = await transferEngine.itemSnapshots(sourceKey: CalendarTransfer.sourceKey)
         let mobileResults = await ObserverAudioTransferSnapshotMapper.mobileSegmentSourceResults(
             snapshots: mobileSnapshots,
             engine: transferEngine
@@ -46,6 +47,10 @@ enum OnThisPhoneSnapshotAggregator {
                 )
             ),
             OnThisPhoneSourceSnapshot(sourceKind: .share, result: await share.onThisPhoneSourceSnapshot()),
+            OnThisPhoneSourceSnapshot(
+                sourceKind: .calendar,
+                result: .loaded(items: OnThisPhoneItemSort.newestFirst(CalendarTransferHolder.items(snapshots: calendarSnapshots)))
+            ),
         ])
     }
 
