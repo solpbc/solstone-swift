@@ -14,6 +14,7 @@ nonisolated enum TransferBodyPayload: Sendable {
 
 typealias TransferBodyBuilder = @Sendable (TransferStoredItem, TransferSpool) async throws -> TransferBodyPayload
 typealias TransferDeliveredHook = @Sendable (TransferManifest, TransferSuccessKind) async throws -> Void
+typealias TransferAttentionHook = @Sendable (TransferManifest) async -> Void
 
 nonisolated private struct TransferDispatchLogState: Equatable, Sendable {
     var decision: TransferDispatchDecision
@@ -264,6 +265,7 @@ actor TransferEngine {
     private var sourceStates: [String: TransferSourceRuntimeState] = [:]
     private var aggregateByteWindow = TransferByteWindow()
     private var deliveredHooks: [String: TransferDeliveredHook] = [:]
+    private var attentionHooks: [String: TransferAttentionHook] = [:]
     private var workPassScheduled = false
     private var workPassRunning = false
     private var dispatchSuspendedForLaunch = true
@@ -813,6 +815,12 @@ actor TransferEngine {
     /// not be a producer's only durable delivery signal. A throwing or
     /// cancelled hook is swallowed, emits a `.hookFailed` diagnostic, and never
     /// mutates engine state.
+    /// Registers a best-effort hook for one source key that runs each time one of its items
+    /// moves to needs attention, for a producer that paces itself on what is still queued.
+    func registerAttentionHook(sourceKey: String, hook: @escaping TransferAttentionHook) {
+        self.attentionHooks[sourceKey] = hook
+    }
+
     func registerDeliveredHook(sourceKey: String, hook: @escaping TransferDeliveredHook) {
         self.deliveredHooks[sourceKey] = hook
     }
@@ -2079,6 +2087,12 @@ private extension TransferEngine {
         detail: String
     ) {
         self.lastEventSummary = detail
+        if nextState == .attention, previousState != .attention, let hook = self.attentionHooks[item.manifest.sourceKey] {
+            let manifest = item.manifest
+            Task.detached {
+                await hook(manifest)
+            }
+        }
         let now = self.clock.wallNow()
         let elapsed: TimeInterval?
         if let startedAt = self.firstAttemptAtByItemID[item.manifest.itemID] {
