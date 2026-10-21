@@ -73,27 +73,83 @@ nonisolated struct FakeCalendarEvent: Sendable {
 /// only; an all-day event ends at the last instant of its last day; a moved occurrence carries a
 /// `/RID=` id, its original occurrence date and no repeat rules of its own; a subscribed
 /// calendar reports last-changed 1976-04-01 and no creation time; Birthdays expands back to 1604.
-@MainActor
-final class FakeCalendarProvider: CalendarProviding {
-    var onChange: (@MainActor () -> Void)?
-    var accessValue: CalendarAccess = .full
-    var requestedAccess: CalendarAccess = .full
-    var calendarList: [CalendarInfo] = []
-    var events: [FakeCalendarEvent] = []
-    var deviceTimeZone: TimeZone
-    /// The calendar the device is set to. Events are entered in it; the notes never use it.
-    var deviceCalendar = Calendar(identifier: .gregorian)
-    /// Reads of events and of the calendar list.
-    private(set) var eventReads: [(from: Date, to: Date)] = []
-    private(set) var calendarListReads = 0
-    private(set) var accessRequests = 0
-
-    init(deviceTimeZone: TimeZone) {
-        self.deviceTimeZone = deviceTimeZone
+///
+/// The engine reads it from its worker, off the main actor, while tests change it from the main
+/// actor, so its state is behind a lock. It records whether each read ran on the main thread.
+nonisolated final class FakeCalendarProvider: CalendarAccessProviding, CalendarEventReading, @unchecked Sendable {
+    private struct State {
+        var accessValue: CalendarAccess = .full
+        var requestedAccess: CalendarAccess = .full
+        var calendarList: [CalendarInfo] = []
+        var events: [FakeCalendarEvent] = []
+        var deviceTimeZone: TimeZone
+        var deviceCalendar = Calendar(identifier: .gregorian)
+        var eventReads: [(from: Date, to: Date)] = []
+        var calendarListReads = 0
+        var accessRequests = 0
+        var mainThreadReads = 0
+        var workerReads = 0
+        var seriesLookups = 0
+        var mainThreadSeriesLookups = 0
+        var onChange: (@MainActor @Sendable () -> Void)?
     }
 
+    private let lock = NSLock()
+    private var state: State
+
+    init(deviceTimeZone: TimeZone) {
+        self.state = State(deviceTimeZone: deviceTimeZone)
+    }
+
+    private func locked<T>(_ body: (inout State) -> T) -> T {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return body(&self.state)
+    }
+
+    var accessValue: CalendarAccess {
+        get { self.locked { $0.accessValue } }
+        set { self.locked { $0.accessValue = newValue } }
+    }
+
+    var requestedAccess: CalendarAccess {
+        get { self.locked { $0.requestedAccess } }
+        set { self.locked { $0.requestedAccess = newValue } }
+    }
+
+    var calendarList: [CalendarInfo] {
+        get { self.locked { $0.calendarList } }
+        set { self.locked { $0.calendarList = newValue } }
+    }
+
+    var events: [FakeCalendarEvent] {
+        get { self.locked { $0.events } }
+        set { self.locked { $0.events = newValue } }
+    }
+
+    var deviceTimeZone: TimeZone {
+        get { self.locked { $0.deviceTimeZone } }
+        set { self.locked { $0.deviceTimeZone = newValue } }
+    }
+
+    /// The calendar the device is set to. Events are entered in it; the notes never use it.
+    var deviceCalendar: Calendar {
+        get { self.locked { $0.deviceCalendar } }
+        set { self.locked { $0.deviceCalendar = newValue } }
+    }
+
+    var eventReads: [(from: Date, to: Date)] { self.locked { $0.eventReads } }
+    var calendarListReads: Int { self.locked { $0.calendarListReads } }
+    var accessRequests: Int { self.locked { $0.accessRequests } }
+    var mainThreadReads: Int { self.locked { $0.mainThreadReads } }
+    var workerReads: Int { self.locked { $0.workerReads } }
+    var seriesLookups: Int { self.locked { $0.seriesLookups } }
+    var mainThreadSeriesLookups: Int { self.locked { $0.mainThreadSeriesLookups } }
+    /// The handler the engine registered for iOS's change notices, once set up.
+    var onChange: (@MainActor @Sendable () -> Void)? { self.locked { $0.onChange } }
+
     var readCount: Int {
-        self.eventReads.count + self.calendarListReads
+        self.locked { $0.eventReads.count + $0.calendarListReads }
     }
 
     func access() -> CalendarAccess {
@@ -101,47 +157,62 @@ final class FakeCalendarProvider: CalendarProviding {
     }
 
     func requestFullAccess() async -> CalendarAccess {
-        self.accessRequests += 1
-        if self.accessValue == .notDetermined {
-            self.accessValue = self.requestedAccess
+        self.locked { state in
+            state.accessRequests += 1
+            if state.accessValue == .notDetermined {
+                state.accessValue = state.requestedAccess
+            }
+            return state.accessValue
         }
-        return self.accessValue
+    }
+
+    func observeChanges(_ handler: @escaping @MainActor @Sendable () -> Void) {
+        self.locked { $0.onChange = handler }
+    }
+
+    private func noteRead() {
+        let onMain = Thread.isMainThread
+        self.locked { state in
+            if onMain { state.mainThreadReads += 1 } else { state.workerReads += 1 }
+        }
     }
 
     func calendars() -> [CalendarInfo] {
-        self.calendarListReads += 1
-        guard self.accessValue.canRead else { return [] }
-        return self.calendarList
+        self.noteRead()
+        return self.locked { state in
+            state.calendarListReads += 1
+            return state.accessValue.canRead ? state.calendarList : []
+        }
     }
 
     func events(from: Date, to: Date, calendarIDs: [String]) -> [CalendarEventRecord] {
-        self.eventReads.append((from, to))
-        guard self.accessValue.canRead else { return [] }
+        self.noteRead()
+        let (canRead, events) = self.locked { state -> (Bool, [FakeCalendarEvent]) in
+            state.eventReads.append((from, to))
+            return (state.accessValue.canRead, state.events)
+        }
+        guard canRead else { return [] }
         let utc = CalendarWire.gregorianUTC
         let cappedEnd = min(to, utc.date(byAdding: .year, value: 4, to: from)!)
         let wanted = Set(calendarIDs)
         var records: [CalendarEventRecord] = []
-        for event in self.events where wanted.contains(event.calendarID) {
+        for event in events where wanted.contains(event.calendarID) {
             records.append(contentsOf: self.occurrences(of: event, from: from, to: cappedEnd))
         }
         return records
     }
 
     func seriesRule(seriesID: String) -> CalendarRepeatRule? {
-        self.events.first { $0.uid == seriesID }?.rule
-    }
-
-    func change(_ mutate: (FakeCalendarProvider) -> Void) {
-        mutate(self)
-        self.onChange?()
+        let onMain = Thread.isMainThread
+        return self.locked { state in
+            state.seriesLookups += 1
+            if onMain { state.mainThreadSeriesLookups += 1 }
+            return state.events.first { $0.uid == seriesID }?.rule
+        }
     }
 
     func addCalendar(_ identifier: String, title: String, account: String = "iCloud", birthdays: Bool = false) {
-        self.calendarList.append(CalendarInfo(identifier: identifier, title: title, accountName: account, isBirthdays: birthdays))
-    }
-
-    func index(of uid: String, calendar: String? = nil) -> Int {
-        self.events.firstIndex { $0.uid == uid && (calendar == nil || $0.calendarID == calendar) }!
+        self.locked { $0.calendarList.append(CalendarInfo(identifier: identifier, title: title, accountName: account, isBirthdays: birthdays)) }
     }
 
     // MARK: expansion
@@ -268,6 +339,7 @@ final class FakeCalendarProvider: CalendarProviding {
 /// Stands in for the transfer queue: keeps every file queued, once, in order.
 @MainActor
 final class FakeCalendarDelivery: CalendarNoteDelivering {
+    private(set) var stagingClears = 0
     private(set) var files: [CalendarPendingFile] = []
     /// Files queued and not yet settled.
     private(set) var waiting = 0
@@ -286,6 +358,10 @@ final class FakeCalendarDelivery: CalendarNoteDelivering {
 
     func queuedFileCount() async -> Int {
         self.waiting
+    }
+
+    func clearStaging() {
+        self.stagingClears += 1
     }
 
     func settle(_ count: Int = .max) {
@@ -348,8 +424,10 @@ final class CalendarHarness {
         self.dependencies = dependencies
         self.now = now
         self.settings = settings
+        self.settings.changeDebounce = .milliseconds(20)
+        self.settings.launchWait = .seconds(5)
         self.store = CalendarSourceStore(rootURL: self.rootURL)
-        self.engine = CalendarSourceEngine(provider: self.provider, store: self.store, delivery: self.engineDelivery)
+        self.engine = CalendarSourceEngine(access: self.provider, reader: self.provider, store: self.store, delivery: self.engineDelivery)
         self.engine = self.makeEngine()
     }
 
@@ -363,24 +441,31 @@ final class CalendarHarness {
     }
 
     private func makeEngine() -> CalendarSourceEngine {
-        CalendarSourceEngine(
-            provider: self.provider,
+        let provider = self.provider
+        return CalendarSourceEngine(
+            access: provider,
+            reader: provider,
             store: self.store,
             delivery: self.engineDelivery,
             settings: self.settings,
             dependencies: self.dependencies?(self) ?? CalendarSourceEngine.Dependencies(
-                now: { [unowned self] in self.now },
-                timeZone: { [unowned self] in self.provider.deviceTimeZone }
+                now: { [weak self] in self?.now ?? Date() },
+                timeZone: { provider.deviceTimeZone }
             )
         )
     }
 
     /// A kill and a relaunch: the store is read again from disk and the engine starts over.
     func relaunch() async {
-        self.store = CalendarSourceStore(rootURL: self.rootURL)
-        self.engine = self.makeEngine()
+        self.rebuild()
         await self.engine.launch()
         await self.engine.waitUntilIdle()
+    }
+
+    /// A new process whose launch has not run yet.
+    func rebuild() {
+        self.store = CalendarSourceStore(rootURL: self.rootURL)
+        self.engine = self.makeEngine()
     }
 
     /// Sets up with `span`, confirms, and waits for the import and the first check.
@@ -393,7 +478,7 @@ final class CalendarHarness {
 
     /// A routine check at the current clock.
     func check() async {
-        self.engine.storeChanged()
+        self.engine.foreground()
         await self.engine.waitUntilIdle()
     }
 

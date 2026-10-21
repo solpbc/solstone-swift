@@ -70,6 +70,8 @@ protocol CalendarNoteDelivering: AnyObject {
     func deliver(_ file: CalendarPendingFile) async throws
     /// Calendar files queued and not yet in the journal.
     func queuedFileCount() async -> Int
+    /// Removes what a kill left half-staged. Called at launch, before a step is replayed.
+    func clearStaging()
 }
 
 /// Calendar files go through the transfer engine, as the watch's audio does.
@@ -94,6 +96,13 @@ final class CalendarTransferDelivery: CalendarNoteDelivering {
             manifest: CalendarTransfer.manifest(for: pending),
             payloadFileURLs: [CalendarTransfer.partID: url]
         )
+    }
+
+    func clearStaging() {
+        guard let names = try? self.fileManager.contentsOfDirectory(atPath: self.stagingURL.path) else { return }
+        for name in names {
+            try? self.fileManager.removeItem(at: self.stagingURL.appendingPathComponent(name))
+        }
     }
 
     func queuedFileCount() async -> Int {

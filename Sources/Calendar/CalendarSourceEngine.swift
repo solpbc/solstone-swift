@@ -74,6 +74,11 @@ final class CalendarSourceEngine {
         /// How long an identity must stay missing before it is removed.
         var removalConfirmationSeconds: Int64 = 600
         var lookBackDays = 30
+        /// A burst of iOS change notices is one check, this long after the last of them.
+        var changeDebounce: Duration = .seconds(2)
+        /// How long background refresh time waits for the app's launch to finish before giving
+        /// the time back. Well inside the time iOS grants.
+        var launchWait: Duration = .seconds(15)
     }
 
     struct Dependencies {
@@ -90,7 +95,8 @@ final class CalendarSourceEngine {
     private(set) var isCountingSetup = false
     private(set) var countingCalendarKeys: Set<String> = []
 
-    @ObservationIgnored private let provider: any CalendarProviding
+    @ObservationIgnored private let accessProvider: any CalendarAccessProviding
+    @ObservationIgnored let worker: CalendarWorker
     @ObservationIgnored let store: CalendarSourceStore
     @ObservationIgnored private let delivery: any CalendarNoteDelivering
     @ObservationIgnored private let settings: Settings
@@ -100,27 +106,39 @@ final class CalendarSourceEngine {
     @ObservationIgnored private var checkQueued = false
     @ObservationIgnored private var pumpQueued = false
     @ObservationIgnored private var started = false
+    @ObservationIgnored private var launched = false
+    @ObservationIgnored private var observing = false
+    @ObservationIgnored private var debounce: Task<Void, Never>?
     /// Whether `document` has been taken from a loaded store.
     @ObservationIgnored private var storeSynced: Bool
+    /// Routine checks that read the calendars. For tests.
+    @ObservationIgnored private(set) var checkCount = 0
 
     init(
-        provider: any CalendarProviding,
+        access: any CalendarAccessProviding,
+        reader: any CalendarEventReading,
         store: CalendarSourceStore,
         delivery: any CalendarNoteDelivering,
         settings: Settings = Settings(),
         dependencies: Dependencies = Dependencies()
     ) {
-        self.provider = provider
+        self.accessProvider = access
+        self.worker = CalendarWorker(
+            reader: reader,
+            importsURL: store.rootURL.appendingPathComponent("imports", isDirectory: true),
+            settings: CalendarWorker.Settings(
+                pageYears: settings.pageYears,
+                removalConfirmationSeconds: settings.removalConfirmationSeconds,
+                lookBackDays: settings.lookBackDays
+            )
+        )
         self.store = store
         self.delivery = delivery
         self.settings = settings
         self.dependencies = dependencies
-        self.access = provider.access()
+        self.access = access.access()
         self.document = store.document
         self.storeSynced = store.isLoaded
-        provider.onChange = { [weak self] in
-            self?.storeChanged()
-        }
     }
 
     // MARK: what the screens read
@@ -183,12 +201,12 @@ final class CalendarSourceEngine {
     /// Asks iOS for full calendar access. Never asks for write-only access.
     @discardableResult
     func requestFullAccess() async -> CalendarAccess {
-        self.access = await self.provider.requestFullAccess()
+        self.access = await self.accessProvider.requestFullAccess()
         return self.access
     }
 
     func refreshAccess() {
-        self.access = self.provider.access()
+        self.access = self.accessProvider.access()
     }
 
     /// Reads `span` across the chosen calendars (every calendar when `calendarIDs` is `nil`),
@@ -239,38 +257,63 @@ final class CalendarSourceEngine {
 
     // MARK: when the source checks
 
-    /// At launch: finishes a step a kill interrupted, then carries on an import and checks.
-    /// Returns once the interrupted step is finished, so it is queued before anything is sent.
+    /// At launch: clears what a kill left half-staged, finishes a step a kill interrupted, then
+    /// carries on an import and checks. Returns once the interrupted step is finished, so it is
+    /// queued before anything is sent.
     func launch() async {
         self.started = true
-        self.access = self.provider.access()
+        self.access = self.accessProvider.access()
+        self.delivery.clearStaging()
         await self.perform { _ = await self.finishPendingStep() }
+        self.observeChangesIfSetUp()
         self.requestPump()
         self.requestCheck()
+        self.launched = true
     }
 
     func foreground() {
         guard self.started else { return }
-        self.access = self.provider.access()
+        self.access = self.accessProvider.access()
         self.requestPump()
         self.requestCheck()
     }
 
+    /// iOS reported a calendar change. A burst of reports is one check, after the burst.
     func storeChanged() {
         guard self.started else { return }
-        self.requestCheck()
+        self.debounce?.cancel()
+        let delay = self.settings.changeDebounce
+        self.debounce = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            self?.requestCheck()
+        }
     }
 
-    /// For background refresh time: checks, carries on an import, and returns when done.
+    /// For background refresh time. iOS may launch the app just for this, before the app has
+    /// finished launching; the refresh then waits for the launch, whose own check is the one it
+    /// runs, and gives the time back if the launch does not finish within `launchWait`.
     func backgroundRefresh() async {
-        guard self.started else { return }
-        self.access = self.provider.access()
+        if !self.launched {
+            let deadline = ContinuousClock.now + self.settings.launchWait
+            while !self.launched, ContinuousClock.now < deadline, !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard self.launched else {
+                calendarEngineLog.notice("calendar refresh ended before the app finished launching")
+                return
+            }
+            await self.waitUntilIdle()
+            return
+        }
+        self.access = self.accessProvider.access()
         self.requestCheck()
         self.requestPump()
         await self.waitUntilIdle()
     }
 
-    /// A calendar file reached the journal, so an import may add more.
+    /// A calendar file reached the journal, or went to needs attention, so an import may add
+    /// more.
     func deliveryProgressed() {
         guard self.started else { return }
         self.requestPump()
@@ -322,6 +365,14 @@ final class CalendarSourceEngine {
         }
     }
 
+    private func observeChangesIfSetUp() {
+        guard self.document.everOn, !self.observing else { return }
+        self.observing = true
+        self.accessProvider.observeChanges { [weak self] in
+            self?.storeChanged()
+        }
+    }
+
     // MARK: steps
 
     /// Loads the store, if it could not be read before. The source does nothing until it can.
@@ -347,7 +398,7 @@ final class CalendarSourceEngine {
             calendarEngineLog.notice("calendar step finished after relaunch files=\(step.files.count, privacy: .public)")
             return true
         } catch {
-            calendarEngineLog.error("calendar step still unfinished: \(String(describing: error), privacy: .public)")
+            calendarEngineLog.error("calendar step still unfinished: \(String(describing: type(of: error)), privacy: .public)")
             return false
         }
     }
@@ -361,6 +412,7 @@ final class CalendarSourceEngine {
         guard !files.isEmpty || !upserts.isEmpty else {
             try self.store.writeDocument(document)
             self.document = document
+            await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
             return
         }
         let step = CalendarPendingStep(files: files, upserts: upserts, document: document)
@@ -381,7 +433,7 @@ final class CalendarSourceEngine {
             try self.store.interrupt(at: .afterFileQueued(index))
         }
         self.store.clearPendingStep()
-        self.store.removeUnreferencedFrozenImports()
+        await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
         if !step.files.isEmpty {
             self.dependencies.deliveryChanged()
         }
@@ -391,87 +443,24 @@ final class CalendarSourceEngine {
 
     private func countSetup(span: CalendarSpanChoice, calendarIDs: Set<String>?) async {
         guard await self.finishPendingStep(), !self.document.everOn else { return }
-        self.access = self.provider.access()
+        self.access = self.accessProvider.access()
         guard self.access.canRead else { return }
         self.isCountingSetup = true
         defer { self.isCountingSetup = false }
-
-        let now = self.dependencies.now()
-        let timeZone = self.dependencies.timeZone()
-        let noticed = CalendarWire.wholeSeconds(now)
-        var document = self.document
-        document.imports.removeAll { $0.kind == .setup }
-        let spanStart = span.start(now: now, timeZone: timeZone)
-        document.span = span
-        document.spanStart = CalendarWire.wholeSeconds(spanStart)
-        document.setupAt = noticed
-        let earlier = Dictionary(document.calendars.map { ($0.identifier, $0) }, uniquingKeysWith: { first, _ in first })
-        document.calendars = self.provider.calendars().map { info in
-            CalendarFollowRecord(
-                key: earlier[info.identifier]?.key ?? UUID().uuidString,
-                identifier: info.identifier,
-                accountName: info.accountName,
-                title: info.title,
-                isBirthdays: info.isBirthdays,
-                followed: calendarIDs.map { $0.contains(info.identifier) } ?? earlier[info.identifier]?.followed ?? true,
-                present: true
-            )
-        }
-        let followed = document.calendars.filter(\.followed)
-        let events = await self.read(
-            followed,
-            from: spanStart,
-            to: self.readEnd(now: now, timeZone: timeZone),
-            birthdayFloor: self.birthdayFloor(document, timeZone: timeZone)
-        )
-        let sightings = self.gather(events, calendars: document.calendars)
-        var lines: [CalendarFrozenLine] = []
-        var skips: [String: CalendarSentEntry] = [:]
-        for key in sightings.keys.sorted(by: CalendarWire.precedes) {
-            let sighting = sightings[key]!
-            guard let content = self.content(of: sighting.winner, identity: sighting.identity, timeZone: timeZone) else {
-                continue
-            }
-            let changedAt = Self.changedAt(
-                lastModified: sighting.winner.event.lastModified,
-                created: sighting.winner.event.created,
-                previous: nil,
-                now: now,
-                lastNoticed: document.lastNoticed
-            )
-            let line = CalendarNoteLine(change: .added, changedAt: CalendarWireInstant(seconds: changedAt, timeZone: timeZone), content: content)
-            var entry = CalendarSentEntry(identity: sighting.identity)
-            entry.holders = sighting.holderKeys
-            if let problem = CalendarNoteValidator.problem(with: line) {
-                calendarEngineLog.error("calendar note skipped: \(String(describing: problem), privacy: .public)")
-                entry.skipped = content.fingerprint
-                skips[key] = entry
-                continue
-            }
-            Self.recordSent(&entry, line: line, winner: sighting.winner)
-            lines.append(self.frozenLine(line, entry: entry, baseline: nil, kind: .added))
-        }
-        let frozen = Self.freeze(lines, sightings: [:], skips: skips)
-        let id = UUID().uuidString
         do {
-            try self.store.writeFrozenImport(frozen, id: id)
+            let document = try await self.worker.countSetup(
+                document: self.document,
+                span: span,
+                calendarIDs: calendarIDs,
+                now: self.dependencies.now(),
+                timeZone: self.dependencies.timeZone()
+            )
+            try self.store.writeDocument(document)
+            self.document = document
+            await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
         } catch {
-            calendarEngineLog.error("calendar setup could not be frozen: \(String(describing: error), privacy: .public)")
-            return
+            calendarEngineLog.error("calendar setup could not be counted: \(String(describing: type(of: error)), privacy: .public)")
         }
-        document.imports.append(CalendarImportRecord(
-            id: id,
-            kind: .setup,
-            confirmed: false,
-            count: lines.count,
-            fileCount: frozen.files.count,
-            cursor: 0,
-            frozenAt: noticed
-        ))
-        self.store.saveDocument(document)
-        self.document = document
-        self.store.removeUnreferencedFrozenImports()
-        calendarEngineLog.notice("calendar setup counted notes=\(lines.count, privacy: .public)")
     }
 
     private func confirmSetup() async {
@@ -487,12 +476,15 @@ final class CalendarSourceEngine {
         // The setup read counts as a completed check.
         document.lastCompletedCheck = record.frozenAt
         document.lastNoticed = max(document.lastNoticed ?? record.frozenAt, record.frozenAt)
-        let skips = self.store.frozenImport(id: record.id)?.skips ?? [:]
+        let skips = await self.worker.skips(importID: record.id)
         do {
             try await self.commit(files: [], upserts: skips, document: document)
             calendarEngineLog.notice("calendar setup confirmed notes=\(record.count, privacy: .public)")
+            if self.started {
+                self.observeChangesIfSetUp()
+            }
         } catch {
-            calendarEngineLog.error("calendar setup confirm failed: \(String(describing: error), privacy: .public)")
+            calendarEngineLog.error("calendar setup confirm failed: \(String(describing: type(of: error)), privacy: .public)")
         }
     }
 
@@ -522,109 +514,36 @@ final class CalendarSourceEngine {
         document.imports.removeAll { $0.kind == .calendar(key: key) && !$0.confirmed }
         self.store.saveDocument(document)
         self.document = document
-        self.store.removeUnreferencedFrozenImports()
+        await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
         if followed {
             await self.countCalendar(key: key)
         }
     }
 
-    /// Counts a calendar switched on after setup over the setup span. Identities the record
-    /// lacks go out as `added`, identities whose fingerprint changed as `changed`, and the rest
-    /// send nothing. Every sighting still updates which calendars hold an identity.
+    /// Counts a calendar switched on after setup over the setup span; nothing is sent until
+    /// `confirmCalendar`.
     private func countCalendar(key: String) async {
-        guard self.document.everOn, let spanStartSeconds = self.document.spanStart else { return }
-        self.access = self.provider.access()
+        guard self.document.everOn else { return }
+        self.access = self.accessProvider.access()
         guard self.access.canRead else { return }
-        guard let calendar = self.document.calendars.first(where: { $0.key == key && $0.present && $0.followed }) else { return }
         self.countingCalendarKeys.insert(key)
         defer { self.countingCalendarKeys.remove(key) }
-
-        let now = self.dependencies.now()
-        let timeZone = self.dependencies.timeZone()
-        let noticed = CalendarWire.wholeSeconds(now)
-        var document = self.document
-        let events = await self.read(
-            [calendar],
-            from: Date(timeIntervalSince1970: TimeInterval(spanStartSeconds)),
-            to: self.readEnd(now: now, timeZone: timeZone),
-            birthdayFloor: self.birthdayFloor(document, timeZone: timeZone)
-        )
-        let sightings = self.gather(events, calendars: document.calendars)
-        let record = self.store.record
-        let liveKeys = Set(document.calendars.filter(\.present).map(\.key))
-        let importing = Self.importingKeys(document)
-        var lines: [CalendarFrozenLine] = []
-        var seenOnly: [String: [String]] = [:]
-        var skips: [String: CalendarSentEntry] = [:]
-        for identityKey in sightings.keys.sorted(by: CalendarWire.precedes) {
-            let sighting = sightings[identityKey]!
-            let old = record[identityKey]
-            // Another followed calendar's copy wins; this calendar only holds it too.
-            if let old, old.wasSent, !old.removed, let winnerKey = old.winner, winnerKey != key,
-               let winner = document.calendars.first(where: { $0.key == winnerKey }),
-               winner.present, winner.followed, !importing.contains(winnerKey),
-               Self.calendarPrecedes(winner, calendar)
-            {
-                seenOnly[identityKey] = [key]
-                continue
-            }
-            guard let content = self.content(of: sighting.winner, identity: sighting.identity, timeZone: timeZone) else {
-                continue
-            }
-            let fingerprint = content.fingerprint
-            let change: CalendarNoteChange?
-            if old?.skipped == fingerprint {
-                change = nil
-            } else if let old, old.wasSent, !old.removed {
-                change = old.fingerprint == fingerprint ? nil : .changed
-            } else {
-                change = .added
-            }
-            guard let change else {
-                seenOnly[identityKey] = [key]
-                continue
-            }
-            let changedAt = Self.changedAt(
-                lastModified: sighting.winner.event.lastModified,
-                created: sighting.winner.event.created,
-                previous: old?.changedAt,
-                now: now,
-                lastNoticed: document.lastNoticed
-            )
-            let line = CalendarNoteLine(change: change, changedAt: CalendarWireInstant(seconds: changedAt, timeZone: timeZone), content: content)
-            var entry = old ?? CalendarSentEntry(identity: sighting.identity)
-            entry.holders = Self.holders(old?.holders ?? [], adding: [key], liveKeys: liveKeys)
-            if let problem = CalendarNoteValidator.problem(with: line) {
-                calendarEngineLog.error("calendar note skipped: \(String(describing: problem), privacy: .public)")
-                entry.skipped = fingerprint
-                skips[identityKey] = entry
-                continue
-            }
-            let kind: CalendarRecentKind = change == .added ? .added : Self.changeKind(old: old, content: content)
-            Self.recordSent(&entry, line: line, winner: sighting.winner)
-            lines.append(self.frozenLine(line, entry: entry, baseline: old?.changedAt, kind: kind))
-        }
-        let frozen = Self.freeze(lines, sightings: seenOnly, skips: skips)
-        let id = UUID().uuidString
         do {
-            try self.store.writeFrozenImport(frozen, id: id)
+            guard let document = try await self.worker.countCalendar(
+                document: self.document,
+                key: key,
+                record: self.store.record,
+                now: self.dependencies.now(),
+                timeZone: self.dependencies.timeZone()
+            ) else {
+                return
+            }
+            try self.store.writeDocument(document)
+            self.document = document
+            await self.worker.removeFrozen(except: Set(document.imports.map(\.id)))
         } catch {
-            calendarEngineLog.error("calendar count could not be frozen: \(String(describing: error), privacy: .public)")
-            return
+            calendarEngineLog.error("calendar count failed: \(String(describing: type(of: error)), privacy: .public)")
         }
-        document.imports.removeAll { $0.kind == .calendar(key: key) && !$0.confirmed }
-        document.imports.append(CalendarImportRecord(
-            id: id,
-            kind: .calendar(key: key),
-            confirmed: false,
-            count: lines.count,
-            fileCount: frozen.files.count,
-            cursor: 0,
-            frozenAt: noticed
-        ))
-        self.store.saveDocument(document)
-        self.document = document
-        self.store.removeUnreferencedFrozenImports()
     }
 
     private func confirmCalendarImport(_ identifier: String) async {
@@ -637,29 +556,16 @@ final class CalendarSourceEngine {
         var document = self.document
         let importRecord = document.imports[index]
         document.imports[index].confirmed = true
-        let frozen = self.store.frozenImport(id: importRecord.id)
-        let record = self.store.record
-        let liveKeys = Set(document.calendars.filter(\.present).map(\.key))
-        var upserts = frozen?.skips ?? [:]
-        // Every identity the calendar holds is held by it from now on, whether or not a note for
-        // it has gone yet, so a deletion from another calendar is not taken for a removal.
-        var sightings = frozen?.sightings ?? [:]
-        for file in frozen?.files ?? [] {
-            for line in file.lines {
-                sightings[line.line.identity.key, default: []].append(calendar.key)
-            }
-        }
-        for (identityKey, keys) in sightings {
-            guard var entry = upserts[identityKey] ?? record[identityKey] else { continue }
-            let holders = Self.holders(entry.holders, adding: keys, liveKeys: liveKeys)
-            guard holders != entry.holders else { continue }
-            entry.holders = holders
-            upserts[identityKey] = entry
-        }
+        let upserts = await self.worker.confirmUpserts(
+            importID: importRecord.id,
+            calendarKey: calendar.key,
+            record: self.store.record,
+            liveKeys: Set(document.calendars.filter(\.present).map(\.key))
+        )
         do {
             try await self.commit(files: [], upserts: upserts, document: document)
         } catch {
-            calendarEngineLog.error("calendar import confirm failed: \(String(describing: error), privacy: .public)")
+            calendarEngineLog.error("calendar import confirm failed: \(String(describing: type(of: error)), privacy: .public)")
         }
     }
 
@@ -672,64 +578,42 @@ final class CalendarSourceEngine {
     private func pumpImports() async {
         guard await self.finishPendingStep() else { return }
         while let importRecord = self.document.imports.first(where: \.confirmed) {
-            guard !self.document.paused, self.provider.access().canRead else { return }
+            guard !self.document.paused, self.accessProvider.access().canRead else { return }
+            var room = self.settings.importWindow
+            if importRecord.cursor < importRecord.fileCount {
+                room -= await self.delivery.queuedFileCount()
+                guard room > 0 else { return }
+            }
+            let batch = await self.worker.importBatch(
+                importRecord,
+                record: self.store.record,
+                followedKeys: Set(self.document.calendars.filter(\.followed).map(\.key)),
+                room: room,
+                timeZone: self.dependencies.timeZone()
+            )
             var document = self.document
             guard let index = document.imports.firstIndex(where: { $0.id == importRecord.id }) else { return }
-            guard let frozen = self.store.frozenImport(id: importRecord.id) else {
+            guard let batch else {
                 calendarEngineLog.error("calendar import set missing; import ended")
                 document.imports.remove(at: index)
                 try? await self.commit(files: [], upserts: [:], document: document)
                 continue
             }
-            var cursor = importRecord.cursor
-            var files: [CalendarPendingFile] = []
-            var upserts: [String: CalendarSentEntry] = [:]
-            var recent: [CalendarRecentNote] = []
-            if cursor < frozen.files.count {
-                let room = self.settings.importWindow - (await self.delivery.queuedFileCount())
-                guard room > 0 else { return }
-                let record = self.store.record
-                let followedKeys = Set(document.calendars.filter(\.followed).map(\.key))
-                let timeZone = self.dependencies.timeZone()
-                while files.count < room, cursor < frozen.files.count {
-                    var kept: [CalendarFiledLine] = []
-                    for frozenLine in frozen.files[cursor].lines {
-                        let key = frozenLine.line.identity.key
-                        let current = upserts[key] ?? record[key]
-                        // The record moved on since the freeze: a newer version was already sent.
-                        guard current?.changedAt == frozenLine.baseline else { continue }
-                        // Its calendars were switched off since the count.
-                        guard frozenLine.entry.holders.contains(where: followedKeys.contains) else { continue }
-                        var entry = frozenLine.entry
-                        if let current {
-                            entry.holders = Array(Set(current.holders).union(entry.holders)).sorted()
-                        }
-                        upserts[key] = entry
-                        kept.append(frozenLine.line)
-                        recent.append(frozenLine.recent)
-                    }
-                    cursor += 1
-                    if !kept.isEmpty {
-                        files.append(CalendarPendingFile(file: CalendarNoteFiles.file(kept), timeZoneIdentifier: timeZone.identifier))
-                    }
-                }
-            }
-            let finished = cursor >= frozen.files.count
-            if finished {
+            if batch.finished {
                 document.imports.remove(at: index)
             } else {
-                document.imports[index].cursor = cursor
+                document.imports[index].cursor = batch.cursor
             }
-            document.noteRecent(recent)
+            document.noteRecent(batch.recent)
             do {
-                try await self.commit(files: files, upserts: upserts, document: document)
+                try await self.commit(files: batch.files, upserts: batch.upserts, document: document)
             } catch {
-                calendarEngineLog.error("calendar import step failed: \(String(describing: error), privacy: .public)")
+                calendarEngineLog.error("calendar import step failed: \(String(describing: type(of: error)), privacy: .public)")
                 return
             }
-            if finished {
+            if batch.finished {
                 calendarEngineLog.notice("calendar import queued in full")
-                self.store.removeFrozenImport(id: importRecord.id)
+                await self.worker.removeFrozen(id: importRecord.id)
                 self.requestCheck()
             }
         }
@@ -743,360 +627,28 @@ final class CalendarSourceEngine {
 
     private func runCheck() async {
         guard await self.finishPendingStep(), self.isRunning, !self.document.paused else { return }
-        self.access = self.provider.access()
+        self.access = self.accessProvider.access()
         guard self.access.canRead else { return }
-        guard let spanStartSeconds = self.document.spanStart else { return }
-
-        let now = self.dependencies.now()
-        let timeZone = self.dependencies.timeZone()
-        let noticed = CalendarWire.wholeSeconds(now)
-        var document = self.document
-        self.reconcileCalendars(&document)
-        let importing = Self.importingKeys(document)
-        let readSet = document.calendars.filter { $0.followed && $0.present && !importing.contains($0.key) }
-        let readKeys = Set(readSet.map(\.key))
-        let liveKeys = Set(document.calendars.filter(\.present).map(\.key))
-
-        let spanStart = Date(timeIntervalSince1970: TimeInterval(spanStartSeconds))
-        var backEdge = CalendarWire.adding(days: -self.settings.lookBackDays, to: now, in: timeZone)
-        if let last = document.lastCompletedCheck {
-            backEdge = min(backEdge, Date(timeIntervalSince1970: TimeInterval(last - 86_400)))
-        }
-        backEdge = max(backEdge, spanStart)
-        let end = self.readEnd(now: now, timeZone: timeZone)
-        let events = await self.read(readSet, from: backEdge, to: end, birthdayFloor: self.birthdayFloor(document, timeZone: timeZone))
-        let sightings = self.gather(events, calendars: document.calendars)
-        let record = self.store.record
-
-        var upserts: [String: CalendarSentEntry] = [:]
-        var filed: [CalendarFiledLine] = []
-        var recent: [CalendarRecentNote] = []
-        for identityKey in sightings.keys.sorted(by: CalendarWire.precedes) {
-            let sighting = sightings[identityKey]!
-            let old = record[identityKey]
-            guard let content = self.content(of: sighting.winner, identity: sighting.identity, timeZone: timeZone) else {
-                continue
-            }
-            let fingerprint = content.fingerprint
-            var entry = old ?? CalendarSentEntry(identity: sighting.identity)
-            entry.holders = Self.holders(old?.holders ?? [], seen: sighting.holderKeys, readKeys: readKeys, liveKeys: liveKeys)
-            entry.firstMissingAt = nil
-            let change: CalendarNoteChange?
-            if old?.skipped == fingerprint {
-                change = nil
-            } else if let old, old.wasSent, !old.removed {
-                if old.fingerprint == fingerprint {
-                    change = nil
-                } else if let winner = old.winner, importing.contains(winner), liveKeys.contains(winner) {
-                    // The copy last sent belongs to a calendar still coming in; it decides once in.
-                    change = nil
-                } else {
-                    change = .changed
-                }
-            } else {
-                change = .added
-            }
-            guard let change else {
-                if entry != old {
-                    upserts[identityKey] = entry
-                }
-                continue
-            }
-            let changedAt = Self.changedAt(
-                lastModified: sighting.winner.event.lastModified,
-                created: sighting.winner.event.created,
-                previous: old?.changedAt,
-                now: now,
-                lastNoticed: document.lastNoticed
-            )
-            let line = CalendarNoteLine(change: change, changedAt: CalendarWireInstant(seconds: changedAt, timeZone: timeZone), content: content)
-            if let problem = CalendarNoteValidator.problem(with: line) {
-                calendarEngineLog.error("calendar note skipped: \(String(describing: problem), privacy: .public)")
-                entry.skipped = fingerprint
-                upserts[identityKey] = entry
-                continue
-            }
-            let kind: CalendarRecentKind = change == .added ? .added : Self.changeKind(old: old, content: content)
-            Self.recordSent(&entry, line: line, winner: sighting.winner)
-            upserts[identityKey] = entry
-            if let json = line.json, let window = line.changedAt.window {
-                filed.append(CalendarFiledLine(identity: sighting.identity, json: json, window: window))
-                recent.append(CalendarRecentNote(kind: kind, title: content.title, changedAt: changedAt))
-            }
-        }
-
-        // An identity is removed only when a read covering its last start misses it, every
-        // calendar that last held it is followed and readable, and an earlier check at least
-        // `removalConfirmationSeconds` before missed it too.
-        let readFrom = CalendarWire.wholeSeconds(backEdge)
-        let readTo = CalendarWire.wholeSeconds(end)
-        for (identityKey, old) in record where sightings[identityKey] == nil && old.wasSent && !old.removed {
-            guard let startAt = old.startAt, startAt >= readFrom, startAt < readTo,
-                  !old.holders.isEmpty, old.holders.allSatisfy(readKeys.contains)
-            else {
-                continue
-            }
-            guard let firstMissing = old.firstMissingAt else {
-                var entry = old
-                entry.firstMissingAt = noticed
-                upserts[identityKey] = entry
-                continue
-            }
-            guard noticed - firstMissing >= self.settings.removalConfirmationSeconds else { continue }
-            let changedAt = Self.changedAt(lastModified: nil, created: nil, previous: old.changedAt, now: now, lastNoticed: document.lastNoticed)
-            let line = CalendarNoteLine(
-                change: .removed,
-                changedAt: CalendarWireInstant(seconds: changedAt, timeZone: timeZone),
-                content: .removed(identity: old.identity, title: old.title, calendar: old.calendar)
-            )
-            guard CalendarNoteValidator.problem(with: line) == nil, let json = line.json, let window = line.changedAt.window else {
-                continue
-            }
-            var entry = old
-            entry.removed = true
-            entry.changedAt = changedAt
-            entry.firstMissingAt = nil
-            upserts[identityKey] = entry
-            filed.append(CalendarFiledLine(identity: old.identity, json: json, window: window))
-            recent.append(CalendarRecentNote(kind: .removed, title: old.title, changedAt: changedAt))
-        }
-
-        document.lastCompletedCheck = noticed
-        document.lastNoticed = max(document.lastNoticed ?? noticed, noticed)
-        document.noteRecent(recent)
-        let files = CalendarNoteFiles.files(from: filed).map {
-            CalendarPendingFile(file: $0, timeZoneIdentifier: timeZone.identifier)
+        self.checkCount += 1
+        guard let outcome = await self.worker.routineCheck(
+            document: self.document,
+            record: self.store.record,
+            now: self.dependencies.now(),
+            timeZone: self.dependencies.timeZone()
+        ) else {
+            return
         }
         do {
-            try await self.commit(files: files, upserts: upserts, document: document)
-            if !files.isEmpty {
-                calendarEngineLog.notice("calendar check queued notes=\(filed.count, privacy: .public) files=\(files.count, privacy: .public)")
+            try await self.commit(files: outcome.files, upserts: outcome.upserts, document: outcome.document)
+            if !outcome.files.isEmpty {
+                calendarEngineLog.notice("calendar check queued notes=\(outcome.noteCount, privacy: .public) files=\(outcome.files.count, privacy: .public)")
             }
         } catch {
-            calendarEngineLog.error("calendar check step failed: \(String(describing: error), privacy: .public)")
+            calendarEngineLog.error("calendar check step failed: \(String(describing: type(of: error)), privacy: .public)")
         }
     }
 
-    // MARK: reading
-
-    /// The end of every read: one year ahead of today.
-    private func readEnd(now: Date, timeZone: TimeZone) -> Date {
-        CalendarWire.adding(years: 1, to: CalendarWire.startOfDay(now, in: timeZone), in: timeZone)
-    }
-
-    /// Birthdays start at the later of the span's start and the start of the setup year. iOS
-    /// expands a contact's birthday back to 1604, and those past copies add nothing.
-    private func birthdayFloor(_ document: CalendarSourceDocument, timeZone: TimeZone) -> Date {
-        let spanStart = Date(timeIntervalSince1970: TimeInterval(document.spanStart ?? 0))
-        let setupYear = CalendarWire.startOfYear(
-            Date(timeIntervalSince1970: TimeInterval(document.setupAt ?? 0)),
-            in: timeZone
-        )
-        return max(spanStart, setupYear)
-    }
-
-    /// Reads events that start in `from..<to`, in consecutive pages of at most
-    /// `pageYears`. An event straddling a page edge is kept only in the page it starts in.
-    func read(
-        _ calendars: [CalendarFollowRecord],
-        from: Date,
-        to: Date,
-        birthdayFloor: Date
-    ) async -> [CalendarEventRecord] {
-        guard !calendars.isEmpty, from < to else { return [] }
-        let identifiers = calendars.map(\.identifier)
-        let birthdays = Set(calendars.filter(\.isBirthdays).map(\.identifier))
-        var events: [CalendarEventRecord] = []
-        var pageStart = from
-        while pageStart < to {
-            let pageEnd = self.settings.pageYears.map {
-                min(to, CalendarWire.adding(years: $0, to: pageStart, in: CalendarWire.utc))
-            } ?? to
-            for event in self.provider.events(from: pageStart, to: pageEnd, calendarIDs: identifiers) {
-                guard let start = event.start else {
-                    calendarEngineLog.notice("calendar event without a start skipped")
-                    continue
-                }
-                guard start >= pageStart, start < pageEnd else { continue }
-                if birthdays.contains(event.calendarID), start < birthdayFloor { continue }
-                events.append(event)
-            }
-            pageStart = pageEnd
-            await Task.yield()
-        }
-        return events
-    }
-
-    private struct Copy {
-        let calendar: CalendarFollowRecord
-        let event: CalendarEventRecord
-    }
-
-    private struct Sighting {
-        let identity: CalendarIdentity
-        var copies: [Copy]
-
-        /// The copy from the calendar first in order of (name, identifier).
-        var winner: Copy {
-            self.copies.min { CalendarSourceEngine.calendarPrecedes($0.calendar, $1.calendar) }!
-        }
-
-        var holderKeys: [String] {
-            Array(Set(self.copies.map(\.calendar.key))).sorted()
-        }
-    }
-
-    private func gather(_ events: [CalendarEventRecord], calendars: [CalendarFollowRecord]) -> [String: Sighting] {
-        let timeZone = self.dependencies.timeZone()
-        let byIdentifier = Dictionary(
-            calendars.filter(\.present).map { ($0.identifier, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
-        var sightings: [String: Sighting] = [:]
-        for event in events {
-            guard let calendar = byIdentifier[event.calendarID],
-                  let identity = CalendarNoteBuilder.identity(of: event, deviceTimeZone: timeZone)
-            else {
-                continue
-            }
-            sightings[identity.key, default: Sighting(identity: identity, copies: [])].copies.append(Copy(calendar: calendar, event: event))
-        }
-        return sightings
-    }
-
-    private func content(of copy: Copy, identity: CalendarIdentity, timeZone: TimeZone) -> CalendarNoteContent? {
-        var seriesRule: CalendarRepeatRule?
-        if CalendarNoteBuilder.repeats(copy.event), copy.event.repeatRules.isEmpty {
-            seriesRule = self.provider.seriesRule(seriesID: identity.event)
-        }
-        guard let content = CalendarNoteBuilder.content(
-            of: copy.event,
-            identity: identity,
-            calendarName: copy.calendar.title,
-            deviceTimeZone: timeZone,
-            seriesRule: seriesRule
-        ) else {
-            calendarEngineLog.notice("calendar event without a start skipped")
-            return nil
-        }
-        return content
-    }
-
-    /// Recognises calendars by identifier and, when an account resync changes identifiers, by
-    /// account and name, so a resync never stops following a calendar or resends its events.
-    /// When account and name match more than one calendar, the calendar counts as new, and if
-    /// any of the matching calendars was off, it comes back off. A calendar first seen after
-    /// setup is followed, with no backfill.
-    private func reconcileCalendars(_ document: inout CalendarSourceDocument) {
-        let live = self.provider.calendars()
-        for index in document.calendars.indices {
-            document.calendars[index].present = false
-        }
-        var unmatched: [CalendarInfo] = []
-        for info in live {
-            if let index = document.calendars.firstIndex(where: { $0.identifier == info.identifier }) {
-                document.calendars[index].present = true
-                document.calendars[index].title = info.title
-                document.calendars[index].accountName = info.accountName
-                document.calendars[index].isBirthdays = info.isBirthdays
-            } else {
-                unmatched.append(info)
-            }
-        }
-        for info in unmatched {
-            let sameName = unmatched.filter { $0.accountName == info.accountName && $0.title == info.title }
-            let candidates = document.calendars.indices.filter { index in
-                let known = document.calendars[index]
-                return !known.present && known.accountName == info.accountName && known.title == info.title
-            }
-            if candidates.count == 1, sameName.count == 1 {
-                let index = candidates[0]
-                document.calendars[index].identifier = info.identifier
-                document.calendars[index].present = true
-                document.calendars[index].isBirthdays = info.isBirthdays
-                continue
-            }
-            let anyOff = candidates.contains { !document.calendars[$0].followed }
-            document.calendars.append(CalendarFollowRecord(
-                key: UUID().uuidString,
-                identifier: info.identifier,
-                accountName: info.accountName,
-                title: info.title,
-                isBirthdays: info.isBirthdays,
-                followed: !anyOff,
-                present: true
-            ))
-        }
-        // A calendar matched by name is known again under its new identifier; the rest of the
-        // old ones stay known, absent, so their identities are never taken for deletions.
-        let identifiers = Set(live.map(\.identifier))
-        for index in document.calendars.indices where !identifiers.contains(document.calendars[index].identifier) {
-            document.calendars[index].present = false
-        }
-    }
-
-    // MARK: building
-
-    private func frozenLine(_ line: CalendarNoteLine, entry: CalendarSentEntry, baseline: Int64?, kind: CalendarRecentKind) -> CalendarFrozenLine {
-        CalendarFrozenLine(
-            line: CalendarFiledLine(identity: line.content.identity, json: line.json ?? "", window: line.changedAt.window!),
-            change: line.change,
-            entry: entry,
-            baseline: baseline,
-            recent: CalendarRecentNote(kind: kind, title: line.content.title, changedAt: line.changedAt.seconds)
-        )
-    }
-
-    private static func freeze(
-        _ lines: [CalendarFrozenLine],
-        sightings: [String: [String]],
-        skips: [String: CalendarSentEntry]
-    ) -> CalendarFrozenImport {
-        let byKey = Dictionary(lines.map { ($0.line.identity.key, $0) }, uniquingKeysWith: { first, _ in first })
-        let files = CalendarNoteFiles.files(from: lines.map(\.line)).map { file in
-            CalendarFrozenFile(lines: file.identityKeys.compactMap { byKey[$0] })
-        }
-        return CalendarFrozenImport(files: files, sightings: sightings, skips: skips)
-    }
-
-    private static func recordSent(_ entry: inout CalendarSentEntry, line: CalendarNoteLine, winner: Copy) {
-        entry.fingerprint = line.content.fingerprint
-        entry.placementFree = line.content.placementFreeFingerprint
-        entry.changedAt = line.changedAt.seconds
-        entry.start = line.content.start
-        entry.end = line.content.end
-        entry.startAt = winner.event.start.map(CalendarWire.wholeSeconds)
-        entry.title = line.content.title
-        entry.calendar = line.content.calendar
-        entry.winner = winner.calendar.key
-        entry.removed = false
-        entry.firstMissingAt = nil
-        entry.skipped = nil
-    }
-
-    /// Moved when only `start` and `end` changed; changed otherwise.
-    private static func changeKind(old: CalendarSentEntry?, content: CalendarNoteContent) -> CalendarRecentKind {
-        guard let old, let placementFree = old.placementFree else { return .changed }
-        return placementFree == content.placementFreeFingerprint ? .moved : .changed
-    }
-
-    /// Calendars that were read are replaced by what the read saw; calendars not read keep
-    /// their place; calendars no longer on the device go once the identity is seen elsewhere.
-    private static func holders(_ old: [String], seen: [String], readKeys: Set<String>, liveKeys: Set<String>) -> [String] {
-        let kept = old.filter { liveKeys.contains($0) && !readKeys.contains($0) }
-        return Array(Set(kept).union(seen)).sorted()
-    }
-
-    private static func holders(_ old: [String], adding keys: [String], liveKeys: Set<String>) -> [String] {
-        Array(Set(old.filter(liveKeys.contains)).union(keys)).sorted()
-    }
-
-    private static func importingKeys(_ document: CalendarSourceDocument) -> Set<String> {
-        Set(document.imports.compactMap { record in
-            if case .calendar(let key) = record.kind { return key }
-            return nil
-        })
-    }
+    // MARK: ordering and changed_at
 
     nonisolated static func calendarPrecedes(_ lhs: CalendarFollowRecord, _ rhs: CalendarFollowRecord) -> Bool {
         if lhs.title != rhs.title {
@@ -1105,17 +657,20 @@ final class CalendarSourceEngine {
         return CalendarWire.precedes(lhs.identifier, rhs.identifier)
     }
 
-    // MARK: changed_at
-
     /// 2000-01-01T00:00:00Z: nothing earlier is believed.
     nonisolated static let earliestBelievable: Int64 = 946_684_800
+    /// 2001-01-01T00:00:00Z, a placeholder some sources report.
+    nonisolated static let placeholder: Int64 = 978_307_200
 
-    /// A time is believable when it is on or after 2000-01-01, is not exactly
-    /// 2001-01-01T00:00:00Z (a placeholder some sources report), and is not in the future.
+    /// A time is believable when, in whole seconds, it is on or after 2000-01-01, is not
+    /// 2001-01-01T00:00:00Z (a placeholder some sources report), and is not after now.
     nonisolated static func believable(_ date: Date?, now: Date) -> Int64? {
-        guard let date, date.timeIntervalSinceReferenceDate != 0, date <= now else { return nil }
+        guard let date else { return nil }
         let seconds = CalendarWire.wholeSeconds(date)
-        return seconds >= Self.earliestBelievable ? seconds : nil
+        guard seconds >= Self.earliestBelievable, seconds != Self.placeholder, seconds <= CalendarWire.wholeSeconds(now) else {
+            return nil
+        }
+        return seconds
     }
 
     /// When a version entered the owner's life: the first believable of the event's last change,

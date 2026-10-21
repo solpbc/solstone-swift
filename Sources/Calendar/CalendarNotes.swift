@@ -117,15 +117,20 @@ nonisolated struct CalendarNoteContent: Equatable, Sendable {
         ]
     }
 
-    /// A fingerprint of every field a note carries except its change and `changed_at`. Two
-    /// versions with the same fingerprint are the same as far as the journal can tell.
+    /// A fingerprint of every field a note carries except its change, `changed_at` and
+    /// `calendar`. Two versions with the same fingerprint are the same event. Which followed
+    /// calendar holds a copy is never a change by itself: switching a calendar off or on sends
+    /// nothing, and the last calendar name sent stands until some other field changes.
     var fingerprint: String {
-        Self.digest(self.fields)
+        var fields = self.fields
+        fields.removeValue(forKey: "calendar")
+        return Self.digest(fields)
     }
 
-    /// The same, leaving out `start` and `end`: equal when a change only moved the event.
+    /// The same, leaving out `start` and `end` too: equal when a change only moved the event.
     var placementFreeFingerprint: String {
         var fields = self.fields
+        fields.removeValue(forKey: "calendar")
         fields.removeValue(forKey: "start")
         fields.removeValue(forKey: "end")
         return Self.digest(fields)

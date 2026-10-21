@@ -39,7 +39,7 @@ final class CalendarBackgroundRefresh {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
-            calendarRefreshLog.notice("calendar refresh not scheduled: \(String(describing: error), privacy: .public)")
+            calendarRefreshLog.notice("calendar refresh not scheduled: \(String(describing: type(of: error)), privacy: .public)")
         }
     }
 

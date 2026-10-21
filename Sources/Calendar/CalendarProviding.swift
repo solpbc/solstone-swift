@@ -120,53 +120,30 @@ nonisolated struct CalendarEventRecord: Equatable, Sendable {
     var attendees: [CalendarParticipantRecord]
 }
 
-/// The calendars, as the engine reads them. The live one is EventKit; tests use a fake that
-/// reproduces what iOS does.
-@MainActor
-protocol CalendarProviding: AnyObject {
+/// Calendar access as iOS grants it, and notice of changes. Asked from the main actor.
+nonisolated protocol CalendarAccessProviding: AnyObject, Sendable {
     func access() -> CalendarAccess
     /// Asks iOS for full access. Never asks for write-only access.
     func requestFullAccess() async -> CalendarAccess
+    /// Starts reporting iOS's calendar changes to `handler`, on the main actor. Called only
+    /// once the source is set up.
+    func observeChanges(_ handler: @escaping @MainActor @Sendable () -> Void)
+}
+
+/// The calendars, as the engine reads them. Called only from the calendar worker, one call at
+/// a time, never on the main actor. The live one is EventKit; tests use a fake that reproduces
+/// what iOS does.
+nonisolated protocol CalendarEventReading: Sendable {
     func calendars() -> [CalendarInfo]
     /// One read of the events overlapping `from..<to` in the given calendars. iOS silently
     /// cuts a single read at its first four years, so callers page.
     func events(from: Date, to: Date, calendarIDs: [String]) -> [CalendarEventRecord]
     /// The repeat rule of a series, for an occurrence that carries none of its own.
     func seriesRule(seriesID: String) -> CalendarRepeatRule?
-    /// Called when iOS reports that calendar data changed while the app runs.
-    var onChange: (@MainActor () -> Void)? { get set }
 }
 
-/// EventKit, opened only once the engine needs it, so a source that was never set up never
-/// touches the event store.
-@MainActor
-final class EventKitCalendarProvider: CalendarProviding {
-    var onChange: (@MainActor () -> Void)?
-
-    private var eventStore: EKEventStore?
-    private var observer: (any NSObjectProtocol)?
-
-    init() {}
-
-    private var store: EKEventStore {
-        if let eventStore {
-            return eventStore
-        }
-        let store = EKEventStore()
-        self.eventStore = store
-        self.observer = NotificationCenter.default.addObserver(
-            forName: .EKEventStoreChanged,
-            object: store,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.onChange?()
-            }
-        }
-        return store
-    }
-
-    func access() -> CalendarAccess {
+nonisolated enum EventKitAuthorization {
+    static func access() -> CalendarAccess {
         switch EKEventStore.authorizationStatus(for: .event) {
         case .notDetermined:
             return .notDetermined
@@ -182,18 +159,78 @@ final class EventKitCalendarProvider: CalendarProviding {
             return .denied
         }
     }
+}
+
+/// Access and change notices through EventKit. Its event store is made only when the owner
+/// asks for access or the set-up source starts observing, so a source never set up never
+/// touches EventKit.
+nonisolated final class EventKitCalendarAccess: CalendarAccessProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var eventStore: EKEventStore?
+    private var observer: (any NSObjectProtocol)?
+    private var handler: (@MainActor @Sendable () -> Void)?
+
+    init() {}
+
+    func access() -> CalendarAccess {
+        EventKitAuthorization.access()
+    }
 
     func requestFullAccess() async -> CalendarAccess {
         do {
-            _ = try await self.store.requestFullAccessToEvents()
+            _ = try await self.store().requestFullAccessToEvents()
         } catch {
-            calendarProviderLog.error("calendar access request failed: \(String(describing: error), privacy: .public)")
+            calendarProviderLog.error("calendar access request failed: \(String(describing: type(of: error)), privacy: .public)")
         }
         return self.access()
     }
 
+    func observeChanges(_ handler: @escaping @MainActor @Sendable () -> Void) {
+        self.lock.withLock { self.handler = handler }
+        let store = self.store()
+        self.lock.withLock {
+            guard self.observer == nil else { return }
+            self.observer = NotificationCenter.default.addObserver(
+                forName: .EKEventStoreChanged,
+                object: store,
+                queue: .main
+            ) { [weak self] _ in
+                let handler = self?.lock.withLock { self?.handler }
+                MainActor.assumeIsolated {
+                    handler?()
+                }
+            }
+        }
+    }
+
+    private func store() -> EKEventStore {
+        self.lock.withLock {
+            if let eventStore { return eventStore }
+            let store = EKEventStore()
+            self.eventStore = store
+            return store
+        }
+    }
+}
+
+/// Reads through EventKit with an event store of its own, used only by the calendar worker.
+nonisolated final class EventKitCalendarReader: CalendarEventReading, @unchecked Sendable {
+    private let lock = NSLock()
+    private var eventStore: EKEventStore?
+
+    init() {}
+
+    private var store: EKEventStore {
+        self.lock.withLock {
+            if let eventStore { return eventStore }
+            let store = EKEventStore()
+            self.eventStore = store
+            return store
+        }
+    }
+
     func calendars() -> [CalendarInfo] {
-        guard self.access().canRead else { return [] }
+        guard EventKitAuthorization.access().canRead else { return [] }
         return self.store.calendars(for: .event).map { calendar in
             CalendarInfo(
                 identifier: calendar.calendarIdentifier,
@@ -205,18 +242,18 @@ final class EventKitCalendarProvider: CalendarProviding {
     }
 
     func events(from: Date, to: Date, calendarIDs: [String]) -> [CalendarEventRecord] {
-        guard self.access().canRead, from < to else { return [] }
+        guard EventKitAuthorization.access().canRead, from < to else { return [] }
         let wanted = Set(calendarIDs)
-        let calendars = self.store.calendars(for: .event).filter { wanted.contains($0.calendarIdentifier) }
+        let store = self.store
+        let calendars = store.calendars(for: .event).filter { wanted.contains($0.calendarIdentifier) }
         guard !calendars.isEmpty else { return [] }
-        let predicate = self.store.predicateForEvents(withStart: from, end: to, calendars: calendars)
-        return self.store.events(matching: predicate).map(Self.record)
+        let predicate = store.predicateForEvents(withStart: from, end: to, calendars: calendars)
+        return store.events(matching: predicate).map(Self.record)
     }
 
     func seriesRule(seriesID: String) -> CalendarRepeatRule? {
-        guard self.access().canRead else { return nil }
-        let items = self.store.calendarItems(withExternalIdentifier: seriesID)
-        for item in items {
+        guard EventKitAuthorization.access().canRead else { return nil }
+        for item in self.store.calendarItems(withExternalIdentifier: seriesID) {
             if let rule = item.recurrenceRules?.first {
                 return Self.rule(rule)
             }

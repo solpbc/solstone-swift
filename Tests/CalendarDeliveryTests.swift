@@ -289,6 +289,37 @@ nonisolated final class CalendarDeliveryTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testAnImportCarriesOnWhenTheJournalTurnsItsFilesAway() async throws {
+        CalendarIngestURLProtocol.answer = "calendar_note_invalid"
+        let rig = try await CalendarDeliveryRig(capabilities: ["calendar_notes"])
+        rig.resolver.set(.unavailable("waiting"))
+        rig.addMeetings(count: 7)
+        await rig.harness.setUpAndConfirm()
+        let queued = await rig.engine.itemSnapshots(sourceKey: "calendar").count
+        XCTAssertEqual(queued, 3, "the window is full before the journal answers")
+        // Only the refusals free the window now: nothing else asks the import for more.
+        rig.resolver.set(.available(CalendarDeliveryRig.endpoint(credential: "journal-a")))
+        await rig.engine.endpointAvailabilityChanged()
+        try await rig.waitFor("every file was offered and turned away") {
+            rig.harness.engine.setupStep == .on && rig.holder.failedCount == 7
+        }
+        XCTAssertEqual(CalendarIngestURLProtocol.calendarRequests.count, 7)
+        XCTAssertEqual(rig.holder.pendingCount, 0)
+    }
+
+    @MainActor
+    func testLaunchClearsWhatAKillLeftInTheStagingFolder() async throws {
+        let rig = try await CalendarDeliveryRig(capabilities: ["calendar_notes"])
+        let staging = rig.root.appendingPathComponent("staging", isDirectory: true)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let leftover = staging.appendingPathComponent("\(UUID().uuidString)-calendar_half.jsonl")
+        try Data("{\"partial\"".utf8).write(to: leftover)
+        await rig.harness.engine.launch()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: leftover.path))
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: staging.path), [])
+    }
+
     // MARK: drains
 
     @MainActor
@@ -441,8 +472,8 @@ final class CalendarDeliveryRig {
             delivery: CalendarTransferDelivery(engine: self.engine, stagingURL: self.root.appendingPathComponent("staging", isDirectory: true)),
             dependencies: { harness in
                 CalendarSourceEngine.Dependencies(
-                    now: { [unowned harness] in harness.now },
-                    timeZone: { [unowned harness] in harness.provider.deviceTimeZone },
+                    now: { [weak harness] in harness?.now ?? Date() },
+                    timeZone: { [weak harness] in harness?.provider.deviceTimeZone ?? .current },
                     delivery: { (holder.notesWaiting, holder.notesNeedingAttention, holder.waitingForJournalUpdate) },
                     deliveryChanged: { Task { await holder.refreshNoteCounts() } }
                 )
@@ -451,6 +482,11 @@ final class CalendarDeliveryRig {
         self.harness.provider.addCalendar("cal-work", title: "Work")
         try await self.engine.start()
         await self.engine.registerDeliveredHook(sourceKey: CalendarTransfer.sourceKey) { [weak self] _, _ in
+            await MainActor.run {
+                self?.harness.engine.deliveryProgressed()
+            }
+        }
+        await self.engine.registerAttentionHook(sourceKey: CalendarTransfer.sourceKey) { [weak self] _ in
             await MainActor.run {
                 self?.harness.engine.deliveryProgressed()
             }

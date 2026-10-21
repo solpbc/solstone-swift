@@ -245,7 +245,6 @@ final class CalendarSourceStore {
     private(set) var isLoaded = false
     private var recordCache: [String: CalendarSentEntry] = [:]
     private var journalEntries = 0
-    private var frozenCache: [String: CalendarFrozenImport] = [:]
     /// How many times the record was written. For tests.
     private(set) var recordWriteCount = 0
     /// Stops a step at a chosen point, as a kill would. For tests.
@@ -267,7 +266,6 @@ final class CalendarSourceStore {
     var recordURL: URL { self.rootURL.appendingPathComponent("record.json") }
     var recordJournalURL: URL { self.rootURL.appendingPathComponent("record-journal.jsonl") }
     private var pendingURL: URL { self.rootURL.appendingPathComponent("pending.json") }
-    private var importsURL: URL { self.rootURL.appendingPathComponent("imports", isDirectory: true) }
 
     /// Reads the settings and the record. `false`, and nothing cached, while a file that exists
     /// cannot be read; a missing file is simply empty.
@@ -296,7 +294,16 @@ final class CalendarSourceStore {
         }
         var entries = 0
         if self.fileManager.fileExists(atPath: self.recordJournalURL.path) {
-            guard let data = try? Data(contentsOf: self.recordJournalURL) else { return false }
+            guard var data = try? Data(contentsOf: self.recordJournalURL) else { return false }
+            // A kill mid-append leaves a line with no newline. Cut it off, so the step it
+            // belonged to, replayed from the written step, starts a line of its own.
+            if let last = data.last, last != 0x0A {
+                let keep = (data.lastIndex(of: 0x0A).map { $0 + 1 } ?? data.startIndex) - data.startIndex
+                guard let handle = try? FileHandle(forWritingTo: self.recordJournalURL) else { return false }
+                defer { try? handle.close() }
+                guard (try? handle.truncate(atOffset: UInt64(keep))) != nil else { return false }
+                data = data.prefix(keep)
+            }
             let decoder = JSONDecoder()
             for line in data.split(separator: 0x0A) {
                 // Only a torn last append can fail to decode; its step is replayed from the
@@ -325,7 +332,7 @@ final class CalendarSourceStore {
         do {
             try self.writeDocument(document)
         } catch {
-            calendarStoreLog.error("calendar settings write failed: \(String(describing: error), privacy: .public)")
+            calendarStoreLog.error("calendar settings write failed: \(String(describing: type(of: error)), privacy: .public)")
         }
     }
 
@@ -393,41 +400,8 @@ final class CalendarSourceStore {
         try? self.fileManager.removeItem(at: self.pendingURL)
     }
 
-    func frozenImport(id: String) -> CalendarFrozenImport? {
-        if let cached = self.frozenCache[id] { return cached }
-        let loaded = Self.read(CalendarFrozenImport.self, at: self.frozenURL(id: id), fileManager: self.fileManager).value
-        if let loaded { self.frozenCache[id] = loaded }
-        return loaded
-    }
-
-    func writeFrozenImport(_ frozen: CalendarFrozenImport, id: String) throws {
-        try self.encodeAndWrite(frozen, to: self.frozenURL(id: id))
-        self.frozenCache[id] = frozen
-    }
-
-    func removeFrozenImport(id: String) {
-        self.frozenCache.removeValue(forKey: id)
-        try? self.fileManager.removeItem(at: self.frozenURL(id: id))
-    }
-
-    /// Frozen imports no record points to any more.
-    func removeUnreferencedFrozenImports() {
-        let referenced = Set(self.document.imports.map(\.id))
-        guard let names = try? self.fileManager.contentsOfDirectory(atPath: self.importsURL.path) else { return }
-        for name in names where name.hasSuffix(".json") {
-            let id = String(name.dropLast(5))
-            if !referenced.contains(id) {
-                self.removeFrozenImport(id: id)
-            }
-        }
-    }
-
     func interrupt(at point: CalendarStepPoint) throws {
         try self.interruption?(point)
-    }
-
-    private func frozenURL(id: String) -> URL {
-        self.importsURL.appendingPathComponent("\(id).json")
     }
 
     private func encodeAndWrite<T: Encodable>(_ value: T, to url: URL) throws {
@@ -454,7 +428,7 @@ final class CalendarSourceStore {
         do {
             return .found(try JSONDecoder().decode(type, from: Data(contentsOf: url)))
         } catch {
-            calendarStoreLog.error("calendar store unreadable: \(String(describing: error), privacy: .public)")
+            calendarStoreLog.error("calendar store unreadable: \(String(describing: Swift.type(of: error)), privacy: .public)")
             return .unreadable
         }
     }

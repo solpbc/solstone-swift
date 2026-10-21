@@ -374,7 +374,8 @@ struct SolstoneSwiftApp: App {
         }
         let calendarStore = CalendarSourceStore(rootURL: CalendarSourceStore.defaultRootURL())
         let calendarSource = CalendarSourceEngine(
-            provider: EventKitCalendarProvider(),
+            access: EventKitCalendarAccess(),
+            reader: EventKitCalendarReader(),
             store: calendarStore,
             delivery: CalendarTransferDelivery(
                 engine: transferEngine,
@@ -1090,6 +1091,14 @@ struct SolstoneSwiftApp: App {
         // A calendar file reaching the journal, or one the owner removed there, leaves room for
         // an import's next files.
         await self.transferEngine.registerDeliveredHook(sourceKey: CalendarTransfer.sourceKey) { [calendarSource = self.calendarSource, calendarTransferHolder = self.calendarTransferHolder] _, _ in
+            await MainActor.run {
+                calendarSource.deliveryProgressed()
+            }
+            await calendarTransferHolder.refreshNoteCounts()
+        }
+        // A calendar file the journal turned away leaves the queue too, so an import does not
+        // stall behind it.
+        await self.transferEngine.registerAttentionHook(sourceKey: CalendarTransfer.sourceKey) { [calendarSource = self.calendarSource, calendarTransferHolder = self.calendarTransferHolder] _ in
             await MainActor.run {
                 calendarSource.deliveryProgressed()
             }
