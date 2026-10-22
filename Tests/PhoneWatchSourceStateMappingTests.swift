@@ -201,22 +201,19 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         )
     }
 
-    func testWatchLeadingConfirmingOnlyDoesNotClaimStillOnWatch() {
-        let confirmingOnly = phoneWatchSourcePresentation(
-            lane: .installedActive(.waiting(Self.watchLeadingWaiting(notYetSent: 0, confirming: 37)))
-        )
-        XCTAssertEqual(confirmingOnly.state, .off)
-        XCTAssertEqual(confirmingOnly.subtext, SourceVocabulary.watchConfirmingCount(37))
-
+    func testWatchLeadingBacklogNamesWhatIsStillOnTheWatch() {
         let notYetSent = phoneWatchSourcePresentation(
-            lane: .installedActive(.waiting(Self.watchLeadingWaiting(notYetSent: 5, confirming: 0)))
+            lane: .installedActive(.waiting(Self.watchLeadingWaiting(count: 5)))
         )
+        XCTAssertEqual(notYetSent.state, .off)
         XCTAssertEqual(notYetSent.subtext, SourceVocabulary.watchWaitingToSyncFromWatch(5))
+    }
 
-        let mixed = phoneWatchSourcePresentation(
-            lane: .installedActive(.waiting(Self.watchLeadingWaiting(notYetSent: 2, confirming: 37)))
-        )
-        XCTAssertEqual(mixed.subtext, SourceVocabulary.watchWaitingToSyncFromWatch(2))
+    func testWatchAppUpdateAsksForTheUpdateOnTheTile() {
+        let update = phoneWatchSourcePresentation(lane: .installedActive(.stuck(.watchAppUpdate)))
+        XCTAssertEqual(update.state, .needsAttention)
+        XCTAssertEqual(update.subtext, SourceVocabulary.watchAppUpdateReason)
+        XCTAssertEqual(update.attention, SourceAttention(message: SourceVocabulary.watchAppUpdateReason))
     }
 
     func testUnknownAndStaleClaimsHaveDistinctSubtextAndReason() {
@@ -531,14 +528,11 @@ private extension PhoneWatchSourceStateMappingTests {
         )
     }
 
-    static func watchLeadingWaiting(notYetSent: Int, confirming: Int) -> WatchWaitingBreakdown {
-        let total = notYetSent + confirming
-        return WatchWaitingBreakdown(
-            watch: .reported(count: total, freshness: .fresh(asOf: Self.waitingAsOf)),
+    static func watchLeadingWaiting(count: Int) -> WatchWaitingBreakdown {
+        WatchWaitingBreakdown(
+            watch: .reported(count: count, freshness: .fresh(asOf: Self.waitingAsOf)),
             phone: PhoneSideWaiting(count: 0),
-            leading: .watch(count: total, freshness: .fresh(asOf: Self.waitingAsOf)),
-            watchNotYetSent: notYetSent,
-            watchConfirming: confirming
+            leading: .watch(count: count, freshness: .fresh(asOf: Self.waitingAsOf))
         )
     }
 

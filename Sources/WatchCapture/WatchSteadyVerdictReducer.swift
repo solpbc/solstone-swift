@@ -20,6 +20,7 @@ nonisolated struct WatchSteadyVerdict: Equatable, Sendable {
     let headline: String
     let sentence: String
     let nextStep: String?
+    let howTo: WatchSetupDisclosure?
     let presenceLine: String?
     let todayLine: String?
     let detailsSummary: String
@@ -32,23 +33,6 @@ extension WatchWaitingBreakdown {
             return 0
         }
         return max(0, count)
-    }
-
-    // Same staleness gate as `freshWatchWaitingCount`, applied to the
-    // not-yet-sent/confirming split — a stale watch claim must not leak a
-    // non-zero count into owner-facing copy.
-    nonisolated var freshWatchNotYetSent: Int {
-        guard case .reported(_, .fresh) = self.watch else {
-            return 0
-        }
-        return max(0, self.watchNotYetSent)
-    }
-
-    nonisolated var freshWatchConfirming: Int {
-        guard case .reported(_, .fresh) = self.watch else {
-            return 0
-        }
-        return max(0, self.watchConfirming)
     }
 }
 
@@ -65,7 +49,7 @@ nonisolated enum WatchSteadyVerdictReducer {
             lastReceivedAt: input.lastReceivedAt
         )
         let detailsSummary = SourceVocabulary.watchSteadyDetailsSummary(
-            watchWaiting: waiting.freshWatchNotYetSent,
+            watchWaiting: waiting.freshWatchWaitingCount,
             phoneWaiting: max(0, waiting.phone.count)
         )
         let presenceLine = self.presenceLine(input: input, facts: facts)
@@ -87,9 +71,10 @@ nonisolated enum WatchSteadyVerdictReducer {
         if stuck != .none, let reason = stuck.reason {
             return self.verdict(
                 kind: .stuck(stuck),
-                headline: SourceVocabulary.watchStuckNoticeTitle,
-                sentence: reason,
+                headline: stuck == .watchAppUpdate ? reason : SourceVocabulary.watchStuckNoticeTitle,
+                sentence: stuck == .watchAppUpdate ? SourceVocabulary.watchAppUpdateSentence : reason,
                 nextStep: stuck.nextStep,
+                howTo: stuck.howTo,
                 presenceLine: presenceLine,
                 todayLine: todayLine,
                 detailsSummary: detailsSummary
@@ -127,23 +112,10 @@ nonisolated enum WatchSteadyVerdictReducer {
 
         if case .some(.watch) = waiting.leading,
            waiting.freshWatchWaitingCount > 0 {
-            if waiting.watchNotYetSent > 0 {
-                return self.verdict(
-                    kind: .watchWaiting,
-                    headline: SourceVocabulary.watchSteadyWatchWaitingHeadline,
-                    sentence: SourceVocabulary.watchSteadyWatchWaitingSentence(waiting.watchNotYetSent),
-                    nextStep: nil,
-                    presenceLine: presenceLine,
-                    todayLine: todayLine,
-                    detailsSummary: detailsSummary
-                )
-            }
-            // Nothing left on the watch itself — everything outstanding already
-            // reached the iPhone and is only waiting on the durable ACK back.
             return self.verdict(
                 kind: .watchWaiting,
-                headline: SourceVocabulary.watchPipelineConfirming,
-                sentence: SourceVocabulary.watchConfirmingCount(waiting.watchConfirming),
+                headline: SourceVocabulary.watchSteadyWatchWaitingHeadline,
+                sentence: SourceVocabulary.watchSteadyWatchWaitingSentence(waiting.freshWatchWaitingCount),
                 nextStep: nil,
                 presenceLine: presenceLine,
                 todayLine: todayLine,
@@ -197,6 +169,7 @@ private extension WatchSteadyVerdictReducer {
         headline: String,
         sentence: String,
         nextStep: String?,
+        howTo: WatchSetupDisclosure? = nil,
         presenceLine: String?,
         todayLine: String?,
         detailsSummary: String
@@ -207,6 +180,7 @@ private extension WatchSteadyVerdictReducer {
             headline: headline,
             sentence: sentence,
             nextStep: nextStep,
+            howTo: howTo,
             presenceLine: presenceLine,
             todayLine: todayLine,
             detailsSummary: detailsSummary,
@@ -307,7 +281,7 @@ private extension WatchSteadyVerdictReducer {
 private extension WatchPipelineStuck {
     nonisolated var nextStep: String? {
         switch self {
-        case .none:
+        case .none, .watchAppUpdate:
             nil
         case .relay:
             SourceVocabulary.watchPipelineRelayStuckNextStep
@@ -316,5 +290,15 @@ private extension WatchPipelineStuck {
         case .orphan:
             SourceVocabulary.watchPipelineOrphanStuckNextStep
         }
+    }
+
+    nonisolated var howTo: WatchSetupDisclosure? {
+        guard self == .watchAppUpdate else {
+            return nil
+        }
+        return WatchSetupDisclosure(
+            summary: SourceVocabulary.watchAppUpdateHowToSummary,
+            body: SourceVocabulary.watchAppUpdateHowToBody
+        )
     }
 }

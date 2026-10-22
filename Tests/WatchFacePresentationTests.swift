@@ -131,7 +131,6 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
             mixed.detailRows,
             [
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: 2),
-                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineConfirming, value: 1),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineHandedOff, value: 4),
             ]
         )
@@ -140,12 +139,8 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
             for: WatchCaptureOwnerPresentation(status: .active, queuedCount: 0, confirmingCount: 1),
             isReachable: false
         )
-        XCTAssertEqual(
-            confirmingOnly.detailRows,
-            [
-                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineConfirming, value: 1),
-            ]
-        )
+        // Audio the iphone already has is waiting only on its confirmation, which the owner never needs to see.
+        XCTAssertTrue(confirmingOnly.detailRows.isEmpty)
 
         let allRows = watchFaceModel(
             for: WatchCaptureOwnerPresentation(
@@ -163,7 +158,6 @@ nonisolated final class WatchFacePresentationTests: XCTestCase {
             [
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSaved, value: 2),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSending, value: 3),
-                WatchFaceDetailRow(label: SourceVocabulary.watchPipelineConfirming, value: 1),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineAbandoned, value: 5),
                 WatchFaceDetailRow(label: SourceVocabulary.watchPipelineHandedOff, value: 4),
             ]

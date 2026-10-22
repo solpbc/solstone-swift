@@ -92,9 +92,6 @@ nonisolated func watchFaceModel(
     if presentation.transferringCount > 0 {
         detailRows.append(WatchFaceDetailRow(label: SourceVocabulary.watchPipelineSending, value: presentation.transferringCount))
     }
-    if presentation.confirmingCount > 0 {
-        detailRows.append(WatchFaceDetailRow(label: SourceVocabulary.watchPipelineConfirming, value: presentation.confirmingCount))
-    }
     if presentation.abandonedCount > 0 {
         detailRows.append(WatchFaceDetailRow(label: SourceVocabulary.watchPipelineAbandoned, value: presentation.abandonedCount))
     }

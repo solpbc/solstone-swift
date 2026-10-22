@@ -397,6 +397,7 @@ private extension WatchSourceDetailPresentationTests {
             headline: "headline",
             sentence: "sentence",
             nextStep: nil,
+            howTo: nil,
             presenceLine: nil,
             todayLine: nil,
             detailsSummary: "summary",

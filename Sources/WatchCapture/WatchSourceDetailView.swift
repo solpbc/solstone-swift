@@ -170,10 +170,25 @@ private extension WatchSourceDetailView {
         let verdict = self.watchSteadyVerdict
         let lane = self.watchPipelineAssembly.lane
         let presentation = phoneWatchSourcePresentation(lane: lane)
+        // The verdict below already says what a stuck state's attention line would repeat.
+        let attentionMessage = presentation.attention.map(\.message).flatMap { message in
+            message == verdict.headline || message == verdict.sentence ? nil : message
+        }
         return VStack(alignment: .leading, spacing: 12) {
-            SourceDetailReasonLine(message: presentation.attention?.message)
+            SourceDetailReasonLine(message: attentionMessage)
             SourceDetailReasonLine(message: presentation.statusReason)
             self.verdictBlock(verdict)
+            if let howTo = verdict.howTo {
+                DisclosureGroup {
+                    Text(howTo.body)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                } label: {
+                    Text(howTo.summary)
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
             self.steadyDetailsDisclosure(verdict)
         }
     }

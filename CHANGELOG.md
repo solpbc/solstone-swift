@@ -6,6 +6,14 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Changed
+
+- the watch tile, the watch page and the solstone app on your watch no longer count what is "confirming with your iphone". those were already on your iphone.
+
+### Fixed
+
+- when the solstone app on your watch has an update waiting, the watch tile now asks you to update it and the watch page shows how. before, it could look fine while your watch waited.
+
 ## [2.0.10 (135)] - 2026-10-22
 
 ### Added

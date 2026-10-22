@@ -247,50 +247,19 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             activationState: .inactive
         )).stuck, WatchPipelineStuck.none)
 
-        // Confirming path: confirmingCount > 0 && confirmingHearBackSeconds >= 600, no lastReceivedAt required
-        XCTAssertEqual(WatchPipelineReducer.reduce(Self.input(
-            now: now,
-            watchStatus: Self.context(confirmingCount: 1, confirmingHearBackSeconds: 600, asOf: now.addingTimeInterval(-90)),
-            lastReceivedAt: nil
-        )).stuck, .relay)
-        XCTAssertEqual(WatchPipelineReducer.reduce(Self.input(
-            now: now,
-            watchStatus: Self.context(confirmingCount: 1, confirmingHearBackSeconds: 599, asOf: now.addingTimeInterval(-90)),
-            lastReceivedAt: nil
-        )).stuck, WatchPipelineStuck.none)
-        XCTAssertEqual(WatchPipelineReducer.reduce(Self.input(
-            now: now,
-            watchStatus: Self.context(confirmingCount: 1, confirmingHearBackSeconds: 600, asOf: now.addingTimeInterval(-91)),
-            lastReceivedAt: nil
-        )).stuck, WatchPipelineStuck.none)
     }
 
-    func testOvernightConfirmingDoesNotTriggerRelayStuckMorningFalseAlarm() {
+    func testConfirmationsNeverRaiseRelayStuck() {
         let now = Self.now
         let hoursAgo = now.addingTimeInterval(-28800) // 8 hours ago
 
-        // Overnight trap: confirmingCount=1, confirmingHearBackSeconds=0 (or small), lastReceivedAt hours old, claim fresh -> isRelayStuck false (morning false alarm)
-        let morningFalseAlarmCase = Self.input(
+        // This device already has a segment the watch is confirming; however long the confirmation takes, nothing is stuck.
+        let longConfirmingCase = Self.input(
             now: now,
-            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 1, confirmingHearBackSeconds: 0, asOf: now),
+            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 650, confirmingHearBackSeconds: 86_400, asOf: now),
             lastReceivedAt: hoursAgo
         )
-        XCTAssertEqual(WatchPipelineReducer.reduce(morningFalseAlarmCase).stuck, WatchPipelineStuck.none)
-
-        let morningSmallHearBackCase = Self.input(
-            now: now,
-            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 1, confirmingHearBackSeconds: 50, asOf: now),
-            lastReceivedAt: hoursAgo
-        )
-        XCTAssertEqual(WatchPipelineReducer.reduce(morningSmallHearBackCase).stuck, WatchPipelineStuck.none)
-
-        // Same confirming with confirmingHearBackSeconds >= 600 -> stuck
-        let confirmingStuckCase = Self.input(
-            now: now,
-            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 1, confirmingHearBackSeconds: 600, asOf: now),
-            lastReceivedAt: hoursAgo
-        )
-        XCTAssertEqual(WatchPipelineReducer.reduce(confirmingStuckCase).stuck, .relay)
+        XCTAssertEqual(WatchPipelineReducer.reduce(longConfirmingCase).stuck, WatchPipelineStuck.none)
 
         // Transferring-only still not stuck
         let transferringOnlyCase = Self.input(
@@ -299,6 +268,58 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
             lastReceivedAt: hoursAgo
         )
         XCTAssertEqual(WatchPipelineReducer.reduce(transferringOnlyCase).stuck, WatchPipelineStuck.none)
+    }
+
+    func testOlderWatchAppThatThisDeviceCannotSeeAsksForTheUpdate() {
+        let olderWatch = WatchRelayDiagnosticsEnvelopeResult.available(
+            Self.payload(activeBacklogCount: 0, observations: [], watchAppBuild: "132"),
+            rawEnvelopeByteCount: nil
+        )
+        let skewed = Self.input(
+            watchStatus: Self.context(queuedCount: 0, confirmingCount: 478, asOf: Self.now),
+            isWatchAppInstalled: false,
+            watchDiagnostics: olderWatch,
+            iphoneAppBuild: .available("134")
+        )
+        XCTAssertEqual(WatchPipelineReducer.reduce(skewed).stuck, .watchAppUpdate)
+
+        let verdict = Self.steadyVerdict(skewed)
+        XCTAssertEqual(verdict.state, .needsAttention)
+        XCTAssertEqual(verdict.headline, SourceVocabulary.watchAppUpdateReason)
+        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchAppUpdateSentence)
+        XCTAssertNil(verdict.nextStep)
+        XCTAssertEqual(
+            verdict.howTo,
+            WatchSetupDisclosure(
+                summary: SourceVocabulary.watchAppUpdateHowToSummary,
+                body: SourceVocabulary.watchAppUpdateHowToBody
+            )
+        )
+
+        // A build skew alone is ordinary while an update installs: this device still reaching the watch app is not a problem.
+        let stillInstalled = Self.input(
+            watchStatus: Self.context(queuedCount: 0, asOf: Self.now),
+            isWatchAppInstalled: true,
+            watchDiagnostics: olderWatch,
+            iphoneAppBuild: .available("134")
+        )
+        XCTAssertEqual(WatchPipelineReducer.reduce(stillInstalled).stuck, WatchPipelineStuck.none)
+
+        // Not seeing a watch app that is already as new as this one is not an update to ask for.
+        let sameBuild = Self.input(
+            watchStatus: Self.context(queuedCount: 0, asOf: Self.now),
+            isWatchAppInstalled: false,
+            watchDiagnostics: olderWatch,
+            iphoneAppBuild: .available("132")
+        )
+        XCTAssertEqual(WatchPipelineReducer.reduce(sameBuild).stuck, WatchPipelineStuck.none)
+
+        let noWatchBuild = Self.input(
+            watchStatus: Self.context(queuedCount: 0, asOf: Self.now),
+            isWatchAppInstalled: false,
+            iphoneAppBuild: .available("134")
+        )
+        XCTAssertEqual(WatchPipelineReducer.reduce(noWatchBuild).stuck, WatchPipelineStuck.none)
     }
 
     func testHandoffStuckBoundariesAndReachability() {
@@ -599,21 +620,21 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(verdict.sentence, SourceVocabulary.watchSteadyWatchWaitingSentence(5))
     }
 
-    func testSteadyVerdictConfirmingOnlyDoesNotClaimStillOnWatch() {
+    func testSteadyVerdictConfirmingOnlyIsNothingWaiting() {
         let input = Self.input(
-            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 37, asOf: Self.now),
+            watchStatus: Self.context(queuedCount: 0, transferringCount: 0, confirmingCount: 650, asOf: Self.now),
             nonTerminalCount: 0
         )
         let waiting = WatchPipelineReducer.waitingBreakdown(input)
 
-        XCTAssertEqual(waiting.watchNotYetSent, 0)
-        XCTAssertEqual(waiting.watchConfirming, 37)
+        XCTAssertNil(waiting.leading)
+        XCTAssertEqual(waiting.freshWatchWaitingCount, 0)
 
         let verdict = Self.steadyVerdict(input, waiting: waiting)
 
-        XCTAssertEqual(verdict.kind, .watchWaiting)
-        XCTAssertEqual(verdict.headline, SourceVocabulary.watchPipelineConfirming)
-        XCTAssertEqual(verdict.sentence, SourceVocabulary.watchConfirmingCount(37))
+        XCTAssertEqual(verdict.kind, .quiet)
+        XCTAssertFalse(verdict.headline.contains(SourceVocabulary.watchPipelineConfirming))
+        XCTAssertFalse(verdict.sentence.contains(SourceVocabulary.watchPipelineConfirming))
         XCTAssertEqual(
             verdict.detailsSummary,
             SourceVocabulary.watchSteadyDetailsSummary(watchWaiting: 0, phoneWaiting: 0)
@@ -627,8 +648,7 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         )
         let waiting = WatchPipelineReducer.waitingBreakdown(input)
 
-        XCTAssertEqual(waiting.watchNotYetSent, 2)
-        XCTAssertEqual(waiting.watchConfirming, 37)
+        XCTAssertEqual(waiting.freshWatchWaitingCount, 2)
 
         let verdict = Self.steadyVerdict(input, waiting: waiting)
 
@@ -1337,6 +1357,7 @@ private extension WatchPipelineReducerTests {
         isJournalReachable: Bool = false,
         isReachable: Bool = false,
         watchDiagnostics: WatchRelayDiagnosticsEnvelopeResult = .absent,
+        iphoneAppBuild: DiagnosticAvailability<String> = .unavailable(reason: "not provided"),
         phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> = .unavailable(reason: "not provided"),
         iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot = WatchRelayACKQueueSnapshot(),
         phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput> = .unavailable(reason: SourceVocabulary.watchDiagnosticsNotProvided)
@@ -1363,6 +1384,7 @@ private extension WatchPipelineReducerTests {
             isReachable: isReachable,
             isJournalReachable: isJournalReachable,
             watchDiagnostics: watchDiagnostics,
+            iphoneAppBuild: iphoneAppBuild,
             phoneLedgerSnapshot: phoneLedgerSnapshot,
             iphoneACKQueueSnapshot: iphoneACKQueueSnapshot,
             phoneSessionHistory: phoneSessionHistory
@@ -1447,6 +1469,7 @@ private extension WatchPipelineReducerTests {
         activeBacklogCount: Int,
         observations: [WatchRelayTransferObservation],
         omittedObservationCount: Int = 0,
+        watchAppBuild: String = "55",
         sessionHistoryWindow: DiagnosticAvailability<[WatchCaptureSessionHistoryEntry]> = .available([]),
         sessionHistoryDepth: Int = 0,
         lifetimeSessionsStarted: DiagnosticAvailability<Int> = .available(0),
@@ -1456,7 +1479,7 @@ private extension WatchPipelineReducerTests {
     ) -> WatchRelayDiagnosticsPayload {
         WatchRelayDiagnosticsPayload(
             watchAppMarketingVersion: .available("0.1.0"),
-            watchAppBuild: .available("55"),
+            watchAppBuild: .available(watchAppBuild),
             watchOSVersion: .available("26.0"),
             activationState: "activated",
             isCompanionAppInstalled: .available(true),

@@ -114,6 +114,7 @@ nonisolated struct WatchPipelineInput: Sendable {
 
 nonisolated enum WatchPipelineStuck: Equatable, Sendable {
     case none
+    case watchAppUpdate
     case relay
     case handoff
     case orphan
@@ -122,6 +123,8 @@ nonisolated enum WatchPipelineStuck: Equatable, Sendable {
         switch self {
         case .none:
             nil
+        case .watchAppUpdate:
+            SourceVocabulary.watchAppUpdateReason
         case .relay:
             SourceVocabulary.watchPipelineRelayStuckReason
         case .handoff:
@@ -144,28 +147,6 @@ nonisolated struct WatchWaitingBreakdown: Equatable, Sendable {
     let watch: WatchSideWaiting
     let phone: PhoneSideWaiting
     let leading: WatchWaitingLead?
-    // Split of `watch`'s combined count: segments genuinely still on the
-    // watch (not yet transferred) vs. already delivered to the iPhone and
-    // only awaiting its durable ACK. `watch`/`leading` stay combined for the
-    // watch-vs-phone priority comparison; owner-facing copy must use this
-    // split so a delivered-but-unacked segment isn't described as "hasn't
-    // come over yet."
-    let watchNotYetSent: Int
-    let watchConfirming: Int
-
-    init(
-        watch: WatchSideWaiting,
-        phone: PhoneSideWaiting,
-        leading: WatchWaitingLead?,
-        watchNotYetSent: Int = 0,
-        watchConfirming: Int = 0
-    ) {
-        self.watch = watch
-        self.phone = phone
-        self.leading = leading
-        self.watchNotYetSent = watchNotYetSent
-        self.watchConfirming = watchConfirming
-    }
 }
 
 nonisolated enum WatchSideWaiting: Equatable, Sendable {
@@ -269,12 +250,10 @@ nonisolated enum WatchPipelineReducer {
     nonisolated static func waitingBreakdown(_ input: WatchPipelineInput) -> WatchWaitingBreakdown {
         let phone = PhoneSideWaiting(count: self.phoneWaitingCount(input))
         let watch: WatchSideWaiting
-        let watchNotYetSent: Int
-        let watchConfirming: Int
         if let context = input.watchStatus {
-            watchNotYetSent = max(0, context.queuedCount) + max(0, context.transferringCount)
-            watchConfirming = max(0, context.confirmingCount)
-            let watchCount = watchNotYetSent + watchConfirming
+            // Only what is still on the watch waits there. A segment this device already has is
+            // waiting on nothing but its confirmation back to the watch, which owners never see.
+            let watchCount = max(0, context.queuedCount) + max(0, context.transferringCount)
             let age = max(0, input.now.timeIntervalSince(context.asOf))
             let freshness: WatchClaimFreshness = age > self.watchClaimFreshnessWindow
                 ? .stale(asOf: context.asOf, age: age)
@@ -282,8 +261,6 @@ nonisolated enum WatchPipelineReducer {
             watch = .reported(count: watchCount, freshness: freshness)
         } else {
             watch = .unknown
-            watchNotYetSent = 0
-            watchConfirming = 0
         }
 
         let leading: WatchWaitingLead?
@@ -301,9 +278,7 @@ nonisolated enum WatchPipelineReducer {
         return WatchWaitingBreakdown(
             watch: watch,
             phone: phone,
-            leading: leading,
-            watchNotYetSent: watchNotYetSent,
-            watchConfirming: watchConfirming
+            leading: leading
         )
     }
 
@@ -321,16 +296,26 @@ nonisolated enum WatchPipelineReducer {
         else {
             return false
         }
-        if max(0, watchStatus.queuedCount) > 0,
-           let receivedAge = self.age(of: input.lastReceivedAt, now: input.now),
-           receivedAge >= self.relayStuckThreshold {
-            return true
+        guard max(0, watchStatus.queuedCount) > 0,
+              let receivedAge = self.age(of: input.lastReceivedAt, now: input.now)
+        else {
+            return false
         }
-        if max(0, watchStatus.confirmingCount) > 0,
-           watchStatus.confirmingHearBackSeconds >= self.relayStuckThreshold {
-            return true
+        return receivedAge >= self.relayStuckThreshold
+    }
+
+    /// The watch runs an older build than this device and this device no longer sees it as
+    /// installed: watchOS is holding the newer watch app until the old one stops and closes.
+    nonisolated static func isWatchAppUpdateWaiting(_ input: WatchPipelineInput) -> Bool {
+        guard input.isPaired,
+              !input.isWatchAppInstalled,
+              input.activationState == .activated,
+              let iphoneBuild = input.iphoneAppBuild.value.flatMap({ Int($0) }),
+              let watchBuild = input.watchDiagnostics.payload?.watchAppBuild.value.flatMap({ Int($0) })
+        else {
+            return false
         }
-        return false
+        return watchBuild < iphoneBuild
     }
 
     nonisolated static func isHandoffStuck(_ input: WatchPipelineInput) -> Bool {
@@ -1430,6 +1415,9 @@ extension WatchPipelineReducer {
         }
         if self.isHandoffStuck(input) {
             return .handoff
+        }
+        if self.isWatchAppUpdateWaiting(input) {
+            return .watchAppUpdate
         }
         if self.isRelayStuck(input) {
             return .relay
