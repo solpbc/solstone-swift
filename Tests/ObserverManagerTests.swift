@@ -252,15 +252,18 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testVoiceMemoSilenceStopsSession() async {
+    func testVoiceMemoIgnoresSilence() async {
         await self.manager.startSession(mode: .voiceMemo)
 
         self.recorder.emitMeter(level: -55, duration: 0.5)
-        self.recorder.emitMeter(level: -55, duration: 3.6)
+        self.recorder.emitMeter(level: -90, duration: 30)
         try? await Task.sleep(for: .milliseconds(20))
 
-        XCTAssertEqual(self.manager.state, .idle)
-        XCTAssertEqual(self.recorder.stopCallCount, 1)
+        guard case .active(let session) = self.manager.state else {
+            return XCTFail("expected the voice memo to stay active")
+        }
+        XCTAssertEqual(session.mode, .voiceMemo)
+        XCTAssertEqual(self.recorder.stopCallCount, 0)
     }
 
     @MainActor

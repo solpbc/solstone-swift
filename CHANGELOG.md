@@ -8,6 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Changed
 
+- a voice memo no longer stops on its own when it gets quiet.
 - the watch tile, the watch page and the solstone app on your watch no longer count what is "confirming with your iphone". those were already on your iphone.
 
 ### Fixed

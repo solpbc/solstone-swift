@@ -79,7 +79,6 @@ final class ObserverManager {
     @ObservationIgnored private var startingSegmentID: UUID?
     @ObservationIgnored private var sessionStartedAt: Date?
     @ObservationIgnored private var currentChunkIndex = 0
-    @ObservationIgnored private var silenceWindowStart: TimeInterval?
     @ObservationIgnored private var startGeneration = 0
     @ObservationIgnored private var configChangedDuringPause = false
     @ObservationIgnored private var tapProgressCount = 0
@@ -193,7 +192,6 @@ final class ObserverManager {
             self.startingSegmentID = nil
             self.sessionStartedAt = startedAt
             self.currentChunkIndex = 0
-            self.silenceWindowStart = nil
             self.interruptionStartedAt = nil
             self.tapProgressCount = 0
             self.watchdogAnchorCount = 0
@@ -359,23 +357,11 @@ private extension ObserverManager {
 
     }
 
+    /// Counts tap progress for the stall watchdog. A session only ever ends when the
+    /// owner stops it: quiet audio never stops a voice memo or a meeting.
     func handleMeter(level: Float, duration: TimeInterval) {
-        guard case .active(let session) = self.state else { return }
+        guard case .active = self.state else { return }
         self.tapProgressCount += 1
-        guard session.mode == .voiceMemo else { return }
-
-        if level <= -50 {
-            if self.silenceWindowStart == nil {
-                self.silenceWindowStart = duration
-            } else if duration - (self.silenceWindowStart ?? duration) >= 3 {
-                managerLog.info("observer: silence-stop")
-                Task { @MainActor [weak self] in
-                    _ = await self?.stopSession()
-                }
-            }
-        } else {
-            self.silenceWindowStart = nil
-        }
     }
 
     func handleEngineFault(_ fault: ObserverEngineFault) async {
@@ -543,7 +529,6 @@ private extension ObserverManager {
         self.startingSegmentID = nil
         self.sessionStartedAt = nil
         self.currentChunkIndex = 0
-        self.silenceWindowStart = nil
         self.configChangedDuringPause = false
         self.tapProgressCount = 0
         self.watchdogAnchorCount = 0
