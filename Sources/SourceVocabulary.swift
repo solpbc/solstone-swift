@@ -292,7 +292,7 @@ nonisolated enum SourceVocabulary {
     static let watchAppUpdateReason = "update solstone on your watch"
     static let watchAppUpdateSentence = "the solstone app on your watch has an update waiting."
     static let watchAppUpdateHowToSummary = "how to update it"
-    static let watchAppUpdateHowToBody = "tap stop on your watch, then double-click the Digital Crown, swipe solstone left, and tap the X. your watch finishes the update. open solstone and tap start again."
+    static let watchAppUpdateHowToBody = "tap stop on your watch. then, still in solstone, press and hold the side button until the sliders appear, and press and hold the Digital Crown until the watch face appears. your watch finishes the update. open solstone and tap start again."
     static let watchPipelineRelayStuckNextStep = "keep your watch near this device. open the solstone app on your watch if this does not move."
     static let watchPipelineHandoffStuckNextStep = "keep the solstone app open here while your journal catches up."
     static let watchPipelineOrphanStuckNextStep = "open the solstone app on your watch and keep it near this device so they can come over again."
