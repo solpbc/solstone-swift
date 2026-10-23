@@ -465,7 +465,7 @@ struct StatusPane: View {
                 }
             } header: {
                 Text(SourceVocabulary.whatIsWaitingSection)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color(uiColor: .label))
             }
         }
     }
@@ -703,7 +703,7 @@ struct StatusPane: View {
                 }
             } header: {
                 Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color(uiColor: .label))
                     .onLongPressGesture {
                         self.copySnapshot()
                     }
@@ -781,7 +781,7 @@ struct StatusPane: View {
                 .hoverEffect(.highlight)
             } header: {
                 Text("diagnostics")
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(Color(uiColor: .label))
             }
         }
         .navigationTitle(self.headingString)
