@@ -125,6 +125,7 @@ nonisolated struct SunArcBackgroundMoment: Sendable {
     let grounds: SunArcGrounds
     let groundHex: String
     var sampledAt: Date? = nil
+    var meteorMinutes: Double? = nil
 
     static func resolve(
         date: Date,
@@ -148,6 +149,7 @@ nonisolated struct SunArcBackgroundMoment: Sendable {
             appearance: appearance
         )
         sampled.sampledAt = date
+        sampled.meteorMinutes = SunArcTime.preciseMinutesSinceMidnight(date, calendar: calendar)
         return sampled
     }
 
@@ -264,7 +266,7 @@ struct SunArcBackgroundHost<Content: View>: View {
                     NightSkyClock(cache:self.nightCache,size:size,
                         frame:NightFrame(t:moment.time.t,night:moment.time.night,weight:moment.twilight.w,
                             glows:drawing.glows.map{NightGlow(x:$0.center.x,y:$0.center.y,radius:$0.radius,alpha:$0.alpha)}),
-                        rise:moment.time.riseMinutes,set:moment.time.setMinutes,minute:moment.time.minutes,
+                        rise:moment.time.riseMinutes,set:moment.time.setMinutes,minute:moment.meteorMinutes ?? moment.time.minutes,
                         sampledAt:moment.sampledAt ?? Date(),visible:self.scenePhase == .active && self.exposure.visible)
                 }
                 self.content()
@@ -425,7 +427,7 @@ private struct SunArcGroundCanvas: View {
                     NightSkyView(cache: nightCache, size: sceneFrame.size,
                         frame: NightFrame(t: moment.time.t, night: moment.time.night, weight: moment.twilight.w,
                             glows: f.glows.map{NightGlow(x:$0.center.x,y:$0.center.y,radius:$0.radius,alpha:$0.alpha)}),
-                        rise: moment.time.riseMinutes, set: moment.time.setMinutes, minute: moment.time.minutes,
+                        rise: moment.time.riseMinutes, set: moment.time.setMinutes, minute: moment.meteorMinutes ?? moment.time.minutes,
                         dark: moment.appearance == .dark, watch: blackGround,
                         visible: appeared && !covered && (blackGround ? scenePhase != .background : scenePhase == .active), ownsClock: ownsClock)
                         .offset(x: sceneFrame.minX-localFrame.minX,y:sceneFrame.minY-localFrame.minY)

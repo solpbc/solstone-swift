@@ -280,6 +280,10 @@ public nonisolated struct SunArcTime: Sendable, Equatable {
 
     /// Local minute quantization used by the once-per-minute rendering host.
     public static func minutesSinceMidnight(_ date: Date, calendar: Calendar = .autoupdatingCurrent) -> Double {
+        floor(preciseMinutesSinceMidnight(date, calendar: calendar))
+    }
+
+    static func preciseMinutesSinceMidnight(_ date: Date, calendar: Calendar = .autoupdatingCurrent) -> Double {
         let components = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: date)
         return Double((components.hour ?? 0) * 60 + (components.minute ?? 0)) + Double(components.second ?? 0)/60 + Double(components.nanosecond ?? 0)/60_000_000_000
     }
