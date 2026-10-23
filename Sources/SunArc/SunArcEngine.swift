@@ -62,7 +62,7 @@ public nonisolated struct SunArcGrounds: Sendable, Equatable {
     }
 
     /// Light: surface cream · cream toward tone · tone toward the warm dark.
-    public static let light = SunArcGrounds(day: "#FEFCF8", night: "#E9DECC", deep: "#D7C9B0")
+    public static let light = SunArcGrounds(day: "#FEFCF8", night: "#AEA393", deep: "#8C806E")
     /// Dark: the lifted warm dark · the 09-19 night ground · true dark. The watch always uses these.
     public static let dark = SunArcGrounds(day: "#392E26", night: "#2E241C", deep: "#281E17")
 
@@ -280,8 +280,8 @@ public nonisolated struct SunArcTime: Sendable, Equatable {
 
     /// Local minute quantization used by the once-per-minute rendering host.
     public static func minutesSinceMidnight(_ date: Date, calendar: Calendar = .autoupdatingCurrent) -> Double {
-        let components = calendar.dateComponents([.hour, .minute], from: date)
-        return Double((components.hour ?? 0) * 60 + (components.minute ?? 0))
+        let components = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: date)
+        return Double((components.hour ?? 0) * 60 + (components.minute ?? 0)) + Double(components.second ?? 0)/60 + Double(components.nanosecond ?? 0)/60_000_000_000
     }
 
     public static func compute(

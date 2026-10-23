@@ -77,6 +77,7 @@ struct RootShellView: View {
 
         return ZStack(alignment: .leading) {
             self.shellBehindShelf
+                .environment(\.sunArcCovered, isOpen && fillsWindow)
                 // The scrim rides ON the shell, so it translates with it.
                 .overlay {
                     Color.black
@@ -146,14 +147,16 @@ struct RootShellView: View {
         SunArcBackgroundHost(
             palette: DeckSunArcPalette.value,
             presentationCoordinate: self.locationManager.sunArcPresentationCoordinate,
-            debugOverride: self.sunArcDebugOverride
+            debugOverride: self.sunArcDebugOverride,
+            rootCovered: self.presentedPane == .shelf && self.shelfFillsWindow
         ) {
             self.shellWithSheets
         }
 #else
         SunArcBackgroundHost(
             palette: DeckSunArcPalette.value,
-            presentationCoordinate: self.locationManager.sunArcPresentationCoordinate
+            presentationCoordinate: self.locationManager.sunArcPresentationCoordinate,
+            rootCovered: self.presentedPane == .shelf && self.shelfFillsWindow
         ) {
             self.shellWithSheets
         }
