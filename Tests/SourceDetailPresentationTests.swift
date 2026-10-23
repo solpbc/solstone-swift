@@ -9,7 +9,7 @@ nonisolated final class SourceDetailPresentationTests: XCTestCase {
     func testModeExplanationUsesSourceVocabulary() {
         XCTAssertEqual(
             SourceDetailPresentation.modeExplanation,
-            "meeting keeps going until you stop it. voice memo stops on its own when you go quiet for a few seconds."
+            "meeting and voice memo both keep going until you stop them."
         )
         XCTAssertEqual(SourceDetailPresentation.modeExplanation, SourceVocabulary.modeExplanation)
     }

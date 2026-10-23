@@ -157,7 +157,7 @@ nonisolated enum SourceVocabulary {
     static let needsAttention = "needs attention"
 
     static let observerActiveSubtext = "on"
-    static let modeExplanation = "meeting keeps going until you stop it. voice memo stops on its own when you go quiet for a few seconds."
+    static let modeExplanation = "meeting and voice memo both keep going until you stop them."
     static let shareSendingProgress = "sending to your journal…"
     static let shareDeliveredProgress = "saved to your journal"
     static let sendStateSaved = "on this device"
