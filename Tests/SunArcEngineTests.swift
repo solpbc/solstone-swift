@@ -100,6 +100,9 @@ struct SunArcEngineTests {
         let a = SunArcTime.minutesSinceMidnight(Date(timeIntervalSince1970: 1_726_750_020)) // arbitrary instant (00s)
         let b = SunArcTime.minutesSinceMidnight(Date(timeIntervalSince1970: 1_726_750_050)) // +30s, same minute (30s)
         #expect(a == b)
+        let preciseA = SunArcTime.preciseMinutesSinceMidnight(Date(timeIntervalSince1970: 1_726_750_020))
+        let preciseB = SunArcTime.preciseMinutesSinceMidnight(Date(timeIntervalSince1970: 1_726_750_050))
+        #expect(abs(preciseB - preciseA - 0.5) < 0.000001)
     }
 }
 
