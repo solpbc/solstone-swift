@@ -443,7 +443,7 @@ struct StatusPane: View {
     @ViewBuilder
     private var whatIsWaitingSection: some View {
         if !self.waitingRows.isEmpty {
-            Section(SourceVocabulary.whatIsWaitingSection) {
+            Section {
                 ForEach(self.waitingRows, id: \.route.id) { row in
                     NavigationLink(value: ShellDestination.source(row.route)) {
                         HStack(spacing: 14) {
@@ -463,6 +463,9 @@ struct StatusPane: View {
                     .accessibilityIdentifier("shell.pane.status.waiting.\(row.route.id)")
                     .hoverEffect(.highlight)
                 }
+            } header: {
+                Text(SourceVocabulary.whatIsWaitingSection)
+                    .foregroundStyle(.primary)
             }
         }
     }
@@ -700,13 +703,14 @@ struct StatusPane: View {
                 }
             } header: {
                 Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)
+                    .foregroundStyle(.primary)
                     .onLongPressGesture {
                         self.copySnapshot()
                     }
                     .accessibilityHint("long press to copy diagnostic snapshot")
             }
 
-            Section("diagnostics") {
+            Section {
                 Toggle(SourceVocabulary.problemReportsToggle, isOn: Binding(
                     get: { self.problemReportsManager.isEnabled },
                     set: { enabled in
@@ -775,6 +779,9 @@ struct StatusPane: View {
                 }
                 .accessibilityIdentifier("shell.pane.status.diagnostics")
                 .hoverEffect(.highlight)
+            } header: {
+                Text("diagnostics")
+                    .foregroundStyle(.primary)
             }
         }
         .navigationTitle(self.headingString)
