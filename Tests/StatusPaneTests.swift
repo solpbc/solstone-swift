@@ -95,7 +95,7 @@ nonisolated final class StatusPaneTests: XCTestCase {
         let pane = try Self.slice(
             in: text,
             from: "private var paneContent: some View {",
-            to: "\n            Section(\"diagnostics\")"
+            to: "\n            } header: {\n                Text(self.justCopiedSnapshot"
         )
 
         XCTAssertTrue(gate.contains("self.appConfig.isPaired && self.tunnelManager.state.isConnected"))

@@ -1295,6 +1295,8 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         let owner = DeviceMigrationOwnerModel(credentials: credentials, confirmation: confirmation, client: journal)
         await journal.pauseNextClientsResponse()
 
+        let metadataArrived = expectation(description: "metadata proceeds while eligibility is suspended")
+        let accessArrived = expectation(description: "relay access proceeds while eligibility is suspended")
         let metadataRequested = OSAllocatedUnfairLock(initialState: false)
         let accessRequested = OSAllocatedUnfairLock(initialState: false)
 
@@ -1307,10 +1309,20 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         LinkedDeviceIngestURLProtocol.handler = { request in
             let path = request.url?.path ?? ""
             if path.contains("/clients/self") || path.contains("/api/system/about") {
-                metadataRequested.withLock { $0 = true }
+                let first = metadataRequested.withLock { seen in
+                    let first = !seen
+                    seen = true
+                    return first
+                }
+                if first { metadataArrived.fulfill() }
             }
             if path.contains("/relay/access") {
-                accessRequested.withLock { $0 = true }
+                let first = accessRequested.withLock { seen in
+                    let first = !seen
+                    seen = true
+                    return first
+                }
+                if first { accessArrived.fulfill() }
             }
             let body = Data(#"{"status":"ok"}"#.utf8)
             return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, body)
@@ -1329,13 +1341,9 @@ final class DeviceMigrationOwnerModelTests: XCTestCase {
         jobs.connected(localPort: 7111)
         await journal.waitForClientsRequest()
 
-        for _ in 0..<100 {
-            if metadataRequested.withLock({ $0 }) && accessRequested.withLock({ $0 }) { break }
-            await Task.yield()
-        }
-
-        XCTAssertTrue(metadataRequested.withLock { $0 })
-        XCTAssertTrue(accessRequested.withLock { $0 })
+        // Wait for the actual callbacks, not a scheduler-dependent number of yields.
+        // Eligibility remains suspended until both independent home jobs have run.
+        await fulfillment(of: [metadataArrived, accessArrived], timeout: 5)
 
         await journal.resumeClientsRequest(.success(ReplacementClientList(clients: [])))
         jobs.disconnected()
