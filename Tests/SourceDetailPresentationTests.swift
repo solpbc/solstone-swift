@@ -6,14 +6,6 @@ import Foundation
 import XCTest
 
 nonisolated final class SourceDetailPresentationTests: XCTestCase {
-    func testModeExplanationUsesSourceVocabulary() {
-        XCTAssertEqual(
-            SourceDetailPresentation.modeExplanation,
-            "meeting and voice memo both keep going until you stop them."
-        )
-        XCTAssertEqual(SourceDetailPresentation.modeExplanation, SourceVocabulary.modeExplanation)
-    }
-
     func testElapsedLineIsTheTimeAloneBecauseTheVerdictAlreadySaysOn() {
         let formatted = String(format: "%02d:%02d", 134 / 60, 134 % 60)
 

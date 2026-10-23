@@ -10,7 +10,6 @@ struct SourceDetailView: View {
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
-    @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var manifestResult: ObserverManifestResult?
@@ -24,7 +23,7 @@ struct SourceDetailView: View {
                 if self.audioEnrolled {
                     self.enrolledContent
                 } else {
-                    AudioEnrollmentContent(mode: self.selectedModeBinding.wrappedValue)
+                    AudioEnrollmentContent()
                 }
                 SourceHomeTileControl(sourceID: "audio")
             }
@@ -82,17 +81,6 @@ private extension SourceDetailView {
 
     }
 
-    var selectedModeBinding: Binding<ObserverMode> {
-        Binding(
-            get: {
-                ObserverMode(rawValue: self.preferredMode) ?? .meeting
-            },
-            set: { mode in
-                self.preferredMode = mode.rawValue
-            }
-        )
-    }
-
     var currentSourceState: SourceState {
         sourceState(
             for: self.observerManager.state,
@@ -105,18 +93,6 @@ private extension SourceDetailView {
     var stateBlock: some View {
         VStack(spacing: 16) {
             // The verdict line above already says "on"; the timer below carries the live dot.
-            Picker("mode", selection: self.selectedModeBinding) {
-                ForEach(ObserverMode.allCases, id: \.self) { mode in
-                    Text(mode.label).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Text(SourceDetailPresentation.modeExplanation)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
             Button {
                 Task {
                     await self.handleListenTap()
@@ -290,7 +266,7 @@ private extension SourceDetailView {
         switch self.observerManager.state {
         case .idle, .error:
             self.observerSourcePauseState.isPaused = false
-            _ = await self.observerManager.startSession(mode: self.selectedModeBinding.wrappedValue)
+            _ = await self.observerManager.startSession(mode: .meeting)
         case .starting, .active:
             self.observerSourcePauseState.isPaused = false
             _ = await self.observerManager.stopSession()
@@ -306,7 +282,7 @@ private extension SourceDetailView {
             self.observerSourcePauseState.isPaused = true
         case .paused:
             self.observerSourcePauseState.isPaused = false
-            _ = await self.observerManager.startSession(mode: self.selectedModeBinding.wrappedValue)
+            _ = await self.observerManager.startSession(mode: .meeting)
         case .off, .enrolling, .readyToSetUp, .checking, .needsAttention:
             break
         }
@@ -345,13 +321,8 @@ private struct AudioEnrollmentContent: View {
     @Environment(ObserverSourcePauseState.self) private var observerSourcePauseState
     @State private var isStarting = false
 
-    private let mode: ObserverMode
     private var presentation: AudioEnrollmentPresentation {
         AudioEnrollmentPresentation.current(isJournalPaired: self.appConfig.isPaired)
-    }
-
-    init(mode: ObserverMode) {
-        self.mode = mode
     }
 
     var body: some View {
@@ -421,7 +392,7 @@ private extension AudioEnrollmentContent {
         defer { self.isStarting = false }
 
         self.observerSourcePauseState.isPaused = false
-        _ = await self.observerManager.startSession(mode: self.mode)
+        _ = await self.observerManager.startSession(mode: .meeting)
     }
 }
 

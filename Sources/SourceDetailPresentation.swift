@@ -4,8 +4,6 @@
 import Foundation
 
 nonisolated enum SourceDetailPresentation {
-    static var modeExplanation: String { SourceVocabulary.modeExplanation }
-
     /// The running timer. The state card's verdict line already says "on", so this is the time alone.
     static func elapsedLine(formatted: String) -> String {
         formatted

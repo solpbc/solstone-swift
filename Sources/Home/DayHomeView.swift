@@ -190,7 +190,6 @@ struct DayHomeView: View {
     @Environment(CalendarSourceHandle.self) private var calendarSourceHandle: CalendarSourceHandle?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @AppStorage("sense.preferredMode") private var preferredMode = ObserverMode.meeting.rawValue
     @AppStorage(UserSettings.hiddenHomeSourceIDsKey) private var hiddenHomeSourceIDsData = Data()
     /// The full width of the column the deck occupies, including the deck's own
     /// padding. Measured on the scroll view so the value cannot depend on which
@@ -438,8 +437,7 @@ private extension DayHomeView {
                 Task { @MainActor in
                     if isOn {
                         self.observerSourcePauseState.isPaused = false
-                        let mode = ObserverMode(rawValue: self.preferredMode) ?? .meeting
-                        _ = await self.observerManager.startSession(mode: mode)
+                        _ = await self.observerManager.startSession(mode: .meeting)
                     } else {
                         _ = await self.observerManager.stopSession()
                     }

@@ -9,6 +9,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Changed
 
 - a voice memo no longer stops on its own when it gets quiet.
+- the audio page no longer asks you to pick meeting or voice memo. both kept going until you stopped them, so the choice changed nothing.
 - the watch tile, the watch page and the solstone app on your watch no longer count what is "confirming with your iphone": it was already on your iphone.
 
 ### Fixed

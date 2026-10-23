@@ -3,16 +3,9 @@
 
 import Foundation
 
-enum ObserverMode: String, CaseIterable, Codable, Sendable {
+/// Every capture starts as `.meeting`. `voice_memo` is never started any more; it stays
+/// so sessions and chunk sidecars saved while the audio page offered it still decode.
+enum ObserverMode: String, Codable, Sendable {
     case meeting
     case voiceMemo = "voice_memo"
-
-    var label: String {
-        switch self {
-        case .meeting:
-            "meeting"
-        case .voiceMemo:
-            "voice memo"
-        }
-    }
 }
