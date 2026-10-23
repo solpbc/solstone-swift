@@ -234,8 +234,6 @@ run_attempt() {
             kill -TERM "$xb_pid" 2>/dev/null || true
             sleep 3
             kill -9 "$xb_pid" 2>/dev/null || true
-            pkill -9 -f "XCTRunner" 2>/dev/null || true
-            pkill -9 -f "xctest"    2>/dev/null || true
             xcrun simctl shutdown "$CI_UDID" >/dev/null 2>&1 || true
         fi
     ) &

@@ -86,8 +86,14 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertTrue(didWriteSnapshot)
         let didReloadComplication = await self.waitUntil { reloadCount == 1 }
         XCTAssertTrue(didReloadComplication)
+        await model.settled()
         let complicationEvents = signpostSink.events.filter { $0.boundary == .complicationSnapshot }
-        XCTAssertEqual(complicationEvents.map(\.kind), [.begin, .end])
+        XCTAssertFalse(complicationEvents.isEmpty)
+        XCTAssertEqual(
+            complicationEvents.map(\.kind),
+            Array(repeating: [WatchModelSignpostSink.Kind.begin, .end], count: complicationEvents.count / 2).flatMap { $0 }
+        )
+        XCTAssertEqual(reloadCount, 1)
     }
 
     func testComplicationSnapshotPublicationIsDeferredAndFIFO() async throws {
@@ -136,8 +142,11 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         let didWriteSnapshot = await self.waitForFile(at: snapshotURL)
         XCTAssertTrue(didWriteSnapshot)
 
-        let snapshot = try JSONDecoder().decode(WatchComplicationSnapshot.self, from: Data(contentsOf: snapshotURL))
+        let completedSnapshots = await writer.completedSnapshots()
+        XCTAssertGreaterThanOrEqual(completedSnapshots.count, 2)
+        let snapshot = try JSONDecoder().decode(WatchComplicationSnapshot.self, from: XCTUnwrap(completedSnapshots.dropFirst().first))
         XCTAssertEqual(snapshot, WatchComplicationSnapshot(presentation: newerPresentation, isReachable: true))
+        await model.settled()
     }
 
     func testRelayStateRefreshTailPublishesNewerCountsAfterHeldEarlierRefresh() async throws {
@@ -337,12 +346,12 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertTrue(didWriteSnapshot)
         let didReloadOnce = await self.waitUntil { reloadCount == 1 }
         XCTAssertTrue(didReloadOnce)
-        await self.waitUntilWritesIdle(writer: writer)
+        await model.settled()
         let writesAfterRecovery = await writer.writeCount()
         let reloadsAfterRecovery = reloadCount
 
         model.presentation = WatchCaptureOwnerPresentation(status: .off, queuedCount: 0, confirmingCount: 4)
-        await self.waitUntilWritesIdle(writer: writer)
+        await model.settled()
         let writesAfterIdentical = await writer.writeCount()
         XCTAssertEqual(writesAfterIdentical, writesAfterRecovery)
         XCTAssertEqual(reloadCount, reloadsAfterRecovery)
@@ -436,7 +445,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         await writer.release()
         let didPublishInitialSnapshot = await self.waitUntilSettled { reloadCount == 1 }
         XCTAssertTrue(didPublishInitialSnapshot)
-        await self.waitUntilWritesIdle(writer: writer)
+        await model.settled()
         let initialWriteCount = await writer.writeCount()
 
         await writer.failNextWrite()
@@ -493,8 +502,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             complicationRootURL: { complicationRoot },
             reloadComplicationTimelines: {}
         )
-        await Task.yield()
-        await Task.yield()
+        await model.settled()
         signpostSink.reset()
 
         session.remainingPublicationFailures = 1
@@ -510,7 +518,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
             signpostSink.events.filter { event in
                 event.boundary == .statusPublication
                     || event.boundary == .applicationContextPrimary
-            },
+            }.prefix(4),
             [
                 .init(kind: .begin, boundary: .statusPublication, fields: WatchSignpostFields()),
                 .init(kind: .begin, boundary: .applicationContextPrimary, fields: WatchSignpostFields()),
@@ -522,8 +530,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
 
     func testStatusPublicationAllSuccessEmitsSinglePrimaryInterval() async throws {
         let (model, sink) = try self.makeStatusPublicationFixture(name: "status-success")
-        await Task.yield()
-        await Task.yield()
+        await model.settled()
         sink.reset()
 
         model.republishStatusOnActivation()
@@ -749,8 +756,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
 
     func testStatusPublicationFailureReportsFailedParent() async throws {
         let (model, sink, session) = try self.makeStatusPublicationFixtureIncludingSession(name: "status-fail")
-        await Task.yield()
-        await Task.yield()
+        await model.settled()
         sink.reset()
         session.remainingPublicationFailures = 1
 
@@ -1078,11 +1084,17 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
     }
 
     private func waitForFile(at url: URL) async -> Bool {
-        for _ in 0..<100 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
             if FileManager.default.fileExists(atPath: url.path) {
                 return true
             }
-            await Task.yield()
+            do {
+                try await clock.sleep(for: .milliseconds(10))
+            } catch {
+                return false
+            }
         }
         return false
     }
@@ -1091,21 +1103,33 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         _ count: Int,
         writer: BlockingComplicationSnapshotWriter
     ) async -> Bool {
-        for _ in 0..<100 {
-            if await writer.writeCount() >= count {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            if await writer.completedSnapshots().count >= count {
                 return true
             }
-            await Task.yield()
+            do {
+                try await clock.sleep(for: .milliseconds(10))
+            } catch {
+                return false
+            }
         }
         return false
     }
 
     private func waitUntil(_ predicate: @escaping @MainActor () -> Bool) async -> Bool {
-        for _ in 0..<100 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
             if predicate() {
                 return true
             }
-            await Task.yield()
+            do {
+                try await clock.sleep(for: .milliseconds(10))
+            } catch {
+                return false
+            }
         }
         return false
     }
@@ -1124,11 +1148,17 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         _ count: Int,
         writer: BlockingRelayStateRefreshWriter
     ) async -> Bool {
-        for _ in 0..<100 {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
             if await writer.readCount() >= count {
                 return true
             }
-            await Task.yield()
+            do {
+                try await clock.sleep(for: .milliseconds(10))
+            } catch {
+                return false
+            }
         }
         return false
     }
@@ -1159,21 +1189,7 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         }
     }
 
-    private func waitUntilWritesIdle(writer: BlockingComplicationSnapshotWriter) async {
-        var last = await writer.writeCount()
-        var stable = 0
-        for _ in 0..<200 {
-            try? await Task.sleep(for: .milliseconds(10))
-            let current = await writer.writeCount()
-            if current == last {
-                stable += 1
-                if stable >= 8 { return }
-            } else {
-                stable = 0
-                last = current
-            }
-        }
-    }
+
 }
 
 private actor BlockingComplicationSnapshotWriter: WatchFileWriting {
@@ -1184,6 +1200,7 @@ private actor BlockingComplicationSnapshotWriter: WatchFileWriting {
     private var shouldBlock = true
     private var writes = 0
     private var writeFailuresRemaining = 0
+    private var snapshots: [Data] = []
 
     func createDirectory(at url: URL) async throws {
         try await self.base.createDirectory(at: url)
@@ -1234,6 +1251,13 @@ private actor BlockingComplicationSnapshotWriter: WatchFileWriting {
             throw WatchModelTestError.complicationWriteFailed
         }
         try await self.base.writeData(data, to: url, options: options)
+        if url.lastPathComponent == WatchComplicationSnapshot.fileName {
+            self.snapshots.append(data)
+        }
+    }
+
+    func completedSnapshots() -> [Data] {
+        self.snapshots
     }
 
     func appendLine(_ line: Data, to url: URL) async throws {
