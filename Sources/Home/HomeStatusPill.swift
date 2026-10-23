@@ -151,6 +151,7 @@ struct HomeStatusDot: View {
 struct HomeStatusPillLabel: View {
     let state: HomeStatusPillState
     let backlog: WatchAwareBacklog
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         // Centre-aligned, not baseline-aligned: a baseline guide on a circle drifts
@@ -175,7 +176,7 @@ struct HomeStatusPillLabel: View {
                 }
                 Text(self.state.label(hasBacklog: self.backlog.knownCount > 0))
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(self.countText == nil ? .primary : .secondary)
+                    .foregroundStyle(self.countText == nil || self.dynamicTypeSize.isAccessibilitySize ? .primary : .secondary)
                     .lineLimit(1)
                     .fixedSize(horizontal: false, vertical: true)
             }

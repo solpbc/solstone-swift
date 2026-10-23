@@ -215,9 +215,9 @@ private struct HomeDestinationTile: View {
                         .font(.footnote)
                         // A slot has no fill, so its subline sits straight on the sun arc's
                         // ground: `.secondary` measured 2.8:1 on the light true-dark ground
-                        // and over the sun. 75 % primary clears 4.5:1 on every ground, in
-                        // both appearances, over the sun and the glow.
-                        .foregroundStyle(self.isSlot ? AnyShapeStyle(Color.primary.opacity(0.75)) : AnyShapeStyle(.secondary))
+                        // and over the sun. 85 % primary also clears the selected deeper
+                        // light night ground while keeping the empty-slot distinction.
+                        .foregroundStyle(self.isSlot ? AnyShapeStyle(Color.primary.opacity(0.85)) : AnyShapeStyle(.secondary))
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
