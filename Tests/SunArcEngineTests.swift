@@ -130,13 +130,13 @@ struct SunArcBothAppearancesTests {
         V(minutes: 780, appearance: .dark, ground: "#392E26", sunAlpha: 0.200000, w: 0.000000, phase: .day, halo: 0.220000, twilight: nil, corner: 0.0000), // 13:00
         V(minutes: 1136, appearance: .light, ground: "#FEFCF7", sunAlpha: 0.144381, w: 0.734377, phase: .day, halo: 0.057752, twilight: Glow(x: 601.863, y: 1019.649, alpha: 0.697658, hex: "#FFE296"), corner: 0.3728), // 18:56 sunset
         V(minutes: 1136, appearance: .dark, ground: "#392E26", sunAlpha: 0.052502, w: 0.734377, phase: .day, halo: 0.057752, twilight: Glow(x: 601.863, y: 1019.649, alpha: 0.455314, hex: "#F9BA36"), corner: 0.2433), // 18:56 sunset
-        V(minutes: 1181, appearance: .light, ground: "#E9DECC", sunAlpha: 0.000000, w: 0.993676, phase: .evening, halo: nil, twilight: Glow(x: 620.436, y: 1086.721, alpha: 0.943992, hex: "#FFE294"), corner: 0.4161), // 19:41 dusk + 15
+        V(minutes: 1181, appearance: .light, ground: "#AEA393", sunAlpha: 0.000000, w: 0.993676, phase: .evening, halo: nil, twilight: Glow(x: 620.436, y: 1086.721, alpha: 0.943992, hex: "#FFE294"), corner: 0.4161), // 19:41 dusk + 15
         V(minutes: 1181, appearance: .dark, ground: "#2E241C", sunAlpha: 0.000000, w: 0.993676, phase: .evening, halo: nil, twilight: Glow(x: 620.436, y: 1086.721, alpha: 0.616079, hex: "#F8B836"), corner: 0.2716), // 19:41 dusk + 15
-        V(minutes: 1320, appearance: .light, ground: "#DFD2BC", sunAlpha: 0.000000, w: 0.434138, phase: .evening, halo: nil, twilight: Glow(x: 642.278, y: 1176.833, alpha: 0.412431, hex: "#FFDC7F"), corner: 0.1521), // 22:00
+        V(minutes: 1320, appearance: .light, ground: "#9B8F7E", sunAlpha: 0.000000, w: 0.434138, phase: .evening, halo: nil, twilight: Glow(x: 642.278, y: 1176.833, alpha: 0.412431, hex: "#FFDC7F"), corner: 0.1521), // 22:00
         V(minutes: 1320, appearance: .dark, ground: "#2B2119", sunAlpha: 0.000000, w: 0.434138, phase: .evening, halo: nil, twilight: Glow(x: 642.278, y: 1176.833, alpha: 0.269166, hex: "#F1A739"), corner: 0.0993), // 22:00
-        V(minutes: 60, appearance: .light, ground: "#D7C9B0", sunAlpha: 0.000000, w: 0.000000, phase: .trueDark, halo: nil, twilight: nil, corner: 0.0000), // 01:00
+        V(minutes: 60, appearance: .light, ground: "#8C806E", sunAlpha: 0.000000, w: 0.000000, phase: .trueDark, halo: nil, twilight: nil, corner: 0.0000), // 01:00
         V(minutes: 60, appearance: .dark, ground: "#281E17", sunAlpha: 0.000000, w: 0.000000, phase: .trueDark, halo: nil, twilight: nil, corner: 0.0000), // 01:00
-        V(minutes: 330, appearance: .light, ground: "#E8DDCA", sunAlpha: 0.000000, w: 0.938094, phase: .beforeDawn, halo: nil, twilight: Glow(x: -249.940, y: -244.955, alpha: 0.891189, hex: "#FFE08F"), corner: 0.3749), // 05:30
+        V(minutes: 330, appearance: .light, ground: "#ACA191", sunAlpha: 0.000000, w: 0.938094, phase: .beforeDawn, halo: nil, twilight: Glow(x: -249.940, y: -244.955, alpha: 0.891189, hex: "#FFE08F"), corner: 0.3749), // 05:30
         V(minutes: 330, appearance: .dark, ground: "#2E241C", sunAlpha: 0.000000, w: 0.938094, phase: .beforeDawn, halo: nil, twilight: Glow(x: -249.940, y: -244.955, alpha: 0.581618, hex: "#F6B437"), corner: 0.2447), // 05:30
         V(minutes: 408, appearance: .light, ground: "#FEFCF8", sunAlpha: 0.145264, w: 0.733576, phase: .day, halo: 0.058105, twilight: Glow(x: -179.052, y: -186.739, alpha: 0.696897, hex: "#FFE296"), corner: 0.3834), // 06:48 sunrise
         V(minutes: 408, appearance: .dark, ground: "#392E26", sunAlpha: 0.052823, w: 0.733576, phase: .day, halo: 0.058105, twilight: Glow(x: -179.052, y: -186.739, alpha: 0.454817, hex: "#F9BA36"), corner: 0.2502), // 06:48 sunrise
@@ -303,7 +303,7 @@ struct SunArcBothAppearancesTests {
         let deck = SunArcGroundPalette(lightDayHex: "#FCF3E4")
         let cases: [(minutes: Double, appearance: SunArcAppearance, ground: String)] = [
             (780, .light, "#FCF3E4"), (780, .dark, "#392E26"),
-            (60, .light, "#D7C9B0"), (60, .dark, "#281E17"),
+            (60, .light, "#8C806E"), (60, .dark, "#281E17"),
             (1181, .dark, "#2E241C"),
         ]
         for c in cases {
