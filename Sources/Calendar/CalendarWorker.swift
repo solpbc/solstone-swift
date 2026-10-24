@@ -50,6 +50,10 @@ actor CalendarWorker {
 
     /// Reads the span across the followed calendars, freezes what the import will send and
     /// returns the settings with the counted import in them. Nothing is sent.
+    ///
+    /// With `calendarIDs`, exactly those calendars are on. Without, each calendar keeps the
+    /// switch the owner left it at, and a calendar not seen before starts off: the owner
+    /// switches on the calendars they want.
     func countSetup(
         document input: CalendarSourceDocument,
         span: CalendarSpanChoice,
@@ -72,7 +76,7 @@ actor CalendarWorker {
                 accountName: info.accountName,
                 title: info.title,
                 isBirthdays: info.isBirthdays,
-                followed: calendarIDs.map { $0.contains(info.identifier) } ?? earlier[info.identifier]?.followed ?? true,
+                followed: calendarIDs.map { $0.contains(info.identifier) } ?? earlier[info.identifier]?.followed ?? false,
                 present: true
             )
         }

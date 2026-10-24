@@ -141,7 +141,8 @@ private struct CalendarSourcePageView: View {
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .accessibilityIdentifier("calendar.tryAgain")
             }
-        } else {
+        } else if label != .noCalendars {
+            // With no calendar switched on there is nothing to bring in; the sub-line says why.
             Button(Self.confirmTitle(label)) {
                 Task { await self.model.confirm() }
             }
@@ -156,7 +157,7 @@ private struct CalendarSourcePageView: View {
 
     private static func confirmTitle(_ label: CalendarConfirmLabel) -> String {
         switch label {
-        case .checking, .failed: SourceVocabulary.sourceStateCheckingLabel
+        case .noCalendars, .checking, .failed: SourceVocabulary.sourceStateCheckingLabel
         case .count(let count): CalendarVocabulary.bringIn(count: count)
         case .startFromToday: CalendarVocabulary.startFromToday
         }
@@ -261,6 +262,11 @@ private struct CalendarSourcePageView: View {
     private var calendarsBlock: some View {
         let pending = self.model.pendingSwitchOn
         return VStack(alignment: .leading, spacing: 4) {
+            // Above the switches, so it is read before one is switched off, right under pause.
+            Text(CalendarVocabulary.stopsNewEvents)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("calendar.page.stopsNewEvents")
             ForEach(self.model.source.calendars) { calendar in
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle(calendar.title, isOn: Binding(

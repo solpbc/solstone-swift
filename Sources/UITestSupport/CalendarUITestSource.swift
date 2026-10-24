@@ -28,10 +28,11 @@ final class CalendarUITestSource: CalendarSourceControlling {
     }
 
     init(mode: CalendarPageMode) {
+        // Every calendar starts off at setup: at the confirm step the owner has switched Work on.
         let calendars = [
             CalendarSourceCalendar(id: "ui-test-work", title: "Work", accountName: "iCloud", followed: true, importStep: nil),
-            CalendarSourceCalendar(id: "ui-test-family", title: "Family", accountName: "iCloud", followed: true, importStep: nil),
-            CalendarSourceCalendar(id: "ui-test-holidays", title: "US Holidays", accountName: "Subscribed Calendars", followed: mode != .on, importStep: nil),
+            CalendarSourceCalendar(id: "ui-test-family", title: "Family", accountName: "iCloud", followed: mode != .confirm, importStep: nil),
+            CalendarSourceCalendar(id: "ui-test-holidays", title: "US Holidays", accountName: "Subscribed Calendars", followed: mode != .on && mode != .confirm, importStep: nil),
         ]
         let now = Date()
         let recent = [
@@ -61,7 +62,7 @@ final class CalendarUITestSource: CalendarSourceControlling {
             state.setupStep = .readyToConfirm(count: 42)
             state.access = .full
             self.calendars = calendars
-            self.pendingSetup = CalendarPendingSetup(span: .last30Days, selection: Set(calendars.map(\.id)), count: 42)
+            self.pendingSetup = CalendarPendingSetup(span: .last30Days, selection: Set(calendars.filter(\.followed).map(\.id)), count: 42)
         case .on, .needsAttention, .waitingForUpdate:
             state.setupStep = .on
             state.access = mode == .needsAttention ? .denied : .full

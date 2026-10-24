@@ -257,9 +257,10 @@ final class CalendarSourceEngine {
         await self.perform { await self.saveSpan(span) }
     }
 
-    /// Reads `span` across the chosen calendars (every calendar when `calendarIDs` is `nil`),
-    /// counts what the import will send and freezes it. Nothing is sent until `confirm()`.
-    /// Before confirm, a new setup replaces the pending one entirely.
+    /// Reads `span` across the chosen calendars, counts what the import will send and freezes
+    /// it. With `calendarIDs` `nil`, the calendars are the ones switched on, and a calendar not
+    /// seen before starts off. Nothing is sent until `confirm()`. Before confirm, a new setup
+    /// replaces the pending one entirely.
     func setUp(span: CalendarSpanChoice, calendarIDs: Set<String>? = nil) async {
         self.latestSpanRequest = span
         guard await self.untilLaunched() else { return }
@@ -267,7 +268,8 @@ final class CalendarSourceEngine {
     }
 
     /// Sends the frozen set the owner was shown the count of. Returns once its first files are
-    /// queued.
+    /// queued. With no calendar switched on there is nothing to bring in, and the source stays
+    /// off.
     func confirm() async {
         guard await self.untilLaunched() else { return }
         await self.perform { await self.confirmSetup() }
@@ -585,7 +587,8 @@ final class CalendarSourceEngine {
 
     private func confirmSetup() async {
         guard await self.finishPendingStep(),
-              let index = self.document.imports.firstIndex(where: { $0.kind == .setup && !$0.confirmed })
+              let index = self.document.imports.firstIndex(where: { $0.kind == .setup && !$0.confirmed }),
+              self.document.imports[index].selection.map({ !$0.isEmpty }) ?? true
         else {
             return
         }

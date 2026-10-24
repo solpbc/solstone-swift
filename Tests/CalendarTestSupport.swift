@@ -477,10 +477,16 @@ final class CalendarHarness {
         self.engine = self.makeEngine()
     }
 
-    /// Sets up with `span`, confirms, and waits for the import and the first check.
+    /// Every calendar on the fake device, as an owner who switches them all on picks them.
+    var everyCalendar: Set<String> {
+        Set(self.provider.calendarList.map(\.identifier))
+    }
+
+    /// Sets up with `span` across `calendarIDs` (every calendar on the device when `nil`, as an
+    /// owner who switches them all on), confirms, and waits for the import and the first check.
     func setUpAndConfirm(_ span: CalendarSpanChoice = .last30Days, calendarIDs: Set<String>? = nil) async {
         await self.ensureLaunched()
-        await self.engine.setUp(span: span, calendarIDs: calendarIDs)
+        await self.engine.setUp(span: span, calendarIDs: calendarIDs ?? self.everyCalendar)
         await self.engine.confirm()
         await self.engine.waitUntilIdle()
     }

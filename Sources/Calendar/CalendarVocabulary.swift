@@ -15,7 +15,7 @@ nonisolated enum CalendarVocabulary {
     static let turnOn = "turn on calendar"
     static let calendarsHeader = "which calendars"
     static let startFromToday = "start from today"
-    static let readyToSetUpSubline = "keep the calendars you want, then bring them in."
+    static let readyToSetUpSubline = "switch on the calendars you want, then bring them in."
     static let activeSubtextPaired = "adds what's on your calendar to your journal while this is on."
     static let activeSubtextUnpaired = "what's on your calendar waits on this device until you connect a journal."
     static let honestyLine = "ios lets the solstone app check your calendar only while it runs, so a change can take a while to reach your journal."
@@ -26,6 +26,8 @@ nonisolated enum CalendarVocabulary {
     static let countFailed = "couldn't count your calendar events."
     static let tryAgain = "try again"
     static let calendarsBlockTitle = "calendars"
+    /// Pausing or switching a calendar off removes nothing that already came in.
+    static let stopsNewEvents = "pausing or switching a calendar off stops new events. what's already in your journal stays."
     static let cannotRead = "the solstone app can't read your calendar. allow full access in ios settings to turn this on."
     static let notNow = "not now"
     static let turnOnHint = "asks ios for access to your calendars."

@@ -599,7 +599,7 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
             Self.meeting("PLAIN", title: "dentist", CalendarFixtures.at(2025, 3, 1, 9, 0), lastModified: "2025-02-01T10:00:00-07:00"),
         ]
         await harness.ensureLaunched()
-        await harness.engine.setUp(span: .everything)
+        await harness.engine.setUp(span: .everything, calendarIDs: harness.everyCalendar)
         XCTAssertEqual(harness.engine.setupStep, .readyToConfirm(count: 4))
         await harness.engine.confirm()
         await harness.engine.launch()
@@ -623,7 +623,7 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
             Self.meeting("BULK-\(index)", title: "item \(index)", CalendarFixtures.at(2026, 10, 21 + index % 5, 9, 0), lastModified: "2026-10-\(String(format: "%02d", 1 + index % 19))T10:00:00-06:00")
         }
         await harness.ensureLaunched()
-        await harness.engine.setUp(span: .last30Days)
+        await harness.engine.setUp(span: .last30Days, calendarIDs: harness.everyCalendar)
         guard case .readyToConfirm(let count) = harness.engine.setupStep else { return XCTFail("not counted") }
         XCTAssertEqual(count, 40)
         await harness.engine.confirm()
@@ -664,7 +664,7 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
                     await harness.check()
                 } else {
                     await harness.ensureLaunched()
-                    await harness.engine.setUp(span: .last30Days)
+                    await harness.engine.setUp(span: .last30Days, calendarIDs: harness.everyCalendar)
                     harness.stopAt(point)
                     await harness.engine.confirm()
                     await harness.engine.waitUntilIdle()
@@ -695,7 +695,7 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
             Self.meeting("CC-\(index)", title: "item \(index)", CalendarFixtures.at(2026, 10, 22 + index, 9, 0), lastModified: "2026-10-1\(index)T10:00:00-06:00")
         }
         await harness.ensureLaunched()
-        await harness.engine.setUp(span: .last30Days)
+        await harness.engine.setUp(span: .last30Days, calendarIDs: harness.everyCalendar)
         XCTAssertEqual(harness.engine.setupStep, .readyToConfirm(count: 5))
 
         await harness.relaunch()

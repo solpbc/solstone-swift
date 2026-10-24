@@ -216,6 +216,37 @@ nonisolated final class CalendarPageTests: XCTestCase {
     }
 
     @MainActor
+    func testWithNoCalendarSwitchedOnThereIsNothingToConfirmUntilTheOwnerPicks() async {
+        let source = PageFakeCalendarSource()
+        source.state.access = .full
+        source.calendars = source.calendars.map {
+            CalendarSourceCalendar(id: $0.id, title: $0.title, accountName: $0.accountName, followed: false, importStep: nil)
+        }
+        let model = CalendarPageModel(source: source)
+        await model.enter()
+        XCTAssertEqual(model.enrolAction, .chooseCalendars(.noCalendars))
+        XCTAssertFalse(model.canConfirm)
+        await model.confirm()
+        XCTAssertNil(source.confirmed, "nothing is turned on with no calendar chosen")
+        XCTAssertFalse(source.state.everOn)
+
+        await model.setUpCalendar("family", on: true)
+        XCTAssertEqual(model.confirmLabel, .count(3))
+        await model.confirm()
+        XCTAssertEqual(source.confirmed?.selection, ["family"])
+
+        // Switching the last one off before confirm takes the confirm away again.
+        let again = PageFakeCalendarSource()
+        again.state.access = .full
+        let page = CalendarPageModel(source: again)
+        await page.enter()
+        await page.setUpCalendar("work", on: false)
+        await page.setUpCalendar("family", on: false)
+        XCTAssertEqual(page.confirmLabel, .noCalendars)
+        XCTAssertFalse(page.canConfirm)
+    }
+
+    @MainActor
     func testACalendarSwitchedDuringACountConfirmsTheSelectionOfTheCountShown() async {
         let source = PageFakeCalendarSource()
         source.state.access = .full

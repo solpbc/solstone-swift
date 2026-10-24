@@ -37,7 +37,7 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
     func testPickingAllOfItBeforeConfirmReplacesTheCountAndTheFrozenSet() async {
         let harness = Self.harness()
         await harness.ensureLaunched()
-        await harness.engine.setUp(span: .last30Days)
+        await harness.engine.setUp(span: .last30Days, calendarIDs: harness.everyCalendar)
         XCTAssertEqual(harness.engine.pendingSetup?.count, 2)
 
         await harness.engine.chooseSpan(.everything)
@@ -54,6 +54,53 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
         XCTAssertEqual(Set(harness.delivery.lines.compactMap { line in
             (try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])?["event"] as? String
         }), ["RECENT-1", "AHEAD-1", "OLD-1", "OLD-2", "OLD-3"])
+        XCTAssertEqual(harness.engine.setupStep, .on)
+    }
+
+    @MainActor
+    func testAFreshSetupHasNoCalendarOnAndBringsInOnlyTheCalendarsSwitchedOn() async {
+        let harness = Self.harness()
+        harness.provider.addCalendar("cal-birthdays", title: "Birthdays", birthdays: true)
+        harness.provider.addCalendar("cal-holidays", title: "US Holidays", account: "Subscribed Calendars")
+        await harness.ensureLaunched()
+        // The page counts with no selection of its own: every calendar starts off.
+        await harness.engine.setUp(span: .last30Days, calendarIDs: nil)
+        XCTAssertEqual(harness.engine.calendars.count, 4)
+        XCTAssertTrue(harness.engine.calendars.allSatisfy { !$0.followed }, "no calendar is preselected, birthdays and holidays included")
+        XCTAssertEqual(harness.engine.state.followedCount, 0)
+        XCTAssertEqual(harness.engine.pendingSetup?.selection, [])
+
+        // With nothing switched on, confirming brings nothing in and leaves the source off.
+        await harness.engine.confirm()
+        await harness.engine.waitUntilIdle()
+        XCTAssertTrue(harness.delivery.lines.isEmpty)
+        XCTAssertFalse(harness.engine.state.everOn)
+        XCTAssertNotEqual(harness.engine.setupStep, .on)
+
+        await harness.engine.setCalendar("cal-family", followed: true)
+        XCTAssertEqual(harness.engine.pendingSetup, CalendarPendingSetup(span: .last30Days, selection: ["cal-family"], count: 1))
+        await harness.engine.confirm()
+        await harness.engine.waitUntilIdle()
+        XCTAssertEqual(harness.engine.setupStep, .on)
+        XCTAssertEqual(Set(harness.delivery.lines.compactMap { line in
+            (try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])?["event"] as? String
+        }), ["AHEAD-1"], "only the calendar switched on comes in")
+        XCTAssertEqual(Set(harness.engine.calendars.filter(\.followed).map(\.id)), ["cal-family"])
+
+        harness.provider.events.append(CalendarSourceEngineTests.meeting("WORK-NEW", title: "planning", CalendarFixtures.at(2026, 10, 28, 9, 0), lastModified: "2026-10-20T16:00:00-06:00"))
+        harness.advance(minutes: 10)
+        await harness.check()
+        XCTAssertTrue(harness.delivery.lines(event: "WORK-NEW").isEmpty, "a calendar left off stays off")
+    }
+
+    @MainActor
+    func testAnOwnerAlreadySetUpKeepsTheCalendarsTheyHadOn() async {
+        let harness = Self.harness()
+        await harness.setUpAndConfirm(.last30Days, calendarIDs: ["cal-work", "cal-family"])
+        await harness.relaunch()
+        harness.advance(minutes: 10)
+        await harness.check()
+        XCTAssertEqual(Set(harness.engine.calendars.filter(\.followed).map(\.id)), ["cal-work", "cal-family"])
         XCTAssertEqual(harness.engine.setupStep, .on)
     }
 
@@ -122,7 +169,8 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
     func testOwnerOperationsWaitForTheLaunch() async {
         let harness = Self.harness()
         let engine = harness.engine
-        async let counted: Void = engine.setUp(span: .last30Days)
+        let every = harness.everyCalendar
+        async let counted: Void = engine.setUp(span: .last30Days, calendarIDs: every)
         try? await Task.sleep(for: .milliseconds(150))
         XCTAssertEqual(harness.provider.readCount, 0, "nothing runs before the launch finishes")
         XCTAssertEqual(harness.delivery.stagingClears, 0)
@@ -143,7 +191,7 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
     func testASwitchBeforeConfirmDropsTheCountInTheSameSaveAndARelaunchCountsOnceForWhatIsOn() async {
         let harness = Self.harness()
         await harness.ensureLaunched()
-        await harness.engine.setUp(span: .last30Days)
+        await harness.engine.setUp(span: .last30Days, calendarIDs: harness.everyCalendar)
         XCTAssertEqual(harness.engine.pendingSetup, CalendarPendingSetup(span: .last30Days, selection: ["cal-work", "cal-family"], count: 2))
 
         // The recount fails: the calendar cannot be read for it.
@@ -245,6 +293,9 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
         let page = CalendarPageModel(source: source)
         await page.enter()
         XCTAssertEqual(source.setUpCalls, 1)
+        XCTAssertEqual(page.confirmLabel, .noCalendars, "every calendar starts off")
+        await page.setUpCalendar("cal-work", on: true)
+        await page.setUpCalendar("cal-family", on: true)
         XCTAssertEqual(page.confirmLabel, .count(2))
 
         harness.provider.accessValue = .denied
@@ -272,7 +323,8 @@ nonisolated final class CalendarSetupSeamTests: XCTestCase {
             release.wait()
         }
         let engine = harness.engine
-        let first = Task { await engine.setUp(span: .last30Days) }
+        let every = harness.everyCalendar
+        let first = Task { await engine.setUp(span: .last30Days, calendarIDs: every) }
         while !reached.withLock({ $0 }) {
             try await Task.sleep(for: .milliseconds(5))
         }

@@ -144,6 +144,8 @@ func setCalendarTile(_ source: any CalendarSourceControlling, on: Bool) async {
 
 /// What the confirm button says.
 nonisolated enum CalendarConfirmLabel: Equatable, Sendable {
+    /// No calendar is switched on yet: there is nothing to bring in, and no button.
+    case noCalendars
     case checking
     case count(Int)
     case startFromToday
@@ -224,6 +226,7 @@ final class CalendarPageModel {
     }
 
     var confirmLabel: CalendarConfirmLabel {
+        if !self.source.calendars.contains(where: \.followed) { return .noCalendars }
         if self.isCounting { return .checking }
         if self.countFailed { return .failed }
         guard let count = self.frozenCount else { return .checking }
@@ -234,7 +237,7 @@ final class CalendarPageModel {
     var canConfirm: Bool {
         switch self.confirmLabel {
         case .count, .startFromToday: true
-        case .checking, .failed: false
+        case .noCalendars, .checking, .failed: false
         }
     }
 
