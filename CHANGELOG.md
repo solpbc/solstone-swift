@@ -8,7 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Added
 
-- the night background now has gold stars, a brief meteor shower and an aurora on iphone and ipad, with stars and still meteor trails on apple watch.
+- the night background now has gold stars and, around the middle of the night, a brief meteor shower and an aurora on iphone and ipad, with stars and still meteor trails on apple watch.
 
 ### Changed
 
