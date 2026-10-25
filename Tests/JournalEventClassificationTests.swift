@@ -498,6 +498,31 @@ final class JournalEventClassificationTests: XCTestCase {
         let screenRows = try self.records(segmentID: screen.segmentID)
         XCTAssertEqual(Set(screenRows.map(\.source)), [.screencast, .screenAudio])
 
+        let stat = StatFailingFileManager()
+        let statRoot = self.tempDirectory.appendingPathComponent("unreadable-screen", isDirectory: true)
+        let statStore = MobileSegmentStore(
+            rootURL: statRoot.appendingPathComponent("MobileSegment", isDirectory: true),
+            fileManager: stat
+        )
+        let statUploader = MobileSegmentUploader(store: statStore, clock: self.clock)
+        let unreadableID = UUID()
+        let unreadableDirectory = try statStore.createActive(manifest: MobileSegmentManifest(
+            segmentID: unreadableID,
+            startedAt: self.clock.now().addingTimeInterval(-3_600),
+            openedWithSources: [.screencast],
+            activeSourceSetVersion: 1
+        ))
+        let unreadableScreen = statStore.screenURL(in: unreadableDirectory)
+        try Data("partial-screen".utf8).write(to: unreadableScreen)
+        stat.blockedPath = unreadableScreen.path
+        try statUploader.discardUnprovenRollbackCandidate(segmentID: unreadableID, now: self.clock.now())
+        XCTAssertNotNil(statStore.findDirectory(segmentID: unreadableID))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unreadableScreen.path))
+        guard case .events(let unreadableRows) = statUploader.journalEvents.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        XCTAssertTrue(unreadableRows.isEmpty)
+
         try self.replaceDirectory(self.eventsDirectory("losses"), withFile: Data("blocked".utf8))
         let kept = try self.openActive(sources: [.audio])
         try Self.fortyEightByteAudio.write(to: self.store.audioURL(in: kept.directory))
@@ -633,7 +658,7 @@ final class JournalEventClassificationTests: XCTestCase {
         let writer = ScreencastBroadcastAudioWriter()
         try writer.open(rootURL: container, handoff: handoff, now: now)
         XCTAssertFalse(FileManager.default.fileExists(atPath: part.path))
-        let audioEvents = JournalEventStore(rootURL: JournalEventStore.directory(besideMobileSegmentRoot: container))
+        let audioEvents = JournalEventStore(rootURL: JournalEventStore.directory(inAppGroupRoot: container))
         guard case .events(let rows) = audioEvents.readEvents() else {
             return XCTFail("broadcast journal events unreadable")
         }
@@ -641,6 +666,11 @@ final class JournalEventClassificationTests: XCTestCase {
         XCTAssertEqual(replaced?.kind, .loss)
         XCTAssertEqual(replaced?.source, .screenAudio)
         XCTAssertEqual(replaced?.reason, "screencast_part_replaced")
+        let parentEvents = JournalEventStore(rootURL: JournalEventStore.directory(besideMobileSegmentRoot: container))
+        guard case .events(let parentRows) = parentEvents.readEvents() else {
+            return XCTFail("broadcast journal events unreadable")
+        }
+        XCTAssertFalse(parentRows.contains { $0.segmentID == audioSegment.uuidString })
     }
 
     func testRetainedAudioRestoreWritesNoJournalEvent() async throws {

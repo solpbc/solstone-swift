@@ -327,6 +327,15 @@ final class MobileSegmentStore {
         return size.int64Value
     }
 
+    func boxedFileExistence(at url: URL, rule: JournalMediaRule, acceptedFrames: Int) -> JournalFileExistence {
+        JournalBoxedFile.existence(
+            at: url,
+            rule: rule,
+            acceptedFrames: acceptedFrames,
+            fileManager: self.fileManager
+        )
+    }
+
     func fileExists(_ url: URL) -> Bool {
         self.fileManager.fileExists(atPath: url.path)
     }

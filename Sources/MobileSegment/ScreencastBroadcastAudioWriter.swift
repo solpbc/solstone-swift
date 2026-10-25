@@ -49,7 +49,7 @@ nonisolated final class ScreencastBroadcastAudioWriter: ScreencastBroadcastAudio
                 segmentID: handoff.segmentID,
                 captureAt: handoff.startedAt,
                 now: now,
-                eventsRoot: JournalEventStore.directory(besideMobileSegmentRoot: rootURL),
+                eventsRoot: JournalEventStore.directory(inAppGroupRoot: rootURL),
                 fileManager: self.fileManager
             )
         }

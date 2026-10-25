@@ -1131,8 +1131,10 @@ final class MobileSegmentUploader {
         return .proceed
     }
 
-    /// Path 13. Listing failure or a held lease leaves the directory. A present audio file or
-    /// receipt that did not exist blocks the remove and writes nothing.
+    /// A candidate is removed only when every captured file can be measured.
+    /// A phone-audio file or receipt that did not exist, or any file whose size
+    /// cannot be read, stays on disk and writes nothing. Each source that existed
+    /// is recorded, and then the directory is removed.
     func discardUnprovenRollbackCandidate(segmentID: UUID, now: Date) throws {
         let directory = self.store.segmentDirectoryURL(.active, segmentID: segmentID)
         let names: [String]
@@ -1145,26 +1147,23 @@ final class MobileSegmentUploader {
         let audioURL = self.store.audioURL(in: directory)
         let receiptURL = self.store.audioWriterReceiptURL(in: directory)
         let captureAt = (try? self.store.readManifest(in: directory))?.startedAt
+        let frames = self.phoneAcceptedFrames(in: directory, segmentID: segmentID)
+        var audioExisted = false
+        var audioBlocks = false
         if names.contains(audioURL.lastPathComponent) {
-            let frames = self.phoneAcceptedFrames(in: directory, segmentID: segmentID)
-            switch JournalBoxedFile.existence(at: audioURL, rule: .phoneAudio, acceptedFrames: frames) {
+            switch self.store.boxedFileExistence(at: audioURL, rule: .phoneAudio, acceptedFrames: frames) {
             case .present(true):
-                try self.journalEvents.recordLoss(
-                    segmentID: segmentID,
-                    source: .audio,
-                    reason: "segment_rollback",
-                    captureAt: captureAt,
-                    now: now
-                )
+                audioExisted = true
             case .absent:
                 break
             case .unreadableSize, .present(false):
-                return
+                audioBlocks = true
             }
         } else if names.contains(receiptURL.lastPathComponent) {
-            return
+            audioBlocks = true
         }
         var existedSources: [JournalEventSource] = []
+        var screenUnreadable = false
         let screenFiles: [(URL, JournalEventSource)] = [
             (self.store.screenURL(in: directory), .screencast),
             (self.store.screenPartURL(in: directory), .screencast),
@@ -1172,10 +1171,26 @@ final class MobileSegmentUploader {
             (self.store.screenAudioPartURL(in: directory), .screenAudio),
         ]
         for (url, source) in screenFiles {
-            if case .present(true) = JournalBoxedFile.existence(at: url, rule: .screen, acceptedFrames: 0),
-               !existedSources.contains(source) {
-                existedSources.append(source)
+            switch self.store.boxedFileExistence(at: url, rule: .screen, acceptedFrames: 0) {
+            case .absent, .present(false):
+                break
+            case .unreadableSize:
+                screenUnreadable = true
+            case .present(true):
+                if !existedSources.contains(source) {
+                    existedSources.append(source)
+                }
             }
+        }
+        if audioBlocks || screenUnreadable { return }
+        if audioExisted {
+            try self.journalEvents.recordLoss(
+                segmentID: segmentID,
+                source: .audio,
+                reason: "segment_rollback",
+                captureAt: captureAt,
+                now: now
+            )
         }
         for source in existedSources {
             try self.journalEvents.recordLoss(

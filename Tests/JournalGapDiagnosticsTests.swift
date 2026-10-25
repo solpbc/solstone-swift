@@ -142,4 +142,71 @@ final class JournalGapDiagnosticsTests: XCTestCase {
         }
         XCTAssertTrue(restored.contains { $0.id == id })
     }
+
+    func testUndecodableDiagnosticIsSetAsideAndAReadErrorLeavesTheFile() throws {
+        let blockedSegment = UUID()
+        let blockedID = JournalEventStore.diagnosticID(
+            segmentID: blockedSegment,
+            source: .audio,
+            reason: "audio_writer_failed",
+            writerFault: false
+        )
+        let blocked = self.diagnosticFile(id: blockedID)
+        try FileManager.default.createDirectory(at: blocked.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let blockedBytes = Data("still-here".utf8)
+        try blockedBytes.write(to: blocked)
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blocked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: blocked.path) }
+
+        try self.events.recordDiagnostic(
+            segmentID: blockedSegment,
+            source: .audio,
+            reason: "audio_writer_failed",
+            captureAt: self.now,
+            now: self.now
+        )
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: blocked.path)
+        XCTAssertEqual(try Data(contentsOf: blocked), blockedBytes)
+        let aside = self.events.rootURL.appendingPathComponent("aside", isDirectory: true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: aside.path))
+        // This file is not a record. A later read would set it aside, so remove it before the next write.
+        try FileManager.default.removeItem(at: blocked)
+
+        let segmentID = UUID()
+        let id = JournalEventStore.diagnosticID(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_writer_failed",
+            writerFault: false
+        )
+        let file = self.diagnosticFile(id: id)
+        let garbage = Data("{".utf8)
+        try garbage.write(to: file)
+        try self.events.recordDiagnostic(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_writer_failed",
+            captureAt: self.now,
+            now: self.now
+        )
+
+        let asideFiles = try FileManager.default.contentsOfDirectory(at: aside, includingPropertiesForKeys: nil)
+        XCTAssertEqual(asideFiles.count, 1)
+        XCTAssertEqual(try Data(contentsOf: asideFiles[0]), garbage)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertNotEqual(file.standardizedFileURL, asideFiles[0].standardizedFileURL)
+        guard case .events(let rows) = self.events.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        let row = try XCTUnwrap(rows.first { $0.id == id })
+        XCTAssertEqual(row.kind, .diagnostic)
+        XCTAssertEqual(row.count, 1)
+        XCTAssertEqual(row.reason, "audio_writer_failed")
+    }
+
+    private func diagnosticFile(id: String) -> URL {
+        self.events.rootURL
+            .appendingPathComponent("diagnostics", isDirectory: true)
+            .appendingPathComponent("\(JournalEventStore.fileName(for: id)).json")
+    }
 }

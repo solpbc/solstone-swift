@@ -181,29 +181,40 @@ nonisolated struct JournalEventStore: Sendable {
     ) throws {
         let id = Self.diagnosticID(segmentID: segmentID, source: source, reason: reason, writerFault: writerFault)
         let url = self.eventURL(kind: .diagnostic, id: id)
-        if self.fileManager.fileExists(atPath: url.path),
-           let existing = try? self.readRecord(at: url),
-           existing.id == id {
-            var updated = existing
-            updated.lastAt = now
-            updated.count += 1
-            updated.detail = (existing.detail ?? JournalEventDetail()).merging(detail)
-            try self.writeRecord(updated, to: url)
-        } else {
-            let record = JournalEventRecord(
-                id: id,
-                kind: .diagnostic,
-                source: source,
-                reason: reason,
-                segmentID: segmentID?.uuidString,
-                foundAt: now,
-                lastAt: now,
-                captureAt: captureAt,
-                count: 1,
-                detail: detail
-            )
-            try self.writeRecord(record, to: url)
+        if self.fileManager.fileExists(atPath: url.path) {
+            let data: Data
+            do {
+                data = try Data(contentsOf: url)
+            } catch {
+                journalEventLog.error("journal event unreadable name=\(url.lastPathComponent, privacy: .public)")
+                return
+            }
+            if let existing = try? Self.makeDecoder().decode(JournalEventRecord.self, from: data),
+               existing.id == id {
+                var updated = existing
+                updated.lastAt = now
+                updated.count += 1
+                updated.detail = (existing.detail ?? JournalEventDetail()).merging(detail)
+                try self.writeRecord(updated, to: url)
+                self.prune(now: now, calendar: calendar)
+                return
+            }
+            self.moveAside(url)
+            guard !self.fileManager.fileExists(atPath: url.path) else { return }
         }
+        let record = JournalEventRecord(
+            id: id,
+            kind: .diagnostic,
+            source: source,
+            reason: reason,
+            segmentID: segmentID?.uuidString,
+            foundAt: now,
+            lastAt: now,
+            captureAt: captureAt,
+            count: 1,
+            detail: detail
+        )
+        try self.writeRecord(record, to: url)
         self.prune(now: now, calendar: calendar)
     }
 
