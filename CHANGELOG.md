@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.10 (138)] - 2026-10-25
+
 ### Added
 
 - the night background now has gold stars and, around the middle of the night, a brief meteor shower and an aurora on iphone and ipad, with stars and still meteor trails on apple watch.
@@ -13,8 +15,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Changed
 
 - when you set up calendar, every calendar starts off, and so does one that shows up on your phone later. you switch on the ones you want before anything comes in. the calendar page now says that what's already in your journal stays when you pause or switch a calendar off.
-- a voice memo no longer stops on its own when it gets quiet.
-- the audio page no longer asks you to pick meeting or voice memo. now that both keep going until you stop them, the choice changes nothing.
+- the audio page no longer asks you to pick meeting or voice memo. audio no longer stops on its own when it gets quiet.
 - the watch tile, the watch page and the solstone app on your watch no longer count what is "confirming with your iphone": it was already on your iphone.
 
 ### Fixed
