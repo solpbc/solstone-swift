@@ -135,16 +135,16 @@ nonisolated enum ObserverStatusPresentations {
             return .notPaired
         }
 
-        if snapshot.sourceStates.values.contains(.needsAttention) {
-            return .needsAttention
-        }
-
         if snapshot.awaitingMarkConfirmation {
             return .awaitingMarkConfirmation(count: snapshot.backlogCount)
         }
 
         if snapshot.backlogCount > 0 {
             return .waiting(count: snapshot.backlogCount)
+        }
+
+        if snapshot.sourceStates.values.contains(.needsAttention) {
+            return .needsAttention
         }
 
         if snapshot.journalGap {
