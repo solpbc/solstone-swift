@@ -6,6 +6,45 @@ import os
 
 nonisolated private let journalEventLog = Logger(subsystem: "app.solstone.swift", category: "journal-events")
 
+/// One serial queue per journal-event directory. A write that marks or prunes re-enters the same queue.
+nonisolated private final class JournalEventWriteGate: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "app.solstone.swift.journal-events")
+    private let key = DispatchSpecificKey<UInt8>()
+
+    init() {
+        self.queue.setSpecific(key: self.key, value: 1)
+    }
+
+    func sync<T>(_ body: () throws -> T) rethrows -> T {
+        if DispatchQueue.getSpecific(key: self.key) != nil {
+            return try body()
+        }
+        return try self.queue.sync(execute: body)
+    }
+}
+
+nonisolated private final class JournalEventWriteRegistry: @unchecked Sendable {
+    static let shared = JournalEventWriteRegistry()
+    private let registry = DispatchQueue(label: "app.solstone.swift.journal-events.registry")
+    private var gates: [String: JournalEventWriteGate] = [:]
+
+    func sync<T>(root: URL, _ body: () throws -> T) rethrows -> T {
+        try self.gate(for: root).sync(body)
+    }
+
+    private func gate(for root: URL) -> JournalEventWriteGate {
+        let path = root.standardizedFileURL.path
+        return self.registry.sync {
+            if let existing = self.gates[path] {
+                return existing
+            }
+            let created = JournalEventWriteGate()
+            self.gates[path] = created
+            return created
+        }
+    }
+}
+
 nonisolated enum JournalEventKind: String, Codable, Sendable, Equatable {
     case loss
     case diagnostic
@@ -91,7 +130,8 @@ nonisolated struct JournalImportRun: Sendable, Equatable {
 }
 
 /// Synchronous journal-event directory. Foundation and os only. Callers on the main actor
-/// and the broadcast extension's queue both use it. A seen-mark write never opens an event file.
+/// and the broadcast extension's queue both use it. Writes for one directory run one at a time,
+/// including a write that marks or prunes before it returns. A seen-mark write never opens an event file.
 nonisolated struct JournalEventStore: Sendable {
     static let directoryName = "JournalEvents"
     static let lossCap = 500
@@ -108,6 +148,10 @@ nonisolated struct JournalEventStore: Sendable {
 
     /// The process file manager. Not stored: `FileManager` is not `Sendable`.
     private var fileManager: FileManager { .default }
+
+    private func withWrite<T>(_ body: () throws -> T) rethrows -> T {
+        try JournalEventWriteRegistry.shared.sync(root: self.rootURL, body)
+    }
 
     static func directory(inAppGroupRoot root: URL) -> URL {
         root.appendingPathComponent(Self.directoryName, isDirectory: true)
@@ -143,6 +187,26 @@ nonisolated struct JournalEventStore: Sendable {
         captureAt: Date?,
         now: Date,
         calendar: Calendar = .current
+    ) throws {
+        try self.withWrite {
+            try self.recordLossWhileLocked(
+                segmentID: segmentID,
+                source: source,
+                reason: reason,
+                captureAt: captureAt,
+                now: now,
+                calendar: calendar
+            )
+        }
+    }
+
+    private func recordLossWhileLocked(
+        segmentID: UUID,
+        source: JournalEventSource,
+        reason: String,
+        captureAt: Date?,
+        now: Date,
+        calendar: Calendar
     ) throws {
         let id = Self.lossID(segmentID: segmentID, source: source)
         let url = self.eventURL(kind: .loss, id: id)
@@ -181,6 +245,30 @@ nonisolated struct JournalEventStore: Sendable {
         writerFault: Bool = false,
         detail: JournalEventDetail? = nil,
         calendar: Calendar = .current
+    ) throws {
+        try self.withWrite {
+            try self.recordDiagnosticWhileLocked(
+                segmentID: segmentID,
+                source: source,
+                reason: reason,
+                captureAt: captureAt,
+                now: now,
+                writerFault: writerFault,
+                detail: detail,
+                calendar: calendar
+            )
+        }
+    }
+
+    private func recordDiagnosticWhileLocked(
+        segmentID: UUID?,
+        source: JournalEventSource,
+        reason: String,
+        captureAt: Date?,
+        now: Date,
+        writerFault: Bool,
+        detail: JournalEventDetail?,
+        calendar: Calendar
     ) throws {
         let id = Self.diagnosticID(segmentID: segmentID, source: source, reason: reason, writerFault: writerFault)
         let url = self.eventURL(kind: .diagnostic, id: id)
@@ -230,6 +318,22 @@ nonisolated struct JournalEventStore: Sendable {
         recordedAt: Date,
         now: Date
     ) throws -> Bool {
+        try self.withWrite {
+            try self.recordLegacyWhileLocked(
+                segmentID: segmentID,
+                reason: reason,
+                recordedAt: recordedAt,
+                now: now
+            )
+        }
+    }
+
+    private func recordLegacyWhileLocked(
+        segmentID: UUID,
+        reason: String,
+        recordedAt: Date,
+        now: Date
+    ) throws -> Bool {
         let id = Self.legacyID(segmentID: segmentID, reason: reason, recordedAt: recordedAt)
         let url = self.eventURL(kind: .diagnostic, id: id)
         if self.fileManager.fileExists(atPath: url.path) {
@@ -257,6 +361,12 @@ nonisolated struct JournalEventStore: Sendable {
     }
 
     func markSeen(id: String) throws {
+        try self.withWrite {
+            try self.markSeenWhileLocked(id: id)
+        }
+    }
+
+    private func markSeenWhileLocked(id: String) throws {
         let url = self.seenURL(id)
         if self.fileManager.fileExists(atPath: url.path) { return }
         let body = try Self.makeEncoder().encode(SeenMark(id: id))
@@ -264,6 +374,12 @@ nonisolated struct JournalEventStore: Sendable {
     }
 
     func markAllEventsSeen() throws {
+        try self.withWrite {
+            try self.markAllEventsSeenWhileLocked()
+        }
+    }
+
+    private func markAllEventsSeenWhileLocked() throws {
         switch self.readEvents() {
         case .unreadable:
             throw CocoaError(.fileReadUnknown)
@@ -280,6 +396,12 @@ nonisolated struct JournalEventStore: Sendable {
 
     @discardableResult
     func openGate(now: Date) throws -> Bool {
+        try self.withWrite {
+            try self.openGateWhileLocked(now: now)
+        }
+    }
+
+    private func openGateWhileLocked(now: Date) throws -> Bool {
         let url = self.rootURL.appendingPathComponent("gate.json", isDirectory: false)
         if self.fileManager.fileExists(atPath: url.path) { return false }
         let body = try Self.makeEncoder().encode(GateMark(openedAt: now))
@@ -292,6 +414,12 @@ nonisolated struct JournalEventStore: Sendable {
     }
 
     func seedIdentityIfAbsent(_ identity: String) throws {
+        try self.withWrite {
+            try self.seedIdentityIfAbsentWhileLocked(identity)
+        }
+    }
+
+    private func seedIdentityIfAbsentWhileLocked(_ identity: String) throws {
         let url = self.identityURL
         if self.fileManager.fileExists(atPath: url.path) { return }
         try self.writeIdentity(identity)
@@ -309,6 +437,12 @@ nonisolated struct JournalEventStore: Sendable {
     }
 
     func writeIdentity(_ identity: String) throws {
+        try self.withWrite {
+            try self.writeIdentityWhileLocked(identity)
+        }
+    }
+
+    private func writeIdentityWhileLocked(_ identity: String) throws {
         let body = try Self.makeEncoder().encode(IdentityMark(identity: identity))
         try self.atomicWrite(body, to: self.identityURL)
     }
@@ -331,11 +465,23 @@ nonisolated struct JournalEventStore: Sendable {
     }
 
     func writeImportComplete(imported: Int, skipped: Int) throws {
+        try self.withWrite {
+            try self.writeImportCompleteWhileLocked(imported: imported, skipped: skipped)
+        }
+    }
+
+    private func writeImportCompleteWhileLocked(imported: Int, skipped: Int) throws {
         let body = try Self.makeEncoder().encode(ImportMark(status: "complete", imported: imported, skipped: skipped, reason: nil))
         try self.atomicWrite(body, to: self.importURL)
     }
 
     func writeImportFailed(reason: String) throws {
+        try self.withWrite {
+            try self.writeImportFailedWhileLocked(reason: reason)
+        }
+    }
+
+    private func writeImportFailedWhileLocked(reason: String) throws {
         let body = try Self.makeEncoder().encode(ImportMark(status: "failed", imported: nil, skipped: nil, reason: reason))
         try self.atomicWrite(body, to: self.importURL)
     }
@@ -348,6 +494,22 @@ nonisolated struct JournalEventStore: Sendable {
         now: Date = Date(),
         calendar: Calendar = .current,
         isCancelled: @Sendable () -> Bool = { false }
+    ) throws -> JournalImportRun? {
+        try self.withWrite {
+            try self.importLegacyWhileLocked(
+                from: mobileSegmentRoots,
+                now: now,
+                calendar: calendar,
+                isCancelled: isCancelled
+            )
+        }
+    }
+
+    private func importLegacyWhileLocked(
+        from mobileSegmentRoots: [URL],
+        now: Date,
+        calendar: Calendar,
+        isCancelled: @Sendable () -> Bool
     ) throws -> JournalImportRun? {
         if isCancelled() { return nil }
         var imported = 0
@@ -419,6 +581,12 @@ nonisolated struct JournalEventStore: Sendable {
     }
 
     func prune(now: Date, calendar: Calendar = .current) {
+        self.withWrite {
+            self.pruneWhileLocked(now: now, calendar: calendar)
+        }
+    }
+
+    private func pruneWhileLocked(now: Date, calendar: Calendar) {
         guard case .events(let events) = self.readEvents() else { return }
         let ageCutoff = calendar.date(byAdding: .day, value: -Self.retentionDays, to: now) ?? now
         var losses = events.filter { $0.kind == .loss }
