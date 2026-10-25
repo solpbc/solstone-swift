@@ -834,7 +834,7 @@ final class MobileSegmentUploader {
                 try self.store.writeManifest(manifest, in: directory)
                 let tombstoneReason = self.tombstoneReasonForEmptyRetirement(manifest: manifest, defaultReason: "no_artifacts")
                 try self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: tombstoneReason, now: endedAt)
-                try self.store.remove(directory)
+                try self.removeSegmentDirectory(directory, segmentID: segmentID, captureAt: manifest.startedAt, now: endedAt)
                 if manifest.audio.reason == "audio_undecodable_container" {
                     self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
                 }
@@ -1073,6 +1073,21 @@ final class MobileSegmentUploader {
         }
     }
 
+    /// Records every kept part, then removes the directory. A part that is still unrecorded
+    /// keeps the directory.
+    private func removeSegmentDirectory(_ directory: URL, segmentID: UUID, captureAt: Date?, now: Date) throws {
+        guard self.store.classifyKeptParts(
+            in: directory,
+            segmentID: segmentID,
+            captureAt: captureAt,
+            now: now,
+            eventsRoot: self.journalEvents.rootURL
+        ) else {
+            throw MobileSegmentStoreError.unrecordedKeptPart
+        }
+        try self.store.remove(directory)
+    }
+
     private func preparePhoneRemoval(
         url: URL,
         directory: URL,
@@ -1187,12 +1202,17 @@ final class MobileSegmentUploader {
         }
         var existedSources: [JournalEventSource] = []
         var screenUnreadable = false
-        let screenFiles: [(URL, JournalEventSource)] = [
+        let keptParts = JournalKeptPart.urls(in: directory) ?? []
+        if JournalKeptPart.urls(in: directory) == nil { return }
+        var screenFiles: [(URL, JournalEventSource)] = [
             (self.store.screenURL(in: directory), .screencast),
             (self.store.screenPartURL(in: directory), .screencast),
             (self.store.screenAudioURL(in: directory), .screenAudio),
             (self.store.screenAudioPartURL(in: directory), .screenAudio),
         ]
+        for url in keptParts where !screenFiles.contains(where: { $0.0.path == url.path }) {
+            screenFiles.append((url, JournalKeptPart.source(forFileName: url.lastPathComponent)))
+        }
         for (url, source) in screenFiles {
             switch self.store.boxedFileExistence(at: url, rule: .screen, acceptedFrames: 0) {
             case .absent, .present(false):
@@ -1223,6 +1243,9 @@ final class MobileSegmentUploader {
                 captureAt: captureAt,
                 now: now
             )
+        }
+        for url in keptParts {
+            try? FileManager.default.removeItem(at: url)
         }
         try self.store.remove(directory)
     }
@@ -1629,7 +1652,7 @@ final class MobileSegmentUploader {
             reason: tombstoneReason,
             now: self.clock.now()
         )
-        try self.store.remove(directory)
+        try self.removeSegmentDirectory(directory, segmentID: segmentID, captureAt: manifest.startedAt, now: self.clock.now())
         if manifest.audio.reason == "audio_undecodable_container" {
             self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
         }
@@ -1647,7 +1670,8 @@ final class MobileSegmentUploader {
                 }
                 self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
             }
-            try? self.store.remove(found.url)
+            let captureAt = (try? self.store.readManifest(in: found.url))?.startedAt
+            try? self.removeSegmentDirectory(found.url, segmentID: segmentID, captureAt: captureAt, now: self.clock.now())
         }
         self.refreshCounts()
     }
@@ -1682,7 +1706,7 @@ final class MobileSegmentUploader {
             } else {
                 let tombstoneReason = self.tombstoneReasonForEmptyRetirement(manifest: manifest, defaultReason: "screencast_removed")
                 try self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: tombstoneReason, now: self.clock.now())
-                try self.store.remove(found.url)
+                try self.removeSegmentDirectory(found.url, segmentID: segmentID, captureAt: manifest.startedAt, now: self.clock.now())
                 if manifest.audio.reason == "audio_undecodable_container" {
                     self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
                 }
@@ -2218,7 +2242,7 @@ private extension MobileSegmentUploader {
                 equivalentObserverSegmentID: segmentID,
                 payloadFileURLs: payloadFileURLs
             )
-            try self.store.remove(directory)
+            try self.removeSegmentDirectory(directory, segmentID: segmentID, captureAt: manifest.startedAt, now: self.clock.now())
             if manifest.audio.reason == "audio_undecodable_container" {
                 self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
             }
@@ -2236,7 +2260,8 @@ private extension MobileSegmentUploader {
                 guard let segmentID = UUID(uuidString: directory.lastPathComponent),
                       self.store.hasTombstone(segmentID: segmentID, kind: "uploaded")
                 else { continue }
-                try self.store.remove(directory)
+                let captureAt = (try? self.store.readManifest(in: directory))?.startedAt
+                try self.removeSegmentDirectory(directory, segmentID: segmentID, captureAt: captureAt, now: self.clock.now())
                 mobileSegmentUploadLog.notice(
                     "mobile segment retired delivered residue segment=\(segmentID.uuidString, privacy: .public) lifecycle=\(lifecycle.rawValue, privacy: .public)"
                 )
@@ -2246,7 +2271,9 @@ private extension MobileSegmentUploader {
 
     private func retireDeliveredResidue(segmentID: UUID) throws {
         for lifecycle in [MobileSegmentLifecycle.pending, .failed] {
-            try self.store.remove(self.store.segmentDirectoryURL(lifecycle, segmentID: segmentID))
+            let directory = self.store.segmentDirectoryURL(lifecycle, segmentID: segmentID)
+            let captureAt = (try? self.store.readManifest(in: directory))?.startedAt
+            try self.removeSegmentDirectory(directory, segmentID: segmentID, captureAt: captureAt, now: self.clock.now())
         }
     }
 
@@ -2299,7 +2326,7 @@ private extension MobileSegmentUploader {
                         }
                         continue
                     }
-                    try self.store.remove(directory)
+                    try self.removeSegmentDirectory(directory, segmentID: segmentID, captureAt: manifest.startedAt, now: self.clock.now())
                     mobileSegmentUploadLog.notice(
                         "mobile segment retired verified transfer-owned residue segment=\(segmentID.uuidString, privacy: .public) lifecycle=\(lifecycle.rawValue, privacy: .public)"
                     )

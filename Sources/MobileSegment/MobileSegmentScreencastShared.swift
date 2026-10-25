@@ -179,7 +179,7 @@ nonisolated enum MobileSegmentScreencastJSONStore {
             if let replacement {
                 switch replacement.decision(partURL: partURL, finalURL: finalURL, fileManager: fileManager) {
                 case .keepBoth:
-                    return
+                    throw JournalPartHandoffError.bytesNotAtFinalURL
                 case .replace:
                     break
                 }
@@ -189,6 +189,11 @@ nonisolated enum MobileSegmentScreencastJSONStore {
             try fileManager.moveItem(at: partURL, to: finalURL)
         }
     }
+}
+
+/// The finished bytes are not where the uploader reads them. The part stays for a later pass.
+nonisolated enum JournalPartHandoffError: Error, Equatable {
+    case bytesNotAtFinalURL
 }
 
 nonisolated enum MobileSegmentScreencastIdentity {
@@ -492,6 +497,14 @@ nonisolated enum ScreencastBroadcastWriterOutcome: Equatable, Sendable {
         case .filesystemHandoffFailure:
             .filesystemHandoffFailure
         }
+    }
+
+    /// Completed only when the window's bytes are at the final file and the part is gone.
+    static func handoff(partRemains: Bool, finalExists: Bool) -> ScreencastBroadcastWriterOutcome {
+        if partRemains || !finalExists {
+            return .filesystemHandoffFailure("bytes_not_at_final")
+        }
+        return .completed
     }
 }
 

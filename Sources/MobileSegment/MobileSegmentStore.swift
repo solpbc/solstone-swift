@@ -253,7 +253,28 @@ final class MobileSegmentStore {
 
     func remove(_ directory: URL) throws {
         guard self.fileManager.fileExists(atPath: directory.path) else { return }
+        if JournalKeptPart.holdsUnrecordedPart(in: directory, fileManager: self.fileManager) {
+            throw MobileSegmentStoreError.unrecordedKeptPart
+        }
         try self.fileManager.removeItem(at: directory)
+    }
+
+    /// Records each kept part, then deletes it. False while any part is still unrecorded.
+    func classifyKeptParts(
+        in directory: URL,
+        segmentID: UUID,
+        captureAt: Date?,
+        now: Date,
+        eventsRoot: URL
+    ) -> Bool {
+        JournalKeptPart.classify(
+            in: directory,
+            segmentID: segmentID,
+            captureAt: captureAt,
+            now: now,
+            eventsRoot: eventsRoot,
+            fileManager: self.fileManager
+        )
     }
 
     func writeTombstone(segmentID: UUID, kind: String, reason: String, now: Date) throws {
@@ -550,4 +571,5 @@ final class MobileSegmentStore {
 enum MobileSegmentStoreError: Error, Equatable {
     case destinationCollision(segmentID: UUID, lifecycle: MobileSegmentLifecycle)
     case manifestCollision(segmentID: UUID)
+    case unrecordedKeptPart
 }

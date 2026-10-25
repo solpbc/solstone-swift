@@ -196,7 +196,10 @@ nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @
                 )
             )
             try? self.writeLiveness(now: now, force: true)
-            return .completed
+            return ScreencastBroadcastWriterOutcome.handoff(
+                partRemains: self.fileManager.fileExists(atPath: partURL.path),
+                finalExists: self.fileManager.fileExists(atPath: finalURL.path)
+            )
         } catch {
             return .filesystemHandoffFailure(String(describing: error))
         }

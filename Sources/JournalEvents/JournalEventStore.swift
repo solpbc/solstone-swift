@@ -905,6 +905,90 @@ nonisolated enum JournalPartRemoval {
     }
 }
 
+/// A capture part the uploader must not throw away. The canonical names and every numbered
+/// sibling (`screen.mp4.part.1`, `screen-audio.m4a.part.<id>`) match. A later pass records
+/// each one, then deletes it. Until that record is written, the file stays.
+nonisolated enum JournalKeptPart {
+    static let reason = "screencast_part_kept"
+
+    static func isKeptPartFileName(_ name: String) -> Bool {
+        let screen = MobileSegmentScreencastPaths.screenPartFilename
+        let audio = MobileSegmentScreencastPaths.screenAudioPartFilename
+        return name == screen || name.hasPrefix(screen + ".")
+            || name == audio || name.hasPrefix(audio + ".")
+    }
+
+    static func source(forFileName name: String) -> JournalEventSource {
+        let audio = MobileSegmentScreencastPaths.screenAudioPartFilename
+        if name == audio || name.hasPrefix(audio + ".") {
+            return .screenAudio
+        }
+        return .screencast
+    }
+
+    /// Files in `directory` the uploader has to classify. Nil when the directory cannot be listed,
+    /// which is not a signal that it is safe to delete.
+    static func urls(in directory: URL, fileManager: FileManager = .default) -> [URL]? {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: directory.path, isDirectory: &isDirectory) else {
+            return []
+        }
+        guard isDirectory.boolValue else { return nil }
+        let names: [String]
+        do {
+            names = try fileManager.contentsOfDirectory(atPath: directory.path)
+        } catch {
+            return nil
+        }
+        return names.compactMap { name in
+            guard self.isKeptPartFileName(name) else { return nil }
+            let url = directory.appendingPathComponent(name, isDirectory: false)
+            var childIsDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: url.path, isDirectory: &childIsDirectory),
+                  !childIsDirectory.boolValue else {
+                return nil
+            }
+            return url
+        }
+    }
+
+    static func holdsUnrecordedPart(in directory: URL, fileManager: FileManager = .default) -> Bool {
+        guard let urls = self.urls(in: directory, fileManager: fileManager) else { return true }
+        return !urls.isEmpty
+    }
+
+    /// Records each kept part under the usual rule, then deletes it. A part whose size cannot be
+    /// read, or whose loss cannot be written, stays. Returns false while any such part remains.
+    @discardableResult
+    static func classify(
+        in directory: URL,
+        segmentID: UUID,
+        captureAt: Date?,
+        now: Date,
+        eventsRoot: URL,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard let urls = self.urls(in: directory, fileManager: fileManager) else { return false }
+        for url in urls {
+            do {
+                try JournalPartRemoval.removeExisting(
+                    at: url,
+                    source: self.source(forFileName: url.lastPathComponent),
+                    reason: Self.reason,
+                    segmentID: segmentID,
+                    captureAt: captureAt,
+                    now: now,
+                    eventsRoot: eventsRoot,
+                    fileManager: fileManager
+                )
+            } catch {
+                journalEventLog.error("journal kept part stayed name=\(url.lastPathComponent, privacy: .public)")
+            }
+        }
+        return !self.holdsUnrecordedPart(in: directory, fileManager: fileManager)
+    }
+}
+
 /// Picks a URL a capture writer can create. A loss that cannot be recorded, or a part whose
 /// size cannot be read, leaves the old part in place and returns a fresh sibling name.
 nonisolated enum JournalPartClaim {
