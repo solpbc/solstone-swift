@@ -625,7 +625,8 @@ struct RootShellView: View {
         paneRootIsNil: Bool,
         paneStackIsEmpty: Bool,
         statusSheetPresented: Bool,
-        otherSheetPresented: Bool
+        otherSheetPresented: Bool,
+        visitShowsLoss: Bool
     ) -> JournalGapSurfaceCarry? {
         guard self.journalGapKeepsVisit(from: prior, to: next), prior.surfaceVisible else { return nil }
         let wasPhone = Self.shellIsPhone(
@@ -640,7 +641,7 @@ struct RootShellView: View {
             if paneRootIsNil && !paneStackIsEmpty {
                 return .showPushedStack
             }
-            if paneStackIsEmpty && !next.surfaceVisible && !statusSheetPresented {
+            if paneStackIsEmpty && !next.surfaceVisible && !statusSheetPresented && visitShowsLoss {
                 return .presentStatusSheet
             }
         }
@@ -667,7 +668,8 @@ struct RootShellView: View {
             paneRootIsNil: self.nav.paneRoot == nil,
             paneStackIsEmpty: self.nav.paneStack.isEmpty,
             statusSheetPresented: self.presentedPane == .status,
-            otherSheetPresented: self.journalGapOtherSheetPresented
+            otherSheetPresented: self.journalGapOtherSheetPresented,
+            visitShowsLoss: self.journalGapVisitShowsLoss
         ) {
         case .presentStatusSheet:
             self.presentedPane = .status
@@ -678,6 +680,10 @@ struct RootShellView: View {
         case nil:
             break
         }
+    }
+
+    private var journalGapVisitShowsLoss: Bool {
+        !self.journalGapVisit.displayed(live: self.mobileSegmentTransferHolder.journalGapNotice.losses).isEmpty
     }
 
     private var journalGapOtherSheetPresented: Bool {

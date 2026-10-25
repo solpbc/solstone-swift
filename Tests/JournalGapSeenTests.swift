@@ -195,7 +195,8 @@ final class JournalGapSeenTests: XCTestCase {
                 paneRootIsNil: true,
                 paneStackIsEmpty: true,
                 statusSheetPresented: false,
-                otherSheetPresented: false
+                otherSheetPresented: false,
+                visitShowsLoss: true
             ),
             .some(.presentStatusSheet)
         )
@@ -206,7 +207,8 @@ final class JournalGapSeenTests: XCTestCase {
                 paneRootIsNil: true,
                 paneStackIsEmpty: true,
                 statusSheetPresented: false,
-                otherSheetPresented: false
+                otherSheetPresented: false,
+                visitShowsLoss: true
             ),
             .some(.presentStatusSheet)
         )
@@ -217,7 +219,8 @@ final class JournalGapSeenTests: XCTestCase {
                 paneRootIsNil: true,
                 paneStackIsEmpty: true,
                 statusSheetPresented: false,
-                otherSheetPresented: false
+                otherSheetPresented: false,
+                visitShowsLoss: true
             )
         )
         XCTAssertNil(
@@ -227,7 +230,8 @@ final class JournalGapSeenTests: XCTestCase {
                 paneRootIsNil: true,
                 paneStackIsEmpty: true,
                 statusSheetPresented: false,
-                otherSheetPresented: true
+                otherSheetPresented: true,
+                visitShowsLoss: true
             )
         )
         let collapsedWithPush = JournalGapSurfaceTransition(
@@ -244,7 +248,8 @@ final class JournalGapSeenTests: XCTestCase {
                 paneRootIsNil: true,
                 paneStackIsEmpty: false,
                 statusSheetPresented: false,
-                otherSheetPresented: false
+                otherSheetPresented: false,
+                visitShowsLoss: true
             ),
             .some(.showPushedStack)
         )
@@ -305,7 +310,8 @@ final class JournalGapSeenTests: XCTestCase {
                 paneRootIsNil: true,
                 paneStackIsEmpty: true,
                 statusSheetPresented: true,
-                otherSheetPresented: false
+                otherSheetPresented: false,
+                visitShowsLoss: true
             ),
             .some(.dismissStatusSheet)
         )
@@ -331,8 +337,49 @@ final class JournalGapSeenTests: XCTestCase {
                 paneRootIsNil: true,
                 paneStackIsEmpty: true,
                 statusSheetPresented: false,
-                otherSheetPresented: false
+                otherSheetPresented: false,
+                visitShowsLoss: true
             )
+        )
+    }
+
+    func testCollapseWithoutALossDoesNotPresentTheStatusSheet() {
+        let showing = JournalGapSurfaceTransition(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: true
+        )
+        let collapsed = JournalGapSurfaceTransition(
+            horizontalSizeClass: .compact,
+            verticalSizeClass: .compact,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: false
+        )
+        XCTAssertNil(
+            RootShellView.journalGapSurfaceCarry(
+                from: showing,
+                to: collapsed,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: false,
+                otherSheetPresented: false,
+                visitShowsLoss: false
+            )
+        )
+        XCTAssertEqual(
+            RootShellView.journalGapSurfaceCarry(
+                from: showing,
+                to: collapsed,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: false,
+                otherSheetPresented: false,
+                visitShowsLoss: true
+            ),
+            .some(.presentStatusSheet)
         )
     }
 
