@@ -415,7 +415,7 @@ actor CalendarWorker {
             let line = CalendarNoteLine(
                 change: .removed,
                 changedAt: CalendarWireInstant(seconds: changedAt, timeZone: timeZone),
-                content: .removed(identity: old.identity, title: old.title, calendar: old.calendar)
+                content: .removed(identity: old.identity, title: old.title, calendar: old.calendar, account: old.account)
             )
             guard CalendarNoteValidator.problem(with: line) == nil, let json = line.json, let window = line.changedAt.window else {
                 continue
@@ -577,6 +577,7 @@ actor CalendarWorker {
             of: copy.event,
             identity: identity,
             calendarName: copy.calendar.title,
+            accountName: copy.calendar.accountName,
             deviceTimeZone: timeZone,
             seriesRule: seriesRule
         ) else {
@@ -666,6 +667,7 @@ actor CalendarWorker {
         entry.startAt = winner.event.start.map(CalendarWire.wholeSeconds)
         entry.title = line.content.title
         entry.calendar = line.content.calendar
+        entry.account = line.content.account
         entry.winner = winner.calendar.key
         entry.removed = false
         entry.firstMissingAt = nil

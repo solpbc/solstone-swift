@@ -66,6 +66,8 @@ nonisolated struct CalendarNoteAttendee: Equatable, Sendable {
 nonisolated struct CalendarNoteContent: Equatable, Sendable {
     let identity: CalendarIdentity
     let calendar: String?
+    /// The account the calendar belongs to. It rides with `calendar`.
+    let account: String?
     let title: String?
     let location: String?
     let notes: String?
@@ -78,11 +80,12 @@ nonisolated struct CalendarNoteContent: Equatable, Sendable {
     let attendees: [CalendarNoteAttendee]
     let repeats: String?
 
-    /// A `removed` note says only what was cancelled: the last title and calendar sent.
-    static func removed(identity: CalendarIdentity, title: String?, calendar: String?) -> CalendarNoteContent {
+    /// A `removed` note says only what was cancelled: the last title, calendar and account sent.
+    static func removed(identity: CalendarIdentity, title: String?, calendar: String?, account: String?) -> CalendarNoteContent {
         CalendarNoteContent(
             identity: identity,
             calendar: calendar,
+            account: account,
             title: title,
             location: nil,
             notes: nil,
@@ -103,6 +106,7 @@ nonisolated struct CalendarNoteContent: Equatable, Sendable {
             "event": .string(self.identity.event),
             "occurrence": .optional(self.identity.occurrence),
             "calendar": .optional(self.calendar),
+            "account": .optional(self.account),
             "title": .optional(self.title),
             "location": .optional(self.location),
             "notes": .optional(self.notes),
@@ -117,13 +121,15 @@ nonisolated struct CalendarNoteContent: Equatable, Sendable {
         ]
     }
 
-    /// A fingerprint of every field a note carries except its change, `changed_at` and
-    /// `calendar`. Two versions with the same fingerprint are the same event. Which followed
-    /// calendar holds a copy is never a change by itself: switching a calendar off or on sends
-    /// nothing, and the last calendar name sent stands until some other field changes.
+    /// A fingerprint of every field a note carries except its change, `changed_at`,
+    /// `calendar` and `account`. Two versions with the same fingerprint are the same event.
+    /// Which followed calendar holds a copy is never a change by itself: switching a calendar
+    /// off or on sends nothing, and the last calendar name and account sent stand until some
+    /// other field changes.
     var fingerprint: String {
         var fields = self.fields
         fields.removeValue(forKey: "calendar")
+        fields.removeValue(forKey: "account")
         return Self.digest(fields)
     }
 
@@ -131,6 +137,7 @@ nonisolated struct CalendarNoteContent: Equatable, Sendable {
     var placementFreeFingerprint: String {
         var fields = self.fields
         fields.removeValue(forKey: "calendar")
+        fields.removeValue(forKey: "account")
         fields.removeValue(forKey: "start")
         fields.removeValue(forKey: "end")
         return Self.digest(fields)
@@ -340,6 +347,7 @@ nonisolated enum CalendarNoteBuilder {
         of event: CalendarEventRecord,
         identity: CalendarIdentity,
         calendarName: String,
+        accountName: String?,
         deviceTimeZone: TimeZone,
         seriesRule: CalendarRepeatRule?
     ) -> CalendarNoteContent? {
@@ -376,6 +384,7 @@ nonisolated enum CalendarNoteBuilder {
         return CalendarNoteContent(
             identity: identity,
             calendar: calendarName,
+            account: self.nonEmpty(accountName?.trimmingCharacters(in: .whitespacesAndNewlines)),
             title: event.title,
             location: self.nonEmpty(event.location),
             notes: self.nonEmpty(event.notes),

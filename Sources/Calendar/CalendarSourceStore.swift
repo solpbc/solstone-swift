@@ -61,6 +61,9 @@ nonisolated struct CalendarSentEntry: Codable, Equatable, Sendable {
     var startAt: Int64?
     var title: String?
     var calendar: String?
+    /// The calendar's account, sent with `calendar`. Absent from entries written before notes
+    /// carried it.
+    var account: String?
     /// Keys of the calendars that held it at the last look.
     var holders: [String]
     /// The key of the calendar whose copy was last sent.
@@ -82,6 +85,7 @@ nonisolated struct CalendarSentEntry: Codable, Equatable, Sendable {
         case startAt = "a"
         case title = "t"
         case calendar = "k"
+        case account = "u"
         case holders = "h"
         case winner = "w"
         case removed = "r"
@@ -100,6 +104,7 @@ nonisolated struct CalendarSentEntry: Codable, Equatable, Sendable {
         self.startAt = nil
         self.title = nil
         self.calendar = nil
+        self.account = nil
         self.holders = []
         self.winner = nil
         self.removed = false

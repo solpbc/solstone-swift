@@ -7,12 +7,13 @@ import XCTest
 
 /// The five golden lines of the calendar note contract, each produced byte for byte from a fake
 /// event, under three device settings: the default, a 12-hour clock and a Buddhist calendar.
+/// Lines carry `account` (amendment 1); `golden1a` and `golden5a` are the amendment's own lines.
 nonisolated final class CalendarGoldenLineTests: XCTestCase {
-    static let golden1 = #"{"all_day":false,"attendees":[{"email":"alex@example.com","name":"Alex Rivera","status":"accepted","you":false},{"email":"owner@example.com","name":null,"status":"tentative","you":true}],"calendar":"Work","change":"added","changed_at":"2026-10-19T09:42:00-06:00","end":"2026-10-27T11:00:00-06:00","event":"6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10","location":"room 4","notes":"bring the mocks","occurrence":null,"organizer":{"email":"alex@example.com","name":"Alex Rivera"},"repeats":null,"start":"2026-10-27T10:00:00-06:00","time_zone":"America/Denver","title":"design review","url":null,"v":1}"#
-    static let golden2 = #"{"all_day":false,"attendees":[],"calendar":"Work","change":"changed","changed_at":"2026-10-20T16:30:00-06:00","end":"2026-10-21T09:45:00-06:00","event":"CCBF5C02-6D92-477A-AB25-1A2ED19E1D67","location":null,"notes":null,"occurrence":"2026-10-21T15:00:00Z","organizer":null,"repeats":"every weekday","start":"2026-10-21T09:30:00-06:00","time_zone":"America/Denver","title":"standup","url":null,"v":1}"#
-    static let golden3 = #"{"all_day":true,"attendees":[],"calendar":"US Holidays","change":"added","changed_at":"2026-10-20T16:31:00-06:00","end":"2026-11-01","event":"48fa6175-2399-3bac-960a-fff947563ba7","location":null,"notes":null,"occurrence":null,"organizer":null,"repeats":null,"start":"2026-10-31","time_zone":null,"title":"Halloween","url":null,"v":1}"#
-    static let golden4 = #"{"all_day":true,"attendees":[],"calendar":"Birthdays","change":"added","changed_at":"2026-10-20T16:31:00-06:00","end":"2027-01-21","event":"701BCFB9-A70C-42C2-873F-34990264C973","location":null,"notes":null,"occurrence":"2027-01-20","organizer":null,"repeats":"every year","start":"2027-01-20","time_zone":null,"title":"Kate Bell's Birthday","url":null,"v":1}"#
-    static let golden5 = #"{"all_day":null,"attendees":[],"calendar":"Work","change":"removed","changed_at":"2026-10-22T08:05:12-06:00","end":null,"event":"6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10","location":null,"notes":null,"occurrence":null,"organizer":null,"repeats":null,"start":null,"time_zone":null,"title":"design review","url":null,"v":1}"#
+    static let golden1a = #"{"account":"iCloud","all_day":false,"attendees":[{"email":"alex@example.com","name":"Alex Rivera","status":"accepted","you":false},{"email":"owner@example.com","name":null,"status":"tentative","you":true}],"calendar":"Work","change":"added","changed_at":"2026-10-19T09:42:00-06:00","end":"2026-10-27T11:00:00-06:00","event":"6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10","location":"room 4","notes":"bring the mocks","occurrence":null,"organizer":{"email":"alex@example.com","name":"Alex Rivera"},"repeats":null,"start":"2026-10-27T10:00:00-06:00","time_zone":"America/Denver","title":"design review","url":null,"v":1}"#
+    static let golden2 = #"{"account":"iCloud","all_day":false,"attendees":[],"calendar":"Work","change":"changed","changed_at":"2026-10-20T16:30:00-06:00","end":"2026-10-21T09:45:00-06:00","event":"CCBF5C02-6D92-477A-AB25-1A2ED19E1D67","location":null,"notes":null,"occurrence":"2026-10-21T15:00:00Z","organizer":null,"repeats":"every weekday","start":"2026-10-21T09:30:00-06:00","time_zone":"America/Denver","title":"standup","url":null,"v":1}"#
+    static let golden3 = #"{"account":"Subscribed Calendars","all_day":true,"attendees":[],"calendar":"US Holidays","change":"added","changed_at":"2026-10-20T16:31:00-06:00","end":"2026-11-01","event":"48fa6175-2399-3bac-960a-fff947563ba7","location":null,"notes":null,"occurrence":null,"organizer":null,"repeats":null,"start":"2026-10-31","time_zone":null,"title":"Halloween","url":null,"v":1}"#
+    static let golden4 = #"{"account":"Other","all_day":true,"attendees":[],"calendar":"Birthdays","change":"added","changed_at":"2026-10-20T16:31:00-06:00","end":"2027-01-21","event":"701BCFB9-A70C-42C2-873F-34990264C973","location":null,"notes":null,"occurrence":"2027-01-20","organizer":null,"repeats":"every year","start":"2027-01-20","time_zone":null,"title":"Kate Bell's Birthday","url":null,"v":1}"#
+    static let golden5a = #"{"account":"iCloud","all_day":null,"attendees":[],"calendar":"Work","change":"removed","changed_at":"2026-10-22T08:05:12-06:00","end":null,"event":"6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10","location":null,"notes":null,"occurrence":null,"organizer":null,"repeats":null,"start":null,"time_zone":null,"title":"design review","url":null,"v":1}"#
 
     struct DeviceSettings {
         let name: String
@@ -50,7 +51,7 @@ nonisolated final class CalendarGoldenLineTests: XCTestCase {
             let harness = Self.harness(device, now: "2026-10-20T16:31:00-06:00")
             harness.provider.events.append(Self.designReview(device))
             await harness.setUpAndConfirm()
-            XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1], device.name)
+            XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1a], device.name)
         }
     }
 
@@ -118,11 +119,96 @@ nonisolated final class CalendarGoldenLineTests: XCTestCase {
             harness.provider.events.removeAll()
             harness.now = CalendarFixtures.instant("2026-10-22T07:55:00-06:00")
             await harness.check()
-            XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1], "one miss sends nothing")
+            XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1a], "one miss sends nothing")
             harness.now = CalendarFixtures.instant("2026-10-22T08:05:12.700-06:00")
             await harness.check()
-            XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1, Self.golden5], device.name)
+            XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1a, Self.golden5a], device.name)
         }
+    }
+
+    /// The fingerprint of golden line 1 as a phone that predates `account` computed it: every
+    /// field but `change`, `changed_at` and `calendar`.
+    static let golden1Fingerprint = "8adcdcbb286d8b66dd98795df284b02a"
+    static let designReviewKey = CalendarIdentity(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10", occurrence: nil).key
+
+    /// The account is never a change by itself, and a removal carries the account last sent.
+    @MainActor
+    func testAnAccountChangeAloneSendsNothingAndTheRemovalCarriesTheAccountLastSent() async throws {
+        for device in Self.settings {
+            let harness = Self.harness(device, now: "2026-10-20T16:31:00-06:00")
+            harness.provider.events.append(Self.designReview(device))
+            await harness.setUpAndConfirm()
+            XCTAssertEqual(harness.store.record[Self.designReviewKey]?.account, "iCloud", device.name)
+            XCTAssertEqual(harness.store.record[Self.designReviewKey]?.fingerprint, Self.golden1Fingerprint, device.name)
+
+            harness.provider.calendarList = [CalendarInfo(identifier: "cal-work", title: "Work", accountName: "Gmail", isBirthdays: false)]
+            harness.now = CalendarFixtures.instant("2026-10-21T09:00:00-06:00")
+            await harness.check()
+            XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1a], device.name)
+            XCTAssertEqual(harness.store.record[Self.designReviewKey]?.account, "iCloud", device.name)
+
+            harness.provider.events.removeAll()
+            harness.now = CalendarFixtures.instant("2026-10-22T07:55:00-06:00")
+            await harness.check()
+            harness.now = CalendarFixtures.instant("2026-10-22T08:05:12.700-06:00")
+            await harness.check()
+            XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1a, Self.golden5a], device.name)
+        }
+    }
+
+    /// A record written before notes carried `account` reads with no account, an upgraded phone
+    /// sends nothing new for what it already sent, and a removal then carries `account: null`.
+    @MainActor
+    func testARecordWrittenBeforeAccountsReadsAndSendsNothingNew() async throws {
+        let harness = Self.harness(Self.settings[0], now: "2026-10-20T16:31:00-06:00")
+        harness.provider.events.append(Self.designReview(Self.settings[0]))
+        await harness.setUpAndConfirm()
+        try harness.store.replaceRecord(harness.store.record)
+        let url = harness.store.recordURL
+        var stored = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: [String: Any]])
+        XCTAssertEqual(stored[Self.designReviewKey]?["u"] as? String, "iCloud")
+        for key in stored.keys {
+            stored[key]?.removeValue(forKey: "u")
+        }
+        try JSONSerialization.data(withJSONObject: stored, options: [.sortedKeys]).write(to: url)
+        await harness.relaunch()
+        let entry = try XCTUnwrap(harness.store.record[Self.designReviewKey])
+        XCTAssertNil(entry.account)
+        XCTAssertEqual(entry.calendar, "Work")
+        XCTAssertEqual(entry.fingerprint, Self.golden1Fingerprint)
+
+        harness.now = CalendarFixtures.instant("2026-10-21T09:00:00-06:00")
+        await harness.check()
+        XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1a])
+        XCTAssertNil(harness.store.record[Self.designReviewKey]?.account, "the account first goes with a real change")
+
+        harness.provider.events.removeAll()
+        harness.now = CalendarFixtures.instant("2026-10-22T07:55:00-06:00")
+        await harness.check()
+        harness.now = CalendarFixtures.instant("2026-10-22T08:05:12.700-06:00")
+        await harness.check()
+        let golden5WithNoAccount = Self.golden5a.replacingOccurrences(of: #""account":"iCloud""#, with: #""account":null"#)
+        XCTAssertEqual(harness.delivery.rawLines(event: "6CF25C80-68D2-44D9-B52C-6CAD5BEC8C10"), [Self.golden1a, golden5WithNoAccount])
+    }
+
+    @MainActor
+    func testTheAccountIsTrimmedAndAnEmptyOneIsNull() async throws {
+        let device = Self.settings[0]
+        let harness = Self.harness(device, now: "2026-10-20T16:31:00-06:00")
+        harness.provider.addCalendar("cal-exchange", title: "Club", account: "  Exchange \n")
+        harness.provider.addCalendar("cal-blank", title: "Blank", account: " ")
+        for (calendarID, uid) in [("cal-exchange", "TRIM-1"), ("cal-blank", "BLANK-1")] {
+            harness.provider.events.append(FakeCalendarEvent(
+                calendarID: calendarID,
+                uid: uid,
+                title: "t",
+                timing: .allDay(days: 1),
+                start: Self.components(CalendarFixtures.at(2026, 10, 31), zone: CalendarFixtures.denver, device)
+            ))
+        }
+        await harness.setUpAndConfirm()
+        XCTAssertEqual(harness.delivery.lines(event: "TRIM-1").first?["account"] as? String, "Exchange")
+        XCTAssertTrue(harness.delivery.lines(event: "BLANK-1").first?["account"] is NSNull)
     }
 
     // MARK: fixtures

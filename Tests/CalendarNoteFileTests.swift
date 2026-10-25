@@ -19,6 +19,7 @@ nonisolated final class CalendarNoteFileTests: XCTestCase {
         let content = CalendarNoteContent(
             identity: CalendarIdentity(event: event, occurrence: occurrence),
             calendar: "Work",
+            account: "iCloud",
             title: title,
             location: nil,
             notes: notes,
@@ -166,7 +167,7 @@ nonisolated final class CalendarNoteFileTests: XCTestCase {
         func content(start: String?, end: String?, allDay: Bool?, event: String = "E", status: String = "accepted", notes: String? = nil) -> CalendarNoteContent {
             CalendarNoteContent(
                 identity: CalendarIdentity(event: event, occurrence: nil),
-                calendar: "Work", title: "t", location: nil, notes: notes, url: nil,
+                calendar: "Work", account: "iCloud", title: "t", location: nil, notes: notes, url: nil,
                 start: start, end: end, allDay: allDay, timeZone: nil, organizer: nil,
                 attendees: [CalendarNoteAttendee(name: nil, email: nil, status: status, you: false)], repeats: nil
             )
@@ -186,10 +187,11 @@ nonisolated final class CalendarNoteFileTests: XCTestCase {
         XCTAssertEqual(problem(content(start: "2026-10-27T10:00:00-06:00", end: nil, allDay: false, status: "maybe")), .attendeeStatus)
         XCTAssertEqual(problem(content(start: "2026-02-30", end: nil, allDay: true)), .start)
         XCTAssertEqual(problem(content(start: "2026-10-27T10:00:00-06:00", end: nil, allDay: false), .removed), .removedCarriesDetail)
-        XCTAssertNil(problem(.removed(identity: identity, title: "t", calendar: "Work"), .removed))
+        XCTAssertNil(problem(.removed(identity: identity, title: "t", calendar: "Work", account: "iCloud"), .removed))
+        XCTAssertNil(problem(.removed(identity: identity, title: "t", calendar: "Work", account: nil), .removed))
         let huge = content(start: "2026-10-27T10:00:00-06:00", end: nil, allDay: false, notes: String(repeating: "x", count: CalendarNoteFiles.maxBytes))
         XCTAssertEqual(problem(huge), .tooLarge)
-        let badOccurrence = CalendarNoteContent.removed(identity: CalendarIdentity(event: "E", occurrence: "soon"), title: nil, calendar: nil)
+        let badOccurrence = CalendarNoteContent.removed(identity: CalendarIdentity(event: "E", occurrence: "soon"), title: nil, calendar: nil, account: nil)
         XCTAssertEqual(problem(badOccurrence, .removed), .occurrence)
     }
 
