@@ -12,7 +12,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Changed
 
-- when you set up your calendar, every calendar now starts off: you switch on the ones you want before anything comes in. the calendar page also says that pausing or switching a calendar off stops new events, and what's already in your journal stays.
+- when you set up calendar, every calendar starts off, and so does one that shows up on your phone later. you switch on the ones you want before anything comes in. the calendar page now says that what's already in your journal stays when you pause or switch a calendar off.
 - a voice memo no longer stops on its own when it gets quiet.
 - the audio page no longer asks you to pick meeting or voice memo. now that both keep going until you stop them, the choice changes nothing.
 - the watch tile, the watch page and the solstone app on your watch no longer count what is "confirming with your iphone": it was already on your iphone.

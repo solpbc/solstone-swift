@@ -263,10 +263,10 @@ private struct CalendarSourcePageView: View {
         let pending = self.model.pendingSwitchOn
         return VStack(alignment: .leading, spacing: 4) {
             // Above the switches, so it is read before one is switched off, right under pause.
-            Text(CalendarVocabulary.stopsNewEvents)
+            Text(CalendarVocabulary.keepsWhatsIn)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-                .accessibilityIdentifier("calendar.page.stopsNewEvents")
+                .accessibilityIdentifier("calendar.page.keepsWhatsIn")
             ForEach(self.model.source.calendars) { calendar in
                 VStack(alignment: .leading, spacing: 8) {
                     Toggle(calendar.title, isOn: Binding(

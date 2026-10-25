@@ -27,7 +27,7 @@ nonisolated enum CalendarVocabulary {
     static let tryAgain = "try again"
     static let calendarsBlockTitle = "calendars"
     /// Pausing or switching a calendar off removes nothing that already came in.
-    static let stopsNewEvents = "pausing or switching a calendar off stops new events. what's already in your journal stays."
+    static let keepsWhatsIn = "what's already in your journal stays when you pause or switch a calendar off."
     static let cannotRead = "the solstone app can't read your calendar. allow full access in ios settings to turn this on."
     static let notNow = "not now"
     static let turnOnHint = "asks ios for access to your calendars."
