@@ -197,7 +197,7 @@ final class JournalEventClassificationTests: XCTestCase {
         let rows = try self.records(segmentID: segmentID)
         XCTAssertEqual(rows.filter { $0.kind == .diagnostic }.count, 1)
         XCTAssertEqual(rows.filter { $0.kind == .loss }.count, 1)
-        self.uploader.refreshCounts()
+        await self.uploader.refreshJournalGapNotice()
         XCTAssertEqual(
             HomeStatusPillState.resolve(
                 isPaired: true,

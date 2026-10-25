@@ -69,6 +69,11 @@ final class MobileSegmentTransferHolder {
         self.uploader.refreshCounts()
     }
 
+    /// Recomputes the notice and waits until the result is on the holder.
+    func refreshJournalGapNotice() async {
+        await self.uploader.refreshJournalGapNotice()
+    }
+
     var inFlightCount: Int {
         self.status.inFlightCount
     }

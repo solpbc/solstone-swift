@@ -257,7 +257,7 @@ final class JournalGapNoticeTests: XCTestCase {
         XCTAssertNotEqual(ObserverStatusPresentations.medium(snapshot: decoded), .journalGap)
     }
 
-    func testSnapshotIsRewrittenAfterTheLossIsSeen() throws {
+    func testSnapshotIsRewrittenAfterTheLossIsSeen() async throws {
         let root = self.tempDirectory.appendingPathComponent("app-group", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let mirror = AppGroupMirror(rootURLProvider: { root })
@@ -272,7 +272,7 @@ final class JournalGapNoticeTests: XCTestCase {
             now: now,
             calendar: Self.utc
         )
-        uploader.refreshCounts()
+        await uploader.refreshJournalGapNotice()
         XCTAssertTrue(uploader.journalGapNotice.isShowing)
         guard case .success = mirror.updateSessionAndSources(
             pairing: AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true),
@@ -288,7 +288,7 @@ final class JournalGapNoticeTests: XCTestCase {
         XCTAssertEqual(mirror.snapshot()?.journalGap, true)
         let lossID = try XCTUnwrap(uploader.journalGapNotice.lossIDs.first)
         try uploader.journalEvents.markSeen(id: lossID)
-        uploader.refreshCounts()
+        await uploader.refreshJournalGapNotice()
         XCTAssertFalse(uploader.journalGapNotice.isShowing)
         guard case .success = mirror.updateSessionAndSources(
             pairing: AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true),
@@ -302,6 +302,73 @@ final class JournalGapNoticeTests: XCTestCase {
             return XCTFail("snapshot rewrite failed")
         }
         XCTAssertEqual(mirror.snapshot()?.journalGap, false)
+    }
+
+    func testRefreshCountsDoesNotBlockTheMainThread() async {
+        let uploader = MobileSegmentUploader(store: self.store, clock: self.clock)
+        let probe = NoticeReadProbe()
+        uploader.noticeRead = { _, _ in
+            probe.mark()
+            return .absent
+        }
+        let started = ContinuousClock.now
+        uploader.refreshCounts()
+        XCTAssertLessThan(ContinuousClock.now - started, .milliseconds(200))
+        await uploader.waitForJournalGapNotice()
+        XCTAssertTrue(probe.readOffMain)
+    }
+
+    func testAnOlderNoticeReadCannotOverwriteANewerOne() async {
+        let uploader = MobileSegmentUploader(store: self.store, clock: self.clock)
+        let gate = NoticeReadGate()
+        uploader.noticeRead = { _, _ in
+            let turn = gate.enter()
+            if turn == 1 {
+                return .showing(dayLine: "stale", losses: [])
+            }
+            return .absent
+        }
+        uploader.refreshCounts()
+        await Task.detached { gate.waitUntilFirstEntered() }.value
+        await uploader.refreshJournalGapNotice()
+        XCTAssertEqual(uploader.journalGapNotice, .absent)
+        gate.releaseFirst()
+        await Task.detached { gate.waitUntilFirstReturned() }.value
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+        XCTAssertFalse(uploader.journalGapNotice.isShowing)
+        XCTAssertNotEqual(uploader.journalGapNotice.dayLine, "stale")
+    }
+
+    func testRefreshLeavesAnExpiredDiagnosticUntilResume() async throws {
+        let uploader = MobileSegmentUploader(store: self.store, clock: self.clock)
+        let expired = self.clock.now().addingTimeInterval(-40 * 24 * 60 * 60)
+        try uploader.journalEvents.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_expired_row",
+            captureAt: nil,
+            now: expired
+        )
+        let id = JournalEventStore.diagnosticID(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_expired_row",
+            writerFault: false
+        )
+        for _ in 0..<4 {
+            await uploader.refreshJournalGapNotice()
+            guard case .events(let rows) = uploader.journalEvents.readEvents() else {
+                return XCTFail("journal events unreadable")
+            }
+            XCTAssertTrue(rows.contains { $0.id == id })
+        }
+        await uploader.resumeFromDisk()
+        guard case .events(let rows) = uploader.journalEvents.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        XCTAssertFalse(rows.contains { $0.id == id })
     }
 
     // MARK: - Helpers
@@ -357,5 +424,59 @@ final class JournalGapNoticeTests: XCTestCase {
             files[url.path] = values.contentModificationDate
         }
         return files
+    }
+}
+
+private final class NoticeReadProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didRead = false
+    private var wasMain = false
+
+    func mark() {
+        self.lock.lock()
+        self.didRead = true
+        self.wasMain = Thread.isMainThread
+        self.lock.unlock()
+        Thread.sleep(forTimeInterval: 0.4)
+    }
+
+    var readOffMain: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.didRead && !self.wasMain
+    }
+}
+
+private final class NoticeReadGate: @unchecked Sendable {
+    private let entered = DispatchSemaphore(value: 0)
+    private let release = DispatchSemaphore(value: 0)
+    private let returned = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var count = 0
+
+    /// The first caller waits. Later callers return immediately.
+    func enter() -> Int {
+        self.lock.lock()
+        self.count += 1
+        let turn = self.count
+        self.lock.unlock()
+        if turn == 1 {
+            self.entered.signal()
+            self.release.wait()
+            self.returned.signal()
+        }
+        return turn
+    }
+
+    func waitUntilFirstEntered() {
+        self.entered.wait()
+    }
+
+    func releaseFirst() {
+        self.release.signal()
+    }
+
+    func waitUntilFirstReturned() {
+        self.returned.wait()
     }
 }

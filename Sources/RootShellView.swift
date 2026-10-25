@@ -218,7 +218,7 @@ struct RootShellView: View {
                 mainTabLog.info("showing disconnected shell state")
             }
             self.applyDebugSeeds()
-            self.captureJournalGapIfVisible()
+            Task { await self.captureJournalGapIfVisible() }
         }
         .onChange(of: self.journalGapSurfaceTransition) { prior, next in
             if Self.journalGapKeepsVisit(from: prior, to: next), prior.surfaceVisible {
@@ -226,7 +226,7 @@ struct RootShellView: View {
                 return
             }
             if next.surfaceVisible {
-                self.captureJournalGapIfVisible()
+                Task { await self.captureJournalGapIfVisible() }
             } else {
                 self.journalGapVisit.end()
             }
@@ -236,9 +236,7 @@ struct RootShellView: View {
                 self.journalGapVisit.background()
                 return
             }
-            self.mobileSegmentTransferHolder.refreshJournalGap()
-            guard self.journalGapSurfaceVisible else { return }
-            self.beginJournalGapVisit()
+            Task { await self.beginJournalGapVisit() }
         }
         .onChange(of: self.appConfig.journalIdentityEpoch) { _, _ in
             self.mobileSegmentTransferHolder.refreshJournalGap()
@@ -589,7 +587,7 @@ struct RootShellView: View {
             sceneIsActive: self.scenePhase == .active,
             surfaceVisible: self.journalGapSurfaceVisible
         ) {
-            self.beginJournalGapVisit()
+            Task { await self.beginJournalGapVisit() }
         }
         if self.isPhoneShell {
             self.presentedPane = .status
@@ -697,12 +695,12 @@ struct RootShellView: View {
         )
     }
 
-    /// Refresh, then read the losses the visit will display. The read sees the refresh.
+    /// Refresh, then read the losses the visit will display. The read sees the published refresh.
     static func refreshedLosses(
-        refresh: () -> Void,
+        refresh: () async -> Void,
         notice: () -> [JournalEventRecord]
-    ) -> [JournalEventRecord] {
-        refresh()
+    ) async -> [JournalEventRecord] {
+        await refresh()
         return notice()
     }
 
@@ -726,13 +724,13 @@ struct RootShellView: View {
     }
 
     /// Starts a visit when none is underway. A visit already showing does not mark a later loss.
-    private func captureJournalGapIfVisible() {
+    private func captureJournalGapIfVisible() async {
         guard Self.journalGapVisitMayStart(
             sceneIsActive: self.scenePhase == .active,
             surfaceVisible: self.journalGapSurfaceVisible
         ) else { return }
-        let losses = Self.refreshedLosses(
-            refresh: { self.mobileSegmentTransferHolder.refreshJournalGap() },
+        let losses = await Self.refreshedLosses(
+            refresh: { await self.mobileSegmentTransferHolder.refreshJournalGapNotice() },
             notice: { self.mobileSegmentTransferHolder.journalGapNotice.losses }
         )
         self.journalGapVisit.captureIfNeeded(
@@ -743,13 +741,13 @@ struct RootShellView: View {
     }
 
     /// The scene became active, or the owner opened status that was already showing.
-    private func beginJournalGapVisit() {
+    private func beginJournalGapVisit() async {
         guard Self.journalGapVisitMayStart(
             sceneIsActive: self.scenePhase == .active,
             surfaceVisible: self.journalGapSurfaceVisible
         ) else { return }
-        let losses = Self.refreshedLosses(
-            refresh: { self.mobileSegmentTransferHolder.refreshJournalGap() },
+        let losses = await Self.refreshedLosses(
+            refresh: { await self.mobileSegmentTransferHolder.refreshJournalGapNotice() },
             notice: { self.mobileSegmentTransferHolder.journalGapNotice.losses }
         )
         self.journalGapVisit.beginNewVisit(
@@ -769,7 +767,7 @@ struct RootShellView: View {
                 return
             }
             guard !Task.isCancelled, self.scenePhase == .active else { return }
-            self.mobileSegmentTransferHolder.refreshJournalGap()
+            await self.mobileSegmentTransferHolder.refreshJournalGapNotice()
         }
     }
 

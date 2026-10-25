@@ -347,9 +347,9 @@ final class JournalGapSeenTests: XCTestCase {
         XCTAssertTrue(visit.displayed(live: try self.live()).isEmpty)
     }
 
-    func testOpenStatusReadsTheNoticeAfterTheRefresh() {
+    func testOpenStatusReadsTheNoticeAfterTheRefresh() async {
         var refreshed = false
-        let losses = RootShellView.refreshedLosses {
+        let losses = await RootShellView.refreshedLosses {
             refreshed = true
         } notice: {
             XCTAssertTrue(refreshed)

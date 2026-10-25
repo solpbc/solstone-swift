@@ -148,7 +148,7 @@ final class JournalGapUpgradeTests: XCTestCase {
             captureAt: self.clock.now(),
             now: self.clock.now()
         )
-        uploader.refreshCounts()
+        await uploader.refreshJournalGapNotice()
         XCTAssertTrue(uploader.journalGapNotice.isShowing)
         XCTAssertEqual(uploader.journalGapNotice.dayLine, SourceVocabulary.journalGapToday)
     }
@@ -286,10 +286,10 @@ final class JournalGapUpgradeTests: XCTestCase {
             captureAt: self.clock.now(),
             now: self.clock.now()
         )
-        uploader.refreshCounts()
+        await uploader.refreshJournalGapNotice()
         XCTAssertTrue(uploader.journalGapNotice.isShowing)
         self.clock.advance(by: 8 * 24 * 60 * 60)
-        uploader.refreshCounts()
+        await uploader.refreshJournalGapNotice()
         XCTAssertFalse(uploader.journalGapNotice.isShowing)
     }
 

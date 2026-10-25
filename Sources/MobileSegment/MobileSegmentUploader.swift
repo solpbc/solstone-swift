@@ -10,15 +10,6 @@ import os
 private let mobileSegmentUploadLog = Logger(subsystem: "app.solstone.swift", category: "mobile-segment")
 private let mobileSegmentTransferTempRootName = "MobileSegmentTransferEnqueue"
 
-/// Reads and prunes journal events off the main thread. The notice itself is applied by the caller.
-nonisolated private func journalGapNoticeReadOffMain(store: JournalEventStore, now: Date) -> JournalGapNotice {
-    let read = { JournalGapNotice.read(store: store, now: now) }
-    if Thread.isMainThread {
-        return DispatchQueue.global(qos: .userInitiated).sync(execute: read)
-    }
-    return read()
-}
-
 nonisolated enum PhoneAudioInspectionResult: Sendable, Equatable {
     case duration(TimeInterval)
     case missingDuration
@@ -131,6 +122,12 @@ final class MobileSegmentUploader {
     @ObservationIgnored private var needsFollowUpReconcileActive = false
     @ObservationIgnored var onReconcileStep: (@Sendable () async -> Void)?
     @ObservationIgnored var heldScreencastAdoptionSkipSegmentID: (@MainActor @Sendable () -> UUID?)?
+    /// Reads the notice off the main thread. Tests replace it to show the refresh does not wait.
+    @ObservationIgnored var noticeRead: @Sendable (JournalEventStore, Date) -> JournalGapNotice = { store, now in
+        JournalGapNotice.read(store: store, now: now)
+    }
+    @ObservationIgnored private var journalGapNoticeGeneration = 0
+    @ObservationIgnored private var journalGapNoticeTask: Task<Void, Never>?
     @ObservationIgnored var audioInspector: PhoneAudioInspector
     @ObservationIgnored var testFileDateOverride: ((URL) -> Date?)?
     @ObservationIgnored var testEnqueueError: (any Error)?
@@ -873,7 +870,7 @@ final class MobileSegmentUploader {
             try self.store.ensureRoot()
             self.journalEvents.pruneForPass(now: self.clock.now())
             if await self.importLegacyJournalEvents() == .cancelled {
-                self.refreshCounts()
+                await self.refreshJournalGapNotice()
                 return
             }
             self.sweepStaleTransferEnqueueTemps()
@@ -881,23 +878,23 @@ final class MobileSegmentUploader {
             await self.retireTransferOwnedResidue()
             try await self.reconcileActiveSegments()
             if Task.isCancelled {
-                self.refreshCounts()
+                await self.refreshJournalGapNotice()
                 return
             }
             await self.resolveFinalizeFailurePile()
             if Task.isCancelled {
-                self.refreshCounts()
+                await self.refreshJournalGapNotice()
                 return
             }
             let pending = try self.store.list(.pending)
             for directory in pending {
                 if Task.isCancelled {
-                    self.refreshCounts()
+                    await self.refreshJournalGapNotice()
                     return
                 }
                 await self.cooperator.step()
                 if Task.isCancelled {
-                    self.refreshCounts()
+                    await self.refreshJournalGapNotice()
                     return
                 }
                 guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
@@ -909,11 +906,12 @@ final class MobileSegmentUploader {
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
         }
         if Task.isCancelled {
-            self.refreshCounts()
+            await self.refreshJournalGapNotice()
             return
         }
         self.refreshCounts()
         self.openJournalGate()
+        await self.waitForJournalGapNotice()
     }
 
     /// Whether this segment is still in the finalize-failure pile.
@@ -1769,13 +1767,14 @@ final class MobileSegmentUploader {
 
     func refreshCounts() {
         guard self.storageDisabledReason == nil else {
+            self.journalGapNoticeGeneration += 1
             self.pendingCount = 0
             self.failedCount = 0
             self.finalizeFailedCount = 0
             self.journalGapNotice = .absent
             return
         }
-        self.journalGapNotice = journalGapNoticeReadOffMain(store: self.journalEvents, now: self.clock.now())
+        self.publishJournalGapNotice()
         self.pendingCount = (try? self.store.list(.pending).count) ?? 0
         let failed = (try? self.store.list(.failed)) ?? []
         self.failedCount = failed.count
@@ -1787,6 +1786,32 @@ final class MobileSegmentUploader {
             }
             count += 1
         }
+    }
+
+    /// Recomputes the notice and waits until that result is published. A newer read wins.
+    func refreshJournalGapNotice() async {
+        self.refreshCounts()
+        await self.waitForJournalGapNotice()
+    }
+
+    func waitForJournalGapNotice() async {
+        await self.journalGapNoticeTask?.value
+    }
+
+    private func publishJournalGapNotice() {
+        self.journalGapNoticeGeneration += 1
+        let generation = self.journalGapNoticeGeneration
+        let events = self.journalEvents
+        let now = self.clock.now()
+        let read = self.noticeRead
+        let task = Task { @MainActor in
+            let notice = await Task.detached(priority: .userInitiated) {
+                read(events, now)
+            }.value
+            guard generation == self.journalGapNoticeGeneration else { return }
+            self.journalGapNotice = notice
+        }
+        self.journalGapNoticeTask = task
     }
 
     func migrateLegacyMobileItems(

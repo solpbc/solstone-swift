@@ -550,7 +550,6 @@ nonisolated struct JournalEventStore: Sendable {
     }
 
     func unseenLosses(now: Date, calendar: Calendar = .current) -> JournalEventsRead {
-        self.prune(now: now, calendar: calendar)
         guard self.isGateOpen else { return .events([]) }
         guard case .events(let events) = self.readEvents() else { return .unreadable }
         guard let windowStart = Self.windowStart(now: now, calendar: calendar) else { return .events([]) }
