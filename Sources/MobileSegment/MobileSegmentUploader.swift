@@ -10,6 +10,15 @@ import os
 private let mobileSegmentUploadLog = Logger(subsystem: "app.solstone.swift", category: "mobile-segment")
 private let mobileSegmentTransferTempRootName = "MobileSegmentTransferEnqueue"
 
+/// Reads and prunes journal events off the main thread. The notice itself is applied by the caller.
+nonisolated private func journalGapNoticeReadOffMain(store: JournalEventStore, now: Date) -> JournalGapNotice {
+    let read = { JournalGapNotice.read(store: store, now: now) }
+    if Thread.isMainThread {
+        return DispatchQueue.global(qos: .userInitiated).sync(execute: read)
+    }
+    return read()
+}
+
 nonisolated enum PhoneAudioInspectionResult: Sendable, Equatable {
     case duration(TimeInterval)
     case missingDuration
@@ -231,16 +240,26 @@ final class MobileSegmentUploader {
         }
 
         guard finalized.duration >= minimumDuration else {
-            let removal = try self.preparePhoneRemoval(
-                url: finalized.url,
-                directory: directory,
-                segmentID: segmentID,
-                reason: "audio_below_min_duration",
-                captureAt: startedAt,
-                now: endedAt
+            let existence = self.store.boxedFileExistence(
+                at: finalized.url,
+                rule: .phoneAudio,
+                acceptedFrames: self.phoneAcceptedFrames(in: directory, segmentID: segmentID)
             )
-            guard removal == .proceed else { throw CocoaError(.fileReadUnknown) }
-            self.store.removeIfExists(finalized.url)
+            switch existence {
+            case .unreadableSize:
+                return
+            case .absent:
+                break
+            case .present:
+                self.recordDiagnostic(
+                    segmentID: segmentID,
+                    source: .audio,
+                    reason: "audio_below_min_duration",
+                    captureAt: startedAt,
+                    now: endedAt
+                )
+                self.store.removeIfExists(finalized.url)
+            }
             let resolution = MobileSegmentSourceResolution(
                 state: .noArtifact,
                 startedAt: startedAt,
@@ -807,6 +826,10 @@ final class MobileSegmentUploader {
 
             guard !PhoneAudioWriterLease.isHeld(segmentID) else { return }
             if manifest.isEmptyResolved {
+                if self.store.fileExists(self.store.screenAudioPartURL(in: directory)) {
+                    try self.store.writeManifest(manifest, in: directory)
+                    return
+                }
                 manifest.upload = .empty
                 try self.store.writeManifest(manifest, in: directory)
                 let tombstoneReason = self.tombstoneReasonForEmptyRetirement(manifest: manifest, defaultReason: "no_artifacts")
@@ -1059,7 +1082,7 @@ final class MobileSegmentUploader {
         now: Date
     ) throws -> MediaRemoval {
         let frames = self.phoneAcceptedFrames(in: directory, segmentID: segmentID)
-        switch JournalBoxedFile.existence(at: url, rule: .phoneAudio, acceptedFrames: frames) {
+        switch self.store.boxedFileExistence(at: url, rule: .phoneAudio, acceptedFrames: frames) {
         case .absent:
             return .proceed
         case .unreadableSize:
@@ -1098,7 +1121,7 @@ final class MobileSegmentUploader {
         var anyExisted = false
         var anyUnreadable = false
         for url in urls {
-            switch JournalBoxedFile.existence(at: url, rule: .screen, acceptedFrames: 0) {
+            switch self.store.boxedFileExistence(at: url, rule: .screen, acceptedFrames: 0) {
             case .absent:
                 continue
             case .unreadableSize:
@@ -1370,11 +1393,20 @@ final class MobileSegmentUploader {
         if case .complete = self.journalEvents.readImportMarker() { return .finished }
         if Task.isCancelled { return .cancelled }
         let roots = self.legacyImportRoots()
+        let events = self.journalEvents
+        let now = self.clock.now()
+        let task = Task.detached {
+            try events.importLegacy(from: roots, now: now, isCancelled: { Task.isCancelled })
+        }
         do {
-            let run = try self.journalEvents.importLegacy(from: roots, isCancelled: { Task.isCancelled })
+            let run = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
             if Task.isCancelled || run == nil { return .cancelled }
             guard let run else { return .cancelled }
-            try self.journalEvents.writeImportComplete(imported: run.imported, skipped: run.skipped)
+            try events.writeImportComplete(imported: run.imported, skipped: run.skipped)
             return .finished
         } catch {
             mobileSegmentUploadLog.error("journal legacy import failed stage=resume")
@@ -1413,7 +1445,7 @@ final class MobileSegmentUploader {
 
     private func seedUITestJournalGapIfRequested() {
 #if DEBUG
-        guard ProcessInfo.processInfo.arguments.contains("--ui-test-seed-audio-interruption") else { return }
+        guard ProcessInfo.processInfo.arguments.contains("--ui-test-seed-journal-loss") else { return }
         let segmentID = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1") ?? UUID()
         let now = self.clock.now()
         do {
@@ -1718,7 +1750,7 @@ final class MobileSegmentUploader {
             self.journalGapNotice = .absent
             return
         }
-        self.journalGapNotice = JournalGapNotice.read(store: self.journalEvents, now: self.clock.now())
+        self.journalGapNotice = journalGapNoticeReadOffMain(store: self.journalEvents, now: self.clock.now())
         self.pendingCount = (try? self.store.list(.pending).count) ?? 0
         let failed = (try? self.store.list(.failed)) ?? []
         self.failedCount = failed.count

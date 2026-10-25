@@ -197,6 +197,18 @@ final class JournalEventClassificationTests: XCTestCase {
         let rows = try self.records(segmentID: segmentID)
         XCTAssertEqual(rows.filter { $0.kind == .diagnostic }.count, 1)
         XCTAssertEqual(rows.filter { $0.kind == .loss }.count, 1)
+        self.uploader.refreshCounts()
+        XCTAssertEqual(
+            HomeStatusPillState.resolve(
+                isPaired: true,
+                status: .connectedIdle,
+                hasBacklog: false,
+                isStalled: false,
+                awaitingMarkConfirmation: false,
+                hasJournalGap: self.uploader.journalGapNotice.isShowing
+            ),
+            .journalGap
+        )
     }
 
     func testScreencastRemovalRecordsOneEventForTheScreenFiles() async throws {
@@ -427,6 +439,102 @@ final class JournalEventClassificationTests: XCTestCase {
         XCTAssertTrue(try self.records().isEmpty)
     }
 
+    func testReplacingAnExistingFinalRecordsTheFileThatWasThere() throws {
+        let segmentID = UUID()
+        let now = self.clock.now()
+        let part = self.tempDirectory.appendingPathComponent("final-part.mp4")
+        let final = self.tempDirectory.appendingPathComponent("final-screen.mp4")
+        try Data("previous".utf8).write(to: final)
+        try Data("replacement".utf8).write(to: part)
+        let replacement = JournalFinalReplacement(
+            segmentID: segmentID,
+            source: .screencast,
+            captureAt: now,
+            now: now,
+            eventsRoot: self.uploader.journalEvents.rootURL
+        )
+        try MobileSegmentScreencastJSONStore.finalizePart(
+            partURL: part,
+            finalURL: final,
+            replacement: replacement
+        )
+        XCTAssertEqual(try Data(contentsOf: final), Data("replacement".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: part.path))
+        XCTAssertEqual(
+            try self.record(segmentID: segmentID, kind: .loss, reason: JournalFinalReplacement.reason).kind,
+            .loss
+        )
+
+        let sameID = UUID()
+        let samePart = self.tempDirectory.appendingPathComponent("same-part.mp4")
+        let sameFinal = self.tempDirectory.appendingPathComponent("same-final.mp4")
+        try Data("same-bytes".utf8).write(to: samePart)
+        try Data("same-bytes".utf8).write(to: sameFinal)
+        try MobileSegmentScreencastJSONStore.finalizePart(
+            partURL: samePart,
+            finalURL: sameFinal,
+            replacement: JournalFinalReplacement(
+                segmentID: sameID,
+                source: .screencast,
+                captureAt: now,
+                now: now,
+                eventsRoot: self.uploader.journalEvents.rootURL
+            )
+        )
+        XCTAssertTrue(try self.records(segmentID: sameID).isEmpty)
+
+        try self.replaceDirectory(self.eventsDirectory("losses"), withFile: Data("blocked".utf8))
+        let keptPart = self.tempDirectory.appendingPathComponent("kept-part.mp4")
+        let keptFinal = self.tempDirectory.appendingPathComponent("kept-final.mp4")
+        try Data("new-part".utf8).write(to: keptPart)
+        try Data("old-final".utf8).write(to: keptFinal)
+        XCTAssertNoThrow(
+            try MobileSegmentScreencastJSONStore.finalizePart(
+                partURL: keptPart,
+                finalURL: keptFinal,
+                replacement: JournalFinalReplacement(
+                    segmentID: UUID(),
+                    source: .screencast,
+                    captureAt: now,
+                    now: now,
+                    eventsRoot: self.uploader.journalEvents.rootURL
+                )
+            )
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keptPart.path))
+        XCTAssertEqual(try Data(contentsOf: keptFinal), Data("old-final".utf8))
+    }
+
+    func testUnreadableScreenAudioPartSurvivesEmptyRetirement() async throws {
+        let stat = StatFailingFileManager()
+        let statStore = MobileSegmentStore(
+            rootURL: self.tempDirectory.appendingPathComponent("unreadable-audio-part/MobileSegment", isDirectory: true),
+            fileManager: stat
+        )
+        let uploader = MobileSegmentUploader(store: statStore, clock: self.clock)
+        let segmentID = UUID()
+        let directory = try statStore.createActive(manifest: MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: self.clock.now().addingTimeInterval(-10),
+            openedWithSources: [.screencast],
+            activeSourceSetVersion: 1
+        ))
+        var manifest = try statStore.readManifest(in: directory)
+        try statStore.writeOutcome(
+            MobileSegmentSourceResolution(state: .noArtifact, reason: "screencast_removed"),
+            source: .screencast,
+            manifest: &manifest,
+            in: directory,
+            now: self.clock.now()
+        )
+        let part = statStore.screenAudioPartURL(in: directory)
+        try Data("partial-screen-audio".utf8).write(to: part)
+        stat.blockedPath = part.path
+        await uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: self.clock.now())
+        XCTAssertTrue(FileManager.default.fileExists(atPath: part.path))
+        XCTAssertNotNil(statStore.findDirectory(segmentID: segmentID))
+    }
+
     func testRootMigrationWritesNoJournalEventAndLeavesTheCachesRoot() throws {
         let legacy = self.tempDirectory.appendingPathComponent("CachesMobileSegment", isDirectory: true)
         let segmentID = UUID()
@@ -544,8 +652,8 @@ final class JournalEventClassificationTests: XCTestCase {
         )
         XCTAssertFalse(FileManager.default.fileExists(atPath: lossURL.path))
         XCTAssertEqual(
-            try self.record(segmentID: loss.segmentID, kind: .loss, reason: "audio_below_min_duration").kind,
-            .loss
+            try self.record(segmentID: loss.segmentID, kind: .diagnostic, reason: "audio_below_min_duration").kind,
+            .diagnostic
         )
         let manifest = try self.store.readManifest(in: loss.directory)
         XCTAssertEqual(manifest.audio.state, .noArtifact)
@@ -582,11 +690,11 @@ final class JournalEventClassificationTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: side.path))
         XCTAssertTrue(try self.records(segmentID: moved.segmentID).isEmpty)
 
-        try self.replaceDirectory(self.eventsDirectory("losses"), withFile: Data("blocked".utf8))
+        try self.replaceDirectory(self.eventsDirectory("diagnostics"), withFile: Data("blocked".utf8))
         let kept = try self.openActive(sources: [.audio])
         let keptURL = self.store.audioURL(in: kept.directory)
         try Self.fortyEightByteAudio.write(to: keptURL)
-        XCTAssertThrowsError(
+        XCTAssertNoThrow(
             try self.uploader.recordAudioFinalized(
                 segmentID: kept.segmentID,
                 finalized: ObserverRecordedChunk(url: keptURL, duration: 0.05),
@@ -596,9 +704,47 @@ final class JournalEventClassificationTests: XCTestCase {
                 minimumDuration: 0.1
             )
         )
-        XCTAssertTrue(FileManager.default.fileExists(atPath: keptURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: keptURL.path))
         let keptManifest = try self.store.readManifest(in: kept.directory)
-        XCTAssertNotEqual(keptManifest.audio.state, .noArtifact)
+        XCTAssertEqual(keptManifest.audio.state, .noArtifact)
+        var diagnosticsIsDirectory: ObjCBool = true
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.eventsDirectory("diagnostics").path, isDirectory: &diagnosticsIsDirectory))
+        XCTAssertFalse(diagnosticsIsDirectory.boolValue)
+
+        let stat = StatFailingFileManager()
+        let statRoot = self.tempDirectory.appendingPathComponent("unreadable-short", isDirectory: true)
+        let statStore = MobileSegmentStore(
+            rootURL: statRoot.appendingPathComponent("MobileSegment", isDirectory: true),
+            fileManager: stat
+        )
+        let statUploader = MobileSegmentUploader(store: statStore, clock: self.clock)
+        let unreadable = try statStore.createActive(manifest: MobileSegmentManifest(
+            segmentID: UUID(),
+            startedAt: self.clock.now().addingTimeInterval(-10),
+            openedWithSources: [.audio],
+            activeSourceSetVersion: 1
+        ))
+        let unreadableURL = statStore.audioURL(in: unreadable)
+        try Self.fortyEightByteAudio.write(to: unreadableURL)
+        stat.blockedPath = unreadableURL.path
+        let unreadableID = try statStore.readManifest(in: unreadable).segmentID
+        XCTAssertNoThrow(
+            try statUploader.recordAudioFinalized(
+                segmentID: unreadableID,
+                finalized: ObserverRecordedChunk(url: unreadableURL, duration: 0.05),
+                startedAt: self.clock.now().addingTimeInterval(-10),
+                endedAt: self.clock.now(),
+                mode: .meeting,
+                minimumDuration: 0.1
+            )
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unreadableURL.path))
+        let unreadableManifest = try statStore.readManifest(in: unreadable)
+        XCTAssertNotEqual(unreadableManifest.audio.state, .noArtifact)
+        guard case .events(let unreadableRows) = statUploader.journalEvents.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        XCTAssertFalse(unreadableRows.contains { $0.reason == "audio_below_min_duration" })
     }
 
     func testReplacingABroadcastPartRecordsThePartThatWasThere() throws {
@@ -671,6 +817,68 @@ final class JournalEventClassificationTests: XCTestCase {
             return XCTFail("broadcast journal events unreadable")
         }
         XCTAssertFalse(parentRows.contains { $0.segmentID == audioSegment.uuidString })
+
+        let retryID = UUID()
+        let retryURL = self.tempDirectory.appendingPathComponent("retry-part.mp4")
+        try Data("partial-screen".utf8).write(to: retryURL)
+        try self.uploader.journalEvents.recordLoss(
+            segmentID: retryID,
+            source: .screencast,
+            reason: "screencast_part_replaced",
+            captureAt: now,
+            now: now
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: retryURL.path))
+        try JournalPartRemoval.removeExisting(
+            at: retryURL,
+            source: .screencast,
+            reason: "screencast_part_replaced",
+            segmentID: retryID,
+            captureAt: now,
+            now: now,
+            eventsRoot: eventsRoot
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: retryURL.path))
+        XCTAssertEqual(
+            try self.records(segmentID: retryID).filter { $0.reason == "screencast_part_replaced" }.count,
+            1
+        )
+
+        let blockedRoot = self.tempDirectory.appendingPathComponent("blocked-broadcast", isDirectory: true)
+        let blockedEvents = JournalEventStore.directory(inAppGroupRoot: blockedRoot)
+        try FileManager.default.createDirectory(at: blockedEvents, withIntermediateDirectories: true)
+        try Data("blocked".utf8).write(to: blockedEvents.appendingPathComponent("losses", isDirectory: false))
+        let blockedSegment = UUID()
+        let blockedHandoff = ScreencastFixtures.handoff(segmentID: blockedSegment)
+        let blockedPart = MobileSegmentScreencastPaths.url(
+            root: blockedRoot,
+            relativePath: MobileSegmentScreencastPaths.screenAudioPartRelativePath(segmentID: blockedSegment)
+        )
+        try FileManager.default.createDirectory(at: blockedPart.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("partial-screen-audio".utf8).write(to: blockedPart)
+        let blockedWriter = ScreencastBroadcastAudioWriter()
+        XCTAssertNoThrow(try blockedWriter.open(rootURL: blockedRoot, handoff: blockedHandoff, now: now))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: blockedPart.path))
+        let claimed = try XCTUnwrap(blockedWriter.partURL)
+        XCTAssertNotEqual(claimed, blockedPart)
+        XCTAssertTrue(claimed.lastPathComponent.hasPrefix(blockedPart.lastPathComponent))
+
+        let stat = StatFailingFileManager()
+        let unreadablePart = self.tempDirectory.appendingPathComponent("unreadable-part.mp4")
+        try Data("partial-screen".utf8).write(to: unreadablePart)
+        stat.blockedPath = unreadablePart.path
+        let claimedUnreadable = JournalPartClaim.urlForNewCapture(
+            canonical: unreadablePart,
+            source: .screencast,
+            reason: "screencast_part_replaced",
+            segmentID: UUID(),
+            captureAt: now,
+            now: now,
+            eventsRoot: eventsRoot,
+            fileManager: stat
+        )
+        XCTAssertNotEqual(claimedUnreadable, unreadablePart)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unreadablePart.path))
     }
 
     func testRetainedAudioRestoreWritesNoJournalEvent() async throws {

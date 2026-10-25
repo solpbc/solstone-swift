@@ -11,7 +11,7 @@ final class JournalGapShotTests: XCTestCase {
     @MainActor
     func testCaptureTheGapAndTheCaughtUpHome() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--ui-test", "--ui-test-seed-audio-interruption"]
+        app.launchArguments = ["--ui-test", "--ui-test-seed-journal-loss"]
         app.launch()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone sheet is the phone lane's")

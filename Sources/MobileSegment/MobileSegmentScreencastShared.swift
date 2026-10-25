@@ -168,13 +168,22 @@ nonisolated enum MobileSegmentScreencastJSONStore {
     static func finalizePart(
         partURL: URL,
         finalURL: URL,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        replacement: JournalFinalReplacement? = nil
     ) throws {
         try fileManager.createDirectory(
             at: finalURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
         if fileManager.fileExists(atPath: finalURL.path) {
+            if let replacement {
+                switch replacement.decision(partURL: partURL, finalURL: finalURL, fileManager: fileManager) {
+                case .keepBoth:
+                    return
+                case .replace:
+                    break
+                }
+            }
             _ = try fileManager.replaceItemAt(finalURL, withItemAt: partURL)
         } else {
             try fileManager.moveItem(at: partURL, to: finalURL)

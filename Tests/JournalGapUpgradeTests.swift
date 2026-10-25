@@ -202,6 +202,179 @@ final class JournalGapUpgradeTests: XCTestCase {
         }
     }
 
+    func testLegacyRecordOlderThanRetentionSurvivesImport() async throws {
+        let recorded = Date(timeIntervalSince1970: 1_700_000_000)
+        let stamp = Self.internet.string(from: recorded)
+        let segmentID = UUID()
+        let file = try self.writeInterruption(
+            segmentID: segmentID,
+            reason: "audio_capture_unfinished",
+            stamp: stamp,
+            root: self.store.rootURL
+        )
+        let importedAt = recorded.addingTimeInterval(60 * 24 * 60 * 60)
+        self.clock.advance(by: importedAt.timeIntervalSince(self.clock.now()))
+        let uploader = MobileSegmentUploader(store: self.store, clock: self.clock)
+        await uploader.resumeFromDisk()
+        let events = uploader.journalEvents
+        XCTAssertEqual(try self.legacyCount(segmentID, in: events), 1)
+        guard case .events(let rows) = events.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        let row = try XCTUnwrap(rows.first { $0.kind == .legacy && $0.segmentID == segmentID.uuidString })
+        XCTAssertEqual(row.foundAt, self.clock.now())
+        XCTAssertEqual(row.recordedAt, recorded)
+        XCTAssertTrue(events.isSeen(id: row.id))
+        let text = events.diagnosticSection(now: self.clock.now())
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = .current
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        XCTAssertTrue(text.contains("recorded=\(formatter.string(from: recorded))"))
+        events.prune(now: self.clock.now())
+        XCTAssertEqual(try self.legacyCount(segmentID, in: events), 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+
+        await uploader.resumeFromDisk()
+        XCTAssertEqual(try self.legacyCount(segmentID, in: events), 1)
+    }
+
+    func testFailedImportRetriesOnTheNextLaunch() async throws {
+        let segmentID = UUID()
+        let stamp = Self.internet.string(from: Date(timeIntervalSince1970: 1_700_000_000))
+        let file = try self.writeInterruption(
+            segmentID: segmentID,
+            reason: "audio_capture_unfinished",
+            stamp: stamp,
+            root: self.store.rootURL
+        )
+        // The store root must stay a valid segment root: ensureRoot runs before the import.
+        // A file standing in for the caches interruptions directory fails the walk after the
+        // app-group row is written, and the next launch finishes that same row once.
+        let cachesAudio = self.cachesRoot()
+            .appendingPathComponent("interruptions", isDirectory: true)
+            .appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: cachesAudio.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("not-a-directory".utf8).write(to: cachesAudio)
+        self.ownedCacheFiles.append(cachesAudio)
+        self.ownedCacheFiles.append(cachesAudio.deletingLastPathComponent())
+        let uploader = MobileSegmentUploader(store: self.store, clock: self.clock)
+        await uploader.resumeFromDisk()
+        XCTAssertEqual(uploader.journalEvents.readImportMarker(), .failed(reason: "import failed"))
+        XCTAssertEqual(try self.legacyCount(segmentID, in: uploader.journalEvents), 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+
+        try FileManager.default.removeItem(at: cachesAudio)
+        let relaunch = MobileSegmentUploader(store: self.store, clock: self.clock)
+        await relaunch.resumeFromDisk()
+        XCTAssertEqual(try self.legacyCount(segmentID, in: relaunch.journalEvents), 1)
+        guard case .complete = relaunch.journalEvents.readImportMarker() else {
+            return XCTFail("import did not complete")
+        }
+        await relaunch.resumeFromDisk()
+        XCTAssertEqual(try self.legacyCount(segmentID, in: relaunch.journalEvents), 1)
+    }
+
+    func testForegroundPastTheWindowClearsTheNotice() async throws {
+        let uploader = MobileSegmentUploader(store: self.store, clock: self.clock)
+        await uploader.resumeFromDisk()
+        try uploader.journalEvents.recordLoss(
+            segmentID: UUID(),
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: self.clock.now(),
+            now: self.clock.now()
+        )
+        uploader.refreshCounts()
+        XCTAssertTrue(uploader.journalGapNotice.isShowing)
+        self.clock.advance(by: 8 * 24 * 60 * 60)
+        uploader.refreshCounts()
+        XCTAssertFalse(uploader.journalGapNotice.isShowing)
+    }
+
+    func testFirstLaunchWhilePairedSeedsTheJournalIdentity() throws {
+        let pairing = Self.pairing(instanceID: "journal-a")
+        let identity = try XCTUnwrap(journalVersionMetadataIdentity(for: pairing))
+        let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
+        let config = self.makeConfig(pairing: pairing)
+        config.attachJournalEvents(events)
+        XCTAssertEqual(events.readIdentity(), identity)
+        XCTAssertEqual(config.journalIdentityEpoch, 0)
+    }
+
+    func testUnpairThenADifferentJournalMarksEveryEventSeen() throws {
+        let pairingA = Self.pairing(instanceID: "journal-a")
+        let pairingB = Self.pairing(instanceID: "journal-b")
+        let identityA = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingA))
+        let identityB = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingB))
+        let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
+        let config = self.makeConfig(pairing: nil)
+        config.attachJournalEvents(events)
+        try events.openGate(now: self.clock.now())
+        let segmentID = UUID()
+        try events.recordLoss(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: self.clock.now(),
+            now: self.clock.now()
+        )
+        let lossID = JournalEventStore.lossID(segmentID: segmentID, source: .audio)
+        var committed = 0
+        config.onJournalIdentityCommitted = { committed += 1 }
+        try config.applyPairing(pairingA)
+        XCTAssertEqual(events.readIdentity(), identityA)
+        XCTAssertEqual(committed, 0)
+        XCTAssertEqual(config.journalIdentityEpoch, 0)
+        XCTAssertFalse(events.isSeen(id: lossID))
+        XCTAssertTrue(config.clearPairing())
+        XCTAssertEqual(events.readIdentity(), identityA)
+        XCTAssertFalse(events.isSeen(id: lossID))
+        try config.applyPairing(pairingB)
+        XCTAssertEqual(events.readIdentity(), identityB)
+        XCTAssertEqual(committed, 1)
+        XCTAssertEqual(config.journalIdentityEpoch, 1)
+        guard case .events(let rows) = events.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        XCTAssertFalse(rows.isEmpty)
+        for row in rows {
+            XCTAssertTrue(events.isSeen(id: row.id))
+        }
+    }
+
+    func testFailedMarkAllRetriesOnTheNextLaunch() throws {
+        let pairingA = Self.pairing(instanceID: "journal-a")
+        let pairingB = Self.pairing(instanceID: "journal-b")
+        let identityA = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingA))
+        let identityB = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingB))
+        let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
+        try events.writeIdentity(identityA)
+        try events.openGate(now: self.clock.now())
+        let segmentID = UUID()
+        try events.recordLoss(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: nil,
+            now: self.clock.now()
+        )
+        let lossID = JournalEventStore.lossID(segmentID: segmentID, source: .audio)
+        let seen = events.rootURL.appendingPathComponent("seen", isDirectory: false)
+        try Data("blocked".utf8).write(to: seen)
+        let blocked = self.makeConfig(pairing: pairingB)
+        blocked.attachJournalEvents(events)
+        XCTAssertEqual(events.readIdentity(), identityA)
+        XCTAssertFalse(events.isSeen(id: lossID))
+        try FileManager.default.removeItem(at: seen)
+        let relaunch = self.makeConfig(pairing: pairingB)
+        relaunch.attachJournalEvents(events)
+        XCTAssertEqual(events.readIdentity(), identityB)
+        XCTAssertTrue(events.isSeen(id: lossID))
+        XCTAssertEqual(relaunch.journalIdentityEpoch, 1)
+    }
+
     func testFailedSeenWriteKeepsThePreviousJournalIdentity() throws {
         let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
         let pairingA = Self.pairing(instanceID: "journal-a")

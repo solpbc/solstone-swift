@@ -161,6 +161,59 @@ final class JournalGapRetentionTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: self.cachesMarker.path))
     }
 
+    func testCollapsedDiagnosticStaysUntilItsLastOccurrence() throws {
+        let now = Date()
+        let first = try XCTUnwrap(self.calendar.date(byAdding: .day, value: -40, to: now))
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_tap_write_stall",
+            captureAt: nil,
+            now: first,
+            calendar: self.calendar
+        )
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_tap_write_stall",
+            captureAt: nil,
+            now: now,
+            calendar: self.calendar
+        )
+        self.events.prune(now: now, calendar: self.calendar)
+        let rows = try self.diagnostics()
+        let row = try XCTUnwrap(rows.first { $0.reason == "observer_tap_write_stall" })
+        XCTAssertEqual(row.count, 2)
+        let cutoff = try XCTUnwrap(self.calendar.date(byAdding: .day, value: -30, to: now))
+        XCTAssertLessThan(row.foundAt, cutoff)
+        XCTAssertGreaterThanOrEqual(row.lastAt.timeIntervalSince(now), -1)
+    }
+
+    func testSeenMarkLeavesWhenTheEventIsGone() throws {
+        let now = Date()
+        let expired = try XCTUnwrap(self.calendar.date(byAdding: .day, value: -31, to: now))
+        let segmentID = UUID()
+        try self.events.recordLoss(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: expired,
+            now: expired,
+            calendar: self.calendar
+        )
+        let id = JournalEventStore.lossID(segmentID: segmentID, source: .audio)
+        try self.events.markSeen(id: id)
+        let orphan = self.events.rootURL
+            .appendingPathComponent("seen", isDirectory: true)
+            .appendingPathComponent("orphan-mark.json")
+        try JSONSerialization.data(withJSONObject: ["id": "orphan-mark"]).write(to: orphan)
+        self.events.prune(now: now, calendar: self.calendar)
+        XCTAssertFalse(self.events.isSeen(id: id))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphan.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.segmentDirectory.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: self.cachesMarker.path))
+    }
+
     private func losses() throws -> [JournalEventRecord] {
         try self.rows().filter { $0.kind == .loss }
     }

@@ -22,7 +22,7 @@ enum OnThisPhoneUITestSeeder {
     private static let resetAudioL5Flag = "--ui-test-reset-audio-l5"
     private static let resetNudgeDismissalFlag = "--ui-test-reset-nudge-dismissal"
     private static let resetOnThisPhoneFlag = "--ui-test-reset-on-this-phone"
-    private static let audioInterruptionSeedFlag = "--ui-test-seed-audio-interruption"
+    private static let journalLossSeedFlag = "--ui-test-seed-journal-loss"
     private static let largeBacklogDefaultCount = 800
     private static let largeBacklogMaxCount = 2_000
 
@@ -47,9 +47,9 @@ enum OnThisPhoneUITestSeeder {
         let mixedBacklogSources = Self.mixedBacklogSources(arguments: arguments)
         let seedMixedBacklog = !mixedBacklogSources.isEmpty
         let resetOnThisPhone = arguments.contains(Self.resetOnThisPhoneFlag)
-        let seedAudioInterruption = arguments.contains(Self.audioInterruptionSeedFlag)
+        let seedJournalLoss = arguments.contains(Self.journalLossSeedFlag)
         guard resetOnThisPhone || seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
-            || seedMixedBacklog || seedAudioInterruption else { return }
+            || seedMixedBacklog || seedJournalLoss else { return }
 
         do {
             let roots = try Self.roots(fileManager: fileManager)

@@ -23,7 +23,7 @@ nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @
     private var videoInput: AVAssetWriterInput?
     private var rootURL: URL?
     private var handoff: MobileSegmentScreencastHandoffRecord?
-    private var partURL: URL?
+    private(set) var partURL: URL?
     private var finalURL: URL?
     private var livenessURL: URL?
     private var lastAcceptedPTSSeconds: Double?
@@ -51,21 +51,19 @@ nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @
             relativePath: MobileSegmentScreencastPaths.screenLivenessRelativePath(segmentID: handoff.segmentID)
         )
         try self.fileManager.createDirectory(at: partURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if self.fileManager.fileExists(atPath: partURL.path) {
-            try JournalPartRemoval.removeExisting(
-                at: partURL,
-                source: .screencast,
-                reason: "screencast_part_replaced",
-                segmentID: handoff.segmentID,
-                captureAt: handoff.startedAt,
-                now: now,
-                eventsRoot: JournalEventStore.directory(inAppGroupRoot: rootURL),
-                fileManager: self.fileManager
-            )
-        }
+        let captureURL = JournalPartClaim.urlForNewCapture(
+            canonical: partURL,
+            source: .screencast,
+            reason: "screencast_part_replaced",
+            segmentID: handoff.segmentID,
+            captureAt: handoff.startedAt,
+            now: now,
+            eventsRoot: JournalEventStore.directory(inAppGroupRoot: rootURL),
+            fileManager: self.fileManager
+        )
         self.rootURL = rootURL
         self.handoff = handoff
-        self.partURL = partURL
+        self.partURL = captureURL
         self.finalURL = finalURL
         self.livenessURL = livenessURL
         self.writer = nil
@@ -163,7 +161,9 @@ nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @
         guard let writer,
               let videoInput,
               let partURL,
-              let finalURL else {
+              let finalURL,
+              let rootURL,
+              let handoff else {
             return .writerFailure("writer_not_open")
         }
         guard writer.status == .writing else {
@@ -183,7 +183,18 @@ nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @
         }
 
         do {
-            try MobileSegmentScreencastJSONStore.finalizePart(partURL: partURL, finalURL: finalURL, fileManager: self.fileManager)
+            try MobileSegmentScreencastJSONStore.finalizePart(
+                partURL: partURL,
+                finalURL: finalURL,
+                fileManager: self.fileManager,
+                replacement: JournalFinalReplacement(
+                    segmentID: handoff.segmentID,
+                    source: .screencast,
+                    captureAt: handoff.startedAt,
+                    now: now,
+                    eventsRoot: JournalEventStore.directory(inAppGroupRoot: rootURL)
+                )
+            )
             try? self.writeLiveness(now: now, force: true)
             return .completed
         } catch {

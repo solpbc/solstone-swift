@@ -497,7 +497,7 @@ final class PadSplitShellUITests: XCTestCase {
     /// Leaving and coming back finds the journal caught up.
     @MainActor
     func testDefaultStatusDetailShowsTheGapThenCaughtUp() throws {
-        let app = try self.launchPad(["--ui-test-seed-audio-interruption"])
+        let app = try self.launchPad(["--ui-test-seed-journal-loss"])
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 20))
         let gap = app.descendants(matching: .any).matching(
             NSPredicate(format: "label == %@", "there's a gap in your journal")

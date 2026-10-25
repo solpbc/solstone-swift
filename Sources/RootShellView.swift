@@ -34,7 +34,7 @@ struct RootShellView: View {
     @ObservationIgnored private let journalMarkStore = JournalMarkStore()
     @State private var statusPath = NavigationPath()
     @State private var statusDetent: PresentationDetent = .medium
-    /// Owned here so rotation and a disappearing status view do not start or end a visit.
+    /// Owned here so rotation does not drop the visit. It ends when the content hides or the scene leaves active.
     @State private var journalGapVisit = JournalGapVisit()
     @State private var showingSources = false
     @State private var observerSourcePauseState = ObserverSourcePauseState()
@@ -199,18 +199,20 @@ struct RootShellView: View {
                 self.journalGapVisit.end()
             }
         }
-        .onChange(of: self.mobileSegmentTransferHolder.journalGapNotice.lossIDs) { _, _ in
-            self.captureJournalGapIfVisible()
-        }
         .onChange(of: self.scenePhase) { _, phase in
-            guard phase == .active else { return }
+            guard phase == .active else {
+                self.journalGapVisit.background()
+                return
+            }
             self.mobileSegmentTransferHolder.refreshJournalGap()
             guard self.journalGapSurfaceVisible else { return }
-            self.journalGapVisit.foreground(
-                live: self.mobileSegmentTransferHolder.journalGapNotice.losses,
-                store: self.mobileSegmentTransferHolder.journalEvents
-            )
+            self.beginJournalGapVisit()
+        }
+        .onChange(of: self.appConfig.journalIdentityEpoch) { _, _ in
             self.mobileSegmentTransferHolder.refreshJournalGap()
+        }
+        .task(id: self.scenePhase) {
+            await self.recomputeJournalGapAtDayBoundary()
         }
         .onChange(of: self.tunnelManager.state.isConnected) { wasConnected, isConnected in
             if !wasConnected && isConnected {
@@ -496,16 +498,31 @@ struct RootShellView: View {
     }
 
     private func openStatus() {
-        self.journalGapVisit.beginNewVisit(
-            live: self.mobileSegmentTransferHolder.journalGapNotice.losses,
-            store: self.mobileSegmentTransferHolder.journalEvents
-        )
-        self.mobileSegmentTransferHolder.refreshJournalGap()
+        if Self.journalGapVisitMayStart(
+            sceneIsActive: self.scenePhase == .active,
+            surfaceVisible: self.journalGapSurfaceVisible
+        ) {
+            self.beginJournalGapVisit()
+        }
         if self.isPhoneShell {
             self.presentedPane = .status
         } else {
             self.nav.selectFromDeck(.status)
         }
+    }
+
+    /// A visit starts only while the scene is active and the status content is showing.
+    static func journalGapVisitMayStart(sceneIsActive: Bool, surfaceVisible: Bool) -> Bool {
+        sceneIsActive && surfaceVisible
+    }
+
+    /// Refresh, then read the losses the visit will display. The read sees the refresh.
+    static func refreshedLosses(
+        refresh: () -> Void,
+        notice: () -> [JournalEventRecord]
+    ) -> [JournalEventRecord] {
+        refresh()
+        return notice()
     }
 
     /// Phone status is the sheet. iPad status is the detail pane, including the paired default.
@@ -527,14 +544,52 @@ struct RootShellView: View {
         self.nav.paneStack.contains(.onThisDevice)
     }
 
-    /// An already-visible surface with nothing to show does not capture. The first losses do.
+    /// Starts a visit when none is underway. A visit already showing does not mark a later loss.
     private func captureJournalGapIfVisible() {
-        guard self.journalGapSurfaceVisible else { return }
+        guard Self.journalGapVisitMayStart(
+            sceneIsActive: self.scenePhase == .active,
+            surfaceVisible: self.journalGapSurfaceVisible
+        ) else { return }
+        let losses = Self.refreshedLosses(
+            refresh: { self.mobileSegmentTransferHolder.refreshJournalGap() },
+            notice: { self.mobileSegmentTransferHolder.journalGapNotice.losses }
+        )
         self.journalGapVisit.captureIfNeeded(
-            live: self.mobileSegmentTransferHolder.journalGapNotice.losses,
+            live: losses,
             store: self.mobileSegmentTransferHolder.journalEvents
         )
         self.mobileSegmentTransferHolder.refreshJournalGap()
+    }
+
+    /// The scene became active, or the owner opened status that was already showing.
+    private func beginJournalGapVisit() {
+        guard Self.journalGapVisitMayStart(
+            sceneIsActive: self.scenePhase == .active,
+            surfaceVisible: self.journalGapSurfaceVisible
+        ) else { return }
+        let losses = Self.refreshedLosses(
+            refresh: { self.mobileSegmentTransferHolder.refreshJournalGap() },
+            notice: { self.mobileSegmentTransferHolder.journalGapNotice.losses }
+        )
+        self.journalGapVisit.beginNewVisit(
+            live: losses,
+            store: self.mobileSegmentTransferHolder.journalEvents
+        )
+        self.mobileSegmentTransferHolder.refreshJournalGap()
+    }
+
+    private func recomputeJournalGapAtDayBoundary() async {
+        while !Task.isCancelled {
+            guard self.scenePhase == .active else { return }
+            let delay = JournalGapNotice.delayUntilNextDay(from: Date())
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled, self.scenePhase == .active else { return }
+            self.mobileSegmentTransferHolder.refreshJournalGap()
+        }
     }
 
     private var isJournalPresented: Binding<Bool> {

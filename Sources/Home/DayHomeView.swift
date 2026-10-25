@@ -93,8 +93,30 @@ private struct AppGroupSnapshotInputs: Equatable {
     let microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot
     let awaitingMarkConfirmation: Bool
     let journalGap: Bool
+    let journalIdentityEpoch: Int
     let journalMark: JournalMark?
     let journalSendConfirmed: Bool
+}
+
+func writeObserverWidgetSnapshot(
+    mirror: AppGroupMirror,
+    pairing: AppGroupMirror.PairingSnapshot,
+    microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot,
+    session: AppGroupMirror.SessionState,
+    sourceStates: [SourceKind: SourceState],
+    backlogCount: Int,
+    awaitingMarkConfirmation: Bool,
+    journalGap: Bool
+) -> Result<Void, AppGroupMirror.StorageError> {
+    mirror.updateSessionAndSources(
+        pairing: pairing,
+        microphonePermission: microphonePermission,
+        session: session,
+        sourceStates: sourceStates,
+        backlogCount: backlogCount,
+        awaitingMarkConfirmation: awaitingMarkConfirmation,
+        journalGap: journalGap
+    )
 }
 
 /// `.body` point sizes over the default, matching what
@@ -238,7 +260,8 @@ struct DayHomeView: View {
         .background(SunArcContentBackground().ignoresSafeArea())
         .task { await refreshNowPeriodically { self.now = Date() } }
         .task(id: self.appGroupSnapshotInputs) {
-            _ = self.appGroupMirror.updateSessionAndSources(
+            _ = writeObserverWidgetSnapshot(
+                mirror: self.appGroupMirror,
                 pairing: self.appGroupPairing,
                 microphonePermission: self.appGroupMicrophonePermission,
                 session: self.appGroupSessionState,
@@ -276,6 +299,7 @@ private extension DayHomeView {
             microphonePermission: self.appGroupMicrophonePermission,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
             journalGap: self.mobileSegmentTransferHolder.journalGapNotice.isShowing,
+            journalIdentityEpoch: self.appConfig.journalIdentityEpoch,
             journalMark: self.journalMark,
             journalSendConfirmed: self.appConfig.journalSendConfirmed
         )

@@ -68,32 +68,30 @@ final class JournalGapSeenTests: XCTestCase {
         let before = JournalGapNotice.read(store: self.events, now: self.now)
         XCTAssertEqual(before, .absent)
         visit.beginNewVisit(live: before.losses, store: self.events)
-        XCTAssertFalse(visit.didCapture)
+        XCTAssertTrue(visit.didCapture)
         XCTAssertFalse(self.events.isSeen(id: id))
 
         try self.events.openGate(now: self.now)
         let live = try self.live()
         XCTAssertEqual(live.map(\.id), [id])
-        visit.foreground(live: live, store: self.events)
-        XCTAssertTrue(visit.didCapture)
+        XCTAssertFalse(self.events.isSeen(id: id))
+        XCTAssertEqual(visit.displayed(live: live).map(\.id), [id])
+        visit.beginNewVisit(live: live, store: self.events)
         XCTAssertTrue(self.events.isSeen(id: id))
-        XCTAssertEqual(visit.displayed(live: []).map(\.id), [id])
     }
 
-    func testVisibleSurfaceDoesNotSwallowALossThatAppearsLater() throws {
+    func testEmptyVisitShowsALaterLossWithoutMarkingIt() throws {
         let visit = JournalGapVisit()
         visit.foreground(live: [], store: self.events)
-        XCTAssertFalse(visit.didCapture)
+        XCTAssertTrue(visit.didCapture)
+        XCTAssertTrue(visit.captured.isEmpty)
         let id = try self.recordLoss()
         let live = try self.live()
-        visit.foreground(live: live, store: self.events)
+        XCTAssertFalse(self.events.isSeen(id: id))
+        XCTAssertEqual(visit.displayed(live: live).map(\.id), [id])
+        visit.beginNewVisit(live: live, store: self.events)
         XCTAssertTrue(self.events.isSeen(id: id))
         XCTAssertEqual(visit.captured.map(\.id), [id])
-
-        let later = try self.recordLoss()
-        XCTAssertFalse(self.events.isSeen(id: later))
-        visit.foreground(live: try self.live(), store: self.events)
-        XCTAssertFalse(self.events.isSeen(id: later))
     }
 
     func testSeenFileSurvivesANewVisitAfterRelaunch() throws {
@@ -106,7 +104,8 @@ final class JournalGapSeenTests: XCTestCase {
         let live = try self.live()
         XCTAssertTrue(live.isEmpty)
         relaunched.beginNewVisit(live: live, store: self.events)
-        XCTAssertFalse(relaunched.didCapture)
+        XCTAssertTrue(relaunched.didCapture)
+        XCTAssertTrue(relaunched.captured.isEmpty)
         XCTAssertTrue(self.events.isSeen(id: id))
         XCTAssertEqual(relaunched.displayedNotice(live: live, now: self.now), .absent)
     }
@@ -135,15 +134,42 @@ final class JournalGapSeenTests: XCTestCase {
         XCTAssertEqual(visit.displayed(live: try self.live()).map(\.id), [shown, concurrent])
     }
 
-    func testForegroundDoesNotReplaceACapturedVisit() throws {
+    func testReturningToTheForegroundMarksTheLossThatArrivedWhileAway() throws {
         let first = try self.recordLoss()
         let visit = JournalGapVisit()
         visit.foreground(live: try self.live(), store: self.events)
         XCTAssertEqual(visit.captured.map(\.id), [first])
         let second = try self.recordLoss()
-        visit.foreground(live: try self.live(), store: self.events)
         XCTAssertFalse(self.events.isSeen(id: second))
-        XCTAssertEqual(Set(visit.displayed(live: try self.live()).map(\.id)), [first, second])
+        visit.background()
+        XCTAssertFalse(self.events.isSeen(id: second))
+        XCTAssertFalse(visit.didCapture)
+        visit.foreground(live: try self.live(), store: self.events)
+        XCTAssertTrue(self.events.isSeen(id: second))
+        XCTAssertEqual(visit.captured.map(\.id), [second])
+    }
+
+    func testInactiveSceneMarksNothing() throws {
+        XCTAssertFalse(RootShellView.journalGapVisitMayStart(sceneIsActive: false, surfaceVisible: true))
+        XCTAssertFalse(RootShellView.journalGapVisitMayStart(sceneIsActive: true, surfaceVisible: false))
+        XCTAssertTrue(RootShellView.journalGapVisitMayStart(sceneIsActive: true, surfaceVisible: true))
+        let id = try self.recordLoss()
+        let visit = JournalGapVisit()
+        visit.background()
+        XCTAssertFalse(self.events.isSeen(id: id))
+        XCTAssertTrue(visit.displayed(live: try self.live()).isEmpty)
+    }
+
+    func testOpenStatusReadsTheNoticeAfterTheRefresh() {
+        var refreshed = false
+        let losses = RootShellView.refreshedLosses {
+            refreshed = true
+        } notice: {
+            XCTAssertTrue(refreshed)
+            return []
+        }
+        XCTAssertTrue(losses.isEmpty)
+        XCTAssertTrue(refreshed)
     }
 
     func testSelectingThePillAgainStartsANewVisit() throws {

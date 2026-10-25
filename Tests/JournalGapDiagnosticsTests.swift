@@ -85,6 +85,59 @@ final class JournalGapDiagnosticsTests: XCTestCase {
         XCTAssertTrue(text.contains("diagnostic"))
         XCTAssertTrue(text.contains("Import: complete, 2 imported, 1 skipped"))
         XCTAssertFalse(text.contains("-fault"))
+        XCTAssertTrue(text.contains("count=2"))
+        XCTAssertTrue(text.contains("first="))
+        XCTAssertTrue(text.contains("last="))
+    }
+
+    func testCollapsedObserverFaultExportsCountTimesAndDetail() throws {
+        let first = self.now.addingTimeInterval(-120)
+        let last = self.now
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_interruption_ended",
+            captureAt: nil,
+            now: first,
+            detail: JournalEventDetail(interruptionDuration: 3)
+        )
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_interruption_ended",
+            captureAt: nil,
+            now: last,
+            detail: JournalEventDetail(interruptionDuration: 5)
+        )
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_configuration_change",
+            captureAt: nil,
+            now: first,
+            detail: JournalEventDetail(configurationRestartSuccesses: 1, configurationRestartFailures: 0)
+        )
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_configuration_change",
+            captureAt: nil,
+            now: last,
+            detail: JournalEventDetail(configurationRestartSuccesses: 2, configurationRestartFailures: 1)
+        )
+        let text = self.events.diagnosticSection(now: self.now)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = .current
+        formatter.timeZone = Calendar.current.timeZone
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        XCTAssertTrue(text.contains("count=2"))
+        XCTAssertTrue(text.contains("first=\(formatter.string(from: first))"))
+        XCTAssertTrue(text.contains("last=\(formatter.string(from: last))"))
+        XCTAssertTrue(text.contains("interruption_duration=8"))
+        XCTAssertTrue(text.contains("configuration_restart_successes=3"))
+        XCTAssertTrue(text.contains("configuration_restart_failures=1"))
+        XCTAssertFalse(text.contains("-fault"))
     }
 
     func testCorruptFileIsSetAsideAndANewLossStillShows() throws {

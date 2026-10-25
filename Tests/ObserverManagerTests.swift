@@ -755,6 +755,80 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testActiveWriterFaultAddsADiagnosticLine() async throws {
+        let log = DiagnosticLog()
+        let manager = ObserverManager(
+            recorder: self.recorder,
+            mobileSegmentEngine: self.mobileSegmentEngine,
+            journalEvents: self.mobileSegmentUploader.journalEvents,
+            diagnosticLog: log,
+            clock: self.clock,
+            liveActivity: self.liveActivity,
+            defaults: self.defaults
+        )
+        let outcome = await manager.startSession(mode: .meeting)
+        XCTAssertEqual(outcome, .started)
+        let segmentID = try XCTUnwrap(self.recorder.lastStartSegmentID)
+        let sessionID = try XCTUnwrap(self.recorder.lastStartSessionID)
+        self.recorder.emitPhoneAudioFault(
+            PhoneAudioWriterFault(segmentID: segmentID, sessionID: sessionID, reason: "audio_writer_failed")
+        )
+        try? await Task.sleep(for: .milliseconds(40))
+        XCTAssertTrue(log.events.contains { $0.message == "audio_writer_failed" })
+    }
+
+    @MainActor
+    func testStaleWriterFaultAddsNoDiagnosticLine() async {
+        let log = DiagnosticLog()
+        let manager = ObserverManager(
+            recorder: self.recorder,
+            mobileSegmentEngine: self.mobileSegmentEngine,
+            journalEvents: self.mobileSegmentUploader.journalEvents,
+            diagnosticLog: log,
+            clock: self.clock,
+            liveActivity: self.liveActivity,
+            defaults: self.defaults
+        )
+        let outcome = await manager.startSession(mode: .meeting)
+        XCTAssertEqual(outcome, .started)
+        self.recorder.emitPhoneAudioFault(
+            PhoneAudioWriterFault(segmentID: UUID(), sessionID: UUID(), reason: "audio_writer_failed")
+        )
+        try? await Task.sleep(for: .milliseconds(40))
+        XCTAssertFalse(log.events.contains { $0.message == "audio_writer_failed" })
+        guard case .active = manager.state else {
+            return XCTFail("stale fault stopped the session")
+        }
+    }
+
+    @MainActor
+    func testInterruptionEndResumesWhileTheStoreWriteIsBlocked() async throws {
+        await self.manager.startSession(mode: .meeting)
+        let id = JournalEventStore.diagnosticID(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_interruption_ended",
+            writerFault: false
+        )
+        let directory = self.mobileSegmentUploader.journalEvents.rootURL
+            .appendingPathComponent("diagnostics", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fifo = directory.appendingPathComponent("\(JournalEventStore.fileName(for: id)).json")
+        XCTAssertEqual(mkfifo(fifo.path, S_IRUSR | S_IWUSR), 0)
+        defer {
+            let descriptor = open(fifo.path, O_WRONLY | O_NONBLOCK)
+            if descriptor >= 0 { close(descriptor) }
+            try? FileManager.default.removeItem(at: fifo)
+        }
+        self.recorder.emitInterruption(.began)
+        try? await Task.sleep(for: .milliseconds(20))
+        self.clock.advance(by: 30)
+        self.recorder.emitInterruption(.ended)
+        try? await Task.sleep(for: .milliseconds(40))
+        XCTAssertEqual(self.recorder.resumeCallCount, 1)
+    }
+
+    @MainActor
     func testFirstBufferFaultWhileStartingRefusesStart() async {
         self.recorder.onStartCall = { [weak self] segmentID, sessionID in
             self?.recorder.emitPhoneAudioFault(PhoneAudioWriterFault(

@@ -54,6 +54,8 @@ nonisolated struct JournalEventRecord: Codable, Sendable, Equatable, Identifiabl
     var foundAt: Date
     var lastAt: Date
     var captureAt: Date?
+    /// The source record's own time. Import dates `foundAt` for retention and keeps this for the export.
+    var recordedAt: Date? = nil
     var count: Int
     var detail: JournalEventDetail?
 
@@ -66,6 +68,7 @@ nonisolated struct JournalEventRecord: Codable, Sendable, Equatable, Identifiabl
         case foundAt = "found_at"
         case lastAt = "last_at"
         case captureAt = "capture_at"
+        case recordedAt = "recorded_at"
         case count
         case detail
     }
@@ -218,26 +221,38 @@ nonisolated struct JournalEventStore: Sendable {
         self.prune(now: now, calendar: calendar)
     }
 
-    /// Writes a new legacy row. Returns false when that identity is already stored.
+    /// Writes a new legacy row dated at `now` for retention. The record's own time is `recordedAt`.
+    /// Returns false when that identity is already stored. An existing row is marked seen and not counted again.
     @discardableResult
-    func recordLegacy(segmentID: UUID, reason: String, recordedAt: Date, calendar: Calendar = .current) throws -> Bool {
+    func recordLegacy(
+        segmentID: UUID,
+        reason: String,
+        recordedAt: Date,
+        now: Date
+    ) throws -> Bool {
         let id = Self.legacyID(segmentID: segmentID, reason: reason, recordedAt: recordedAt)
         let url = self.eventURL(kind: .diagnostic, id: id)
-        if self.fileManager.fileExists(atPath: url.path) { return false }
+        if self.fileManager.fileExists(atPath: url.path) {
+            if !self.isSeen(id: id) {
+                try self.markSeen(id: id)
+            }
+            return false
+        }
         let record = JournalEventRecord(
             id: id,
             kind: .legacy,
             source: .audio,
             reason: reason,
             segmentID: segmentID.uuidString,
-            foundAt: recordedAt,
-            lastAt: recordedAt,
+            foundAt: now,
+            lastAt: now,
             captureAt: nil,
+            recordedAt: recordedAt,
             count: 1,
             detail: nil
         )
         try self.writeRecord(record, to: url)
-        self.prune(now: Date(), calendar: calendar)
+        try self.markSeen(id: id)
         return true
     }
 
@@ -325,24 +340,34 @@ nonisolated struct JournalEventStore: Sendable {
         try self.atomicWrite(body, to: self.importURL)
     }
 
-    /// Reads legacy interruption evidence. Does not delete anything. Returns nil when cancelled
+    /// Reads legacy interruption evidence. Does not delete source files. Returns nil when cancelled
     /// before the marker should be written. A file that does not decode increments `skipped` and stays.
+    /// Rows are dated at `now`. Prune runs once, after a pass that was not cancelled.
     func importLegacy(
         from mobileSegmentRoots: [URL],
-        isCancelled: () -> Bool = { false }
+        now: Date = Date(),
+        calendar: Calendar = .current,
+        isCancelled: @Sendable () -> Bool = { false }
     ) throws -> JournalImportRun? {
         if isCancelled() { return nil }
         var imported = 0
         var skipped = 0
         for root in mobileSegmentRoots {
             if isCancelled() { return nil }
-            try self.importInterruptions(in: root, imported: &imported, skipped: &skipped, isCancelled: isCancelled)
+            try self.importInterruptions(
+                in: root, now: now, imported: &imported, skipped: &skipped, isCancelled: isCancelled
+            )
             if isCancelled() { return nil }
-            try self.importEmptyTombstones(in: root, imported: &imported, skipped: &skipped, isCancelled: isCancelled)
+            try self.importEmptyTombstones(
+                in: root, now: now, imported: &imported, skipped: &skipped, isCancelled: isCancelled
+            )
             if isCancelled() { return nil }
-            try self.importManifests(in: root, imported: &imported, skipped: &skipped, isCancelled: isCancelled)
+            try self.importManifests(
+                in: root, now: now, imported: &imported, skipped: &skipped, isCancelled: isCancelled
+            )
         }
         if isCancelled() { return nil }
+        self.prune(now: now, calendar: calendar)
         return JournalImportRun(imported: imported, skipped: skipped)
     }
 
@@ -402,45 +427,53 @@ nonisolated struct JournalEventStore: Sendable {
         diagnostics.removeAll { self.removeIfExpired($0, ageCutoff: ageCutoff, now: now, calendar: calendar) }
         self.removeOverflow(losses, cap: Self.lossCap, now: now, calendar: calendar)
         self.removeOverflow(diagnostics, cap: Self.diagnosticCap, now: now, calendar: calendar)
+        self.pruneOrphanSeenMarks()
     }
 
     // MARK: - Import walk
 
     private func importInterruptions(
         in root: URL,
+        now: Date,
         imported: inout Int,
         skipped: inout Int,
-        isCancelled: () -> Bool
+        isCancelled: @Sendable () -> Bool
     ) throws {
         let directory = root
             .appendingPathComponent("interruptions", isDirectory: true)
             .appendingPathComponent("audio", isDirectory: true)
         let interruptionSkips = try self.importJSONFiles(in: directory, isCancelled: isCancelled) { data in
-            try self.importTombstoneData(data, imported: &imported, skipped: &skipped, requireUndecodable: false)
+            try self.importTombstoneData(
+                data, now: now, imported: &imported, skipped: &skipped, requireUndecodable: false
+            )
         }
         skipped += interruptionSkips
     }
 
     private func importEmptyTombstones(
         in root: URL,
+        now: Date,
         imported: inout Int,
         skipped: inout Int,
-        isCancelled: () -> Bool
+        isCancelled: @Sendable () -> Bool
     ) throws {
         let directory = root
             .appendingPathComponent("tombstones", isDirectory: true)
             .appendingPathComponent("empty", isDirectory: true)
         let tombstoneSkips = try self.importJSONFiles(in: directory, isCancelled: isCancelled) { data in
-            try self.importTombstoneData(data, imported: &imported, skipped: &skipped, requireUndecodable: true)
+            try self.importTombstoneData(
+                data, now: now, imported: &imported, skipped: &skipped, requireUndecodable: true
+            )
         }
         skipped += tombstoneSkips
     }
 
     private func importManifests(
         in root: URL,
+        now: Date,
         imported: inout Int,
         skipped: inout Int,
-        isCancelled: () -> Bool
+        isCancelled: @Sendable () -> Bool
     ) throws {
         for lifecycle in ["active", "pending", "failed"] {
             if isCancelled() { return }
@@ -462,7 +495,9 @@ nonisolated struct JournalEventStore: Sendable {
                         continue
                     }
                     do {
-                        try self.importManifestData(data, name: manifest.lastPathComponent, imported: &imported, skipped: &skipped)
+                        try self.importManifestData(
+                            data, name: manifest.lastPathComponent, now: now, imported: &imported, skipped: &skipped
+                        )
                     } catch is JournalLegacyDecodeError {
                         self.noteSkipped(manifest.lastPathComponent)
                         skipped += 1
@@ -476,7 +511,7 @@ nonisolated struct JournalEventStore: Sendable {
     /// function does not take them: one call cannot both borrow them and close over them.
     private func importJSONFiles(
         in directory: URL,
-        isCancelled: () -> Bool,
+        isCancelled: @Sendable () -> Bool,
         consume: (Data) throws -> Void
     ) throws -> Int {
         var skippedHere = 0
@@ -506,6 +541,7 @@ nonisolated struct JournalEventStore: Sendable {
 
     private func importTombstoneData(
         _ data: Data,
+        now: Date,
         imported: inout Int,
         skipped: inout Int,
         requireUndecodable: Bool
@@ -519,7 +555,7 @@ nonisolated struct JournalEventStore: Sendable {
             throw JournalLegacyDecodeError.undecodable
         }
         if requireUndecodable && reason != "audio_undecodable_container" { return }
-        if try self.recordLegacy(segmentID: segmentID, reason: reason, recordedAt: recordedAt) {
+        if try self.recordLegacy(segmentID: segmentID, reason: reason, recordedAt: recordedAt, now: now) {
             imported += 1
         }
     }
@@ -527,6 +563,7 @@ nonisolated struct JournalEventStore: Sendable {
     private func importManifestData(
         _ data: Data,
         name: String,
+        now: Date,
         imported: inout Int,
         skipped: inout Int
     ) throws {
@@ -541,7 +578,7 @@ nonisolated struct JournalEventStore: Sendable {
         guard let recordedString, let recordedAt = Self.makeInternetDate().date(from: recordedString) else {
             throw JournalLegacyDecodeError.undecodable
         }
-        if try self.recordLegacy(segmentID: segmentID, reason: reason, recordedAt: recordedAt) {
+        if try self.recordLegacy(segmentID: segmentID, reason: reason, recordedAt: recordedAt, now: now) {
             imported += 1
         }
     }
@@ -558,7 +595,8 @@ nonisolated struct JournalEventStore: Sendable {
         now: Date,
         calendar: Calendar
     ) -> Bool {
-        guard event.foundAt < ageCutoff else { return false }
+        let agedAt = event.kind == .loss ? event.foundAt : event.lastAt
+        guard agedAt < ageCutoff else { return false }
         if self.isProtectedUnseenLoss(event, now: now, calendar: calendar) { return false }
         self.deleteEvent(event)
         return true
@@ -586,6 +624,27 @@ nonisolated struct JournalEventStore: Sendable {
     private func deleteEvent(_ event: JournalEventRecord) {
         let url = self.eventURL(kind: event.kind == .loss ? .loss : .diagnostic, id: event.id)
         try? self.fileManager.removeItem(at: url)
+        try? self.fileManager.removeItem(at: self.seenURL(event.id))
+    }
+
+    /// A seen mark whose event is gone is not a notice and is not a diagnostic.
+    private func pruneOrphanSeenMarks() {
+        guard case .events(let events) = self.readEvents() else { return }
+        let live = Set(events.map(\.id))
+        switch self.childURLs(self.directoryURL("seen")) {
+        case .missing, .unreadable:
+            return
+        case .urls(let urls):
+            for url in urls where url.pathExtension == "json" {
+                guard let data = try? Data(contentsOf: url),
+                      let mark = try? Self.makeDecoder().decode(SeenMark.self, from: data) else {
+                    continue
+                }
+                if !live.contains(mark.id) {
+                    try? self.fileManager.removeItem(at: url)
+                }
+            }
+        }
     }
 
     // MARK: - Files
@@ -718,6 +777,23 @@ nonisolated struct JournalEventStore: Sendable {
         if let captureAt = record.captureAt {
             parts.append(formatter.string(from: captureAt))
         }
+        if let recordedAt = record.recordedAt {
+            parts.append("recorded=\(formatter.string(from: recordedAt))")
+        }
+        if record.count > 1 {
+            parts.append("count=\(record.count)")
+            parts.append("first=\(formatter.string(from: record.foundAt))")
+            parts.append("last=\(formatter.string(from: record.lastAt))")
+            if let duration = record.detail?.interruptionDuration {
+                parts.append("interruption_duration=\(duration)")
+            }
+            if let successes = record.detail?.configurationRestartSuccesses {
+                parts.append("configuration_restart_successes=\(successes)")
+            }
+            if let failures = record.detail?.configurationRestartFailures {
+                parts.append("configuration_restart_failures=\(failures)")
+            }
+        }
         parts.append(self.isSeen(id: record.id) ? "seen" : "unseen")
         return parts.joined(separator: " ")
     }
@@ -826,5 +902,115 @@ nonisolated enum JournalPartRemoval {
             }
             try fileManager.removeItem(at: url)
         }
+    }
+}
+
+/// Picks a URL a capture writer can create. A loss that cannot be recorded, or a part whose
+/// size cannot be read, leaves the old part in place and returns a fresh sibling name.
+nonisolated enum JournalPartClaim {
+    static func urlForNewCapture(
+        canonical url: URL,
+        source: JournalEventSource,
+        reason: String,
+        segmentID: UUID,
+        captureAt: Date?,
+        now: Date,
+        eventsRoot: URL,
+        fileManager: FileManager = .default
+    ) -> URL {
+        guard fileManager.fileExists(atPath: url.path) else { return url }
+        do {
+            try JournalPartRemoval.removeExisting(
+                at: url,
+                source: source,
+                reason: reason,
+                segmentID: segmentID,
+                captureAt: captureAt,
+                now: now,
+                eventsRoot: eventsRoot,
+                fileManager: fileManager
+            )
+        } catch {
+            journalEventLog.error("journal part claim kept the previous file reason=\(reason, privacy: .public)")
+        }
+        guard fileManager.fileExists(atPath: url.path) else { return url }
+        return self.freshURL(beside: url, fileManager: fileManager)
+    }
+
+    private static func freshURL(beside url: URL, fileManager: FileManager) -> URL {
+        let directory = url.deletingLastPathComponent()
+        let name = url.lastPathComponent
+        for index in 1...64 {
+            let candidate = directory.appendingPathComponent("\(name).\(index)", isDirectory: false)
+            if !fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return directory.appendingPathComponent("\(name).\(UUID().uuidString)", isDirectory: false)
+    }
+}
+
+/// What to do with an existing final when a finished part replaces it.
+nonisolated struct JournalFinalReplacement: Sendable {
+    var segmentID: UUID
+    var source: JournalEventSource
+    var captureAt: Date?
+    var now: Date
+    var eventsRoot: URL
+
+    static let reason = "screencast_final_replaced"
+
+    enum Decision: Sendable {
+        case replace
+        case keepBoth
+    }
+
+    func decision(partURL: URL, finalURL: URL, fileManager: FileManager) -> Decision {
+        switch JournalBoxedFile.existence(at: finalURL, rule: .screen, acceptedFrames: 0, fileManager: fileManager) {
+        case .absent:
+            return .replace
+        case .unreadableSize:
+            return .keepBoth
+        case .present(let existed):
+            if existed, !Self.sameBytes(partURL, finalURL, fileManager: fileManager) {
+                let store = JournalEventStore(rootURL: self.eventsRoot)
+                do {
+                    try store.recordLoss(
+                        segmentID: self.segmentID,
+                        source: self.source,
+                        reason: Self.reason,
+                        captureAt: self.captureAt,
+                        now: self.now
+                    )
+                } catch {
+                    journalEventLog.error("journal loss record failed reason=\(Self.reason, privacy: .public)")
+                    return .keepBoth
+                }
+            } else if !existed {
+                do {
+                    try JournalEventStore(rootURL: self.eventsRoot).recordDiagnostic(
+                        segmentID: self.segmentID,
+                        source: self.source,
+                        reason: Self.reason,
+                        captureAt: self.captureAt,
+                        now: self.now
+                    )
+                } catch {
+                    journalEventLog.error("journal diagnostic record failed reason=\(Self.reason, privacy: .public)")
+                }
+            }
+            return .replace
+        }
+    }
+
+    private static func sameBytes(_ partURL: URL, _ finalURL: URL, fileManager: FileManager) -> Bool {
+        guard let leftSize = (try? fileManager.attributesOfItem(atPath: partURL.path)[.size] as? NSNumber)?.int64Value,
+              let rightSize = (try? fileManager.attributesOfItem(atPath: finalURL.path)[.size] as? NSNumber)?.int64Value,
+              leftSize == rightSize,
+              let left = try? Data(contentsOf: partURL),
+              let right = try? Data(contentsOf: finalURL) else {
+            return false
+        }
+        return left == right
     }
 }

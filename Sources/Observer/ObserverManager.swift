@@ -531,17 +531,22 @@ private extension ObserverManager {
 
     private func noteObserverDiagnostic(reason: String, detail: JournalEventDetail? = nil) {
         self.diagnosticLog?.append(category: .diagnostics, message: reason, detail: reason)
-        do {
-            try self.journalEvents.recordDiagnostic(
-                segmentID: nil,
-                source: .audio,
-                reason: reason,
-                captureAt: nil,
-                now: self.clock.now(),
-                detail: detail
-            )
-        } catch {
-            managerLog.error("observer diagnostic record failed reason=\(reason, privacy: .public)")
+        let events = self.journalEvents
+        let now = self.clock.now()
+        Task.detached {
+            do {
+                try events.recordDiagnostic(
+                    segmentID: nil,
+                    source: .audio,
+                    reason: reason,
+                    captureAt: nil,
+                    now: now,
+                    detail: detail
+                )
+            } catch {
+                Logger(subsystem: "app.solstone.swift", category: "observer")
+                    .error("observer diagnostic record failed reason=\(reason, privacy: .public)")
+            }
         }
     }
 
@@ -550,6 +555,7 @@ private extension ObserverManager {
            fault.sessionID == self.startingSessionID,
            fault.segmentID == self.startingSegmentID {
             managerLog.error("observer: starting writer faulted: \(fault.reason, privacy: .public)")
+            self.diagnosticLog?.append(category: .diagnostics, message: fault.reason, detail: fault.reason)
             self.startGeneration &+= 1
             self.startingSessionID = nil
             self.startingSegmentID = nil
@@ -566,6 +572,7 @@ private extension ObserverManager {
         }
 
         managerLog.error("observer: active writer faulted: \(fault.reason, privacy: .public)")
+        self.diagnosticLog?.append(category: .diagnostics, message: fault.reason, detail: fault.reason)
         _ = await self.stopSession()
         self.state = .error(.unavailable(reason: "audio input unavailable"))
     }

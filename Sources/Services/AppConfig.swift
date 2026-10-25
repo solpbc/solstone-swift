@@ -34,6 +34,10 @@ final class AppConfig {
     @ObservationIgnored private let appGroupMirror: AppGroupMirror
     @ObservationIgnored private let journalMarkStore: JournalMarkStore
     @ObservationIgnored private var journalEvents: JournalEventStore?
+    /// Fires after a different journal's events have been marked seen and the identity file has been updated.
+    @ObservationIgnored var onJournalIdentityCommitted: (@MainActor () -> Void)?
+    /// Advances only after that commit, so a snapshot task can rewrite when the journal changes.
+    var journalIdentityEpoch = 0
 
     init(
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
@@ -164,6 +168,22 @@ final class AppConfig {
         } catch {
             appConfigLog.error("journal identity seed failed")
         }
+        self.retryJournalIdentityChange()
+    }
+
+    /// A mark-all that failed on the last pairing apply is tried again at the next launch.
+    private func retryJournalIdentityChange() {
+        guard let events = self.journalEvents else { return }
+        let pairing: StoredPairing?
+        do {
+            pairing = try self.store.load()
+        } catch {
+            return
+        }
+        guard let pairing, let computed = journalVersionMetadataIdentity(for: pairing) else { return }
+        let stored = events.readIdentity()
+        guard let stored, stored != "unknown", stored != computed else { return }
+        self.noteJournalIdentity(pairing)
     }
 
     func reflectCommittedPairing(_ pairing: StoredPairing) {
@@ -202,6 +222,8 @@ final class AppConfig {
         do {
             try events.markAllEventsSeen()
             try events.writeIdentity(newIdentity)
+            self.onJournalIdentityCommitted?()
+            self.journalIdentityEpoch += 1
         } catch {
             appConfigLog.error("journal identity change failed")
         }

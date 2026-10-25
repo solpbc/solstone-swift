@@ -168,6 +168,41 @@ final class JournalGapNoticeTests: XCTestCase {
         XCTAssertTrue(notice.isShowing)
     }
 
+    func testDelayUntilTheNextLocalDayIsAtLeastOneSecond() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let now = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 25, hour: 23, minute: 0)))
+        XCTAssertEqual(JournalGapNotice.delayUntilNextDay(from: now, calendar: calendar), 60 * 60)
+        let almost = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 26, hour: 0, minute: 0)))
+            .addingTimeInterval(-0.2)
+        XCTAssertEqual(JournalGapNotice.delayUntilNextDay(from: almost, calendar: calendar), 1)
+        let midnight = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 26, hour: 0, minute: 0)))
+        XCTAssertEqual(JournalGapNotice.delayUntilNextDay(from: midnight, calendar: calendar), 24 * 60 * 60)
+    }
+
+    func testAppSnapshotTaskWritesTheJournalGapField() throws {
+        let root = self.tempDirectory.appendingPathComponent("app-group", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let mirror = AppGroupMirror(rootURLProvider: { root })
+        guard case .success = writeObserverWidgetSnapshot(
+            mirror: mirror,
+            pairing: AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true),
+            microphonePermission: .granted,
+            session: .notLive,
+            sourceStates: [.observer: .active],
+            backlogCount: 0,
+            awaitingMarkConfirmation: false,
+            journalGap: true
+        ) else {
+            return XCTFail("snapshot write failed")
+        }
+        let decoded = try JSONDecoder().decode(
+            AppGroupMirror.Snapshot.self,
+            from: Data(contentsOf: root.appendingPathComponent(AppGroupMirror.Snapshot.fileName))
+        )
+        XCTAssertTrue(decoded.journalGap)
+    }
+
     func testForegroundClockChangeDoesNotWriteTheStore() throws {
         let calendar = Self.utc
         let now = self.clock.now()
@@ -199,7 +234,7 @@ final class JournalGapNoticeTests: XCTestCase {
         let attention = self.snapshot(journalGap: true, backlog: 0, needsAttention: true)
         XCTAssertEqual(ObserverStatusPresentations.small(snapshot: attention, sourceKind: .observer), .needsAttention)
         XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: attention), .needsAttention)
-        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: attention), .journalGap)
+        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: attention), .needsAttention)
 
         guard case .success = mirror.updateSessionAndSources(
             pairing: AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true),

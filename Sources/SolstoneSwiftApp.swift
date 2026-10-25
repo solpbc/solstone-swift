@@ -562,6 +562,9 @@ struct SolstoneSwiftApp: App {
             clock: observerClock
         )
         let journalEvents = mobileSegmentUploader.journalEvents
+        appConfig.onJournalIdentityCommitted = {
+            mobileSegmentTransferHolder.refreshJournalGap()
+        }
         appConfig.attachJournalEvents(journalEvents)
         log.journalEvents = journalEvents
         let observerRecorder = Self.makeObserverRecorder(journalEventsDirectory: journalEvents.rootURL)

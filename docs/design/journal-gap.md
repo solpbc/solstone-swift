@@ -1,0 +1,13 @@
+# Journal gap
+
+A loss is shared audio or screen material that will not reach the journal. While an unseen loss was found in the last 7 local calendar days, and nothing more urgent is happening, the pill, the status view, on this device, and the widgets say there is a gap and which day. The day line uses the capture day. The symbol is `calendar.badge.minus`. The widget field is `journalGap`. A missing field is no gap.
+
+Looking at the status content marks the losses then on screen. That look is one visit: it starts when the content is visible and the scene is active, and it ends when the content hides or the scene leaves active. Losses that appear during the visit stay on screen and unmarked until the next visit. Nothing is marked while the scene is not active. An empty surface marks nothing.
+
+Events live in `AppGroup/JournalEvents`: one file per loss, one file per diagnostic or imported row, and one file per seen mark. The broadcast extension and the app use the same directory. A chunk under 0.1 seconds is a diagnostic. A file whose size cannot be read stays on disk and is not an event. A store failure does not stop capture: the new material is written under a fresh name and the previous part stays for a later pass. Replacing an existing final records that file when it existed and is not an identical copy.
+
+Imported interruption files are dated at import for retention and keep the record's own time in the diagnostics export. They are seen. Importing them again does not count them twice. The source files stay. Nothing under the Caches root is deleted.
+
+The last journal identity is `journal-identity.json`. Unpairing does not erase it. The same journal, an unknown identity, or a missing file marks nothing. A different known journal marks every event seen. A mark-all that fails is tried again on the next launch.
+
+Diagnostics keep a collapsed row until 30 days after its last occurrence. A seen mark leaves when its event is gone. Losses still expire from the day they were found. Unseen losses inside the notice window stay.

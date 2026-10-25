@@ -25,6 +25,13 @@ nonisolated enum JournalGapNotice: Equatable, Sendable {
 
     var lossIDs: [String] { self.losses.map(\.id) }
 
+    /// Seconds until the next local midnight. At least one second, so a pass that lands on the boundary waits for the next day.
+    static func delayUntilNextDay(from now: Date, calendar: Calendar = .current) -> TimeInterval {
+        let start = calendar.startOfDay(for: now)
+        guard let next = calendar.date(byAdding: .day, value: 1, to: start) else { return 1 }
+        return max(1, next.timeIntervalSince(now))
+    }
+
     static func read(store: JournalEventStore, now: Date, calendar: Calendar = .current) -> JournalGapNotice {
         switch store.unseenLosses(now: now, calendar: calendar) {
         case .unreadable:

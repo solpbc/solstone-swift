@@ -16,7 +16,7 @@ nonisolated final class ScreencastBroadcastAudioWriter: ScreencastBroadcastAudio
     private var audioInput: AVAssetWriterInput?
     private var rootURL: URL?
     private var handoff: MobileSegmentScreencastHandoffRecord?
-    private var partURL: URL?
+    private(set) var partURL: URL?
     private var finalURL: URL?
     private var sessionStarted = false
     private(set) var isOpen = false
@@ -41,22 +41,20 @@ nonisolated final class ScreencastBroadcastAudioWriter: ScreencastBroadcastAudio
         let finalURL = MobileSegmentScreencastPaths.url(root: rootURL, relativePath: finalRelative)
 
         try self.fileManager.createDirectory(at: partURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if self.fileManager.fileExists(atPath: partURL.path) {
-            try JournalPartRemoval.removeExisting(
-                at: partURL,
-                source: .screenAudio,
-                reason: "screencast_part_replaced",
-                segmentID: handoff.segmentID,
-                captureAt: handoff.startedAt,
-                now: now,
-                eventsRoot: JournalEventStore.directory(inAppGroupRoot: rootURL),
-                fileManager: self.fileManager
-            )
-        }
+        let captureURL = JournalPartClaim.urlForNewCapture(
+            canonical: partURL,
+            source: .screenAudio,
+            reason: "screencast_part_replaced",
+            segmentID: handoff.segmentID,
+            captureAt: handoff.startedAt,
+            now: now,
+            eventsRoot: JournalEventStore.directory(inAppGroupRoot: rootURL),
+            fileManager: self.fileManager
+        )
 
         self.rootURL = rootURL
         self.handoff = handoff
-        self.partURL = partURL
+        self.partURL = captureURL
         self.finalURL = finalURL
         self.writer = nil
         self.audioInput = nil
@@ -111,7 +109,9 @@ nonisolated final class ScreencastBroadcastAudioWriter: ScreencastBroadcastAudio
         guard let writer = self.writer,
               let audioInput = self.audioInput,
               let partURL = self.partURL,
-              let finalURL = self.finalURL
+              let finalURL = self.finalURL,
+              let rootURL = self.rootURL,
+              let handoff = self.handoff
         else {
             self.writer = nil
             self.audioInput = nil
@@ -152,7 +152,18 @@ nonisolated final class ScreencastBroadcastAudioWriter: ScreencastBroadcastAudio
         }
 
         do {
-            try MobileSegmentScreencastJSONStore.finalizePart(partURL: partURL, finalURL: finalURL, fileManager: self.fileManager)
+            try MobileSegmentScreencastJSONStore.finalizePart(
+                partURL: partURL,
+                finalURL: finalURL,
+                fileManager: self.fileManager,
+                replacement: JournalFinalReplacement(
+                    segmentID: handoff.segmentID,
+                    source: .screenAudio,
+                    captureAt: handoff.startedAt,
+                    now: now,
+                    eventsRoot: JournalEventStore.directory(inAppGroupRoot: rootURL)
+                )
+            )
         } catch {
             screencastAudioLog.error("audio writer finalizePart failed: \(String(describing: error), privacy: .public)")
         }

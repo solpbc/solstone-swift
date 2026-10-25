@@ -110,6 +110,42 @@ final class MobileSegmentEngineTests: XCTestCase {
         XCTAssertEqual(rotateURLs.count, 3)
     }
 
+    func testChunkUnderMinimumDurationKeepsAudioOnTheNextSegment() async throws {
+        let harness = self.makeHarness()
+        var currentAudioURL: URL?
+        harness.engine.rotateAudio = { nextURL, _ in
+            let finalizedURL = try XCTUnwrap(currentAudioURL)
+            try Data("next-audio".utf8).write(to: nextURL)
+            currentAudioURL = nextURL
+            return ObserverRecordedChunk(url: finalizedURL, duration: 0.05)
+        }
+        let initialAudioURL = try await harness.engine.startAudio(mode: .meeting)
+        currentAudioURL = initialAudioURL
+        try Data(repeating: 0x41, count: 48).write(to: initialAudioURL)
+        let initialSegmentID = try XCTUnwrap(try harness.store.list(.active).first).lastPathComponent
+        let losses = harness.uploader.journalEvents.rootURL.appendingPathComponent("losses", isDirectory: false)
+        try FileManager.default.createDirectory(at: losses.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("blocked".utf8).write(to: losses)
+        await self.yieldToMainActor()
+        self.clock.advance(by: 300)
+        let diagnostics = harness.uploader.journalEvents.rootURL.appendingPathComponent("diagnostics", isDirectory: true)
+        try await self.waitFor("short chunk keeps the next audio") {
+            guard let active = try? harness.store.list(.active),
+                  active.count == 1,
+                  let only = active.first,
+                  only.lastPathComponent != initialSegmentID,
+                  (try? harness.store.readManifest(in: only))?.openedWithSources.contains(.audio) == true
+            else { return false }
+            let files = try? FileManager.default.contentsOfDirectory(at: diagnostics, includingPropertiesForKeys: nil)
+            return files?.contains { $0.lastPathComponent.contains("audio_below_min_duration") } == true
+        }
+        let active = try XCTUnwrap(try harness.store.list(.active).first)
+        let manifest = try harness.store.readManifest(in: active)
+        XCTAssertTrue(manifest.openedWithSources.contains(.audio))
+        let files = try FileManager.default.contentsOfDirectory(at: diagnostics, includingPropertiesForKeys: nil)
+        XCTAssertTrue(files.contains { $0.lastPathComponent.contains("audio_below_min_duration") })
+    }
+
     func testStableSourceSetRollsEvery300SecondsWithAdjacentWindows() async throws {
         let harness = self.makeHarness()
         try await harness.engine.startLocation(tier: .light, accuracy: .full)

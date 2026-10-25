@@ -4,38 +4,39 @@
 import Foundation
 import Observation
 
-/// Shell-owned visit. Rotation and disappearing views do not start or end it.
-/// An already-visible surface does not capture an empty set. The visit starts when that surface first has losses to show.
+/// One continuous showing of the status content while the scene is active.
+///
+/// It starts when that content becomes visible with the scene active, or when the scene
+/// becomes active with the content visible. It ends when the content stops showing or the
+/// scene leaves active. The start marks the unseen losses then on screen. A loss that
+/// appears during the visit stays on screen and unmarked until the next visit. An empty
+/// start marks nothing.
 @MainActor
 @Observable
 final class JournalGapVisit {
+    /// True for the whole visit, including one that started with nothing to mark.
     private(set) var didCapture = false
     private(set) var captured: [JournalEventRecord] = []
 
     func beginNewVisit(live: [JournalEventRecord], store: JournalEventStore) {
         self.end()
-        self.captureIfNeeded(live: live, store: store)
+        self.start(live: live, store: store)
     }
 
-    /// Scene active while the surface is still up. Starts a visit only when none is in progress.
+    /// The scene became active while the surface is up. That starts a new visit.
     func foreground(live: [JournalEventRecord], store: JournalEventStore) {
-        self.captureIfNeeded(live: live, store: store)
+        self.beginNewVisit(live: live, store: store)
     }
 
+    /// The scene left active. Nothing is marked.
+    func background() {
+        self.end()
+    }
+
+    /// Starts a visit when none is in progress. A visit already underway does not mark arrivals.
     func captureIfNeeded(live: [JournalEventRecord], store: JournalEventStore) {
         guard !self.didCapture else { return }
-        guard !live.isEmpty else { return }
-        self.didCapture = true
-        var kept: [JournalEventRecord] = []
-        for loss in live {
-            do {
-                try store.markSeen(id: loss.id)
-                kept.append(loss)
-            } catch {
-                continue
-            }
-        }
-        self.captured = kept
+        self.start(live: live, store: store)
     }
 
     func end() {
@@ -57,5 +58,19 @@ final class JournalGapVisit {
         let rows = self.displayed(live: live)
         guard !rows.isEmpty else { return .absent }
         return .showing(dayLine: JournalGapNotice.dayLine(for: rows, now: now, calendar: calendar), losses: rows)
+    }
+
+    private func start(live: [JournalEventRecord], store: JournalEventStore) {
+        self.didCapture = true
+        var kept: [JournalEventRecord] = []
+        for loss in live {
+            do {
+                try store.markSeen(id: loss.id)
+                kept.append(loss)
+            } catch {
+                continue
+            }
+        }
+        self.captured = kept
     }
 }
