@@ -41,7 +41,7 @@ import os
             sessionID: sessionID,
             sourceFormat: format,
             clock: clock,
-            interruptionDirectory: interruptionDir,
+            journalEventsDirectory: interruptionDir,
             onPhoneAudioFault: onFault
         )
         return (writer, audioURL, segmentID, sessionID)
@@ -167,8 +167,16 @@ import os
         XCTAssertEqual(receipt.phase, .faulted)
         XCTAssertEqual(receipt.reason, "audio_writer_failed")
 
-        let interruptionFile = writer.interruptionDirectory.appendingPathComponent("\(segmentID.uuidString).json")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: interruptionFile.path))
+        let faultID = JournalEventStore.diagnosticID(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_writer_failed",
+            writerFault: true
+        )
+        let faultFile = writer.journalEventsDirectory
+            .appendingPathComponent("diagnostics", isDirectory: true)
+            .appendingPathComponent("\(faultID).json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: faultFile.path))
     }
 
     // 4. Unsupported format fails before start
@@ -185,7 +193,7 @@ import os
                 sessionID: UUID(),
                 sourceFormat: badFormat,
                 clock: SystemObserverClock(),
-                interruptionDirectory: interruptionDir
+                journalEventsDirectory: interruptionDir
             )
         )
     }
@@ -246,7 +254,7 @@ import os
             sessionID: UUID(),
             sourceFormat: format,
             clock: SystemObserverClock(),
-            interruptionDirectory: interruptionDir
+            journalEventsDirectory: interruptionDir
         )
 
         do {

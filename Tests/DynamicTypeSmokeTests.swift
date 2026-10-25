@@ -78,8 +78,12 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         )
         let observerManager = ObserverManager(
             recorder: MockObserverRecorder(),
-            mobileSegmentEngine: mobileSegmentEngine
+            mobileSegmentEngine: mobileSegmentEngine,
+            journalEvents: mobileSegmentUploader.journalEvents
         )
+        let screencastRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DynamicTypeSmokeTests-Screencast-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: screencastRoot) }
         let locationManager = LocationManager(
             provider: MockLocationProvider(),
             mobileSegmentEngine: mobileSegmentEngine,
@@ -178,7 +182,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(shareImportStore)
                 .environment(shareTransferHolder)
                 .environment(locationManager)
-                .environment(ScreencastManager())
+                .environment(ScreencastManager(rootURL: screencastRoot))
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
                 .environment(watchSourceFacts)
@@ -201,7 +205,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(observerManager)
             .environment(ObserverSourcePauseState())
             .environment(locationManager)
-            .environment(ScreencastManager())
+            .environment(ScreencastManager(rootURL: screencastRoot))
             .environment(mobileSegmentUploader)
             .environment(mobileSegmentTransferHolder)
             .environment(watchSourceFacts)
@@ -282,6 +286,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(mobileSegmentUploader)
                 .environment(mobileSegmentTransferHolder)
                 .environment(connectionStallMonitor)
+                .environment(JournalGapVisit())
         }
         let onThisPhoneItemDetailView = NavigationStack {
             OnThisPhoneItemDetailView(
@@ -330,6 +335,7 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 .environment(locationManager)
                 .environment(PairFlowRouter())
                 .environment(journalSendRelease)
+                .environment(JournalGapVisit())
         }
         try self.assertHosted(shelfPane.environment(\.dynamicTypeSize, .accessibility3))
         try self.assertHosted(statusPane.environment(\.dynamicTypeSize, .accessibility3))

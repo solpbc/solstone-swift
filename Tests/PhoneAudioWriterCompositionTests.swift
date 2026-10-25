@@ -45,7 +45,7 @@ final class PhoneAudioWriterCompositionTests: XCTestCase {
     func testOwnershipAcquiredDuringInspectionDefersOnlyTheOwnedSegment() async throws {
         let root = try self.temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = MobileSegmentStore(rootURL: root)
+        let store = MobileSegmentStore(rootURL: root.appendingPathComponent("MobileSegment", isDirectory: true))
         let (ownedID, ownedDirectory) = try self.failedFixture(store: store)
         let (otherID, otherDirectory) = try self.failedFixture(store: store)
         defer { PhoneAudioWriterLease.release(ownedID) }
@@ -56,16 +56,19 @@ final class PhoneAudioWriterCompositionTests: XCTestCase {
         let ownedResult = try await uploader.resolveFinalizeFailure(segmentID: ownedID, directory: ownedDirectory, lifecycle: .failed)
         XCTAssertEqual(ownedResult, .deferred)
         XCTAssertEqual(try Data(contentsOf: store.audioURL(in: ownedDirectory)), Data([0x41]))
-        XCTAssertEqual(store.audioInterruptionCount(), 0)
+        XCTAssertEqual(self.journalEventCount(store), 0)
         let otherResult = try await uploader.resolveFinalizeFailure(segmentID: otherID, directory: otherDirectory, lifecycle: .failed)
         XCTAssertEqual(otherResult, .repend)
-        XCTAssertEqual(store.audioInterruptionCount(), 1)
+        let otherRecords = self.journalRecords(store)
+        XCTAssertEqual(otherRecords.count, 1)
+        XCTAssertEqual(otherRecords.first?.kind, .diagnostic)
+        XCTAssertEqual(otherRecords.first?.reason, "audio_capture_unfinished")
     }
 
     func testRecoveryRestoresPrefixRetainedAcrossCancellationExit() async throws {
         let root = try self.temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = MobileSegmentStore(rootURL: root)
+        let store = MobileSegmentStore(rootURL: root.appendingPathComponent("MobileSegment", isDirectory: true))
         let (id, directory) = try self.failedFixture(store: store)
         let audio = store.audioURL(in: directory)
         try FileManager.default.moveItem(at: audio, to: audio.appendingPathExtension("retained"))
@@ -74,13 +77,17 @@ final class PhoneAudioWriterCompositionTests: XCTestCase {
         XCTAssertEqual(resolution, .repend)
         let pending = store.segmentDirectoryURL(.pending, segmentID: id)
         XCTAssertEqual(try Data(contentsOf: store.audioURL(in: pending)), Data([0x41]))
-        XCTAssertEqual(store.audioInterruptionCount(), 1)
+        let records = self.journalRecords(store)
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.kind, .diagnostic)
+        XCTAssertEqual(records.first?.reason, "audio_capture_unfinished")
+        XCTAssertFalse(records.contains { $0.kind == .loss })
     }
 
     func testTerminalFailedOutcomeDoesNotMoveAnOwnedActiveDirectory() async throws {
         let root = try self.temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = MobileSegmentStore(rootURL: root)
+        let store = MobileSegmentStore(rootURL: root.appendingPathComponent("MobileSegment", isDirectory: true))
         let id = UUID()
         var manifest = MobileSegmentManifest(segmentID: id, startedAt: Date().addingTimeInterval(-600),
             openedWithSources: [.audio], activeSourceSetVersion: 1)
@@ -96,5 +103,18 @@ final class PhoneAudioWriterCompositionTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: store.audioURL(in: active)), Data([0x41]))
         XCTAssertTrue(try store.list(.failed).isEmpty)
         XCTAssertTrue(try store.list(.pending).isEmpty)
+    }
+
+    private func journalRecords(_ store: MobileSegmentStore, file: StaticString = #filePath, line: UInt = #line) -> [JournalEventRecord] {
+        let events = JournalEventStore(rootURL: JournalEventStore.directory(besideMobileSegmentRoot: store.rootURL))
+        guard case .events(let records) = events.readEvents() else {
+            XCTFail("journal events unreadable", file: file, line: line)
+            return []
+        }
+        return records
+    }
+
+    private func journalEventCount(_ store: MobileSegmentStore, file: StaticString = #filePath, line: UInt = #line) -> Int {
+        self.journalRecords(store, file: file, line: line).count
     }
 }

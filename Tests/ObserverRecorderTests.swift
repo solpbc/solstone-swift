@@ -301,7 +301,10 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
     @MainActor
     func testStopDoesNotDeactivateSessionItDidNotActivate() async {
         let spy = SpyAudioSession(category: .playAndRecord)
-        let recorder = LiveObserverRecorder(session: spy)
+        let recorder = LiveObserverRecorder(
+            session: spy,
+            journalEventsDirectory: FileManager.default.temporaryDirectory
+        )
 
         _ = try? await recorder.stop()
 
@@ -315,7 +318,8 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
         let recorder = LiveObserverRecorder(
             engine: engine,
             session: SpyAudioSession(category: .record),
-            notificationCenter: center
+            notificationCenter: center,
+            journalEventsDirectory: FileManager.default.temporaryDirectory
         )
         let faults = OSAllocatedUnfairLock<[ObserverEngineFault]>(initialState: [])
         recorder.onEngineFault = { fault in
@@ -340,7 +344,8 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
         let recorder = LiveObserverRecorder(
             engine: engine,
             session: SpyAudioSession(category: .record),
-            notificationCenter: center
+            notificationCenter: center,
+            journalEventsDirectory: FileManager.default.temporaryDirectory
         )
         let faults = OSAllocatedUnfairLock<[ObserverEngineFault]>(initialState: [])
         recorder.onEngineFault = { fault in

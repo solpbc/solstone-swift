@@ -300,6 +300,16 @@ primer-shots: deps
 		-derivedDataPath $(DERIVED) \
 		-resultBundlePath build/primer-shots.xcresult
 
+# The journal-gap notice, four attachments in one result bundle.
+gap-shots: deps
+	@rm -rf build/gap-shots.xcresult
+	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
+		-only-testing:solstone-swiftUITests/JournalGapShotTests \
+		-skipMacroValidation \
+		-destination '$(SIM_DESTINATION)' \
+		-derivedDataPath $(DERIVED) \
+		-resultBundlePath build/gap-shots.xcresult
+
 integration-test: PORT ?= 7071
 integration-test: sim
 	@set -eu; \

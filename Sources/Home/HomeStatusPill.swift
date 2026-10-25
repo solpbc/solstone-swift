@@ -12,8 +12,8 @@ import SwiftUI
 nonisolated enum HomeStatusPillState: Equatable, Sendable {
     /// A journal, reachable, nothing waiting.
     case caughtUp
-    /// A journal, reachable, nothing waiting, but some owner audio never reached it.
-    case audioInterrupted
+    /// A journal, reachable, nothing waiting, but something shared will not reach it.
+    case journalGap
     /// Material is moving or queued to move.
     case syncing
     /// Connecting or reconnecting to the journal.
@@ -33,7 +33,7 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
         hasBacklog: Bool,
         isStalled: Bool,
         awaitingMarkConfirmation: Bool,
-        hasAudioInterruption: Bool = false
+        hasJournalGap: Bool = false
     ) -> HomeStatusPillState {
         guard isPaired else { return .notPaired }
         if isStalled { return .stalled }
@@ -47,7 +47,7 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
                 return .awaitingMarkConfirmation
             }
             if hasBacklog { return .syncing }
-            return hasAudioInterruption ? .audioInterrupted : .caughtUp
+            return hasJournalGap ? .journalGap : .caughtUp
         }
     }
 
@@ -71,7 +71,7 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
     func label(hasBacklog: Bool) -> String {
         switch self {
         case .caughtUp: SourceVocabulary.connectedLabel
-        case .audioInterrupted: SourceVocabulary.audioInterruptedHeadline
+        case .journalGap: SourceVocabulary.journalGapHeadline
         case .syncing: SourceVocabulary.syncingLabel
         case .connecting: SourceVocabulary.statusConnectingLabel
         case .offline: SourceVocabulary.statusOfflineLabel
@@ -92,7 +92,7 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
     var uiTestStateName: String {
         switch self {
         case .caughtUp: "caughtUp"
-        case .audioInterrupted: "audioInterrupted"
+        case .journalGap: "journalGap"
         case .syncing: "syncing"
         case .connecting: "connecting"
         case .offline: "offline"
@@ -136,7 +136,7 @@ struct HomeStatusDot: View {
         switch self.state {
         case .caughtUp: .solSavedGreen
         case .syncing: .solOrange
-        case .audioInterrupted, .connecting, .offline, .notPaired, .stalled, .awaitingMarkConfirmation: .secondary
+        case .journalGap, .connecting, .offline, .notPaired, .stalled, .awaitingMarkConfirmation: .secondary
         }
     }
 }

@@ -94,7 +94,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
     private let clock: any ObserverClock
-    private let interruptionDirectory: URL
+    private let journalEventsDirectory: URL
     private let tapState = ObserverTapWriter()
 
     private var writer: PhoneAudioFragmentWriter?
@@ -112,7 +112,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
         clock: any ObserverClock = SystemObserverClock(),
-        interruptionDirectory: URL? = nil
+        journalEventsDirectory: URL
     ) {
         self.engine = engine
         self.captureNode = captureNode
@@ -120,8 +120,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
         self.clock = clock
-        self.interruptionDirectory = interruptionDirectory
-            ?? MobileSegmentStore(fileManager: fileManager).audioInterruptionDirectory()
+        self.journalEventsDirectory = journalEventsDirectory
         super.init()
     }
 
@@ -166,7 +165,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
                 sessionID: sessionID,
                 sourceFormat: format,
                 clock: self.clock,
-                interruptionDirectory: self.interruptionDirectory,
+                journalEventsDirectory: self.journalEventsDirectory,
                 onPhoneAudioFault: self.onPhoneAudioFault
             )
             try await writer.start()
@@ -231,7 +230,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
                 sessionID: sessionID,
                 sourceFormat: format,
                 clock: self.clock,
-                interruptionDirectory: self.interruptionDirectory,
+                journalEventsDirectory: self.journalEventsDirectory,
                 onPhoneAudioFault: self.onPhoneAudioFault
             )
             try await nextWriter.start()

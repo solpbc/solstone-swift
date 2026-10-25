@@ -156,9 +156,10 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
     let subline: String?
     let region: Region
     let showsStandingSyncFootnote: Bool
-    /// The interruption notice beside a lead that is about something else (held, offline,
+    /// The gap notice beside a lead that is about something else (held, offline,
     /// sending, no journal). When the notice is itself the lead, this is false.
-    var showsAudioInterruptionNotice = false
+    var showsJournalGapNotice = false
+    var journalGapDayLine: String? = nil
 
     var buttonTitle: String? {
         switch self.region {
@@ -178,34 +179,38 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
         pillState: HomeStatusPillState,
         waitingTotal: Int,
         showsConnectionDetails: Bool,
-        hasAudioInterruption: Bool = false
+        gapDayLine: String? = nil
     ) -> StatusPaneLead {
         var resolved = Self.resolveLead(
             pillState: pillState,
             waitingTotal: waitingTotal,
-            showsConnectionDetails: showsConnectionDetails
+            showsConnectionDetails: showsConnectionDetails,
+            gapDayLine: gapDayLine
         )
-        resolved.showsAudioInterruptionNotice = hasAudioInterruption && pillState != .audioInterrupted
+        resolved.showsJournalGapNotice = gapDayLine != nil && pillState != .journalGap
+        resolved.journalGapDayLine = gapDayLine
         return resolved
     }
 
     private static func resolveLead(
         pillState: HomeStatusPillState,
         waitingTotal: Int,
-        showsConnectionDetails: Bool
+        showsConnectionDetails: Bool,
+        gapDayLine: String? = nil
     ) -> StatusPaneLead {
-        if pillState == .audioInterrupted {
+        if pillState == .journalGap {
             // The journal is reachable and nothing is waiting, so the connection row stays
             // `connected`; the lead says what did not arrive.
             return StatusPaneLead(
-                lead: .headline(SourceVocabulary.audioInterruptedHeadline),
-                subline: SourceVocabulary.audioInterruptedLine,
+                lead: .headline(SourceVocabulary.journalGapHeadline),
+                subline: gapDayLine ?? SourceVocabulary.journalGapUndated,
                 region: .status(
                     title: SourceVocabulary.connectedLabel,
                     identifier: "shell.pane.status.connected",
                     accessibilityValue: SourceVocabulary.connectedLabel
                 ),
-                showsStandingSyncFootnote: showsConnectionDetails
+                showsStandingSyncFootnote: showsConnectionDetails,
+                journalGapDayLine: gapDayLine
             )
         }
         if pillState == .awaitingMarkConfirmation {
@@ -247,7 +252,7 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
         if waitingTotal > 0 {
             let statusLine: String = switch pillState {
             case .syncing: SourceVocabulary.syncingToYourJournal
-            case .caughtUp, .audioInterrupted: SourceVocabulary.connectedLabel
+            case .caughtUp, .journalGap: SourceVocabulary.connectedLabel
             case .connecting: SourceVocabulary.statusConnectingLabel
             case .offline: SourceVocabulary.heldOnThisDevice
             case .notPaired: SourceVocabulary.dayLocalityNoJournal
@@ -265,7 +270,7 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
             case .offline: SourceVocabulary.heldOnThisDevice
             case .connecting: SourceVocabulary.statusConnectingLabel
             case .caughtUp, .syncing: SourceVocabulary.syncedHeadline
-            case .audioInterrupted: SourceVocabulary.audioInterruptedHeadline
+            case .journalGap: SourceVocabulary.journalGapHeadline
             case .stalled: SourceVocabulary.stallCantReachYourJournal
             case .awaitingMarkConfirmation: SourceVocabulary.awaitingMarkConfirmationLine
             }
@@ -292,6 +297,7 @@ struct StatusPane: View {
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(ProblemReportsManager.self) private var problemReportsManager
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
+    @Environment(JournalGapVisit.self) private var journalGapVisit
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
@@ -344,12 +350,20 @@ struct StatusPane: View {
         self.probeAlive ? .green : .orange
     }
 
+    /// Lines captured for this visit. The pill follows the live reader; this pane keeps these.
+    private var displayedJournalGap: JournalGapNotice {
+        self.journalGapVisit.displayedNotice(
+            live: self.mobileSegmentTransferHolder.journalGapNotice.losses,
+            now: Date()
+        )
+    }
+
     private var leadModel: StatusPaneLead {
         StatusPaneLead.resolve(
             pillState: self.pillState,
             waitingTotal: self.waitingTotal,
             showsConnectionDetails: self.showsConnectionDetails,
-            hasAudioInterruption: self.mobileSegmentTransferHolder.hasAudioInterruption
+            gapDayLine: self.displayedJournalGap.dayLine
         )
     }
 
@@ -418,18 +432,18 @@ struct StatusPane: View {
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("shell.pane.status.lead")
 
-            if self.leadModel.showsAudioInterruptionNotice {
+            if self.leadModel.showsJournalGapNotice {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(SourceVocabulary.audioInterruptedHeadline)
+                    Text(SourceVocabulary.journalGapHeadline)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text(SourceVocabulary.audioInterruptedLine)
+                    Text(self.leadModel.journalGapDayLine ?? SourceVocabulary.journalGapUndated)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
                 .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("shell.pane.status.audioInterrupted")
+                .accessibilityIdentifier("shell.pane.status.journalGap")
             }
         }
     }
@@ -477,7 +491,7 @@ struct StatusPane: View {
             hasBacklog: self.waitingTotal > 0,
             isStalled: self.connectionStallMonitor.isStalled,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-            hasAudioInterruption: self.mobileSegmentTransferHolder.hasAudioInterruption
+            hasJournalGap: self.displayedJournalGap.isShowing
         )
     }
 

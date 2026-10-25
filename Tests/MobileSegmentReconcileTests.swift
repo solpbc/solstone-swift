@@ -170,7 +170,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
             try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: audioURL.path)
         }
 
-        let countBefore = harness.store.audioInterruptionCount()
+        let countBefore = self.journalEventCount(harness.store)
         await harness.uploader.resumeFromDisk()
 
         let failedDir = harness.store.segmentDirectoryURL(.failed, segmentID: segmentID)
@@ -181,7 +181,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
         let tombstoneURL = harness.store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
         XCTAssertFalse(FileManager.default.fileExists(atPath: tombstoneURL.path))
-        XCTAssertEqual(harness.store.audioInterruptionCount(), countBefore)
+        XCTAssertEqual(self.journalEventCount(harness.store), countBefore)
 
         let failure = try XCTUnwrap(harness.store.loadFailure(in: failedDir))
         XCTAssertTrue(MobileSegmentUploader.finalizeFailureStages.contains(failure.stage))
@@ -1351,8 +1351,16 @@ final class MobileSegmentReconcileTests: XCTestCase {
         let harness = try await self.makeHarness()
         let cleanFixtureURL = try self.audioRecoveryFixtureURL(named: "clean12.m4a")
 
+        let events = JournalEventStore(rootURL: JournalEventStore.directory(besideMobileSegmentRoot: harness.store.rootURL))
+        XCTAssertTrue(try events.openGate(now: self.clock.now()))
         let interruptedID = UUID()
-        try harness.store.writeAudioInterruption(segmentID: interruptedID, reason: "audio_capture_unfinished", now: self.clock.now())
+        try events.recordLoss(
+            segmentID: interruptedID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: self.clock.now(),
+            now: self.clock.now()
+        )
 
         let malformedID = UUID()
         try self.writeActiveAudio(segmentID: malformedID, store: harness.store, state: .unresolved, includeFile: true, readable: true)
@@ -1377,14 +1385,13 @@ final class MobileSegmentReconcileTests: XCTestCase {
         let uploader1 = MobileSegmentUploader(store: harness.store, clock: self.clock)
         XCTAssertEqual(uploader1.finalizeFailedCount, 1)
 
-        // Interruption for pre-written audio_capture_unfinished id still reads back
-        let interruptionBefore = try harness.store.readTombstone(
-            at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(interruptedID.uuidString).json")
-        )
-        XCTAssertEqual(interruptionBefore.reason, "audio_capture_unfinished")
-        XCTAssertEqual(harness.store.audioInterruptionCount(), 1)
+        guard case .events(let unseenBefore) = events.unseenLosses(now: self.clock.now()) else {
+            XCTFail("journal events unreadable")
+            return
+        }
+        XCTAssertEqual(unseenBefore.map(\.id), [JournalEventStore.lossID(segmentID: interruptedID, source: .audio)])
 
-        // While finalizeFailedCount > 0, pill and widgets are not caughtUp (backlog beats interruption headline)
+        // While finalizeFailedCount > 0, the pill is sending. The gap sits beside that lead.
         let backlog = uploader1.finalizeFailedCount
         let pillWithBacklog = HomeStatusPillState.resolve(
             isPaired: true,
@@ -1392,17 +1399,18 @@ final class MobileSegmentReconcileTests: XCTestCase {
             hasBacklog: backlog > 0,
             isStalled: false,
             awaitingMarkConfirmation: false,
-            hasAudioInterruption: harness.store.audioInterruptionCount() > 0
+            hasJournalGap: true
         )
-        XCTAssertNotEqual(pillWithBacklog, .caughtUp)
+        XCTAssertEqual(pillWithBacklog, .syncing)
 
         let leadWithBacklog = StatusPaneLead.resolve(
             pillState: pillWithBacklog,
             waitingTotal: backlog,
             showsConnectionDetails: true,
-            hasAudioInterruption: harness.store.audioInterruptionCount() > 0
+            gapDayLine: SourceVocabulary.journalGapToday
         )
-        _ = leadWithBacklog
+        XCTAssertTrue(leadWithBacklog.showsJournalGapNotice)
+        XCTAssertNotEqual(leadWithBacklog.headline, SourceVocabulary.journalGapHeadline)
 
         let headlineWithBacklog = onThisPhoneHeadline(
             migration: OnThisPhoneMigration(onThisPhone: backlog, needsAttention: 0),
@@ -1411,30 +1419,32 @@ final class MobileSegmentReconcileTests: XCTestCase {
             awaitingMarkConfirmation: false,
             isStalled: false,
             connectionStatus: .connectedIdle,
-            hasAudioInterruption: harness.store.audioInterruptionCount() > 0
+            hasJournalGap: true
         )
-        XCTAssertNotEqual(headlineWithBacklog.role, .upToDate)
-        XCTAssertEqual(onThisPhoneEmptyInviteBranch(isJournalPaired: true, hasWelcomeFraming: false, hasAudioInterruption: true), .audioInterrupted)
+        XCTAssertEqual(headlineWithBacklog.role, .syncing)
+        XCTAssertEqual(
+            onThisPhoneEmptyInviteBranch(isJournalPaired: true, hasWelcomeFraming: false, hasJournalGap: true),
+            .journalGap
+        )
 
-        let widgetSnapshotWithBacklog = self.makeSnapshot(backlogCount: backlog, audioInterrupted: harness.store.audioInterruptionCount() > 0)
-        XCTAssertNotEqual(ObserverStatusPresentations.small(snapshot: widgetSnapshotWithBacklog, sourceKind: .observer), .caughtUp)
-        XCTAssertNotEqual(ObserverStatusPresentations.medium(snapshot: widgetSnapshotWithBacklog), .caughtUp)
-        XCTAssertNotEqual(ObserverStatusPresentations.circular(snapshot: widgetSnapshotWithBacklog), .caughtUp)
+        let widgetSnapshotWithBacklog = self.makeSnapshot(backlogCount: backlog, journalGap: true)
+        XCTAssertNotEqual(ObserverStatusPresentations.small(snapshot: widgetSnapshotWithBacklog, sourceKind: .observer), .journalGap)
+        XCTAssertNotEqual(ObserverStatusPresentations.medium(snapshot: widgetSnapshotWithBacklog), .journalGap)
+        XCTAssertNotEqual(ObserverStatusPresentations.circular(snapshot: widgetSnapshotWithBacklog), .journalGap)
 
-        // A zero-backlog call with audioInterruptionCount > 0 is .audioInterrupted on the pill and on small, medium, and circular
         let zeroBacklogPill = HomeStatusPillState.resolve(
             isPaired: true,
             status: .connectedIdle,
             hasBacklog: false,
             isStalled: false,
             awaitingMarkConfirmation: false,
-            hasAudioInterruption: true
+            hasJournalGap: true
         )
-        XCTAssertEqual(zeroBacklogPill, .audioInterrupted)
-        let zeroBacklogSnapshot = self.makeSnapshot(backlogCount: 0, audioInterrupted: true)
-        XCTAssertEqual(ObserverStatusPresentations.small(snapshot: zeroBacklogSnapshot, sourceKind: .observer), .audioInterrupted)
-        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: zeroBacklogSnapshot), .audioInterrupted)
-        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: zeroBacklogSnapshot), .audioInterrupted)
+        XCTAssertEqual(zeroBacklogPill, .journalGap)
+        let zeroBacklogSnapshot = self.makeSnapshot(backlogCount: 0, journalGap: true)
+        XCTAssertEqual(ObserverStatusPresentations.small(snapshot: zeroBacklogSnapshot, sourceKind: .observer), .journalGap)
+        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: zeroBacklogSnapshot), .journalGap)
+        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: zeroBacklogSnapshot), .journalGap)
 
         // Overwrite the generated audio with the bundle fixture clean12.m4a and set mtime offset -400
         let audioInFailed = harness.store.audioURL(in: failedDir)
@@ -1478,27 +1488,25 @@ final class MobileSegmentReconcileTests: XCTestCase {
         // Leased segment is still active
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.active, segmentID: leasedID).path))
 
-        // Original interruption record remains
-        let interruptionAfter = try harness.store.readTombstone(
-            at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(interruptedID.uuidString).json")
-        )
-        XCTAssertEqual(interruptionAfter.reason, "audio_capture_unfinished")
-        XCTAssertEqual(harness.store.audioInterruptionCount(), 1)
+        guard case .events(let unseenAfter) = events.unseenLosses(now: self.clock.now()) else {
+            XCTFail("journal events unreadable")
+            return
+        }
+        XCTAssertEqual(unseenAfter.map(\.id), [JournalEventStore.lossID(segmentID: interruptedID, source: .audio)])
 
-        // The zero-backlog pill/widgets are .audioInterrupted, not .caughtUp
         let finalZeroBacklogPill = HomeStatusPillState.resolve(
             isPaired: true,
             status: .connectedIdle,
             hasBacklog: false,
             isStalled: false,
             awaitingMarkConfirmation: false,
-            hasAudioInterruption: harness.store.audioInterruptionCount() > 0
+            hasJournalGap: !unseenAfter.isEmpty
         )
-        XCTAssertEqual(finalZeroBacklogPill, .audioInterrupted)
-        let finalSnapshot = self.makeSnapshot(backlogCount: 0, audioInterrupted: harness.store.audioInterruptionCount() > 0)
-        XCTAssertEqual(ObserverStatusPresentations.small(snapshot: finalSnapshot, sourceKind: .observer), .audioInterrupted)
-        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: finalSnapshot), .audioInterrupted)
-        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: finalSnapshot), .audioInterrupted)
+        XCTAssertEqual(finalZeroBacklogPill, .journalGap)
+        let finalSnapshot = self.makeSnapshot(backlogCount: 0, journalGap: !unseenAfter.isEmpty)
+        XCTAssertEqual(ObserverStatusPresentations.small(snapshot: finalSnapshot, sourceKind: .observer), .journalGap)
+        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: finalSnapshot), .journalGap)
+        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: finalSnapshot), .journalGap)
     }
 
     private func audioRecoveryFixtureURL(named filename: String) throws -> URL {
@@ -1519,7 +1527,7 @@ final class MobileSegmentReconcileTests: XCTestCase {
         isPaired: Bool = true,
         backlogCount: Int = 0,
         awaitingMarkConfirmation: Bool = false,
-        audioInterrupted: Bool
+        journalGap: Bool
     ) -> AppGroupMirror.Snapshot {
         AppGroupMirror.Snapshot(
             schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion,
@@ -1530,8 +1538,21 @@ final class MobileSegmentReconcileTests: XCTestCase {
             sourceStates: [.observer: .active],
             backlogCount: backlogCount,
             awaitingMarkConfirmation: awaitingMarkConfirmation,
-            audioInterrupted: audioInterrupted
+            journalGap: journalGap
         )
+    }
+
+    private func journalEventCount(
+        _ store: MobileSegmentStore,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Int {
+        let events = JournalEventStore(rootURL: JournalEventStore.directory(besideMobileSegmentRoot: store.rootURL))
+        guard case .events(let records) = events.readEvents() else {
+            XCTFail("journal events unreadable", file: file, line: line)
+            return 0
+        }
+        return records.count
     }
 }
 

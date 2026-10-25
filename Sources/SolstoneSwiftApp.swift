@@ -561,10 +561,15 @@ struct SolstoneSwiftApp: App {
             uploader: mobileSegmentUploader,
             clock: observerClock
         )
-        let observerRecorder = Self.makeObserverRecorder()
+        let journalEvents = mobileSegmentUploader.journalEvents
+        appConfig.attachJournalEvents(journalEvents)
+        log.journalEvents = journalEvents
+        let observerRecorder = Self.makeObserverRecorder(journalEventsDirectory: journalEvents.rootURL)
         let observerManager = ObserverManager(
             recorder: observerRecorder,
             mobileSegmentEngine: mobileSegmentEngine,
+            journalEvents: journalEvents,
+            diagnosticLog: log,
             clock: observerClock
         )
         AppDependencyManager.shared.add(dependency: observerManager)
@@ -909,6 +914,7 @@ struct SolstoneSwiftApp: App {
             )
             switch newPhase {
             case .active:
+                self.mobileSegmentTransferHolder.refreshJournalGap()
                 self.backgroundDrainTask?.cancel()
                 self.backgroundDrainTask = nil
                 if Self.shouldRunLaunchMaintenance(scenePhase: newPhase) {
@@ -1216,7 +1222,7 @@ private extension SolstoneSwiftApp {
         AppConfig().clearPairing()
     }
 
-    static func makeObserverRecorder() -> any ObserverRecording {
+    static func makeObserverRecorder(journalEventsDirectory: URL) -> any ObserverRecording {
 #if DEBUG
         if self.isIntegrationTest {
             return IntegrationTestObserverRecorder()
@@ -1225,7 +1231,7 @@ private extension SolstoneSwiftApp {
             return IntegrationTestObserverRecorder(permissionGranted: self.uiTestObserverPermissionGranted)
         }
 #endif
-        return LiveObserverRecorder()
+        return LiveObserverRecorder(journalEventsDirectory: journalEventsDirectory)
     }
 
     static func makeMetricSubscriber(

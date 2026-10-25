@@ -21,6 +21,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
     case source(SourceRoute)
     case addMore
     case `import`
+    case onThisDevice
     case shelf
     case shelfJournal
     case shelfThisDevice
@@ -43,7 +44,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
             "help"
         case .shelfAbout:
             "about solstone"
-        case .status, .journal, .journalSetup, .source, .addMore, .import, .shelf,
+        case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
              .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfTitle is only available for shelf destinations")
         }
@@ -63,7 +64,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
             "lifepreserver"
         case .shelfAbout:
             "sun.max"
-        case .status, .journal, .journalSetup, .source, .addMore, .import, .shelf,
+        case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
              .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfGlyph is only available for shelf destinations")
         }
@@ -81,7 +82,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
             "shell.pane.shelf.help"
         case .shelfAbout:
             "shell.pane.shelf.about"
-        case .status, .journal, .journalSetup, .source, .addMore, .import, .shelf,
+        case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
              .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfRowIdentifier is only available for shelf destinations")
         }
@@ -141,6 +142,8 @@ struct ShellDestinationView: View {
             }
         case .import:
             ImportView()
+        case .onThisDevice:
+            OnThisPhoneView()
         case .shelf:
             ShelfPane(
                 presentation: .detail,

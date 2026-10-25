@@ -55,10 +55,18 @@ final class MobileSegmentTransferHolder {
         self.status.refusalPacedCount
     }
 
-    /// Some owner audio never reached the journal. This is history, not backlog: it never
-    /// adds to the waiting count and stays after the queue drains.
-    var hasAudioInterruption: Bool {
-        self.uploader.audioInterruptionCount > 0
+    /// Unseen losses the pill and the widgets follow. The open status keeps its own captured lines.
+    var journalGapNotice: JournalGapNotice {
+        self.uploader.journalGapNotice
+    }
+
+    var journalEvents: JournalEventStore {
+        self.uploader.journalEvents
+    }
+
+    /// Recomputes the notice window. A scene becoming active calls this even when no file changed.
+    func refreshJournalGap() {
+        self.uploader.refreshCounts()
     }
 
     var inFlightCount: Int {

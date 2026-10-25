@@ -29,6 +29,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     @MainActor private lazy var manager = ObserverManager(
         recorder: self.recorder,
         mobileSegmentEngine: self.mobileSegmentEngine,
+        journalEvents: self.mobileSegmentUploader.journalEvents,
         clock: self.clock,
         liveActivity: self.liveActivity,
         defaults: self.defaults
@@ -114,15 +115,17 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     @MainActor
     func testStopSessionWithNoLocalPortLeavesChunkPending() async throws {
         let mobileRoot = self.tempDirectory.appendingPathComponent("NoPortMobileSegment", isDirectory: true)
+        let uploader = MobileSegmentUploader(
+            store: MobileSegmentStore(rootURL: mobileRoot),
+            clock: self.clock
+        )
         let manager = ObserverManager(
             recorder: self.recorder,
             mobileSegmentEngine: MobileSegmentEngine(
-                uploader: MobileSegmentUploader(
-                    store: MobileSegmentStore(rootURL: mobileRoot),
-                    clock: self.clock
-                ),
+                uploader: uploader,
                 clock: self.clock
             ),
+            journalEvents: uploader.journalEvents,
             clock: self.clock,
             liveActivity: self.liveActivity
         )
@@ -231,15 +234,17 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     @MainActor
     func testAboveThresholdChunkIsEnqueued() async throws {
         let mobileRoot = self.tempDirectory.appendingPathComponent("AboveThresholdMobileSegment", isDirectory: true)
+        let uploader = MobileSegmentUploader(
+            store: MobileSegmentStore(rootURL: mobileRoot),
+            clock: self.clock
+        )
         let manager = ObserverManager(
             recorder: self.recorder,
             mobileSegmentEngine: MobileSegmentEngine(
-                uploader: MobileSegmentUploader(
-                    store: MobileSegmentStore(rootURL: mobileRoot),
-                    clock: self.clock
-                ),
+                uploader: uploader,
                 clock: self.clock
             ),
+            journalEvents: uploader.journalEvents,
             clock: self.clock,
             liveActivity: self.liveActivity
         )

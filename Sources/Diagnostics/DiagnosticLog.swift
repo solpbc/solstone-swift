@@ -18,6 +18,8 @@ final class DiagnosticLog {
     private let defaults: UserDefaults?
     private static let journalLinkKey = "diagnostics.journalLinkEvents"
     private var journalLinkEvents: [JournalLinkEvent]
+    /// Journal-event rows for the shared snapshot. Nil until the app attaches the store.
+    var journalEvents: JournalEventStore? = nil
 
     init(capacity: Int = 200, protectedFloor: Int = 40, defaults: UserDefaults? = nil) {
         self.capacity = capacity
@@ -158,6 +160,11 @@ final class DiagnosticLog {
                 }
                 lines.append(line)
             }
+        }
+
+        if let journalEvents = self.journalEvents {
+            lines.append("---")
+            lines.append(journalEvents.diagnosticSection(now: Date()))
         }
 
         return Self.redact(lines.joined(separator: "\n"))

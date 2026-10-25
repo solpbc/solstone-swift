@@ -63,7 +63,7 @@ final class PhoneAudioWriterContinuityTests: XCTestCase {
             defer { try? FileManager.default.removeItem(at: root) }
             let writer = try PhoneAudioFragmentWriter(url: root.appendingPathComponent("audio.m4a"),
                 segmentID: UUID(), sessionID: UUID(), sourceFormat: format,
-                clock: SystemObserverClock(), interruptionDirectory: root.appendingPathComponent("interruptions"))
+                clock: SystemObserverClock(), journalEventsDirectory: root.appendingPathComponent("interruptions"))
             let observed = OSAllocatedUnfairLock(initialState: [Float]())
             await writer.setTestConvertedPCMInspector { buffer in
                 let samples = Array(UnsafeBufferPointer(start: buffer.floatChannelData![0], count: Int(buffer.frameLength)))
@@ -111,7 +111,7 @@ final class PhoneAudioWriterContinuityTests: XCTestCase {
         let id = UUID()
         let writer = try PhoneAudioFragmentWriter(url: root.appendingPathComponent("audio.m4a"),
             segmentID: id, sessionID: UUID(), sourceFormat: format,
-            clock: SystemObserverClock(), interruptionDirectory: root.appendingPathComponent("interruptions"),
+            clock: SystemObserverClock(), journalEventsDirectory: root.appendingPathComponent("interruptions"),
             onPhoneAudioFault: { _ in faults.withLock { $0 += 1 }; faultWritten.fulfill() })
         await writer.setTestReadinessCheck { ready.withLock { $0 } }
         await writer.setTestConvertedPCMInspector { buffer in
@@ -134,7 +134,15 @@ final class PhoneAudioWriterContinuityTests: XCTestCase {
         await fulfillment(of: [faultWritten], timeout: 1)
         let marker = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("audio-writer.json"))) as! [String: Any]
         XCTAssertEqual(marker["phase"] as? String, "faulted")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("interruptions/\(id.uuidString).json").path))
+        let faultID = JournalEventStore.diagnosticID(
+            segmentID: id,
+            source: .audio,
+            reason: "audio_writer_backpressure",
+            writerFault: true
+        )
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent("interruptions/diagnostics/\(faultID).json").path
+        ))
         ready.withLock { $0 = true }
         do { _ = try await writer.stop(); XCTFail("fault became a healthy stop") } catch {}
         XCTAssertEqual(faults.withLock { $0 }, 1)
@@ -170,7 +178,7 @@ final class PhoneAudioWriterContinuityTests: XCTestCase {
         let format = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
         let writer = try PhoneAudioFragmentWriter(url: root.appendingPathComponent("audio.m4a"),
             segmentID: UUID(), sessionID: UUID(), sourceFormat: format,
-            clock: SystemObserverClock(), interruptionDirectory: root.appendingPathComponent("interruptions"))
+            clock: SystemObserverClock(), journalEventsDirectory: root.appendingPathComponent("interruptions"))
         try await writer.start()
         for index in 0..<40 {
             XCTAssertEqual(writer.queue.push(buffer: self.pcm(format: format, start: index * 1600, count: 1600)), .success)

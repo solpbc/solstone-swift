@@ -246,8 +246,13 @@ nonisolated final class LocationEnrollmentCoordinatorTests: XCTestCase {
 
     @MainActor
     private func makeManager() -> LocationManager {
-        LocationManager(
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LocationEnrollmentCoordinatorTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("MobileSegment", isDirectory: true)
+        let uploader = MobileSegmentUploader(store: MobileSegmentStore(rootURL: root), clock: self.clock)
+        return LocationManager(
             provider: self.provider,
+            mobileSegmentEngine: MobileSegmentEngine(uploader: uploader, clock: self.clock),
             clock: self.clock,
             defaults: self.defaults
         )

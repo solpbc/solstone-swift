@@ -98,9 +98,8 @@ final class MobileSegmentUploader {
     private(set) var pendingCount = 0
     private(set) var failedCount = 0
     private(set) var finalizeFailedCount = 0
-    /// Segments whose audio was lost before it reached the journal. Durable history, kept
-    /// apart from the send counts: later uploads and restarts leave it in place.
-    private(set) var audioInterruptionCount = 0
+    /// Unseen losses inside the notice window. The pill and the widgets follow this value.
+    private(set) var journalGapNotice: JournalGapNotice = .absent
     var lastUploadAt: Date?
     var lastError: String?
     private(set) var recentErrorCount = 0
@@ -112,6 +111,7 @@ final class MobileSegmentUploader {
     ]
 
     @ObservationIgnored private let store: MobileSegmentStore
+    @ObservationIgnored let journalEvents: JournalEventStore
     @ObservationIgnored private let transferEngine: TransferEngine?
     @ObservationIgnored private let clock: any ObserverClock
     @ObservationIgnored private let storageDisabledReason: String?
@@ -128,7 +128,7 @@ final class MobileSegmentUploader {
 
     init(
         transferEngine: TransferEngine? = nil,
-        store: MobileSegmentStore = MobileSegmentStore(),
+        store: MobileSegmentStore,
         clock: any ObserverClock = SystemObserverClock(),
         storageDisabledReason: String? = nil,
         cooperator: MaintenanceCooperator = MaintenanceCooperator(),
@@ -137,6 +137,9 @@ final class MobileSegmentUploader {
     ) {
         self.transferEngine = transferEngine
         self.store = store
+        self.journalEvents = JournalEventStore(
+            rootURL: JournalEventStore.directory(besideMobileSegmentRoot: store.rootURL)
+        )
         self.clock = clock
         self.storageDisabledReason = storageDisabledReason
         self.cooperator = cooperator
@@ -228,6 +231,15 @@ final class MobileSegmentUploader {
         }
 
         guard finalized.duration >= minimumDuration else {
+            let removal = try self.preparePhoneRemoval(
+                url: finalized.url,
+                directory: directory,
+                segmentID: segmentID,
+                reason: "audio_below_min_duration",
+                captureAt: startedAt,
+                now: endedAt
+            )
+            guard removal == .proceed else { throw CocoaError(.fileReadUnknown) }
             self.store.removeIfExists(finalized.url)
             let resolution = MobileSegmentSourceResolution(
                 state: .noArtifact,
@@ -610,7 +622,16 @@ final class MobileSegmentUploader {
                             manifest.segment = carriedSegment
                             continue
                         } else {
-                            try? FileManager.default.removeItem(at: screenPartURL)
+                            let removal = try self.prepareScreenRemoval(
+                                urls: [screenPartURL],
+                                source: .screencast,
+                                reason: "screencast_unplayable_part",
+                                segmentID: segmentID,
+                                captureAt: manifest.startedAt,
+                                now: endedAt
+                            )
+                            guard removal == .proceed else { continue }
+                            self.store.removeIfExists(screenPartURL)
                             let resolution = MobileSegmentSourceResolution(
                                 state: .noArtifact,
                                 reason: "screencast_unplayable_part",
@@ -728,13 +749,26 @@ final class MobileSegmentUploader {
                         try self.store.moveOrReplaceItem(at: screenAudioPartURL, to: audioURL)
                         candidateURL = audioURL
                     } else {
-                        self.store.removeIfExists(screenAudioPartURL)
-                        mobileSegmentUploadLog.info("screencast audio unplayable part discarded segment=\(segmentID.uuidString, privacy: .public)")
+                        let removal = try self.prepareScreenRemoval(
+                            urls: [screenAudioPartURL],
+                            source: .screenAudio,
+                            reason: "screencast_unplayable_part",
+                            segmentID: segmentID,
+                            captureAt: manifest.startedAt,
+                            now: endedAt
+                        )
+                        if removal == .proceed {
+                            self.store.removeIfExists(screenAudioPartURL)
+                            mobileSegmentUploadLog.info("screencast audio unplayable part discarded segment=\(segmentID.uuidString, privacy: .public)")
+                        }
                     }
                 }
 
                 if let promotedURL = candidateURL, self.store.fileExists(promotedURL) {
-                    let bytes = self.store.fileSize(at: promotedURL) ?? 0
+                    guard let bytes = self.store.fileSize(at: promotedURL) else {
+                        self.refreshCounts()
+                        return
+                    }
                     if bytes > 0 {
                         let probed = await MobileSegmentDuration.probeContainerDuration(at: promotedURL)
                         let audioDuration = probed ?? max(0, endedAt.timeIntervalSince(manifest.startedAt))
@@ -758,7 +792,14 @@ final class MobileSegmentUploader {
                         manifest.durationS = carriedDurationS
                         manifest.day = carriedDay
                         manifest.segment = carriedSegment
-                    } else {
+                    } else if bytes == 0 {
+                        self.recordDiagnostic(
+                            segmentID: segmentID,
+                            source: .audio,
+                            reason: "audio_empty_promoted",
+                            captureAt: manifest.startedAt,
+                            now: endedAt
+                        )
                         self.store.removeIfExists(promotedURL)
                     }
                 }
@@ -807,8 +848,7 @@ final class MobileSegmentUploader {
         guard self.guardStorageAvailable() else { return }
         do {
             try self.store.ensureRoot()
-            await self.backfillAudioInterruptionsIfNeeded()
-            if Task.isCancelled {
+            if await self.importLegacyJournalEvents() == .cancelled {
                 self.refreshCounts()
                 return
             }
@@ -827,9 +867,15 @@ final class MobileSegmentUploader {
             }
             let pending = try self.store.list(.pending)
             for directory in pending {
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    self.refreshCounts()
+                    return
+                }
                 await self.cooperator.step()
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    self.refreshCounts()
+                    return
+                }
                 guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
                 await self.enqueuePendingSegmentIntoTransfer(segmentID: segmentID)
             }
@@ -838,7 +884,12 @@ final class MobileSegmentUploader {
             self.lastError = diagnostic
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
         }
+        if Task.isCancelled {
+            self.refreshCounts()
+            return
+        }
         self.refreshCounts()
+        self.openJournalGate()
     }
 
     /// Whether this segment is still in the finalize-failure pile.
@@ -956,6 +1007,188 @@ final class MobileSegmentUploader {
         return .resolved
     }
 
+    private enum MediaRemoval {
+        case proceed
+        case leave
+    }
+
+    private func phoneAcceptedFrames(in directory: URL, segmentID: UUID) -> Int {
+        switch self.store.readAudioWriterReceipt(in: directory, expectedSegmentID: segmentID) {
+        case .valid(let receipt):
+            switch receipt.phase {
+            case .writing:
+                return 0
+            case .completed, .faulted:
+                return Int(min(receipt.acceptedFrames, Int64(Int.max)))
+            }
+        case .absent, .unusable:
+            return 0
+        }
+    }
+
+    private func recordDiagnostic(
+        segmentID: UUID,
+        source: JournalEventSource,
+        reason: String,
+        captureAt: Date?,
+        now: Date,
+        writerFault: Bool = false,
+        detail: JournalEventDetail? = nil
+    ) {
+        do {
+            try self.journalEvents.recordDiagnostic(
+                segmentID: segmentID,
+                source: source,
+                reason: reason,
+                captureAt: captureAt,
+                now: now,
+                writerFault: writerFault,
+                detail: detail
+            )
+        } catch {
+            mobileSegmentUploadLog.error("journal diagnostic record failed segment=\(segmentID.uuidString, privacy: .public) reason=\(reason, privacy: .public)")
+        }
+    }
+
+    private func preparePhoneRemoval(
+        url: URL,
+        directory: URL,
+        segmentID: UUID,
+        reason: String,
+        captureAt: Date?,
+        now: Date
+    ) throws -> MediaRemoval {
+        let frames = self.phoneAcceptedFrames(in: directory, segmentID: segmentID)
+        switch JournalBoxedFile.existence(at: url, rule: .phoneAudio, acceptedFrames: frames) {
+        case .absent:
+            return .proceed
+        case .unreadableSize:
+            return .leave
+        case .present(let existed):
+            if existed {
+                try self.journalEvents.recordLoss(
+                    segmentID: segmentID,
+                    source: .audio,
+                    reason: reason,
+                    captureAt: captureAt,
+                    now: now
+                )
+            } else {
+                self.recordDiagnostic(
+                    segmentID: segmentID,
+                    source: .audio,
+                    reason: reason,
+                    captureAt: captureAt,
+                    now: now
+                )
+            }
+            return .proceed
+        }
+    }
+
+    private func prepareScreenRemoval(
+        urls: [URL],
+        source: JournalEventSource,
+        reason: String,
+        segmentID: UUID,
+        captureAt: Date?,
+        now: Date
+    ) throws -> MediaRemoval {
+        var anyPresent = false
+        var anyExisted = false
+        var anyUnreadable = false
+        for url in urls {
+            switch JournalBoxedFile.existence(at: url, rule: .screen, acceptedFrames: 0) {
+            case .absent:
+                continue
+            case .unreadableSize:
+                anyPresent = true
+                anyUnreadable = true
+            case .present(let existed):
+                anyPresent = true
+                if existed { anyExisted = true }
+            }
+        }
+        if !anyPresent { return .proceed }
+        if anyExisted {
+            try self.journalEvents.recordLoss(
+                segmentID: segmentID,
+                source: source,
+                reason: reason,
+                captureAt: captureAt,
+                now: now
+            )
+            return .proceed
+        }
+        if anyUnreadable { return .leave }
+        self.recordDiagnostic(
+            segmentID: segmentID,
+            source: source,
+            reason: reason,
+            captureAt: captureAt,
+            now: now
+        )
+        return .proceed
+    }
+
+    /// Path 13. Listing failure or a held lease leaves the directory. A present audio file or
+    /// receipt that did not exist blocks the remove and writes nothing.
+    func discardUnprovenRollbackCandidate(segmentID: UUID, now: Date) throws {
+        let directory = self.store.segmentDirectoryURL(.active, segmentID: segmentID)
+        let names: [String]
+        do {
+            names = try FileManager.default.contentsOfDirectory(atPath: directory.path)
+        } catch {
+            return
+        }
+        if PhoneAudioWriterLease.isHeld(segmentID) { return }
+        let audioURL = self.store.audioURL(in: directory)
+        let receiptURL = self.store.audioWriterReceiptURL(in: directory)
+        let captureAt = (try? self.store.readManifest(in: directory))?.startedAt
+        if names.contains(audioURL.lastPathComponent) {
+            let frames = self.phoneAcceptedFrames(in: directory, segmentID: segmentID)
+            switch JournalBoxedFile.existence(at: audioURL, rule: .phoneAudio, acceptedFrames: frames) {
+            case .present(true):
+                try self.journalEvents.recordLoss(
+                    segmentID: segmentID,
+                    source: .audio,
+                    reason: "segment_rollback",
+                    captureAt: captureAt,
+                    now: now
+                )
+            case .absent:
+                break
+            case .unreadableSize, .present(false):
+                return
+            }
+        } else if names.contains(receiptURL.lastPathComponent) {
+            return
+        }
+        var existedSources: [JournalEventSource] = []
+        let screenFiles: [(URL, JournalEventSource)] = [
+            (self.store.screenURL(in: directory), .screencast),
+            (self.store.screenPartURL(in: directory), .screencast),
+            (self.store.screenAudioURL(in: directory), .screenAudio),
+            (self.store.screenAudioPartURL(in: directory), .screenAudio),
+        ]
+        for (url, source) in screenFiles {
+            if case .present(true) = JournalBoxedFile.existence(at: url, rule: .screen, acceptedFrames: 0),
+               !existedSources.contains(source) {
+                existedSources.append(source)
+            }
+        }
+        for source in existedSources {
+            try self.journalEvents.recordLoss(
+                segmentID: segmentID,
+                source: source,
+                reason: "segment_rollback",
+                captureAt: captureAt,
+                now: now
+            )
+        }
+        try self.store.remove(directory)
+    }
+
     private func removeAudioArtifactPermanent(
         reason: String,
         domain: String,
@@ -965,11 +1198,15 @@ final class MobileSegmentUploader {
         manifest: inout MobileSegmentManifest,
         now: Date
     ) throws -> AudioDeriveResult {
-        try self.store.writeAudioInterruption(
+        let removal = try self.preparePhoneRemoval(
+            url: audioURL,
+            directory: directory,
             segmentID: manifest.segmentID,
             reason: reason,
+            captureAt: manifest.startedAt,
             now: now
         )
+        guard removal == .proceed else { return .retryableUnresolved }
         self.store.removeIfExists(audioURL)
         let resolution = MobileSegmentSourceResolution(
             state: .removed,
@@ -1049,9 +1286,11 @@ final class MobileSegmentUploader {
             case .writing:
                 switch inspection {
                 case .duration(let dur) where dur.isFinite && dur > 0:
-                    try self.store.writeAudioInterruption(
+                    self.recordDiagnostic(
                         segmentID: manifest.segmentID,
+                        source: .audio,
                         reason: "audio_capture_unfinished",
+                        captureAt: manifest.startedAt,
                         now: now
                     )
                     return try self.publishAudioArtifact(appleDuration: dur, audioURL: audioURL, directory: directory, manifest: &manifest, now: now)
@@ -1065,9 +1304,11 @@ final class MobileSegmentUploader {
                 let faultReason = receipt.reason ?? "audio_writer_failed"
                 switch inspection {
                 case .duration(let dur) where dur.isFinite && dur > 0:
-                    try self.store.writeAudioInterruption(
+                    self.recordDiagnostic(
                         segmentID: manifest.segmentID,
+                        source: .audio,
                         reason: faultReason,
+                        captureAt: manifest.startedAt,
                         now: now
                     )
                     return try self.publishAudioArtifact(appleDuration: dur, audioURL: audioURL, directory: directory, manifest: &manifest, now: now)
@@ -1087,9 +1328,11 @@ final class MobileSegmentUploader {
                     let frameDuration = Double(receipt.acceptedFrames) / Double(receipt.sampleRate)
                     let tolerance = 1.0 / Double(receipt.sampleRate)
                     if abs(appleDuration - frameDuration) > tolerance {
-                        try self.store.writeAudioInterruption(
+                        self.recordDiagnostic(
                             segmentID: manifest.segmentID,
+                            source: .audio,
                             reason: "audio_writer_duration_mismatch",
+                            captureAt: manifest.startedAt,
                             now: now
                         )
                     }
@@ -1103,44 +1346,73 @@ final class MobileSegmentUploader {
 
     static let undecodableAudioReason = "audio_undecodable_container"
 
-    /// Earlier builds recorded lost audio only on a retired segment's empty tombstone, or on a
-    /// manifest still in the store. Carry that evidence into the interruption records once.
-    /// Other empty tombstones (`no_artifacts`, `unrecoverable_lost_data`, `screencast_removed`)
-    /// describe segments with no recorded audio to lose, so they are not interruptions.
-    private func backfillAudioInterruptionsIfNeeded() async {
-        guard !self.store.hasBackfilledAudioInterruptions else { return }
+    private enum LegacyImportPass {
+        case finished
+        case cancelled
+    }
+
+    private func importLegacyJournalEvents() async -> LegacyImportPass {
+        if case .complete = self.journalEvents.readImportMarker() { return .finished }
+        if Task.isCancelled { return .cancelled }
+        let roots = self.legacyImportRoots()
         do {
-            for url in self.store.listTombstones(kind: "empty") {
-                await self.cooperator.step()
-                if Task.isCancelled { return }
-                guard let tombstone = try? self.store.readTombstone(at: url),
-                      tombstone.reason == Self.undecodableAudioReason
-                else { continue }
-                try self.store.writeAudioInterruption(
-                    segmentID: tombstone.segmentID,
-                    reason: tombstone.reason,
-                    now: tombstone.recordedAt
-                )
-            }
-            for lifecycle in [MobileSegmentLifecycle.active, .pending, .failed] {
-                for directory in try self.store.list(lifecycle) {
-                    await self.cooperator.step()
-                    if Task.isCancelled { return }
-                    guard let manifest = try? self.store.readManifest(in: directory),
-                          manifest.audio.reason == Self.undecodableAudioReason
-                    else { continue }
-                    try self.store.writeAudioInterruption(
-                        segmentID: manifest.segmentID,
-                        reason: Self.undecodableAudioReason,
-                        now: manifest.audio.lastAttemptAt ?? manifest.updatedAt
-                    )
-                }
-            }
-            try self.store.markAudioInterruptionsBackfilled()
+            let run = try self.journalEvents.importLegacy(from: roots, isCancelled: { Task.isCancelled })
+            if Task.isCancelled || run == nil { return .cancelled }
+            guard let run else { return .cancelled }
+            try self.journalEvents.writeImportComplete(imported: run.imported, skipped: run.skipped)
+            return .finished
         } catch {
-            mobileSegmentUploadLog.error("mobile segment audio interruption backfill deferred stage=resume")
+            mobileSegmentUploadLog.error("journal legacy import failed stage=resume")
+            try? self.journalEvents.writeImportFailed(reason: "import failed")
+            self.diagnosticLog?.append(
+                category: .diagnostics,
+                severity: .error,
+                message: "journal legacy import failed"
+            )
+            return .finished
+        }
+    }
+
+    private func legacyImportRoots() -> [URL] {
+        var roots = [self.store.rootURL]
+        if let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            let cachesRoot = caches.appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true)
+            if cachesRoot.standardizedFileURL != self.store.rootURL.standardizedFileURL {
+                roots.append(cachesRoot)
+            }
+        }
+        return roots
+    }
+
+    private func openJournalGate() {
+        do {
+            let opened = try self.journalEvents.openGate(now: self.clock.now())
+            if opened {
+                self.seedUITestJournalGapIfRequested()
+            }
+        } catch {
+            mobileSegmentUploadLog.error("journal gate open failed stage=resume")
         }
         self.refreshCounts()
+    }
+
+    private func seedUITestJournalGapIfRequested() {
+#if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("--ui-test-seed-audio-interruption") else { return }
+        let segmentID = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1") ?? UUID()
+        let now = self.clock.now()
+        do {
+            try self.journalEvents.recordLoss(
+                segmentID: segmentID,
+                source: .audio,
+                reason: "audio_capture_unfinished",
+                captureAt: now,
+                now: now
+            )
+        } catch {
+            mobileSegmentUploadLog.error("ui-test journal gap seed failed")
+        }
+#endif
     }
 
     private func tombstoneReasonForEmptyRetirement(manifest: MobileSegmentManifest, defaultReason: String) -> String {
@@ -1212,8 +1484,19 @@ final class MobileSegmentUploader {
                     )
                 }
             case .screencast:
-                self.store.removeIfExists(self.store.screenURL(in: directory))
-                self.store.removeIfExists(self.store.screenPartURL(in: directory))
+                let screenURL = self.store.screenURL(in: directory)
+                let screenPartURL = self.store.screenPartURL(in: directory)
+                let removal = try self.prepareScreenRemoval(
+                    urls: [screenURL, screenPartURL],
+                    source: .screencast,
+                    reason: "screencast_removed",
+                    segmentID: segmentID,
+                    captureAt: manifest.startedAt,
+                    now: now
+                )
+                guard removal == .proceed else { return .deferred }
+                self.store.removeIfExists(screenURL)
+                self.store.removeIfExists(screenPartURL)
                 let resolution = MobileSegmentSourceResolution(
                     state: .removed,
                     reason: "screencast_removed",
@@ -1228,6 +1511,24 @@ final class MobileSegmentUploader {
                 )
                 switch result {
                 case .missingFile:
+                    let frames = self.phoneAcceptedFrames(in: directory, segmentID: segmentID)
+                    if frames > 0 {
+                        try self.journalEvents.recordLoss(
+                            segmentID: segmentID,
+                            source: .audio,
+                            reason: "audio_no_local_data",
+                            captureAt: manifest.startedAt,
+                            now: now
+                        )
+                    } else {
+                        self.recordDiagnostic(
+                            segmentID: segmentID,
+                            source: .audio,
+                            reason: "audio_no_local_data",
+                            captureAt: manifest.startedAt,
+                            now: now
+                        )
+                    }
                     self.store.removeIfExists(self.store.audioURL(in: directory))
                     let resolution = MobileSegmentSourceResolution(
                         state: .removed,
@@ -1399,10 +1700,10 @@ final class MobileSegmentUploader {
             self.pendingCount = 0
             self.failedCount = 0
             self.finalizeFailedCount = 0
-            self.audioInterruptionCount = 0
+            self.journalGapNotice = .absent
             return
         }
-        self.audioInterruptionCount = self.store.audioInterruptionCount()
+        self.journalGapNotice = JournalGapNotice.read(store: self.journalEvents, now: self.clock.now())
         self.pendingCount = (try? self.store.list(.pending).count) ?? 0
         let failed = (try? self.store.list(.failed)) ?? []
         self.failedCount = failed.count
@@ -2270,7 +2571,16 @@ private extension MobileSegmentUploader {
                             )
                             try self.store.writeOutcome(finalized, source: .screencast, manifest: &manifest, in: directory, now: now)
                         } else {
-                            try? FileManager.default.removeItem(at: screenPartURL)
+                            let removal = try self.prepareScreenRemoval(
+                                urls: [screenPartURL],
+                                source: .screencast,
+                                reason: "screencast_unplayable_part",
+                                segmentID: segmentID,
+                                captureAt: manifest.startedAt,
+                                now: now
+                            )
+                            guard removal == .proceed else { continue }
+                            self.store.removeIfExists(screenPartURL)
                             let noArt = MobileSegmentSourceResolution(
                                 state: .noArtifact,
                                 reason: "screencast_unplayable_part",

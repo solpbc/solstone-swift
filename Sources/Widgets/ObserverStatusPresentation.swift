@@ -9,7 +9,7 @@ nonisolated enum ObserverStatusPresentation: Equatable, Sendable {
     case needsAttention
     case waiting(count: Int)
     case awaitingMarkConfirmation(count: Int)
-    case audioInterrupted
+    case journalGap
     case caughtUp
 
     var label: String {
@@ -24,8 +24,8 @@ nonisolated enum ObserverStatusPresentation: Equatable, Sendable {
             SourceVocabulary.waitingToSync
         case .awaitingMarkConfirmation:
             SourceVocabulary.confirmTheMarkAction
-        case .audioInterrupted:
-            SourceVocabulary.audioInterruptedHeadline
+        case .journalGap:
+            SourceVocabulary.journalGapHeadline
         case .caughtUp:
             SourceVocabulary.syncedHeadline
         }
@@ -43,8 +43,8 @@ nonisolated enum ObserverStatusPresentation: Equatable, Sendable {
             "arrow.triangle.2.circlepath"
         case .awaitingMarkConfirmation:
             "hand.raised"
-        case .audioInterrupted:
-            "waveform.badge.exclamationmark"
+        case .journalGap:
+            "calendar.badge.minus"
         case .caughtUp:
             "checkmark.circle"
         }
@@ -56,7 +56,7 @@ nonisolated enum ObserverStatusPresentation: Equatable, Sendable {
             count
         case let .awaitingMarkConfirmation(count):
             count > 0 ? count : nil
-        case .unavailable, .notPaired, .needsAttention, .audioInterrupted, .caughtUp:
+        case .unavailable, .notPaired, .needsAttention, .journalGap, .caughtUp:
             nil
         }
     }
@@ -91,8 +91,8 @@ nonisolated enum ObserverStatusPresentations {
             return .waiting(count: snapshot.backlogCount)
         }
 
-        if snapshot.audioInterrupted {
-            return .audioInterrupted
+        if snapshot.journalGap {
+            return .journalGap
         }
 
         return .caughtUp
@@ -119,8 +119,8 @@ nonisolated enum ObserverStatusPresentations {
             return .waiting(count: snapshot.backlogCount)
         }
 
-        if snapshot.audioInterrupted {
-            return .audioInterrupted
+        if snapshot.journalGap {
+            return .journalGap
         }
 
         return .caughtUp
@@ -143,8 +143,8 @@ nonisolated enum ObserverStatusPresentations {
             return .waiting(count: snapshot.backlogCount)
         }
 
-        if snapshot.audioInterrupted {
-            return .audioInterrupted
+        if snapshot.journalGap {
+            return .journalGap
         }
 
         return .caughtUp

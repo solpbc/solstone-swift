@@ -63,6 +63,42 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         throw NSError(domain: "AudioRecoveryFixture", code: 404)
     }
 
+    private func journalRecords(
+        _ store: MobileSegmentStore,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> [JournalEventRecord] {
+        let events = JournalEventStore(rootURL: JournalEventStore.directory(besideMobileSegmentRoot: store.rootURL))
+        guard case .events(let records) = events.readEvents() else {
+            XCTFail("journal events unreadable", file: file, line: line)
+            return []
+        }
+        return records
+    }
+
+    private func journalEventCount(
+        _ store: MobileSegmentStore,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> Int {
+        self.journalRecords(store, file: file, line: line).count
+    }
+
+    private func journalDiagnostic(
+        _ store: MobileSegmentStore,
+        segmentID: UUID,
+        reason: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> JournalEventRecord? {
+        self.journalRecords(store, file: file, line: line).first { record in
+            record.kind == .diagnostic
+                && record.segmentID == segmentID.uuidString
+                && record.reason == reason
+                && !record.id.hasSuffix("-fault")
+        }
+    }
+
     func testRecoveredPrefixKeepsInterruptionAndCorrectTransferDuration() async throws {
         let harness = try await self.makeHarness()
         let killedFixtureURL = try self.audioRecoveryFixtureURL(named: "killed12.m4a")
@@ -97,10 +133,12 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         let manifest1 = try harness.store.readManifest(in: pendingDirectory1)
         XCTAssertEqual(try XCTUnwrap(manifest1.audio.durationS), 10.876, accuracy: 1.0 / 16000)
         XCTAssertEqual(try XCTUnwrap(manifest1.durationS), 10.876, accuracy: 1.0 / 16000)
-        XCTAssertEqual(harness.store.audioInterruptionCount(), 1)
-        let interruption1 = try harness.store.readTombstone(
-            at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(segmentID1.uuidString).json")
-        )
+        XCTAssertEqual(self.journalEventCount(harness.store), 1)
+        let interruption1 = try XCTUnwrap(self.journalDiagnostic(
+            harness.store,
+            segmentID: segmentID1,
+            reason: "audio_capture_unfinished"
+        ))
         XCTAssertEqual(interruption1.reason, "audio_capture_unfinished")
         XCTAssertEqual(manifest1.segment, "\(initialPrefix1)_11")
 
@@ -134,10 +172,12 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         )
         XCTAssertEqual(try XCTUnwrap(snapshot2.manifest.observerIngest?.durationS), 10.876, accuracy: 1.0 / 16000)
         XCTAssertEqual(try XCTUnwrap(snapshot2.manifest.observerIngest?.segment), "\(initialPrefix2)_11")
-        XCTAssertEqual(harness.store.audioInterruptionCount(), 2)
-        let interruption2 = try harness.store.readTombstone(
-            at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(segmentID2.uuidString).json")
-        )
+        XCTAssertEqual(self.journalEventCount(harness.store), 2)
+        let interruption2 = try XCTUnwrap(self.journalDiagnostic(
+            harness.store,
+            segmentID: segmentID2,
+            reason: "audio_capture_unfinished"
+        ))
         XCTAssertEqual(interruption2.reason, "audio_capture_unfinished")
 
         // Case 3: third aged failed segment whose bytes are clean12.m4a and completed receipt with 192000 frames
@@ -169,7 +209,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(manifest3.audio.durationS), 12.0, accuracy: 1.0 / 16000)
         XCTAssertEqual(try XCTUnwrap(manifest3.durationS), 12.0, accuracy: 1.0 / 16000)
         XCTAssertEqual(manifest3.segment, "\(initialPrefix3)_12")
-        XCTAssertEqual(harness.store.audioInterruptionCount(), 2) // still 2, no new record
+        XCTAssertEqual(self.journalEventCount(harness.store), 2) // still 2, no new record
     }
 
     func testInjectedInspectDurationsBehavior() async throws {
@@ -212,13 +252,13 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
 
                 harness.uploader.audioInspector = PhoneAudioInspector { _ in inspectCase }
 
-                let countBefore = harness.store.audioInterruptionCount()
+                let countBefore = self.journalEventCount(harness.store)
                 let result = try await harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
                 XCTAssertEqual(result, .deferred)
                 let manifest = try harness.store.readManifest(in: failedDirectory)
                 XCTAssertNotEqual(manifest.audio.state, .finalizedArtifact)
                 XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: failedDirectory).path))
-                XCTAssertEqual(harness.store.audioInterruptionCount(), countBefore)
+                XCTAssertEqual(self.journalEventCount(harness.store), countBefore)
                 XCTAssertEqual(manifest.durationS, elapsed)
             }
         }
@@ -592,12 +632,12 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
             try MobileSegmentTestFixtures.setAudioModificationDate(at: audioURL, offset: -400, clock: self.clock)
             try self.writeFailedOutcome(source: .audio, store: harness.store, directory: directory, manifest: &manifest, startedAt: startedAt, endedAt: endedAt)
         }
-        let countBeforeLegacy = harness.store.audioInterruptionCount()
+        let countBeforeLegacy = self.journalEventCount(harness.store)
         let legacyResult = try await harness.uploader.resolveFinalizeFailure(segmentID: legacyID, directory: legacyDir, lifecycle: .failed)
         XCTAssertEqual(legacyResult, .repend)
         let legacyPendingManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: legacyID))
         XCTAssertEqual(try XCTUnwrap(legacyPendingManifest.audio.durationS), 12.0, accuracy: 1.0 / 16000)
-        XCTAssertEqual(harness.store.audioInterruptionCount(), countBeforeLegacy)
+        XCTAssertEqual(self.journalEventCount(harness.store), countBeforeLegacy)
 
         // - ftyp-only retires with audio_undecodable_container
         let ftypID = UUID()
@@ -640,10 +680,10 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
             acceptedFrames: 192000
         )
         try harness.store.writeAudioWriterReceipt(agreeReceipt, in: agreeDir)
-        let agreeCountBefore = harness.store.audioInterruptionCount()
+        let agreeCountBefore = self.journalEventCount(harness.store)
         let agreeResult = try await harness.uploader.resolveFinalizeFailure(segmentID: agreeID, directory: agreeDir, lifecycle: .failed)
         XCTAssertEqual(agreeResult, .repend)
-        XCTAssertEqual(harness.store.audioInterruptionCount(), agreeCountBefore)
+        XCTAssertEqual(self.journalEventCount(harness.store), agreeCountBefore)
 
         // 4. Duration mismatch: completed receipt says 60s (960000 frames), but audio is clean12 (12s)
         let mismatchID = UUID()
@@ -671,7 +711,11 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         XCTAssertEqual(mismatchResult, .repend)
         let mismatchPendingManifest = try harness.store.readManifest(in: harness.store.segmentDirectoryURL(.pending, segmentID: mismatchID))
         XCTAssertEqual(try XCTUnwrap(mismatchPendingManifest.audio.durationS), 12.0, accuracy: 1.0 / 16000)
-        let mismatchInterruption = try harness.store.readTombstone(at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(mismatchID.uuidString).json"))
+        let mismatchInterruption = try XCTUnwrap(self.journalDiagnostic(
+            harness.store,
+            segmentID: mismatchID,
+            reason: "audio_writer_duration_mismatch"
+        ))
         XCTAssertEqual(mismatchInterruption.reason, "audio_writer_duration_mismatch")
 
         // 5. Writing receipt with stale non-zero frames stores 10.876
@@ -727,13 +771,12 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         XCTAssertEqual(zeroResult, .deferred)
     }
 
-    func testEvidenceWriteFailureRecoversCleanly() async throws {
-        self.stubDelivered()
+    func testBlockedJournalEventsStillPublishesRecoveredAudioAndKeepsLocation() async throws {
         let harness = try await self.makeHarness()
         let killedFixtureURL = try self.audioRecoveryFixtureURL(named: "killed12.m4a")
 
-        let blockerURL = harness.store.rootURL.appendingPathComponent("interruptions")
-        try Data("blocker".utf8).write(to: blockerURL, options: .atomic)
+        let eventsRoot = JournalEventStore.directory(besideMobileSegmentRoot: harness.store.rootURL)
+        try Data("blocker".utf8).write(to: eventsRoot)
 
         let segmentID = UUID()
         let startedAt = self.clock.now().addingTimeInterval(-1200)
@@ -762,46 +805,36 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         )
         try harness.store.writeAudioWriterReceipt(receipt, in: failedDirectory)
 
-        do {
-            _ = try await harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
-            XCTFail("Expected resolveFinalizeFailure to throw when interruptions blocker exists")
-        } catch {
-            XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: failedDirectory).path))
-            let manifest = try harness.store.readManifest(in: failedDirectory)
-            XCTAssertNotEqual(manifest.audio.state, .finalizedArtifact)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
-            XCTAssertEqual(harness.store.audioInterruptionCount(), 0)
-            XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationURL(in: failedDirectory).path))
-            XCTAssertEqual(manifest.location.durationS, 300)
-        }
+        let result = try await harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
+        XCTAssertEqual(result, .repend)
 
-        try FileManager.default.removeItem(at: blockerURL)
-
-        let newHarness = try await self.makeHarness()
-        let newUploader = MobileSegmentUploader(transferEngine: newHarness.engine, store: harness.store, clock: self.clock)
-        await newUploader.resumeFromDisk()
-
-        let snapshots = await newHarness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
-        let itemSnapshots = snapshots.filter { $0.manifest.itemID == segmentID }
-        XCTAssertEqual(itemSnapshots.count, 1)
-        let snapshot = try XCTUnwrap(itemSnapshots.first)
-        XCTAssertEqual(try XCTUnwrap(snapshot.manifest.observerIngest?.durationS), 10.876, accuracy: 1.0 / 16000)
-        let segmentName = try XCTUnwrap(snapshot.manifest.observerIngest?.segment)
+        let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
+        let manifest = try harness.store.readManifest(in: pendingDirectory)
+        XCTAssertEqual(try XCTUnwrap(manifest.audio.durationS), 10.876, accuracy: 1.0 / 16000)
+        XCTAssertEqual(try XCTUnwrap(manifest.durationS), 10.876, accuracy: 1.0 / 16000)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.locationURL(in: pendingDirectory).path))
+        XCTAssertEqual(manifest.location.durationS, 300)
+        let segmentName = try XCTUnwrap(manifest.segment)
         XCTAssertTrue(segmentName.hasSuffix("_11"))
-        XCTAssertTrue(snapshot.manifest.payloadParts.contains(where: { $0.relativePath == "location.jsonl" }))
-        XCTAssertEqual(harness.store.audioInterruptionCount(), 1)
-        let interruption = try harness.store.readTombstone(
-            at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(segmentID.uuidString).json")
+
+        let diagnosticName = JournalEventStore.diagnosticID(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            writerFault: false
         )
-        XCTAssertEqual(interruption.reason, "audio_capture_unfinished")
+        let diagnosticURL = eventsRoot
+            .appendingPathComponent("diagnostics", isDirectory: true)
+            .appendingPathComponent("\(diagnosticName).json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: diagnosticURL.path))
     }
 
-    func testMismatchWrittenBeforePublicationThrowsAndRecovers() async throws {
+    func testBlockedJournalEventsStillPublishesMeasuredDuration() async throws {
         let harness = try await self.makeHarness()
         let cleanFixtureURL = try self.audioRecoveryFixtureURL(named: "clean12.m4a")
 
-        let blockerURL = harness.store.rootURL.appendingPathComponent("interruptions")
-        try Data("blocker".utf8).write(to: blockerURL, options: .atomic)
+        let eventsRoot = JournalEventStore.directory(besideMobileSegmentRoot: harness.store.rootURL)
+        try Data("blocker".utf8).write(to: eventsRoot)
 
         let segmentID = UUID()
         let failedDirectory = try self.writeBundle(
@@ -825,28 +858,23 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         )
         try harness.store.writeAudioWriterReceipt(receipt, in: failedDirectory)
 
-        do {
-            _ = try await harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
-            XCTFail("Expected resolveFinalizeFailure to throw")
-        } catch {
-            XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: failedDirectory).path))
-            let manifest = try harness.store.readManifest(in: failedDirectory)
-            XCTAssertNotEqual(manifest.audio.state, .finalizedArtifact)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
-        }
-
-        try FileManager.default.removeItem(at: blockerURL)
-
         let result = try await harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
         XCTAssertEqual(result, .repend)
 
         let pendingDirectory = harness.store.segmentDirectoryURL(.pending, segmentID: segmentID)
         let manifest = try harness.store.readManifest(in: pendingDirectory)
         XCTAssertEqual(try XCTUnwrap(manifest.audio.durationS), 12.0, accuracy: 1.0 / 16000)
-        let interruption = try harness.store.readTombstone(
-            at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(segmentID.uuidString).json")
+
+        let diagnosticName = JournalEventStore.diagnosticID(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_writer_duration_mismatch",
+            writerFault: false
         )
-        XCTAssertEqual(interruption.reason, "audio_writer_duration_mismatch")
+        let diagnosticURL = eventsRoot
+            .appendingPathComponent("diagnostics", isDirectory: true)
+            .appendingPathComponent("\(diagnosticName).json")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: diagnosticURL.path))
     }
 
     func testGenerated60sControlPublishesWithoutInterruption() async throws {
@@ -873,7 +901,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         )
         try harness.store.writeAudioWriterReceipt(receipt, in: failedDirectory)
 
-        let countBefore = harness.store.audioInterruptionCount()
+        let countBefore = self.journalEventCount(harness.store)
         let result = try await harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
         XCTAssertEqual(result, .repend)
 
@@ -881,7 +909,7 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         let manifest = try harness.store.readManifest(in: pendingDirectory)
         XCTAssertEqual(try XCTUnwrap(manifest.audio.durationS), 60.0, accuracy: 1.0 / 16000)
         XCTAssertEqual(try XCTUnwrap(manifest.durationS), 60.0, accuracy: 1.0 / 16000)
-        XCTAssertEqual(harness.store.audioInterruptionCount(), countBefore)
+        XCTAssertEqual(self.journalEventCount(harness.store), countBefore)
     }
 
     func testTransientInspectIsNotMismatchAndDefers() async throws {
@@ -911,11 +939,11 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
 
         harness.uploader.audioInspector = PhoneAudioInspector { _ in .transient(domain: "test", code: 1) }
 
-        let countBefore = harness.store.audioInterruptionCount()
+        let countBefore = self.journalEventCount(harness.store)
         let result = try await harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
         XCTAssertEqual(result, .deferred)
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: failedDirectory).path))
-        XCTAssertEqual(harness.store.audioInterruptionCount(), countBefore)
+        XCTAssertEqual(self.journalEventCount(harness.store), countBefore)
     }
 
     func testFaultedReceiptWithReasonAudioWriterFailed() async throws {
@@ -951,9 +979,11 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         let manifest = try harness.store.readManifest(in: pendingDirectory)
         XCTAssertEqual(try XCTUnwrap(manifest.audio.durationS), 10.876, accuracy: 1.0 / 16000)
         XCTAssertEqual(try XCTUnwrap(manifest.durationS), 10.876, accuracy: 1.0 / 16000)
-        let interruption = try harness.store.readTombstone(
-            at: harness.store.audioInterruptionDirectory().appendingPathComponent("\(segmentID.uuidString).json")
-        )
+        let interruption = try XCTUnwrap(self.journalDiagnostic(
+            harness.store,
+            segmentID: segmentID,
+            reason: "audio_writer_failed"
+        ))
         XCTAssertEqual(interruption.reason, "audio_writer_failed")
     }
 
@@ -986,11 +1016,11 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
             .permanent(domain: "AVFoundationErrorDomain", code: -11829)
         }
 
-        let countBefore = harness.store.audioInterruptionCount()
+        let countBefore = self.journalEventCount(harness.store)
         let result = try await harness.uploader.resolveFinalizeFailure(segmentID: segmentID, directory: failedDirectory, lifecycle: .failed)
         XCTAssertEqual(result, .deferred)
         XCTAssertTrue(FileManager.default.fileExists(atPath: harness.store.audioURL(in: failedDirectory).path))
-        XCTAssertEqual(harness.store.audioInterruptionCount(), countBefore)
+        XCTAssertEqual(self.journalEventCount(harness.store), countBefore)
     }
 
     func testOffsetOnlyStampPreservesDayAndOffsetWithNilTimeZone() async throws {

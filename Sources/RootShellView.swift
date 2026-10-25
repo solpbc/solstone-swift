@@ -21,6 +21,8 @@ struct RootShellView: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(ShellNavModel.self) private var nav
     @Environment(ShellStatusContext.self) private var shellStatusContext
+    @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
+    @Environment(\.scenePhase) private var scenePhase
     @Namespace private var homeChrome
     @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
     @State private var showingJournalLives = false
@@ -32,6 +34,8 @@ struct RootShellView: View {
     @ObservationIgnored private let journalMarkStore = JournalMarkStore()
     @State private var statusPath = NavigationPath()
     @State private var statusDetent: PresentationDetent = .medium
+    /// Owned here so rotation and a disappearing status view do not start or end a visit.
+    @State private var journalGapVisit = JournalGapVisit()
     @State private var showingSources = false
     @State private var observerSourcePauseState = ObserverSourcePauseState()
     @State private var crossFadePreference = AccessibilityCrossFadePreference()
@@ -170,6 +174,7 @@ struct RootShellView: View {
         // source screen opened from inside one of them finds it too. Injected lower,
         // the status sheet's audio screen could not find it and the app stopped.
         .environment(self.observerSourcePauseState)
+        .environment(self.journalGapVisit)
         .task(id: self.tunnelManager.activeConnection?.port) {
             await self.fetchJournalMark()
         }
@@ -185,6 +190,27 @@ struct RootShellView: View {
                 mainTabLog.info("showing disconnected shell state")
             }
             self.applyDebugSeeds()
+            self.captureJournalGapIfVisible()
+        }
+        .onChange(of: self.journalGapSurfaceVisible) { _, visible in
+            if visible {
+                self.captureJournalGapIfVisible()
+            } else {
+                self.journalGapVisit.end()
+            }
+        }
+        .onChange(of: self.mobileSegmentTransferHolder.journalGapNotice.lossIDs) { _, _ in
+            self.captureJournalGapIfVisible()
+        }
+        .onChange(of: self.scenePhase) { _, phase in
+            guard phase == .active else { return }
+            self.mobileSegmentTransferHolder.refreshJournalGap()
+            guard self.journalGapSurfaceVisible else { return }
+            self.journalGapVisit.foreground(
+                live: self.mobileSegmentTransferHolder.journalGapNotice.losses,
+                store: self.mobileSegmentTransferHolder.journalEvents
+            )
+            self.mobileSegmentTransferHolder.refreshJournalGap()
         }
         .onChange(of: self.tunnelManager.state.isConnected) { wasConnected, isConnected in
             if !wasConnected && isConnected {
@@ -470,11 +496,45 @@ struct RootShellView: View {
     }
 
     private func openStatus() {
+        self.journalGapVisit.beginNewVisit(
+            live: self.mobileSegmentTransferHolder.journalGapNotice.losses,
+            store: self.mobileSegmentTransferHolder.journalEvents
+        )
+        self.mobileSegmentTransferHolder.refreshJournalGap()
         if self.isPhoneShell {
             self.presentedPane = .status
         } else {
             self.nav.selectFromDeck(.status)
         }
+    }
+
+    /// Phone status is the sheet. iPad status is the detail pane, including the paired default.
+    /// A push that covers that content is not a visit. On-this-device is a path value.
+    private var journalGapSurfaceVisible: Bool {
+        self.statusSurfaceVisible || self.onThisDeviceVisible
+    }
+
+    private var statusSurfaceVisible: Bool {
+        if self.isPhoneShell {
+            return self.presentedPane == .status && self.statusPath.isEmpty
+        }
+        if self.nav.paneStack.contains(.status) { return true }
+        return self.nav.paneStack.isEmpty
+            && self.nav.resolvedPaneRoot(isPaired: self.appConfig.isPaired) == .status
+    }
+
+    private var onThisDeviceVisible: Bool {
+        self.nav.paneStack.contains(.onThisDevice)
+    }
+
+    /// An already-visible surface with nothing to show does not capture. The first losses do.
+    private func captureJournalGapIfVisible() {
+        guard self.journalGapSurfaceVisible else { return }
+        self.journalGapVisit.captureIfNeeded(
+            live: self.mobileSegmentTransferHolder.journalGapNotice.losses,
+            store: self.mobileSegmentTransferHolder.journalEvents
+        )
+        self.mobileSegmentTransferHolder.refreshJournalGap()
     }
 
     private var isJournalPresented: Binding<Bool> {

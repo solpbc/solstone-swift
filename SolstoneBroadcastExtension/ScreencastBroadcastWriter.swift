@@ -52,7 +52,16 @@ nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @
         )
         try self.fileManager.createDirectory(at: partURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         if self.fileManager.fileExists(atPath: partURL.path) {
-            try self.fileManager.removeItem(at: partURL)
+            try JournalPartRemoval.removeExisting(
+                at: partURL,
+                source: .screencast,
+                reason: "screencast_part_replaced",
+                segmentID: handoff.segmentID,
+                captureAt: handoff.startedAt,
+                now: now,
+                eventsRoot: JournalEventStore.directory(besideMobileSegmentRoot: rootURL),
+                fileManager: self.fileManager
+            )
         }
         self.rootURL = rootURL
         self.handoff = handoff
@@ -137,8 +146,17 @@ nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @
 
     func finish(now: Date) -> ScreencastBroadcastWriterOutcome {
         guard self.acceptedFrameCount > 0 else {
-            if let partURL {
-                try? self.fileManager.removeItem(at: partURL)
+            if let partURL, let rootURL, let handoff {
+                try? JournalPartRemoval.removeExisting(
+                    at: partURL,
+                    source: .screencast,
+                    reason: "screencast_no_frames",
+                    segmentID: handoff.segmentID,
+                    captureAt: handoff.startedAt,
+                    now: now,
+                    eventsRoot: JournalEventStore.directory(besideMobileSegmentRoot: rootURL),
+                    fileManager: self.fileManager
+                )
             }
             return .noVideo
         }

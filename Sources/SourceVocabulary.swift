@@ -557,10 +557,20 @@ nonisolated enum SourceVocabulary {
     static let syncingPulse = "syncing to your journal…"
     static let syncedHeadline = "all caught up"
     static let syncedBody = "everything is in your journal"
-    // Owner audio that never reached the journal. Durable history, shown in place of the
-    // caught-up claim and beside any other state; it offers no action.
-    static let audioInterruptedHeadline = "audio was interrupted"
-    static let audioInterruptedLine = "some audio hasn't reached your journal."
+    /// Something shared will not reach the journal. The pill and the widgets use the headline.
+    /// The day line says which day, and it clears once that status has been looked at.
+    static let journalGapHeadline = "there's a gap in your journal"
+    static let journalGapToday = "some of what you shared today didn't reach it."
+    static let journalGapYesterday = "some of what you shared yesterday didn't reach it."
+    static let journalGapUndated = "some of what you shared didn't reach it."
+
+    static func journalGapOn(weekday: String) -> String {
+        "some of what you shared on \(weekday) didn't reach it."
+    }
+
+    static func journalGapSince(earliest: String) -> String {
+        "some of what you shared since \(earliest) didn't reach it."
+    }
     static let offlineSafeLine = "on this device"
     static let magicMomentShownHeadline = "it's on this device now"
     static let magicMomentShownBody = "the solstone app just took in your first memory. it's on this device until you connect a journal."

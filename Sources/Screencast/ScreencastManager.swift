@@ -517,20 +517,23 @@ final class ScreencastManager {
     nonisolated static let systemEndedVisibleWindowSeconds: TimeInterval = 12 * 3600
 
     convenience init(
+        rootURL: URL,
         clock: any ObserverClock = SystemObserverClock(),
         defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier),
-        rootURLProvider: @escaping () throws -> URL = { try AppGroupContainer.rootURL() },
         darwin: any ScreencastDarwinNotifying = ScreencastDarwinNotificationCenter(),
         sessionLivenessScanner: (@MainActor @Sendable (URL, UUID, Set<UUID>, Date) -> ScreencastLivenessScanResult)? = nil
     ) {
-        let uploader = MobileSegmentUploader(clock: clock)
+        let store = MobileSegmentStore(
+            rootURL: rootURL.appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true)
+        )
+        let uploader = MobileSegmentUploader(store: store, clock: clock)
         let engine = MobileSegmentEngine(uploader: uploader, clock: clock)
         self.init(
             engine: engine,
             uploader: uploader,
             clock: clock,
             defaults: defaults,
-            rootURLProvider: rootURLProvider,
+            rootURLProvider: { rootURL },
             darwin: darwin,
             sessionLivenessScanner: sessionLivenessScanner
         )

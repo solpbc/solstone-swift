@@ -26,6 +26,7 @@ nonisolated final class ShellDestinationRoutingTests: XCTestCase {
             ("case .journalSetup:", "JournalLivesPane()"),
             ("case .addMore:", "AddMoreView"),
             ("case .import:", "ImportView()"),
+            ("case .onThisDevice:", "OnThisPhoneView()"),
             ("case .shelf:", "ShelfPane("),
             ("case .shelfJournal:", "JournalSettingsPane"),
             ("case .shelfThisDevice:", "ThisDevicePane()"),

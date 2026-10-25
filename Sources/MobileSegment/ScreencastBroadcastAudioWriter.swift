@@ -42,7 +42,16 @@ nonisolated final class ScreencastBroadcastAudioWriter: ScreencastBroadcastAudio
 
         try self.fileManager.createDirectory(at: partURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         if self.fileManager.fileExists(atPath: partURL.path) {
-            try self.fileManager.removeItem(at: partURL)
+            try JournalPartRemoval.removeExisting(
+                at: partURL,
+                source: .screenAudio,
+                reason: "screencast_part_replaced",
+                segmentID: handoff.segmentID,
+                captureAt: handoff.startedAt,
+                now: now,
+                eventsRoot: JournalEventStore.directory(besideMobileSegmentRoot: rootURL),
+                fileManager: self.fileManager
+            )
         }
 
         self.rootURL = rootURL

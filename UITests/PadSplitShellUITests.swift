@@ -493,6 +493,31 @@ final class PadSplitShellUITests: XCTestCase {
         )
     }
 
+    /// The paired default detail is already up. The seeded loss is the visit.
+    /// Leaving and coming back finds the journal caught up.
+    @MainActor
+    func testDefaultStatusDetailShowsTheGapThenCaughtUp() throws {
+        let app = try self.launchPad(["--ui-test-seed-audio-interruption"])
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 20))
+        let gap = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "there's a gap in your journal")
+        ).firstMatch
+        let dayLine = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "some of what you shared today didn't reach it.")
+        ).firstMatch
+        XCTAssertTrue(gap.waitForExistence(timeout: 20))
+        XCTAssertTrue(dayLine.waitForExistence(timeout: 20))
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.statusPill.state.caughtUp"].waitForExistence(timeout: 20))
+
+        self.tapDeck("dayHome.importEntry", in: app)
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 10))
+        self.tapDeck("dayHome.statusPill", in: app)
+        let caughtUp = app.descendants(matching: .any).matching(
+            NSPredicate(format: "label == %@", "all caught up")
+        ).firstMatch
+        XCTAssertTrue(caughtUp.waitForExistence(timeout: 20))
+    }
+
     @MainActor
     private func popPane(in app: XCUIApplication) {
         let back = app.navigationBars.buttons.firstMatch

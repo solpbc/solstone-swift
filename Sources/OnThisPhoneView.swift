@@ -50,19 +50,19 @@ nonisolated struct OnThisPhoneDeliveryMarkers: Equatable, Sendable {
 
 nonisolated enum OnThisPhoneEmptyInviteBranch: Equatable, Sendable {
     case allQuiet
-    /// Nothing on this device, but some owner audio never reached the journal, so the
+    /// Nothing on this device, but something shared will not reach the journal, so the
     /// all-quiet line's claim that everything is in the journal would be false.
-    case audioInterrupted
+    case journalGap
     case invite(includesJournalTruth: Bool)
 }
 
 nonisolated func onThisPhoneEmptyInviteBranch(
     isJournalPaired: Bool,
     hasWelcomeFraming: Bool,
-    hasAudioInterruption: Bool = false
+    hasJournalGap: Bool = false
 ) -> OnThisPhoneEmptyInviteBranch {
     if isJournalPaired && !hasWelcomeFraming {
-        return hasAudioInterruption ? .audioInterrupted : .allQuiet
+        return hasJournalGap ? .journalGap : .allQuiet
     }
     return .invite(includesJournalTruth: !isJournalPaired)
 }
@@ -110,6 +110,7 @@ struct OnThisPhoneMomentsView: View {
     @Environment(ObserverManager.self) private var observerManager
     @Environment(MobileSegmentUploader.self) private var mobileSegmentUploader
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
+    @Environment(JournalGapVisit.self) private var journalGapVisit
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
@@ -330,11 +331,19 @@ private extension OnThisPhoneMomentsView {
         }
     }
 
-    var audioInterruptedNotice: some View {
+    /// The lines this visit is showing. The live reader can already be empty after they are marked.
+    private var displayedJournalGap: JournalGapNotice {
+        self.journalGapVisit.displayedNotice(
+            live: self.mobileSegmentTransferHolder.journalGapNotice.losses,
+            now: Date()
+        )
+    }
+
+    var journalGapNotice: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(SourceVocabulary.audioInterruptedHeadline)
+            Text(SourceVocabulary.journalGapHeadline)
                 .font(.headline)
-            Text(SourceVocabulary.audioInterruptedLine)
+            Text(self.displayedJournalGap.dayLine ?? SourceVocabulary.journalGapUndated)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -352,7 +361,7 @@ private extension OnThisPhoneMomentsView {
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
             isStalled: self.connectionStallMonitor.isStalled,
             connectionStatus: self.connectionSyncModel.status,
-            hasAudioInterruption: self.mobileSegmentTransferHolder.hasAudioInterruption
+            hasJournalGap: self.displayedJournalGap.isShowing
         )
 
         NavigationLink {
@@ -392,8 +401,8 @@ private extension OnThisPhoneMomentsView {
                         }
                         .accessibilityElement(children: .combine)
                         .accessibilityIdentifier("onThisPhone.status.headline")
-                    case .audioInterrupted:
-                        self.audioInterruptedNotice
+                    case .journalGap:
+                        self.journalGapNotice
                             .accessibilityIdentifier("onThisPhone.status.headline")
                     case .needsAttentionOnly, .none:
                         EmptyView()
@@ -746,7 +755,7 @@ private extension OnThisPhoneMomentsView {
             switch onThisPhoneEmptyInviteBranch(
                 isJournalPaired: self.appConfig.isPaired,
                 hasWelcomeFraming: self.welcomeFraming != nil,
-                hasAudioInterruption: self.mobileSegmentTransferHolder.hasAudioInterruption
+                hasJournalGap: self.displayedJournalGap.isShowing
             ) {
             case .allQuiet:
                 VStack(alignment: .leading, spacing: 12) {
@@ -765,10 +774,10 @@ private extension OnThisPhoneMomentsView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("onThisPhone.allQuiet")
-            case .audioInterrupted:
-                self.audioInterruptedNotice
+            case .journalGap:
+                self.journalGapNotice
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("onThisPhone.audioInterrupted")
+                    .accessibilityIdentifier("onThisPhone.journalGap")
             case .invite(let includesJournalTruth):
                 self.emptyInvite(includesJournalTruth: includesJournalTruth)
             }

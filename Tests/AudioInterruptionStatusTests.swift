@@ -42,18 +42,25 @@ final class AudioInterruptionStatusTests: XCTestCase {
         let directory = try self.writeActiveSegment(segmentID: segmentID, store: store, sources: [.audio])
         try self.writeUnreadableAudio(in: directory, store: store)
 
+        uploader.audioInspector = PhoneAudioInspector { _ in
+            .permanent(domain: "AVFoundationErrorDomain", code: -11829)
+        }
         await uploader.resumeFromDisk()
 
         let tombstone = try store.readTombstone(
             at: store.tombstoneDirectory(kind: "empty").appendingPathComponent("\(segmentID.uuidString).json")
         )
         XCTAssertEqual(tombstone.reason, MobileSegmentUploader.undecodableAudioReason)
-        XCTAssertEqual(uploader.audioInterruptionCount, 1)
+        let records = self.journalRecords(store)
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.kind, .diagnostic)
+        XCTAssertEqual(records.first?.reason, MobileSegmentUploader.undecodableAudioReason)
+        XCTAssertFalse(records.contains { $0.kind == .loss })
 
         let restarted = MobileSegmentUploader(store: store, clock: self.clock)
-        XCTAssertEqual(restarted.audioInterruptionCount, 1)
+        XCTAssertEqual(self.journalRecords(store).count, 1)
         await restarted.resumeFromDisk()
-        XCTAssertEqual(restarted.audioInterruptionCount, 1)
+        XCTAssertEqual(self.journalRecords(store).count, 1)
 
         for current in [uploader, restarted] {
             let waiting = current.pendingCount + current.failedCount + current.finalizeFailedCount
@@ -64,18 +71,16 @@ final class AudioInterruptionStatusTests: XCTestCase {
                 hasBacklog: waiting > 0,
                 isStalled: false,
                 awaitingMarkConfirmation: false,
-                hasAudioInterruption: current.audioInterruptionCount > 0
+                hasJournalGap: false
             )
-            XCTAssertEqual(pill, .audioInterrupted)
+            XCTAssertEqual(pill, .caughtUp)
             let lead = StatusPaneLead.resolve(
                 pillState: pill,
                 waitingTotal: waiting,
-                showsConnectionDetails: true,
-                hasAudioInterruption: current.audioInterruptionCount > 0
+                showsConnectionDetails: true
             )
-            XCTAssertEqual(lead.headline, SourceVocabulary.audioInterruptedHeadline)
-            XCTAssertEqual(lead.subline, SourceVocabulary.audioInterruptedLine)
-            XCTAssertFalse(lead.showsAudioInterruptionNotice)
+            XCTAssertEqual(lead.headline, SourceVocabulary.syncedHeadline)
+            XCTAssertFalse(lead.showsJournalGapNotice)
             XCTAssertNil(lead.buttonTitle)
         }
     }
@@ -106,21 +111,24 @@ final class AudioInterruptionStatusTests: XCTestCase {
             lastSeenAt: self.clock.now().addingTimeInterval(-121)
         )
         try self.writeUnreadableAudio(in: directory, store: store)
+        uploader.audioInspector = PhoneAudioInspector { _ in
+            .permanent(domain: "AVFoundationErrorDomain", code: -11829)
+        }
 
         await uploader.resumeFromDisk()
 
-        // The location survives and waits to send; the lost audio is recorded beside it,
-        // not as a queue item.
         XCTAssertEqual(uploader.pendingCount, 1)
-        XCTAssertEqual(uploader.audioInterruptionCount, 1)
+        let records = self.journalRecords(store)
+        XCTAssertEqual(records.filter { $0.kind == .diagnostic }.count, 1)
+        XCTAssertFalse(records.contains { $0.kind == .loss })
         XCTAssertFalse(store.hasTombstone(segmentID: segmentID, kind: "empty"))
-        XCTAssertEqual(self.pill(waiting: uploader.pendingCount, interrupted: true), .syncing)
+        XCTAssertEqual(self.pill(waiting: uploader.pendingCount, gap: false), .syncing)
 
         try uploader.writeUploadedTombstone(segmentID: segmentID)
 
         XCTAssertEqual(uploader.pendingCount + uploader.failedCount, 0)
-        XCTAssertEqual(uploader.audioInterruptionCount, 1)
-        XCTAssertEqual(self.pill(waiting: 0, interrupted: uploader.audioInterruptionCount > 0), .audioInterrupted)
+        XCTAssertEqual(self.journalRecords(store).filter { $0.kind == .diagnostic }.count, 1)
+        XCTAssertEqual(self.pill(waiting: 0, gap: false), .caughtUp)
     }
 
     func testEmptyRetirementsWithNoRecordedAudioAreNotInterruptions() async throws {
@@ -135,7 +143,7 @@ final class AudioInterruptionStatusTests: XCTestCase {
         )
         let screenOnly = UUID()
         let screenDirectory = try self.writeActiveSegment(segmentID: screenOnly, store: store, sources: [.screencast])
-        try Data("partial".utf8).write(to: store.screenPartURL(in: screenDirectory), options: .atomic)
+        try Data().write(to: store.screenPartURL(in: screenDirectory), options: .atomic)
         let readable = UUID()
         let readableDirectory = try self.writeActiveSegment(segmentID: readable, store: store, sources: [.audio])
         let readableURL = store.audioURL(in: readableDirectory)
@@ -150,50 +158,67 @@ final class AudioInterruptionStatusTests: XCTestCase {
         )
         XCTAssertTrue(store.hasTombstone(segmentID: screenOnly, kind: "empty"))
         XCTAssertEqual(uploader.pendingCount, 1)
-        XCTAssertEqual(uploader.audioInterruptionCount, 0)
+        XCTAssertFalse(self.journalRecords(store).contains { $0.kind == .loss })
 
         try uploader.writeUploadedTombstone(segmentID: readable)
-        XCTAssertEqual(self.pill(waiting: uploader.pendingCount, interrupted: uploader.audioInterruptionCount > 0), .caughtUp)
+        XCTAssertEqual(self.pill(waiting: uploader.pendingCount, gap: false), .caughtUp)
     }
 
     func testRecordingStaysWhenItsInterruptionCannotBeRecorded() async throws {
         let store = self.makeStore()
         try store.ensureRoot()
-        let blocker = store.rootURL.appendingPathComponent("interruptions", isDirectory: false)
+        let eventsRoot = JournalEventStore.directory(besideMobileSegmentRoot: store.rootURL)
+        try FileManager.default.createDirectory(at: eventsRoot, withIntermediateDirectories: true)
+        let blocker = eventsRoot.appendingPathComponent("losses", isDirectory: false)
         try Data().write(to: blocker)
         let uploader = MobileSegmentUploader(store: store, clock: self.clock)
+        uploader.audioInspector = PhoneAudioInspector { _ in
+            .permanent(domain: "AVFoundationErrorDomain", code: -11829)
+        }
         let segmentID = UUID()
         let directory = try self.writeActiveSegment(segmentID: segmentID, store: store, sources: [.audio])
-        try self.writeUnreadableAudio(in: directory, store: store)
+        let audioURL = store.audioURL(in: directory)
+        try Self.writeExistedAudio(at: audioURL)
+        try MobileSegmentTestFixtures.setAudioModificationDate(at: audioURL, offset: -400, clock: self.clock)
+        try store.writeAudioWriterReceipt(
+            PhoneAudioWriterReceipt(segmentID: segmentID, phase: .writing, acceptedFrames: 0),
+            in: directory
+        )
 
         await uploader.resumeFromDisk()
 
-        XCTAssertTrue(FileManager.default.fileExists(atPath: store.audioURL(in: directory).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: audioURL.path))
         XCTAssertFalse(store.hasTombstone(segmentID: segmentID, kind: "empty"))
-        XCTAssertEqual(uploader.audioInterruptionCount, 0)
+        let blockedStore = JournalEventStore(rootURL: eventsRoot)
+        guard case .unreadable = blockedStore.readEvents() else {
+            return XCTFail("a blocked losses directory still read as events")
+        }
 
         try FileManager.default.removeItem(at: blocker)
         await uploader.resumeFromDisk()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
         XCTAssertTrue(store.hasTombstone(segmentID: segmentID, kind: "empty"))
-        XCTAssertEqual(uploader.audioInterruptionCount, 1)
+        let losses = self.journalRecords(store).filter { $0.kind == .loss }
+        XCTAssertEqual(losses.count, 1)
+        XCTAssertEqual(losses.first?.reason, "audio_capture_unfinished")
     }
 
     func testEarlierUnreadableAudioRecordsAreCarriedForwardOnce() async throws {
         let store = self.makeStore()
         try store.ensureRoot()
+        let recordedAt = Date()
         let earlierRetired = UUID()
         try store.writeTombstone(
             segmentID: earlierRetired,
             kind: "empty",
             reason: MobileSegmentUploader.undecodableAudioReason,
-            now: self.clock.now().addingTimeInterval(-86_400)
+            now: recordedAt.addingTimeInterval(-86_400)
         )
         for reason in ["unrecoverable_lost_data", "no_artifacts", "screencast_removed"] {
-            try store.writeTombstone(segmentID: UUID(), kind: "empty", reason: reason, now: self.clock.now())
+            try store.writeTombstone(segmentID: UUID(), kind: "empty", reason: reason, now: recordedAt)
         }
-        try store.writeTombstone(segmentID: UUID(), kind: "uploaded", reason: "delivered", now: self.clock.now())
+        try store.writeTombstone(segmentID: UUID(), kind: "uploaded", reason: "delivered", now: recordedAt)
         let earlierWaiting = UUID()
         let waitingDirectory = try self.writeActiveSegment(segmentID: earlierWaiting, store: store, sources: [.audio, .location])
         var manifest = try store.readManifest(in: waitingDirectory)
@@ -202,31 +227,33 @@ final class AudioInterruptionStatusTests: XCTestCase {
                 state: .removed,
                 reason: MobileSegmentUploader.undecodableAudioReason,
                 stage: "AVFoundationErrorDomain -11829",
-                lastAttemptAt: self.clock.now()
+                lastAttemptAt: recordedAt
             ),
             source: .audio,
             manifest: &manifest,
             in: waitingDirectory,
-            now: self.clock.now()
+            now: recordedAt
         )
         _ = try store.move(segmentID: earlierWaiting, from: .active, to: .failed)
 
         let uploader = MobileSegmentUploader(store: store, clock: self.clock)
         await uploader.resumeFromDisk()
 
-        XCTAssertEqual(uploader.audioInterruptionCount, 2)
-        XCTAssertTrue(store.hasBackfilledAudioInterruptions)
+        let legacy = self.journalRecords(store).filter { $0.kind == .legacy }
+        XCTAssertEqual(legacy.count, 2)
+        XCTAssertFalse(self.journalRecords(store).contains { $0.kind == .loss })
+        XCTAssertFalse(uploader.journalGapNotice.isShowing)
 
         await uploader.resumeFromDisk()
-        XCTAssertEqual(MobileSegmentUploader(store: store, clock: self.clock).audioInterruptionCount, 2)
+        XCTAssertEqual(self.journalRecords(store).filter { $0.kind == .legacy }.count, 2)
     }
 
     // MARK: - Pill and pane
 
     func testPillShowsTheInterruptionOnlyWhereItWouldOtherwiseClaimCaughtUp() {
         let cases: [(ConnectionSyncStatus, Bool, Bool, Bool, HomeStatusPillState)] = [
-            (.connectedIdle, false, false, false, .audioInterrupted),
-            (.connectedWaiting, false, false, false, .audioInterrupted),
+            (.connectedIdle, false, false, false, .journalGap),
+            (.connectedWaiting, false, false, false, .journalGap),
             (.connectedIdle, true, false, false, .syncing),
             (.connectedIdle, false, true, false, .awaitingMarkConfirmation),
             (.connectedIdle, false, false, true, .stalled),
@@ -241,7 +268,7 @@ final class AudioInterruptionStatusTests: XCTestCase {
                     hasBacklog: hasBacklog,
                     isStalled: stalled,
                     awaitingMarkConfirmation: awaiting,
-                    hasAudioInterruption: true
+                    hasJournalGap: true
                 ),
                 expected
             )
@@ -253,13 +280,14 @@ final class AudioInterruptionStatusTests: XCTestCase {
                 hasBacklog: false,
                 isStalled: false,
                 awaitingMarkConfirmation: false,
-                hasAudioInterruption: true
+                hasJournalGap: true
             ),
             .notPaired
         )
-        XCTAssertEqual(self.pill(waiting: 0, interrupted: false), .caughtUp)
-        XCTAssertNotEqual(HomeStatusPillState.audioInterrupted.label, HomeStatusPillState.caughtUp.label)
-        XCTAssertFalse(HomeStatusPillState.audioInterrupted.shouldPulse(reduceMotion: false))
+        XCTAssertEqual(self.pill(waiting: 0, gap: false), .caughtUp)
+        XCTAssertEqual(HomeStatusPillState.journalGap.label, SourceVocabulary.journalGapHeadline)
+        XCTAssertNotEqual(HomeStatusPillState.journalGap.label, HomeStatusPillState.caughtUp.label)
+        XCTAssertFalse(HomeStatusPillState.journalGap.shouldPulse(reduceMotion: false))
     }
 
     func testPaneKeepsTheNoticeBesideOtherFacts() {
@@ -272,37 +300,40 @@ final class AudioInterruptionStatusTests: XCTestCase {
             (.connecting, 1),
         ]
         for (pillState, waiting) in beside {
+            let dayLine = SourceVocabulary.journalGapToday
             let withNotice = StatusPaneLead.resolve(
                 pillState: pillState,
                 waitingTotal: waiting,
                 showsConnectionDetails: false,
-                hasAudioInterruption: true
+                gapDayLine: dayLine
             )
             let without = StatusPaneLead.resolve(
                 pillState: pillState,
                 waitingTotal: waiting,
-                showsConnectionDetails: false,
-                hasAudioInterruption: false
+                showsConnectionDetails: false
             )
-            XCTAssertTrue(withNotice.showsAudioInterruptionNotice, "\(pillState) \(waiting)")
-            XCTAssertFalse(without.showsAudioInterruptionNotice, "\(pillState) \(waiting)")
+            XCTAssertTrue(withNotice.showsJournalGapNotice, "\(pillState) \(waiting)")
+            XCTAssertEqual(withNotice.journalGapDayLine, dayLine)
+            XCTAssertFalse(without.showsJournalGapNotice, "\(pillState) \(waiting)")
             XCTAssertEqual(withNotice.lead, without.lead)
             XCTAssertEqual(withNotice.region, without.region)
         }
 
         let clean = StatusPaneLead.resolve(pillState: .caughtUp, waitingTotal: 0, showsConnectionDetails: true)
         XCTAssertEqual(clean.headline, SourceVocabulary.syncedHeadline)
-        XCTAssertFalse(clean.showsAudioInterruptionNotice)
+        XCTAssertFalse(clean.showsJournalGapNotice)
 
-        let interrupted = StatusPaneLead.resolve(
-            pillState: .audioInterrupted,
+        let gap = StatusPaneLead.resolve(
+            pillState: .journalGap,
             waitingTotal: 0,
             showsConnectionDetails: true,
-            hasAudioInterruption: true
+            gapDayLine: SourceVocabulary.journalGapToday
         )
-        XCTAssertNotEqual(interrupted.headline, SourceVocabulary.syncedHeadline)
-        XCTAssertEqual(interrupted.region, clean.region)
-        XCTAssertNil(interrupted.buttonTitle)
+        XCTAssertEqual(gap.headline, SourceVocabulary.journalGapHeadline)
+        XCTAssertEqual(gap.subline, SourceVocabulary.journalGapToday)
+        XCTAssertFalse(gap.showsJournalGapNotice)
+        XCTAssertEqual(gap.region, clean.region)
+        XCTAssertNil(gap.buttonTitle)
     }
 
     // MARK: - On this device
@@ -316,9 +347,9 @@ final class AudioInterruptionStatusTests: XCTestCase {
             awaitingMarkConfirmation: false,
             isStalled: false,
             connectionStatus: .connectedIdle,
-            hasAudioInterruption: true
+            hasJournalGap: true
         )
-        XCTAssertEqual(interrupted.role, .audioInterrupted)
+        XCTAssertEqual(interrupted.role, .journalGap)
         let clean = onThisPhoneHeadline(
             migration: drained,
             isPaired: true,
@@ -326,7 +357,7 @@ final class AudioInterruptionStatusTests: XCTestCase {
             awaitingMarkConfirmation: false,
             isStalled: false,
             connectionStatus: .connectedIdle,
-            hasAudioInterruption: false
+            hasJournalGap: false
         )
         XCTAssertEqual(clean.role, .upToDate)
         let sending = onThisPhoneHeadline(
@@ -336,16 +367,16 @@ final class AudioInterruptionStatusTests: XCTestCase {
             awaitingMarkConfirmation: false,
             isStalled: false,
             connectionStatus: .connectedTransferring,
-            hasAudioInterruption: true
+            hasJournalGap: true
         )
         XCTAssertEqual(sending.role, .syncing)
 
         XCTAssertEqual(
-            onThisPhoneEmptyInviteBranch(isJournalPaired: true, hasWelcomeFraming: false, hasAudioInterruption: true),
-            .audioInterrupted
+            onThisPhoneEmptyInviteBranch(isJournalPaired: true, hasWelcomeFraming: false, hasJournalGap: true),
+            .journalGap
         )
         XCTAssertEqual(
-            onThisPhoneEmptyInviteBranch(isJournalPaired: true, hasWelcomeFraming: false, hasAudioInterruption: false),
+            onThisPhoneEmptyInviteBranch(isJournalPaired: true, hasWelcomeFraming: false, hasJournalGap: false),
             .allQuiet
         )
     }
@@ -353,22 +384,23 @@ final class AudioInterruptionStatusTests: XCTestCase {
     // MARK: - Widgets
 
     func testWidgetsShowTheInterruptionInPlaceOfCaughtUp() {
-        let interrupted = self.makeSnapshot(audioInterrupted: true)
-        XCTAssertEqual(ObserverStatusPresentations.small(snapshot: interrupted, sourceKind: .observer), .audioInterrupted)
-        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: interrupted), .audioInterrupted)
-        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: interrupted), .audioInterrupted)
-        XCTAssertNil(ObserverStatusPresentation.audioInterrupted.count)
-        XCTAssertNotEqual(ObserverStatusPresentation.audioInterrupted.symbol, ObserverStatusPresentation.caughtUp.symbol)
-        XCTAssertNotEqual(ObserverStatusPresentation.audioInterrupted.label, ObserverStatusPresentation.caughtUp.label)
+        let interrupted = self.makeSnapshot(journalGap: true)
+        XCTAssertEqual(ObserverStatusPresentations.small(snapshot: interrupted, sourceKind: .observer), .journalGap)
+        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: interrupted), .journalGap)
+        XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: interrupted), .journalGap)
+        XCTAssertNil(ObserverStatusPresentation.journalGap.count)
+        XCTAssertEqual(ObserverStatusPresentation.journalGap.symbol, "calendar.badge.minus")
+        XCTAssertEqual(ObserverStatusPresentation.journalGap.label, SourceVocabulary.journalGapHeadline)
+        XCTAssertNotEqual(ObserverStatusPresentation.journalGap.symbol, ObserverStatusPresentation.caughtUp.symbol)
 
-        let sending = self.makeSnapshot(backlogCount: 2, audioInterrupted: true)
+        let sending = self.makeSnapshot(backlogCount: 2, journalGap: true)
         XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: sending), .waiting(count: 2))
-        let held = self.makeSnapshot(awaitingMarkConfirmation: true, audioInterrupted: true)
+        let held = self.makeSnapshot(awaitingMarkConfirmation: true, journalGap: true)
         XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: held), .awaitingMarkConfirmation(count: 0))
-        let unpaired = self.makeSnapshot(isPaired: false, audioInterrupted: true)
+        let unpaired = self.makeSnapshot(isPaired: false, journalGap: true)
         XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: unpaired), .notPaired)
 
-        let clean = self.makeSnapshot(audioInterrupted: false)
+        let clean = self.makeSnapshot(journalGap: false)
         XCTAssertEqual(ObserverStatusPresentations.small(snapshot: clean, sourceKind: .observer), .caughtUp)
         XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: clean), .caughtUp)
         XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: clean), .caughtUp)
@@ -385,11 +417,11 @@ final class AudioInterruptionStatusTests: XCTestCase {
             sourceStates: [.observer: .active],
             backlogCount: 0,
             awaitingMarkConfirmation: false,
-            audioInterrupted: true
+            journalGap: true
         ) else {
             return XCTFail("expected app group mirror write to succeed")
         }
-        XCTAssertEqual(mirror.snapshot()?.audioInterrupted, true)
+        XCTAssertEqual(mirror.snapshot()?.journalGap, true)
 
         guard case .success = ObserverCaptureControlMirrorWriter.update(
             session: .notLive,
@@ -398,32 +430,57 @@ final class AudioInterruptionStatusTests: XCTestCase {
         ) else {
             return XCTFail("expected capture control mirror write to succeed")
         }
-        XCTAssertEqual(mirror.snapshot()?.audioInterrupted, true)
-        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: mirror.snapshot()), .audioInterrupted)
+        XCTAssertEqual(mirror.snapshot()?.journalGap, true)
+        XCTAssertEqual(ObserverStatusPresentations.medium(snapshot: mirror.snapshot()), .journalGap)
 
         var stored = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: rootURL.appendingPathComponent(AppGroupMirror.Snapshot.fileName)))
                 as? [String: Any]
         )
-        stored.removeValue(forKey: "audioInterrupted")
+        stored.removeValue(forKey: "journalGap")
+        stored["audioInterrupted"] = true
         let earlier = try JSONDecoder().decode(
             AppGroupMirror.Snapshot.self,
             from: JSONSerialization.data(withJSONObject: stored)
         )
-        XCTAssertFalse(earlier.audioInterrupted)
+        XCTAssertFalse(earlier.journalGap)
     }
 
     // MARK: - Helpers
 
-    private func pill(waiting: Int, interrupted: Bool) -> HomeStatusPillState {
+    private func pill(waiting: Int, gap: Bool) -> HomeStatusPillState {
         HomeStatusPillState.resolve(
             isPaired: true,
             status: .connectedIdle,
             hasBacklog: waiting > 0,
             isStalled: false,
             awaitingMarkConfirmation: false,
-            hasAudioInterruption: interrupted
+            hasJournalGap: gap
         )
+    }
+
+    private func journalRecords(_ store: MobileSegmentStore, file: StaticString = #filePath, line: UInt = #line) -> [JournalEventRecord] {
+        let events = JournalEventStore(rootURL: JournalEventStore.directory(besideMobileSegmentRoot: store.rootURL))
+        guard case .events(let records) = events.readEvents() else {
+            XCTFail("journal events unreadable", file: file, line: line)
+            return []
+        }
+        return records
+    }
+
+    /// A delimited phone file with an `mdat` payload of 16 bytes. The box walker calls this existed.
+    private static func writeExistedAudio(at url: URL) throws {
+        var bytes = Data([
+            0x00, 0x00, 0x00, 0x18,
+            0x66, 0x74, 0x79, 0x70,
+            0x6D, 0x70, 0x34, 0x32,
+            0x00, 0x00, 0x00, 0x00,
+            0x69, 0x73, 0x6F, 0x6D,
+            0x6D, 0x70, 0x34, 0x32,
+        ])
+        bytes.append(contentsOf: [0x00, 0x00, 0x00, 0x18, 0x6D, 0x64, 0x61, 0x74])
+        bytes.append(contentsOf: [UInt8](repeating: 0x11, count: 16))
+        try bytes.write(to: url, options: .atomic)
     }
 
     private func makeStore() -> MobileSegmentStore {
@@ -459,7 +516,7 @@ final class AudioInterruptionStatusTests: XCTestCase {
         isPaired: Bool = true,
         backlogCount: Int = 0,
         awaitingMarkConfirmation: Bool = false,
-        audioInterrupted: Bool
+        journalGap: Bool
     ) -> AppGroupMirror.Snapshot {
         AppGroupMirror.Snapshot(
             schemaVersion: AppGroupMirror.Snapshot.currentSchemaVersion,
@@ -470,7 +527,7 @@ final class AudioInterruptionStatusTests: XCTestCase {
             sourceStates: [.observer: .active],
             backlogCount: backlogCount,
             awaitingMarkConfirmation: awaitingMarkConfirmation,
-            audioInterrupted: audioInterrupted
+            journalGap: journalGap
         )
     }
 }

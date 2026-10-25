@@ -54,13 +54,6 @@ enum OnThisPhoneUITestSeeder {
         do {
             let roots = try Self.roots(fileManager: fileManager)
             try Self.reset(roots: roots, fileManager: fileManager)
-            if seedAudioInterruption {
-                try MobileSegmentStore(rootURL: roots.mobileSegment, fileManager: fileManager).writeAudioInterruption(
-                    segmentID: UUID(),
-                    reason: MobileSegmentUploader.undecodableAudioReason,
-                    now: Date()
-                )
-            }
             guard seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
                 || seedMixedBacklog else {
                 onThisPhoneUITestSeedLog.info("on-this-phone ui-test reset complete")
@@ -161,7 +154,8 @@ extension OnThisPhoneUITestSeeder {
     }
 
     static func reset(roots: Roots, fileManager: FileManager) throws {
-        for root in [roots.observer, roots.transfer, roots.location, roots.mobileSegment, roots.importQueue] where fileManager.fileExists(atPath: root.path) {
+        let journalEvents = JournalEventStore.directory(besideMobileSegmentRoot: roots.mobileSegment)
+        for root in [roots.observer, roots.transfer, roots.location, roots.mobileSegment, roots.importQueue, journalEvents] where fileManager.fileExists(atPath: root.path) {
             try fileManager.removeItem(at: root)
         }
         UserDefaults.standard.removeObject(forKey: "didMigrateLegacyMobileSegmentsV1")

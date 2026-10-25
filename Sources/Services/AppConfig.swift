@@ -33,6 +33,7 @@ final class AppConfig {
     @ObservationIgnored private let endpointCache: EndpointCache
     @ObservationIgnored private let appGroupMirror: AppGroupMirror
     @ObservationIgnored private let journalMarkStore: JournalMarkStore
+    @ObservationIgnored private var journalEvents: JournalEventStore?
 
     init(
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
@@ -142,20 +143,68 @@ final class AppConfig {
         appConfigLog.info("pairing applied for \(pairing.homeLabel, privacy: .public)")
     }
 
+    /// Seeds `journal-identity.json` when the file is absent. A later startup does not rewrite it.
+    /// No pairing stores `unknown`. A pairing whose identity cannot be computed stores nothing.
+    func attachJournalEvents(_ store: JournalEventStore) {
+        self.journalEvents = store
+        let identity: String
+        do {
+            if let pairing = try self.store.load() {
+                guard let computed = journalVersionMetadataIdentity(for: pairing) else { return }
+                identity = computed
+            } else {
+                identity = "unknown"
+            }
+        } catch {
+            appConfigLog.error("journal identity seed failed")
+            return
+        }
+        do {
+            try store.seedIdentityIfAbsent(identity)
+        } catch {
+            appConfigLog.error("journal identity seed failed")
+        }
+    }
+
     func reflectCommittedPairing(_ pairing: StoredPairing) {
         guard self.store.snapshot().pairing?.fingerprint == pairing.fingerprint else { return }
         let newIdentity = journalVersionMetadataIdentity(for: pairing)
         if newIdentity != self.journalVersion.identity { self.journalVersion.clear() }
         self.journalSendConfirmed = false
         self.applyDerivedState(from: pairing)
+        self.noteJournalIdentity(pairing)
         Task { await self.endpointCache.bootstrap(from: pairing) }
     }
 
     func applyMigratedPairing(_ pairing: StoredPairing) {
         self.applyDerivedState(from: pairing)
         self.journalSendConfirmed = self.confirmationStore.allowsSend(pairing: pairing)
+        self.noteJournalIdentity(pairing)
         Task { await self.endpointCache.bootstrap(from: pairing) }
         appConfigLog.info("migrated pairing applied for \(pairing.homeLabel, privacy: .public)")
+    }
+
+    /// Same journal, `unknown`, or a missing file: store the new string and mark nothing.
+    /// A different known identity marks every event seen, then stores the new string.
+    /// A pairing whose identity cannot be computed changes nothing.
+    private func noteJournalIdentity(_ pairing: StoredPairing) {
+        guard let events = self.journalEvents else { return }
+        guard let newIdentity = journalVersionMetadataIdentity(for: pairing) else { return }
+        let stored = events.readIdentity()
+        if stored == nil || stored == "unknown" || stored == newIdentity {
+            do {
+                try events.writeIdentity(newIdentity)
+            } catch {
+                appConfigLog.error("journal identity write failed")
+            }
+            return
+        }
+        do {
+            try events.markAllEventsSeen()
+            try events.writeIdentity(newIdentity)
+        } catch {
+            appConfigLog.error("journal identity change failed")
+        }
     }
 
     @discardableResult

@@ -80,9 +80,15 @@ nonisolated final class LocationDetailPresentationTests: XCTestCase {
     private func makeManager(capability: LocationCapability) -> LocationManager {
         let provider = MockLocationProvider()
         provider.capability = capability
+        let clock = MockObserverClock()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LocationDetailPresentationTests-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("MobileSegment", isDirectory: true)
+        let uploader = MobileSegmentUploader(store: MobileSegmentStore(rootURL: root), clock: clock)
         return LocationManager(
             provider: provider,
-            clock: MockObserverClock(),
+            mobileSegmentEngine: MobileSegmentEngine(uploader: uploader, clock: clock),
+            clock: clock,
             defaults: nil
         )
     }

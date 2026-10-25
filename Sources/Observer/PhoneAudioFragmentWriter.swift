@@ -259,7 +259,7 @@ actor PhoneAudioFragmentWriter {
     let sessionID: UUID
     let sourceFormat: AVAudioFormat
     let clock: any ObserverClock
-    nonisolated let interruptionDirectory: URL
+    nonisolated let journalEventsDirectory: URL
     let onPhoneAudioFault: (@Sendable (PhoneAudioWriterFault) -> Void)?
     nonisolated let queue: PhoneAudioPCMQueue
 
@@ -295,7 +295,7 @@ actor PhoneAudioFragmentWriter {
     func setTestAppendOverride(_ override: (@Sendable (CMSampleBuffer) -> Bool)?) { self.testAppendOverride = override }
 
     init(url: URL, segmentID: UUID, sessionID: UUID, sourceFormat: AVAudioFormat,
-         clock: any ObserverClock, interruptionDirectory: URL,
+         clock: any ObserverClock, journalEventsDirectory: URL,
          onPhoneAudioFault: (@Sendable (PhoneAudioWriterFault) -> Void)? = nil) throws {
         let rate = sourceFormat.sampleRate
         let channels = sourceFormat.channelCount
@@ -308,7 +308,7 @@ actor PhoneAudioFragmentWriter {
         self.sessionID = sessionID
         self.sourceFormat = sourceFormat
         self.clock = clock
-        self.interruptionDirectory = interruptionDirectory
+        self.journalEventsDirectory = journalEventsDirectory
         self.onPhoneAudioFault = onPhoneAudioFault
         self.queue = PhoneAudioPCMQueue(sourceFormat: sourceFormat, segmentID: segmentID,
                                         sessionID: sessionID, admissionOpen: false)
@@ -565,10 +565,19 @@ actor PhoneAudioFragmentWriter {
             if let testError = self.testFaultReceiptWriteError { throw testError }
             try self.writeReceipt(phase: .faulted)
         } catch { self.evidenceFailure = error }
+        let now = await self.clock.now()
         do {
-            try MobileSegmentStore.writeAudioInterruptionAtomic(segmentID: self.segmentID, reason: reason,
-                                                               now: await self.clock.now(), in: self.interruptionDirectory)
-        } catch { if self.evidenceFailure == nil { self.evidenceFailure = error } }
+            try JournalEventStore(rootURL: self.journalEventsDirectory).recordDiagnostic(
+                segmentID: self.segmentID,
+                source: .audio,
+                reason: reason,
+                captureAt: nil,
+                now: now,
+                writerFault: true
+            )
+        } catch {
+            observerLog.error("journal diagnostic record failed reason=\(reason, privacy: .public)")
+        }
         self.onPhoneAudioFault?(PhoneAudioWriterFault(segmentID: self.segmentID, sessionID: self.sessionID, reason: reason))
     }
 

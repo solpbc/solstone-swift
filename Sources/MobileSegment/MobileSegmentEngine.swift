@@ -950,8 +950,7 @@ final class MobileSegmentEngine {
             self.sourceSetVersion = previousSourceSetVersion
 
             if let candidateID = candidateSegmentIDToRemoveOnRollback {
-                let candidateDir = self.segmentUploader.storeForTransferMigration.segmentDirectoryURL(.active, segmentID: candidateID)
-                try? self.segmentUploader.storeForTransferMigration.remove(candidateDir)
+                try? self.segmentUploader.discardUnprovenRollbackCandidate(segmentID: candidateID, now: now)
             }
 
             let isStartDirection = !nextSources.isSubset(of: oldSources)

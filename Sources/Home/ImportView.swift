@@ -101,9 +101,7 @@ struct ImportView: View {
                         // The action names what it opens rather than restating the
                         // heading it sits under: a button reading `on this device`
                         // inside a block titled `on this device` says nothing twice.
-                        NavigationLink {
-                            OnThisPhoneView()
-                        } label: {
+                        NavigationLink(value: ShellDestination.onThisDevice) {
                             HStack {
                                 Text(SourceVocabulary.onThisPhoneOpenAction)
                                 Spacer(minLength: 8)

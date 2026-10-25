@@ -84,18 +84,22 @@ final class ObserverManager {
     @ObservationIgnored private var tapProgressCount = 0
     @ObservationIgnored private var watchdogAnchorCount = 0
     @ObservationIgnored private var watchdogStrikes = 0
+    @ObservationIgnored private let journalEvents: JournalEventStore
+    @ObservationIgnored private let diagnosticLog: DiagnosticLog?
 
     init(
-        recorder: any ObserverRecording = LiveObserverRecorder(),
-        mobileSegmentEngine: MobileSegmentEngine = MobileSegmentEngine(
-            uploader: MobileSegmentUploader()
-        ),
+        recorder: any ObserverRecording,
+        mobileSegmentEngine: MobileSegmentEngine,
+        journalEvents: JournalEventStore,
+        diagnosticLog: DiagnosticLog? = nil,
         clock: any ObserverClock = SystemObserverClock(),
         liveActivity: any ObserverLiveActivitying = ObserverLiveActivity(),
         defaults: UserDefaults = .standard
     ) {
         self.recorder = recorder
         self.mobileSegmentEngine = mobileSegmentEngine
+        self.journalEvents = journalEvents
+        self.diagnosticLog = diagnosticLog
         self.clock = clock
         self.liveActivity = liveActivity
         self.defaults = defaults
@@ -374,14 +378,24 @@ private extension ObserverManager {
             }
             do {
                 try await self.recorder.restart()
+                managerLog.notice("observer: engine restart succeeded")
+                self.noteObserverDiagnostic(
+                    reason: "observer_configuration_change",
+                    detail: JournalEventDetail(configurationRestartSuccesses: 1)
+                )
                 self.rearmWatchdog()
             } catch {
                 managerLog.error("observer: engine restart failed")
+                self.noteObserverDiagnostic(
+                    reason: "observer_configuration_change",
+                    detail: JournalEventDetail(configurationRestartFailures: 1)
+                )
                 _ = await self.stopSession()
                 self.state = .error(.audioSessionConflict)
             }
         case .mediaServicesReset:
             managerLog.error("observer: media services reset")
+            self.noteObserverDiagnostic(reason: "observer_media_services_reset")
             _ = await self.stopSession()
             self.state = .error(.audioSessionConflict)
         }
@@ -391,6 +405,8 @@ private extension ObserverManager {
         guard case .active = self.state else { return }
         switch event {
         case .began:
+            managerLog.notice("observer: interruption began")
+            self.noteObserverDiagnostic(reason: "observer_interruption_began")
             self.interruptionStartedAt = self.clock.now()
             await self.recorder.pause()
             self.armInterruptionDeadline()
@@ -402,6 +418,11 @@ private extension ObserverManager {
             guard self.interruptionStartedAt != nil else { return }
             let started = self.interruptionStartedAt!
             let interruptionDuration = self.clock.now().timeIntervalSince(started)
+            managerLog.notice("observer: interruption ended duration=\(interruptionDuration, privacy: .public)")
+            self.noteObserverDiagnostic(
+                reason: "observer_interruption_ended",
+                detail: JournalEventDetail(interruptionDuration: interruptionDuration)
+            )
             let rebuild = self.configChangedDuringPause
             self.interruptionStartedAt = nil
             self.configChangedDuringPause = false
@@ -409,12 +430,23 @@ private extension ObserverManager {
                 do {
                     if rebuild {
                         try await self.recorder.restart()
+                        managerLog.notice("observer: engine restart succeeded")
+                        self.noteObserverDiagnostic(
+                            reason: "observer_configuration_change",
+                            detail: JournalEventDetail(configurationRestartSuccesses: 1)
+                        )
                     } else {
                         try await self.recorder.resume()
                     }
                     self.rearmWatchdog()
                     self.startWatchdogTask()
                 } catch {
+                    if rebuild {
+                        self.noteObserverDiagnostic(
+                            reason: "observer_configuration_change",
+                            detail: JournalEventDetail(configurationRestartFailures: 1)
+                        )
+                    }
                     managerLog.error("observer: resume after interruption failed")
                     _ = await self.stopSession()
                     self.state = .error(.audioSessionConflict)
@@ -437,6 +469,7 @@ private extension ObserverManager {
             }
             guard !Task.isCancelled, self.interruptionStartedAt != nil else { return }
             managerLog.error("observer: interruption end never delivered")
+            self.noteObserverDiagnostic(reason: "observer_interruption_end_never_delivered")
             _ = await self.stopSession()
             self.state = .error(.audioSessionConflict)
         }
@@ -474,6 +507,7 @@ private extension ObserverManager {
         self.watchdogStrikes += 1
         if self.watchdogStrikes >= observerWatchdogStrikeLimit {
             managerLog.error("observer: tap-write stall — stopping")
+            self.noteObserverDiagnostic(reason: "observer_tap_write_stall")
             _ = await self.stopSession()
             self.state = .error(.audioSessionConflict)
             return true
@@ -493,6 +527,22 @@ private extension ObserverManager {
         self.watchdogTask = nil
         self.interruptionDeadlineTask?.cancel()
         self.interruptionDeadlineTask = nil
+    }
+
+    private func noteObserverDiagnostic(reason: String, detail: JournalEventDetail? = nil) {
+        self.diagnosticLog?.append(category: .diagnostics, message: reason, detail: reason)
+        do {
+            try self.journalEvents.recordDiagnostic(
+                segmentID: nil,
+                source: .audio,
+                reason: reason,
+                captureAt: nil,
+                now: self.clock.now(),
+                detail: detail
+            )
+        } catch {
+            managerLog.error("observer diagnostic record failed reason=\(reason, privacy: .public)")
+        }
     }
 
     func handlePhoneAudioFault(_ fault: PhoneAudioWriterFault) async {
