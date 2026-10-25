@@ -154,7 +154,7 @@ final class AppConfig {
         let identity: String
         do {
             if let pairing = try self.store.load() {
-                guard let computed = journalVersionMetadataIdentity(for: pairing) else { return }
+                guard let computed = journalGapIdentity(for: pairing) else { return }
                 identity = computed
             } else {
                 identity = "unknown"
@@ -180,7 +180,7 @@ final class AppConfig {
         } catch {
             return
         }
-        guard let pairing, let computed = journalVersionMetadataIdentity(for: pairing) else { return }
+        guard let pairing, let computed = journalGapIdentity(for: pairing) else { return }
         let stored = events.readIdentity()
         guard let stored, stored != "unknown", stored != computed else { return }
         self.noteJournalIdentity(pairing)
@@ -205,13 +205,15 @@ final class AppConfig {
     }
 
     /// Same journal, `unknown`, or a missing file: store the new string and mark nothing.
-    /// A different known identity marks every event seen, then stores the new string.
-    /// A pairing whose identity cannot be computed changes nothing.
+    /// A stored identity in the older form, which included the client certificate, is replaced
+    /// with the gap identity and marks nothing. A different known journal marks every event seen,
+    /// then stores the new string. A pairing whose identity cannot be computed changes nothing.
     private func noteJournalIdentity(_ pairing: StoredPairing) {
         guard let events = self.journalEvents else { return }
-        guard let newIdentity = journalVersionMetadataIdentity(for: pairing) else { return }
+        guard let newIdentity = journalGapIdentity(for: pairing) else { return }
         let stored = events.readIdentity()
-        if stored == nil || stored == "unknown" || stored == newIdentity {
+        if stored == nil || stored == "unknown" || stored == newIdentity
+            || stored == journalVersionMetadataIdentity(for: pairing) {
             do {
                 try events.writeIdentity(newIdentity)
             } catch {

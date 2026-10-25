@@ -8,6 +8,6 @@ Events live in `AppGroup/JournalEvents`: one file per loss, one file per diagnos
 
 Imported interruption files are dated at import for retention and keep the record's own time in the diagnostics export. They are seen. Importing them again does not count them twice. The source files stay. Nothing under the Caches root is deleted.
 
-The last journal identity is `journal-identity.json`. Unpairing does not erase it. The same journal, an unknown identity, or a missing file marks nothing. A different known journal marks every event seen. A mark-all that fails is tried again on the next launch.
+The last journal identity is `journal-identity.json`. It is the instance id and the normalized CA fingerprint, not the phone's client certificate, so pairing the same journal again marks nothing. A stored identity from the older form, which included that certificate, is replaced without marking anything seen. Unpairing does not erase it. The same journal, an unknown identity, or a missing file marks nothing. A different known journal marks every event seen. A mark-all that fails is tried again on the next launch.
 
 Diagnostics keep a collapsed row until 30 days after its last occurrence. A seen mark leaves when its event is gone. Losses still expire from the day they were found. Unseen losses inside the notice window stay.

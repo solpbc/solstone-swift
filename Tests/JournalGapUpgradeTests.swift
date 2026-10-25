@@ -156,8 +156,8 @@ final class JournalGapUpgradeTests: XCTestCase {
     func testSameJournalMarksNothingAndADifferentJournalMarksEveryEvent() throws {
         let pairingA = Self.pairing(instanceID: "journal-a")
         let pairingB = Self.pairing(instanceID: "journal-b")
-        let identityA = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingA))
-        let identityB = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingB))
+        let identityA = try XCTUnwrap(journalGapIdentity(for: pairingA))
+        let identityB = try XCTUnwrap(journalGapIdentity(for: pairingB))
         XCTAssertNotEqual(identityA, identityB)
 
         let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
@@ -295,7 +295,7 @@ final class JournalGapUpgradeTests: XCTestCase {
 
     func testFirstLaunchWhilePairedSeedsTheJournalIdentity() throws {
         let pairing = Self.pairing(instanceID: "journal-a")
-        let identity = try XCTUnwrap(journalVersionMetadataIdentity(for: pairing))
+        let identity = try XCTUnwrap(journalGapIdentity(for: pairing))
         let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
         let config = self.makeConfig(pairing: pairing)
         config.attachJournalEvents(events)
@@ -306,8 +306,8 @@ final class JournalGapUpgradeTests: XCTestCase {
     func testUnpairThenADifferentJournalMarksEveryEventSeen() throws {
         let pairingA = Self.pairing(instanceID: "journal-a")
         let pairingB = Self.pairing(instanceID: "journal-b")
-        let identityA = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingA))
-        let identityB = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingB))
+        let identityA = try XCTUnwrap(journalGapIdentity(for: pairingA))
+        let identityB = try XCTUnwrap(journalGapIdentity(for: pairingB))
         let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
         let config = self.makeConfig(pairing: nil)
         config.attachJournalEvents(events)
@@ -347,8 +347,8 @@ final class JournalGapUpgradeTests: XCTestCase {
     func testFailedMarkAllRetriesOnTheNextLaunch() throws {
         let pairingA = Self.pairing(instanceID: "journal-a")
         let pairingB = Self.pairing(instanceID: "journal-b")
-        let identityA = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingA))
-        let identityB = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingB))
+        let identityA = try XCTUnwrap(journalGapIdentity(for: pairingA))
+        let identityB = try XCTUnwrap(journalGapIdentity(for: pairingB))
         let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
         try events.writeIdentity(identityA)
         try events.openGate(now: self.clock.now())
@@ -375,11 +375,91 @@ final class JournalGapUpgradeTests: XCTestCase {
         XCTAssertEqual(relaunch.journalIdentityEpoch, 1)
     }
 
+    func testRepairingTheSameJournalWithANewClientCertificateMarksNothing() throws {
+        let original = Self.pairing(instanceID: "journal-a")
+        let repaired = Self.pairing(instanceID: "journal-a", clientCertPEM: CertlessTrustFixtures.caPEM)
+        let identity = try XCTUnwrap(journalGapIdentity(for: original))
+        XCTAssertEqual(journalGapIdentity(for: repaired), identity)
+        XCTAssertNotEqual(journalVersionMetadataIdentity(for: original), journalVersionMetadataIdentity(for: repaired))
+
+        let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
+        let config = self.makeConfig(pairing: nil)
+        config.attachJournalEvents(events)
+        try events.openGate(now: self.clock.now())
+        let segmentID = UUID()
+        try events.recordLoss(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: self.clock.now(),
+            now: self.clock.now()
+        )
+        let lossID = JournalEventStore.lossID(segmentID: segmentID, source: .audio)
+        try config.applyPairing(original)
+        XCTAssertEqual(events.readIdentity(), identity)
+        XCTAssertFalse(events.isSeen(id: lossID))
+        XCTAssertTrue(config.clearPairing())
+        XCTAssertEqual(events.readIdentity(), identity)
+        try config.applyPairing(repaired)
+        XCTAssertEqual(events.readIdentity(), identity)
+        XCTAssertFalse(events.isSeen(id: lossID))
+        XCTAssertEqual(config.journalIdentityEpoch, 0)
+    }
+
+    func testClientCertificateChangeWhilePairedMarksNothing() throws {
+        let original = Self.pairing(instanceID: "journal-a")
+        let changed = Self.pairing(instanceID: "journal-a", clientCertPEM: CertlessTrustFixtures.caPEM)
+        let identity = try XCTUnwrap(journalGapIdentity(for: original))
+        let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
+        let config = self.makeConfig(pairing: nil)
+        config.attachJournalEvents(events)
+        try events.openGate(now: self.clock.now())
+        let segmentID = UUID()
+        try events.recordLoss(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: self.clock.now(),
+            now: self.clock.now()
+        )
+        let lossID = JournalEventStore.lossID(segmentID: segmentID, source: .audio)
+        try config.applyPairing(original)
+        try config.applyPairing(changed)
+        XCTAssertEqual(events.readIdentity(), identity)
+        XCTAssertFalse(events.isSeen(id: lossID))
+        XCTAssertEqual(config.journalIdentityEpoch, 0)
+    }
+
+    func testOldJournalIdentityIsReplacedWithoutMarkingSeen() throws {
+        let pairing = Self.pairing(instanceID: "journal-a")
+        let oldForm = try XCTUnwrap(journalVersionMetadataIdentity(for: pairing))
+        let identity = try XCTUnwrap(journalGapIdentity(for: pairing))
+        XCTAssertNotEqual(oldForm, identity)
+        let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
+        try events.writeIdentity(oldForm)
+        try events.openGate(now: self.clock.now())
+        let segmentID = UUID()
+        try events.recordLoss(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: self.clock.now(),
+            now: self.clock.now()
+        )
+        let lossID = JournalEventStore.lossID(segmentID: segmentID, source: .audio)
+        let config = self.makeConfig(pairing: nil)
+        config.attachJournalEvents(events)
+        config.applyMigratedPairing(pairing)
+        XCTAssertEqual(events.readIdentity(), identity)
+        XCTAssertFalse(events.isSeen(id: lossID))
+        XCTAssertEqual(config.journalIdentityEpoch, 0)
+    }
+
     func testFailedSeenWriteKeepsThePreviousJournalIdentity() throws {
         let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
         let pairingA = Self.pairing(instanceID: "journal-a")
         let pairingB = Self.pairing(instanceID: "journal-b")
-        let identityA = try XCTUnwrap(journalVersionMetadataIdentity(for: pairingA))
+        let identityA = try XCTUnwrap(journalGapIdentity(for: pairingA))
         try events.writeIdentity(identityA)
         try events.openGate(now: self.clock.now())
         try events.recordLoss(
@@ -486,13 +566,16 @@ final class JournalGapUpgradeTests: XCTestCase {
         )
     }
 
-    private static func pairing(instanceID: String) -> StoredPairing {
+    private static func pairing(
+        instanceID: String,
+        clientCertPEM: String = CertlessTrustFixtures.leafPEM
+    ) -> StoredPairing {
         StoredPairing(
             instanceID: instanceID,
             homeLabel: "Journal",
             relayEndpoint: "wss://relay.example.com",
             fingerprint: "sha256:" + String(repeating: "a", count: 64),
-            clientCertPEM: CertlessTrustFixtures.leafPEM,
+            clientCertPEM: clientCertPEM,
             clientKeyPEM: "unused",
             caChainPEM: CertlessTrustFixtures.caPEM,
             relayEnrollment: .unavailable,

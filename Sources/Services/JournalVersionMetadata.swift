@@ -261,6 +261,19 @@ nonisolated internal func journalVersionMetadataIdentity(for pairing: StoredPair
     ])
 }
 
+/// The gap store's journal. The instance id and the normalized CA fingerprint. A new client
+/// certificate from pairing the same journal again is not a different journal.
+nonisolated internal func journalGapIdentity(for pairing: StoredPairing) -> String? {
+    guard let normalizedCAFingerprint = normalizedCAFingerprint(for: pairing.caChainPEM) else {
+        return nil
+    }
+    return opaqueSHA256([
+        "journal-gap-identity-v1",
+        pairing.instanceID,
+        normalizedCAFingerprint
+    ])
+}
+
 nonisolated func journalSendConfirmationKey(for pairing: StoredPairing) -> String? {
     guard let normalizedCAFingerprint = normalizedCAFingerprint(for: pairing.caChainPEM),
           let clientCertFingerprint = clientCertFingerprint(for: pairing.clientCertPEM) else {
