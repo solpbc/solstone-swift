@@ -115,6 +115,46 @@ final class JournalGapRetentionTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: self.cachesMarker.path))
     }
 
+    func testDiagnosticCapEvictsByLastOccurrence() throws {
+        let now = Date()
+        let earliest = try XCTUnwrap(self.calendar.date(byAdding: .day, value: -20, to: now))
+        let middle = try XCTUnwrap(self.calendar.date(byAdding: .day, value: -10, to: now))
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_keep_recent",
+            captureAt: nil,
+            now: earliest,
+            calendar: self.calendar
+        )
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_keep_recent",
+            captureAt: nil,
+            now: now,
+            calendar: self.calendar
+        )
+        for index in 0..<JournalEventStore.diagnosticCap {
+            try self.events.recordDiagnostic(
+                segmentID: nil,
+                source: .audio,
+                reason: "observer_stall_\(index)",
+                captureAt: nil,
+                now: middle.addingTimeInterval(TimeInterval(index)),
+                calendar: self.calendar
+            )
+        }
+        self.events.prune(now: now, calendar: self.calendar)
+        let diagnostics = try self.diagnostics()
+        XCTAssertEqual(diagnostics.count, JournalEventStore.diagnosticCap)
+        XCTAssertTrue(diagnostics.contains { $0.reason == "observer_keep_recent" })
+        XCTAssertFalse(diagnostics.contains { $0.reason == "observer_stall_0" })
+        let kept = try XCTUnwrap(diagnostics.first { $0.reason == "observer_keep_recent" })
+        XCTAssertLessThan(kept.foundAt, middle)
+        XCTAssertGreaterThanOrEqual(kept.lastAt.timeIntervalSince(now), -1)
+    }
+
     func testBeganAndEndedCollapseAndTheWriterFaultRemains() throws {
         let now = Date()
         let segmentID = UUID()

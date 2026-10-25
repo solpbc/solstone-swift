@@ -604,7 +604,11 @@ nonisolated struct JournalEventStore: Sendable {
 
     private func removeOverflow(_ events: [JournalEventRecord], cap: Int, now: Date, calendar: Calendar) {
         guard events.count > cap else { return }
-        let oldest = events.sorted { $0.foundAt == $1.foundAt ? $0.id < $1.id : $0.foundAt < $1.foundAt }
+        let oldest = events.sorted { lhs, rhs in
+            let left = lhs.kind == .loss ? lhs.foundAt : lhs.lastAt
+            let right = rhs.kind == .loss ? rhs.foundAt : rhs.lastAt
+            return left == right ? lhs.id < rhs.id : left < right
+        }
         var removed = 0
         let overflow = events.count - cap
         for event in oldest {
