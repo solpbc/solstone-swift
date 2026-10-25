@@ -529,7 +529,8 @@ nonisolated struct JournalEventStore: Sendable {
             )
         }
         if isCancelled() { return nil }
-        self.prune(now: now, calendar: calendar)
+        self.pruneWhileLocked(now: now, calendar: calendar)
+        self.pruneOrphanSeenMarks()
         return JournalImportRun(imported: imported, skipped: skipped)
     }
 
@@ -586,6 +587,14 @@ nonisolated struct JournalEventStore: Sendable {
         }
     }
 
+    /// Retention, then seen marks whose event file is confirmed absent. A resume or reconcile calls this once.
+    func pruneForPass(now: Date, calendar: Calendar = .current) {
+        self.withWrite {
+            self.pruneWhileLocked(now: now, calendar: calendar)
+            self.pruneOrphanSeenMarks()
+        }
+    }
+
     private func pruneWhileLocked(now: Date, calendar: Calendar) {
         guard case .events(let events) = self.readEvents() else { return }
         let ageCutoff = calendar.date(byAdding: .day, value: -Self.retentionDays, to: now) ?? now
@@ -595,7 +604,6 @@ nonisolated struct JournalEventStore: Sendable {
         diagnostics.removeAll { self.removeIfExpired($0, ageCutoff: ageCutoff, now: now, calendar: calendar) }
         self.removeOverflow(losses, cap: Self.lossCap, now: now, calendar: calendar)
         self.removeOverflow(diagnostics, cap: Self.diagnosticCap, now: now, calendar: calendar)
-        self.pruneOrphanSeenMarks()
     }
 
     // MARK: - Import walk
@@ -799,24 +807,46 @@ nonisolated struct JournalEventStore: Sendable {
         try? self.fileManager.removeItem(at: self.seenURL(event.id))
     }
 
-    /// A seen mark whose event is gone is not a notice and is not a diagnostic.
+    /// Drops a seen mark only when its event file is confirmed absent. An unreadable event file,
+    /// or a losses or diagnostics directory that is missing or cannot be listed, keeps the mark.
     private func pruneOrphanSeenMarks() {
-        guard case .events(let events) = self.readEvents() else { return }
-        let live = Set(events.map(\.id))
+        let listed = self.confirmedEventFileNames()
+        guard let listed else { return }
         switch self.childURLs(self.directoryURL("seen")) {
         case .missing, .unreadable:
             return
         case .urls(let urls):
-            for url in urls where url.pathExtension == "json" {
-                guard let data = try? Data(contentsOf: url),
-                      let mark = try? Self.makeDecoder().decode(SeenMark.self, from: data) else {
-                    continue
-                }
-                if !live.contains(mark.id) {
-                    try? self.fileManager.removeItem(at: url)
-                }
+            for url in urls where url.pathExtension == "json" && !listed.contains(url.lastPathComponent) {
+                try? self.fileManager.removeItem(at: url)
             }
         }
+    }
+
+    /// Filenames present in the event directories. Nil when a losses directory is missing or
+    /// either directory cannot be listed: absence is not confirmed, so seen marks stay.
+    private func confirmedEventFileNames() -> Set<String>? {
+        let losses = self.childURLs(self.directoryURL("losses"))
+        let diagnostics = self.childURLs(self.directoryURL("diagnostics"))
+        if case .unreadable = losses { return nil }
+        if case .unreadable = diagnostics { return nil }
+        if case .missing = losses { return nil }
+        let lossNames: [String]
+        switch losses {
+        case .urls(let urls):
+            lossNames = urls.map(\.lastPathComponent)
+        case .missing, .unreadable:
+            return nil
+        }
+        let diagnosticNames: [String]
+        switch diagnostics {
+        case .urls(let urls):
+            diagnosticNames = urls.map(\.lastPathComponent)
+        case .missing:
+            diagnosticNames = []
+        case .unreadable:
+            return nil
+        }
+        return Set(lossNames + diagnosticNames)
     }
 
     // MARK: - Files

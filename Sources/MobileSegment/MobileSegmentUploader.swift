@@ -871,6 +871,7 @@ final class MobileSegmentUploader {
         guard self.guardStorageAvailable() else { return }
         do {
             try self.store.ensureRoot()
+            self.journalEvents.pruneForPass(now: self.clock.now())
             if await self.importLegacyJournalEvents() == .cancelled {
                 self.refreshCounts()
                 return
@@ -2459,6 +2460,7 @@ private extension MobileSegmentUploader {
     }
 
     private func performReconcileActiveSegments() async throws {
+        self.journalEvents.pruneForPass(now: self.clock.now())
         self.sweepLegacyScreencastLeases()
         let active = try self.store.list(.active)
 

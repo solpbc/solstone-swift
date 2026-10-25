@@ -247,7 +247,7 @@ final class JournalGapRetentionTests: XCTestCase {
             .appendingPathComponent("seen", isDirectory: true)
             .appendingPathComponent("orphan-mark.json")
         try JSONSerialization.data(withJSONObject: ["id": "orphan-mark"]).write(to: orphan)
-        self.events.prune(now: now, calendar: self.calendar)
+        self.events.pruneForPass(now: now, calendar: self.calendar)
         XCTAssertFalse(self.events.isSeen(id: id))
         XCTAssertFalse(FileManager.default.fileExists(atPath: orphan.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: self.segmentDirectory.path))
