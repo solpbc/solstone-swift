@@ -12,8 +12,10 @@ import SwiftUI
 ///                 shows and clears anything pushed on top of it.
 ///   `paneStack` is the push channel. A link inside the pane adds to the stack.
 ///
-/// `selectFromDeck(_:)` is the only writer of `paneRoot`, so "a deck tap
-/// replaces" is enforced here rather than at each call site.
+/// `selectFromDeck(_:)` is the writer that replaces `paneRoot`. A deck tap
+/// clears the stack. `adoptDefaultRoot(isPaired:)` is the other writer: it
+/// fills a nil root without clearing pushes, so a collapsed shell can keep
+/// showing them.
 @Observable
 @MainActor
 final class ShellNavModel {
@@ -34,12 +36,20 @@ final class ShellNavModel {
 
     /// Replace the pane root from the deck, discarding anything pushed above it.
     ///
-    /// The only writer of `paneRoot`. Takes an optional so that returning to the
-    /// deck, which the collapsed shell does on a back navigation, stays inside
-    /// this one method rather than needing a second writer or a raw setter.
+    /// Takes an optional so that returning to the deck, which the collapsed shell
+    /// does on a back navigation, stays inside this method.
     func selectFromDeck(_ destination: ShellDestination?) {
         self.paneRoot = destination
         self.paneStack.removeAll()
+    }
+
+    /// Show an existing push after the shell collapses, before the owner has chosen a root.
+    ///
+    /// A nil root with a push is the iPad detail's default pane plus that push.
+    /// The collapsed stack only renders a root, so this pins the default and leaves the push.
+    func adoptDefaultRoot(isPaired: Bool) {
+        guard self.paneRoot == nil, !self.paneStack.isEmpty else { return }
+        self.paneRoot = Self.defaultPane(isPaired: isPaired)
     }
 
     /// Swap between the full split and its detail column without disturbing

@@ -6,6 +6,34 @@ import os
 
 private let mainTabLog = Logger(subsystem: "app.solstone.swift", category: "ui")
 
+/// Geometry around the status content, plus whether that content is showing.
+/// A change of size class, orientation, text size, or split columns is not the content hiding.
+struct JournalGapSurfaceTransition: Equatable {
+    var horizontalSizeClass: UserInterfaceSizeClass?
+    var verticalSizeClass: UserInterfaceSizeClass?
+    var dynamicTypeSize: DynamicTypeSize
+    var columnVisibility: NavigationSplitViewVisibility
+    var surfaceVisible: Bool
+}
+
+/// A write through the collapsed shell's path.
+enum CollapsedPhonePathUpdate: Equatable {
+    case ignore
+    case select(ShellDestination?)
+    case setStack([ShellDestination])
+    case pinDefaultAndSetStack([ShellDestination])
+}
+
+/// How a layout change keeps the losses on screen.
+enum JournalGapSurfaceCarry: Equatable {
+    /// The collapsed shell would show the deck. Present the status sheet.
+    case presentStatusSheet
+    /// A push was showing on the default pane. Pin that root so the collapsed stack shows it.
+    case showPushedStack
+    /// The split detail is the status content. Drop the phone sheet that would cover it.
+    case dismissStatusSheet
+}
+
 struct RootShellView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(TunnelManager.self) private var tunnelManager
@@ -192,8 +220,12 @@ struct RootShellView: View {
             self.applyDebugSeeds()
             self.captureJournalGapIfVisible()
         }
-        .onChange(of: self.journalGapSurfaceVisible) { _, visible in
-            if visible {
+        .onChange(of: self.journalGapSurfaceTransition) { prior, next in
+            if Self.journalGapKeepsVisit(from: prior, to: next), prior.surfaceVisible {
+                self.applyJournalGapSurfaceCarry(from: prior, to: next)
+                return
+            }
+            if next.surfaceVisible {
                 self.captureJournalGapIfVisible()
             } else {
                 self.journalGapVisit.end()
@@ -239,6 +271,9 @@ struct RootShellView: View {
             if pane != .status {
                 self.statusPath = NavigationPath()
                 self.statusDetent = .medium
+                if !self.journalGapSurfaceVisible {
+                    self.journalGapVisit.end()
+                }
             }
         }
     }
@@ -302,10 +337,7 @@ struct RootShellView: View {
     /// size, and past the text size the column band was derived for, the split
     /// collapses and the shell behaves as compact.
     private var isPhoneShell: Bool {
-        if self.horizontalSizeClass != .regular {
-            return true
-        }
-        return splitCollapses(dynamicTypeSize: self.dynamicTypeSize)
+        Self.shellIsPhone(horizontalSizeClass: self.horizontalSizeClass, dynamicTypeSize: self.dynamicTypeSize)
     }
 
     private var padSplit: some View {
@@ -377,26 +409,81 @@ struct RootShellView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// `paneRoot` followed by `paneStack`. Writing a shorter path back pops, and
-    /// popping all the way clears the deck's selection.
+    /// `paneRoot` followed by `paneStack`. A nil root with a push still shows that
+    /// push: the collapsed shell would otherwise drop it and the gap would leave the screen.
+    /// Writing a shorter path back pops, and popping all the way clears the deck's selection.
     private var phonePath: Binding<[ShellDestination]> {
         Binding(
             get: {
-                guard let root = self.nav.paneRoot else { return [] }
-                return [root] + self.nav.paneStack
+                Self.collapsedPhoneDestinations(
+                    paneRoot: self.nav.paneRoot,
+                    paneStack: self.nav.paneStack,
+                    resolvedRoot: self.nav.resolvedPaneRoot(isPaired: self.appConfig.isPaired)
+                )
             },
             set: { path in
-                guard let root = path.first else {
-                    self.nav.selectFromDeck(nil)
-                    return
-                }
-                if root == self.nav.paneRoot {
-                    self.nav.paneStack = Array(path.dropFirst())
-                } else {
-                    self.nav.selectFromDeck(root)
+                let resolved = self.nav.resolvedPaneRoot(isPaired: self.appConfig.isPaired)
+                switch Self.collapsedPhonePathUpdate(
+                    paneRoot: self.nav.paneRoot,
+                    paneStack: self.nav.paneStack,
+                    resolvedRoot: resolved,
+                    written: path
+                ) {
+                case .ignore:
+                    break
+                case .select(let destination):
+                    self.nav.selectFromDeck(destination)
+                case .setStack(let stack):
+                    self.nav.paneStack = stack
+                case .pinDefaultAndSetStack(let stack):
+                    self.nav.adoptDefaultRoot(isPaired: self.appConfig.isPaired)
+                    self.nav.paneStack = stack
                 }
             }
         )
+    }
+
+    /// The collapsed stack's path. A nil root shows nothing until there is a push to keep.
+    static func collapsedPhoneDestinations(
+        paneRoot: ShellDestination?,
+        paneStack: [ShellDestination],
+        resolvedRoot: ShellDestination
+    ) -> [ShellDestination] {
+        if let paneRoot {
+            return [paneRoot] + paneStack
+        }
+        guard !paneStack.isEmpty else { return [] }
+        return [resolvedRoot] + paneStack
+    }
+
+    /// What a write to the collapsed path means. An echo of a synthesized path is ignored
+    /// so the stack is not cleared when the shell collapses.
+    static func collapsedPhonePathUpdate(
+        paneRoot: ShellDestination?,
+        paneStack: [ShellDestination],
+        resolvedRoot: ShellDestination,
+        written: [ShellDestination]
+    ) -> CollapsedPhonePathUpdate {
+        if paneRoot == nil {
+            let synthesized = Self.collapsedPhoneDestinations(
+                paneRoot: nil,
+                paneStack: paneStack,
+                resolvedRoot: resolvedRoot
+            )
+            if written == synthesized {
+                return .ignore
+            }
+            if written.first == resolvedRoot {
+                return .pinDefaultAndSetStack(Array(written.dropFirst()))
+            }
+        }
+        guard let root = written.first else {
+            return .select(nil)
+        }
+        if root == paneRoot {
+            return .setStack(Array(written.dropFirst()))
+        }
+        return .select(root)
     }
 
     private var deckColumn: some View {
@@ -514,6 +601,100 @@ struct RootShellView: View {
     /// A visit starts only while the scene is active and the status content is showing.
     static func journalGapVisitMayStart(sceneIsActive: Bool, surfaceVisible: Bool) -> Bool {
         sceneIsActive && surfaceVisible
+    }
+
+    /// Rotation, size class, and a split-view resize keep a visit that is already showing.
+    /// The losses it displayed stay displayed. The visit still ends when that content hides
+    /// on its own, with the geometry unchanged.
+    static func journalGapKeepsVisit(
+        from prior: JournalGapSurfaceTransition,
+        to next: JournalGapSurfaceTransition
+    ) -> Bool {
+        let geometryChanged = prior.horizontalSizeClass != next.horizontalSizeClass
+            || prior.verticalSizeClass != next.verticalSizeClass
+            || prior.dynamicTypeSize != next.dynamicTypeSize
+            || prior.columnVisibility != next.columnVisibility
+        if geometryChanged && prior.surfaceVisible {
+            return true
+        }
+        return next.surfaceVisible
+    }
+
+    /// The shell shape that hides status content, and the shape that would cover it with a sheet.
+    static func journalGapSurfaceCarry(
+        from prior: JournalGapSurfaceTransition,
+        to next: JournalGapSurfaceTransition,
+        paneRootIsNil: Bool,
+        paneStackIsEmpty: Bool,
+        statusSheetPresented: Bool,
+        otherSheetPresented: Bool
+    ) -> JournalGapSurfaceCarry? {
+        guard self.journalGapKeepsVisit(from: prior, to: next), prior.surfaceVisible else { return nil }
+        let wasPhone = Self.shellIsPhone(
+            horizontalSizeClass: prior.horizontalSizeClass,
+            dynamicTypeSize: prior.dynamicTypeSize
+        )
+        let isPhone = Self.shellIsPhone(
+            horizontalSizeClass: next.horizontalSizeClass,
+            dynamicTypeSize: next.dynamicTypeSize
+        )
+        if !wasPhone && isPhone && !otherSheetPresented {
+            if paneRootIsNil && !paneStackIsEmpty {
+                return .showPushedStack
+            }
+            if paneStackIsEmpty && !next.surfaceVisible && !statusSheetPresented {
+                return .presentStatusSheet
+            }
+        }
+        if wasPhone && !isPhone && statusSheetPresented && next.surfaceVisible {
+            return .dismissStatusSheet
+        }
+        return nil
+    }
+
+    static func shellIsPhone(horizontalSizeClass: UserInterfaceSizeClass?, dynamicTypeSize: DynamicTypeSize) -> Bool {
+        if horizontalSizeClass != .regular {
+            return true
+        }
+        return splitCollapses(dynamicTypeSize: dynamicTypeSize)
+    }
+
+    private func applyJournalGapSurfaceCarry(
+        from prior: JournalGapSurfaceTransition,
+        to next: JournalGapSurfaceTransition
+    ) {
+        switch Self.journalGapSurfaceCarry(
+            from: prior,
+            to: next,
+            paneRootIsNil: self.nav.paneRoot == nil,
+            paneStackIsEmpty: self.nav.paneStack.isEmpty,
+            statusSheetPresented: self.presentedPane == .status,
+            otherSheetPresented: self.journalGapOtherSheetPresented
+        ) {
+        case .presentStatusSheet:
+            self.presentedPane = .status
+        case .showPushedStack:
+            self.nav.adoptDefaultRoot(isPaired: self.appConfig.isPaired)
+        case .dismissStatusSheet:
+            self.presentedPane = nil
+        case nil:
+            break
+        }
+    }
+
+    private var journalGapOtherSheetPresented: Bool {
+        let paneCovers = self.presentedPane != nil && self.presentedPane != .status
+        return paneCovers || self.showingSources || self.showingJournalLives
+    }
+
+    private var journalGapSurfaceTransition: JournalGapSurfaceTransition {
+        JournalGapSurfaceTransition(
+            horizontalSizeClass: self.horizontalSizeClass,
+            verticalSizeClass: self.verticalSizeClass,
+            dynamicTypeSize: self.dynamicTypeSize,
+            columnVisibility: self.nav.columnVisibility,
+            surfaceVisible: self.journalGapSurfaceVisible
+        )
     }
 
     /// Refresh, then read the losses the visit will display. The read sees the refresh.

@@ -213,7 +213,7 @@ final class ObserverStatusPresentationTests: XCTestCase {
         XCTAssertEqual(ObserverStatusPresentations.circular(snapshot: nil), .unavailable)
     }
 
-    func testCircularSourceNeedsAttentionYieldsAwaiting() {
+    func testCircularNeedsAttentionPrecedenceOverAwaiting() {
         let snapshot = self.makeSnapshot(
             sourceStates: [.observer: .needsAttention],
             backlogCount: 2,
@@ -221,7 +221,7 @@ final class ObserverStatusPresentationTests: XCTestCase {
         )
         let presentation = ObserverStatusPresentations.circular(snapshot: snapshot)
 
-        XCTAssertEqual(presentation, .awaitingMarkConfirmation(count: 2))
-        XCTAssertNotEqual(presentation, .needsAttention)
+        XCTAssertEqual(presentation, .needsAttention)
+        XCTAssertNotEqual(presentation, .awaitingMarkConfirmation(count: 2))
     }
 }

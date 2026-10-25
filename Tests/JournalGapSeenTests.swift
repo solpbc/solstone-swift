@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import SwiftUI
 import XCTest
 
 /// A visit marks the losses on screen. A later loss waits for the next visit.
@@ -147,6 +148,192 @@ final class JournalGapSeenTests: XCTestCase {
         visit.foreground(live: try self.live(), store: self.events)
         XCTAssertTrue(self.events.isSeen(id: second))
         XCTAssertEqual(visit.captured.map(\.id), [second])
+    }
+
+    func testRotationSizeClassAndSplitResizeKeepTheDisplayedLosses() throws {
+        let shownID = try self.recordLoss()
+        let shown = try XCTUnwrap(try self.live().first { $0.id == shownID })
+        let visit = JournalGapVisit()
+        visit.beginNewVisit(live: [shown], store: self.events)
+        XCTAssertEqual(visit.displayed(live: []).map(\.id), [shownID])
+
+        let showing = JournalGapSurfaceTransition(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: true
+        )
+        let hiddenByRotation = JournalGapSurfaceTransition(
+            horizontalSizeClass: .compact,
+            verticalSizeClass: .compact,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: false
+        )
+        let hiddenBySizeClass = JournalGapSurfaceTransition(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .accessibility3,
+            columnVisibility: .all,
+            surfaceVisible: false
+        )
+        let hiddenBySplitResize = JournalGapSurfaceTransition(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .large,
+            columnVisibility: .detailOnly,
+            surfaceVisible: false
+        )
+        for next in [hiddenByRotation, hiddenBySizeClass, hiddenBySplitResize] {
+            XCTAssertTrue(RootShellView.journalGapKeepsVisit(from: showing, to: next))
+        }
+        XCTAssertEqual(
+            RootShellView.journalGapSurfaceCarry(
+                from: showing,
+                to: hiddenByRotation,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: false,
+                otherSheetPresented: false
+            ),
+            .some(.presentStatusSheet)
+        )
+        XCTAssertEqual(
+            RootShellView.journalGapSurfaceCarry(
+                from: showing,
+                to: hiddenBySizeClass,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: false,
+                otherSheetPresented: false
+            ),
+            .some(.presentStatusSheet)
+        )
+        XCTAssertNil(
+            RootShellView.journalGapSurfaceCarry(
+                from: showing,
+                to: hiddenBySplitResize,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: false,
+                otherSheetPresented: false
+            )
+        )
+        XCTAssertNil(
+            RootShellView.journalGapSurfaceCarry(
+                from: showing,
+                to: hiddenByRotation,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: false,
+                otherSheetPresented: true
+            )
+        )
+        let collapsedWithPush = JournalGapSurfaceTransition(
+            horizontalSizeClass: .compact,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: true
+        )
+        XCTAssertEqual(
+            RootShellView.journalGapSurfaceCarry(
+                from: showing,
+                to: collapsedWithPush,
+                paneRootIsNil: true,
+                paneStackIsEmpty: false,
+                statusSheetPresented: false,
+                otherSheetPresented: false
+            ),
+            .some(.showPushedStack)
+        )
+        let nav = ShellNavModel()
+        nav.paneStack = [.onThisDevice]
+        XCTAssertEqual(
+            RootShellView.collapsedPhoneDestinations(
+                paneRoot: nil,
+                paneStack: nav.paneStack,
+                resolvedRoot: .status
+            ),
+            [.status, .onThisDevice]
+        )
+        XCTAssertEqual(
+            RootShellView.collapsedPhonePathUpdate(
+                paneRoot: nil,
+                paneStack: nav.paneStack,
+                resolvedRoot: .status,
+                written: [.status, .onThisDevice]
+            ),
+            .ignore
+        )
+        nav.adoptDefaultRoot(isPaired: true)
+        XCTAssertEqual(nav.paneRoot, .status)
+        XCTAssertEqual(nav.paneStack, [.onThisDevice])
+        XCTAssertEqual(
+            RootShellView.collapsedPhoneDestinations(paneRoot: nil, paneStack: [], resolvedRoot: .status),
+            []
+        )
+        XCTAssertEqual(
+            RootShellView.collapsedPhonePathUpdate(
+                paneRoot: .status,
+                paneStack: [.onThisDevice],
+                resolvedRoot: .status,
+                written: []
+            ),
+            .select(nil)
+        )
+
+        let phoneShowing = JournalGapSurfaceTransition(
+            horizontalSizeClass: .compact,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: true
+        )
+        let padShowing = JournalGapSurfaceTransition(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: true
+        )
+        XCTAssertEqual(
+            RootShellView.journalGapSurfaceCarry(
+                from: phoneShowing,
+                to: padShowing,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: true,
+                otherSheetPresented: false
+            ),
+            .some(.dismissStatusSheet)
+        )
+        XCTAssertTrue(visit.didCapture)
+        XCTAssertEqual(visit.displayed(live: []).map(\.id), [shownID])
+
+        let later = try self.recordLoss()
+        XCTAssertFalse(self.events.isSeen(id: later))
+        XCTAssertEqual(visit.displayed(live: try self.live()).map(\.id), [shownID, later])
+
+        let hidden = JournalGapSurfaceTransition(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: false
+        )
+        XCTAssertFalse(RootShellView.journalGapKeepsVisit(from: showing, to: hidden))
+        XCTAssertNil(
+            RootShellView.journalGapSurfaceCarry(
+                from: showing,
+                to: hidden,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: false,
+                otherSheetPresented: false
+            )
+        )
     }
 
     func testInactiveSceneMarksNothing() throws {
