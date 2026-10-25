@@ -537,7 +537,7 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
     }
 
     @MainActor
-    func testACalendarFirstSeenAfterSetupBringsTheRoutineRangeAsAddedAndNothingOlder() async {
+    func testACalendarFirstSeenAfterSetupStartsOffAndComesInOnlyThroughACountedSwitchOn() async {
         let harness = Self.harness()
         await harness.setUpAndConfirm(.everything)
         harness.advance(minutes: 10)
@@ -548,10 +548,41 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
             Self.meeting("CLUB-NEXT", calendar: "cal-club", title: "next month", CalendarFixtures.at(2026, 11, 17, 18, 0), lastModified: "2026-10-01T10:00:00-06:00"),
         ]
         await harness.check()
+        var club = harness.engine.calendars.first { $0.id == "cal-club" }
+        XCTAssertEqual(club?.followed, false, "a calendar that appears after setup starts off")
+        XCTAssertNil(club?.importStep)
+        XCTAssertEqual(harness.engine.state.followedCount, 1)
+        XCTAssertEqual(harness.engine.state.calendarCount, 2)
+        XCTAssertTrue(harness.delivery.lines.isEmpty)
+        harness.advance(minutes: 10)
+        await harness.check()
+        XCTAssertTrue(harness.delivery.lines.isEmpty, "nothing comes in from it while it is off")
+
+        await harness.engine.setCalendar("cal-club", followed: true)
+        club = harness.engine.calendars.first { $0.id == "cal-club" }
+        XCTAssertEqual(club?.importStep, .readyToConfirm(count: 3), "switching it on counts the setup span")
+        await harness.check()
+        XCTAssertTrue(harness.delivery.lines.isEmpty, "nothing comes in before the owner confirms")
+
+        await harness.engine.confirmCalendar("cal-club")
+        await harness.engine.waitUntilIdle()
+        for event in ["CLUB-OLD", "CLUB-RECENT", "CLUB-NEXT"] {
+            XCTAssertEqual(harness.delivery.lines(event: event).map { $0["change"] as? String }, ["added"], event)
+        }
         XCTAssertEqual(harness.engine.calendars.first { $0.id == "cal-club" }?.followed, true)
-        XCTAssertTrue(harness.delivery.lines(event: "CLUB-OLD").isEmpty)
-        XCTAssertEqual(harness.delivery.lines(event: "CLUB-RECENT").map { $0["change"] as? String }, ["added"])
-        XCTAssertEqual(harness.delivery.lines(event: "CLUB-NEXT").map { $0["change"] as? String }, ["added"])
+    }
+
+    @MainActor
+    func testAnAmbiguousResyncOfCalendarsThatWereAllOnKeepsThemOn() async {
+        let harness = Self.harness()
+        harness.provider.calendarList = []
+        harness.provider.addCalendar("cal-a", title: "Team", account: "Exchange")
+        harness.provider.addCalendar("cal-b", title: "Team", account: "Exchange")
+        await harness.setUpAndConfirm()
+        Self.resync(harness, ["cal-a": "cal-a-4", "cal-b": "cal-b-4"])
+        harness.advance(minutes: 1)
+        await harness.check()
+        XCTAssertEqual(Set(harness.engine.calendars.filter(\.followed).map(\.id)), ["cal-a-4", "cal-b-4"])
     }
 
     @MainActor

@@ -595,7 +595,7 @@ actor CalendarWorker {
     /// account and name, so a resync never stops following a calendar or resends its events.
     /// When account and name match more than one calendar, the calendar counts as new, and if
     /// any of the matching calendars was off, it comes back off. A calendar first seen after
-    /// setup is followed, with no backfill.
+    /// setup starts off, as at setup: the owner switches it on, and its switch-on is counted.
     private func reconcileCalendars(_ document: inout CalendarSourceDocument) {
         let live = self.reader.calendars()
         for index in document.calendars.indices {
@@ -625,7 +625,8 @@ actor CalendarWorker {
                 document.calendars[index].isBirthdays = info.isBirthdays
                 continue
             }
-            let anyOff = candidates.contains { !document.calendars[$0].followed }
+            // Resynced calendars that were all on stay on; anything else starts off.
+            let anyOff = candidates.isEmpty || candidates.contains { !document.calendars[$0].followed }
             document.calendars.append(CalendarFollowRecord(
                 key: UUID().uuidString,
                 identifier: info.identifier,
