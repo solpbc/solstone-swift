@@ -24,6 +24,14 @@ enum CollapsedPhonePathUpdate: Equatable {
     case pinDefaultAndSetStack([ShellDestination])
 }
 
+/// What a geometry change does to the visit.
+enum JournalGapSurfaceEffect: Equatable {
+    /// The content is still showing, or a carry keeps it showing.
+    case keep(JournalGapSurfaceCarry?)
+    case capture
+    case end
+}
+
 /// How a layout change keeps the losses on screen.
 enum JournalGapSurfaceCarry: Equatable {
     /// The collapsed shell would show the deck. Present the status sheet.
@@ -221,15 +229,7 @@ struct RootShellView: View {
             Task { await self.captureJournalGapIfVisible() }
         }
         .onChange(of: self.journalGapSurfaceTransition) { prior, next in
-            if Self.journalGapKeepsVisit(from: prior, to: next), prior.surfaceVisible {
-                self.applyJournalGapSurfaceCarry(from: prior, to: next)
-                return
-            }
-            if next.surfaceVisible {
-                Task { await self.captureJournalGapIfVisible() }
-            } else {
-                self.journalGapVisit.end()
-            }
+            self.applyJournalGapSurfaceChange(from: prior, to: next)
         }
         .onChange(of: self.scenePhase) { _, phase in
             guard phase == .active else {
@@ -601,9 +601,8 @@ struct RootShellView: View {
         sceneIsActive && surfaceVisible
     }
 
-    /// Rotation, size class, and a split-view resize keep a visit that is already showing.
-    /// The losses it displayed stay displayed. The visit still ends when that content hides
-    /// on its own, with the geometry unchanged.
+    /// Rotation, size class, and a split-view resize keep a visit while its content is still showing.
+    /// A change that hides that content, and has nothing to carry it, ends the visit.
     static func journalGapKeepsVisit(
         from prior: JournalGapSurfaceTransition,
         to next: JournalGapSurfaceTransition
@@ -651,6 +650,38 @@ struct RootShellView: View {
         return nil
     }
 
+    /// A geometry change keeps the visit when the content stays visible or a carry shows it.
+    /// Hiding the content with nothing to carry ends the visit, so the next showing is a new one.
+    static func journalGapSurfaceEffect(
+        from prior: JournalGapSurfaceTransition,
+        to next: JournalGapSurfaceTransition,
+        paneRootIsNil: Bool,
+        paneStackIsEmpty: Bool,
+        statusSheetPresented: Bool,
+        otherSheetPresented: Bool,
+        visitShowsLoss: Bool
+    ) -> JournalGapSurfaceEffect {
+        if self.journalGapKeepsVisit(from: prior, to: next), prior.surfaceVisible {
+            let carry = self.journalGapSurfaceCarry(
+                from: prior,
+                to: next,
+                paneRootIsNil: paneRootIsNil,
+                paneStackIsEmpty: paneStackIsEmpty,
+                statusSheetPresented: statusSheetPresented,
+                otherSheetPresented: otherSheetPresented,
+                visitShowsLoss: visitShowsLoss
+            )
+            if next.surfaceVisible || carry != nil {
+                return .keep(carry)
+            }
+            return .end
+        }
+        if next.surfaceVisible {
+            return .capture
+        }
+        return .end
+    }
+
     static func shellIsPhone(horizontalSizeClass: UserInterfaceSizeClass?, dynamicTypeSize: DynamicTypeSize) -> Bool {
         if horizontalSizeClass != .regular {
             return true
@@ -658,11 +689,11 @@ struct RootShellView: View {
         return splitCollapses(dynamicTypeSize: dynamicTypeSize)
     }
 
-    private func applyJournalGapSurfaceCarry(
+    private func applyJournalGapSurfaceChange(
         from prior: JournalGapSurfaceTransition,
         to next: JournalGapSurfaceTransition
     ) {
-        switch Self.journalGapSurfaceCarry(
+        switch Self.journalGapSurfaceEffect(
             from: prior,
             to: next,
             paneRootIsNil: self.nav.paneRoot == nil,
@@ -671,14 +702,21 @@ struct RootShellView: View {
             otherSheetPresented: self.journalGapOtherSheetPresented,
             visitShowsLoss: self.journalGapVisitShowsLoss
         ) {
-        case .presentStatusSheet:
-            self.presentedPane = .status
-        case .showPushedStack:
-            self.nav.adoptDefaultRoot(isPaired: self.appConfig.isPaired)
-        case .dismissStatusSheet:
-            self.presentedPane = nil
-        case nil:
-            break
+        case .keep(let carry):
+            switch carry {
+            case .presentStatusSheet:
+                self.presentedPane = .status
+            case .showPushedStack:
+                self.nav.adoptDefaultRoot(isPaired: self.appConfig.isPaired)
+            case .dismissStatusSheet:
+                self.presentedPane = nil
+            case nil:
+                break
+            }
+        case .capture:
+            Task { await self.captureJournalGapIfVisible() }
+        case .end:
+            self.journalGapVisit.end()
         }
     }
 

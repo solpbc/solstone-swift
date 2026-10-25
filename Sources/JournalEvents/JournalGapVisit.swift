@@ -9,7 +9,8 @@ import Observation
 /// It starts when that content becomes visible with the scene active, or when the scene
 /// becomes active with the content visible. It ends when the content stops showing or the
 /// scene leaves active. A rotation, a size-class change, or a split-view resize does not
-/// end it. The start marks the unseen losses then on screen, and those stay displayed.
+/// end it while that content is still showing. Hiding the content, with nothing to carry it,
+/// ends it. The start marks the unseen losses then on screen, and those stay displayed.
 /// A loss that appears during the visit stays on screen and unmarked until the next visit.
 /// An empty start marks nothing.
 @MainActor

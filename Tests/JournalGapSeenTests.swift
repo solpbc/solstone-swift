@@ -383,6 +383,84 @@ final class JournalGapSeenTests: XCTestCase {
         )
     }
 
+    func testHidingTheContentWithNothingToCarryEndsTheVisit() throws {
+        let shownID = try self.recordLoss()
+        let visit = JournalGapVisit()
+        visit.beginNewVisit(live: try self.live(), store: self.events)
+        XCTAssertTrue(visit.didCapture)
+        let showing = JournalGapSurfaceTransition(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: true
+        )
+        let hiddenBySplit = JournalGapSurfaceTransition(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .regular,
+            dynamicTypeSize: .large,
+            columnVisibility: .detailOnly,
+            surfaceVisible: false
+        )
+        let stillShowing = JournalGapSurfaceTransition(
+            horizontalSizeClass: .regular,
+            verticalSizeClass: .compact,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: true
+        )
+        let collapsed = JournalGapSurfaceTransition(
+            horizontalSizeClass: .compact,
+            verticalSizeClass: .compact,
+            dynamicTypeSize: .large,
+            columnVisibility: .all,
+            surfaceVisible: false
+        )
+        XCTAssertEqual(
+            RootShellView.journalGapSurfaceEffect(
+                from: showing,
+                to: stillShowing,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: false,
+                otherSheetPresented: false,
+                visitShowsLoss: true
+            ),
+            .keep(nil)
+        )
+        XCTAssertEqual(visit.displayed(live: []).map(\.id), [shownID])
+        XCTAssertEqual(
+            RootShellView.journalGapSurfaceEffect(
+                from: showing,
+                to: collapsed,
+                paneRootIsNil: true,
+                paneStackIsEmpty: true,
+                statusSheetPresented: false,
+                otherSheetPresented: false,
+                visitShowsLoss: true
+            ),
+            .keep(.presentStatusSheet)
+        )
+        let ended = RootShellView.journalGapSurfaceEffect(
+            from: showing,
+            to: hiddenBySplit,
+            paneRootIsNil: true,
+            paneStackIsEmpty: true,
+            statusSheetPresented: false,
+            otherSheetPresented: false,
+            visitShowsLoss: true
+        )
+        XCTAssertEqual(ended, .end)
+        if case .end = ended {
+            visit.end()
+        }
+        XCTAssertFalse(visit.didCapture)
+        XCTAssertTrue(visit.displayed(live: []).isEmpty)
+        visit.beginNewVisit(live: [], store: self.events)
+        XCTAssertTrue(visit.didCapture)
+        XCTAssertTrue(visit.captured.isEmpty)
+    }
+
     func testInactiveSceneMarksNothing() throws {
         XCTAssertFalse(RootShellView.journalGapVisitMayStart(sceneIsActive: false, surfaceVisible: true))
         XCTAssertFalse(RootShellView.journalGapVisitMayStart(sceneIsActive: true, surfaceVisible: false))
