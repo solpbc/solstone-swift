@@ -90,6 +90,30 @@ final class JournalGapDiagnosticsTests: XCTestCase {
         XCTAssertTrue(text.contains("last="))
     }
 
+    func testSingleDiagnosticRowPrintsItsDetail() throws {
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_interruption_ended",
+            captureAt: nil,
+            now: self.now,
+            detail: JournalEventDetail(interruptionDuration: 4)
+        )
+        try self.events.recordDiagnostic(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_configuration_change",
+            captureAt: nil,
+            now: self.now,
+            detail: JournalEventDetail(configurationRestartSuccesses: 2, configurationRestartFailures: 1)
+        )
+        let text = self.events.diagnosticSection(now: self.now)
+        XCTAssertTrue(text.contains("interruption_duration=4"))
+        XCTAssertTrue(text.contains("configuration_restart_successes=2"))
+        XCTAssertTrue(text.contains("configuration_restart_failures=1"))
+        XCTAssertFalse(text.contains("count="))
+    }
+
     func testCollapsedObserverFaultExportsCountTimesAndDetail() throws {
         let first = self.now.addingTimeInterval(-120)
         let last = self.now

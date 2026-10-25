@@ -784,15 +784,15 @@ nonisolated struct JournalEventStore: Sendable {
             parts.append("count=\(record.count)")
             parts.append("first=\(formatter.string(from: record.foundAt))")
             parts.append("last=\(formatter.string(from: record.lastAt))")
-            if let duration = record.detail?.interruptionDuration {
-                parts.append("interruption_duration=\(duration)")
-            }
-            if let successes = record.detail?.configurationRestartSuccesses {
-                parts.append("configuration_restart_successes=\(successes)")
-            }
-            if let failures = record.detail?.configurationRestartFailures {
-                parts.append("configuration_restart_failures=\(failures)")
-            }
+        }
+        if let duration = record.detail?.interruptionDuration {
+            parts.append("interruption_duration=\(duration)")
+        }
+        if let successes = record.detail?.configurationRestartSuccesses {
+            parts.append("configuration_restart_successes=\(successes)")
+        }
+        if let failures = record.detail?.configurationRestartFailures {
+            parts.append("configuration_restart_failures=\(failures)")
         }
         parts.append(self.isSeen(id: record.id) ? "seen" : "unseen")
         return parts.joined(separator: " ")
