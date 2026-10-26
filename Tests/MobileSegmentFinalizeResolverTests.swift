@@ -164,6 +164,8 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
         try Data(receiptJSON2.utf8).write(to: failedDirectory2.appendingPathComponent("audio-writer.json"), options: .atomic)
         let initialPrefix2 = try XCTUnwrap(harness.store.readManifest(in: failedDirectory2).segment?.split(separator: "_").first.map(String.init))
 
+        // Inspect recovery metadata before successful delivery removes the queue entry.
+        await harness.engine.pause()
         await harness.uploader.resumeFromDisk()
 
         let snapshots2 = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
@@ -179,6 +181,13 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
             reason: "audio_capture_unfinished"
         ))
         XCTAssertEqual(interruption2.reason, "audio_capture_unfinished")
+
+        await harness.engine.resume()
+        try await transferTestWaitFor("both recovered segments delivered") {
+            await harness.engine.snapshot().counters.deliveredCount == 2
+        }
+        let deliveredSnapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertTrue(deliveredSnapshots.isEmpty)
 
         // Case 3: third aged failed segment whose bytes are clean12.m4a and completed receipt with 192000 frames
         let segmentID3 = UUID()

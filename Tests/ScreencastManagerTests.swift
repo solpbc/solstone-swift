@@ -5,10 +5,12 @@
 import Foundation
 import XCTest
 
-nonisolated final class ScreencastManagerTests: XCTestCase {
+@MainActor
+final class ScreencastManagerTests: XCTestCase {
     private var tempDirectory: URL!
     private var suiteName: String!
     private var defaults: UserDefaults!
+    private var managers: [(ScreencastManager, MockObserverClock)] = []
 
     override func setUp() {
         super.setUp()
@@ -20,13 +22,21 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         self.defaults.removePersistentDomain(forName: self.suiteName)
     }
 
-    override func tearDown() {
+    override func tearDown() async throws {
+        for (manager, clock) in self.managers {
+            manager.stopObservingDarwin()
+            manager.receiveScenePhase(.inactive)
+            manager.cancelStarting()
+            // This mock resumes canceled sleeps only when its time advances.
+            clock.advance(by: ScreencastManager.startingTimeoutSeconds)
+        }
+        self.managers.removeAll()
         self.defaults.removePersistentDomain(forName: self.suiteName)
         self.defaults = nil
         self.suiteName = nil
         try? FileManager.default.removeItem(at: self.tempDirectory)
         self.tempDirectory = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     @MainActor
@@ -69,15 +79,19 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testStartingTimesOutToOff() async {
+    func testStartingTimesOutToOff() async throws {
         let clock = MockObserverClock(now: ScreencastFixtures.start)
         let log = ScreencastCallLog()
         let manager = self.makeManager(clock: clock, callLog: log)
 
         manager.beginStarting()
-        await self.yieldToMainActor()
+        try await self.waitFor("starting timeout registration") {
+            clock.pendingSleeperCount == 1
+        }
         clock.advance(by: 20)
-        await self.yieldToMainActor()
+        try await self.waitFor("starting timeout reconciliation") {
+            manager.state == .off
+        }
 
         XCTAssertEqual(manager.state, .off)
     }
@@ -128,7 +142,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         let log = ScreencastCallLog()
         let engine = FakeScreencastEngine(sources: [.audio, .location, .screencast], callLog: log)
         let uploader = FakeScreencastUploader(callLog: log)
-        let manager = self.makeManager(engine: engine, uploader: uploader, rootURLProvider: { self.tempDirectory })
+        let manager = self.makeManager(engine: engine, uploader: uploader)
         try self.write(ScreencastFixtures.runtime(state: .finalized, segmentID: ScreencastFixtures.segmentID), relativePath: MobileSegmentScreencastPaths.runtimeRelativePath())
         try self.write(ScreencastFixtures.handoff(), relativePath: MobileSegmentScreencastPaths.handoffRelativePath())
         try self.writeScreenFile(segmentID: ScreencastFixtures.segmentID)
@@ -151,8 +165,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         let manager = self.makeManager(
             engine: engine,
             uploader: uploader,
-            clock: MockObserverClock(now: reconciledAt),
-            rootURLProvider: { self.tempDirectory }
+            clock: MockObserverClock(now: reconciledAt)
         )
         try self.write(
             ScreencastFixtures.runtime(state: .finalized, segmentID: ScreencastFixtures.segmentID, lastSeenAt: endedAt),
@@ -179,7 +192,6 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         let manager = self.makeManager(
             engine: engine,
             uploader: FakeScreencastUploader(),
-            rootURLProvider: { self.tempDirectory },
             darwin: darwin
         )
         try self.write(ScreencastFixtures.handoff(sourceSet: [.audio, .location, .screencast]), relativePath: MobileSegmentScreencastPaths.handoffRelativePath())
@@ -203,7 +215,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
     // MARK: - Acceptance Test K: Direct publishRolloverHandoff tests
     @MainActor
     func testPublishRolloverHandoffHealthyRootReturnsTrue() throws {
-        let manager = self.makeManager(rootURLProvider: { self.tempDirectory })
+        let manager = self.makeManager()
         let record = ScreencastFixtures.handoff(
             revision: 5,
             sourceSet: [.audio, .location, .screencast],
@@ -245,7 +257,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
             sources: [.audio, .location],
             handoff: ScreencastFixtures.handoff(sourceSet: [.audio, .location, .screencast])
         )
-        let manager = self.makeManager(engine: engine, uploader: FakeScreencastUploader(), rootURLProvider: { self.tempDirectory })
+        let manager = self.makeManager(engine: engine, uploader: FakeScreencastUploader())
         try self.write(ScreencastFixtures.runtime(state: .broadcastStarted), relativePath: MobileSegmentScreencastPaths.runtimeRelativePath())
 
         await manager.reconcileScreencast(reason: .darwinNotification)
@@ -256,7 +268,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
     @MainActor
     func testKeepLivePartWritesEnrolled() async throws {
         let engine = FakeScreencastEngine(sources: [.audio, .location, .screencast])
-        let manager = self.makeManager(engine: engine, uploader: FakeScreencastUploader(), rootURLProvider: { self.tempDirectory })
+        let manager = self.makeManager(engine: engine, uploader: FakeScreencastUploader())
         try self.write(
             ScreencastFixtures.runtime(state: .finishing, segmentID: ScreencastFixtures.segmentID),
             relativePath: MobileSegmentScreencastPaths.runtimeRelativePath()
@@ -274,18 +286,19 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testDarwinObserverReceivesNotification() async {
+    func testDarwinObserverReceivesNotification() async throws {
         let darwin = StubScreencastDarwin()
         let log = ScreencastCallLog()
         let manager = self.makeManager(
             callLog: log,
-            rootURLProvider: { self.tempDirectory },
             darwin: darwin
         )
 
         manager.startObservingDarwin()
         darwin.fire()
-        await self.yieldToMainActor()
+        try await self.waitFor("Darwin notification reconciliation") {
+            log.entries == ["reconcileActiveSegments"]
+        }
 
         XCTAssertEqual(darwin.startCallCount, 1)
         XCTAssertEqual(log.entries, ["reconcileActiveSegments"])
@@ -319,7 +332,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
             uploader: FakeScreencastUploader(),
             clock: MockObserverClock(now: ScreencastFixtures.start),
             defaults: customDefaults,
-            rootURLProvider: { self.tempDirectory },
+            rootURLProvider: { [root = self.tempDirectory!] in root },
             darwin: StubScreencastDarwin()
         )
 
@@ -332,7 +345,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         let log = ScreencastCallLog()
         let engine = FakeScreencastEngine(sources: [], callLog: log)
         let uploader = FakeScreencastUploader(callLog: log)
-        let manager = self.makeManager(engine: engine, uploader: uploader, rootURLProvider: { self.tempDirectory })
+        let manager = self.makeManager(engine: engine, uploader: uploader)
 
         let session1 = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
         let segment1 = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
@@ -373,7 +386,7 @@ nonisolated final class ScreencastManagerTests: XCTestCase {
         let log = ScreencastCallLog()
         let engine = FakeScreencastEngine(sources: [.screencast], callLog: log)
         let uploader = FakeScreencastUploader(callLog: log)
-        let manager = self.makeManager(engine: engine, uploader: uploader, rootURLProvider: { self.tempDirectory })
+        let manager = self.makeManager(engine: engine, uploader: uploader)
 
         let diagnostic = ScreencastFixtures.diagnostic(reason: .storageLow, segmentID: ScreencastFixtures.segmentID)
         try self.write(diagnostic, relativePath: MobileSegmentScreencastPaths.screenDiagnosticRelativePath(segmentID: ScreencastFixtures.segmentID))
@@ -391,22 +404,25 @@ private extension ScreencastManagerTests {
     func makeManager(
         engine: FakeScreencastEngine = FakeScreencastEngine(),
         uploader: FakeScreencastUploader = FakeScreencastUploader(),
-        clock: any ObserverClock = MockObserverClock(now: ScreencastFixtures.start),
+        clock: MockObserverClock = MockObserverClock(now: ScreencastFixtures.start),
         defaults: UserDefaults? = nil,
         callLog: ScreencastCallLog? = nil,
         rootURLProvider: (() throws -> URL)? = nil,
-        darwin: any ScreencastDarwinNotifying = ScreencastDarwinNotificationCenter()
+        darwin: any ScreencastDarwinNotifying = StubScreencastDarwin()
     ) -> ScreencastManager {
         let chosenEngine = callLog.map { FakeScreencastEngine(sources: engine.currentScreencastSources, handoff: engine.nextHandoff, callLog: $0) } ?? engine
         let chosenUploader = callLog.map { FakeScreencastUploader(callLog: $0) } ?? uploader
-        return ScreencastManager(
+        let root = self.tempDirectory!
+        let manager = ScreencastManager(
             engine: chosenEngine,
             uploader: chosenUploader,
             clock: clock,
             defaults: defaults ?? self.defaults,
-            rootURLProvider: rootURLProvider ?? { self.tempDirectory },
+            rootURLProvider: rootURLProvider ?? { root },
             darwin: darwin
         )
+        self.managers.append((manager, clock))
+        return manager
     }
 
     func write<T: Encodable>(_ value: T, relativePath: String) throws {
@@ -447,8 +463,11 @@ private extension ScreencastManagerTests {
     }
 
     @MainActor
-    func yieldToMainActor() async {
-        await Task.yield()
-        await Task.yield()
+    func waitFor(_ label: String, condition: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !condition(), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertTrue(condition(), "Timed out waiting for \(label)")
     }
 }
