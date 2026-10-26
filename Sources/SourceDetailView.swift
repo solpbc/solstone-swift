@@ -246,7 +246,12 @@ private extension SourceDetailView {
     }
 
     var pauseButtonDisabled: Bool {
-        !self.currentPresentation.pauseEnabled || self.observerManager.state == .stopping
+        switch self.currentSourceState {
+        case .active, .paused:
+            !self.currentPresentation.pauseEnabled || self.observerManager.state == .stopping
+        case .off, .enrolling, .readyToSetUp, .checking, .needsAttention:
+            true
+        }
     }
 
     var elapsedText: String? {

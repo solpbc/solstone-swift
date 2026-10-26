@@ -110,8 +110,19 @@ nonisolated func audioOwnerPresentation(
         } else {
             isLive = false
         }
-        let pauseEnabled = (state == .active || state == .paused)
-        let pauseReadsResume = (state == .paused)
+        let pauseEnabled: Bool
+        let pauseReadsResume: Bool
+        switch state {
+        case .active:
+            pauseEnabled = true
+            pauseReadsResume = false
+        case .paused:
+            pauseEnabled = true
+            pauseReadsResume = true
+        case .off, .enrolling, .readyToSetUp, .checking, .needsAttention:
+            pauseEnabled = false
+            pauseReadsResume = false
+        }
         return AudioOwnerPresentation(
             sourceState: state,
             tileLine: nil,
