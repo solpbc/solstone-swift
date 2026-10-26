@@ -266,7 +266,7 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
     }
 
     @MainActor
-    func testExportFileURLWritesRedactedSnapshot() throws {
+    func testExportFileWritesRedactedSnapshot() async throws {
         self.log.append(
             category: .upload,
             severity: .error,
@@ -274,7 +274,8 @@ nonisolated final class DiagnosticLogTests: XCTestCase {
             detail: "Authorization: Bearer abc123TOKEN secret=hunter2"
         )
 
-        let exportURL = try XCTUnwrap(self.log.exportFileURL(tunnel: TunnelManager()))
+        let written = await self.log.exportFile(tunnel: TunnelManager(), syncState: [], now: Date())
+        let exportURL = try XCTUnwrap(written)
         let report = try String(contentsOf: exportURL, encoding: .utf8)
 
         XCTAssertFalse(report.contains("abc123TOKEN"))

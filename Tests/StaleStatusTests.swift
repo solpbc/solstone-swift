@@ -87,11 +87,13 @@ final class StaleStatusTests: XCTestCase {
 
         await transfer.engine.noteDelivered(bytes: 10, sourceKey: key, at: Date().addingTimeInterval(-10))
         await transfer.engine.noteError(sourceKey: key, detail: "after the delivery")
-        var status = try XCTUnwrap(await transfer.engine.snapshot().sources[key])
+        let first = await transfer.engine.snapshot().sources[key]
+        var status = try XCTUnwrap(first)
         XCTAssertEqual(TransferRecentError.evaluate(status, now: Date())?.detail, "after the delivery")
 
         await transfer.engine.noteDelivered(bytes: 10, sourceKey: key, at: Date().addingTimeInterval(1))
-        status = try XCTUnwrap(await transfer.engine.snapshot().sources[key])
+        let second = await transfer.engine.snapshot().sources[key]
+        status = try XCTUnwrap(second)
         XCTAssertNil(TransferRecentError.evaluate(status, now: Date().addingTimeInterval(2)))
         XCTAssertEqual(status.errorTimesSinceDelivery, [])
     }
@@ -181,7 +183,8 @@ final class StaleStatusTests: XCTestCase {
         let tunnel = TunnelManager()
         let sync = syncStateSummaryLines(rows: [self.row(recentError: nil)], now: self.t0)
         let copied = await log.report(tunnel: tunnel, syncState: sync, now: self.t0)
-        let file = try XCTUnwrap(await log.exportFile(tunnel: tunnel, syncState: sync, now: self.t0))
+        let written = await log.exportFile(tunnel: tunnel, syncState: sync, now: self.t0)
+        let file = try XCTUnwrap(written)
         let shared = try String(contentsOf: file, encoding: .utf8)
 
         XCTAssertEqual(copied, shared)
