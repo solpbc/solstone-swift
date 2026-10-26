@@ -98,6 +98,11 @@ private struct AppGroupSnapshotInputs: Equatable {
     let journalSendConfirmed: Bool
 }
 
+/// What the widgets show for the journal gap: the app's own notice, after its gate and window.
+func widgetJournalGap(_ holder: MobileSegmentTransferHolder) -> Bool {
+    holder.journalGapNotice.isShowing
+}
+
 func writeObserverWidgetSnapshot(
     mirror: AppGroupMirror,
     pairing: AppGroupMirror.PairingSnapshot,
@@ -268,7 +273,7 @@ struct DayHomeView: View {
                 sourceStates: self.appGroupSourceStates,
                 backlogCount: self.backlogCount.knownCount,
                 awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-                journalGap: self.mobileSegmentTransferHolder.journalGapNotice.isShowing
+                journalGap: widgetJournalGap(self.mobileSegmentTransferHolder)
             )
             self.watchBacklogSnapshotWriter.write(
                 backlog: self.backlogCount,
@@ -298,7 +303,7 @@ private extension DayHomeView {
             pairing: self.appGroupPairing,
             microphonePermission: self.appGroupMicrophonePermission,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-            journalGap: self.mobileSegmentTransferHolder.journalGapNotice.isShowing,
+            journalGap: widgetJournalGap(self.mobileSegmentTransferHolder),
             journalIdentityEpoch: self.appConfig.journalIdentityEpoch,
             journalMark: self.journalMark,
             journalSendConfirmed: self.appConfig.journalSendConfirmed

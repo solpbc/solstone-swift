@@ -180,27 +180,50 @@ final class JournalGapNoticeTests: XCTestCase {
         XCTAssertEqual(JournalGapNotice.delayUntilNextDay(from: midnight, calendar: calendar), 24 * 60 * 60)
     }
 
-    func testAppSnapshotTaskWritesTheJournalGapField() throws {
+    func testAppSnapshotTaskWritesTheJournalGapFromTheHolder() async throws {
+        let transfer = makeTransferCutoverHarness(rootURL: self.tempDirectory.appendingPathComponent("Transfers", isDirectory: true))
+        let uploader = MobileSegmentUploader(
+            transferEngine: transfer.engine,
+            store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("SnapshotMobileSegment", isDirectory: true)),
+            clock: MockObserverClock(now: Date())
+        )
+        let holder = MobileSegmentTransferHolder(transferEngine: transfer.engine, mirror: transfer.mirror, uploader: uploader)
         let root = self.tempDirectory.appendingPathComponent("app-group", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let mirror = AppGroupMirror(rootURLProvider: { root })
-        guard case .success = writeObserverWidgetSnapshot(
-            mirror: mirror,
-            pairing: AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true),
-            microphonePermission: .granted,
-            session: .notLive,
-            sourceStates: [.observer: .active],
-            backlogCount: 0,
-            awaitingMarkConfirmation: false,
-            journalGap: true
-        ) else {
-            return XCTFail("snapshot write failed")
+
+        func written() throws -> Bool {
+            guard case .success = writeObserverWidgetSnapshot(
+                mirror: mirror,
+                pairing: AppGroupMirror.PairingSnapshot(journalName: "sol", isPaired: true),
+                microphonePermission: .granted,
+                session: .notLive,
+                sourceStates: [.observer: .active],
+                backlogCount: 0,
+                awaitingMarkConfirmation: false,
+                journalGap: widgetJournalGap(holder)
+            ) else {
+                XCTFail("snapshot write failed")
+                return false
+            }
+            return try JSONDecoder().decode(
+                AppGroupMirror.Snapshot.self,
+                from: Data(contentsOf: root.appendingPathComponent(AppGroupMirror.Snapshot.fileName))
+            ).journalGap
         }
-        let decoded = try JSONDecoder().decode(
-            AppGroupMirror.Snapshot.self,
-            from: Data(contentsOf: root.appendingPathComponent(AppGroupMirror.Snapshot.fileName))
-        )
-        XCTAssertTrue(decoded.journalGap)
+
+        try uploader.journalEvents.openGate(now: Date())
+        await holder.refreshJournalGapNotice()
+        XCTAssertFalse(try written())
+
+        let segmentID = UUID()
+        try uploader.journalEvents.recordLoss(segmentID: segmentID, source: .audio, reason: "audio_capture_unfinished", captureAt: Date(), now: Date())
+        await holder.refreshJournalGapNotice()
+        XCTAssertTrue(try written())
+
+        try uploader.journalEvents.markSeen(id: JournalEventStore.lossID(segmentID: segmentID, source: .audio))
+        await holder.refreshJournalGapNotice()
+        XCTAssertFalse(try written())
     }
 
     func testForegroundClockChangeDoesNotWriteTheStore() throws {

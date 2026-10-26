@@ -311,6 +311,34 @@ final class JournalGapUpgradeTests: XCTestCase {
         XCTAssertFalse(uploader.journalGapNotice.isShowing)
     }
 
+    func testTheSceneBecomingActivePastTheWindowShowsAndMarksNothing() async throws {
+        let uploader = MobileSegmentUploader(store: self.store, clock: self.clock)
+        await uploader.resumeFromDisk()
+        let segmentID = UUID()
+        try uploader.journalEvents.recordLoss(
+            segmentID: segmentID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: self.clock.now(),
+            now: self.clock.now()
+        )
+        await uploader.refreshJournalGapNotice()
+        XCTAssertTrue(uploader.journalGapNotice.isShowing)
+
+        self.clock.advance(by: 8 * 24 * 60 * 60)
+        let visit = JournalGapVisit()
+        await visit.requestStart(
+            fresh: true,
+            isShowing: { true },
+            refresh: { await uploader.refreshJournalGapNotice() },
+            live: { uploader.journalGapNotice.losses },
+            store: uploader.journalEvents
+        )
+        XCTAssertFalse(uploader.journalGapNotice.isShowing)
+        XCTAssertTrue(visit.captured.isEmpty)
+        XCTAssertFalse(uploader.journalEvents.isSeen(id: JournalEventStore.lossID(segmentID: segmentID, source: .audio)))
+    }
+
     func testFirstLaunchWhilePairedSeedsTheJournalIdentity() throws {
         let pairing = Self.pairing(instanceID: "journal-a")
         let identity = try XCTUnwrap(journalGapIdentity(for: pairing))
