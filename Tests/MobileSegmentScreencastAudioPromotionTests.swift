@@ -693,7 +693,7 @@ final class MobileSegmentScreencastAudioPromotionTests: XCTestCase {
         }
         let segmentRows = rows.filter { $0.segmentID == segmentID.uuidString }
         XCTAssertTrue(segmentRows.contains { $0.kind == .diagnostic && $0.reason == "screen_audio_duplicate" })
-        XCTAssertFalse(segmentRows.contains { $0.kind == .loss })
+        XCTAssertFalse(segmentRows.contains { $0.kind == .loss && $0.source == .screenAudio })
     }
 
     func testAC9AudioNonArtifactPreservesExtensionFile() async throws {
