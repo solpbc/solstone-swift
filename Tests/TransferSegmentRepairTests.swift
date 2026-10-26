@@ -1232,7 +1232,8 @@ nonisolated final class TransferSegmentRepairTests: XCTestCase {
                 XCTAssertFalse(line.contains(needle), "\(needle) in a repair line")
             }
         }
-        let url = try XCTUnwrap(DiagnosticLog().exportFileURL(tunnel: TunnelManager(), syncState: export.lines))
+        let written = await DiagnosticLog().exportFile(tunnel: TunnelManager(), syncState: export.lines, now: Date())
+        let url = try XCTUnwrap(written)
         let text = try String(contentsOf: url, encoding: .utf8)
         for line in repairLines {
             XCTAssertTrue(text.contains(line), "redaction left \(line)")
