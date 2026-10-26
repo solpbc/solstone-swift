@@ -45,7 +45,8 @@ final class JournalKeptPartTests: XCTestCase {
         let parkedPart = parked.url.appendingPathComponent(MobileSegmentScreencastPaths.screenPartFilename)
         XCTAssertEqual(try Data(contentsOf: parkedPart), oldPart)
 
-        self.uploader.dropSegment(segmentID: segmentID)
+        try self.store.writeTombstone(segmentID: segmentID, kind: "uploaded", reason: "delivered", now: self.clock.now())
+        await self.uploader.resumeFromDisk()
         let kept = try XCTUnwrap(self.store.findDirectory(segmentID: segmentID))
         XCTAssertEqual(
             try Data(contentsOf: kept.url.appendingPathComponent(MobileSegmentScreencastPaths.screenPartFilename)),
@@ -54,7 +55,7 @@ final class JournalKeptPartTests: XCTestCase {
         try self.unblockLosses()
         XCTAssertFalse(try self.lossRecorded(segmentID: segmentID))
 
-        self.uploader.dropSegment(segmentID: segmentID)
+        await self.uploader.resumeFromDisk()
         XCTAssertNil(self.store.findDirectory(segmentID: segmentID))
         let loss = try self.loss(segmentID: segmentID)
         XCTAssertEqual(loss.source, .screencast)

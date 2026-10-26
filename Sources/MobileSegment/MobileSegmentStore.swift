@@ -259,6 +259,21 @@ final class MobileSegmentStore {
         try self.fileManager.removeItem(at: directory)
     }
 
+    /// The owner removed this segment: everything in it goes, kept parts included. Owner actions only.
+    func removeForOwner(_ directory: URL) throws {
+        guard self.fileManager.fileExists(atPath: directory.path) else { return }
+        try self.fileManager.removeItem(at: directory)
+    }
+
+    /// The owner removed this segment's screen content: the screen recording, its audio and every part of either.
+    func removeScreenMaterialForOwner(in directory: URL) throws {
+        let names = [MobileSegmentScreencastPaths.screenFilename, MobileSegmentScreencastPaths.screenAudioFilename]
+        for name in try self.fileManager.contentsOfDirectory(atPath: directory.path)
+        where names.contains(name) || JournalKeptPart.isKeptPartFileName(name) {
+            try self.fileManager.removeItem(at: directory.appendingPathComponent(name, isDirectory: false))
+        }
+    }
+
     /// Records each kept part, then deletes it. False while any part is still unrecorded.
     func classifyKeptParts(
         in directory: URL,

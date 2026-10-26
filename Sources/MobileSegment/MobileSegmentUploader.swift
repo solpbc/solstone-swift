@@ -1624,10 +1624,42 @@ final class MobileSegmentUploader {
                 }
                 self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
             }
-            let captureAt = (try? self.store.readManifest(in: found.url))?.startedAt
-            try? self.removeSegmentDirectory(found.url, segmentID: segmentID, captureAt: captureAt, now: self.clock.now())
+            let manifest = try? self.store.readManifest(in: found.url)
+            self.recordOwnerRemoval(segmentID: segmentID, sources: Self.ownerRemovalSources(manifest), captureAt: manifest?.startedAt)
+            do {
+                try self.store.removeForOwner(found.url)
+            } catch {
+                let diagnostic = "mobile segment owner removal failed segment=\(segmentID.uuidString)"
+                self.lastError = diagnostic
+                mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
+            }
         }
         self.refreshCounts()
+    }
+
+    /// An owner removal is a diagnostic, never a loss, and never waits on the event store.
+    private func recordOwnerRemoval(segmentID: UUID, sources: [JournalEventSource], captureAt: Date?) {
+        for source in sources {
+            self.recordDiagnostic(
+                segmentID: segmentID,
+                source: source,
+                reason: "owner_removed",
+                captureAt: captureAt,
+                now: self.clock.now()
+            )
+        }
+    }
+
+    private static func ownerRemovalSources(_ manifest: MobileSegmentManifest?) -> [JournalEventSource] {
+        guard let manifest else { return [] }
+        var sources: [JournalEventSource] = []
+        if manifest.declaredSources.contains(.audio) {
+            sources.append(.audio)
+        }
+        if manifest.declaredSources.contains(.screencast) {
+            sources.append(.screencast)
+        }
+        return sources
     }
 
     func writeUploadedTombstone(segmentID: UUID) throws {
@@ -1642,8 +1674,8 @@ final class MobileSegmentUploader {
         do {
             var manifest = try self.store.readManifest(in: found.url)
             guard manifest.screencast.state.isLocalFacet else { return }
-            self.store.removeIfExists(self.store.screenURL(in: found.url))
-            self.store.removeIfExists(self.store.screenPartURL(in: found.url))
+            self.recordOwnerRemoval(segmentID: segmentID, sources: [.screencast], captureAt: manifest.startedAt)
+            try self.store.removeScreenMaterialForOwner(in: found.url)
             let resolution = MobileSegmentSourceResolution(
                 state: .removed,
                 reason: "screencast_removed",
@@ -1660,7 +1692,7 @@ final class MobileSegmentUploader {
             } else {
                 let tombstoneReason = self.tombstoneReasonForEmptyRetirement(manifest: manifest, defaultReason: "screencast_removed")
                 try self.store.writeTombstone(segmentID: segmentID, kind: "empty", reason: tombstoneReason, now: self.clock.now())
-                try self.removeSegmentDirectory(found.url, segmentID: segmentID, captureAt: manifest.startedAt, now: self.clock.now())
+                try self.store.removeForOwner(found.url)
                 if manifest.audio.reason == "audio_undecodable_container" {
                     self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
                 }

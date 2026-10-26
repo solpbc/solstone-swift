@@ -359,12 +359,14 @@ final class JournalEventClassificationTests: XCTestCase {
         }
     }
 
-    func testOwnerRemovalWritesNoJournalEvent() throws {
+    func testOwnerRemovalIsADiagnosticAndNeverALoss() throws {
         let plain = try self.openActive(sources: [.audio])
         try Self.fortyEightByteAudio.write(to: self.store.audioURL(in: plain.directory))
         self.uploader.dropSegment(segmentID: plain.segmentID)
         XCTAssertNil(self.store.findDirectory(segmentID: plain.segmentID))
-        XCTAssertTrue(try self.records(segmentID: plain.segmentID).isEmpty)
+        let plainRows = try self.records(segmentID: plain.segmentID)
+        XCTAssertEqual(plainRows.map(\.kind), [.diagnostic])
+        XCTAssertEqual(plainRows.map(\.reason), ["owner_removed"])
 
         let undecodable = try self.openActive(sources: [.audio])
         var manifest = try self.store.readManifest(in: undecodable.directory)
@@ -377,10 +379,32 @@ final class JournalEventClassificationTests: XCTestCase {
         )
         self.uploader.dropSegment(segmentID: undecodable.segmentID)
         XCTAssertTrue(self.store.hasTombstone(segmentID: undecodable.segmentID, kind: "empty"))
-        XCTAssertTrue(try self.records().isEmpty)
+        XCTAssertFalse(try self.records().contains { $0.kind == .loss })
     }
 
-    func testOwnerScreenRemovalWritesNoJournalEvent() async throws {
+    func testOwnerRemovalRemovesKeptPartsWhenTheEventStoreFails() throws {
+        let opened = try self.openActive(sources: [.screencast])
+        try Data("kept".utf8).write(to: self.store.screenPartURL(in: opened.directory))
+        try Data("kept-numbered".utf8).write(to: opened.directory.appendingPathComponent("screen.mp4.part.1"))
+        let events = self.uploader.journalEvents.rootURL
+        try FileManager.default.createDirectory(at: events.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: events)
+        try Data("blocked".utf8).write(to: events)
+
+        self.uploader.dropSegment(segmentID: opened.segmentID)
+
+        XCTAssertNil(self.store.findDirectory(segmentID: opened.segmentID))
+        try FileManager.default.removeItem(at: events)
+    }
+
+    func testRetirementStillRefusesADirectoryWithAnUnrecordedKeptPart() throws {
+        let opened = try self.openActive(sources: [.screencast])
+        try Data("kept".utf8).write(to: self.store.screenPartURL(in: opened.directory))
+        XCTAssertThrowsError(try self.store.remove(opened.directory))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: opened.directory.path))
+    }
+
+    func testOwnerScreenRemovalIsADiagnosticAndNeverALoss() async throws {
         let opened = try self.openActive(sources: [.screencast])
         let screen = self.store.screenURL(in: opened.directory)
         try Data("partial-screen".utf8).write(to: screen)
@@ -394,7 +418,39 @@ final class JournalEventClassificationTests: XCTestCase {
         )
         await self.uploader.redactScreencastFacet(segmentID: opened.segmentID)
         XCTAssertFalse(FileManager.default.fileExists(atPath: screen.path))
-        XCTAssertTrue(try self.records().isEmpty)
+        XCTAssertEqual(try self.records().map(\.reason), ["owner_removed"])
+        XCTAssertFalse(try self.records().contains { $0.kind == .loss })
+    }
+
+    func testScreenRedactionKeepsAudioAndLocationAndRemovesEveryScreenPart() async throws {
+        let opened = try self.openActive(sources: [.audio, .location, .screencast])
+        var manifest = try self.store.readManifest(in: opened.directory)
+        for (source, url) in [
+            (MobileSegmentSource.audio, self.store.audioURL(in: opened.directory)),
+            (.location, self.store.locationURL(in: opened.directory)),
+            (.screencast, self.store.screenURL(in: opened.directory)),
+        ] {
+            try Data("\(source.rawValue)-bytes".utf8).write(to: url)
+            try self.store.writeOutcome(
+                MobileSegmentSourceResolution(state: .finalizedArtifact, artifactFilename: url.lastPathComponent, bytes: 12),
+                source: source,
+                manifest: &manifest,
+                in: opened.directory,
+                now: self.clock.now()
+            )
+        }
+        for name in ["screen.mp4.part", "screen.mp4.part.1", "screen-audio.m4a", "screen-audio.m4a.part", "screen-audio.m4a.part.2"] {
+            try Data("screen-material".utf8).write(to: opened.directory.appendingPathComponent(name))
+        }
+
+        await self.uploader.redactScreencastFacet(segmentID: opened.segmentID)
+
+        let found = try XCTUnwrap(self.store.findDirectory(segmentID: opened.segmentID))
+        let names = Set(try FileManager.default.contentsOfDirectory(atPath: found.url.path))
+        XCTAssertTrue(names.contains("audio.m4a"))
+        XCTAssertTrue(names.contains(self.store.locationURL(in: found.url).lastPathComponent))
+        XCTAssertTrue(names.allSatisfy { !$0.hasPrefix("screen.mp4") && !$0.hasPrefix("screen-audio.m4a") })
+        XCTAssertFalse(try self.records().contains { $0.kind == .loss })
     }
 
     func testDeliveredResidueWritesNoJournalEvent() throws {
