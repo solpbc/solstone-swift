@@ -9,7 +9,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Fixed
 
 - after a problem with audio, the status said "audio was interrupted" and kept saying it. now, when something you shared won't reach your journal, the status says there's a gap and which day, and it clears once you've opened it.
-- when your watch stops on its own, the watch tile on your iphone now says so for a day, instead of until you start your watch again.
+- when audio on your watch stops itself, the watch tile on your iphone now says so for a day, instead of until you start again.
 
 ## [2.0.10 (138)] - 2026-10-25
 
