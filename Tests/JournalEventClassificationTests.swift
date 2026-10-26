@@ -608,6 +608,26 @@ final class JournalEventClassificationTests: XCTestCase {
         XCTAssertTrue(try self.records().isEmpty)
     }
 
+    func testRollbackRecordsAnEmptyKeptPartAndDeletesItEvenWhenTheRecordFails() throws {
+        let recorded = try self.openActive(sources: [.screencast])
+        try Data().write(to: recorded.directory.appendingPathComponent("screen.mp4.part.1"))
+        try self.uploader.discardUnprovenRollbackCandidate(segmentID: recorded.segmentID, now: self.clock.now())
+        XCTAssertNil(self.store.findDirectory(segmentID: recorded.segmentID))
+        let rows = try self.records(segmentID: recorded.segmentID)
+        XCTAssertEqual(rows.map(\.kind), [.diagnostic])
+        XCTAssertEqual(rows.map(\.reason), ["empty_part"])
+
+        let blocked = try self.openActive(sources: [.screencast])
+        try Data().write(to: blocked.directory.appendingPathComponent("screen.mp4.part.1"))
+        let events = self.uploader.journalEvents.rootURL
+        try FileManager.default.createDirectory(at: events.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.removeItem(at: events)
+        try Data("blocked".utf8).write(to: events)
+        try self.uploader.discardUnprovenRollbackCandidate(segmentID: blocked.segmentID, now: self.clock.now())
+        XCTAssertNil(self.store.findDirectory(segmentID: blocked.segmentID))
+        try FileManager.default.removeItem(at: events)
+    }
+
     func testRollbackRemovesOnlyAProvenEmptyCandidate() throws {
         let missing = UUID()
         let missingURL = self.store.segmentDirectoryURL(.active, segmentID: missing)

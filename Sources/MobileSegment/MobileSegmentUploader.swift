@@ -1140,6 +1140,7 @@ final class MobileSegmentUploader {
             audioBlocks = true
         }
         var existedSources: [JournalEventSource] = []
+        var emptyKeptPartSources: [JournalEventSource] = []
         var screenUnreadable = false
         let keptParts = JournalKeptPart.urls(in: directory) ?? []
         if JournalKeptPart.urls(in: directory) == nil { return }
@@ -1154,8 +1155,12 @@ final class MobileSegmentUploader {
         }
         for (url, source) in screenFiles {
             switch self.store.boxedFileExistence(at: url, rule: .screen, acceptedFrames: 0) {
-            case .absent, .present(false):
+            case .absent:
                 break
+            case .present(false):
+                if keptParts.contains(where: { $0.path == url.path }) {
+                    emptyKeptPartSources.append(source)
+                }
             case .unreadableSize:
                 screenUnreadable = true
             case .present(true):
@@ -1182,6 +1187,9 @@ final class MobileSegmentUploader {
                 captureAt: captureAt,
                 now: now
             )
+        }
+        for source in emptyKeptPartSources {
+            self.recordDiagnostic(segmentID: segmentID, source: source, reason: "empty_part", captureAt: captureAt, now: now)
         }
         for url in keptParts {
             try? FileManager.default.removeItem(at: url)
