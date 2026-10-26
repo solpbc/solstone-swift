@@ -6,7 +6,8 @@ import Foundation
 nonisolated func makeAudioSource(
     state: SourceState,
     attention: SourceAttention?,
-    isJournalPaired: Bool
+    isJournalPaired: Bool,
+    subtextOverride: String? = nil
 ) -> Source {
     Source(
         id: "audio",
@@ -15,6 +16,7 @@ nonisolated func makeAudioSource(
         state: state,
         isJournalPaired: isJournalPaired,
         activeSubtext: SourceVocabulary.observerActiveSubtext,
+        subtextOverride: subtextOverride,
         attention: attention,
         pendingStatus: .nonePending
     )
@@ -92,10 +94,11 @@ func makeHomeSourceBundle(
     screencastManager: ScreencastManager,
     watchLane: PhoneWatchSourceLane
 ) -> HomeSourceBundle {
-    let audioState = sourceState(
-        for: observerManager.state,
-        paused: observerSourcePauseState.isPaused,
-        enrolled: observerManager.isEnrolled
+    let presentation = audioOwnerPresentation(
+        observerState: observerManager.state,
+        ownerPaused: observerSourcePauseState.isPaused,
+        enrolled: observerManager.isEnrolled,
+        microphoneTaken: observerManager.microphoneTakenPause
     )
     let audioAttention: SourceAttention? = {
         if case .error(let error) = observerManager.state {
@@ -104,7 +107,12 @@ func makeHomeSourceBundle(
         return nil
     }()
     return HomeSourceBundle(
-        audio: makeAudioSource(state: audioState, attention: audioAttention, isJournalPaired: isJournalPaired),
+        audio: makeAudioSource(
+            state: presentation.sourceState,
+            attention: audioAttention,
+            isJournalPaired: isJournalPaired,
+            subtextOverride: presentation.tileLine
+        ),
         location: makeLocationSource(
             state: locationManager.sourceState,
             attention: locationManager.sourceAttention,

@@ -959,7 +959,8 @@ struct RootShellView: View {
             sourceState(
                 for: self.observerManager.state,
                 paused: self.observerSourcePauseState.isPaused,
-                enrolled: self.observerManager.isEnrolled
+                enrolled: self.observerManager.isEnrolled,
+                microphoneTaken: self.observerManager.microphoneTakenPause
             ),
             self.locationManager.sourceState,
             screencastSourceState(for: self.screencastManager.state, enrolled: self.screencastManager.isEnrolled),

@@ -24,6 +24,7 @@ struct HomeSourceTile: View {
     let route: SourceRoute
     let control: HomeSourceTileControl
     var isOn: Binding<Bool> = .constant(false)
+    var switchDisabled: Bool = false
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.colorScheme) private var colorScheme
@@ -59,9 +60,12 @@ struct HomeSourceTile: View {
         .hoverEffect(.highlight)
     }
 
-    /// The tile's accessible value: the state word alone.
+    /// The tile's accessible value: state word plus subtext override for observer, state word alone otherwise.
     static func accessibilityValue(for source: Source) -> String {
-        source.state.label
+        if source.kind == .observer, let subtextOverride = source.subtextOverride {
+            return "\(source.state.label). \(subtextOverride)"
+        }
+        return source.state.label
     }
 
     /// Glyph and control share the top line. At accessibility sizes the control drops
@@ -141,10 +145,11 @@ struct HomeSourceTile: View {
             .labelsHidden()
             .tint(.solOrange)
             .frame(minWidth: 44, minHeight: 44)
+            .disabled(self.switchDisabled)
             .accessibilityElement(children: .combine)
             .accessibilityAddTraits(.isToggle)
             .accessibilityLabel(self.source.displayName)
-            .accessibilityValue(self.source.state.label)
+            .accessibilityValue(Self.accessibilityValue(for: self.source))
             .accessibilityIdentifier("dayHome.tile.\(self.source.id).toggle")
     }
 

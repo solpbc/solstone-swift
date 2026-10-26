@@ -153,6 +153,8 @@ nonisolated enum SourceVocabulary {
     static let sourceStateReadyToSetUpLabel = "ready to set up"
     static let sourceStateCheckingLabel = "checking…"
     static let pausedSubtext = "you paused this. resume to start intake again."
+    static let microphoneTakenSubtextCompact = "another app took the microphone."
+    static let microphoneTakenSubtext = "a call or another app took the microphone. resume when it's free."
     static let needsAttentionSubtext = "something's not getting through."
     static let needsAttention = "needs attention"
 

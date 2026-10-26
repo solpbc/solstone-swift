@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import AVFoundation
 import Foundation
 import os
 import XCTest
@@ -146,7 +147,8 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
         XCTAssertEqual(self.manager.state, .idle)
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
-        XCTAssertEqual(self.liveActivity.endCalls.first, self.liveActivity.startCalls.first?.1)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.sessionID, self.liveActivity.startCalls.first?.1)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.reason, .owner)
     }
 
     @MainActor
@@ -288,7 +290,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     func testShortInterruptionResumes() async {
         await self.manager.startSession(mode: .meeting)
 
-        self.recorder.emitInterruption(.began)
+        self.recorder.emitInterruption(.began(.default))
         try? await Task.sleep(for: .milliseconds(20))
         self.clock.advance(by: 30)
         self.recorder.emitInterruption(.ended)
@@ -303,16 +305,31 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testLongInterruptionStopsWithConflictError() async {
+    func testLongInterruptionStopsWithMicrophoneTakenPause() async {
         await self.manager.startSession(mode: .meeting)
 
-        self.recorder.emitInterruption(.began)
+        self.recorder.emitInterruption(.began(.default))
+        try? await Task.sleep(for: .milliseconds(20))
+        self.clock.advance(by: 61)
+        self.recorder.emitInterruption(.ended)
+        try? await Task.sleep(for: .milliseconds(40))
+
+        XCTAssertEqual(self.manager.state, .microphoneTaken)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.reason, .system)
+    }
+
+    @MainActor
+    func testLongInterruptionWithNonHoldingReasonStopsWithConflictError() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitInterruption(.began(.other(raw: AVAudioSession.InterruptionReason.builtInMicMuted.rawValue)))
         try? await Task.sleep(for: .milliseconds(20))
         self.clock.advance(by: 61)
         self.recorder.emitInterruption(.ended)
         try? await Task.sleep(for: .milliseconds(40))
 
         XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.first?.reason, .system)
     }
 
     @MainActor
@@ -347,6 +364,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.recorder.restartCallCount, 1)
         XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.reason, .system)
 
         self.clock.advance(by: 30)
         await self.drainManagerTasks()
@@ -363,6 +381,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
         XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.reason, .system)
     }
 
     @MainActor
@@ -381,7 +400,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     func testConfigurationChangeDuringInterruptionRebuildsOnEndedPath() async {
         await self.manager.startSession(mode: .meeting)
 
-        self.recorder.emitInterruption(.began)
+        self.recorder.emitInterruption(.began(.default))
         await self.drainManagerTasks()
         self.recorder.emitEngineFault(.configurationChange)
         await self.drainManagerTasks()
@@ -406,7 +425,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     func testResumeFailureAfterInterruptionStopsWithConflictError() async {
         await self.manager.startSession(mode: .meeting)
 
-        self.recorder.emitInterruption(.began)
+        self.recorder.emitInterruption(.began(.default))
         await self.drainManagerTasks()
         self.recorder.resumeError = ObserverManagerTestError.resumeFailed
         self.clock.advance(by: 5)
@@ -415,19 +434,47 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
         XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.reason, .system)
     }
 
     @MainActor
     func testMissingInterruptionEndedDeadlineStopsAndLateEndedIsNoOp() async {
         await self.manager.startSession(mode: .meeting)
 
-        self.recorder.emitInterruption(.began)
+        self.recorder.emitInterruption(.began(.default))
         await self.drainManagerTasks()
+        self.clock.advance(by: 61)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .microphoneTaken)
+        XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.reason, .system)
+        XCTAssertEqual(self.recorder.resumeCallCount, 0)
+
+        let starts = self.recorder.startCallCount
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .microphoneTaken)
+        XCTAssertEqual(self.recorder.resumeCallCount, 0)
+        XCTAssertEqual(self.recorder.startCallCount, starts)
+    }
+
+    @MainActor
+    func testMissingInterruptionEndedDeadlineWithNonHoldingReasonStopsWithConflictError() async {
+        await self.manager.startSession(mode: .meeting)
+
+        self.recorder.emitInterruption(.began(.other(raw: AVAudioSession.InterruptionReason.builtInMicMuted.rawValue)))
+        await self.drainManagerTasks()
+        XCTAssertNil(self.manager.microphoneTakenPause)
+        XCTAssertEqual(self.audioPresentation().sourceState, .active)
+
         self.clock.advance(by: 61)
         await self.drainManagerTasks()
 
         XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.reason, .system)
         XCTAssertEqual(self.recorder.resumeCallCount, 0)
 
         self.recorder.emitInterruption(.ended)
@@ -441,7 +488,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     func testInterruptionEndedBeforeDeadlineCancelsDeadline() async {
         await self.manager.startSession(mode: .meeting)
 
-        self.recorder.emitInterruption(.began)
+        self.recorder.emitInterruption(.began(.default))
         await self.drainManagerTasks()
         self.clock.advance(by: 30)
         self.recorder.emitInterruption(.ended)
@@ -473,13 +520,14 @@ nonisolated final class ObserverManagerTests: XCTestCase {
 
         XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
         XCTAssertEqual(self.liveActivity.endCalls.count, 1)
+        XCTAssertEqual(self.liveActivity.endCalls.first?.reason, .system)
     }
 
     @MainActor
     func testWatchdogDoesNotFireWhileInterrupted() async {
         await self.manager.startSession(mode: .meeting)
 
-        self.recorder.emitInterruption(.began)
+        self.recorder.emitInterruption(.began(.default))
         await self.drainManagerTasks()
         self.clock.advance(by: 11)
         await self.drainManagerTasks()
@@ -495,7 +543,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     func testWatchdogRearmsAfterSuccessfulResume() async {
         await self.manager.startSession(mode: .meeting)
 
-        self.recorder.emitInterruption(.began)
+        self.recorder.emitInterruption(.began(.default))
         await self.drainManagerTasks()
         self.clock.advance(by: 30)
         self.recorder.emitInterruption(.ended)
@@ -820,7 +868,7 @@ nonisolated final class ObserverManagerTests: XCTestCase {
             if descriptor >= 0 { close(descriptor) }
             try? FileManager.default.removeItem(at: fifo)
         }
-        self.recorder.emitInterruption(.began)
+        self.recorder.emitInterruption(.began(.absent))
         try? await Task.sleep(for: .milliseconds(20))
         self.clock.advance(by: 30)
         self.recorder.emitInterruption(.ended)
@@ -903,6 +951,358 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testHoldingBeganPresentsPausedAndOwnerStopEndsTheActivity() async {
+        let reasons: [ObserverInterruptionBeganReason] = [.absent, .default]
+        for reason in reasons {
+            await self.manager.startSession(mode: .meeting)
+            let starts = self.recorder.startCallCount
+            self.recorder.emitInterruption(.began(reason))
+            await self.drainManagerTasks()
+
+            guard case .active = self.manager.state else {
+                return XCTFail("hold keeps the session active")
+            }
+            XCTAssertEqual(self.manager.microphoneTakenPause, .holdingSession)
+            let presentation = self.audioPresentation()
+            XCTAssertEqual(presentation.sourceState, .paused)
+            XCTAssertEqual(presentation.tileLine, SourceVocabulary.microphoneTakenSubtextCompact)
+            XCTAssertEqual(presentation.detailLine, SourceVocabulary.microphoneTakenSubtextCompact)
+            XCTAssertFalse(presentation.pauseEnabled)
+            XCTAssertFalse(presentation.showsLiveElapsed)
+            if case .error = self.manager.state {
+                XCTFail("a hold is not a fault")
+            }
+
+            let outcome = await self.manager.startSession(mode: .meeting)
+            XCTAssertEqual(outcome, .alreadyRunning)
+            XCTAssertEqual(self.recorder.startCallCount, starts)
+
+            let ends = self.liveActivity.endCalls.count
+            let stopped = await self.manager.stopSession()
+            XCTAssertEqual(stopped, .stopped)
+            XCTAssertEqual(self.manager.state, .idle)
+            XCTAssertEqual(self.liveActivity.endCalls.count, ends + 1)
+            XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .owner)
+            XCTAssertNil(self.manager.microphoneTakenPause)
+        }
+    }
+
+    @MainActor
+    func testMeterDuringHoldReturnsToOnAndDeadlineStillPauses() async {
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.emitInterruption(.began(.absent))
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.microphoneTakenPause, .holdingSession)
+
+        self.recorder.emitMeter(level: 0.2, duration: 1)
+        await self.drainManagerTasks()
+        XCTAssertNil(self.manager.microphoneTakenPause)
+        XCTAssertEqual(self.audioPresentation().sourceState, .active)
+
+        self.clock.advance(by: 15)
+        await self.drainManagerTasks()
+        XCTAssertNil(self.manager.microphoneTakenPause)
+        guard case .active = self.manager.state else {
+            return XCTFail("quiet after a frame does not restore the hold")
+        }
+
+        self.clock.advance(by: 50)
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.state, .microphoneTaken)
+        XCTAssertEqual(self.manager.microphoneTakenPause, .stopped)
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+        XCTAssertEqual(self.audioPresentation().detailLine, SourceVocabulary.microphoneTakenSubtext)
+        XCTAssertEqual(self.audioPresentation().tileLine, SourceVocabulary.microphoneTakenSubtextCompact)
+        if case .error = self.manager.state {
+            XCTFail("deadline of a holding reason is the pause")
+        }
+    }
+
+    @MainActor
+    func testClassifiedResumeAndRebuildRefusalsEnterThePause() async {
+        let reasons: [ObserverInterruptionBeganReason] = [.absent, .default]
+        let domains = ["com.apple.coreaudio.avfaudio", NSOSStatusErrorDomain]
+        let codes: [AVAudioSession.ErrorCode] = [
+            .insufficientPriority, .cannotInterruptOthers, .cannotStartRecording,
+        ]
+        for reason in reasons {
+            for domain in domains {
+                for code in codes {
+                    let label = "resume \(reason) \(domain) \(code.rawValue)"
+                    await self.enterHoldingPause(reason: reason, label: label)
+                    self.recorder.resumeError = self.microphoneRefusal(code, domain: domain)
+                    let ends = self.liveActivity.endCalls.count
+                    self.recorder.emitInterruption(.ended)
+                    await self.drainManagerTasks()
+                    self.assertMicrophoneTakenPause(label)
+                    XCTAssertEqual(self.liveActivity.endCalls.count, ends + 1, label)
+                    XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system, label)
+                    self.recorder.resumeError = nil
+                    _ = await self.manager.stopSession()
+                }
+            }
+        }
+        for reason in reasons {
+            for domain in domains {
+                for code in codes {
+                    let label = "rebuild \(reason) \(domain) \(code.rawValue)"
+                    await self.enterHoldingPause(reason: reason, label: label)
+                    self.recorder.emitEngineFault(.configurationChange)
+                    await self.drainManagerTasks()
+                    self.recorder.restartError = self.microphoneRefusal(code, domain: domain)
+                    let ends = self.liveActivity.endCalls.count
+                    let restarts = self.recorder.restartCallCount
+                    self.recorder.emitInterruption(.ended)
+                    await self.drainManagerTasks()
+                    XCTAssertEqual(self.recorder.restartCallCount, restarts + 1, label)
+                    self.assertMicrophoneTakenPause(label)
+                    XCTAssertEqual(self.liveActivity.endCalls.count, ends + 1, label)
+                    XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system, label)
+                    self.recorder.restartError = nil
+                    _ = await self.manager.stopSession()
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testUnclassifiedResumeAndRebuildStayNeedsAttention() async {
+        let other = NSError(domain: NSOSStatusErrorDomain, code: 1)
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.emitInterruption(.began(.default))
+        await self.drainManagerTasks()
+        self.recorder.resumeError = other
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+        self.recorder.resumeError = nil
+
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.emitInterruption(.began(.absent))
+        await self.drainManagerTasks()
+        self.recorder.emitEngineFault(.configurationChange)
+        await self.drainManagerTasks()
+        self.recorder.restartError = other
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+        self.recorder.restartError = nil
+    }
+
+    @MainActor
+    func testClassifiedRefusalForOtherBeganReasonStaysNeedsAttention() async {
+        let error = self.microphoneRefusal(.insufficientPriority, domain: "com.apple.coreaudio.avfaudio")
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.emitInterruption(.began(.other(raw: AVAudioSession.InterruptionReason.builtInMicMuted.rawValue)))
+        await self.drainManagerTasks()
+        self.recorder.resumeError = error
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertNil(self.manager.microphoneTakenPause)
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+        self.recorder.resumeError = nil
+
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.emitInterruption(.began(.other(raw: AVAudioSession.InterruptionReason.builtInMicMuted.rawValue)))
+        await self.drainManagerTasks()
+        self.recorder.emitEngineFault(.configurationChange)
+        await self.drainManagerTasks()
+        self.recorder.restartError = error
+        self.recorder.emitInterruption(.ended)
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+    }
+
+    @MainActor
+    func testRotationRefusalStaysNeedsAttentionAndEndsSystem() async {
+        let codes: [AVAudioSession.ErrorCode] = [
+            .insufficientPriority, .cannotInterruptOthers, .cannotStartRecording,
+        ]
+        for code in codes {
+            await self.manager.startSession(mode: .meeting)
+            try? await Task.sleep(for: .milliseconds(20))
+            self.recorder.rotateError = self.microphoneRefusal(code, domain: NSOSStatusErrorDomain)
+            let ends = self.liveActivity.endCalls.count
+            self.clock.advance(by: 300)
+            try? await Task.sleep(for: .milliseconds(40))
+
+            XCTAssertEqual(
+                self.manager.state,
+                .error(.unavailable(reason: "audio input unavailable")),
+                "rotation \(code.rawValue)"
+            )
+            XCTAssertNotEqual(self.manager.microphoneTakenPause, .stopped)
+            XCTAssertEqual(self.liveActivity.endCalls.count, ends + 1)
+            XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+            self.recorder.rotateError = nil
+        }
+    }
+
+    @MainActor
+    func testInsufficientPriorityStartEntersPauseAndReleasesTheSegment() async throws {
+        self.recorder.nextChunkDuration = 0
+        self.recorder.startError = self.microphoneRefusal(.insufficientPriority, domain: NSOSStatusErrorDomain)
+        let outcome = await self.manager.startSession(mode: .meeting)
+
+        guard case .refused = outcome else {
+            return XCTFail("expected a refused start")
+        }
+        XCTAssertEqual(self.manager.state, .microphoneTaken)
+        XCTAssertNil(self.defaults.object(forKey: AudioStorageKey.enrolled))
+        let presentation = self.audioPresentation()
+        XCTAssertEqual(presentation.sourceState, .readyToSetUp)
+        XCTAssertEqual(presentation.firstUseLine, SourceVocabulary.microphoneTakenSubtextCompact)
+        XCTAssertEqual(
+            AudioEnrollmentPresentation.current(isJournalPaired: true).turnOnAudio,
+            SourceVocabulary.turnOnAudio
+        )
+        let store = self.mobileSegmentUploader.storeForTransferMigration
+        XCTAssertEqual(try store.list(.active).count, 0)
+        let failedURL = try XCTUnwrap(self.recorder.lastStartURL)
+
+        self.recorder.startError = nil
+        self.recorder.nextChunkDuration = 5
+        await self.manager.startSession(mode: .meeting)
+        let retryURL = try XCTUnwrap(self.recorder.lastStartURL)
+        XCTAssertNotEqual(failedURL.deletingLastPathComponent(), retryURL.deletingLastPathComponent())
+        XCTAssertEqual(self.defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
+    }
+
+    @MainActor
+    func testStartCaptureSessionInsufficientPriorityEntersPause() async {
+        self.recorder.startError = self.microphoneRefusal(
+            .insufficientPriority,
+            domain: "com.apple.coreaudio.avfaudio"
+        )
+        let started = await self.manager.startCaptureSession(mode: .meeting)
+
+        XCTAssertFalse(started)
+        XCTAssertEqual(self.manager.state, .microphoneTaken)
+        XCTAssertNil(self.defaults.object(forKey: AudioStorageKey.enrolled))
+        XCTAssertEqual(self.audioPresentation().sourceState, .readyToSetUp)
+        XCTAssertTrue(self.liveActivity.startCalls.isEmpty)
+    }
+
+    @MainActor
+    func testOtherStartErrorStaysNeedsAttention() async {
+        self.recorder.startError = self.microphoneRefusal(.cannotStartRecording, domain: NSOSStatusErrorDomain)
+        let outcome = await self.manager.startSession(mode: .meeting)
+
+        guard case .refused(.error(_)) = outcome else {
+            return XCTFail("expected an error refusal")
+        }
+        guard case .error = self.manager.state else {
+            return XCTFail("expected needs attention, got \(self.manager.state)")
+        }
+        XCTAssertNil(self.manager.microphoneTakenPause)
+        XCTAssertNil(self.defaults.object(forKey: AudioStorageKey.enrolled))
+    }
+
+    @MainActor
+    func testLeavingTheMicrophoneTakenPause() async {
+        await self.manager.startSession(mode: .meeting)
+        _ = await self.manager.stopSession()
+        XCTAssertEqual(self.defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
+
+        self.recorder.startError = self.microphoneRefusal(.insufficientPriority, domain: NSOSStatusErrorDomain)
+        let refused = await self.manager.startSession(mode: .meeting)
+        guard case .refused = refused else {
+            return XCTFail("expected the pause")
+        }
+        XCTAssertEqual(self.manager.state, .microphoneTaken)
+        XCTAssertEqual(self.audioPresentation().sourceState, .paused)
+        XCTAssertEqual(self.audioPresentation().detailLine, SourceVocabulary.microphoneTakenSubtext)
+        XCTAssertEqual(self.defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
+        let activities = self.liveActivity.startCalls.count
+
+        let refusedAgain = await self.manager.startSession(mode: .meeting)
+        guard case .refused = refusedAgain else {
+            return XCTFail("a second refusal stays in the pause")
+        }
+        XCTAssertEqual(self.manager.state, .microphoneTaken)
+        XCTAssertEqual(self.liveActivity.startCalls.count, activities)
+        XCTAssertEqual(self.defaults.object(forKey: AudioStorageKey.enrolled) as? Bool, true)
+
+        self.recorder.startError = nil
+        let started = await self.manager.startSession(mode: .meeting)
+        XCTAssertEqual(started, .started)
+        guard case .active = self.manager.state else {
+            return XCTFail("a successful start leaves the pause")
+        }
+        XCTAssertNil(self.manager.microphoneTakenPause)
+        XCTAssertEqual(self.liveActivity.startCalls.count, activities + 1)
+        XCTAssertEqual(self.audioPresentation().sourceState, .active)
+
+        let stopped = await self.manager.stopCaptureSession()
+        XCTAssertTrue(stopped)
+        XCTAssertEqual(self.manager.state, .idle)
+        XCTAssertEqual(self.audioPresentation().sourceState, .off)
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .owner)
+    }
+
+    @MainActor
+    func testMediaServicesResetAndWriterFaultNeverEnterThePause() async throws {
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.emitEngineFault(.mediaServicesReset)
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.emitInterruption(.began(.default))
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.microphoneTakenPause, .holdingSession)
+        self.recorder.emitEngineFault(.mediaServicesReset)
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertNil(self.manager.microphoneTakenPause)
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+
+        await self.manager.startSession(mode: .meeting)
+        let segmentID = try XCTUnwrap(self.recorder.lastStartSegmentID)
+        let sessionID = try XCTUnwrap(self.recorder.lastStartSessionID)
+        self.recorder.emitPhoneAudioFault(
+            PhoneAudioWriterFault(segmentID: segmentID, sessionID: sessionID, reason: "audio_writer_failed")
+        )
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.state, .error(.unavailable(reason: "audio input unavailable")))
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.emitInterruption(.began(.default))
+        await self.drainManagerTasks()
+        let heldSegment = try XCTUnwrap(self.recorder.lastStartSegmentID)
+        let heldSession = try XCTUnwrap(self.recorder.lastStartSessionID)
+        self.recorder.emitPhoneAudioFault(
+            PhoneAudioWriterFault(segmentID: heldSegment, sessionID: heldSession, reason: "audio_writer_failed")
+        )
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.state, .error(.unavailable(reason: "audio input unavailable")))
+        XCTAssertNil(self.manager.microphoneTakenPause)
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+    }
+
+    @MainActor
+    func testImmediateConfigurationRestartWithNamedCodeStaysNeedsAttention() async {
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.restartError = self.microphoneRefusal(
+            .insufficientPriority,
+            domain: "com.apple.coreaudio.avfaudio"
+        )
+        self.recorder.emitEngineFault(.configurationChange)
+        await self.drainManagerTasks()
+
+        XCTAssertEqual(self.manager.state, .error(.audioSessionConflict))
+        XCTAssertNil(self.manager.microphoneTakenPause)
+        XCTAssertEqual(self.recorder.restartCallCount, 1)
+        XCTAssertEqual(self.liveActivity.endCalls.last?.reason, .system)
+    }
+
+    @MainActor
     func testOwnerStopThenCancellationDoesNotRestartCapture() async {
         let outcome = await self.manager.startSession(mode: .meeting)
         XCTAssertEqual(outcome, .started)
@@ -965,6 +1365,42 @@ private final class ObserverManagerURLProtocol: URLProtocol, @unchecked Sendable
 private extension ObserverManagerTests {
     func drainManagerTasks() async {
         try? await Task.sleep(for: .milliseconds(40))
+    }
+
+    @MainActor
+    func audioPresentation(ownerPaused: Bool = false) -> AudioOwnerPresentation {
+        audioOwnerPresentation(
+            observerState: self.manager.state,
+            ownerPaused: ownerPaused,
+            enrolled: self.manager.isEnrolled,
+            microphoneTaken: self.manager.microphoneTakenPause
+        )
+    }
+
+    @MainActor
+    func microphoneRefusal(_ code: AVAudioSession.ErrorCode, domain: String) -> NSError {
+        NSError(domain: domain, code: code.rawValue)
+    }
+
+    @MainActor
+    func enterHoldingPause(reason: ObserverInterruptionBeganReason, label: String) async {
+        await self.manager.startSession(mode: .meeting)
+        self.recorder.emitInterruption(.began(reason))
+        await self.drainManagerTasks()
+        XCTAssertEqual(self.manager.microphoneTakenPause, .holdingSession, label)
+    }
+
+    @MainActor
+    func assertMicrophoneTakenPause(_ label: String) {
+        XCTAssertEqual(self.manager.state, .microphoneTaken, label)
+        XCTAssertEqual(self.manager.microphoneTakenPause, .stopped, label)
+        let presentation = self.audioPresentation()
+        XCTAssertEqual(presentation.sourceState, .paused, label)
+        XCTAssertEqual(presentation.tileLine, SourceVocabulary.microphoneTakenSubtextCompact, label)
+        XCTAssertEqual(presentation.detailLine, SourceVocabulary.microphoneTakenSubtext, label)
+        if case .error = self.manager.state {
+            XCTFail("pause is not a fault \(label)")
+        }
     }
 
     func fixedLocalDate(hour: Int, minute: Int, second: Int) throws -> Date {

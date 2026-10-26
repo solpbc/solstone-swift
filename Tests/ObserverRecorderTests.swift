@@ -362,6 +362,90 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
             return XCTFail("Expected media-services-reset fault")
         }
     }
+
+    func testParseInterruptionNotificationAbsentReason() {
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue
+        ]
+        let event = parseObserverInterruption(userInfo: userInfo)
+        XCTAssertEqual(event, .began(.absent))
+        if case .began(let reason) = event {
+            XCTAssertTrue(reason.holdsMicrophone)
+        } else {
+            XCTFail("expected began")
+        }
+    }
+
+    func testParseInterruptionNotificationDefaultReason() {
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue,
+            AVAudioSessionInterruptionReasonKey: AVAudioSession.InterruptionReason.default.rawValue
+        ]
+        let event = parseObserverInterruption(userInfo: userInfo)
+        XCTAssertEqual(event, .began(.default))
+        if case .began(let reason) = event {
+            XCTAssertTrue(reason.holdsMicrophone)
+        } else {
+            XCTFail("expected began")
+        }
+    }
+
+    func testParseInterruptionNotificationBuiltInMicMutedReason() {
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue,
+            AVAudioSessionInterruptionReasonKey: AVAudioSession.InterruptionReason.builtInMicMuted.rawValue
+        ]
+        let event = parseObserverInterruption(userInfo: userInfo)
+        XCTAssertEqual(event, .began(.other(raw: AVAudioSession.InterruptionReason.builtInMicMuted.rawValue)))
+        if case .began(let reason) = event {
+            XCTAssertFalse(reason.holdsMicrophone)
+        } else {
+            XCTFail("expected began")
+        }
+    }
+
+    func testParseInterruptionNotificationUnknownRawReason() {
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue,
+            AVAudioSessionInterruptionReasonKey: UInt(99)
+        ]
+        let event = parseObserverInterruption(userInfo: userInfo)
+        XCTAssertEqual(event, .began(.other(raw: 99)))
+        if case .began(let reason) = event {
+            XCTAssertFalse(reason.holdsMicrophone)
+        } else {
+            XCTFail("expected began")
+        }
+    }
+
+    func testParseInterruptionNotificationNonUIntReasonBecomesOther() {
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue,
+            AVAudioSessionInterruptionReasonKey: "not_a_uint"
+        ]
+        let event = parseObserverInterruption(userInfo: userInfo)
+        XCTAssertEqual(event, .began(.other(raw: UInt.max)))
+        if case .began(let reason) = event {
+            XCTAssertFalse(reason.holdsMicrophone)
+        } else {
+            XCTFail("expected began")
+        }
+    }
+
+    func testParseInterruptionNotificationEndedIgnoresReason() {
+        let userInfo: [AnyHashable: Any] = [
+            AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue,
+            AVAudioSessionInterruptionReasonKey: AVAudioSession.InterruptionReason.default.rawValue
+        ]
+        let event = parseObserverInterruption(userInfo: userInfo)
+        XCTAssertEqual(event, .ended)
+    }
+
+    func testParseInterruptionNotificationMissingTypeIsNil() {
+        let emptyUserInfo: [AnyHashable: Any] = [:]
+        XCTAssertNil(parseObserverInterruption(userInfo: emptyUserInfo))
+        XCTAssertNil(parseObserverInterruption(userInfo: nil))
+    }
 }
 
 @MainActor

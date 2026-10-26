@@ -81,12 +81,17 @@ private extension SourceDetailView {
 
     }
 
-    var currentSourceState: SourceState {
-        sourceState(
-            for: self.observerManager.state,
-            paused: self.observerSourcePauseState.isPaused,
-            enrolled: self.observerManager.isEnrolled
+    var currentPresentation: AudioOwnerPresentation {
+        audioOwnerPresentation(
+            observerState: self.observerManager.state,
+            ownerPaused: self.observerSourcePauseState.isPaused,
+            enrolled: self.observerManager.isEnrolled,
+            microphoneTaken: self.observerManager.microphoneTakenPause
         )
+    }
+
+    var currentSourceState: SourceState {
+        self.currentPresentation.sourceState
     }
 
     @ViewBuilder
@@ -128,7 +133,7 @@ private extension SourceDetailView {
             .accessibilityIdentifier("source.listen")
             .disabled(self.observerManager.state == .stopping)
 
-            if let elapsedText = self.elapsedText {
+            if self.currentPresentation.showsLiveElapsed, let elapsedText = self.elapsedText {
                 HStack(spacing: 8) {
                     Circle()
                         .fill(Color("Listening/Dot"))
@@ -175,7 +180,7 @@ private extension SourceDetailView {
         switch self.observerManager.state {
         case .starting, .stopping:
             true
-        case .idle, .active, .error:
+        case .idle, .active, .microphoneTaken, .error:
             false
         }
     }
@@ -184,7 +189,7 @@ private extension SourceDetailView {
         switch self.observerManager.state {
         case .active:
             true
-        case .idle, .starting, .stopping, .error:
+        case .idle, .starting, .stopping, .microphoneTaken, .error:
             false
         }
     }
@@ -193,7 +198,7 @@ private extension SourceDetailView {
         switch self.observerManager.state {
         case .error:
             Color.deckSurface
-        case .idle, .starting, .active, .stopping:
+        case .idle, .starting, .active, .stopping, .microphoneTaken:
             Color.solOrange
         }
     }
@@ -202,7 +207,7 @@ private extension SourceDetailView {
         switch self.observerManager.state {
         case .error:
             .red
-        case .idle, .starting, .active, .stopping:
+        case .idle, .starting, .active, .stopping, .microphoneTaken:
             .clear
         }
     }
@@ -211,7 +216,7 @@ private extension SourceDetailView {
         switch self.observerManager.state {
         case .error:
             .red
-        case .idle, .starting, .active, .stopping:
+        case .idle, .starting, .active, .stopping, .microphoneTaken:
             .white
         }
     }
@@ -220,7 +225,7 @@ private extension SourceDetailView {
         switch self.observerManager.state {
         case .active:
             "stop.fill"
-        case .idle, .starting, .stopping, .error:
+        case .idle, .starting, .stopping, .microphoneTaken, .error:
             "ear"
         }
     }
@@ -231,22 +236,17 @@ private extension SourceDetailView {
             "stop"
         case .error:
             "retry"
-        case .idle, .starting, .stopping:
+        case .idle, .starting, .stopping, .microphoneTaken:
             "start"
         }
     }
 
     var pauseButtonLabel: String {
-        self.currentSourceState == .paused ? "resume" : "pause"
+        self.currentPresentation.pauseReadsResume ? "resume" : "pause"
     }
 
     var pauseButtonDisabled: Bool {
-        switch self.currentSourceState {
-        case .active, .paused:
-            self.observerManager.state == .stopping
-        case .off, .enrolling, .readyToSetUp, .checking, .needsAttention:
-            true
-        }
+        !self.currentPresentation.pauseEnabled || self.observerManager.state == .stopping
     }
 
     var elapsedText: String? {
@@ -258,13 +258,16 @@ private extension SourceDetailView {
     }
 
     var errorMessage: String? {
+        if let detailLine = self.currentPresentation.detailLine {
+            return detailLine
+        }
         guard case .error(let error) = self.observerManager.state else { return nil }
         return error.message
     }
 
     func handleListenTap() async {
         switch self.observerManager.state {
-        case .idle, .error:
+        case .idle, .error, .microphoneTaken:
             self.observerSourcePauseState.isPaused = false
             _ = await self.observerManager.startSession(mode: .meeting)
         case .starting, .active:
@@ -276,15 +279,13 @@ private extension SourceDetailView {
     }
 
     func handlePauseResumeTap() async {
-        switch self.currentSourceState {
-        case .active:
-            _ = await self.observerManager.stopSession()
-            self.observerSourcePauseState.isPaused = true
-        case .paused:
+        guard self.currentPresentation.pauseEnabled else { return }
+        if self.currentPresentation.pauseReadsResume {
             self.observerSourcePauseState.isPaused = false
             _ = await self.observerManager.startSession(mode: .meeting)
-        case .off, .enrolling, .readyToSetUp, .checking, .needsAttention:
-            break
+        } else {
+            _ = await self.observerManager.stopSession()
+            self.observerSourcePauseState.isPaused = true
         }
     }
 
@@ -381,7 +382,19 @@ private extension AudioEnrollmentContent {
             .accessibilityIdentifier("audioEnrollment.value")
     }
 
+    private var audioPresentation: AudioOwnerPresentation {
+        audioOwnerPresentation(
+            observerState: self.observerManager.state,
+            ownerPaused: self.observerSourcePauseState.isPaused,
+            enrolled: self.observerManager.isEnrolled,
+            microphoneTaken: self.observerManager.microphoneTakenPause
+        )
+    }
+
     var errorMessage: String? {
+        if let firstUseLine = self.audioPresentation.firstUseLine {
+            return firstUseLine
+        }
         guard case .error(let error) = self.observerManager.state else { return nil }
         return error.message
     }

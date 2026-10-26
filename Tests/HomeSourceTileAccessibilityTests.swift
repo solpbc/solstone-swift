@@ -13,8 +13,36 @@ nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
 
     func testHomeSourceTileUsesStateLabelAsAccessibilityValue() throws {
         let text = try Self.contents("Sources/Home/HomeSourceTile.swift")
-        XCTAssertTrue(text.contains(".accessibilityValue(self.source.state.label)"))
+        XCTAssertTrue(text.contains(".accessibilityValue(Self.accessibilityValue(for: self.source))"))
         XCTAssertFalse(text.contains("homeSourceTileAccessibilityFacts"))
+
+        let audioSource = Source(
+            id: "audio",
+            displayName: "audio",
+            kind: .observer,
+            state: .paused,
+            isJournalPaired: true,
+            activeSubtext: SourceVocabulary.observerActiveSubtext,
+            subtextOverride: SourceVocabulary.microphoneTakenSubtextCompact,
+            attention: nil,
+            pendingStatus: .nonePending
+        )
+        let audioAccessibility = HomeSourceTile.accessibilityValue(for: audioSource)
+        XCTAssertTrue(audioAccessibility.contains(SourceVocabulary.microphoneTakenSubtextCompact))
+        XCTAssertTrue(audioAccessibility.starts(with: SourceState.paused.label))
+
+        let nonObserverSource = Source(
+            id: "screen",
+            displayName: "screen",
+            kind: .screencast,
+            state: .off,
+            isJournalPaired: true,
+            activeSubtext: "screen",
+            subtextOverride: "off",
+            attention: nil,
+            pendingStatus: .nonePending
+        )
+        XCTAssertEqual(HomeSourceTile.accessibilityValue(for: nonObserverSource), SourceState.off.label)
     }
 
     func testHomeSourceTileControlsAreConsistentToggles() throws {

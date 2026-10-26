@@ -7,9 +7,53 @@ import os
 
 nonisolated private let observerLog = Logger(subsystem: "app.solstone.swift", category: "observer")
 
-enum ObserverInterruptionEvent: Sendable {
-    case began
+nonisolated enum ObserverInterruptionBeganReason: Equatable, Sendable {
+    case `default`
+    case absent
+    case other(raw: UInt)
+
+    var holdsMicrophone: Bool {
+        self == .default || self == .absent
+    }
+}
+
+nonisolated enum ObserverInterruptionEvent: Equatable, Sendable {
+    case began(ObserverInterruptionBeganReason)
     case ended
+}
+
+nonisolated func parseObserverInterruption(userInfo: [AnyHashable: Any]?) -> ObserverInterruptionEvent? {
+    guard let userInfo,
+          let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+          let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+    else { return nil }
+
+    switch type {
+    case .ended:
+        return .ended
+    case .began:
+        guard let rawReason = userInfo[AVAudioSessionInterruptionReasonKey] else {
+            return .began(.absent)
+        }
+        let uintReason: UInt?
+        if let u = rawReason as? UInt {
+            uintReason = u
+        } else if let num = rawReason as? NSNumber {
+            uintReason = num.uintValue
+        } else {
+            uintReason = nil
+        }
+        guard let uintReason else {
+            return .began(.other(raw: UInt.max))
+        }
+        if uintReason == AVAudioSession.InterruptionReason.default.rawValue {
+            return .began(.default)
+        } else {
+            return .began(.other(raw: uintReason))
+        }
+    @unknown default:
+        return nil
+    }
 }
 
 enum ObserverEngineFault: Sendable {
@@ -381,19 +425,10 @@ private extension LiveObserverRecorder {
             object: self.session,
             queue: nil
         ) { [weak self] notification in
-            guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  let type = AVAudioSession.InterruptionType(rawValue: typeValue)
-            else { return }
+            guard let event = parseObserverInterruption(userInfo: notification.userInfo) else { return }
             Task { @MainActor [weak self] in
                 guard let handler = self?.onInterruption else { return }
-                switch type {
-                case .began:
-                    handler(.began)
-                case .ended:
-                    handler(.ended)
-                @unknown default:
-                    break
-                }
+                handler(event)
             }
         }
     }

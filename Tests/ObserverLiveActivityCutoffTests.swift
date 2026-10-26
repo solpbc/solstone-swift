@@ -66,7 +66,7 @@ final class ObserverLiveActivityCutoffTests: XCTestCase {
         let ownerSession = UUID()
         await ownerActivity.start(mode: .meeting, sessionID: ownerSession, startedAt: Self.startDate)
         await self.waitForSleeper(in: ownerClock)
-        await ownerActivity.end(sessionID: ownerSession)
+        await ownerActivity.end(sessionID: ownerSession, reason: .owner)
         let ownerEnds = await ownerPort.endCalls()
         XCTAssertEqual(ownerEnds.count, 1)
         XCTAssertEqual(ownerEnds.first?.reason, .owner)
@@ -103,7 +103,7 @@ final class ObserverLiveActivityCutoffTests: XCTestCase {
         clock.advance(by: 6)
         await self.drainTasks()
 
-        await activity.end(sessionID: sessionID)
+        await activity.end(sessionID: sessionID, reason: .owner)
         clock.advance(by: 4)
         await self.drainTasks()
 
@@ -121,7 +121,7 @@ final class ObserverLiveActivityCutoffTests: XCTestCase {
         let sessionID = UUID()
 
         await activity.start(mode: .voiceMemo, sessionID: sessionID, startedAt: Self.startDate)
-        await activity.end(sessionID: sessionID)
+        await activity.end(sessionID: sessionID, reason: .owner)
         clock.advance(by: 1)
         await activity.start(mode: .voiceMemo, sessionID: sessionID, startedAt: Self.startDate)
 

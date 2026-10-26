@@ -7,27 +7,27 @@ import XCTest
 
 nonisolated final class SourceStateMappingTests: XCTestCase {
     func testObserverStatesMapToSourceStates() {
-        XCTAssertEqual(sourceState(for: .idle, paused: false, enrolled: true), .off)
-        XCTAssertEqual(sourceState(for: .starting, paused: false, enrolled: true), .enrolling)
-        XCTAssertEqual(sourceState(for: .active(Self.session()), paused: false, enrolled: true), .active)
-        XCTAssertEqual(sourceState(for: .stopping, paused: false, enrolled: true), .active)
-        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false, enrolled: true), .needsAttention)
-        XCTAssertEqual(sourceState(for: .error(.diskFull), paused: false, enrolled: true), .needsAttention)
-        XCTAssertEqual(sourceState(for: .idle, paused: true, enrolled: true), .paused)
+        XCTAssertEqual(sourceState(for: .idle, paused: false, enrolled: true, microphoneTaken: nil), .off)
+        XCTAssertEqual(sourceState(for: .starting, paused: false, enrolled: true, microphoneTaken: nil), .enrolling)
+        XCTAssertEqual(sourceState(for: .active(Self.session()), paused: false, enrolled: true, microphoneTaken: nil), .active)
+        XCTAssertEqual(sourceState(for: .stopping, paused: false, enrolled: true, microphoneTaken: nil), .active)
+        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false, enrolled: true, microphoneTaken: nil), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.diskFull), paused: false, enrolled: true, microphoneTaken: nil), .needsAttention)
+        XCTAssertEqual(sourceState(for: .idle, paused: true, enrolled: true, microphoneTaken: nil), .paused)
     }
 
     /// A source the owner has never set up is `ready to set up`, never `off` —
     /// `off` is the owner's own choice and a fresh install has not made one.
     func testIdleAudioIsReadyToSetUpWithoutTheOwnersRecord() {
-        XCTAssertEqual(sourceState(for: .idle, paused: false, enrolled: false), .readyToSetUp)
-        XCTAssertEqual(sourceState(for: .idle, paused: false, enrolled: true), .off)
+        XCTAssertEqual(sourceState(for: .idle, paused: false, enrolled: false, microphoneTaken: nil), .readyToSetUp)
+        XCTAssertEqual(sourceState(for: .idle, paused: false, enrolled: true, microphoneTaken: nil), .off)
     }
 
     /// ⛔ Never `ready to set up` over a source that is running, whatever the record says.
     func testRunningAudioIsNeverReadyToSetUp() {
-        XCTAssertEqual(sourceState(for: .active(Self.session()), paused: false, enrolled: false), .active)
-        XCTAssertEqual(sourceState(for: .stopping, paused: false, enrolled: false), .active)
-        XCTAssertEqual(sourceState(for: .starting, paused: false, enrolled: false), .enrolling)
+        XCTAssertEqual(sourceState(for: .active(Self.session()), paused: false, enrolled: false, microphoneTaken: nil), .active)
+        XCTAssertEqual(sourceState(for: .stopping, paused: false, enrolled: false, microphoneTaken: nil), .active)
+        XCTAssertEqual(sourceState(for: .starting, paused: false, enrolled: false, microphoneTaken: nil), .enrolling)
     }
 
     /// 🔴 A permission the owner DECLINED is not a fault — they were asked and said no,
@@ -35,21 +35,110 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
     /// ⛔ But once they have set the source up, a missing permission IS a genuine fault:
     /// something they enabled stopped working.
     func testDeclinedMicrophoneIsReadyToSetUpUntilTheOwnerHasEnrolled() {
-        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false, enrolled: false), .readyToSetUp)
-        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false, enrolled: true), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false, enrolled: false, microphoneTaken: nil), .readyToSetUp)
+        XCTAssertEqual(sourceState(for: .error(.permissionDenied), paused: false, enrolled: true, microphoneTaken: nil), .needsAttention)
     }
 
     /// ⛔ Only the permission error softens. Every other fault is real whatever the record says.
     func testNonPermissionAudioFaultsStayNeedsAttentionWithoutARecord() {
-        XCTAssertEqual(sourceState(for: .error(.diskFull), paused: false, enrolled: false), .needsAttention)
-        XCTAssertEqual(sourceState(for: .error(.audioSessionConflict), paused: false, enrolled: false), .needsAttention)
-        XCTAssertEqual(sourceState(for: .error(.unavailable(reason: "x")), paused: false, enrolled: false), .needsAttention)
-        XCTAssertEqual(sourceState(for: .error(.uploadFailed(chunkID: "c")), paused: false, enrolled: false), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.diskFull), paused: false, enrolled: false, microphoneTaken: nil), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.audioSessionConflict), paused: false, enrolled: false, microphoneTaken: nil), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.unavailable(reason: "x")), paused: false, enrolled: false, microphoneTaken: nil), .needsAttention)
+        XCTAssertEqual(sourceState(for: .error(.uploadFailed(chunkID: "c")), paused: false, enrolled: false, microphoneTaken: nil), .needsAttention)
     }
 
     /// An explicit pause outranks the record: the owner did act.
     func testPausedOutranksAMissingRecord() {
-        XCTAssertEqual(sourceState(for: .idle, paused: true, enrolled: false), .paused)
+        XCTAssertEqual(sourceState(for: .idle, paused: true, enrolled: false, microphoneTaken: nil), .paused)
+    }
+
+    func testMicrophoneTakenPauseMappings() {
+        XCTAssertEqual(sourceState(for: .active(Self.session()), paused: false, enrolled: true, microphoneTaken: .holdingSession), .paused)
+        XCTAssertEqual(sourceState(for: .active(Self.session()), paused: false, enrolled: false, microphoneTaken: .holdingSession), .readyToSetUp)
+        XCTAssertEqual(sourceState(for: .microphoneTaken, paused: false, enrolled: true, microphoneTaken: .stopped), .paused)
+        XCTAssertEqual(sourceState(for: .microphoneTaken, paused: false, enrolled: false, microphoneTaken: .stopped), .readyToSetUp)
+        XCTAssertEqual(sourceState(for: .microphoneTaken, paused: false, enrolled: true, microphoneTaken: nil), .paused)
+        XCTAssertEqual(sourceState(for: .microphoneTaken, paused: false, enrolled: false, microphoneTaken: nil), .readyToSetUp)
+    }
+
+    func testAudioOwnerPresentationHoldingSession() {
+        let presentation = audioOwnerPresentation(
+            observerState: .active(Self.session()),
+            ownerPaused: false,
+            enrolled: true,
+            microphoneTaken: .holdingSession
+        )
+        XCTAssertEqual(presentation.sourceState, .paused)
+        XCTAssertEqual(presentation.tileLine, SourceVocabulary.microphoneTakenSubtextCompact)
+        XCTAssertEqual(presentation.detailLine, SourceVocabulary.microphoneTakenSubtextCompact)
+        XCTAssertNil(presentation.firstUseLine)
+        XCTAssertFalse(presentation.pauseEnabled)
+        XCTAssertFalse(presentation.pauseReadsResume)
+        XCTAssertFalse(presentation.showsLiveElapsed)
+        XCTAssertFalse(presentation.switchEnabled)
+    }
+
+    func testAudioOwnerPresentationStoppedEnrolled() {
+        let presentation = audioOwnerPresentation(
+            observerState: .microphoneTaken,
+            ownerPaused: false,
+            enrolled: true,
+            microphoneTaken: .stopped
+        )
+        XCTAssertEqual(presentation.sourceState, .paused)
+        XCTAssertEqual(presentation.tileLine, SourceVocabulary.microphoneTakenSubtextCompact)
+        XCTAssertEqual(presentation.detailLine, SourceVocabulary.microphoneTakenSubtext)
+        XCTAssertNil(presentation.firstUseLine)
+        XCTAssertTrue(presentation.pauseEnabled)
+        XCTAssertTrue(presentation.pauseReadsResume)
+        XCTAssertFalse(presentation.showsLiveElapsed)
+        XCTAssertTrue(presentation.switchEnabled)
+    }
+
+    func testAudioOwnerPresentationStoppedUnenrolled() {
+        let presentation = audioOwnerPresentation(
+            observerState: .microphoneTaken,
+            ownerPaused: false,
+            enrolled: false,
+            microphoneTaken: .stopped
+        )
+        XCTAssertEqual(presentation.sourceState, .readyToSetUp)
+        XCTAssertNil(presentation.tileLine)
+        XCTAssertNil(presentation.detailLine)
+        XCTAssertEqual(presentation.firstUseLine, SourceVocabulary.microphoneTakenSubtextCompact)
+        XCTAssertFalse(presentation.pauseEnabled)
+        XCTAssertFalse(presentation.pauseReadsResume)
+        XCTAssertFalse(presentation.showsLiveElapsed)
+        XCTAssertTrue(presentation.switchEnabled)
+    }
+
+    func testAudioOwnerPresentationNormalActive() {
+        let presentation = audioOwnerPresentation(
+            observerState: .active(Self.session()),
+            ownerPaused: false,
+            enrolled: true,
+            microphoneTaken: nil
+        )
+        XCTAssertEqual(presentation.sourceState, .active)
+        XCTAssertNil(presentation.tileLine)
+        XCTAssertNil(presentation.detailLine)
+        XCTAssertNil(presentation.firstUseLine)
+        XCTAssertTrue(presentation.pauseEnabled)
+        XCTAssertFalse(presentation.pauseReadsResume)
+        XCTAssertTrue(presentation.showsLiveElapsed)
+        XCTAssertTrue(presentation.switchEnabled)
+    }
+
+    func testAudioTileSwitchCommandHoldingSession() {
+        XCTAssertEqual(audioTileSwitchCommand(requestedOn: true, microphoneTaken: .holdingSession), .ignore)
+        XCTAssertEqual(audioTileSwitchCommand(requestedOn: false, microphoneTaken: .holdingSession), .ignore)
+    }
+
+    func testAudioTileSwitchCommandNormalAndStopped() {
+        XCTAssertEqual(audioTileSwitchCommand(requestedOn: true, microphoneTaken: .stopped), .start)
+        XCTAssertEqual(audioTileSwitchCommand(requestedOn: false, microphoneTaken: .stopped), .stop)
+        XCTAssertEqual(audioTileSwitchCommand(requestedOn: true, microphoneTaken: nil), .start)
+        XCTAssertEqual(audioTileSwitchCommand(requestedOn: false, microphoneTaken: nil), .stop)
     }
 
     func testScreencastOffIsReadyToSetUpWithoutTheOwnersRecord() {

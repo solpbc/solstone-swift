@@ -1081,7 +1081,7 @@ struct SolstoneSwiftApp: App {
                     guard !Task.isCancelled else { return }
                     _ = await self.observerManager.stopSession()
                 }
-            case .idle, .starting, .stopping, .error:
+            case .idle, .starting, .stopping, .microphoneTaken, .error:
                 break
             }
         }

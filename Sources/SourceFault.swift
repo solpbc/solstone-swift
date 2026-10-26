@@ -99,7 +99,7 @@ nonisolated func locationSourceFault(
 
 nonisolated func observerSourceFault(_ state: ObserverState) -> SourceFault? {
     switch state {
-    case .idle, .starting, .active, .stopping:
+    case .idle, .starting, .active, .stopping, .microphoneTaken:
         nil
     case .error(.permissionDenied):
         .microphoneDenied

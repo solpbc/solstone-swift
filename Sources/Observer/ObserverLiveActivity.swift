@@ -158,7 +158,7 @@ private enum ObserverLiveActivityPortError: Error {
 
 protocol ObserverLiveActivitying: AnyObject {
     func start(mode: ObserverMode, sessionID: UUID, startedAt: Date) async
-    func end(sessionID: UUID) async
+    func end(sessionID: UUID, reason: ObserverActivityEndReason) async
     func endAll() async
 }
 
@@ -210,7 +210,7 @@ actor ObserverLiveActivity: ObserverLiveActivitying {
         self.armCutoff(for: sessionID, contentState: contentState)
     }
 
-    func end(sessionID: UUID) async {
+    func end(sessionID: UUID, reason: ObserverActivityEndReason) async {
         let tracked = self.trackedActivities.removeValue(forKey: sessionID)
         tracked?.cutoffTask.cancel()
 
@@ -223,11 +223,10 @@ actor ObserverLiveActivity: ObserverLiveActivitying {
         guard let contentState else { return }
 
         let staleDate = await self.now()
-        // The owner turned capture off, so the card goes with it.
         await self.port.end(
             sessionID: sessionID.uuidString,
             content: self.content(for: contentState, staleDate: staleDate),
-            reason: .owner
+            reason: reason
         )
     }
 

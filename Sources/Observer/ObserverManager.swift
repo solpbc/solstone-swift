@@ -23,7 +23,13 @@ enum ObserverState: Equatable, Sendable {
     case starting
     case active(ObserverSession)
     case stopping
+    case microphoneTaken
     case error(ObserverError)
+}
+
+nonisolated enum MicrophoneTakenPause: Equatable, Sendable {
+    case holdingSession
+    case stopped
 }
 
 enum ObserverSessionRefusalReason: Equatable, Sendable {
@@ -63,6 +69,18 @@ enum ObserverManagerDependencyRegistrationWitness {
 @Observable
 final class ObserverManager {
     var state: ObserverState = .idle
+    private var microphoneHoldOpen = false
+
+    var microphoneTakenPause: MicrophoneTakenPause? {
+        switch self.state {
+        case .microphoneTaken:
+            .stopped
+        case .active where self.microphoneHoldOpen:
+            .holdingSession
+        default:
+            nil
+        }
+    }
 
     @ObservationIgnored private let recorder: any ObserverRecording
     @ObservationIgnored private let mobileSegmentEngine: MobileSegmentEngine
@@ -73,6 +91,8 @@ final class ObserverManager {
     @ObservationIgnored private var interruptionDeadlineTask: Task<Void, Never>?
     @ObservationIgnored private var watchdogTask: Task<Void, Never>?
     @ObservationIgnored private var interruptionStartedAt: Date?
+    @ObservationIgnored private var beganReason: ObserverInterruptionBeganReason?
+    @ObservationIgnored private var interruptionTapProgressSnapshot = 0
     @ObservationIgnored private var currentSessionID: UUID?
     @ObservationIgnored private var currentSegmentID: UUID?
     @ObservationIgnored private var startingSessionID: UUID?
@@ -111,7 +131,7 @@ final class ObserverManager {
             } catch {
                 self.resetRuntime()
                 self.state = .error(.unavailable(reason: "audio input unavailable"))
-                await self.liveActivity.end(sessionID: sessionID)
+                await self.liveActivity.end(sessionID: sessionID, reason: .system)
                 throw error
             }
         }
@@ -139,7 +159,7 @@ final class ObserverManager {
 
     func startSession(mode: ObserverMode) async -> ObserverStartOutcome {
         switch self.state {
-        case .idle, .error:
+        case .idle, .error, .microphoneTaken:
             break
         case .starting, .active, .stopping:
             managerLog.info("observer: start skipped while active")
@@ -197,6 +217,9 @@ final class ObserverManager {
             self.sessionStartedAt = startedAt
             self.currentChunkIndex = 0
             self.interruptionStartedAt = nil
+            self.beganReason = nil
+            self.interruptionTapProgressSnapshot = 0
+            self.microphoneHoldOpen = false
             self.tapProgressCount = 0
             self.watchdogAnchorCount = 0
             self.watchdogStrikes = 0
@@ -241,6 +264,10 @@ final class ObserverManager {
                 return .refused(.cancelled)
             }
             await self.releaseFailedAudioStart(didOpenAudioSegment)
+            if (error as NSError).code == AVAudioSession.ErrorCode.insufficientPriority.rawValue {
+                self.state = .microphoneTaken
+                return .refused(.error(.unavailable(reason: "insufficient priority")))
+            }
             let observerError = Self.observerError(from: error)
             self.state = .error(observerError)
             return .refused(.error(observerError))
@@ -248,9 +275,18 @@ final class ObserverManager {
     }
 
     func stopSession() async -> ObserverStopOutcome {
+        if self.state == .microphoneTaken {
+            self.resetRuntime()
+            self.state = .idle
+            return .stopped
+        }
+        return await self.stopCapture(endReason: .owner)
+    }
+
+    private func stopCapture(endReason: ObserverActivityEndReason) async -> ObserverStopOutcome {
         let wasActive: Bool
         switch self.state {
-        case .idle:
+        case .idle, .microphoneTaken:
             await self.endStaleObserverActivities()
             return .alreadyStopped
         case .starting:
@@ -273,7 +309,7 @@ final class ObserverManager {
         await self.mobileSegmentEngine.stopAudio(finalized: stopResult.finalized)
 
         if wasActive, let sessionID = self.currentSessionID {
-            await self.liveActivity.end(sessionID: sessionID)
+            await self.liveActivity.end(sessionID: sessionID, reason: endReason)
         }
 
         self.resetRuntime()
@@ -366,6 +402,9 @@ private extension ObserverManager {
     func handleMeter(level: Float, duration: TimeInterval) {
         guard case .active = self.state else { return }
         self.tapProgressCount += 1
+        if self.microphoneHoldOpen && self.tapProgressCount != self.interruptionTapProgressSnapshot {
+            self.microphoneHoldOpen = false
+        }
     }
 
     func handleEngineFault(_ fault: ObserverEngineFault) async {
@@ -390,13 +429,13 @@ private extension ObserverManager {
                     reason: "observer_configuration_change",
                     detail: JournalEventDetail(configurationRestartFailures: 1)
                 )
-                _ = await self.stopSession()
+                _ = await self.stopCapture(endReason: .system)
                 self.state = .error(.audioSessionConflict)
             }
         case .mediaServicesReset:
             managerLog.error("observer: media services reset")
             self.noteObserverDiagnostic(reason: "observer_media_services_reset")
-            _ = await self.stopSession()
+            _ = await self.stopCapture(endReason: .system)
             self.state = .error(.audioSessionConflict)
         }
     }
@@ -404,10 +443,17 @@ private extension ObserverManager {
     func handleInterruption(_ event: ObserverInterruptionEvent) async {
         guard case .active = self.state else { return }
         switch event {
-        case .began:
+        case .began(let reason):
             managerLog.notice("observer: interruption began")
             self.noteObserverDiagnostic(reason: "observer_interruption_began")
+            self.beganReason = reason
             self.interruptionStartedAt = self.clock.now()
+            if reason.holdsMicrophone {
+                self.microphoneHoldOpen = true
+                self.interruptionTapProgressSnapshot = self.tapProgressCount
+            } else {
+                self.microphoneHoldOpen = false
+            }
             await self.recorder.pause()
             self.armInterruptionDeadline()
             self.watchdogTask?.cancel()
@@ -438,6 +484,8 @@ private extension ObserverManager {
                     } else {
                         try await self.recorder.resume()
                     }
+                    self.microphoneHoldOpen = false
+                    self.beganReason = nil
                     self.rearmWatchdog()
                     self.startWatchdogTask()
                 } catch {
@@ -448,12 +496,10 @@ private extension ObserverManager {
                         )
                     }
                     managerLog.error("observer: resume after interruption failed")
-                    _ = await self.stopSession()
-                    self.state = .error(.audioSessionConflict)
+                    await self.endCaptureForInterruption(error: error)
                 }
             } else {
-                _ = await self.stopSession()
-                self.state = .error(.audioSessionConflict)
+                await self.endCaptureForInterruption(error: nil)
             }
         }
     }
@@ -470,7 +516,34 @@ private extension ObserverManager {
             guard !Task.isCancelled, self.interruptionStartedAt != nil else { return }
             managerLog.error("observer: interruption end never delivered")
             self.noteObserverDiagnostic(reason: "observer_interruption_end_never_delivered")
-            _ = await self.stopSession()
+            await self.endCaptureForInterruption(error: nil)
+        }
+    }
+
+    private static func isClassifiedMicrophoneTakenError(_ error: Error) -> Bool {
+        let code = (error as NSError).code
+        return code == AVAudioSession.ErrorCode.insufficientPriority.rawValue
+            || code == AVAudioSession.ErrorCode.cannotInterruptOthers.rawValue
+            || code == AVAudioSession.ErrorCode.cannotStartRecording.rawValue
+    }
+
+    private func endCaptureForInterruption(error: Error?) async {
+        let holds = self.beganReason?.holdsMicrophone ?? false
+        let entersPause: Bool
+        if holds {
+            if let error {
+                entersPause = Self.isClassifiedMicrophoneTakenError(error)
+            } else {
+                entersPause = true
+            }
+        } else {
+            entersPause = false
+        }
+
+        _ = await self.stopCapture(endReason: .system)
+        if entersPause {
+            self.state = .microphoneTaken
+        } else {
             self.state = .error(.audioSessionConflict)
         }
     }
@@ -508,7 +581,7 @@ private extension ObserverManager {
         if self.watchdogStrikes >= observerWatchdogStrikeLimit {
             managerLog.error("observer: tap-write stall — stopping")
             self.noteObserverDiagnostic(reason: "observer_tap_write_stall")
-            _ = await self.stopSession()
+            _ = await self.stopCapture(endReason: .system)
             self.state = .error(.audioSessionConflict)
             return true
         }
@@ -573,12 +646,15 @@ private extension ObserverManager {
 
         managerLog.error("observer: active writer faulted: \(fault.reason, privacy: .public)")
         self.diagnosticLog?.append(category: .diagnostics, message: fault.reason, detail: fault.reason)
-        _ = await self.stopSession()
+        _ = await self.stopCapture(endReason: .system)
         self.state = .error(.unavailable(reason: "audio input unavailable"))
     }
 
     func resetRuntime() {
         self.cancelTasks()
+        self.microphoneHoldOpen = false
+        self.beganReason = nil
+        self.interruptionTapProgressSnapshot = 0
         self.interruptionStartedAt = nil
         self.currentSessionID = nil
         self.currentSegmentID = nil

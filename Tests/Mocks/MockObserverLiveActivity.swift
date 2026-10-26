@@ -8,7 +8,7 @@ import Foundation
 final class MockObserverLiveActivity: ObserverLiveActivitying {
     var startDelay: Duration?
     var startCalls: [(ObserverMode, UUID, Date)] = []
-    var endCalls: [UUID] = []
+    var endCalls: [(sessionID: UUID, reason: ObserverActivityEndReason)] = []
     var endAllCallCount = 0
 
     func start(mode: ObserverMode, sessionID: UUID, startedAt: Date) async {
@@ -18,8 +18,8 @@ final class MockObserverLiveActivity: ObserverLiveActivitying {
         }
     }
 
-    func end(sessionID: UUID) async {
-        self.endCalls.append(sessionID)
+    func end(sessionID: UUID, reason: ObserverActivityEndReason) async {
+        self.endCalls.append((sessionID: sessionID, reason: reason))
     }
 
     func endAll() async {

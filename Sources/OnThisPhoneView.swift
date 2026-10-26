@@ -326,7 +326,7 @@ private extension OnThisPhoneMomentsView {
         switch self.observerManager.state {
         case .starting, .active:
             return true
-        case .idle, .stopping, .error:
+        case .idle, .stopping, .microphoneTaken, .error:
             return false
         }
     }

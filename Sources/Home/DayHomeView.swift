@@ -388,11 +388,18 @@ private extension DayHomeView {
     var deckGrid: some View {
         LazyVGrid(columns: self.gridColumns, spacing: 12) {
             if self.isOnHome(self.bundle.audio.id) {
+                let audioPresentation = audioOwnerPresentation(
+                    observerState: self.observerManager.state,
+                    ownerPaused: self.observerSourcePauseState.isPaused,
+                    enrolled: self.observerManager.isEnrolled,
+                    microphoneTaken: self.observerManager.microphoneTakenPause
+                )
                 HomeSourceTile(
                     source: self.bundle.audio,
                     route: .audio,
                     control: .toggle,
-                    isOn: self.audioIsOn
+                    isOn: self.audioIsOn,
+                    switchDisabled: !audioPresentation.switchEnabled
                 )
             }
             if self.isOnHome(self.bundle.location.id) {
@@ -454,7 +461,8 @@ private extension DayHomeView {
                 switch sourceState(
                     for: self.observerManager.state,
                     paused: self.observerSourcePauseState.isPaused,
-                    enrolled: self.observerManager.isEnrolled
+                    enrolled: self.observerManager.isEnrolled,
+                    microphoneTaken: self.observerManager.microphoneTakenPause
                 ) {
                 case .active, .enrolling:
                     true
@@ -464,11 +472,17 @@ private extension DayHomeView {
             },
             set: { isOn in
                 Task { @MainActor in
-                    if isOn {
+                    switch audioTileSwitchCommand(
+                        requestedOn: isOn,
+                        microphoneTaken: self.observerManager.microphoneTakenPause
+                    ) {
+                    case .start:
                         self.observerSourcePauseState.isPaused = false
                         _ = await self.observerManager.startSession(mode: .meeting)
-                    } else {
+                    case .stop:
                         _ = await self.observerManager.stopSession()
+                    case .ignore:
+                        break
                     }
                 }
             }
