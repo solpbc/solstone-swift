@@ -1855,7 +1855,7 @@ final class MobileSegmentUploader {
 
 private extension MobileSegmentUploader {
     func guardStorageAvailable() -> Bool {
-        guard let storageDisabledReason else { return true }
+        guard self.storageDisabledReason != nil else { return true }
         return false
     }
 
