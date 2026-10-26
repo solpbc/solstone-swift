@@ -45,7 +45,7 @@ nonisolated struct DeviceDescriptionSnapshot: Equatable, Sendable {
         }
 
         let rawAppID = Bundle.main.bundleIdentifier
-        let rawAppVersion = AppVersion.shortVersion == "?" ? nil : AppVersion.shortVersion
+        let rawAppVersion = AppVersion.shortVersion == "?" ? nil : AppVersion.reported
 
         return self.sanitize(
             name: resolvedName,

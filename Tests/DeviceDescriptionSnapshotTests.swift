@@ -178,4 +178,19 @@ final class DeviceDescriptionSnapshotTests: XCTestCase {
         XCTAssertEqual(reported.appID, "app.solstone.swift")
         XCTAssertEqual(reported.appVersion, "1.0.0")
     }
+
+    func testReportedVersionCarriesTheBuild() {
+        XCTAssertEqual(AppVersion.reported(short: "2.0.10", build: "139"), "2.0.10+139")
+    }
+
+    func testReportedVersionIsTheShortVersionWhenTheBuildIsUnknown() {
+        XCTAssertEqual(AppVersion.reported(short: "2.0.10", build: "?"), "2.0.10")
+        XCTAssertEqual(AppVersion.reported(short: "2.0.10", build: ""), "2.0.10")
+        XCTAssertEqual(AppVersion.reported(short: "2.0.10", build: "  "), "2.0.10")
+    }
+
+    @MainActor
+    func testCurrentSnapshotReportsTheVersionWithItsBuild() {
+        XCTAssertEqual(DeviceDescriptionSnapshot.current().appVersion, AppVersion.reported)
+    }
 }
