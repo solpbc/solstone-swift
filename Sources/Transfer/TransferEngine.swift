@@ -152,7 +152,7 @@ nonisolated private struct TransferByteSample: Equatable, Sendable {
     var at: Date
 }
 
-nonisolated private struct TransferByteWindow: Equatable, Sendable {
+nonisolated struct TransferByteWindow: Equatable, Sendable {
     static let windowSeconds: TimeInterval = 15
     static let maxEntries = 256
 
@@ -181,7 +181,7 @@ nonisolated private struct TransferByteWindow: Equatable, Sendable {
     }
 }
 
-nonisolated private struct TransferSourceRuntimeState: Equatable, Sendable {
+nonisolated struct TransferSourceRuntimeState: Equatable, Sendable {
     static let maxEntries = 256
 
     var counters = TransferCounters.empty

@@ -9,7 +9,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
     @MainActor private lazy var session = MockWatchConnectivitySession()
 
     @MainActor
-    func testAppliedStatusesKeepTheFirstReceiptOfAStoppedItselfSession() throws {
+    func testAppliedStatusesKeepTheFirstReceiptOfAStoppedItselfSession() async throws {
         let suite = "watch-link-stopped-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -39,12 +39,15 @@ nonisolated final class WatchLinkTests: XCTestCase {
             )
         }
 
-        watchLink.applyWatchStatus(status(phase: .idle, session: "S", stopped: true), isLiveDelivery: true)
+        self.session.deliverApplicationContext(status(phase: .idle, session: "S", stopped: true).applicationContext())
+        await self.yieldToMainActor()
         clock = clock.addingTimeInterval(3_600)
-        watchLink.applyWatchStatus(status(phase: .idle, session: nil, stopped: false), isLiveDelivery: true)
+        self.session.deliverApplicationContext(status(phase: .idle, session: nil, stopped: false).applicationContext())
+        await self.yieldToMainActor()
         clock = clock.addingTimeInterval(3_600)
         let republished = status(phase: .idle, session: "S", stopped: true)
-        watchLink.applyWatchStatus(republished, isLiveDelivery: true)
+        self.session.deliverApplicationContext(republished.applicationContext())
+        await self.yieldToMainActor()
 
         XCTAssertEqual(watchLink.stoppedItselfRecord?.since, first)
         XCTAssertEqual(
@@ -54,6 +57,7 @@ nonisolated final class WatchLinkTests: XCTestCase {
         XCTAssertEqual(WatchStoppedItselfClock(defaults: defaults).record?.since, first)
     }
 
+    @MainActor
     func testWatchStateIsSurfacedAtInit() {
         self.session.isSupported = true
         self.session.isPaired = true

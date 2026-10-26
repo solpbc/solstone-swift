@@ -79,23 +79,20 @@ final class StaleStatusTests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.contains("recent retry error") })
     }
 
-    func testTheEngineKeepsAnErrorRecentOnlyUntilALaterDelivery() async throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("StaleEngine-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let transfer = makeTransferCutoverHarness(rootURL: root)
-        let key = ObserverAudioTransferSource.watch
+    func testTheEngineStateKeepsAnErrorRecentOnlyUntilALaterDelivery() throws {
+        var state = TransferSourceRuntimeState()
+        state.noteDelivered(bytes: 10, at: self.t0)
+        state.noteError(detail: "after the delivery", at: self.t0.addingTimeInterval(60))
+        XCTAssertEqual(
+            TransferRecentError.evaluate(state.snapshot(now: self.t0.addingTimeInterval(120)), now: self.t0.addingTimeInterval(120))?.detail,
+            "after the delivery"
+        )
 
-        await transfer.engine.noteDelivered(bytes: 10, sourceKey: key, at: Date().addingTimeInterval(-10))
-        await transfer.engine.noteError(sourceKey: key, detail: "after the delivery")
-        let first = await transfer.engine.snapshot().sources[key]
-        var status = try XCTUnwrap(first)
-        XCTAssertEqual(TransferRecentError.evaluate(status, now: Date())?.detail, "after the delivery")
-
-        await transfer.engine.noteDelivered(bytes: 10, sourceKey: key, at: Date().addingTimeInterval(1))
-        let second = await transfer.engine.snapshot().sources[key]
-        status = try XCTUnwrap(second)
-        XCTAssertNil(TransferRecentError.evaluate(status, now: Date().addingTimeInterval(2)))
-        XCTAssertEqual(status.errorTimesSinceDelivery, [])
+        state.noteDelivered(bytes: 10, at: self.t0.addingTimeInterval(180))
+        let delivered = state.snapshot(now: self.t0.addingTimeInterval(240))
+        XCTAssertNil(TransferRecentError.evaluate(delivered, now: self.t0.addingTimeInterval(240)))
+        XCTAssertEqual(delivered.errorTimesSinceDelivery, [])
+        XCTAssertEqual(delivered.lastErrorAt, self.t0.addingTimeInterval(60))
     }
 
     func testTheShareHolderIgnoresTheStoreErrorForRecency() throws {
