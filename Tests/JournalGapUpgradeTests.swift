@@ -448,31 +448,6 @@ final class JournalGapUpgradeTests: XCTestCase {
         XCTAssertEqual(config.journalIdentityEpoch, 0)
     }
 
-    func testOldJournalIdentityIsReplacedWithoutMarkingSeen() throws {
-        let pairing = Self.pairing(instanceID: "journal-a")
-        let oldForm = try XCTUnwrap(journalVersionMetadataIdentity(for: pairing))
-        let identity = try XCTUnwrap(journalGapIdentity(for: pairing))
-        XCTAssertNotEqual(oldForm, identity)
-        let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
-        try events.writeIdentity(oldForm)
-        try events.openGate(now: self.clock.now())
-        let segmentID = UUID()
-        try events.recordLoss(
-            segmentID: segmentID,
-            source: .audio,
-            reason: "audio_capture_unfinished",
-            captureAt: self.clock.now(),
-            now: self.clock.now()
-        )
-        let lossID = JournalEventStore.lossID(segmentID: segmentID, source: .audio)
-        let config = self.makeConfig(pairing: nil)
-        config.attachJournalEvents(events)
-        config.applyMigratedPairing(pairing)
-        XCTAssertEqual(events.readIdentity(), identity)
-        XCTAssertFalse(events.isSeen(id: lossID))
-        XCTAssertEqual(config.journalIdentityEpoch, 0)
-    }
-
     func testFailedSeenWriteKeepsThePreviousJournalIdentity() throws {
         let events = JournalEventStore(rootURL: self.tempDirectory.appendingPathComponent("JournalEvents", isDirectory: true))
         let pairingA = Self.pairing(instanceID: "journal-a")

@@ -205,15 +205,13 @@ final class AppConfig {
     }
 
     /// Same journal, `unknown`, or a missing file: store the new string and mark nothing.
-    /// A stored identity in the older form, which included the client certificate, is replaced
-    /// with the gap identity and marks nothing. A different known journal marks every event seen,
-    /// then stores the new string. A pairing whose identity cannot be computed changes nothing.
+    /// A different known journal marks every event seen, then stores the new string.
+    /// A pairing whose identity cannot be computed changes nothing.
     private func noteJournalIdentity(_ pairing: StoredPairing) {
         guard let events = self.journalEvents else { return }
         guard let newIdentity = journalGapIdentity(for: pairing) else { return }
         let stored = events.readIdentity()
-        if stored == nil || stored == "unknown" || stored == newIdentity
-            || stored == journalVersionMetadataIdentity(for: pairing) {
+        if stored == nil || stored == "unknown" || stored == newIdentity {
             do {
                 try events.writeIdentity(newIdentity)
             } catch {
