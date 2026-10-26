@@ -36,6 +36,9 @@ final class WatchLink {
         journalOS: String?, journalOSVersion: String?, journalArch: String?, journalBuild: String?
     ))?
     @ObservationIgnored private var journalVersionNonce: String?
+    @ObservationIgnored let stoppedItselfClock = WatchStoppedItselfClock()
+    /// Observed so the watch tile updates when the record changes.
+    private(set) var stoppedItselfRecord: WatchStoppedItselfRecord?
 
     var aboutWatchFacts: WatchAboutFacts? {
         guard self.isPaired, self.isWatchAppInstalled,
@@ -221,6 +224,8 @@ private extension WatchLink {
 
     func applyWatchStatus(_ status: WatchStatusContext?, isLiveDelivery: Bool) {
         self.watchStatus = status
+        self.stoppedItselfClock.note(status, receivedAt: Date())
+        self.stoppedItselfRecord = self.stoppedItselfClock.record
         if status != nil {
             self.facts.noteStatusContextCheckedIn()
         }

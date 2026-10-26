@@ -59,6 +59,7 @@ struct WatchPipelineInputReader: DynamicProperty {
 
         let iphoneEnvironment = WatchDiagnosticsIPhoneEnvironment.current()
         let watchRecentUploadError = self.watchUploaderHolder.recentError(now: now)
+        let phoneSessionHistory = Self.phoneSessionHistoryInput(from: self.phoneSessionHistoryStore.readSnapshot(asOf: now))
         let input = WatchPipelineInput(
             now: now,
             watchStatus: self.watchLink.watchStatus,
@@ -91,13 +92,19 @@ struct WatchPipelineInputReader: DynamicProperty {
             iphoneThermalState: iphoneEnvironment.thermalState,
             phoneLedgerSnapshot: self.watchSegmentLedger.readSnapshot(asOf: now),
             iphoneACKQueueSnapshot: self.watchLink.iPhoneACKQueueSnapshot,
-            phoneSessionHistory: Self.phoneSessionHistoryInput(from: self.phoneSessionHistoryStore.readSnapshot(asOf: now))
+            phoneSessionHistory: phoneSessionHistory,
+            watchStoppedItselfSince: WatchStoppedItselfClock.since(
+                context: self.watchLink.watchStatus,
+                historyEntries: phoneSessionHistory.value?.entries ?? [],
+                record: self.watchLink.stoppedItselfRecord
+            )
         )
         self.watchLink.noteStuck(input)
         let recordingStatus = watchRecordingStatus(
             context: input.watchStatus,
             now: input.now,
-            lastReceivedAt: input.lastReceivedAt
+            lastReceivedAt: input.lastReceivedAt,
+            stoppedItselfSince: input.watchStoppedItselfSince
         )
         let waiting = WatchPipelineReducer.waitingBreakdown(input)
         let steadyVerdict = WatchSteadyVerdictReducer.reduce(

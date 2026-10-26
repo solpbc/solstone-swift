@@ -254,11 +254,14 @@ private nonisolated func watchWaitingStatusPresentation(
     }
 }
 
+/// `stoppedItselfSince` is when a stopped-itself state started counting; a day after it, the phone
+/// shows what it would without that state.
 nonisolated func watchRecordingStatus(
     context: WatchStatusContext?,
     now: Date,
     ttl: TimeInterval = WatchRecordingStatus.defaultTTL,
-    lastReceivedAt: Date?
+    lastReceivedAt: Date?,
+    stoppedItselfSince: Date? = nil
 ) -> WatchRecordingStatus {
     guard let context else {
         return hasFreshReceipt(lastReceivedAt, now: now) ? .noContextButReceiving : .noContext
@@ -267,7 +270,10 @@ nonisolated func watchRecordingStatus(
         terminalReason: context.audioTerminalReason,
         terminalDisposition: context.audioTerminalDisposition
     ) {
-        return .stoppedItself(copy)
+        let agedOut = stoppedItselfSince.map { now.timeIntervalSince($0) >= watchStoppedItselfShownFor } ?? false
+        if !agedOut {
+            return .stoppedItself(copy)
+        }
     }
     if context.audioTerminalDisposition == .ownerStopped {
         return .idle
@@ -288,3 +294,6 @@ private nonisolated func hasFreshReceipt(_ lastReceivedAt: Date?, now: Date) -> 
     let elapsed = max(0, now.timeIntervalSince(lastReceivedAt))
     return elapsed < WatchRecordingStatus.receiptCorroborationTTL
 }
+
+/// How long the phone shows a watch session that stopped on its own.
+nonisolated let watchStoppedItselfShownFor: TimeInterval = 24 * 60 * 60

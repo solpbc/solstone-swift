@@ -46,7 +46,8 @@ nonisolated enum WatchSteadyVerdictReducer {
         let recordingStatus = watchRecordingStatus(
             context: input.watchStatus,
             now: input.now,
-            lastReceivedAt: input.lastReceivedAt
+            lastReceivedAt: input.lastReceivedAt,
+            stoppedItselfSince: input.watchStoppedItselfSince
         )
         let detailsSummary = SourceVocabulary.watchSteadyDetailsSummary(
             watchWaiting: waiting.freshWatchWaitingCount,

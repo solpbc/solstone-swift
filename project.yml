@@ -302,6 +302,7 @@ targets:
           - WatchSourceFacts.swift
           - WatchSteadyVerdictReducer.swift
           - WatchSourceDetailPresentation.swift
+          - WatchStoppedItselfClock.swift
       - path: Sources/WatchConnectivity
         excludes:
           - WatchLink.swift

@@ -46,6 +46,8 @@ nonisolated struct WatchPipelineInput: Sendable {
     let phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot>
     let iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot
     let phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput>
+    /// When the watch's stopped-itself state started counting, for the day it is shown.
+    let watchStoppedItselfSince: Date?
 
     init(
         now: Date,
@@ -79,7 +81,8 @@ nonisolated struct WatchPipelineInput: Sendable {
         iphoneThermalState: DiagnosticAvailability<String> = .unavailable(reason: "not provided"),
         phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> = .unavailable(reason: "not provided"),
         iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot = WatchRelayACKQueueSnapshot(),
-        phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput>
+        phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput>,
+        watchStoppedItselfSince: Date? = nil
     ) {
         self.now = now
         self.watchStatus = watchStatus
@@ -113,6 +116,7 @@ nonisolated struct WatchPipelineInput: Sendable {
         self.phoneLedgerSnapshot = phoneLedgerSnapshot
         self.iphoneACKQueueSnapshot = iphoneACKQueueSnapshot
         self.phoneSessionHistory = phoneSessionHistory
+        self.watchStoppedItselfSince = watchStoppedItselfSince
     }
 }
 
