@@ -517,6 +517,52 @@ nonisolated final class WatchPipelineReducerTests: XCTestCase {
         XCTAssertEqual(waitingWithoutDisposition.kind, .watchWaiting)
     }
 
+    func testStoppedItselfShowsForADayThenStuckOrTheOrdinaryState() {
+        let stopped = Self.context(
+            phase: .idle,
+            asOf: Self.now,
+            audioTerminalReason: .audioInterrupted,
+            audioTerminalDisposition: .detectedStoppedItself
+        )
+        let day: TimeInterval = 24 * 60 * 60
+        func stuck(since: Date) -> WatchPipelineInput {
+            Self.input(
+                watchStatus: stopped,
+                nonTerminalCount: 3,
+                oldestNonTerminalReceivedAt: Self.now.addingTimeInterval(-1_800),
+                watchStoppedItselfSince: since
+            )
+        }
+
+        XCTAssertEqual(Self.steadyVerdict(stuck(since: Self.now.addingTimeInterval(-day + 3_600))).kind, .stoppedItself(.audioStoppedItself))
+        XCTAssertEqual(Self.steadyVerdict(stuck(since: Self.now.addingTimeInterval(-day - 3_600))).kind, .stuck(.orphan))
+        XCTAssertEqual(
+            watchRecordingStatus(context: stopped, now: Self.now, lastReceivedAt: nil, stoppedItselfSince: Self.now.addingTimeInterval(-day - 3_600)),
+            .idle
+        )
+        XCTAssertEqual(
+            watchRecordingStatus(context: stopped, now: Self.now, lastReceivedAt: nil, stoppedItselfSince: Self.now.addingTimeInterval(-day + 3_600)),
+            .stoppedItself(.audioStoppedItself)
+        )
+        let ordinary = Self.steadyVerdict(Self.input(watchStatus: stopped, watchStoppedItselfSince: Self.now.addingTimeInterval(-day - 3_600)))
+        XCTAssertNotEqual(ordinary.kind, .stoppedItself(.audioStoppedItself))
+        XCTAssertNotEqual(ordinary.state, .needsAttention)
+    }
+
+    func testTheWatchUploadErrorRowCarriesItsAge() {
+        let input = Self.input(lastUploadError: "boom", lastUploadErrorAt: Self.now.addingTimeInterval(-600))
+        let text = WatchPipelineReducer.uploadErrorText(
+            WatchPipelineReducer.detailText(input.lastUploadError),
+            at: input.lastUploadErrorAt,
+            now: input.now
+        )
+        XCTAssertEqual(text, "boom (\(Self.relativeText(secondsAgo: 600)))")
+        XCTAssertEqual(
+            WatchPipelineReducer.uploadErrorText(WatchPipelineReducer.detailText(nil), at: nil, now: Self.now),
+            SourceVocabulary.watchDetailNone
+        )
+    }
+
     func testSteadyVerdictObservingUsesRequiredCopyAndElapsedSuffix() {
         let input = Self.input(
             watchStatus: Self.context(
@@ -1360,7 +1406,9 @@ private extension WatchPipelineReducerTests {
         iphoneAppBuild: DiagnosticAvailability<String> = .unavailable(reason: "not provided"),
         phoneLedgerSnapshot: DiagnosticAvailability<WatchSegmentLedgerReadSnapshot> = .unavailable(reason: "not provided"),
         iphoneACKQueueSnapshot: WatchRelayACKQueueSnapshot = WatchRelayACKQueueSnapshot(),
-        phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput> = .unavailable(reason: SourceVocabulary.watchDiagnosticsNotProvided)
+        phoneSessionHistory: DiagnosticAvailability<WatchPhoneSessionHistoryInput> = .unavailable(reason: SourceVocabulary.watchDiagnosticsNotProvided),
+        watchStoppedItselfSince: Date? = nil,
+        lastUploadErrorAt: Date? = nil
     ) -> WatchPipelineInput {
         WatchPipelineInput(
             now: now,
@@ -1376,6 +1424,7 @@ private extension WatchPipelineReducerTests {
             inFlightCount: inFlightCount,
             lastUploadAt: lastUploadAt,
             lastUploadError: lastUploadError,
+            lastUploadErrorAt: lastUploadErrorAt,
             lastReceivedAt: lastReceivedAt,
             lastStagingError: lastStagingError,
             isPaired: isPaired,
@@ -1387,7 +1436,8 @@ private extension WatchPipelineReducerTests {
             iphoneAppBuild: iphoneAppBuild,
             phoneLedgerSnapshot: phoneLedgerSnapshot,
             iphoneACKQueueSnapshot: iphoneACKQueueSnapshot,
-            phoneSessionHistory: phoneSessionHistory
+            phoneSessionHistory: phoneSessionHistory,
+            watchStoppedItselfSince: watchStoppedItselfSince
         )
     }
 
