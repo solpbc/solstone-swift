@@ -108,12 +108,6 @@ final class JournalKeptPartTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: partURL), window)
         XCTAssertEqual(try Data(contentsOf: finalURL), previous)
         XCTAssertNil(ScreencastBroadcastWriterOutcome.keptBoth.diagnosticReason)
-        guard case .events(let rows) = self.uploader.journalEvents.readEvents() else {
-            return XCTFail("journal events unreadable")
-        }
-        XCTAssertTrue(rows.contains {
-            $0.segmentID == segmentID.uuidString && $0.kind == .diagnostic && $0.reason == JournalFinalReplacement.keepBothReason
-        })
 
         await self.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: self.clock.now())
         let pending = try XCTUnwrap(self.store.findDirectory(segmentID: segmentID))
@@ -130,6 +124,12 @@ final class JournalKeptPartTests: XCTestCase {
         )
         try self.unblockLosses()
         XCTAssertFalse(try self.lossRecorded(segmentID: segmentID))
+        guard case .events(let rows) = self.uploader.journalEvents.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        XCTAssertTrue(rows.contains {
+            $0.segmentID == segmentID.uuidString && $0.kind == .diagnostic && $0.reason == JournalFinalReplacement.keepBothReason
+        })
 
         await self.uploader.resumeFromDisk()
         XCTAssertNil(self.store.findDirectory(segmentID: segmentID))

@@ -723,10 +723,166 @@ final class MobileSegmentScreencastAudioPromotionTests: XCTestCase {
 
             let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
             if audioState == .noArtifact {
+                // The phone made nothing, so the broadcast's own audio is delivered as the segment's audio.
                 let snapshot = try XCTUnwrap(snapshots.first { $0.manifest.observerIngest?.segmentID == segmentID })
-                XCTAssertEqual(snapshot.manifest.payloadParts.map(\.partID), ["screencast"])
+                XCTAssertEqual(Set(snapshot.manifest.payloadParts.map(\.partID)), ["audio", "screencast"])
+            } else {
+                // A phone file that failed to finalize goes to the finalize-failure pile, not promotion.
+                XCTAssertNil(snapshots.first { $0.manifest.observerIngest?.segmentID == segmentID })
+                let found = try XCTUnwrap(harness.store.findDirectory(segmentID: segmentID))
+                XCTAssertTrue(harness.store.fileExists(harness.store.screenAudioURL(in: found.url)))
             }
         }
+    }
+
+    func testBroadcastMicIsDeliveredWhenPhoneAudioWasBelowTheMinimum() async throws {
+        let harness = self.makeHarness()
+        try await harness.engine.start()
+        let segmentID = UUID()
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio, .screencast],
+            activeSourceSetVersion: 1
+        )
+        let activeDir = try harness.store.createActive(manifest: manifest)
+        try Data(repeating: 0xAA, count: 1024).write(to: harness.store.screenURL(in: activeDir))
+        try MobileSegmentTestFixtures.writeReadableAudio(at: harness.store.screenAudioPartURL(in: activeDir), seconds: 60)
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .noArtifact,
+                durationS: 0.05,
+                reason: "audio_below_min_duration",
+                lastAttemptAt: endedAt
+            ),
+            source: .audio,
+            manifest: &manifest,
+            in: activeDir,
+            now: endedAt
+        )
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        let snapshot = try XCTUnwrap(snapshots.first { $0.manifest.observerIngest?.segmentID == segmentID })
+        XCTAssertEqual(Set(snapshot.manifest.payloadParts.map(\.partID)), ["audio", "screencast"])
+        XCTAssertEqual(snapshot.manifest.observerIngest?.durationS, 60)
+    }
+
+    func testAudioMovedBeforeACrashIsDeliveredOnTheNextPass() async throws {
+        let harness = self.makeHarness()
+        try await harness.engine.start()
+        let segmentID = UUID()
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio, .screencast],
+            activeSourceSetVersion: 1
+        )
+        let activeDir = try harness.store.createActive(manifest: manifest)
+        try Data(repeating: 0xAA, count: 1024).write(to: harness.store.screenURL(in: activeDir))
+        try MobileSegmentTestFixtures.writeReadableAudio(at: harness.store.audioURL(in: activeDir), seconds: 60)
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(state: .noArtifact, reason: "audio_below_min_duration", lastAttemptAt: endedAt),
+            source: .audio,
+            manifest: &manifest,
+            in: activeDir,
+            now: endedAt
+        )
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        let snapshot = try XCTUnwrap(snapshots.first { $0.manifest.observerIngest?.segmentID == segmentID })
+        XCTAssertTrue(snapshot.manifest.payloadParts.map(\.partID).contains("audio"))
+        guard case .events(let rows) = harness.uploader.journalEvents.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        XCTAssertFalse(rows.contains { $0.segmentID == segmentID.uuidString && $0.kind == .loss })
+    }
+
+    func testUnplayableMicPartIsRecordedAndTheEmptySegmentRetiresInOnePass() async throws {
+        let harness = self.makeHarness()
+        try await harness.engine.start()
+        let segmentID = UUID()
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio, .screencast],
+            activeSourceSetVersion: 1
+        )
+        let activeDir = try harness.store.createActive(manifest: manifest)
+        try Data(repeating: 0x33, count: 4096).write(to: harness.store.screenAudioPartURL(in: activeDir))
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(state: .noArtifact, reason: "no_video", lastAttemptAt: endedAt),
+            source: .screencast,
+            manifest: &manifest,
+            in: activeDir,
+            now: endedAt
+        )
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(state: .noArtifact, reason: "audio_below_min_duration", lastAttemptAt: endedAt),
+            source: .audio,
+            manifest: &manifest,
+            in: activeDir,
+            now: endedAt
+        )
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+
+        XCTAssertNil(harness.store.findDirectory(segmentID: segmentID))
+        guard case .events(let rows) = harness.uploader.journalEvents.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        XCTAssertTrue(rows.contains { $0.segmentID == segmentID.uuidString && $0.source == .screenAudio })
+    }
+
+    func testPileRetirementDeliversAFinishedBroadcastMic() async throws {
+        let harness = self.makeHarness()
+        try await harness.engine.start()
+        let segmentID = UUID()
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio, .screencast],
+            activeSourceSetVersion: 1
+        )
+        let activeDir = try harness.store.createActive(manifest: manifest)
+        try MobileSegmentTestFixtures.writeReadableAudio(at: harness.store.screenAudioURL(in: activeDir), seconds: 60)
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(state: .noArtifact, reason: "no_video", lastAttemptAt: endedAt),
+            source: .screencast,
+            manifest: &manifest,
+            in: activeDir,
+            now: endedAt
+        )
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(
+                state: .failedToFinalize,
+                reason: "missing outcome marker for audio",
+                stage: "finalize",
+                lastAttemptAt: endedAt
+            ),
+            source: .audio,
+            manifest: &manifest,
+            in: activeDir,
+            now: endedAt
+        )
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+        await harness.uploader.resumeFromDisk()
+
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        let snapshot = try XCTUnwrap(snapshots.first { $0.manifest.observerIngest?.segmentID == segmentID })
+        XCTAssertEqual(snapshot.manifest.payloadParts.map(\.partID), ["audio"])
     }
 
     func testAC9RealEngineAndBroadcastSessionReAnchorPromotion() async throws {

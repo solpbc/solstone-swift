@@ -538,7 +538,9 @@ final class MobileSegmentUploader {
             var manifest = try self.store.readManifest(in: directory)
             let windowURL = MobileSegmentScreencastPaths.screenWindowURL(inSegmentDirectory: directory)
             let isPromotedAudio = manifest.audio.reason == MobileSegmentManifest.promotedScreenAudioReason
-            let appAudioDuration = (manifest.audio.durationS != nil && !isPromotedAudio) ? manifest.audio.durationS : nil
+            let appAudioDuration = (manifest.audio.state == .finalizedArtifact && manifest.audio.durationS != nil && !isPromotedAudio)
+                ? manifest.audio.durationS
+                : nil
 
             if self.store.fileExists(windowURL) {
                 let sidecar = try? MobileSegmentScreencastJSONStore.read(MobileSegmentScreencastWindowSidecar.self, from: windowURL)
@@ -746,87 +748,25 @@ final class MobileSegmentUploader {
                 return
             }
 
-            if manifest.declaredSources.contains(.screencast)
-                && manifest.resolution(for: .screencast).state.isTerminal
-                && manifest.resolution(for: .audio).state == .notDeclared {
-                let audioURL = self.store.audioURL(in: directory)
-                let screenAudioURL = self.store.screenAudioURL(in: directory)
-                let screenAudioPartURL = self.store.screenAudioPartURL(in: directory)
-
-                var candidateURL: URL?
-                if self.store.fileExists(audioURL) {
-                    candidateURL = audioURL
-                } else if self.store.fileExists(screenAudioURL) {
-                    try self.store.moveOrReplaceItem(at: screenAudioURL, to: audioURL)
-                    candidateURL = audioURL
-                } else if self.store.fileExists(screenAudioPartURL) {
-                    let probe = await MobileSegmentDuration.probeContainerDuration(at: screenAudioPartURL)
-                    if let probe, probe > 0 {
-                        try self.store.moveOrReplaceItem(at: screenAudioPartURL, to: audioURL)
-                        candidateURL = audioURL
-                    } else {
-                        let removal = try self.prepareScreenRemoval(
-                            urls: [screenAudioPartURL],
-                            source: .screenAudio,
-                            reason: "screencast_unplayable_part",
-                            segmentID: segmentID,
-                            captureAt: manifest.startedAt,
-                            now: endedAt
-                        )
-                        if removal == .proceed {
-                            self.store.removeIfExists(screenAudioPartURL)
-                            mobileSegmentUploadLog.info("screencast audio unplayable part discarded segment=\(segmentID.uuidString, privacy: .public)")
-                        }
-                    }
-                }
-
-                if let promotedURL = candidateURL, self.store.fileExists(promotedURL) {
-                    guard let bytes = self.store.fileSize(at: promotedURL) else {
-                        self.refreshCounts()
-                        return
-                    }
-                    if bytes > 0 {
-                        let probed = await MobileSegmentDuration.probeContainerDuration(at: promotedURL)
-                        let audioDuration = probed ?? max(0, endedAt.timeIntervalSince(manifest.startedAt))
-
-                        manifest = try self.store.readManifest(in: directory)
-                        manifest.endedAt = carriedEndedAt
-                        manifest.durationS = carriedDurationS
-                        manifest.day = carriedDay
-                        manifest.segment = carriedSegment
-
-                        let resolution = manifest.promoteScreenAudio(
-                            bytes: bytes,
-                            startedAt: manifest.startedAt,
-                            endedAt: endedAt,
-                            durationS: audioDuration,
-                            now: endedAt
-                        )
-                        try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: endedAt)
-                        manifest = try self.store.readManifest(in: directory)
-                        manifest.endedAt = carriedEndedAt
-                        manifest.durationS = carriedDurationS
-                        manifest.day = carriedDay
-                        manifest.segment = carriedSegment
-                    } else if bytes == 0 {
-                        self.recordDiagnostic(
-                            segmentID: segmentID,
-                            source: .audio,
-                            reason: "audio_empty_promoted",
-                            captureAt: manifest.startedAt,
-                            now: endedAt
-                        )
-                        self.store.removeIfExists(promotedURL)
-                    }
-                }
+            let carried = MobileSegmentCarriedTiming(
+                endedAt: carriedEndedAt,
+                durationS: carriedDurationS,
+                day: carriedDay,
+                segment: carriedSegment
+            )
+            guard try await self.promoteScreenAudioIfAvailable(
+                segmentID: segmentID,
+                directory: directory,
+                manifest: &manifest,
+                endedAt: endedAt,
+                carried: carried
+            ) else {
+                self.refreshCounts()
+                return
             }
 
             guard !PhoneAudioWriterLease.isHeld(segmentID) else { return }
             if manifest.isEmptyResolved {
-                if self.store.fileExists(self.store.screenAudioPartURL(in: directory)) {
-                    try self.store.writeManifest(manifest, in: directory)
-                    return
-                }
                 manifest.upload = .empty
                 try self.store.writeManifest(manifest, in: directory)
                 let tombstoneReason = self.tombstoneReasonForEmptyRetirement(manifest: manifest, defaultReason: "no_artifacts")
@@ -1633,6 +1573,21 @@ final class MobileSegmentUploader {
         }
 
         manifest = try self.store.readManifest(in: directory)
+        let carried = MobileSegmentCarriedTiming(
+            endedAt: manifest.endedAt,
+            durationS: manifest.durationS,
+            day: manifest.day,
+            segment: manifest.segment
+        )
+        guard try await self.promoteScreenAudioIfAvailable(
+            segmentID: segmentID,
+            directory: directory,
+            manifest: &manifest,
+            endedAt: manifest.endedAt ?? self.clock.now(),
+            carried: carried
+        ) else {
+            return .deferred
+        }
         if manifest.declaredSources.contains(where: { manifest.resolution(for: $0).state == .finalizedArtifact }) {
             manifest.upload = .pending
             manifest.updatedAt = self.clock.now()
@@ -2282,6 +2237,104 @@ private extension MobileSegmentUploader {
         self.refreshCounts()
     }
 
+    /// The broadcast's own audio becomes the segment's audio when the phone produced none: phone audio
+    /// was not declared, or it resolved with nothing to deliver. A phone file that failed to finalize
+    /// goes to the finalize-failure pile instead. Returns false when the promoted file's size cannot be
+    /// read; the segment then stays for the next pass.
+    private func promoteScreenAudioIfAvailable(
+        segmentID: UUID,
+        directory: URL,
+        manifest: inout MobileSegmentManifest,
+        endedAt: Date,
+        carried: MobileSegmentCarriedTiming
+    ) async throws -> Bool {
+        guard manifest.declaredSources.contains(.screencast),
+              manifest.resolution(for: .screencast).state.isTerminal,
+              Self.screenAudioMayStandIn(for: manifest.resolution(for: .audio).state)
+        else {
+            return true
+        }
+        let audioURL = self.store.audioURL(in: directory)
+        let screenAudioURL = self.store.screenAudioURL(in: directory)
+        let screenAudioPartURL = self.store.screenAudioPartURL(in: directory)
+
+        var candidateURL: URL?
+        if self.store.fileExists(audioURL) {
+            candidateURL = audioURL
+        } else if self.store.fileExists(screenAudioURL) {
+            try self.store.moveOrReplaceItem(at: screenAudioURL, to: audioURL)
+            candidateURL = audioURL
+        } else if self.store.fileExists(screenAudioPartURL) {
+            let probe = await MobileSegmentDuration.probeContainerDuration(at: screenAudioPartURL)
+            if let probe, probe > 0 {
+                try self.store.moveOrReplaceItem(at: screenAudioPartURL, to: audioURL)
+                candidateURL = audioURL
+            } else {
+                let removal = try self.prepareScreenRemoval(
+                    urls: [screenAudioPartURL],
+                    source: .screenAudio,
+                    reason: "screencast_unplayable_part",
+                    segmentID: segmentID,
+                    captureAt: manifest.startedAt,
+                    now: endedAt
+                )
+                if removal == .proceed {
+                    self.store.removeIfExists(screenAudioPartURL)
+                    mobileSegmentUploadLog.info("screencast audio unplayable part discarded segment=\(segmentID.uuidString, privacy: .public)")
+                }
+            }
+        }
+
+        if let promotedURL = candidateURL, self.store.fileExists(promotedURL) {
+            guard let bytes = self.store.fileSize(at: promotedURL) else {
+                return false
+            }
+            if bytes > 0 {
+                let probed = await MobileSegmentDuration.probeContainerDuration(at: promotedURL)
+                let audioDuration = probed ?? max(0, endedAt.timeIntervalSince(manifest.startedAt))
+
+                manifest = try self.store.readManifest(in: directory)
+                manifest.endedAt = carried.endedAt
+                manifest.durationS = carried.durationS
+                manifest.day = carried.day
+                manifest.segment = carried.segment
+
+                let resolution = manifest.promoteScreenAudio(
+                    bytes: bytes,
+                    startedAt: manifest.startedAt,
+                    endedAt: endedAt,
+                    durationS: audioDuration,
+                    now: endedAt
+                )
+                try self.store.writeOutcome(resolution, source: .audio, manifest: &manifest, in: directory, now: endedAt)
+                manifest = try self.store.readManifest(in: directory)
+                manifest.endedAt = carried.endedAt
+                manifest.durationS = carried.durationS
+                manifest.day = carried.day
+                manifest.segment = carried.segment
+            } else if bytes == 0 {
+                self.recordDiagnostic(
+                    segmentID: segmentID,
+                    source: .audio,
+                    reason: "audio_empty_promoted",
+                    captureAt: manifest.startedAt,
+                    now: endedAt
+                )
+                self.store.removeIfExists(promotedURL)
+            }
+        }
+        return true
+    }
+
+    static func screenAudioMayStandIn(for phoneAudio: MobileSegmentResolutionState) -> Bool {
+        switch phoneAudio {
+        case .notDeclared, .noArtifact, .removed:
+            true
+        default:
+            false
+        }
+    }
+
     private func isDeliveredResidue(segmentID: UUID) -> Bool {
         self.store.hasTombstone(segmentID: segmentID, kind: "uploaded")
     }
@@ -2839,4 +2892,11 @@ private extension MobileSegmentResolutionState {
             false
         }
     }
+}
+
+nonisolated struct MobileSegmentCarriedTiming: Sendable {
+    var endedAt: Date?
+    var durationS: TimeInterval?
+    var day: String?
+    var segment: String?
 }
