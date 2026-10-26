@@ -12,9 +12,10 @@ nonisolated enum AppVersion {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
     }
 
-    /// The version this app reports to the journal: `<short>+<build>` (semver build metadata,
-    /// e.g. `2.0.10+139`) so the journal can tell builds apart, or the short version alone when
-    /// the build is not known. Owner-facing displays show the two separately and do not use it.
+    /// The version this app reports to the journal, in the about block's form: `<short> (<build>)`,
+    /// e.g. `2.0.10 (139)`, so the journal can tell builds apart. The short version alone when the
+    /// build is not known, or when the pair would not fit the journal's 64-byte field.
+    /// Owner-facing displays show the two separately and do not use it.
     static var reported: String {
         self.reported(short: self.shortVersion, build: self.build)
     }
@@ -22,7 +23,8 @@ nonisolated enum AppVersion {
     static func reported(short: String, build: String) -> String {
         let build = build.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !build.isEmpty, build != "?" else { return short }
-        return "\(short)+\(build)"
+        let combined = "\(short) (\(build))"
+        return combined.utf8.count <= 64 ? combined : short
     }
 
     static var sourceCommit: String {

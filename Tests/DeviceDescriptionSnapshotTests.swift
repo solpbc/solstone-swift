@@ -180,7 +180,15 @@ final class DeviceDescriptionSnapshotTests: XCTestCase {
     }
 
     func testReportedVersionCarriesTheBuild() {
-        XCTAssertEqual(AppVersion.reported(short: "2.0.10", build: "139"), "2.0.10+139")
+        XCTAssertEqual(AppVersion.reported(short: "2.0.10", build: "139"), "2.0.10 (139)")
+    }
+
+    func testReportedVersionIsTheShortVersionWhenThePairWouldNotFit() {
+        // "2.0.10 (" and ")" take 9 bytes, so a 55-byte build fills the 64 exactly.
+        let fits = String(repeating: "9", count: 55)
+        let tooLong = String(repeating: "9", count: 56)
+        XCTAssertEqual(AppVersion.reported(short: "2.0.10", build: fits), "2.0.10 (\(fits))")
+        XCTAssertEqual(AppVersion.reported(short: "2.0.10", build: tooLong), "2.0.10")
     }
 
     func testReportedVersionIsTheShortVersionWhenTheBuildIsUnknown() {
