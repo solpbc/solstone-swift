@@ -187,11 +187,13 @@ nonisolated private struct TransferSourceRuntimeState: Equatable, Sendable {
     var counters = TransferCounters.empty
     var lastDeliveredAt: Date?
     var lastErrorDetail: String?
+    var lastErrorAt: Date?
     var recentErrorTimes: [Date] = []
     var byteWindow = TransferByteWindow()
 
     mutating func noteError(detail: String, at: Date) {
         self.lastErrorDetail = detail
+        self.lastErrorAt = at
         self.recentErrorTimes.append(at)
         if self.recentErrorTimes.count > Self.maxEntries {
             self.recentErrorTimes.removeFirst(self.recentErrorTimes.count - Self.maxEntries)
@@ -200,6 +202,8 @@ nonisolated private struct TransferSourceRuntimeState: Equatable, Sendable {
 
     mutating func noteDelivered(bytes: Int, at: Date) {
         self.lastDeliveredAt = at
+        // An error at or before a delivery is never recent again.
+        self.recentErrorTimes.removeAll { $0 <= at }
         self.byteWindow.noteDelivered(bytes: bytes, at: at)
     }
 
@@ -213,7 +217,9 @@ nonisolated private struct TransferSourceRuntimeState: Equatable, Sendable {
             lastDeliveredAt: self.lastDeliveredAt,
             lastErrorDetail: self.lastErrorDetail,
             recentErrorCount: self.recentErrorTimes.count,
-            bytesPerSecond: self.byteWindow.bytesPerSecond(now: now)
+            bytesPerSecond: self.byteWindow.bytesPerSecond(now: now),
+            lastErrorAt: self.lastErrorAt,
+            errorTimesSinceDelivery: self.recentErrorTimes
         )
     }
 }

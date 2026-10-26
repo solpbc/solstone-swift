@@ -289,6 +289,11 @@ final class CalendarTransferHolder {
     var confirmedActiveTransferCount: Int { self.status.inFlightCount }
     var recentBytesPerSecond: Double { self.status.bytesPerSecond }
     var lastUploadAt: Date? { self.status.lastDeliveredAt }
+
+    /// The source's transfer error, only while it is still recent at `now`.
+    func recentError(now: Date) -> TransferRecentError? {
+        TransferRecentError.evaluate(self.status, now: now)
+    }
     var deliveredCount: Int { self.status.deliveredCount }
 
     /// Waiting files held only because the journal said it does not take calendar notes. A

@@ -1745,7 +1745,7 @@ extension TransferSegmentRepairTests {
         let detail = await SourceSyncStateDetail.build(from: engine, sourceKey: sourceKey)
         let row = SourceSyncStateLine(
             name: "audio", pending: 0, inFlight: 0, attention: detail.attentionItemCount, delivered: 0,
-            lastUploadAt: nil, recentErrorCount: 0, recentErrorDetail: nil, detail: detail
+            lastUploadAt: nil, recentError: nil, detail: detail
         )
         return (detail, syncStateSummaryLines(rows: [row], now: now))
     }

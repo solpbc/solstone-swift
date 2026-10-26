@@ -56,8 +56,8 @@ nonisolated struct SourceSyncStateLine: Sendable {
     let attention: Int
     let delivered: Int
     let lastUploadAt: Date?
-    let recentErrorCount: Int
-    let recentErrorDetail: String?
+    /// Evaluated against the export's own `now`, so an old error does not read as recent.
+    let recentError: TransferRecentError?
     let detail: SourceSyncStateDetail
 }
 
@@ -73,28 +73,37 @@ func syncStateSummaryLines(
     mobileSegment: MobileSegmentTransferHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder,
-    now: Date = Date()
+    calendar: CalendarTransferHolder?,
+    now: Date
 ) async -> [String] {
-    let rows: [SourceSyncStateLine] = await [
+    var rows: [SourceSyncStateLine] = await [
         SourceSyncStateLine(
             name: "audio", pending: mobileSegment.pendingCount, inFlight: mobileSegment.inFlightCount,
             attention: mobileSegment.failedCount, delivered: mobileSegment.deliveredCount,
-            lastUploadAt: mobileSegment.lastUploadAt, recentErrorCount: mobileSegment.recentErrorCount,
-            recentErrorDetail: mobileSegment.lastError, detail: mobileSegment.syncStateDetail()
+            lastUploadAt: mobileSegment.lastUploadAt, recentError: mobileSegment.recentError(now: now),
+            detail: mobileSegment.syncStateDetail()
         ),
         SourceSyncStateLine(
             name: "watch", pending: watch.pendingCount, inFlight: watch.inFlightCount,
             attention: watch.failedCount, delivered: watch.deliveredCount,
-            lastUploadAt: watch.lastUploadAt, recentErrorCount: watch.recentErrorCount,
-            recentErrorDetail: watch.lastError, detail: watch.syncStateDetail()
+            lastUploadAt: watch.lastUploadAt, recentError: watch.recentError(now: now),
+            detail: watch.syncStateDetail()
         ),
         SourceSyncStateLine(
             name: "share", pending: share.pendingCount, inFlight: share.inFlightCount,
             attention: share.failedCount, delivered: share.deliveredCount,
-            lastUploadAt: share.lastUploadAt, recentErrorCount: share.recentErrorCount,
-            recentErrorDetail: share.lastError, detail: share.syncStateDetail()
+            lastUploadAt: share.lastUploadAt, recentError: share.recentError(now: now),
+            detail: share.syncStateDetail()
         ),
     ]
+    if let calendar {
+        rows.append(await SourceSyncStateLine(
+            name: "calendar", pending: calendar.pendingCount, inFlight: calendar.inFlightCount,
+            attention: calendar.failedCount, delivered: calendar.deliveredCount,
+            lastUploadAt: calendar.lastUploadAt, recentError: calendar.recentError(now: now),
+            detail: calendar.syncStateDetail()
+        ))
+    }
     return syncStateSummaryLines(rows: rows, now: now)
 }
 
@@ -122,8 +131,11 @@ nonisolated func syncStateSummaryLines(rows: [SourceSyncStateLine], now: Date) -
                     now: now
                 )
             )
-        } else if let recentError = row.recentErrorDetail, row.recentErrorCount > 0 {
-            lines.append("  \(row.name) recent retry error: \(recentError) (\(row.recentErrorCount) recent)")
+        } else if let recentError = row.recentError {
+            lines.append(
+                "  \(row.name) recent retry error: \(recentError.detail)"
+                    + " \(age(from: recentError.at, to: now))ago (\(recentError.count) recent)"
+            )
         }
 
         lines.append(contentsOf: row.detail.refusedItems.lines(sourceName: row.name, now: now))

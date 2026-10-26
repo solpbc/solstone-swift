@@ -25,7 +25,9 @@ nonisolated struct WatchPipelineInput: Sendable {
     let failedCount: Int
     let inFlightCount: Int
     let lastUploadAt: Date?
+    /// The watch source's transfer error while it is still recent, and when it happened.
     let lastUploadError: String?
+    let lastUploadErrorAt: Date?
     let lastReceivedAt: Date?
     let lastStagingError: String?
     let isPaired: Bool
@@ -59,6 +61,7 @@ nonisolated struct WatchPipelineInput: Sendable {
         inFlightCount: Int,
         lastUploadAt: Date?,
         lastUploadError: String?,
+        lastUploadErrorAt: Date? = nil,
         lastReceivedAt: Date?,
         lastStagingError: String?,
         isPaired: Bool,
@@ -91,6 +94,7 @@ nonisolated struct WatchPipelineInput: Sendable {
         self.inFlightCount = inFlightCount
         self.lastUploadAt = lastUploadAt
         self.lastUploadError = lastUploadError
+        self.lastUploadErrorAt = lastUploadErrorAt
         self.lastReceivedAt = lastReceivedAt
         self.lastStagingError = lastStagingError
         self.isPaired = isPaired
@@ -555,7 +559,11 @@ extension WatchPipelineReducer {
             rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastLedgerDetailLabel, value: lastLedgerError))
         }
         rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastSyncDetailLabel, value: self.lastSyncText(input.lastUploadAt, now: input.now)))
-        rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: self.detailText(input.lastUploadError)))
+        rows.append(WatchSourceDetailRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: self.uploadErrorText(
+            self.detailText(input.lastUploadError),
+            at: input.lastUploadError == nil ? nil : input.lastUploadErrorAt,
+            now: input.now
+        )))
         return rows
     }
 
@@ -845,7 +853,11 @@ extension WatchPipelineReducer {
             WatchDiagnosticsExportRow(label: "in-flight journal handoff", value: "\(max(0, input.inFlightCount))"),
             WatchDiagnosticsExportRow(label: SourceVocabulary.watchHandedToJournalLabel, value: "\(max(0, input.lifetimeHanded))"),
             WatchDiagnosticsExportRow(label: SourceVocabulary.watchLastSyncDetailLabel, value: self.lastSyncText(input.lastUploadAt, now: input.now)),
-            WatchDiagnosticsExportRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: WatchTransferFailureFormatter.exportSafeText(input.lastUploadError)),
+            WatchDiagnosticsExportRow(label: SourceVocabulary.watchLastUploadErrorLabel, value: self.uploadErrorText(
+                WatchTransferFailureFormatter.exportSafeText(input.lastUploadError),
+                at: input.lastUploadError == nil ? nil : input.lastUploadErrorAt,
+                now: input.now
+            )),
         ]
     }
 
@@ -1458,6 +1470,12 @@ extension WatchPipelineReducer {
         @unknown default:
             SourceVocabulary.watchActivationNotActivated
         }
+    }
+
+    /// An upload error carries its age in this page's own relative wording.
+    nonisolated static func uploadErrorText(_ text: String, at: Date?, now: Date) -> String {
+        guard let age = self.age(of: at, now: now) else { return text }
+        return "\(text) (\(self.relativeText(secondsAgo: age)))"
     }
 
     nonisolated static func detailText(_ value: String?) -> String {

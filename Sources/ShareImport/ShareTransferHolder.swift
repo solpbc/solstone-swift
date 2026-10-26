@@ -62,6 +62,11 @@ final class ShareTransferHolder {
         self.status.lastErrorDetail ?? self.store.lastError
     }
 
+    /// The source's transfer error, only while it is still recent at `now`.
+    func recentError(now: Date) -> TransferRecentError? {
+        TransferRecentError.evaluate(self.status, now: now)
+    }
+
     var deliveredCount: Int {
         self.status.deliveredCount
     }

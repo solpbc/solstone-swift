@@ -58,6 +58,7 @@ struct WatchPipelineInputReader: DynamicProperty {
         }
 
         let iphoneEnvironment = WatchDiagnosticsIPhoneEnvironment.current()
+        let watchRecentUploadError = self.watchUploaderHolder.recentError(now: now)
         let input = WatchPipelineInput(
             now: now,
             watchStatus: self.watchLink.watchStatus,
@@ -71,7 +72,8 @@ struct WatchPipelineInputReader: DynamicProperty {
             failedCount: self.watchUploaderHolder.failedCount,
             inFlightCount: self.watchUploaderHolder.inFlightCount,
             lastUploadAt: self.watchUploaderHolder.lastUploadAt,
-            lastUploadError: self.watchUploaderHolder.lastError,
+            lastUploadError: watchRecentUploadError?.detail,
+            lastUploadErrorAt: watchRecentUploadError?.at,
             lastReceivedAt: self.receiver?.lastReceivedAt,
             lastStagingError: self.receiver?.lastStagingError,
             isPaired: self.watchLink.isPaired,

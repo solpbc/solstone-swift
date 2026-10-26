@@ -452,7 +452,7 @@ nonisolated final class RefusedItemsExportTests: XCTestCase {
         )
         let row = SourceSyncStateLine(
             name: "audio", pending: 1, inFlight: 0, attention: 0, delivered: 0,
-            lastUploadAt: nil, recentErrorCount: 0, recentErrorDetail: nil, detail: detail
+            lastUploadAt: nil, recentError: nil, detail: detail
         )
         let lines = syncStateSummaryLines(rows: [row], now: Self.baseDate.addingTimeInterval(60))
 
@@ -805,7 +805,7 @@ private extension RefusedItemsExportTests {
             let detail = await SourceSyncStateDetail.build(from: engine, sourceKey: source.key)
             rows.append(SourceSyncStateLine(
                 name: source.name, pending: 0, inFlight: 0, attention: detail.attentionItemCount, delivered: 0,
-                lastUploadAt: nil, recentErrorCount: 0, recentErrorDetail: nil, detail: detail
+                lastUploadAt: nil, recentError: nil, detail: detail
             ))
         }
         let lines = syncStateSummaryLines(rows: rows, now: now)

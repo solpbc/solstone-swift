@@ -36,6 +36,9 @@ nonisolated struct TransferSourceStatusSnapshot: Codable, Equatable, Sendable {
     /// connection's round offers them again, so a drain has nothing to wait for on their account.
     /// They stay in `attentionCount`, which is what the owner sees as held.
     var refusalPacedCount = 0
+    /// When `lastErrorDetail` happened, and the times of the errors since the source's last delivery.
+    var lastErrorAt: Date?
+    var errorTimesSinceDelivery: [Date]?
 }
 
 /// In-memory status for one queued, attention, or in-flight item. The manifest
@@ -121,5 +124,30 @@ final class TransferStatusMirror {
         self.sources = snapshot.sources
         self.aggregateBytesPerSecond = snapshot.aggregateBytesPerSecond
         self.applyCount += 1
+    }
+}
+
+/// A transfer error that is still news: it happened in the last 15 minutes and no delivery on its
+/// source succeeded at or after it. Decided when it is shown, never when the engine last updated,
+/// so an old error ages out even when nothing else happens.
+nonisolated struct TransferRecentError: Equatable, Sendable {
+    static let window: TimeInterval = 15 * 60
+
+    let detail: String
+    let at: Date
+    /// Errors in the window after the source's last delivery, this one included.
+    let count: Int
+
+    static func evaluate(_ status: TransferSourceStatusSnapshot, now: Date) -> TransferRecentError? {
+        guard let detail = status.lastErrorDetail, let at = status.lastErrorAt else { return nil }
+        let floor = now.addingTimeInterval(-Self.window)
+        func isRecent(_ time: Date) -> Bool {
+            guard time >= floor, time <= now else { return false }
+            guard let delivered = status.lastDeliveredAt else { return true }
+            return time > delivered
+        }
+        guard isRecent(at) else { return nil }
+        let count = (status.errorTimesSinceDelivery ?? [at]).filter(isRecent).count
+        return TransferRecentError(detail: detail, at: at, count: max(1, count))
     }
 }
