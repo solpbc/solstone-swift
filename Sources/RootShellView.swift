@@ -739,15 +739,6 @@ struct RootShellView: View {
         )
     }
 
-    /// Refresh, then read the losses the visit will display. The read sees the published refresh.
-    static func refreshedLosses(
-        refresh: () async -> Void,
-        notice: () -> [JournalEventRecord]
-    ) async -> [JournalEventRecord] {
-        await refresh()
-        return notice()
-    }
-
     /// Phone status is the sheet. iPad status is the detail pane, including the paired default.
     /// A push that covers that content is not a visit. On-this-device is a path value.
     private var journalGapSurfaceVisible: Bool {
@@ -769,33 +760,25 @@ struct RootShellView: View {
 
     /// Starts a visit when none is underway. A visit already showing does not mark a later loss.
     private func captureJournalGapIfVisible() async {
-        guard Self.journalGapVisitMayStart(
-            sceneIsActive: self.scenePhase == .active,
-            surfaceVisible: self.journalGapSurfaceVisible
-        ) else { return }
-        let losses = await Self.refreshedLosses(
-            refresh: { await self.mobileSegmentTransferHolder.refreshJournalGapNotice() },
-            notice: { self.mobileSegmentTransferHolder.journalGapNotice.losses }
-        )
-        self.journalGapVisit.captureIfNeeded(
-            live: losses,
-            store: self.mobileSegmentTransferHolder.journalEvents
-        )
-        self.mobileSegmentTransferHolder.refreshJournalGap()
+        await self.requestJournalGapVisit(fresh: false)
     }
 
     /// The scene became active, or the owner opened status that was already showing.
     private func beginJournalGapVisit() async {
-        guard Self.journalGapVisitMayStart(
-            sceneIsActive: self.scenePhase == .active,
-            surfaceVisible: self.journalGapSurfaceVisible
-        ) else { return }
-        let losses = await Self.refreshedLosses(
+        await self.requestJournalGapVisit(fresh: true)
+    }
+
+    private func requestJournalGapVisit(fresh: Bool) async {
+        await self.journalGapVisit.requestStart(
+            fresh: fresh,
+            isShowing: {
+                Self.journalGapVisitMayStart(
+                    sceneIsActive: self.scenePhase == .active,
+                    surfaceVisible: self.journalGapSurfaceVisible
+                )
+            },
             refresh: { await self.mobileSegmentTransferHolder.refreshJournalGapNotice() },
-            notice: { self.mobileSegmentTransferHolder.journalGapNotice.losses }
-        )
-        self.journalGapVisit.beginNewVisit(
-            live: losses,
+            live: { self.mobileSegmentTransferHolder.journalGapNotice.losses },
             store: self.mobileSegmentTransferHolder.journalEvents
         )
         self.mobileSegmentTransferHolder.refreshJournalGap()

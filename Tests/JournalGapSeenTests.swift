@@ -472,16 +472,95 @@ final class JournalGapSeenTests: XCTestCase {
         XCTAssertTrue(visit.displayed(live: try self.live()).isEmpty)
     }
 
-    func testOpenStatusReadsTheNoticeAfterTheRefresh() async {
+    func testARequestReadsTheLossesAfterItsRefresh() async throws {
+        let visit = JournalGapVisit()
         var refreshed = false
-        let losses = await RootShellView.refreshedLosses {
-            refreshed = true
-        } notice: {
-            XCTAssertTrue(refreshed)
-            return []
-        }
-        XCTAssertTrue(losses.isEmpty)
+        var recorded: String?
+        await visit.requestStart(
+            fresh: true,
+            isShowing: { true },
+            refresh: {
+                refreshed = true
+                recorded = try? self.recordLoss()
+            },
+            live: { (try? self.live()) ?? [] },
+            store: self.events
+        )
         XCTAssertTrue(refreshed)
+        let id = try XCTUnwrap(recorded)
+        XCTAssertTrue(self.events.isSeen(id: id))
+    }
+
+    func testARequestWhoseSceneLeftDuringTheReadMarksNothing() async throws {
+        let id = try self.recordLoss()
+        let visit = JournalGapVisit()
+        var showing = true
+        await visit.requestStart(
+            fresh: true,
+            isShowing: { showing },
+            refresh: { showing = false },
+            live: { (try? self.live()) ?? [] },
+            store: self.events
+        )
+        XCTAssertFalse(self.events.isSeen(id: id))
+        XCTAssertFalse(visit.didCapture)
+    }
+
+    func testARequestEndedAndRestartedDuringTheReadLetsOnlyTheNewerMark() async throws {
+        let id = try self.recordLoss()
+        let visit = JournalGapVisit()
+        var newerFinished = false
+        await visit.requestStart(
+            fresh: true,
+            isShowing: { true },
+            refresh: {
+                // The scene leaves and comes back while this read is in flight.
+                visit.background()
+                XCTAssertFalse(self.events.isSeen(id: id))
+                await visit.requestStart(
+                    fresh: true,
+                    isShowing: { true },
+                    refresh: {},
+                    live: { (try? self.live()) ?? [] },
+                    store: self.events
+                )
+                newerFinished = true
+            },
+            live: {
+                XCTFail("a superseded request read the losses")
+                return []
+            },
+            store: self.events
+        )
+        XCTAssertTrue(newerFinished)
+        XCTAssertTrue(self.events.isSeen(id: id))
+        XCTAssertEqual(visit.captured.map(\.id), [id])
+    }
+
+    func testTwoOverlappingRequestsMarkOnlyTheNewerAndDisplayWhatItMarked() async throws {
+        let first = try self.recordLoss()
+        let visit = JournalGapVisit()
+        var second: String?
+        await visit.requestStart(
+            fresh: true,
+            isShowing: { true },
+            refresh: {
+                second = try? self.recordLoss()
+                await visit.requestStart(
+                    fresh: false,
+                    isShowing: { true },
+                    refresh: {},
+                    live: { (try? self.live()) ?? [] },
+                    store: self.events
+                )
+            },
+            live: { (try? self.live()) ?? [] },
+            store: self.events
+        )
+        let secondID = try XCTUnwrap(second)
+        XCTAssertTrue(self.events.isSeen(id: first))
+        XCTAssertTrue(self.events.isSeen(id: secondID))
+        XCTAssertEqual(Set(visit.displayed(live: try self.live()).map(\.id)), [first, secondID])
     }
 
     func testSelectingThePillAgainStartsANewVisit() throws {

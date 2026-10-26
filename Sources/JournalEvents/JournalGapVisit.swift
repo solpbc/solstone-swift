@@ -19,6 +19,31 @@ final class JournalGapVisit {
     /// True for the whole visit, including one that started with nothing to mark.
     private(set) var didCapture = false
     private(set) var captured: [JournalEventRecord] = []
+    /// Bumped by every request and every end, so only the newest request may mark.
+    private var generation = 0
+
+    /// The one way a visit starts. `isShowing` reports whether the scene is active and the status
+    /// content is visible; it is read before the refresh and again after it. A request whose content
+    /// stopped showing during the refresh, or that a newer request or an end superseded, marks nothing.
+    /// `fresh` starts a new visit; otherwise a visit starts only when none is underway.
+    func requestStart(
+        fresh: Bool,
+        isShowing: () -> Bool,
+        refresh: () async -> Void,
+        live: () -> [JournalEventRecord],
+        store: JournalEventStore
+    ) async {
+        guard isShowing() else { return }
+        self.generation &+= 1
+        let token = self.generation
+        await refresh()
+        guard token == self.generation, isShowing(), !Task.isCancelled else { return }
+        if fresh {
+            self.beginNewVisit(live: live(), store: store)
+        } else {
+            self.captureIfNeeded(live: live(), store: store)
+        }
+    }
 
     func beginNewVisit(live: [JournalEventRecord], store: JournalEventStore) {
         self.end()
@@ -42,6 +67,7 @@ final class JournalGapVisit {
     }
 
     func end() {
+        self.generation &+= 1
         self.didCapture = false
         self.captured = []
     }
