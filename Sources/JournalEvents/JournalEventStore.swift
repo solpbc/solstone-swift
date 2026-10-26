@@ -495,17 +495,16 @@ nonisolated struct JournalEventStore: Sendable {
         calendar: Calendar = .current,
         isCancelled: @Sendable () -> Bool = { false }
     ) throws -> JournalImportRun? {
-        try self.withWrite {
-            try self.importLegacyWhileLocked(
-                from: mobileSegmentRoots,
-                now: now,
-                calendar: calendar,
-                isCancelled: isCancelled
-            )
-        }
+        // Each record takes the write lock on its own, so other writes are not held up by the walk.
+        try self.importLegacyRecordByRecord(
+            from: mobileSegmentRoots,
+            now: now,
+            calendar: calendar,
+            isCancelled: isCancelled
+        )
     }
 
-    private func importLegacyWhileLocked(
+    private func importLegacyRecordByRecord(
         from mobileSegmentRoots: [URL],
         now: Date,
         calendar: Calendar,
@@ -529,8 +528,10 @@ nonisolated struct JournalEventStore: Sendable {
             )
         }
         if isCancelled() { return nil }
-        self.pruneWhileLocked(now: now, calendar: calendar)
-        self.pruneOrphanSeenMarks()
+        self.withWrite {
+            self.pruneWhileLocked(now: now, calendar: calendar)
+            self.pruneOrphanSeenMarks()
+        }
         return JournalImportRun(imported: imported, skipped: skipped)
     }
 
@@ -670,9 +671,11 @@ nonisolated struct JournalEventStore: Sendable {
                         continue
                     }
                     do {
-                        try self.importManifestData(
-                            data, name: manifest.lastPathComponent, now: now, imported: &imported, skipped: &skipped
-                        )
+                        try self.withWrite {
+                            try self.importManifestData(
+                                data, name: manifest.lastPathComponent, now: now, imported: &imported, skipped: &skipped
+                            )
+                        }
                     } catch is JournalLegacyDecodeError {
                         self.noteSkipped(manifest.lastPathComponent)
                         skipped += 1
@@ -704,7 +707,7 @@ nonisolated struct JournalEventStore: Sendable {
                     continue
                 }
                 do {
-                    try consume(data)
+                    try self.withWrite { try consume(data) }
                 } catch is JournalLegacyDecodeError {
                     self.noteSkipped(url.lastPathComponent)
                     skippedHere += 1

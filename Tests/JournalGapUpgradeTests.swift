@@ -73,6 +73,24 @@ final class JournalGapUpgradeTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: self.cachesRoot().path))
     }
 
+    func testAWriteDuringTheImportIsNotHeldUntilTheImportEnds() async throws {
+        let stamp = Self.internet.string(from: Date())
+        for _ in 0..<20 {
+            _ = try self.writeInterruption(segmentID: UUID(), reason: "audio_capture_unfinished", stamp: stamp, root: self.store.rootURL)
+        }
+        let events = JournalEventStore(rootURL: JournalEventStore.directory(besideMobileSegmentRoot: self.store.rootURL))
+        let probe = ImportWriteProbe()
+        let roots = [self.store.rootURL]
+        _ = try await Task.detached {
+            try events.importLegacy(from: roots, isCancelled: {
+                probe.betweenRecords(events: events)
+                return false
+            })
+        }.value
+        XCTAssertGreaterThan(probe.attempts, 0)
+        XCTAssertEqual(probe.completedInTime, probe.attempts)
+    }
+
     func testFailedImportDoesNotHoldTheGate() async throws {
         let audio = self.store.audioInterruptionDirectory()
         try FileManager.default.createDirectory(at: audio.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -588,4 +606,37 @@ final class JournalGapUpgradeTests: XCTestCase {
 private final class ResumeCanceller: @unchecked Sendable {
     var task: Task<Void, Never>?
     func cancel() { self.task?.cancel() }
+}
+
+/// Between import records, issues a store write from another thread and waits briefly for it.
+/// A write held until the whole import ends misses the wait.
+private final class ImportWriteProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var attempts = 0
+    private(set) var completedInTime = 0
+    private var calls = 0
+
+    func betweenRecords(events: JournalEventStore) {
+        self.lock.lock()
+        self.calls += 1
+        let call = self.calls
+        self.lock.unlock()
+        guard call == 5 || call == 10 else { return }
+        let done = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async {
+            try? events.recordDiagnostic(
+                segmentID: UUID(),
+                source: .audio,
+                reason: "probe_during_import",
+                captureAt: nil,
+                now: Date()
+            )
+            done.signal()
+        }
+        let finished = done.wait(timeout: .now() + 2) == .success
+        self.lock.lock()
+        self.attempts += 1
+        if finished { self.completedInTime += 1 }
+        self.lock.unlock()
+    }
 }
