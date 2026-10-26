@@ -62,6 +62,36 @@ final class JournalKeptPartTests: XCTestCase {
         XCTAssertEqual(loss.reason, JournalKeptPart.reason)
     }
 
+    func testAFinalWhoseSizeCannotBeReadKeepsBothFiles() throws {
+        let segmentID = UUID()
+        let directory = try self.openActive(segmentID: segmentID, sources: [.screencast])
+        let partURL = self.store.screenPartURL(in: directory)
+        let finalURL = self.store.screenURL(in: directory)
+        try Data("window-just-recorded".utf8).write(to: partURL)
+        try Data("previous-final".utf8).write(to: finalURL)
+        let fileManager = StatFailingFileManager()
+        fileManager.blockedPath = finalURL.path
+
+        let handoff = try MobileSegmentScreencastJSONStore.finalizePart(
+            partURL: partURL,
+            finalURL: finalURL,
+            fileManager: fileManager,
+            replacement: JournalFinalReplacement(
+                segmentID: segmentID,
+                source: .screencast,
+                captureAt: self.clock.now(),
+                now: self.clock.now(),
+                eventsRoot: self.uploader.journalEvents.rootURL
+            )
+        )
+        XCTAssertEqual(handoff, .keptBoth)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: partURL.path))
+        XCTAssertEqual(try Data(contentsOf: finalURL), Data("previous-final".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: directory.appendingPathComponent(MobileSegmentScreencastPaths.screenDiagnosticFilename).path
+        ))
+    }
+
     func testReconcileKeepsANumberedPartUntilItsLossIsWritten() async throws {
         let segmentID = UUID()
         let directory = try self.openActive(segmentID: segmentID, sources: [.screencast])

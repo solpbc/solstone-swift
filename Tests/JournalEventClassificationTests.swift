@@ -397,6 +397,32 @@ final class JournalEventClassificationTests: XCTestCase {
         try FileManager.default.removeItem(at: events)
     }
 
+    func testAnOwnerRemovalThatCannotRemoveIsReportedAndTheRowStays() throws {
+        let fileManager = RemoveFailingFileManager()
+        let store = MobileSegmentStore(
+            rootURL: self.tempDirectory.appendingPathComponent("remove-failing/MobileSegment", isDirectory: true),
+            fileManager: fileManager
+        )
+        let uploader = MobileSegmentUploader(store: store, clock: self.clock)
+        let directory = try store.createActive(manifest: MobileSegmentManifest(
+            segmentID: UUID(),
+            startedAt: self.clock.now(),
+            openedWithSources: [.audio],
+            activeSourceSetVersion: 1
+        ))
+        let segmentID = try XCTUnwrap(UUID(uuidString: directory.lastPathComponent))
+        fileManager.blockedPath = directory.path
+
+        uploader.dropSegment(segmentID: segmentID)
+
+        XCTAssertNotNil(store.findDirectory(segmentID: segmentID))
+        XCTAssertEqual(uploader.lastError, "mobile segment owner removal failed segment=\(segmentID.uuidString)")
+        guard case .events(let rows) = uploader.journalEvents.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        XCTAssertFalse(rows.contains { $0.segmentID == segmentID.uuidString })
+    }
+
     func testRetirementStillRefusesADirectoryWithAnUnrecordedKeptPart() throws {
         let opened = try self.openActive(sources: [.screencast])
         try Data("kept".utf8).write(to: self.store.screenPartURL(in: opened.directory))
@@ -1251,7 +1277,7 @@ final class JournalEventClassificationTests: XCTestCase {
     }
 }
 
-private final class StatFailingFileManager: FileManager, @unchecked Sendable {
+final class StatFailingFileManager: FileManager, @unchecked Sendable {
     var blockedPath: String?
 
     override func attributesOfItem(atPath path: String) throws -> [FileAttributeKey: Any] {
@@ -1259,5 +1285,16 @@ private final class StatFailingFileManager: FileManager, @unchecked Sendable {
             throw CocoaError(.fileReadNoPermission)
         }
         return try super.attributesOfItem(atPath: path)
+    }
+}
+
+final class RemoveFailingFileManager: FileManager, @unchecked Sendable {
+    var blockedPath: String?
+
+    override func removeItem(at url: URL) throws {
+        if url.path == self.blockedPath {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        try super.removeItem(at: url)
     }
 }

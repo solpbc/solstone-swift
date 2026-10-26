@@ -686,6 +686,14 @@ final class MobileSegmentScreencastAudioPromotionTests: XCTestCase {
         let payloadAudioURL = try XCTUnwrap(payloadAudio)
         let payloadAudioData = try Data(contentsOf: payloadAudioURL)
         XCTAssertEqual(payloadAudioData, originalAudioData)
+
+        // The broadcast's copy of the same window is a diagnostic, never a loss.
+        guard case .events(let rows) = harness.uploader.journalEvents.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        let segmentRows = rows.filter { $0.segmentID == segmentID.uuidString }
+        XCTAssertTrue(segmentRows.contains { $0.kind == .diagnostic && $0.reason == "screen_audio_duplicate" })
+        XCTAssertFalse(segmentRows.contains { $0.kind == .loss })
     }
 
     func testAC9AudioNonArtifactPreservesExtensionFile() async throws {
@@ -769,6 +777,36 @@ final class MobileSegmentScreencastAudioPromotionTests: XCTestCase {
         let snapshot = try XCTUnwrap(snapshots.first { $0.manifest.observerIngest?.segmentID == segmentID })
         XCTAssertEqual(Set(snapshot.manifest.payloadParts.map(\.partID)), ["audio", "screencast"])
         XCTAssertEqual(snapshot.manifest.observerIngest?.durationS, 60)
+    }
+
+    func testFinishedBroadcastMicIsDeliveredWhenPhoneAudioEndedEmpty() async throws {
+        let harness = self.makeHarness()
+        try await harness.engine.start()
+        let segmentID = UUID()
+        let startedAt = self.clock.now()
+        let endedAt = startedAt.addingTimeInterval(60)
+        var manifest = MobileSegmentManifest(
+            segmentID: segmentID,
+            startedAt: startedAt,
+            openedWithSources: [.audio, .screencast],
+            activeSourceSetVersion: 1
+        )
+        let activeDir = try harness.store.createActive(manifest: manifest)
+        try Data(repeating: 0xAA, count: 1024).write(to: harness.store.screenURL(in: activeDir))
+        let mic = Data(repeating: 0x22, count: 2000)
+        try mic.write(to: harness.store.screenAudioURL(in: activeDir))
+        try harness.store.writeOutcome(
+            MobileSegmentSourceResolution(state: .removed, reason: "audio_undecodable_container", lastAttemptAt: endedAt),
+            source: .audio,
+            manifest: &manifest,
+            in: activeDir,
+            now: endedAt
+        )
+
+        await harness.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: endedAt)
+
+        let payloadAudio = await harness.engine.payloadFileURL(itemID: segmentID, partID: "audio")
+        XCTAssertEqual(try Data(contentsOf: try XCTUnwrap(payloadAudio)), mic)
     }
 
     func testAudioMovedBeforeACrashIsDeliveredOnTheNextPass() async throws {

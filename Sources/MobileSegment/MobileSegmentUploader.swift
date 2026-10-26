@@ -1633,9 +1633,9 @@ final class MobileSegmentUploader {
                 self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
             }
             let manifest = try? self.store.readManifest(in: found.url)
-            self.recordOwnerRemoval(segmentID: segmentID, sources: Self.ownerRemovalSources(manifest), captureAt: manifest?.startedAt)
             do {
                 try self.store.removeForOwner(found.url)
+                self.recordOwnerRemoval(segmentID: segmentID, sources: Self.ownerRemovalSources(manifest), captureAt: manifest?.startedAt)
             } catch {
                 let diagnostic = "mobile segment owner removal failed segment=\(segmentID.uuidString)"
                 self.lastError = diagnostic
@@ -1682,8 +1682,8 @@ final class MobileSegmentUploader {
         do {
             var manifest = try self.store.readManifest(in: found.url)
             guard manifest.screencast.state.isLocalFacet else { return }
-            self.recordOwnerRemoval(segmentID: segmentID, sources: [.screencast], captureAt: manifest.startedAt)
             try self.store.removeScreenMaterialForOwner(in: found.url)
+            self.recordOwnerRemoval(segmentID: segmentID, sources: [.screencast], captureAt: manifest.startedAt)
             let resolution = MobileSegmentSourceResolution(
                 state: .removed,
                 reason: "screencast_removed",
@@ -2289,9 +2289,16 @@ private extension MobileSegmentUploader {
         carried: MobileSegmentCarriedTiming
     ) async throws -> Bool {
         guard manifest.declaredSources.contains(.screencast),
-              manifest.resolution(for: .screencast).state.isTerminal,
-              Self.screenAudioMayStandIn(for: manifest.resolution(for: .audio).state)
+              manifest.resolution(for: .screencast).state.isTerminal
         else {
+            return true
+        }
+        if manifest.audio.state == .finalizedArtifact,
+           manifest.audio.reason != MobileSegmentManifest.promotedScreenAudioReason {
+            self.retireDuplicateScreenAudio(segmentID: segmentID, directory: directory, captureAt: manifest.startedAt, now: endedAt)
+            return true
+        }
+        guard Self.screenAudioMayStandIn(for: manifest.resolution(for: .audio).state) else {
             return true
         }
         let audioURL = self.store.audioURL(in: directory)
@@ -2364,6 +2371,21 @@ private extension MobileSegmentUploader {
             }
         }
         return true
+    }
+
+    /// The phone's own audio for this window was delivered, so the broadcast's audio of the same
+    /// window is a second copy: a diagnostic, never a loss.
+    private func retireDuplicateScreenAudio(segmentID: UUID, directory: URL, captureAt: Date?, now: Date) {
+        var urls = [self.store.screenAudioURL(in: directory)]
+        urls += (JournalKeptPart.urls(in: directory) ?? []).filter {
+            JournalKeptPart.source(forFileName: $0.lastPathComponent) == .screenAudio
+        }
+        let present = urls.filter { self.store.fileExists($0) }
+        guard !present.isEmpty else { return }
+        self.recordDiagnostic(segmentID: segmentID, source: .screenAudio, reason: "screen_audio_duplicate", captureAt: captureAt, now: now)
+        for url in present {
+            self.store.removeIfExists(url)
+        }
     }
 
     static func screenAudioMayStandIn(for phoneAudio: MobileSegmentResolutionState) -> Bool {
