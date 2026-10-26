@@ -403,12 +403,12 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertEqual(snapshots.count, 1)
         XCTAssertEqual(harness.uploader.pendingCount, 0)
         XCTAssertEqual(harness.uploader.failedCount, 0)
-        XCTAssertTrue(try harness.uploader.onThisPhoneItems(source: .audio, lifecycle: .pending).isEmpty)
-        XCTAssertTrue(try harness.uploader.onThisPhoneItems(source: .audio, lifecycle: .failed).isEmpty)
+        XCTAssertEqual(harness.uploader.onThisPhoneSnapshot(for: .audio), .loaded(items: []))
 
-        await harness.uploader.enqueuePendingSegmentIntoTransfer(segmentID: stuckID)
-        let afterDirectEnqueue = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
-        XCTAssertEqual(afterDirectEnqueue.count, 1)
+        await harness.uploader.resumeFromDisk()
+        let afterSecondPass = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertEqual(afterSecondPass.count, 1)
+        XCTAssertTrue(harness.store.fileExists(stuck))
 
         try FileManager.default.removeItem(at: losses)
         await harness.uploader.resumeFromDisk()

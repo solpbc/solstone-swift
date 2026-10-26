@@ -93,7 +93,7 @@ final class JournalKeptPartTests: XCTestCase {
         try previous.write(to: finalURL)
         try self.blockLosses()
 
-        XCTAssertThrowsError(try MobileSegmentScreencastJSONStore.finalizePart(
+        let handoff = try MobileSegmentScreencastJSONStore.finalizePart(
             partURL: partURL,
             finalURL: finalURL,
             replacement: JournalFinalReplacement(
@@ -103,18 +103,26 @@ final class JournalKeptPartTests: XCTestCase {
                 now: self.clock.now(),
                 eventsRoot: self.uploader.journalEvents.rootURL
             )
-        )) { error in
-            XCTAssertEqual(error as? JournalPartHandoffError, .bytesNotAtFinalURL)
-        }
+        )
+        XCTAssertEqual(handoff, .keptBoth)
         XCTAssertEqual(try Data(contentsOf: partURL), window)
         XCTAssertEqual(try Data(contentsOf: finalURL), previous)
-        XCTAssertEqual(
-            ScreencastBroadcastWriterOutcome.handoff(partRemains: true, finalExists: true),
-            .filesystemHandoffFailure("bytes_not_at_final")
-        )
+        XCTAssertNil(ScreencastBroadcastWriterOutcome.keptBoth.diagnosticReason)
+        guard case .events(let rows) = self.uploader.journalEvents.readEvents() else {
+            return XCTFail("journal events unreadable")
+        }
+        XCTAssertTrue(rows.contains {
+            $0.segmentID == segmentID.uuidString && $0.kind == .diagnostic && $0.reason == JournalFinalReplacement.keepBothReason
+        })
 
         await self.uploader.finalizeActiveSegment(segmentID: segmentID, endedAt: self.clock.now())
-        self.uploader.dropSegment(segmentID: segmentID)
+        let pending = try XCTUnwrap(self.store.findDirectory(segmentID: segmentID))
+        let manifest = try self.store.readManifest(in: pending.url)
+        XCTAssertEqual(manifest.resolution(for: .screencast).state, .finalizedArtifact)
+        XCTAssertEqual(try Data(contentsOf: self.store.screenURL(in: pending.url)), previous)
+
+        try self.store.writeTombstone(segmentID: segmentID, kind: "uploaded", reason: "delivered", now: self.clock.now())
+        await self.uploader.resumeFromDisk()
         let kept = try XCTUnwrap(self.store.findDirectory(segmentID: segmentID))
         XCTAssertEqual(
             try Data(contentsOf: kept.url.appendingPathComponent(MobileSegmentScreencastPaths.screenPartFilename)),
@@ -123,7 +131,7 @@ final class JournalKeptPartTests: XCTestCase {
         try self.unblockLosses()
         XCTAssertFalse(try self.lossRecorded(segmentID: segmentID))
 
-        self.uploader.dropSegment(segmentID: segmentID)
+        await self.uploader.resumeFromDisk()
         XCTAssertNil(self.store.findDirectory(segmentID: segmentID))
         let loss = try self.loss(segmentID: segmentID)
         XCTAssertEqual(loss.source, .screencast)

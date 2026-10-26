@@ -165,12 +165,15 @@ nonisolated enum MobileSegmentScreencastJSONStore {
         }
     }
 
+    /// Moves the finished part to the final name. When an existing final cannot be recorded or measured,
+    /// both files stay where the uploader finds them and a later pass classifies the part.
+    @discardableResult
     static func finalizePart(
         partURL: URL,
         finalURL: URL,
         fileManager: FileManager = .default,
         replacement: JournalFinalReplacement? = nil
-    ) throws {
+    ) throws -> JournalPartHandoff {
         try fileManager.createDirectory(
             at: finalURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -179,7 +182,8 @@ nonisolated enum MobileSegmentScreencastJSONStore {
             if let replacement {
                 switch replacement.decision(partURL: partURL, finalURL: finalURL, fileManager: fileManager) {
                 case .keepBoth:
-                    throw JournalPartHandoffError.bytesNotAtFinalURL
+                    replacement.recordKeepBoth()
+                    return .keptBoth
                 case .replace:
                     break
                 }
@@ -188,12 +192,14 @@ nonisolated enum MobileSegmentScreencastJSONStore {
         } else {
             try fileManager.moveItem(at: partURL, to: finalURL)
         }
+        return .moved
     }
 }
 
-/// The finished bytes are not where the uploader reads them. The part stays for a later pass.
-nonisolated enum JournalPartHandoffError: Error, Equatable {
-    case bytesNotAtFinalURL
+nonisolated enum JournalPartHandoff: Equatable, Sendable {
+    case moved
+    /// The window's bytes stayed in the part beside an existing final. Capture goes on.
+    case keptBoth
 }
 
 nonisolated enum MobileSegmentScreencastIdentity {
@@ -483,10 +489,11 @@ nonisolated enum ScreencastBroadcastWriterOutcome: Equatable, Sendable {
     case finalizeTimeout
     case writerFailure(String)
     case filesystemHandoffFailure(String)
+    case keptBoth
 
     var diagnosticReason: MobileSegmentScreencastDiagnosticReason? {
         switch self {
-        case .completed:
+        case .completed, .keptBoth:
             nil
         case .noVideo:
             .noVideo

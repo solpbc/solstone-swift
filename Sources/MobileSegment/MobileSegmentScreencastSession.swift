@@ -277,7 +277,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
         let outcome = self.finishAudioThenScreen(now: now)
 
         switch outcome {
-        case .completed, .noVideo:
+        case .completed, .noVideo, .keptBoth:
             self.writeRuntime(
                 state: .finalized,
                 sessionID: sessionID,
@@ -389,7 +389,7 @@ nonisolated final class ScreencastBroadcastSession: @unchecked Sendable {
         self.closeCurrentSidecar(now: now)
         let outcome = self.finishAudioThenScreen(now: now)
         switch outcome {
-        case .completed, .noVideo:
+        case .completed, .noVideo, .keptBoth:
             break
         case .finalizeTimeout:
             self.failWithDiagnostic(

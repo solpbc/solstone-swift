@@ -183,7 +183,7 @@ nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @
         }
 
         do {
-            try MobileSegmentScreencastJSONStore.finalizePart(
+            let handoffResult = try MobileSegmentScreencastJSONStore.finalizePart(
                 partURL: partURL,
                 finalURL: finalURL,
                 fileManager: self.fileManager,
@@ -196,6 +196,9 @@ nonisolated final class ScreencastBroadcastWriter: ScreencastBroadcastWriting, @
                 )
             )
             try? self.writeLiveness(now: now, force: true)
+            if handoffResult == .keptBoth {
+                return .keptBoth
+            }
             return ScreencastBroadcastWriterOutcome.handoff(
                 partRemains: self.fileManager.fileExists(atPath: partURL.path),
                 finalExists: self.fileManager.fileExists(atPath: finalURL.path)

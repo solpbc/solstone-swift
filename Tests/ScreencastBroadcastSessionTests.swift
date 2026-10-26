@@ -26,10 +26,13 @@ private final class TestBroadcastWriter: ScreencastBroadcastWriting, @unchecked 
     var shouldFailLiveness: Bool = false
     var onFinish: (@Sendable () -> Void)?
     var tracker: SessionTestEventTracker?
+    var finishOutcome: ScreencastBroadcastWriterOutcome?
+    var openCount = 0
 
     func open(rootURL: URL, handoff: MobileSegmentScreencastHandoffRecord, now: Date) throws {
         self.isOpen = true
         self.openedHandoff = handoff
+        self.openCount += 1
     }
 
     func appendVideo(_ sampleBuffer: CMSampleBuffer, now: Date) {
@@ -42,6 +45,9 @@ private final class TestBroadcastWriter: ScreencastBroadcastWriting, @unchecked 
         self.isOpen = false
         self.tracker?.events.append(.videoFinish)
         self.onFinish?()
+        if let finishOutcome = self.finishOutcome {
+            return finishOutcome
+        }
         return self.acceptedFrameCount > 0 ? .completed : .noVideo
     }
 
@@ -428,6 +434,60 @@ nonisolated final class ScreencastBroadcastSessionTests: XCTestCase {
         XCTAssertTrue(writer.isOpen)
         XCTAssertEqual(session.currentHandoff?.segmentID, expectedOwnSegmentID)
         XCTAssertEqual(session.scheduleAnchorMs, 1_700_000_000_500)
+    }
+
+    func testKeptBothAtABoundaryOpensTheNextWindowAndAtTheEndStopsWithoutAnError() throws {
+        let clock = TestSessionClock(initialDate: Date(timeIntervalSince1970: 1_700_000_000))
+        let writer = TestBroadcastWriter()
+        writer.finishOutcome = .keptBoth
+        let state = TestSessionState()
+
+        let session = ScreencastBroadcastSession(
+            rootURL: self.tempDir,
+            writer: writer,
+            clock: { clock.now() },
+            availableBytes: { _ in state.availableBytes },
+            postChanged: {},
+            finishWithError: { state.finishedError = $0 }
+        )
+
+        session.broadcastStarted(sessionID: UUID())
+        clock.advance(by: 2.1)
+        session.tick()
+        let opensBeforeBoundary = writer.openCount
+        clock.advance(by: 300)
+        session.tick()
+
+        XCTAssertNil(state.finishedError)
+        XCTAssertEqual(session.currentWindowIndex, 1)
+        XCTAssertEqual(writer.openCount, opensBeforeBoundary + 1)
+
+        session.broadcastFinished()
+        XCTAssertNil(state.finishedError)
+    }
+
+    func testAHandoffThatCouldNotMoveTheBytesStillStopsTheBroadcast() throws {
+        let clock = TestSessionClock(initialDate: Date(timeIntervalSince1970: 1_700_000_000))
+        let writer = TestBroadcastWriter()
+        writer.finishOutcome = .filesystemHandoffFailure("move_failed")
+        let state = TestSessionState()
+
+        let session = ScreencastBroadcastSession(
+            rootURL: self.tempDir,
+            writer: writer,
+            clock: { clock.now() },
+            availableBytes: { _ in state.availableBytes },
+            postChanged: {},
+            finishWithError: { state.finishedError = $0 }
+        )
+
+        session.broadcastStarted(sessionID: UUID())
+        clock.advance(by: 2.1)
+        session.tick()
+        clock.advance(by: 300)
+        session.tick()
+
+        XCTAssertNotNil(state.finishedError)
     }
 
     func testForwardClockRotatesOnceIntoWindowContainingNow() throws {

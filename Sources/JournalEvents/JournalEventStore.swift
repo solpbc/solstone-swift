@@ -1244,6 +1244,22 @@ nonisolated struct JournalFinalReplacement: Sendable {
     var eventsRoot: URL
 
     static let reason = "screencast_final_replaced"
+    static let keepBothReason = "screencast_keep_both"
+
+    /// Best effort: a failed write never changes the outcome.
+    func recordKeepBoth() {
+        do {
+            try JournalEventStore(rootURL: self.eventsRoot).recordDiagnostic(
+                segmentID: self.segmentID,
+                source: self.source,
+                reason: Self.keepBothReason,
+                captureAt: self.captureAt,
+                now: self.now
+            )
+        } catch {
+            journalEventLog.error("journal diagnostic record failed reason=\(Self.keepBothReason, privacy: .public)")
+        }
+    }
 
     enum Decision: Sendable {
         case replace
