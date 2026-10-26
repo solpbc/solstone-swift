@@ -507,6 +507,14 @@ final class PadSplitShellUITests: XCTestCase {
         ).firstMatch
         XCTAssertTrue(gap.waitForExistence(timeout: 20))
         XCTAssertTrue(dayLine.waitForExistence(timeout: 20))
+        // The loss arrived after the default pane's visit began, so it waits for the next visit.
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.statusPill.state.journalGap"].waitForExistence(timeout: 20))
+
+        self.tapDeck("dayHome.importEntry", in: app)
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 10))
+        self.tapDeck("dayHome.statusPill", in: app)
+        // This visit marks the loss and keeps it on screen while it lasts.
+        XCTAssertTrue(gap.waitForExistence(timeout: 20))
         XCTAssertTrue(app.descendants(matching: .any)["dayHome.statusPill.state.caughtUp"].waitForExistence(timeout: 20))
 
         self.tapDeck("dayHome.importEntry", in: app)
