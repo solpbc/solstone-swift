@@ -1344,11 +1344,13 @@ final class TransferSegmentRepairResidueTests: XCTestCase {
         try TransferSegmentRepairTests.seedQueued(spool: spool, manifest: spoolManifest, payloads: ["audio": spoolPayload])
 
         let transfer = makeTransferCutoverHarness(rootURL: root, sessionConfiguration: makeTransferTestURLSessionConfiguration())
+        let log = DiagnosticLog()
         let uploader = MobileSegmentUploader(
             transferEngine: transfer.engine,
             store: store,
             clock: self.clock,
-            cooperator: MaintenanceCooperator()
+            cooperator: MaintenanceCooperator(),
+            diagnosticLog: log
         )
         try await transfer.engine.initialize()
         await uploader.resumeFromDisk()
@@ -1356,7 +1358,7 @@ final class TransferSegmentRepairResidueTests: XCTestCase {
         let snapshots = await transfer.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
         return Outcome(
             residueRemains: store.fileExists(residue),
-            lastError: uploader.lastError,
+            lastError: log.filtered(by: [.upload]).last?.message,
             spoolSegment: snapshots.first { $0.manifest.itemID == segmentID }?.manifest.observerIngest?.segment
         )
     }

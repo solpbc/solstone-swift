@@ -220,10 +220,12 @@ final class MobileSegmentMigrationTests: XCTestCase {
     func testDisabledMobileSegmentUploaderDoesNotTouchStoreWhenStorageUnavailable() async throws {
         let root = self.tempDirectory.appendingPathComponent("DisabledMobileSegment", isDirectory: true)
         let store = MobileSegmentStore(rootURL: root)
+        let log = DiagnosticLog()
         let uploader = MobileSegmentUploader(
             store: store,
             clock: self.clock,
-            storageDisabledReason: "mobile segment storage unavailable source=app-group"
+            storageDisabledReason: "mobile segment storage unavailable source=app-group",
+            diagnosticLog: log
         )
 
         XCTAssertThrowsError(try uploader.openSegment(sources: [.screencast], startedAt: self.clock.now(), sourceSetVersion: 1))
@@ -231,7 +233,10 @@ final class MobileSegmentMigrationTests: XCTestCase {
         await uploader.resolveFinalizeFailurePile()
         await uploader.redactScreencastFacet(segmentID: UUID())
 
-        XCTAssertEqual(uploader.lastError, "mobile segment storage unavailable source=app-group")
+        // A state, logged once however many guards it stops.
+        _ = uploader.summary(for: .audio)
+        _ = uploader.summary(for: .screencast)
+        XCTAssertEqual(log.filtered(by: [.upload]).map(\.message), ["mobile segment storage unavailable source=app-group"])
         XCTAssertFalse(FileManager.default.fileExists(atPath: root.path))
         XCTAssertEqual(uploader.pendingCount, 0)
         XCTAssertEqual(uploader.failedCount, 0)

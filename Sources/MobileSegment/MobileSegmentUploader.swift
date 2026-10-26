@@ -101,8 +101,10 @@ final class MobileSegmentUploader {
     /// Unseen losses inside the notice window. The pill and the widgets follow this value.
     private(set) var journalGapNotice: JournalGapNotice = .absent
     var lastUploadAt: Date?
-    var lastError: String?
-    private(set) var recentErrorCount = 0
+    /// When each distinct message was last logged. A loop adds at most one event per message per
+    /// collapse interval, and a recurrence after it shows with a current time.
+    @ObservationIgnored private var errorLoggedAt: [String: Date] = [:]
+    static let errorLogCollapseInterval: TimeInterval = 60 * 60
     static let finalizeFailureStages: Set<String> = [
         "source-finalize",
         "segment-finalize",
@@ -152,7 +154,8 @@ final class MobileSegmentUploader {
         self.diagnosticLog = diagnosticLog
         self.audioInspector = audioInspector
         if let storageDisabledReason {
-            self.lastError = storageDisabledReason
+            // A state, not an event: logged once here, never again by the guards.
+            self.noteError(storageDisabledReason)
             return
         }
         try? self.store.ensureRoot()
@@ -799,7 +802,7 @@ final class MobileSegmentUploader {
         } catch {
             let diagnostic = "mobile segment finalize failed segment=\(segmentID.uuidString) stage=segment-finalize"
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
-            self.lastError = diagnostic
+            self.noteError(diagnostic)
         }
         self.refreshCounts()
     }
@@ -842,7 +845,7 @@ final class MobileSegmentUploader {
             }
         } catch {
             let diagnostic = "mobile segment resume failed stage=resume"
-            self.lastError = diagnostic
+            self.noteError(diagnostic)
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
         }
         if Task.isCancelled {
@@ -866,7 +869,7 @@ final class MobileSegmentUploader {
             failed = try self.store.list(.failed)
         } catch {
             let diagnostic = "mobile segment finalize-failure scan failed stage=finalize-failure"
-            self.lastError = diagnostic
+            self.noteError(diagnostic)
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             self.refreshCounts()
             return
@@ -886,7 +889,7 @@ final class MobileSegmentUploader {
                 }
             } catch {
                 let diagnostic = "mobile segment finalize-failure deferred segment=\(segmentID.uuidString) stage=finalize-failure"
-                self.lastError = diagnostic
+                self.noteError(diagnostic)
                 mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             }
         }
@@ -986,6 +989,17 @@ final class MobileSegmentUploader {
         case .absent, .unusable:
             return 0
         }
+    }
+
+    /// Logs an uploader failure, collapsed per message: new messages and recurrences after the
+    /// collapse interval are appended; a loop repeating one message is not.
+    func noteError(_ message: String) {
+        let now = self.clock.now()
+        if let last = self.errorLoggedAt[message], now.timeIntervalSince(last) < Self.errorLogCollapseInterval {
+            return
+        }
+        self.errorLoggedAt[message] = now
+        self.diagnosticLog?.append(category: .upload, severity: .error, message: message)
     }
 
     private func recordDiagnostic(
@@ -1638,7 +1652,7 @@ final class MobileSegmentUploader {
                 self.recordOwnerRemoval(segmentID: segmentID, sources: Self.ownerRemovalSources(manifest), captureAt: manifest?.startedAt)
             } catch {
                 let diagnostic = "mobile segment owner removal failed segment=\(segmentID.uuidString)"
-                self.lastError = diagnostic
+                self.noteError(diagnostic)
                 mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             }
         }
@@ -1707,7 +1721,7 @@ final class MobileSegmentUploader {
             }
         } catch {
             let diagnostic = "mobile segment screencast redaction failed segment=\(segmentID.uuidString) source=screencast"
-            self.lastError = diagnostic
+            self.noteError(diagnostic)
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
         }
         self.refreshCounts()
@@ -1730,8 +1744,7 @@ final class MobileSegmentUploader {
             return MobileSegmentSourceSummary(
                 pendingCount: 0,
                 failedCount: 0,
-                lastUploadAt: self.lastUploadAt,
-                lastError: self.lastError
+                lastUploadAt: self.lastUploadAt
             )
         }
         var pending = 0
@@ -1755,8 +1768,7 @@ final class MobileSegmentUploader {
         return MobileSegmentSourceSummary(
             pendingCount: pending,
             failedCount: failed,
-            lastUploadAt: self.lastUploadAt,
-            lastError: self.lastError
+            lastUploadAt: self.lastUploadAt
         )
     }
 
@@ -1843,13 +1855,11 @@ final class MobileSegmentUploader {
 private extension MobileSegmentUploader {
     func guardStorageAvailable() -> Bool {
         guard let storageDisabledReason else { return true }
-        self.lastError = storageDisabledReason
         return false
     }
 
     func requireStorageAvailable() throws {
         guard let storageDisabledReason else { return }
-        self.lastError = storageDisabledReason
         throw MobileSegmentUploaderError.storageUnavailable(storageDisabledReason)
     }
 
@@ -2223,7 +2233,7 @@ private extension MobileSegmentUploader {
                     }
                 } catch {
                     let diagnostic = "mobile segment finalize-failure deferred segment=\(segmentID.uuidString) stage=schedule"
-                    self.lastError = diagnostic
+                    self.noteError(diagnostic)
                     mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
                     return
                 }
@@ -2271,7 +2281,7 @@ private extension MobileSegmentUploader {
             }
         } catch {
             let diagnostic = "mobile segment enqueue failed segment=\(segmentID.uuidString) stage=transfer-enqueue"
-            self.lastError = diagnostic
+            self.noteError(diagnostic)
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public): \(String(describing: error), privacy: .public)")
         }
         self.refreshCounts()
@@ -2481,7 +2491,7 @@ private extension MobileSegmentUploader {
                     guard verdict == .ownedInQueued || verdict == .ownedInAttention else {
                         if case .conflict = verdict {
                             let diagnostic = "mobile segment ownership conflict segment=\(segmentID.uuidString) stage=transfer-recovery"
-                            self.lastError = diagnostic
+                            self.noteError(diagnostic)
                             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
                         }
                         continue
@@ -2492,7 +2502,7 @@ private extension MobileSegmentUploader {
                     )
                 } catch {
                     let diagnostic = "mobile segment ownership verification failed segment=\(segmentID.uuidString) stage=transfer-recovery"
-                    self.lastError = diagnostic
+                    self.noteError(diagnostic)
                     mobileSegmentUploadLog.error(
                         "\(diagnostic, privacy: .public): \(String(describing: error), privacy: .public)"
                     )
@@ -2684,7 +2694,7 @@ private extension MobileSegmentUploader {
                manifest.screencast.state == .notDeclared,
                self.store.fileExists(screenURL) {
                 let diagnostic = "ignored undeclared screencast artifact segment=\(segmentID.uuidString) source=screencast"
-                self.lastError = diagnostic
+                self.noteError(diagnostic)
                 mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             }
             for source in manifest.declaredSources {

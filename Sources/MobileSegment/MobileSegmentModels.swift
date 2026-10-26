@@ -301,7 +301,6 @@ nonisolated struct MobileSegmentSourceSummary: Sendable, Equatable {
     let pendingCount: Int
     let failedCount: Int
     let lastUploadAt: Date?
-    let lastError: String?
 }
 
 nonisolated struct MobileSegmentTombstone: Codable, Sendable, Equatable {

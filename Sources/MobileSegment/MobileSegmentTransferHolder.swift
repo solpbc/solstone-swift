@@ -123,8 +123,7 @@ final class MobileSegmentTransferHolder {
         return MobileSegmentSourceSummary(
             pendingCount: storeSummary.pendingCount + transferCounts.pendingCount,
             failedCount: storeSummary.failedCount + transferCounts.failedCount,
-            lastUploadAt: self.lastUploadAt,
-            lastError: self.lastError
+            lastUploadAt: self.lastUploadAt
         )
     }
 

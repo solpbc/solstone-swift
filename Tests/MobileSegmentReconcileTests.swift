@@ -1093,8 +1093,28 @@ final class MobileSegmentReconcileTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: leasesDir.path))
     }
 
+    func testTwoSegmentsRepeatingOneFailureEachLogOnceAcrossPasses() async throws {
+        let log = DiagnosticLog()
+        let harness = try await self.makeHarness(diagnosticLog: log)
+        for _ in 0..<2 {
+            let directory = try harness.store.createActive(manifest: MobileSegmentManifest(
+                segmentID: UUID(),
+                startedAt: self.clock.now().addingTimeInterval(-60),
+                openedWithSources: [],
+                activeSourceSetVersion: 1
+            ))
+            try Data("stray-screen".utf8).write(to: harness.store.screenURL(in: directory), options: .atomic)
+        }
+        for _ in 0..<5 {
+            await harness.uploader.resumeFromDisk()
+        }
+        let strays = log.filtered(by: [.upload]).filter { $0.message.hasPrefix("ignored undeclared screencast artifact") }
+        XCTAssertEqual(strays.count, 2)
+    }
+
     func testResumeIgnoresUndeclaredStrayScreenFileAndReportsDiagnostic() async throws {
-        let harness = try await self.makeHarness()
+        let log = DiagnosticLog()
+        let harness = try await self.makeHarness(diagnosticLog: log)
         let segmentID = UUID()
         var manifest = MobileSegmentManifest(
             segmentID: segmentID,
@@ -1109,7 +1129,18 @@ final class MobileSegmentReconcileTests: XCTestCase {
 
         await harness.uploader.resumeFromDisk()
 
-        XCTAssertEqual(harness.uploader.lastError, "ignored undeclared screencast artifact segment=\(segmentID.uuidString) source=screencast")
+        let expected = "ignored undeclared screencast artifact segment=\(segmentID.uuidString) source=screencast"
+        XCTAssertEqual(log.filtered(by: [.upload]).filter { $0.message == expected }.count, 1)
+
+        // Every reconcile repeats it; within the collapse interval it is logged once.
+        await harness.uploader.resumeFromDisk()
+        await harness.uploader.resumeFromDisk()
+        XCTAssertEqual(log.filtered(by: [.upload]).filter { $0.message == expected }.count, 1)
+
+        // After the interval it shows again, so a current failure carries a current time.
+        self.clock.advance(by: MobileSegmentUploader.errorLogCollapseInterval + 1)
+        await harness.uploader.resumeFromDisk()
+        XCTAssertEqual(log.filtered(by: [.upload]).filter { $0.message == expected }.count, 2)
         XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
         XCTAssertTrue(FileManager.default.fileExists(

@@ -403,7 +403,8 @@ final class JournalEventClassificationTests: XCTestCase {
             rootURL: self.tempDirectory.appendingPathComponent("remove-failing/MobileSegment", isDirectory: true),
             fileManager: fileManager
         )
-        let uploader = MobileSegmentUploader(store: store, clock: self.clock)
+        let log = DiagnosticLog()
+        let uploader = MobileSegmentUploader(store: store, clock: self.clock, diagnosticLog: log)
         let directory = try store.createActive(manifest: MobileSegmentManifest(
             segmentID: UUID(),
             startedAt: self.clock.now(),
@@ -416,7 +417,7 @@ final class JournalEventClassificationTests: XCTestCase {
         uploader.dropSegment(segmentID: segmentID)
 
         XCTAssertNotNil(store.findDirectory(segmentID: segmentID))
-        XCTAssertEqual(uploader.lastError, "mobile segment owner removal failed segment=\(segmentID.uuidString)")
+        XCTAssertEqual(log.filtered(by: [.upload]).map(\.message), ["mobile segment owner removal failed segment=\(segmentID.uuidString)"])
         guard case .events(let rows) = uploader.journalEvents.readEvents() else {
             return XCTFail("journal events unreadable")
         }

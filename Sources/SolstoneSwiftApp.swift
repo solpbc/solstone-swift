@@ -415,8 +415,8 @@ struct SolstoneSwiftApp: App {
             storageDisabledReason: mobileSegmentStorageDisabledReason,
             diagnosticLog: log
         )
-        if mobileSegmentUploader.lastError == nil {
-            mobileSegmentUploader.lastError = mobileSegmentMigrationDiagnostics.first
+        if let migrationDiagnostic = mobileSegmentMigrationDiagnostics.first {
+            mobileSegmentUploader.noteError(migrationDiagnostic)
         }
         let mobileSegmentTransferHolder = MobileSegmentTransferHolder(
             transferEngine: transferEngine,
