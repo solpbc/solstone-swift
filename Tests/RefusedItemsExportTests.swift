@@ -809,7 +809,7 @@ private extension RefusedItemsExportTests {
             ))
         }
         let lines = syncStateSummaryLines(rows: rows, now: now)
-        let url = try XCTUnwrap(DiagnosticLog().exportFileURL(tunnel: TunnelManager(), syncState: lines))
+        let url = try XCTUnwrap(await DiagnosticLog().exportFile(tunnel: TunnelManager(), syncState: lines, now: now))
         return try String(contentsOf: url, encoding: .utf8)
     }
 

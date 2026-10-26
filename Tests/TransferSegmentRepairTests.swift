@@ -1358,7 +1358,7 @@ final class TransferSegmentRepairResidueTests: XCTestCase {
         let snapshots = await transfer.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
         return Outcome(
             residueRemains: store.fileExists(residue),
-            lastError: log.filtered(by: [.upload]).last?.message,
+            lastError: log.filtered(by: [.upload]).last { $0.severity == .error }?.message,
             spoolSegment: snapshots.first { $0.manifest.itemID == segmentID }?.manifest.observerIngest?.segment
         )
     }

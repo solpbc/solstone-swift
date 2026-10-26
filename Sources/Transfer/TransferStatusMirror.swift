@@ -142,7 +142,8 @@ nonisolated struct TransferRecentError: Equatable, Sendable {
         guard let detail = status.lastErrorDetail, let at = status.lastErrorAt else { return nil }
         let floor = now.addingTimeInterval(-Self.window)
         func isRecent(_ time: Date) -> Bool {
-            guard time >= floor, time <= now else { return false }
+            // A time a little past `now` is a fresh error read by a slower clock, not an old one.
+            guard time >= floor else { return false }
             guard let delivered = status.lastDeliveredAt else { return true }
             return time > delivered
         }

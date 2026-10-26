@@ -117,9 +117,11 @@ final class DiagnosticLog {
     /// Builds the report and writes the export file, both off the main actor.
     func exportFile(tunnel: TunnelManager, syncState: [String], now: Date) async -> URL? {
         let report = await self.report(tunnel: tunnel, syncState: syncState, now: now)
-        return await Task.detached { Self.writeExport(report) }.value
+        return await Task.detached { DiagnosticLog.writeExport(report) }.value
     }
 
+    /// The same report, composed synchronously on the calling actor. Tests use it; the app's copy and
+    /// share go through `report`, which keeps the journal-event read off the main actor.
     func snapshot(tunnel: TunnelManager, syncState: [String] = []) -> String {
         let now = Date()
         return Self.composeReport(
@@ -224,10 +226,6 @@ final class DiagnosticLog {
             )
         }
         return output
-    }
-
-    func exportFileURL(tunnel: TunnelManager, syncState: [String] = []) -> URL? {
-        Self.writeExport(self.snapshot(tunnel: tunnel, syncState: syncState))
     }
 
     nonisolated private static func writeExport(_ report: String) -> URL? {

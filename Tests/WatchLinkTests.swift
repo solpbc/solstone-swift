@@ -9,6 +9,51 @@ nonisolated final class WatchLinkTests: XCTestCase {
     @MainActor private lazy var session = MockWatchConnectivitySession()
 
     @MainActor
+    func testAppliedStatusesKeepTheFirstReceiptOfAStoppedItselfSession() throws {
+        let suite = "watch-link-stopped-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var clock = Date(timeIntervalSince1970: 1_793_199_600)
+        let first = clock
+        let watchLink = WatchLink(
+            session: self.session,
+            receiver: nil,
+            facts: Self.facts(),
+            phoneSessionHistoryStore: Self.historyStore(),
+            stoppedItselfClock: WatchStoppedItselfClock(defaults: defaults),
+            now: { clock }
+        )
+        func status(phase: WatchStatusContext.Phase, session: String?, stopped: Bool) -> WatchStatusContext {
+            WatchStatusContext(
+                phase: phase,
+                sessionID: session,
+                startedAt: nil,
+                asOf: clock,
+                seq: 1,
+                queuedCount: 0,
+                transferringCount: 0,
+                confirmingCount: 0,
+                confirmingHearBackSeconds: 0,
+                audioTerminalReason: stopped ? .audioInterrupted : nil,
+                audioTerminalDisposition: stopped ? .detectedStoppedItself : nil
+            )
+        }
+
+        watchLink.applyWatchStatus(status(phase: .idle, session: "S", stopped: true), isLiveDelivery: true)
+        clock = clock.addingTimeInterval(3_600)
+        watchLink.applyWatchStatus(status(phase: .idle, session: nil, stopped: false), isLiveDelivery: true)
+        clock = clock.addingTimeInterval(3_600)
+        let republished = status(phase: .idle, session: "S", stopped: true)
+        watchLink.applyWatchStatus(republished, isLiveDelivery: true)
+
+        XCTAssertEqual(watchLink.stoppedItselfRecord?.since, first)
+        XCTAssertEqual(
+            WatchStoppedItselfClock.since(context: republished, historyEntries: [], record: watchLink.stoppedItselfRecord),
+            first
+        )
+        XCTAssertEqual(WatchStoppedItselfClock(defaults: defaults).record?.since, first)
+    }
+
     func testWatchStateIsSurfacedAtInit() {
         self.session.isSupported = true
         self.session.isPaired = true

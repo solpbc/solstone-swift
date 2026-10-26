@@ -201,7 +201,8 @@ struct DiagnosticsView: View {
     }
 
     private func copySnapshot() {
-        Task {
+        self.copyTask?.cancel()
+        self.copyTask = Task {
             UIPasteboard.general.string = await diagnosticsReport(
                 log: self.log,
                 tunnel: self.tunnelManager,
@@ -211,15 +212,13 @@ struct DiagnosticsView: View {
                 calendar: self.calendarTransferHolder,
                 now: Date()
             )
-        }
-        if UserSettings.haptics {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        }
-        self.copyTask?.cancel()
-        withAnimation(.easeInOut) {
-            self.justCopied = true
-        }
-        self.copyTask = Task {
+            // Said once the text is on the pasteboard, never before.
+            if UserSettings.haptics {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            }
+            withAnimation(.easeInOut) {
+                self.justCopied = true
+            }
             try? await Task.sleep(for: .seconds(2))
             if !Task.isCancelled {
                 withAnimation(.easeInOut) {

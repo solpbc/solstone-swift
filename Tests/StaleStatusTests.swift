@@ -79,6 +79,34 @@ final class StaleStatusTests: XCTestCase {
         XCTAssertFalse(lines.contains { $0.contains("recent retry error") })
     }
 
+    func testTheEngineKeepsAnErrorRecentOnlyUntilALaterDelivery() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("StaleEngine-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transfer = makeTransferCutoverHarness(rootURL: root)
+        let key = ObserverAudioTransferSource.watch
+
+        await transfer.engine.noteDelivered(bytes: 10, sourceKey: key, at: Date().addingTimeInterval(-10))
+        await transfer.engine.noteError(sourceKey: key, detail: "after the delivery")
+        var status = try XCTUnwrap(await transfer.engine.snapshot().sources[key])
+        XCTAssertEqual(TransferRecentError.evaluate(status, now: Date())?.detail, "after the delivery")
+
+        await transfer.engine.noteDelivered(bytes: 10, sourceKey: key, at: Date().addingTimeInterval(1))
+        status = try XCTUnwrap(await transfer.engine.snapshot().sources[key])
+        XCTAssertNil(TransferRecentError.evaluate(status, now: Date().addingTimeInterval(2)))
+        XCTAssertEqual(status.errorTimesSinceDelivery, [])
+    }
+
+    func testTheShareHolderIgnoresTheStoreErrorForRecency() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("StaleShare-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let transfer = makeTransferCutoverHarness(rootURL: root.appendingPathComponent("Transfers", isDirectory: true))
+        let store = ShareImportStore(cacheRootURL: root.appendingPathComponent("Share", isDirectory: true))
+        store.lastError = "staging failed"
+        let share = ShareTransferHolder(transferEngine: transfer.engine, mirror: transfer.mirror, store: store)
+        XCTAssertEqual(share.lastError, "staging failed")
+        XCTAssertNil(share.recentError(now: Date()))
+    }
+
     // MARK: - the watch's stopped-itself day
 
     func testTheDayRunsFromFirstReceiptAcrossRelaunchAndRepublish() {

@@ -29,7 +29,7 @@ final class JournalGapDiagnosticsTests: XCTestCase {
         try await super.tearDown()
     }
 
-    func testSnapshotNamesTheFaultTheLossTheImportAndTheCollapsedFault() throws {
+    func testSnapshotNamesTheFaultTheLossTheImportAndTheCollapsedFault() async throws {
         let segmentID = UUID()
         try self.events.recordDiagnostic(
             segmentID: segmentID,
@@ -78,7 +78,7 @@ final class JournalGapDiagnosticsTests: XCTestCase {
 
         let log = DiagnosticLog()
         log.journalEvents = self.events
-        let text = log.snapshot(tunnel: TunnelManager())
+        let text = await log.report(tunnel: TunnelManager(), syncState: [], now: Date())
         XCTAssertEqual(text.components(separatedBy: "audio_writer_failed").count - 1, 2)
         XCTAssertTrue(text.contains("audio_capture_unfinished"))
         XCTAssertTrue(text.contains("loss"))

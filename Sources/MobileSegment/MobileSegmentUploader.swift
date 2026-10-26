@@ -998,6 +998,7 @@ final class MobileSegmentUploader {
         if let last = self.errorLoggedAt[message], now.timeIntervalSince(last) < Self.errorLogCollapseInterval {
             return
         }
+        self.errorLoggedAt = self.errorLoggedAt.filter { now.timeIntervalSince($0.value) < Self.errorLogCollapseInterval }
         self.errorLoggedAt[message] = now
         self.diagnosticLog?.append(category: .upload, severity: .error, message: message)
     }

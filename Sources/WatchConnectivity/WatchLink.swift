@@ -36,7 +36,8 @@ final class WatchLink {
         journalOS: String?, journalOSVersion: String?, journalArch: String?, journalBuild: String?
     ))?
     @ObservationIgnored private var journalVersionNonce: String?
-    @ObservationIgnored let stoppedItselfClock = WatchStoppedItselfClock()
+    @ObservationIgnored let stoppedItselfClock: WatchStoppedItselfClock
+    @ObservationIgnored private let now: () -> Date
     /// Observed so the watch tile updates when the record changes.
     private(set) var stoppedItselfRecord: WatchStoppedItselfRecord?
 
@@ -91,8 +92,12 @@ final class WatchLink {
         receiver: WatchRelayReceiver?,
         facts: WatchSourceFacts,
         phoneSessionHistoryStore: WatchPhoneSessionHistoryStore,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        stoppedItselfClock: WatchStoppedItselfClock = WatchStoppedItselfClock(),
+        now: @escaping () -> Date = { Date() }
     ) {
+        self.stoppedItselfClock = stoppedItselfClock
+        self.now = now
         self.session = session
         self.receiver = receiver
         self.facts = facts
@@ -224,7 +229,7 @@ private extension WatchLink {
 
     func applyWatchStatus(_ status: WatchStatusContext?, isLiveDelivery: Bool) {
         self.watchStatus = status
-        self.stoppedItselfClock.note(status, receivedAt: Date())
+        self.stoppedItselfClock.note(status, receivedAt: self.now())
         self.stoppedItselfRecord = self.stoppedItselfClock.record
         if status != nil {
             self.facts.noteStatusContextCheckedIn()

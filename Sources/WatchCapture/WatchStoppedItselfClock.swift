@@ -22,7 +22,6 @@ nonisolated struct WatchStoppedItselfRecord: Codable, Equatable, Sendable {
 /// when it cannot be saved.
 @MainActor
 final class WatchStoppedItselfClock {
-    static let shownFor: TimeInterval = 24 * 60 * 60
     static let defaultsKey = "watchStoppedItselfRecord"
 
     private let defaults: UserDefaults
