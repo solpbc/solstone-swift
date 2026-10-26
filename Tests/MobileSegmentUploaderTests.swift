@@ -372,6 +372,50 @@ final class MobileSegmentUploaderTests: XCTestCase {
         let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
         XCTAssertTrue(snapshots.isEmpty)
     }
+
+    func testDeliveredResidueThatCannotRetireNeitherStallsThePassNorSendsAgain() async throws {
+        let harness = self.makeHarness()
+        let stuckID = UUID()
+        let retiredID = UUID()
+        let failedResidueID = UUID()
+        let waitingID = UUID()
+        let stuck = try self.writeSegment(store: harness.store, segmentID: stuckID, sources: [.audio])
+        try Data("kept-part".utf8).write(to: harness.store.screenPartURL(in: stuck))
+        try self.writeSegment(store: harness.store, segmentID: retiredID, sources: [.audio])
+        try self.writeSegment(store: harness.store, segmentID: failedResidueID, sources: [.audio])
+        let failedResidue = try harness.store.move(segmentID: failedResidueID, from: .pending, to: .failed)
+        try Data("kept-part".utf8).write(to: harness.store.screenPartURL(in: failedResidue))
+        try self.writeSegment(store: harness.store, segmentID: waitingID, sources: [.audio])
+        for segmentID in [stuckID, retiredID, failedResidueID] {
+            try harness.store.writeTombstone(segmentID: segmentID, kind: "uploaded", reason: "delivered", now: self.clock.now())
+        }
+        let losses = harness.uploader.journalEvents.rootURL.appendingPathComponent("losses", isDirectory: false)
+        try FileManager.default.createDirectory(at: losses.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("blocked".utf8).write(to: losses)
+
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertTrue(harness.store.fileExists(stuck))
+        XCTAssertTrue(harness.store.fileExists(failedResidue))
+        XCTAssertFalse(harness.store.fileExists(harness.store.segmentDirectoryURL(.pending, segmentID: retiredID)))
+        XCTAssertFalse(harness.store.fileExists(harness.store.segmentDirectoryURL(.pending, segmentID: waitingID)))
+        let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertEqual(snapshots.count, 1)
+        XCTAssertEqual(harness.uploader.pendingCount, 0)
+        XCTAssertEqual(harness.uploader.failedCount, 0)
+        XCTAssertTrue(try harness.uploader.onThisPhoneItems(source: .audio, lifecycle: .pending).isEmpty)
+        XCTAssertTrue(try harness.uploader.onThisPhoneItems(source: .audio, lifecycle: .failed).isEmpty)
+
+        await harness.uploader.enqueuePendingSegmentIntoTransfer(segmentID: stuckID)
+        let afterDirectEnqueue = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
+        XCTAssertEqual(afterDirectEnqueue.count, 1)
+
+        try FileManager.default.removeItem(at: losses)
+        await harness.uploader.resumeFromDisk()
+
+        XCTAssertFalse(harness.store.fileExists(stuck))
+        XCTAssertFalse(harness.store.fileExists(failedResidue))
+    }
 }
 
 private extension MobileSegmentUploaderTests {

@@ -1743,7 +1743,7 @@ final class MobileSegmentUploader {
         var failed = 0
         for lifecycle in [MobileSegmentLifecycle.pending, .failed] {
             guard let directories = try? self.store.list(lifecycle) else { continue }
-            for directory in directories {
+            for directory in directories where !self.isDeliveredResidue(directory: directory) {
                 guard let manifest = try? self.store.readManifest(in: directory) else { continue }
                 let resolution = manifest.resolution(for: source)
                 guard resolution.state == .finalizedArtifact || resolution.state == .failedToFinalize else { continue }
@@ -1775,8 +1775,8 @@ final class MobileSegmentUploader {
             return
         }
         self.publishJournalGapNotice()
-        self.pendingCount = (try? self.store.list(.pending).count) ?? 0
-        let failed = (try? self.store.list(.failed)) ?? []
+        self.pendingCount = ((try? self.store.list(.pending)) ?? []).filter { !self.isDeliveredResidue(directory: $0) }.count
+        let failed = ((try? self.store.list(.failed)) ?? []).filter { !self.isDeliveredResidue(directory: $0) }
         self.failedCount = failed.count
         self.finalizeFailedCount = failed.reduce(into: 0) { count, directory in
             guard let failure = self.store.loadFailure(in: directory),
@@ -2184,6 +2184,8 @@ private extension MobileSegmentUploader {
 
         let directory = self.store.segmentDirectoryURL(.pending, segmentID: segmentID)
         guard self.store.fileExists(directory) else { return }
+        // A delivered segment's leftover directory is retired, never sent again.
+        guard !self.isDeliveredResidue(segmentID: segmentID) else { return }
 
         var manifest: MobileSegmentManifest
         do {
@@ -2280,6 +2282,15 @@ private extension MobileSegmentUploader {
         self.refreshCounts()
     }
 
+    private func isDeliveredResidue(segmentID: UUID) -> Bool {
+        self.store.hasTombstone(segmentID: segmentID, kind: "uploaded")
+    }
+
+    private func isDeliveredResidue(directory: URL) -> Bool {
+        guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { return false }
+        return self.isDeliveredResidue(segmentID: segmentID)
+    }
+
     private func retireDeliveredResidue() throws {
         for lifecycle in [MobileSegmentLifecycle.pending, .failed] {
             for directory in try self.store.list(lifecycle) {
@@ -2287,7 +2298,15 @@ private extension MobileSegmentUploader {
                       self.store.hasTombstone(segmentID: segmentID, kind: "uploaded")
                 else { continue }
                 let captureAt = (try? self.store.readManifest(in: directory))?.startedAt
-                try self.removeSegmentDirectory(directory, segmentID: segmentID, captureAt: captureAt, now: self.clock.now())
+                do {
+                    try self.removeSegmentDirectory(directory, segmentID: segmentID, captureAt: captureAt, now: self.clock.now())
+                } catch {
+                    // One residue that cannot be retired yet stays for the next pass; the rest of this pass runs.
+                    mobileSegmentUploadLog.error(
+                        "mobile segment delivered residue kept segment=\(segmentID.uuidString, privacy: .public) lifecycle=\(lifecycle.rawValue, privacy: .public) error=\(String(describing: error), privacy: .public)"
+                    )
+                    continue
+                }
                 mobileSegmentUploadLog.notice(
                     "mobile segment retired delivered residue segment=\(segmentID.uuidString, privacy: .public) lifecycle=\(lifecycle.rawValue, privacy: .public)"
                 )
@@ -2741,6 +2760,7 @@ private extension MobileSegmentUploader {
         var items: [OnThisPhoneItem] = []
         for directory in directories {
             guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
+            guard !self.isDeliveredResidue(segmentID: segmentID) else { continue }
             guard let manifest = try? self.store.readManifest(in: directory) else { continue }
             let resolution = manifest.resolution(for: source)
             guard resolution.state == .finalizedArtifact || resolution.state == .failedToFinalize else { continue }
