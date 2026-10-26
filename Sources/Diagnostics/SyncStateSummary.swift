@@ -172,3 +172,36 @@ nonisolated func sourceSyncStuckLine(
     }
     return line
 }
+
+/// Copy and share build the same report, sync block included, from state at the moment the owner acts.
+@MainActor
+func diagnosticsReport(
+    log: DiagnosticLog,
+    tunnel: TunnelManager,
+    mobileSegment: MobileSegmentTransferHolder,
+    watch: WatchUploaderHolder,
+    share: ShareTransferHolder,
+    calendar: CalendarTransferHolder?,
+    now: Date
+) async -> String {
+    let syncState = await syncStateSummaryLines(
+        mobileSegment: mobileSegment, watch: watch, share: share, calendar: calendar, now: now
+    )
+    return await log.report(tunnel: tunnel, syncState: syncState, now: now)
+}
+
+@MainActor
+func diagnosticsExportFile(
+    log: DiagnosticLog,
+    tunnel: TunnelManager,
+    mobileSegment: MobileSegmentTransferHolder,
+    watch: WatchUploaderHolder,
+    share: ShareTransferHolder,
+    calendar: CalendarTransferHolder?,
+    now: Date
+) async -> URL? {
+    let syncState = await syncStateSummaryLines(
+        mobileSegment: mobileSegment, watch: watch, share: share, calendar: calendar, now: now
+    )
+    return await log.exportFile(tunnel: tunnel, syncState: syncState, now: now)
+}

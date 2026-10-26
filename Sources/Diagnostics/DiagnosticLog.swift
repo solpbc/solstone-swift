@@ -6,11 +6,11 @@ import Observation
 import UIKit
 import os
 
-private let diagnosticLogLogger = Logger(subsystem: "app.solstone.swift", category: "diagnostics")
+nonisolated private let diagnosticLogLogger = Logger(subsystem: "app.solstone.swift", category: "diagnostics")
 
 @Observable
 final class DiagnosticLog {
-    private static let exportFileName = "solstone-diagnostics.txt"
+    nonisolated private static let exportFileName = "solstone-diagnostics.txt"
 
     private(set) var events: [DiagnosticEvent] = []
     private let capacity: Int
@@ -20,6 +20,11 @@ final class DiagnosticLog {
     private var journalLinkEvents: [JournalLinkEvent]
     /// Journal-event rows for the shared snapshot. Nil until the app attaches the store.
     var journalEvents: JournalEventStore? = nil
+    /// Reads the journal-event section, composes and redacts the report. It runs off the main
+    /// actor; tests replace it to show that.
+    @ObservationIgnored var reportComposer: @Sendable ([String], JournalEventStore?, Date) -> String = {
+        DiagnosticLog.composeReport(head: $0, journalEvents: $1, now: $2)
+    }
 
     init(capacity: Int = 200, protectedFloor: Int = 40, defaults: UserDefaults? = nil) {
         self.capacity = capacity
@@ -100,7 +105,40 @@ final class DiagnosticLog {
         return self.events.filter { categories.contains($0.category) }
     }
 
+    /// The report as copy and share give it: main-actor state is read here, then the journal-event
+    /// section, redaction and composition run off the main actor.
+    func report(tunnel: TunnelManager, syncState: [String], now: Date) async -> String {
+        let head = self.reportHead(tunnel: tunnel, syncState: syncState, now: now)
+        let store = self.journalEvents
+        let composer = self.reportComposer
+        return await Task.detached { composer(head, store, now) }.value
+    }
+
+    /// Builds the report and writes the export file, both off the main actor.
+    func exportFile(tunnel: TunnelManager, syncState: [String], now: Date) async -> URL? {
+        let report = await self.report(tunnel: tunnel, syncState: syncState, now: now)
+        return await Task.detached { Self.writeExport(report) }.value
+    }
+
     func snapshot(tunnel: TunnelManager, syncState: [String] = []) -> String {
+        let now = Date()
+        return Self.composeReport(
+            head: self.reportHead(tunnel: tunnel, syncState: syncState, now: now),
+            journalEvents: self.journalEvents,
+            now: now
+        )
+    }
+
+    nonisolated static func composeReport(head: [String], journalEvents: JournalEventStore?, now: Date) -> String {
+        var lines = head
+        if let journalEvents {
+            lines.append("---")
+            lines.append(journalEvents.diagnosticSection(now: now))
+        }
+        return Self.redact(lines.joined(separator: "\n"))
+    }
+
+    private func reportHead(tunnel: TunnelManager, syncState: [String], now: Date) -> [String] {
         // Pinned like the segment writers: the phone's own clock preferences (a forced 12-hour
         // clock, a non-Gregorian calendar) otherwise rewrite this fixed format.
         let formatter = DateFormatter()
@@ -109,7 +147,7 @@ final class DiagnosticLog {
 
         var lines: [String] = []
         lines.append("solstone-swift diagnostic snapshot")
-        lines.append(formatter.string(from: Date()))
+        lines.append(formatter.string(from: now))
         lines.append("connection: \(tunnel.state)")
         let reconnectBreakdown = ReconnectReasonBucket.allCases
             .map { "\($0.exportLabel) \(tunnel.reconnectReasonCounts[$0] ?? 0)" }
@@ -124,7 +162,7 @@ final class DiagnosticLog {
                 .joined(separator: ", ")
         lines.append("tunnel inbound-closed faults: \(inboundFaultBreakdown)")
         lines.append(contentsOf: tunnel.diagnosticSnapshotLines())
-        let linkReport = self.journalLinkReport()
+        let linkReport = self.journalLinkReport(now: now)
         if !linkReport.isEmpty {
             lines.append("recent journal link events (last 7 days):")
             lines.append(linkReport)
@@ -161,16 +199,10 @@ final class DiagnosticLog {
                 lines.append(line)
             }
         }
-
-        if let journalEvents = self.journalEvents {
-            lines.append("---")
-            lines.append(journalEvents.diagnosticSection(now: Date()))
-        }
-
-        return Self.redact(lines.joined(separator: "\n"))
+        return lines
     }
 
-    static func redact(_ s: String) -> String {
+    nonisolated static func redact(_ s: String) -> String {
         let redacted = "‹redacted›"
         let sensitiveKeyPattern = #"pass"# + #"word"# + #"|secret|credential|token|ingest[_]?key|apikey"#
         let rules: [(pattern: String, template: String)] = [
@@ -195,10 +227,13 @@ final class DiagnosticLog {
     }
 
     func exportFileURL(tunnel: TunnelManager, syncState: [String] = []) -> URL? {
+        Self.writeExport(self.snapshot(tunnel: tunnel, syncState: syncState))
+    }
+
+    nonisolated private static func writeExport(_ report: String) -> URL? {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(Self.exportFileName, isDirectory: false)
         do {
-            let report = self.snapshot(tunnel: tunnel, syncState: syncState)
             try Data(report.utf8).write(to: url, options: [.atomic])
             return url
         } catch {

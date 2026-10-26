@@ -854,10 +854,17 @@ struct StatusPane: View {
     }
 
     private func copySnapshot() {
-        let text = self.diagnosticLog.snapshot(
-            tunnel: self.tunnelManager
-        )
-        UIPasteboard.general.string = text
+        Task {
+            UIPasteboard.general.string = await diagnosticsReport(
+                log: self.diagnosticLog,
+                tunnel: self.tunnelManager,
+                mobileSegment: self.mobileSegmentTransferHolder,
+                watch: self.watchUploaderHolder,
+                share: self.shareTransferHolder,
+                calendar: self.calendarTransferHolder,
+                now: Date()
+            )
+        }
         if UserSettings.haptics {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }

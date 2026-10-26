@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import CoreTransferable
 import SwiftUI
+import UniformTypeIdentifiers
 import os
 
 private let diagnosticsUploadLog = Logger(subsystem: "app.solstone.swift", category: "upload")
@@ -19,12 +21,12 @@ struct DiagnosticsView: View {
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
+    @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
 
     @State private var enabledCategories: Set<DiagnosticCategory> = Set(DiagnosticCategory.allCases)
     @State private var expandedEventID: UUID?
     @State private var justCopied = false
     @State private var copyTask: Task<Void, Never>?
-    @State private var diagnosticsExportURL: URL?
     @State private var problemsOnly = false
     @State private var lastSynced: Date?
     @State private var lastReconcileKey: FailedReconcileKey?
@@ -71,10 +73,11 @@ struct DiagnosticsView: View {
                         }
                     }
 
-                    if let diagnosticsExportURL {
-                        ShareLink(item: diagnosticsExportURL) {
-                            Label("export", systemImage: "square.and.arrow.up")
-                        }
+                    ShareLink(
+                        item: DiagnosticsExportItem(build: self.buildExportFile),
+                        preview: SharePreview("solstone-diagnostics.txt")
+                    ) {
+                        Label("export", systemImage: "square.and.arrow.up")
                     }
 
                     Divider()
@@ -109,15 +112,6 @@ struct DiagnosticsView: View {
                 }
                 .accessibilityLabel("filter and actions")
             }
-        }
-        .onAppear {
-            Task { await self.refreshDiagnosticsExport() }
-        }
-        .onChange(of: self.log.events.count) {
-            Task { await self.refreshDiagnosticsExport() }
-        }
-        .onChange(of: self.log.recentJournalLinkEvents()) {
-            Task { await self.refreshDiagnosticsExport() }
         }
         .task {
             await self.refreshLifecycle()
@@ -207,10 +201,17 @@ struct DiagnosticsView: View {
     }
 
     private func copySnapshot() {
-        let text = self.log.snapshot(
-            tunnel: self.tunnelManager
-        )
-        UIPasteboard.general.string = text
+        Task {
+            UIPasteboard.general.string = await diagnosticsReport(
+                log: self.log,
+                tunnel: self.tunnelManager,
+                mobileSegment: self.mobileSegmentTransferHolder,
+                watch: self.watchUploaderHolder,
+                share: self.shareTransferHolder,
+                calendar: self.calendarTransferHolder,
+                now: Date()
+            )
+        }
         if UserSettings.haptics {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
@@ -228,16 +229,15 @@ struct DiagnosticsView: View {
         }
     }
 
-    private func refreshDiagnosticsExport() async {
-        let syncState = await syncStateSummaryLines(
-            mobileSegment: self.mobileSegmentTransferHolder,
-            watch: self.watchUploaderHolder,
-            share: self.shareTransferHolder
-        )
-        self.diagnosticsExportURL = self.log.exportFileURL(
-            tunnel: self.tunnelManager,
-            syncState: syncState
-        )
+    /// Built when the owner shares, so the file says what is true at that moment.
+    private var buildExportFile: @MainActor @Sendable () async -> URL? {
+        { [log = self.log, tunnel = self.tunnelManager, mobile = self.mobileSegmentTransferHolder,
+           watch = self.watchUploaderHolder, share = self.shareTransferHolder, calendar = self.calendarTransferHolder] in
+            await diagnosticsExportFile(
+                log: log, tunnel: tunnel, mobileSegment: mobile, watch: watch,
+                share: share, calendar: calendar, now: Date()
+            )
+        }
     }
 
     private func refreshLifecycle() async {
@@ -364,5 +364,17 @@ private struct EventRow: View {
         .onTapGesture(perform: self.onTap)
         .accessibilityLabel("\(self.event.category.rawValue): \(self.event.message), \(self.relativeTime)")
         .accessibilityHint(self.isExpanded ? "tap to collapse" : "tap to expand details")
+    }
+}
+
+/// The diagnostics export, built when the owner shares it.
+nonisolated struct DiagnosticsExportItem: Transferable, Sendable {
+    let build: @MainActor @Sendable () async -> URL?
+
+    nonisolated static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(exportedContentType: .plainText) { item in
+            guard let url = await item.build() else { throw CocoaError(.fileWriteUnknown) }
+            return SentTransferredFile(url)
+        }
     }
 }
