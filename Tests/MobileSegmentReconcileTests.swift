@@ -1137,9 +1137,11 @@ final class MobileSegmentReconcileTests: XCTestCase {
         await harness.uploader.resumeFromDisk()
         XCTAssertEqual(log.filtered(by: [.upload]).filter { $0.message == expected }.count, 1)
 
-        // After the interval it shows again, so a current failure carries a current time.
+        // After the interval the same message is logged again, so a current failure carries a current time.
         self.clock.advance(by: MobileSegmentUploader.errorLogCollapseInterval + 1)
-        await harness.uploader.resumeFromDisk()
+        harness.uploader.noteError(expected)
+        XCTAssertEqual(log.filtered(by: [.upload]).filter { $0.message == expected }.count, 2)
+        harness.uploader.noteError(expected)
         XCTAssertEqual(log.filtered(by: [.upload]).filter { $0.message == expected }.count, 2)
         XCTAssertEqual(MobileSegmentReconcileURLProtocol.callCount, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: harness.store.segmentDirectoryURL(.pending, segmentID: segmentID).path))
