@@ -216,20 +216,37 @@ final class LocationManager {
         tier.isSatisfied(by: self.effectiveCapability())
     }
 
-    func changeTier(_ tier: LocationTier) async {
+    @discardableResult
+    func changeTier(_ tier: LocationTier) async -> Bool {
         self.persistTier(tier)
-        guard case .active = self.state else { return }
-        if tier.isSatisfied(by: self.effectiveCapability()) {
-            await self.restartObservationForCurrentTier()
-        } else {
-            self.clearSunArcPresentationCoordinate()
-            self.markGap()
+        switch self.state {
+        case .active:
+            if tier.isSatisfied(by: self.effectiveCapability()) {
+                await self.restartObservationForCurrentTier()
+            } else {
+                self.clearSunArcPresentationCoordinate()
+                self.markGap()
+            }
+            return false
+        case .error:
+            if tier.isSatisfied(by: self.effectiveCapability()) {
+                self.state = .starting
+                await self.activateSessionIfAllowed(capability: self.effectiveCapability())
+                return true
+            } else {
+                return false
+            }
+        case .idle, .starting, .stopping:
+            return false
         }
     }
 
     func matchToAllowed() async {
         guard let suggested = LocationTier.matchToAllowed(for: self.effectiveCapability()) else { return }
-        await self.changeTier(suggested)
+        if await self.changeTier(suggested) {
+            // activation already ran, and advanceStartFlow would start again
+            return
+        }
         switch self.state {
         case .idle, .error, .starting:
             await self.advanceStartFlow(with: self.provider.currentCapability())
@@ -379,25 +396,44 @@ private extension LocationManager {
     }
 
     func activateSessionIfAllowed(capability: LocationCapability) async {
-        guard self.tier.isSatisfied(by: capability) else {
+        let tier = self.tier
+        guard tier.isSatisfied(by: capability) else {
             self.clearSunArcPresentationCoordinate()
             self.state = .error(.capabilityInsufficient)
             return
         }
 
         do {
-            if self.tier.requiredAuthorization == .always {
+            if tier.requiredAuthorization == .always {
                 await self.provider.beginBackgroundSustain()
             }
-            try await self.provider.startObservation(modes: self.tier.modes)
+            guard self.tier.isSatisfied(by: self.effectiveCapability()) else {
+                self.clearSunArcPresentationCoordinate()
+                self.state = .error(.capabilityInsufficient)
+                return
+            }
+            try await self.provider.startObservation(modes: tier.modes)
         } catch {
             self.clearSunArcPresentationCoordinate()
             self.state = .error(.unavailable(reason: String(describing: error)))
             return
         }
 
+        guard self.tier.isSatisfied(by: self.effectiveCapability()) else {
+            await self.provider.stopObservation()
+            self.clearSunArcPresentationCoordinate()
+            self.state = .error(.capabilityInsufficient)
+            return
+        }
+
         do {
-            try await self.mobileSegmentEngine.startLocation(tier: self.tier, accuracy: self.currentAccuracy())
+            try await self.mobileSegmentEngine.startLocation(tier: tier, accuracy: self.currentAccuracy())
+            guard self.tier.isSatisfied(by: self.effectiveCapability()) else {
+                await self.provider.stopObservation()
+                self.clearSunArcPresentationCoordinate()
+                self.state = .error(.capabilityInsufficient)
+                return
+            }
             let sessionID = UUID()
             let startedAt = self.clock.now()
             self.currentSessionID = sessionID

@@ -231,13 +231,13 @@ private extension SourceDetailView {
     }
 
     var buttonLabel: String {
-        switch self.observerManager.state {
-        case .active:
-            "stop"
-        case .error:
-            "retry"
-        case .idle, .starting, .stopping, .microphoneTaken:
+        switch audioListenButtonKind(self.observerManager.state) {
+        case .start:
             "start"
+        case .stop:
+            "stop"
+        case .retry:
+            "retry"
         }
     }
 

@@ -153,6 +153,28 @@ nonisolated func audioAttentionLine(_ error: ObserverError) -> String {
     }
 }
 
+nonisolated enum AudioListenButtonKind: Equatable, Sendable {
+    case start
+    case stop
+    case retry
+}
+
+nonisolated func audioListenButtonKind(_ state: ObserverState) -> AudioListenButtonKind {
+    switch state {
+    case .idle, .starting, .stopping, .microphoneTaken:
+        .start
+    case .active:
+        .stop
+    case .error(let error):
+        switch error {
+        case .diskFull, .permissionDenied:
+            .start
+        case .audioSessionConflict, .unavailable, .uploadFailed:
+            .retry
+        }
+    }
+}
+
 nonisolated enum AudioTileSwitchCommand: Equatable, Sendable {
     case start
     case stop

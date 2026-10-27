@@ -160,6 +160,25 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertNil(unenrolledDenied.tileLine)
     }
 
+    func testAudioListenButtonKindFollowsObserverState() {
+        let cases: [(ObserverState, AudioListenButtonKind)] = [
+            (.idle, .start),
+            (.starting, .start),
+            (.stopping, .start),
+            (.microphoneTaken, .start),
+            (.active(Self.session()), .stop),
+            (.error(.permissionDenied), .start),
+            (.error(.diskFull), .start),
+            (.error(.audioSessionConflict), .retry),
+            (.error(.unavailable(reason: "fixture")), .retry),
+            (.error(.uploadFailed(chunkID: "chunk")), .retry),
+        ]
+
+        for (state, expectedKind) in cases {
+            XCTAssertEqual(audioListenButtonKind(state), expectedKind, "\(state)")
+        }
+    }
+
     func testAudioTileSwitchCommandHoldingSession() {
         XCTAssertEqual(audioTileSwitchCommand(requestedOn: true, microphoneTaken: .holdingSession), .ignore)
         XCTAssertEqual(audioTileSwitchCommand(requestedOn: false, microphoneTaken: .holdingSession), .ignore)

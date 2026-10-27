@@ -10,6 +10,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - when a call or another app takes the microphone while audio is on, audio now shows paused and says "another app took the microphone." instead of staying on and then showing a problem. if audio hasn't come back on its own once the call is over, tap resume.
 - when audio, location or screen needs attention, its tile now says what's wrong, like "location access is off." instead of "something's not getting through." with VoiceOver, the tile reads that line too.
+- when storage is full or microphone access is off, the button on the audio page now says start instead of retry.
+- when location needed attention because its detail level asked for more than ios allows, picking a detail level ios allows on the location page now starts location again. before, it stayed stopped.
 
 ## [2.0.10 (139)] - 2026-10-27
 

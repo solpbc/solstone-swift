@@ -1035,7 +1035,7 @@ nonisolated final class LocationManagerTests: XCTestCase {
     }
 
     @MainActor
-    func testAttentionLineNotRunningWhenTierChangeWhileErrorSatisfiesGrant() async {
+    func testChangeTierSatisfiedFromRelaunchErrorStartsSession() async {
         self.defaults.set(true, forKey: "location.enabled")
         self.defaults.set(false, forKey: "location.paused")
         self.provider.capability = .whenInUse(accuracy: .full)
@@ -1044,17 +1044,205 @@ nonisolated final class LocationManagerTests: XCTestCase {
         await manager.resumeIfEnabled()
 
         XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
-        XCTAssertEqual(manager.sourceState, .needsAttention)
-        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionBelowChosen)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+
+        let initialRequestAlways = self.provider.requestAlwaysCallCount
+        let initialBeginBackgroundSustain = self.provider.beginBackgroundSustainCallCount
 
         await manager.changeTier(.light)
 
-        guard case .error = manager.state else {
-            return XCTFail("Expected state to remain .error")
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state")
         }
-        XCTAssertEqual(manager.sourceState, .needsAttention)
-        XCTAssertNotNil(manager.sourceAttentionLine)
-        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionNotRunning)
+        XCTAssertEqual(self.provider.startCallCount, 1)
+        XCTAssertEqual(self.provider.currentStartedModes, LocationTier.light.modes)
+        XCTAssertEqual(self.provider.beginBackgroundSustainCallCount, initialBeginBackgroundSustain)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, initialRequestAlways)
+    }
+
+    @MainActor
+    func testChangeTierSatisfiedFromDeclineWaitErrorStartsSession() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 1)
+        await self.waitForPendingSleeperCount(1)
+
+        self.clock.advance(by: 11)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(self.provider.startCallCount, 0)
+
+        let initialRequestAlways = self.provider.requestAlwaysCallCount
+        let initialBeginBackgroundSustain = self.provider.beginBackgroundSustainCallCount
+
+        await manager.changeTier(.light)
+
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state")
+        }
+        XCTAssertEqual(self.provider.startCallCount, 1)
+        XCTAssertEqual(self.provider.currentStartedModes, LocationTier.light.modes)
+        XCTAssertEqual(self.provider.beginBackgroundSustainCallCount, initialBeginBackgroundSustain)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, initialRequestAlways)
+    }
+
+    @MainActor
+    func testChangeTierUnsatisfiedFromDeclineWaitErrorStaysError() async {
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.start(tier: .balanced)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 1)
+        await self.waitForPendingSleeperCount(1)
+
+        self.clock.advance(by: 11)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(self.provider.startCallCount, 0)
+
+        let initialRequestAlways = self.provider.requestAlwaysCallCount
+        let initialStartCallCount = self.provider.startCallCount
+
+        await manager.changeTier(.full)
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, initialRequestAlways)
+        XCTAssertEqual(self.provider.startCallCount, initialStartCallCount)
+    }
+
+    @MainActor
+    func testChangeTierUnsatisfiedFromRelaunchErrorStaysError() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(self.provider.startCallCount, 0)
+
+        await manager.changeTier(.full)
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+    }
+
+    @MainActor
+    func testChangeTierDoesNotStartWhenOffPausedOrStarting() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let offManager = self.makeManager()
+
+        await offManager.changeTier(.light)
+
+        XCTAssertEqual(offManager.state, .idle)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(true, forKey: "location.paused")
+        self.provider.capability = .always(accuracy: .full)
+        let pausedManager = self.makeManager()
+
+        await pausedManager.resumeIfEnabled()
+
+        XCTAssertEqual(pausedManager.state, .idle)
+        XCTAssertEqual(pausedManager.sourceState, .paused)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+
+        await pausedManager.changeTier(.light)
+
+        XCTAssertEqual(pausedManager.state, .idle)
+        XCTAssertEqual(pausedManager.sourceState, .paused)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+
+        self.provider.capability = .notDetermined
+        let startingManager = self.makeManager()
+
+        await startingManager.start(tier: .light)
+        XCTAssertEqual(startingManager.sourceState, .enrolling)
+
+        await startingManager.changeTier(.balanced)
+
+        XCTAssertEqual(startingManager.state, .starting)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+        XCTAssertEqual(self.provider.requestWhenInUseCallCount, 1)
+    }
+
+    @MainActor
+    func testMatchToAllowedFromRelaunchErrorStartsSessionOnce() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(self.provider.startCallCount, 0)
+
+        await manager.matchToAllowed()
+
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state")
+        }
+        XCTAssertEqual(self.provider.startCallCount, 1)
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+        XCTAssertEqual(self.provider.currentStartedModes, LocationTier.light.modes)
+    }
+
+    @MainActor
+    func testMatchToAllowedFromRelaunchErrorDoesNotStartAgainWhenActivationThrows() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(self.provider.startCallCount, 0)
+
+        self.provider.startError = LocationManagerTestError.restartFailed
+
+        await manager.matchToAllowed()
+
+        XCTAssertEqual(self.provider.startCallCount, 1)
+        guard case .error(.unavailable) = manager.state else {
+            return XCTFail("Expected .error(.unavailable) state")
+        }
+        XCTAssertEqual(self.provider.requestAlwaysCallCount, 0)
+    }
+
+    @MainActor
+    func testChangeTierSatisfiedRecoversFromUnavailableError() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        self.provider.startError = LocationManagerTestError.restartFailed
+
+        await manager.changeTier(.full)
+
+        guard case .error(.unavailable) = manager.state else {
+            return XCTFail("Expected .error(.unavailable) state")
+        }
+
+        self.provider.startError = nil
+        let startCallCountBefore = self.provider.startCallCount
+
+        await manager.changeTier(.balanced)
+
+        guard case .active = manager.state else {
+            return XCTFail("Expected active state")
+        }
+        XCTAssertEqual(self.provider.startCallCount, startCallCountBefore + 1)
+        XCTAssertEqual(self.provider.currentStartedModes, LocationTier.balanced.modes)
     }
 
     @MainActor
