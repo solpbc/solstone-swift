@@ -45,7 +45,6 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(text, SourceVocabulary.onThisPhoneWaitingExplain)
-        XCTAssertNotEqual(text, SourceVocabulary.needsAttentionSubtext)
     }
 
     func testEmptyRecentTextUsesRecentEmpty() {

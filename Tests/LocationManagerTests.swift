@@ -675,6 +675,16 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(manager.sourceState, .readyToSetUp)
         XCTAssertNotNil(manager.sourceAttention)
         XCTAssertEqual(manager.recoveryActions, [.openSettings])
+
+        let source = makeLocationSource(
+            state: manager.sourceState,
+            attention: manager.sourceAttention,
+            isJournalPaired: true,
+            subtextOverride: manager.sourceAttentionLine
+        )
+        XCTAssertNil(source.subtextOverride)
+        XCTAssertNil(source.rowSubtext)
+        XCTAssertEqual(source.voiceOverText, SourceVocabulary.sourceStateReadyToSetUpLabel)
     }
 
     /// 🔴 ⛔ Only an OUTRIGHT DECLINE softens. These three are insufficient-capability faults
@@ -903,6 +913,206 @@ nonisolated final class LocationManagerTests: XCTestCase {
         }
         XCTAssertEqual(self.provider.stopCallCount, 1)
         XCTAssertFalse(self.defaults.bool(forKey: "location.enabled"))
+    }
+
+    @MainActor
+    func testAttentionLineBelowChosenWhileActiveBelowTier() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+
+        self.provider.emitAuthorization(.whenInUse(accuracy: .full))
+        await self.yieldToMainActor()
+
+        guard case .active = manager.state else {
+            return XCTFail("Expected state to remain active")
+        }
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionBelowChosen)
+    }
+
+    @MainActor
+    func testAttentionLineDeniedWhileActiveAfterRevoke() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+
+        self.provider.emitAuthorization(.denied)
+        await self.yieldToMainActor()
+
+        guard case .active = manager.state else {
+            return XCTFail("Expected state to remain active")
+        }
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionDenied)
+    }
+
+    @MainActor
+    func testAttentionLineBelowChosenOnInsufficientError() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionBelowChosen)
+    }
+
+    @MainActor
+    func testAttentionLineRestrictedOnInsufficientError() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .restricted
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionRestricted)
+    }
+
+    @MainActor
+    func testAttentionLineServicesOffOnInsufficientError() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .servicesDisabled
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionServicesOff)
+    }
+
+    @MainActor
+    func testAttentionLineNotAllowedYetWhenEnabledAndNotDetermined() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .notDetermined
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionNotAllowedYet)
+    }
+
+    @MainActor
+    func testAttentionLineDeniedWhenEnabledAndDenied() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .denied
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionDenied)
+    }
+
+    @MainActor
+    func testAttentionLineNotRunningOnUnavailableError() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        self.provider.startError = LocationManagerTestError.restartFailed
+
+        await manager.changeTier(.full)
+        await self.yieldToMainActor()
+
+        guard case .error(.unavailable) = manager.state else {
+            return XCTFail("Expected .error(.unavailable) state")
+        }
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionNotRunning)
+    }
+
+    @MainActor
+    func testAttentionLineNotRunningWhenTierChangeWhileErrorSatisfiesGrant() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .whenInUse(accuracy: .full)
+        let manager = self.makeManager()
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.state, .error(.capabilityInsufficient))
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionBelowChosen)
+
+        await manager.changeTier(.light)
+
+        guard case .error = manager.state else {
+            return XCTFail("Expected state to remain .error")
+        }
+        XCTAssertEqual(manager.sourceState, .needsAttention)
+        XCTAssertNotNil(manager.sourceAttentionLine)
+        XCTAssertEqual(manager.sourceAttentionLine, LocationVocabulary.locationAttentionNotRunning)
+    }
+
+    @MainActor
+    func testAttentionLineNilWhenSatisfiedOrPaused() async {
+        self.provider.capability = .always(accuracy: .full)
+        let manager = self.makeManager()
+        await manager.start(tier: .balanced)
+        await self.yieldToMainActor()
+
+        XCTAssertEqual(manager.sourceState, .active)
+        XCTAssertNil(manager.sourceAttentionLine)
+
+        await manager.pause()
+
+        XCTAssertEqual(manager.sourceState, .paused)
+        XCTAssertNil(manager.sourceAttentionLine)
+    }
+
+    @MainActor
+    func testMakeHomeSourceBundleNamesNeedsAttentionLines() async {
+        let observerManager = ObserverManager(
+            recorder: MockObserverRecorder(),
+            mobileSegmentEngine: self.mobileSegmentEngine,
+            journalEvents: self.mobileSegmentUploader.journalEvents,
+            defaults: self.defaults
+        )
+        observerManager.state = .error(.diskFull)
+
+        self.provider.capability = .always(accuracy: .full)
+        let locationManager = self.makeManager()
+        await locationManager.start(tier: .balanced)
+        await self.yieldToMainActor()
+        self.provider.emitAuthorization(.whenInUse(accuracy: .full))
+        await self.yieldToMainActor()
+
+        let screencastRoot = self.tempDirectory.appendingPathComponent("screencast-\(UUID().uuidString)", isDirectory: true)
+        let screencastManager = ScreencastManager(rootURL: screencastRoot)
+        screencastManager.state = .needsAttention(.storageLow)
+
+        let pauseState = ObserverSourcePauseState()
+
+        let bundle = makeHomeSourceBundle(
+            isJournalPaired: true,
+            observerManager: observerManager,
+            observerSourcePauseState: pauseState,
+            locationManager: locationManager,
+            screencastManager: screencastManager,
+            watchLane: .unsupported
+        )
+
+        XCTAssertEqual(bundle.audio.subtextOverride, SourceVocabulary.audioAttentionStorageFull)
+        XCTAssertEqual(bundle.location.subtextOverride, LocationVocabulary.locationAttentionBelowChosen)
+        XCTAssertEqual(bundle.screencast.subtextOverride, SourceVocabulary.screencastAttentionStorageLow)
+
+        XCTAssertEqual(bundle.audio.voiceOverText, "\(SourceVocabulary.needsAttention). \(SourceVocabulary.audioAttentionStorageFull)")
+        XCTAssertEqual(bundle.location.voiceOverText, "\(SourceVocabulary.needsAttention). \(LocationVocabulary.locationAttentionBelowChosen)")
+        XCTAssertEqual(bundle.screencast.voiceOverText, "\(SourceVocabulary.needsAttention). \(SourceVocabulary.screencastAttentionStorageLow)")
+        XCTAssertNil(bundle.watch)
     }
 
     @MainActor

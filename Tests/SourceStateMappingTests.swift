@@ -129,6 +129,37 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
         XCTAssertTrue(presentation.switchEnabled)
     }
 
+    func testAudioNeedsAttentionTileLineFollowsObserverError() {
+        let errors: [(ObserverError, String)] = [
+            (.permissionDenied, SourceVocabulary.audioAttentionMicrophoneOff),
+            (.audioSessionConflict, SourceVocabulary.audioAttentionNotRunning),
+            (.diskFull, SourceVocabulary.audioAttentionStorageFull),
+            (.uploadFailed(chunkID: "chunk"), SourceVocabulary.audioAttentionNotRunning),
+            (.unavailable(reason: "fixture"), SourceVocabulary.audioAttentionNotRunning),
+        ]
+
+        for (error, expectedConstant) in errors {
+            let presentation = audioOwnerPresentation(
+                observerState: .error(error),
+                ownerPaused: false,
+                enrolled: true,
+                microphoneTaken: nil
+            )
+            XCTAssertEqual(presentation.sourceState, .needsAttention, "\(error)")
+            XCTAssertEqual(presentation.tileLine, expectedConstant, "\(error)")
+            XCTAssertEqual(presentation.tileLine, audioAttentionLine(error), "\(error)")
+        }
+
+        let unenrolledDenied = audioOwnerPresentation(
+            observerState: .error(.permissionDenied),
+            ownerPaused: false,
+            enrolled: false,
+            microphoneTaken: nil
+        )
+        XCTAssertEqual(unenrolledDenied.sourceState, .readyToSetUp)
+        XCTAssertNil(unenrolledDenied.tileLine)
+    }
+
     func testAudioTileSwitchCommandHoldingSession() {
         XCTAssertEqual(audioTileSwitchCommand(requestedOn: true, microphoneTaken: .holdingSession), .ignore)
         XCTAssertEqual(audioTileSwitchCommand(requestedOn: false, microphoneTaken: .holdingSession), .ignore)
@@ -217,7 +248,7 @@ nonisolated final class SourceStateMappingTests: XCTestCase {
             state: .needsAttention,
             isJournalPaired: true,
             activeSubtext: SourceVocabulary.observerActiveSubtext,
-            attention: SourceAttention(message: SourceVocabulary.needsAttentionSubtext),
+            attention: SourceAttention(message: "fixture reason"),
             pendingStatus: .nonePending
         )
         let watchIdleSource = Source(

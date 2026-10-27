@@ -45,6 +45,70 @@ nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
         XCTAssertEqual(HomeSourceTile.accessibilityValue(for: nonObserverSource), SourceState.off.label)
     }
 
+    func testNeedsAttentionTileSpeaksTheLineForEveryKind() throws {
+        let locationSource = makeLocationSource(
+            state: .needsAttention,
+            attention: nil,
+            isJournalPaired: true,
+            subtextOverride: LocationVocabulary.locationAttentionDenied
+        )
+        XCTAssertEqual(
+            HomeSourceTile.accessibilityValue(for: locationSource),
+            "\(SourceState.needsAttention.label). \(LocationVocabulary.locationAttentionDenied)"
+        )
+
+        let screenSource = screencastSourcePresentation(
+            managerState: .needsAttention(.noVideo),
+            isJournalPaired: true,
+            enrolled: true
+        )
+        let screenOverride = try XCTUnwrap(screenSource.subtextOverride)
+        XCTAssertEqual(screenOverride, SourceVocabulary.screencastAttentionNoVideo)
+        XCTAssertEqual(
+            HomeSourceTile.accessibilityValue(for: screenSource),
+            "\(screenSource.state.label). \(screenSource.subtextOverride!)"
+        )
+
+        let calendarState = CalendarSourceState(
+            setupStep: .notSetUp,
+            access: .denied,
+            everOn: true,
+            paused: false,
+            lastCompletedCheck: nil,
+            followedCount: 0,
+            calendarCount: 0,
+            recent: [],
+            notesWaiting: 0,
+            notesNeedingAttention: 0,
+            waitingForJournalUpdate: false
+        )
+        let calendarTile = calendarSourceModel(state: calendarState, isJournalPaired: true)
+        XCTAssertEqual(calendarTile.state, .needsAttention)
+        let calendarLine = try XCTUnwrap(calendarTile.subtextOverride)
+        XCTAssertEqual(
+            HomeSourceTile.accessibilityValue(for: calendarTile),
+            "\(calendarTile.state.label). \(calendarLine)"
+        )
+
+        let watchSource = try XCTUnwrap(
+            watchSourceModel(from: .installedActive(.stoppedItself(.audioStoppedItself)), isJournalPaired: true)
+        )
+        XCTAssertEqual(watchSource.state, .needsAttention)
+        let watchLine = try XCTUnwrap(watchSource.subtextOverride)
+        XCTAssertEqual(
+            HomeSourceTile.accessibilityValue(for: watchSource),
+            "\(watchSource.state.label). \(watchLine)"
+        )
+    }
+
+    func testLocationActiveAndOffTilesSpeakTheStateWordAlone() {
+        let activeLocation = makeLocationSource(state: .active, attention: nil, isJournalPaired: true, subtextOverride: nil)
+        XCTAssertEqual(HomeSourceTile.accessibilityValue(for: activeLocation), SourceState.active.label)
+
+        let offLocation = makeLocationSource(state: .off, attention: nil, isJournalPaired: true, subtextOverride: nil)
+        XCTAssertEqual(HomeSourceTile.accessibilityValue(for: offLocation), SourceState.off.label)
+    }
+
     func testHomeSourceTileControlsAreConsistentToggles() throws {
         let tileText = try Self.contents("Sources/Home/HomeSourceTile.swift")
         XCTAssertFalse(tileText.contains("case button"))

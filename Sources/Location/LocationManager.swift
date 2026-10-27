@@ -110,6 +110,10 @@ final class LocationManager {
         self.sourcePresentation.attention
     }
 
+    var sourceAttentionLine: String? {
+        self.sourcePresentation.attentionLine
+    }
+
     var sharingGrant: LocationCapability {
         self.lastCapability
     }
@@ -236,21 +240,22 @@ final class LocationManager {
 }
 
 private extension LocationManager {
-    var sourcePresentation: (state: SourceState, attention: SourceAttention?) {
+    var sourcePresentation: (state: SourceState, attention: SourceAttention?, attentionLine: String?) {
         switch self.state {
         case .idle:
             if self.paused {
-                return (.paused, nil)
+                return (.paused, nil, nil)
             }
             // `location.enabled` is the owner's own record that they turned location on at
             // least once. Without it, `off` would report a choice nobody made.
-            return Self.readEnabled(defaults: self.defaults) ? (.off, nil) : (.readyToSetUp, nil)
+            return Self.readEnabled(defaults: self.defaults) ? (.off, nil, nil) : (.readyToSetUp, nil, nil)
         case .starting:
-            return (.enrolling, nil)
+            return (.enrolling, nil, nil)
         case .active:
-            return locationSourceState(effective: self.effectiveCapability(), tier: self.tier, paused: self.paused)
+            let mapped = locationSourceState(effective: self.effectiveCapability(), tier: self.tier, paused: self.paused)
+            return (state: mapped.0, attention: mapped.1, attentionLine: mapped.2)
         case .stopping:
-            return (.active, nil)
+            return (.active, nil, nil)
         case .error(let error):
             let mapped = locationSourceState(effective: self.effectiveCapability(), tier: self.tier, paused: self.paused)
             let attention = mapped.1 ?? SourceAttention(message: error.message)
@@ -270,9 +275,9 @@ private extension LocationManager {
             if case .capabilityInsufficient = error,
                case .denied = self.effectiveCapability(),
                !Self.readEnabled(defaults: self.defaults) {
-                return (.readyToSetUp, attention)
+                return (state: .readyToSetUp, attention: attention, attentionLine: nil)
             }
-            return (.needsAttention, attention)
+            return (state: .needsAttention, attention: attention, attentionLine: mapped.2 ?? LocationVocabulary.locationAttentionNotRunning)
         }
     }
 

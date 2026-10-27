@@ -10,7 +10,6 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.screencastActiveSubtext, "sharing your screen")
         XCTAssertEqual(SourceVocabulary.screencastStartingSubtext, "waiting for the system sheet")
         XCTAssertEqual(SourceVocabulary.screencastOffSubtext, "off")
-        XCTAssertEqual(SourceVocabulary.screencastAttentionSubtext, "needs attention")
         XCTAssertEqual(SourceVocabulary.screencastUnavailableSubtext, "unavailable")
         XCTAssertEqual(SourceVocabulary.screencastDetailTitle, "screen")
         XCTAssertEqual(SourceVocabulary.screencastStateTitle, "state")
@@ -136,7 +135,10 @@ nonisolated final class ScreencastCopyTests: XCTestCase {
         SourceVocabulary.screencastActiveSubtext,
         SourceVocabulary.screencastStartingSubtext,
         SourceVocabulary.screencastOffSubtext,
-        SourceVocabulary.screencastAttentionSubtext,
+        SourceVocabulary.screencastAttentionStorageLow,
+        SourceVocabulary.screencastAttentionNoVideo,
+        SourceVocabulary.screencastAttentionNotSaved,
+        SourceVocabulary.screencastAttentionNotRunning,
         SourceVocabulary.screencastUnavailableSubtext,
         SourceVocabulary.screencastDetailTitle,
         SourceVocabulary.screencastStateTitle,

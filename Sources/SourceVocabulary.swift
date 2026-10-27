@@ -63,7 +63,7 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         case .paused:
             SourceVocabulary.pausedSubtext
         case .needsAttention:
-            SourceVocabulary.needsAttentionSubtext
+            nil
         }
     }
 
@@ -75,6 +75,9 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
     /// A source with something of its own to say here supplies a `subtextOverride`.
     func subtext(activeSubtext: String, isJournalPaired: Bool) -> String? {
         if case .readyToSetUp = self {
+            return nil
+        }
+        if case .needsAttention = self {
             return nil
         }
         if let universal = self.universalSubtext(isJournalPaired: isJournalPaired) {
@@ -108,7 +111,7 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         case .paused:
             SourceVocabulary.pausedSubtextCompact
         case .needsAttention:
-            SourceVocabulary.needsAttentionSubtext
+            nil
         case .checking, .readyToSetUp:
             nil
         case .active:
@@ -131,7 +134,7 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
         case .paused:
             "paused. \(SourceVocabulary.pausedSubtext)"
         case .needsAttention:
-            "\(SourceVocabulary.needsAttention). \(SourceVocabulary.needsAttentionSubtext)"
+            "\(SourceVocabulary.needsAttention)."
         }
     }
 
@@ -155,7 +158,9 @@ nonisolated enum SourceVocabulary {
     static let pausedSubtext = "you paused this. resume to start intake again."
     static let microphoneTakenSubtextCompact = "another app took the microphone."
     static let microphoneTakenSubtext = "a call or another app took the microphone. resume when it's free."
-    static let needsAttentionSubtext = "something's not getting through."
+    static let audioAttentionMicrophoneOff = "microphone access is off."
+    static let audioAttentionNotRunning = "audio isn't running."
+    static let audioAttentionStorageFull = "storage is full."
     static let needsAttention = "needs attention"
 
     static let observerActiveSubtext = "on"
@@ -173,7 +178,10 @@ nonisolated enum SourceVocabulary {
     static let screencastActiveSubtext = "sharing your screen"
     static let screencastStartingSubtext = "waiting for the system sheet"
     static let screencastOffSubtext = "off"
-    static let screencastAttentionSubtext = "needs attention"
+    static let screencastAttentionStorageLow = "this device is low on storage."
+    static let screencastAttentionNoVideo = "no screen video was saved."
+    static let screencastAttentionNotSaved = "screen video couldn't be saved."
+    static let screencastAttentionNotRunning = "screen isn't running."
     static let screencastUnavailableSubtext = "unavailable"
     static let screencastDetailTitle = "screen"
     static let screencastStateTitle = "state"

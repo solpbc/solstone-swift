@@ -123,6 +123,44 @@ nonisolated final class ScreencastSourceUITests: XCTestCase {
         XCTAssertEqual(activeSourceWithRecentEnded.subtext, SourceVocabulary.screencastActiveSubtext)
     }
 
+    func testScreencastAttentionLines() {
+        let attentionCases: [(ScreencastAttention, String)] = [
+            (.storageLow, SourceVocabulary.screencastAttentionStorageLow),
+            (.noVideo, SourceVocabulary.screencastAttentionNoVideo),
+            (.finalizeFailed, SourceVocabulary.screencastAttentionNotSaved),
+            (.appGroupUnavailable, SourceVocabulary.screencastAttentionNotRunning),
+        ]
+
+        for (reason, expectedLine) in attentionCases {
+            let source = screencastSourcePresentation(
+                managerState: .needsAttention(reason),
+                isJournalPaired: true,
+                enrolled: true
+            )
+            XCTAssertEqual(source.state, .needsAttention)
+            XCTAssertEqual(source.subtextOverride, expectedLine)
+            let occurrences = source.voiceOverText.components(separatedBy: SourceVocabulary.needsAttention).count - 1
+            XCTAssertEqual(occurrences, 1)
+        }
+
+        let unavailableReasons: [ScreencastUnavailableReason] = [
+            .appGroupUnavailable,
+            .extensionUnavailable,
+        ]
+
+        for reason in unavailableReasons {
+            let source = screencastSourcePresentation(
+                managerState: .unavailable(reason),
+                isJournalPaired: true,
+                enrolled: true
+            )
+            XCTAssertEqual(source.state, .needsAttention)
+            XCTAssertEqual(source.subtextOverride, SourceVocabulary.screencastAttentionNotRunning)
+            let occurrences = source.voiceOverText.components(separatedBy: SourceVocabulary.needsAttention).count - 1
+            XCTAssertEqual(occurrences, 1)
+        }
+    }
+
     private static func source(id: String, kind: SourceKind) -> Source {
         Source(
             id: id,

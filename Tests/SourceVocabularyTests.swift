@@ -537,7 +537,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.enrollingSubtext(isJournalPaired: false), "getting ready…")
         XCTAssertEqual(SourceVocabulary.enrollingSubtext(isJournalPaired: true), "getting ready. connecting to your journal.")
         XCTAssertEqual(SourceVocabulary.pausedSubtext, "you paused this. resume to start intake again.")
-        XCTAssertEqual(SourceVocabulary.needsAttentionSubtext, "something's not getting through.")
     }
 
     func testSourceStateSubtextsUseJournalPairingForVisibleAndVoiceOverText() {
@@ -586,6 +585,18 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(
             SourceState.checking.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
             "checking."
+        )
+        XCTAssertNil(SourceState.needsAttention.subtext(activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: true), isJournalPaired: true))
+        XCTAssertNil(SourceState.needsAttention.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true))
+        XCTAssertNil(SourceState.needsAttention.compactSubtext(activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: true)))
+        XCTAssertNil(SourceState.needsAttention.compactSubtext(activeSubtext: SourceVocabulary.observerActiveSubtext))
+        XCTAssertEqual(
+            SourceState.needsAttention.voiceOverText(activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: true), isJournalPaired: true),
+            "\(SourceVocabulary.needsAttention)."
+        )
+        XCTAssertEqual(
+            SourceState.needsAttention.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
+            "\(SourceVocabulary.needsAttention)."
         )
     }
 
@@ -959,7 +970,9 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.enrollingSubtext(isJournalPaired: false),
             SourceVocabulary.enrollingSubtext(isJournalPaired: true),
             SourceVocabulary.pausedSubtext,
-            SourceVocabulary.needsAttentionSubtext,
+            SourceVocabulary.audioAttentionMicrophoneOff,
+            SourceVocabulary.audioAttentionNotRunning,
+            SourceVocabulary.audioAttentionStorageFull,
             SourceVocabulary.needsAttention,
             SourceVocabulary.observerActiveSubtext,
             SourceVocabulary.onThisPhoneSourceName(for: .share),

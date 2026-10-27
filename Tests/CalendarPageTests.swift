@@ -515,7 +515,6 @@ nonisolated final class CalendarPageTests: XCTestCase {
             let tile = calendarSourceModel(state: source.state, isJournalPaired: true)
             XCTAssertEqual(tile.state, .needsAttention)
             XCTAssertEqual(tile.subtextOverride, reason.text)
-            XCTAssertNotEqual(tile.subtext, SourceVocabulary.needsAttentionSubtext)
             let model = CalendarPageModel(source: source)
             XCTAssertTrue(model.offersPauseResume)
             await model.pauseOrResume()
@@ -566,7 +565,7 @@ nonisolated final class CalendarPageTests: XCTestCase {
     }
 
     @MainActor
-    func testTheDeckTilesAccessibleValueIsTheStateWordAlone() {
+    func testTheDeckTileSpeaksAnAttentionLineOnlyForNeedsAttention() {
         let source = PageFakeCalendarSource()
         let states: [(CalendarAccess, Bool, Bool, SourceState)] = [
             (.notDetermined, false, false, .readyToSetUp),
@@ -582,8 +581,12 @@ nonisolated final class CalendarPageTests: XCTestCase {
             let tile = calendarSourceModel(state: source.state, isJournalPaired: true)
             XCTAssertEqual(tile.state, expected)
             XCTAssertEqual(tile.kind, .calendar)
-            // `HomeSourceTile` sets its accessibility value to the source's state word and nothing else.
-            XCTAssertEqual(HomeSourceTile.accessibilityValue(for: tile), tile.state.label)
+            // `HomeSourceTile` speaks the attention line for `needsAttention`, and the state word alone otherwise.
+            if expected == .needsAttention, let line = tile.subtextOverride {
+                XCTAssertEqual(HomeSourceTile.accessibilityValue(for: tile), "\(tile.state.label). \(line)")
+            } else {
+                XCTAssertEqual(HomeSourceTile.accessibilityValue(for: tile), tile.state.label)
+            }
         }
     }
 

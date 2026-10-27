@@ -33,10 +33,10 @@ nonisolated func screencastSourcePresentation(
         subtextOverride = SourceVocabulary.screencastActiveSubtext
         attention = nil
     case .needsAttention(let reason):
-        subtextOverride = SourceVocabulary.screencastAttentionSubtext
+        subtextOverride = screencastAttentionLine(reason)
         attention = SourceAttention(message: screencastAttentionMessage(reason))
     case .unavailable:
-        subtextOverride = SourceVocabulary.screencastUnavailableSubtext
+        subtextOverride = SourceVocabulary.screencastAttentionNotRunning
         attention = SourceAttention(message: SourceVocabulary.screencastUnavailableText)
     }
 
@@ -51,6 +51,19 @@ nonisolated func screencastSourcePresentation(
         attention: attention,
         pendingStatus: .nonePending
     )
+}
+
+nonisolated func screencastAttentionLine(_ attention: ScreencastAttention) -> String {
+    switch attention {
+    case .storageLow:
+        SourceVocabulary.screencastAttentionStorageLow
+    case .noVideo:
+        SourceVocabulary.screencastAttentionNoVideo
+    case .finalizeFailed:
+        SourceVocabulary.screencastAttentionNotSaved
+    case .appGroupUnavailable:
+        SourceVocabulary.screencastAttentionNotRunning
+    }
 }
 
 nonisolated func screencastAttentionMessage(_ attention: ScreencastAttention) -> String {

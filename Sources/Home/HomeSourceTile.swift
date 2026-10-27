@@ -60,9 +60,12 @@ struct HomeSourceTile: View {
         .hoverEffect(.highlight)
     }
 
-    /// The tile's accessible value: state word plus subtext override for observer, state word alone otherwise.
+    /// The tile's accessible value: state word plus subtext override for observer or for any source in needs attention with an override, state word alone otherwise.
     static func accessibilityValue(for source: Source) -> String {
         if source.kind == .observer, let subtextOverride = source.subtextOverride {
+            return "\(source.state.label). \(subtextOverride)"
+        }
+        if source.state == .needsAttention, let subtextOverride = source.subtextOverride {
             return "\(source.state.label). \(subtextOverride)"
         }
         return source.state.label

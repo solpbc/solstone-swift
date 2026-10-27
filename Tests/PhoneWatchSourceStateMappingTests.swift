@@ -240,31 +240,6 @@ nonisolated final class PhoneWatchSourceStateMappingTests: XCTestCase {
         XCTAssertNotEqual(unknown.statusReason, stale.statusReason)
     }
 
-    func testWatchRowPresentationNeverFallsThroughToGenericAttentionCopy() {
-        let lanes: [PhoneWatchSourceLane] = [
-            .unsupported,
-            .checking,
-            .activationFailed,
-            .noWatchPaired,
-            .readyToSetUp(.installApp),
-            .installedNeverOpened,
-            .installedActive(.stuck(.relay)),
-            .installedActive(.stuck(.handoff)),
-            .installedActive(.stuck(.orphan)),
-            .installedActive(.observing),
-            .installedActive(.receiving),
-            .installedActive(.waiting(Self.waiting(count: 2))),
-            .installedActive(.stoppedItself(.audioStoppedItself)),
-            .installedActive(.idle(.unknown)),
-        ]
-
-        for lane in lanes {
-            let presentation = phoneWatchSourcePresentation(lane: lane)
-            XCTAssertNotEqual(presentation.subtext, SourceVocabulary.needsAttentionSubtext, "\(lane)")
-            XCTAssertNotEqual(presentation.attention?.message, SourceVocabulary.needsAttentionSubtext, "\(lane)")
-        }
-    }
-
     func testRecordingStatusFromContext() {
         let now = Date(timeIntervalSince1970: 1_000)
 

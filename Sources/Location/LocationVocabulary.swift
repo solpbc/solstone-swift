@@ -34,6 +34,12 @@ nonisolated enum LocationVocabulary {
     static let downgradeBodyTemplate = "you chose {tier}, but ios hasn't authorized that. your journal will show the gaps."
     static let openSettingsAction = "open ios settings"
     static let matchToAllowedAction = "match it to what's allowed"
+    static let locationAttentionRestricted = "a restriction on this device blocks location."
+    static let locationAttentionDenied = "location access is off."
+    static let locationAttentionServicesOff = "location services are off."
+    static let locationAttentionNotAllowedYet = "location hasn't been allowed yet."
+    static let locationAttentionBelowChosen = "ios allows less than you chose."
+    static let locationAttentionNotRunning = "location isn't running."
     static let restrictedBody = "location is turned off for the solstone app by a restriction on this device. the solstone app can't take in location until that's lifted."
     static let honestGap = "gap here — location wasn't available."
 

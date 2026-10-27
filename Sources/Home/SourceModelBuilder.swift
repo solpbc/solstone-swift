@@ -25,7 +25,8 @@ nonisolated func makeAudioSource(
 nonisolated func makeLocationSource(
     state: SourceState,
     attention: SourceAttention?,
-    isJournalPaired: Bool
+    isJournalPaired: Bool,
+    subtextOverride: String?
 ) -> Source {
     Source(
         id: "location",
@@ -34,6 +35,7 @@ nonisolated func makeLocationSource(
         state: state,
         isJournalPaired: isJournalPaired,
         activeSubtext: LocationVocabulary.activeSubtext(isJournalPaired: isJournalPaired),
+        subtextOverride: subtextOverride,
         attention: attention,
         pendingStatus: .nonePending
     )
@@ -116,7 +118,8 @@ func makeHomeSourceBundle(
         location: makeLocationSource(
             state: locationManager.sourceState,
             attention: locationManager.sourceAttention,
-            isJournalPaired: isJournalPaired
+            isJournalPaired: isJournalPaired,
+            subtextOverride: locationManager.sourceAttentionLine
         ),
         screencast: makeScreencastSource(
             managerState: screencastManager.state,

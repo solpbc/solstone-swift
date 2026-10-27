@@ -123,9 +123,15 @@ nonisolated func audioOwnerPresentation(
             pauseEnabled = false
             pauseReadsResume = false
         }
+        let tileLine: String?
+        if state == .needsAttention, case .error(let error) = observerState {
+            tileLine = audioAttentionLine(error)
+        } else {
+            tileLine = nil
+        }
         return AudioOwnerPresentation(
             sourceState: state,
-            tileLine: nil,
+            tileLine: tileLine,
             detailLine: nil,
             firstUseLine: nil,
             pauseEnabled: pauseEnabled,
@@ -133,6 +139,17 @@ nonisolated func audioOwnerPresentation(
             showsLiveElapsed: isLive,
             switchEnabled: true
         )
+    }
+}
+
+nonisolated func audioAttentionLine(_ error: ObserverError) -> String {
+    switch error {
+    case .permissionDenied:
+        SourceVocabulary.audioAttentionMicrophoneOff
+    case .audioSessionConflict, .uploadFailed, .unavailable:
+        SourceVocabulary.audioAttentionNotRunning
+    case .diskFull:
+        SourceVocabulary.audioAttentionStorageFull
     }
 }
 
