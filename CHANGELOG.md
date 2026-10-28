@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.10 (140)] - 2026-10-28
+
 ### Fixed
 
 - when a call or another app takes the microphone while audio is on, audio now shows paused and says "another app took the microphone." instead of staying on and then showing a problem. if audio hasn't come back on its own once the call is over, tap resume.
