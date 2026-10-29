@@ -7,7 +7,7 @@ import WatchKit
 
 /// The active face (2026-10-29). The first screen is the sun arc, an error pill when something
 /// needs attention, and the one control. Everything else, the time running included, is in one
-/// panel below the fold, reached with the Crown; its handle peeks above the control. Text only
+/// panel below the fold, reached with the Crown or by tapping the error pill. Text only
 /// ever sits on an underlay: a standard material behind the pill and the panel, and system glass
 /// on the control.
 struct WatchHomeView: View {
@@ -17,8 +17,6 @@ struct WatchHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
-    /// How much of the panel shows above the control on the first screen: its handle.
-    private static let panelPeek: CGFloat = 14
     private static let panelID = "watchHome.panel"
 
     var body: some View {
@@ -40,14 +38,16 @@ struct WatchHomeView: View {
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
                             if face.stateColorRole == .alert {
-                                self.attentionPill(face.stateWord)
-                                    .padding(.bottom, 8)
+                                self.attentionPill(face.stateWord) {
+                                    withAnimation {
+                                        reader.scrollTo(Self.panelID, anchor: .top)
+                                    }
+                                }
+                                .padding(.bottom, 8)
                             }
                         }
                         .frame(maxWidth: .infinity)
-                        .containerRelativeFrame(.vertical) { length, _ in
-                            max(0, length - Self.panelPeek)
-                        }
+                        .containerRelativeFrame(.vertical)
 
                         self.panel(hero: hero, face: face)
                             .id(Self.panelID)
@@ -89,34 +89,33 @@ private extension WatchHomeView {
         }
     }
 
-    func attentionPill(_ message: String) -> some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(Color(watchHex: WatchHomePalette.alertDot))
-                .frame(width: 7, height: 7)
-            Text(message)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(Color(watchHex: WatchHomePalette.alert))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
+    /// The error, small, on the first screen. A tap scrolls the details panel into view.
+    func attentionPill(_ message: String, showDetails: @escaping () -> Void) -> some View {
+        Button(action: showDetails) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(Color(watchHex: WatchHomePalette.alertDot))
+                    .frame(width: 7, height: 7)
+                Text(message)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Color(watchHex: WatchHomePalette.alert))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background { self.underlay(Capsule()) }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
-        .background { self.underlay(Capsule()) }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(message)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier("watchHome.attentionPill")
     }
 
     func panel(hero: WatchHomeHero, face: WatchFaceModel) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Capsule()
-                .fill(Color(watchHex: WatchHomePalette.cream).opacity(0.42))
-                .frame(width: 30, height: 4)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 9)
-                .accessibilityHidden(true)
-
             self.panelHeader(hero: hero, face: face)
 
             self.rule
@@ -172,7 +171,7 @@ private extension WatchHomeView {
             }
         }
         .padding(.horizontal, 12)
-        .padding(.top, 7)
+        .padding(.top, 11)
         .padding(.bottom, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background { self.underlay(RoundedRectangle(cornerRadius: 18, style: .continuous)) }
