@@ -6,9 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.10 (142)] - 2026-10-29
+
 ### Changed
 
-- on apple watch, the sun is now always the background, not only with your wrist down. the first screen shows just the sun, the start or stop button, and a short note when something needs attention. turn the Digital Crown to see how long audio has been running, and the rest of the details.
+- on apple watch, the sun is now always the background, not only with your wrist down. the first screen shows just the sun, the start or stop button, and a short note when something needs attention. turn the Digital Crown to see how long audio has been running, and the rest of the details. when a note shows, you can also tap it to go straight to the details.
 - on apple watch, the night sky now shows with your wrist up too: stars, the aurora and the meteor shower. the aurora now also shows with your wrist down.
 
 ## [2.0.10 (140)] - 2026-10-28
