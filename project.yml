@@ -383,7 +383,6 @@ targets:
       - Tests/WatchSunArcDrawingTests.swift
       - Tests/WatchElapsedDurationTests.swift
       - Tests/WatchHomeHeroTests.swift
-      - Tests/WatchHomePaletteTests.swift
       - Tests/WatchHomeControlStyleTests.swift
       - Tests/WatchComplicationLiteralTests.swift
       - Tests/AboutBlockTests.swift

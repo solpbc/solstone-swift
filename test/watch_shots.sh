@@ -7,7 +7,7 @@
 #   SHOTS_PINS='off on-1h12m'          only these face states (default: all six)
 #   SHOTS_SCENES='1300:--ui-test-sun-arc-denver-0923=13:00|1941-wrist-down:--ui-test-sun-arc-denver-0923=19:41 --watch-face-wrist-down'
 #                                       '|'-separated "stem:launch args" scenes per state
-#                                       (default: midday, night, midday wrist-down)
+#                                       (default: midday, midday scrolled to the details, night, midday wrist-down)
 
 set -uo pipefail
 
@@ -66,7 +66,7 @@ PINS=(
   "needs-attention:--watch-face-needs-attention"
 )
 
-IFS='|' read -r -a SCENES <<< "${SHOTS_SCENES:-midday:--ui-test-sun-arc-denver-midday|night:--ui-test-sun-arc-denver-night|midday-wrist-down:--ui-test-sun-arc-denver-midday --watch-face-wrist-down}"
+IFS='|' read -r -a SCENES <<< "${SHOTS_SCENES:-midday:--ui-test-sun-arc-denver-midday|midday-scrolled:--ui-test-sun-arc-denver-midday --watch-face-scrolled|night:--ui-test-sun-arc-denver-night|midday-wrist-down:--ui-test-sun-arc-denver-midday --watch-face-wrist-down}"
 
 for pin_entry in "${PINS[@]}"; do
   stem_prefix="${pin_entry%%:*}"

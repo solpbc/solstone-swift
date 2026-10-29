@@ -72,5 +72,10 @@ enum WatchFaceDebugScene {
     static func isWristDown(from arguments: [String]) -> Bool {
         arguments.contains("--watch-face-wrist-down")
     }
+
+    /// Opens the face scrolled to its details panel, for screenshots of what the Crown reveals.
+    static func isScrolled(from arguments: [String]) -> Bool {
+        arguments.contains("--watch-face-scrolled")
+    }
 }
 #endif

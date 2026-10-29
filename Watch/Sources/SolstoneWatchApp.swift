@@ -139,11 +139,13 @@ struct SolstoneWatchApp: App {
     }
 }
 
-/// The bi-modal watch face (2026-09-23). Wrist up: the hero, the details and the
-/// control on brand ink, with no sun arc. Wrist down (`isLuminanceReduced`): only the sun arc's
-/// dark row over black, and nothing else. `WatchHomeView` holds one unconditional position, so
-/// its `.task`, its `scenePhase` raise handler and its elapsed timeline keep their identity
-/// across the switch; only the layer beneath it changes.
+/// The watch face (2026-10-29): the sun arc is always the background. Wrist up it is the dark
+/// sun arc with the controls and details above it; wrist down (`isLuminanceReduced`) it is the
+/// sun arc over black, and nothing else. The background host stays mounted for the life of the
+/// scene, so a wrist drop changes only how it draws: its measured viewport and its minute clock
+/// are already in place when Always On captures the frame. `WatchHomeView` holds one
+/// unconditional position, so its `.task`, its `scenePhase` raise handler and its elapsed
+/// timeline keep their identity across the switch.
 private struct WatchSunArcRoot: View {
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     let sessionModel: WatchSessionModel
@@ -170,11 +172,7 @@ private struct WatchSunArcRoot: View {
     var body: some View {
         let mode = WatchFaceMode(luminanceReduced: self.effectiveLuminanceReduced)
         let face = ZStack {
-            if mode.showsSunArc {
-                self.sunArc
-            } else {
-                Color(watchFaceHex: mode.groundHex).ignoresSafeArea()
-            }
+            self.sunArc(blackGround: mode.blackGround)
             WatchHomeView(model: self.sessionModel, captureModel: self.captureModel)
                 .opacity(mode.showsContent ? 1 : 0)
                 .accessibilityHidden(!mode.showsContent)
@@ -197,15 +195,15 @@ private struct WatchSunArcRoot: View {
 #endif
     }
 
-    /// The wrist-down face: the sun arc's dark row over black, with nothing on top of it.
-    private var sunArc: some View {
+    /// The background: the dark sun arc wrist up, the sun arc over black wrist down.
+    private func sunArc(blackGround: Bool) -> some View {
 #if DEBUG && targetEnvironment(simulator)
         SunArcBackgroundHost(
             palette: SunArcGroundPalette(),
             presentationCoordinate: self.captureModel.sunArcPresentationCoordinate,
             debugOverride: Self.sunArcDebugOverride,
             fixedAppearance: .dark,
-            blackGround: true
+            blackGround: blackGround
         ) {
             EmptyView()
         }
@@ -214,17 +212,10 @@ private struct WatchSunArcRoot: View {
             palette: SunArcGroundPalette(),
             presentationCoordinate: self.captureModel.sunArcPresentationCoordinate,
             fixedAppearance: .dark,
-            blackGround: true
+            blackGround: blackGround
         ) {
             EmptyView()
         }
 #endif
-    }
-}
-
-private extension Color {
-    init(watchFaceHex hex: String) {
-        let rgb = SunArcOKLab.rgb(fromHex: hex)
-        self.init(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b, opacity: 1)
     }
 }

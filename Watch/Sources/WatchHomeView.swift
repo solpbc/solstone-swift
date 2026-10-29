@@ -5,11 +5,21 @@ import Foundation
 import SwiftUI
 import WatchKit
 
+/// The active face (2026-10-29). The first screen is the sun arc, an error pill when something
+/// needs attention, and the one control. Everything else, the time running included, is in one
+/// panel below the fold, reached with the Crown; its handle peeks above the control. Text only
+/// ever sits on an underlay: a standard material behind the pill and the panel, and system glass
+/// on the control.
 struct WatchHomeView: View {
     let model: WatchSessionModel
     let captureModel: WatchCaptureModel
     @Environment(\.isLuminanceReduced) private var isLuminanceReduced
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    /// How much of the panel shows above the control on the first screen: its handle.
+    private static let panelPeek: CGFloat = 14
+    private static let panelID = "watchHome.panel"
 
     var body: some View {
         let face = watchFaceModel(
@@ -24,92 +34,42 @@ struct WatchHomeView: View {
         )
 
         VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .center, spacing: 14) {
-                    self.heroView(hero: hero, face: face)
-
-                    Divider()
-                        .overlay(Color(watchHex: WatchHomePalette.calm).opacity(0.45))
-                        .padding(.vertical, 2)
-
-                    VStack(alignment: .leading, spacing: 9) {
-                        ForEach(face.detailRows, id: \.label) { row in
-                            HStack(spacing: 10) {
-                                Text(row.label)
-                                    .minimumScaleFactor(0.7)
-                                Spacer(minLength: 8)
-                                Text("\(row.value)")
-                                    .monospacedDigit()
-                                    .minimumScaleFactor(0.7)
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            if face.stateColorRole == .alert {
+                                self.attentionPill(face.stateWord)
+                                    .padding(.bottom, 8)
                             }
-                            .font(.caption)
-                            .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .containerRelativeFrame(.vertical) { length, _ in
+                            max(0, length - Self.panelPeek)
                         }
 
-                        let now = Date()
-                        Text(AboutBlock.line(
-                            name: "watch app",
-                            version: AppVersion.shortVersion,
-                            build: AppVersion.build,
-                            os: "watchos",
-                            osVersion: WKInterfaceDevice.current().systemVersion
-                        ))
-                            .font(.caption2)
-                            .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
-                            .minimumScaleFactor(0.7)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        Text(AboutBlock.line(
-                            name: "journal",
-                            version: self.model.journalVersion.version ?? "",
-                            build: self.model.journalVersion.journalBuild ?? "",
-                            os: self.model.journalVersion.journalOS ?? "",
-                            osVersion: self.model.journalVersion.journalOSVersion ?? "",
-                            arch: self.model.journalVersion.journalArch ?? "",
-                            isCurrent: self.model.journalVersion.isCurrent,
-                            observedAt: self.model.journalVersion.versionObservedAt,
-                            now: now
-                        ))
-                            .font(.caption2)
-                            .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
-                            .minimumScaleFactor(0.7)
-                            .fixedSize(horizontal: false, vertical: true)
-
-                        if let trustLine = face.trustLine {
-                            Text(trustLine)
-                                .font(.caption2)
-                                .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
-                                .minimumScaleFactor(0.7)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-
-                        Text(face.linkLine)
-                            .font(.caption2)
-                            .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
-                            .minimumScaleFactor(0.7)
-                            .fixedSize(horizontal: false, vertical: true)
+                        self.panel(hero: hero, face: face)
+                            .id(Self.panelID)
+                            .padding(.bottom, 8)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-            }
-            // Fade the scroll out above the pinned control, so a line cut by the viewport reads as
-            // "more below" rather than as a broken line.
-            .mask {
-                VStack(spacing: 0) {
-                    Rectangle()
-                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                        .frame(height: 18)
+#if DEBUG && targetEnvironment(simulator)
+                .task {
+                    guard WatchFaceDebugScene.isScrolled(from: ProcessInfo.processInfo.arguments) else { return }
+                    try? await Task.sleep(for: .milliseconds(400))
+                    reader.scrollTo(Self.panelID, anchor: .top)
                 }
+#endif
             }
 
+            // The scroll ends above the control, so only the sun arc is ever behind its glass.
             self.controlButton
-                .padding(.horizontal, 14)
-                .padding(.bottom, 6)
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
+                .padding(.bottom, 2)
         }
-        .background(Color.clear)
         .onChange(of: self.scenePhase) { _, newPhase in
             if newPhase == .active {
                 self.captureModel.handleOwnerVisibleRaise()
@@ -119,16 +79,109 @@ struct WatchHomeView: View {
 }
 
 private extension WatchHomeView {
+    /// A standard material behind text over the sun arc, or an opaque fill under Reduce Transparency.
     @ViewBuilder
-    func heroView(hero: WatchHomeHero, face: WatchFaceModel) -> some View {
-        VStack(spacing: 4) {
-            Text(hero.title)
-                .font(hero.titleIsLarge ? .title2.weight(.bold) : .headline.weight(.semibold))
-                .foregroundStyle(Color(watchHex: hero.titleHex))
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.6)
-                .lineLimit(hero.titleLineLimit)
+    func underlay(_ shape: some Shape) -> some View {
+        if self.reduceTransparency {
+            shape.fill(Color(watchHex: WatchHomePalette.underlayOpaque))
+        } else {
+            shape.fill(.regularMaterial)
+        }
+    }
 
+    func attentionPill(_ message: String) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(Color(watchHex: WatchHomePalette.alertDot))
+                .frame(width: 7, height: 7)
+            Text(message)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Color(watchHex: WatchHomePalette.alert))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background { self.underlay(Capsule()) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(message)
+    }
+
+    func panel(hero: WatchHomeHero, face: WatchFaceModel) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Capsule()
+                .fill(Color(watchHex: WatchHomePalette.cream).opacity(0.42))
+                .frame(width: 30, height: 4)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 9)
+                .accessibilityHidden(true)
+
+            self.panelHeader(hero: hero, face: face)
+
+            self.rule
+
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(face.detailRows, id: \.label) { row in
+                    HStack(spacing: 8) {
+                        Text(row.label)
+                            .minimumScaleFactor(0.7)
+                        Spacer(minLength: 6)
+                        Text("\(row.value)")
+                            .monospacedDigit()
+                            .minimumScaleFactor(0.7)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
+                }
+
+                if let subtext = face.compactHandoff?.subtext {
+                    self.smallLine(subtext)
+                }
+
+                Text(face.linkLine)
+                    .font(.caption)
+                    .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
+                    .minimumScaleFactor(0.7)
+            }
+
+            self.rule
+
+            VStack(alignment: .leading, spacing: 4) {
+                if let trustLine = face.trustLine {
+                    self.smallLine(trustLine)
+                }
+                self.smallLine(AboutBlock.line(
+                    name: "watch app",
+                    version: AppVersion.shortVersion,
+                    build: AppVersion.build,
+                    os: "watchos",
+                    osVersion: WKInterfaceDevice.current().systemVersion
+                ))
+                self.smallLine(AboutBlock.line(
+                    name: "journal",
+                    version: self.model.journalVersion.version ?? "",
+                    build: self.model.journalVersion.journalBuild ?? "",
+                    os: self.model.journalVersion.journalOS ?? "",
+                    osVersion: self.model.journalVersion.journalOSVersion ?? "",
+                    arch: self.model.journalVersion.journalArch ?? "",
+                    isCurrent: self.model.journalVersion.isCurrent,
+                    observedAt: self.model.journalVersion.versionObservedAt,
+                    now: Date()
+                ))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 7)
+        .padding(.bottom, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background { self.underlay(RoundedRectangle(cornerRadius: 18, style: .continuous)) }
+    }
+
+    /// The panel's lead: the time running while it's on, otherwise the state in a word, or the error.
+    @ViewBuilder
+    func panelHeader(hero: WatchHomeHero, face: WatchFaceModel) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
             if hero.elapsedDisplay != nil, let start = self.captureModel.presentation.sessionStartedAt {
                 TimelineView(WatchHomeElapsedSchedule(
                     sessionStart: start,
@@ -140,67 +193,56 @@ private extension WatchHomeView {
                         .font(.largeTitle.monospacedDigit())
                         .foregroundStyle(Color(watchHex: hero.elapsedHex))
                         .minimumScaleFactor(0.6)
+                        .lineLimit(1)
                 }
+                Text(SourceVocabulary.watchPanelRunning)
+                    .font(.footnote)
+                    .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
+            } else {
+                Text(hero.title)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(Color(watchHex: hero.titleHex))
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(hero.titleLineLimit)
             }
-
-            if let handoff = face.compactHandoff, let handoffLineHex = hero.handoffLineHex {
-                VStack(spacing: 2) {
-                    Text(handoff.line)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Color(watchHex: handoffLineHex))
-                        .multilineTextAlignment(.center)
-                        .minimumScaleFactor(0.8)
-                        .lineLimit(2)
-
-                    if let subtext = handoff.subtext {
-                        Text(subtext)
-                            .font(.caption2)
-                            .foregroundStyle(Color(watchHex: hero.handoffSubtextHex))
-                            .multilineTextAlignment(.center)
-                            .minimumScaleFactor(0.8)
-                            .lineLimit(2)
-                    }
-                }
-                .padding(.top, 2)
-            }
-
-            Text(hero.linkLine)
-                .font(.caption2)
-                .foregroundStyle(Color(watchHex: hero.linkHex))
-                .multilineTextAlignment(.center)
-                .minimumScaleFactor(0.7)
-                .lineLimit(1)
-                .padding(.top, 2)
         }
-        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(self.heroAccessibilityLabel(hero: hero, face: face))
+        .accessibilityLabel(self.headerAccessibilityLabel(hero: hero, face: face))
     }
 
-    func heroAccessibilityLabel(hero: WatchHomeHero, face: WatchFaceModel) -> String {
-        var parts = [hero.title]
+    func headerAccessibilityLabel(hero: WatchHomeHero, face: WatchFaceModel) -> String {
         if hero.elapsedDisplay != nil, let start = self.captureModel.presentation.sessionStartedAt {
             let elapsed = max(0, Int(Date().timeIntervalSince(start)))
-            parts.append(watchElapsedSpoken(seconds: elapsed))
+            return "\(SourceVocabulary.watchPanelRunning), \(watchElapsedSpoken(seconds: elapsed))"
         }
-        if let handoff = face.compactHandoff {
-            parts.append(handoff.line)
-            if let subtext = handoff.subtext {
-                parts.append(subtext)
-            }
-        }
-        parts.append(hero.linkLine)
-        return parts.joined(separator: ", ")
+        return hero.title
+    }
+
+    var rule: some View {
+        Rectangle()
+            .fill(Color(watchHex: WatchHomePalette.calm).opacity(0.28))
+            .frame(height: 1)
+            .padding(.top, 9)
+            .padding(.bottom, 7)
+    }
+
+    func smallLine(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(Color(watchHex: WatchHomePalette.calm))
+            .minimumScaleFactor(0.7)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     var controlHint: String {
         self.captureModel.isRunning ? "turns the solstone app off" : "turns the solstone app on"
     }
 
+    /// The one control, in the bottom bar: prominent glass tinted orange to start, plain glass to stop.
+    @ViewBuilder
     var controlButton: some View {
         let style = watchHomeControlStyle(isRunning: self.captureModel.isRunning)
-
-        return Button {
+        let button = Button {
             if self.captureModel.isRunning {
                 self.captureModel.stop()
             } else {
@@ -209,29 +251,23 @@ private extension WatchHomeView {
         } label: {
             Text(style.label)
                 .font(.headline.weight(.semibold))
-                .foregroundStyle(Color(watchHex: style.labelHex).opacity(style.labelAlpha))
+                .foregroundStyle(Color(watchHex: style.labelHex))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(maxWidth: .infinity, minHeight: WatchHomeControlStyle.minHeight)
-                .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .background {
-            if let fillHex = style.fillHex {
-                Capsule().fill(Color(watchHex: fillHex))
-            }
-        }
-        .overlay {
-            if let strokeHex = style.strokeHex {
-                Capsule()
-                    .strokeBorder(
-                        Color(watchHex: strokeHex).opacity(style.strokeAlpha),
-                        lineWidth: style.strokeLineWidth
-                    )
-            }
-        }
+        .buttonBorderShape(.capsule)
         .accessibilityLabel(style.label)
         .accessibilityHint(self.controlHint)
+
+        if let tintHex = style.tintHex {
+            button
+                .buttonStyle(.glassProminent)
+                .tint(Color(watchHex: tintHex))
+        } else {
+            button
+                .buttonStyle(.glass)
+        }
     }
 }
 

@@ -264,6 +264,7 @@ nonisolated enum SourceVocabulary {
     static let watchHeadlineEnrolling = "setting up"
     static let watchHeadlineListening = "on"
     static let watchHeadlineStopping = "stopping"
+    static let watchPanelRunning = "running"
     static let watchMicrophoneUnavailable = "microphone unavailable"
     static let watchAudioStoppedItself = "audio stopped itself"
     static let watchAudioCouldNotBeSaved = "audio could not be saved"

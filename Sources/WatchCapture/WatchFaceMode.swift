@@ -3,21 +3,19 @@
 
 import Foundation
 
-/// The watch face is bi-modal (2026-09-23): a low-power positional sun mark in reduced
-/// luminance, or visible controls and text with no contrast issue. The mode is
-/// `isLuminanceReduced` and nothing else: a notification or Control Center over a raised wrist
-/// is still the active face.
+/// The sun arc is the watch's background at all times. The mode is `isLuminanceReduced` and
+/// nothing else: a notification or Control Center over a raised wrist is still the active face.
 nonisolated enum WatchFaceMode: Equatable, Sendable {
-    /// Wrist up: the hero, the details and the control on brand ink. No sun arc.
+    /// Wrist up: the dark sun arc, with the controls and details on their underlays above it.
     case active
-    /// Wrist down / Always On: only the sun arc's dark row, over black. No content.
+    /// Wrist down / Always On: the sun arc over black, and nothing else.
     case reduced
 
     init(luminanceReduced: Bool) {
         self = luminanceReduced ? .reduced : .active
     }
 
-    var showsSunArc: Bool { self == .reduced }
     var showsContent: Bool { self == .active }
-    var groundHex: String { self == .reduced ? "#000000" : WatchHomePalette.ground }
+    /// Wrist down paints the sun arc over pure black, with the brighter wrist-down sun.
+    var blackGround: Bool { self == .reduced }
 }

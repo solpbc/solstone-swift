@@ -4,15 +4,19 @@
 import Foundation
 
 nonisolated enum WatchHomePalette {
-    /// The active face's text on brand ink `#1A1A1A`, where the sun arc never draws (the bi-modal
-    /// watch, 2026-09-23: the normal colours stay, since there is no contrast issue on ink). On ink: cream 15.08, calm 8.83, live 8.47, in flight 8.75, alert 6.23.
+    /// The active face's text sits on underlays (the panel, the error pill, the control) over the
+    /// dark sun arc (2026-10-29). Each role is the least-pale tint of its hue that clears 4.5:1
+    /// over the brightest background the sun arc puts under watch text, the 2026-09-23 passing
+    /// tints, so the text holds even where an underlay is translucent.
     static let cream = "#F4EEE4"
-    static let calm = "#B8B8C0"
-    static let liveText = "#F2A457"
-    static let inFlight = "#F5A842"
-    static let alert = "#FF6B5E"
-    /// Brand ink: the active face's ground.
-    static let ground = "#1A1A1A"
+    static let calm = "#D9D9E1"
+    static let liveText = "#FED0A7"
+    static let inFlight = "#FFD19E"
+    static let alert = "#FECEC7"
+    /// The error pill's dot: the alert hue at full strength, beside the alert text.
+    static let alertDot = "#FF6B5E"
+    /// The underlays' opaque fill under Reduce Transparency: the sun arc's dark night ground.
+    static let underlayOpaque = "#2E241C"
 
     static func hex(for role: WatchFaceColorRole) -> String {
         switch role {

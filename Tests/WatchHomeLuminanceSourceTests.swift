@@ -6,24 +6,23 @@
 #endif
 import XCTest
 
-/// The bi-modal watch face follows `isLuminanceReduced` (2026-09-23).
+/// The watch face follows `isLuminanceReduced`: the sun arc is always drawn, and the controls
+/// and details show only while the wrist is up.
 nonisolated final class WatchHomeLuminanceSourceTests: XCTestCase {
     func testTheModeFollowsLuminanceReduced() {
         XCTAssertEqual(WatchFaceMode(luminanceReduced: false), .active)
         XCTAssertEqual(WatchFaceMode(luminanceReduced: true), .reduced)
     }
 
-    func testActiveShowsContentOnInkAndNoSunArc() {
+    func testWristUpShowsContentOnTheSunArc() {
         let mode = WatchFaceMode(luminanceReduced: false)
         XCTAssertTrue(mode.showsContent)
-        XCTAssertFalse(mode.showsSunArc)
-        XCTAssertEqual(mode.groundHex, "#1A1A1A")
+        XCTAssertFalse(mode.blackGround)
     }
 
-    func testReducedShowsOnlyTheSunArcOverBlack() {
+    func testWristDownShowsOnlyTheSunArcOverBlack() {
         let mode = WatchFaceMode(luminanceReduced: true)
         XCTAssertFalse(mode.showsContent)
-        XCTAssertTrue(mode.showsSunArc)
-        XCTAssertEqual(mode.groundHex, "#000000")
+        XCTAssertTrue(mode.blackGround)
     }
 }
