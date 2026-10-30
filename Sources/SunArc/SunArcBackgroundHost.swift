@@ -255,8 +255,12 @@ struct SunArcBackgroundHost<Content: View>: View {
             scene: self.debugScene, exposure: self.exposure
         ) { moment in
             ZStack {
+                // The root canvas measures itself. It never reads `viewportFrame`, which is
+                // written from geometry callbacks and can lag, reset or disagree with the
+                // drawn frame (an Always On hand-off on watchOS); a zero or offset viewport
+                // there blanks the sun. Only clipped navigation-content copies need it.
                 SunArcGroundCanvas(
-                    moment: moment, viewportFrame: self.viewportFrame,
+                    moment: moment,
                     blackGround: self.blackGround, nightCache: self.nightCache, exposure: self.exposure, ownsClock: false
                 )
                 .environment(\.sunArcCovered, self.rootCovered)
@@ -337,11 +341,14 @@ extension EnvironmentValues {
 /// clock picks the time of day only; ⛔ it never picks the appearance.
 private struct SunArcBackgroundTimeline<ClockContent: View>: View {
     @Environment(\.scenePhase) private var scenePhase
-    private var clockVisible: Bool {
+    /// Whether the minute clock runs. On watchOS it always does: Always On renders the face
+    /// ahead from this schedule, so it must not change with view state (scene phase, a
+    /// painter appearing or disappearing) at the hand-off. Elsewhere it pauses while hidden.
+    private var clockRuns: Bool {
 #if os(watchOS)
-        scenePhase != .background
+        true
 #else
-        scenePhase == .active
+        scenePhase == .active && exposure.visible
 #endif
     }
     let palette: SunArcGroundPalette
@@ -352,7 +359,7 @@ private struct SunArcBackgroundTimeline<ClockContent: View>: View {
     @ViewBuilder let content: (SunArcBackgroundMoment) -> ClockContent
 
     var body: some View {
-        TimelineView(NightMinuteSchedule(visible: clockVisible && exposure.visible)) { context in
+        TimelineView(NightMinuteSchedule(visible: clockRuns)) { context in
             let date = self.scene?.date ?? context.date
             let timeZone = self.scene?.timeZone ?? .autoupdatingCurrent
             let coordinate = self.scene != nil
@@ -404,7 +411,10 @@ private struct SunArcGroundCanvas: View {
     /// changing the foreground proposal.
     var body: some View {
         GeometryReader { proxy in
-            let localFrame = proxy.frame(in: .global)
+            // The root (no viewport) draws in its own bounds, independent of the global space.
+            let localFrame = self.viewportFrame == nil
+                ? CGRect(origin: .zero, size: proxy.size)
+                : proxy.frame(in: .global)
             if let sceneFrame = SunArcSceneFrame.resolve(
                 viewportFrame: self.viewportFrame,
                 localFrame: localFrame
