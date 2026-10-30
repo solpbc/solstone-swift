@@ -6,6 +6,12 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.10 (143)] - 2026-10-30
+
+### Fixed
+
+- on apple watch, a few seconds after you lowered your wrist, the sun could disappear and leave only the time on a black screen. the sun now stays with your wrist down.
+
 ## [2.0.10 (142)] - 2026-10-29
 
 ### Changed
