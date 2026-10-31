@@ -24,10 +24,11 @@ final class SafariSourceStatusTests: XCTestCase {
         XCTAssertEqual(SafariSourceStatus(snapshot: nil).sourceState, .needsAttention)
     }
 
-    func testAPairedPhoneAwaitingTheMarkSaysSafariWaitsForIt() {
-        let source = safariSourceModel(snapshot: self.snapshot(confirmed: false), isJournalPaired: true)
-        XCTAssertEqual(source.subtext, SafariVocabulary.awaitingMark)
-        XCTAssertEqual(safariSourceModel(snapshot: self.snapshot(), isJournalPaired: false).subtext,
-            SafariVocabulary.activeSubtextUnpaired)
+    func testWithoutAConfirmedJournalTheSourceIsOffAndSaysWhy() {
+        let awaiting = safariSourceModel(snapshot: self.snapshot(confirmed: false), isJournalPaired: true)
+        XCTAssertEqual(awaiting.state, .off)
+        XCTAssertEqual(awaiting.subtext, SafariVocabulary.awaitingMark)
+        let unpaired = safariSourceModel(snapshot: self.snapshot(confirmed: false), isJournalPaired: false)
+        XCTAssertEqual(unpaired.subtext, SafariVocabulary.notPaired)
     }
 }

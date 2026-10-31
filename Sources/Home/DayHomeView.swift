@@ -436,7 +436,7 @@ private extension DayHomeView {
                     HomeSourceTile(
                         source: source,
                         route: .safari,
-                        control: safari.isSetUp ? .toggle : .none,
+                        control: safari.isSetUp && safari.snapshot?.confirmed == true ? .toggle : .none,
                         isOn: Binding(
                             get: { safari.snapshot?.paused == false },
                             set: { safari.setPaused(!$0) }

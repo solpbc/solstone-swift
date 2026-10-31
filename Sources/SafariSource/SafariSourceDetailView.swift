@@ -83,10 +83,12 @@ struct SafariSourceDetailView: View {
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("safari.page.subtext")
             }
-            Text(SafariVocabulary.whileClosed)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("safari.page.whileClosed")
+            if status.sourceState == .active {
+                Text(SafariVocabulary.whileClosed)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("safari.page.whileClosed")
+            }
             Text(SafariVocabulary.privateBrowsing)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
