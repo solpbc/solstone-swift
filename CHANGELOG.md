@@ -309,7 +309,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Fixed
 - solstone no longer shows your journal as reachable when it isn't. an open connection was taken as proof your journal was still answering behind it, so one that had gone quiet could keep reading connected while nothing was moving. a single failed check now withdraws that, and a connection that is cycling reads connecting rather than claiming to be either up or down.
 - a voice memo from your iphone plays back at its true length. a seven-second memo could land in your journal running three times longer than that.
-- a moment your watch can't hand to your iphone no longer waits on the watch indefinitely. your watch retries while your iphone is in reach and restarts a transfer that stalls; after about twelve hours of trying it stops, the audio is deleted from the watch, and the entry reads never reached your iphone rather than looking like it's still on its way. the card on your watch face can also no longer get stuck reading audio on after solstone has stopped.
+- your watch retries while your iphone is in reach and restarts a transfer that stalls. the card on your watch face can also no longer get stuck reading audio on after solstone has stopped. **correction, 2026-10-31:** this entry previously said delivery stopped and audio was deleted after about twelve hours of trying. that timeout and deletion did not occur.
 
 ## [0.1.2] - 2026-08-02
 
