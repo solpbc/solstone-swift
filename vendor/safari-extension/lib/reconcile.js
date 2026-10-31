@@ -37,7 +37,7 @@
       ...[...groups.keys()].flatMap((matchHost) => H.sitePatternsFor(matchHost)),
     ]);
     for (const origin of [...grantedSet].sort()) {
-      if (!globalThis.SolstoneSafariPort?.ios && !claimedOrigins.has(origin)) actions.push({ op: "release", origin });
+      if (!claimedOrigins.has(origin)) actions.push({ op: "release", origin });
     }
     return actions;
   }

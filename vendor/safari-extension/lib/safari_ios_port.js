@@ -7,7 +7,11 @@
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
   const mac = globalThis.SolstoneSafariPort;
   if (!isIOS()) return;
-  function connect(runtime) {
+  // Safari on iPhone and iPad has no app-to-extension dispatch, so each exchange is a
+  // request the extension's native handler answers. The handler is part of the
+  // solstone app and works from the store the app shares with it, whether or not
+  // the app is running.
+  function connect(runtime, hostName) {
     const id = crypto.randomUUID();
     const messages = [], disconnects = [];
     let open = true, chain = Promise.resolve(), queued = 0;
@@ -23,7 +27,7 @@
       queued++;
       chain = chain.then(async () => {
         if (!open) return;
-        const reply = await runtime.sendNativeMessage("app.solstone.swift", { v: 1, c: id, ...(frame ? { f: frame } : {}) });
+        const reply = await runtime.sendNativeMessage(hostName, { v: 1, c: id, ...(frame ? { f: frame } : {}) });
         if (!open || reply?.c !== id || reply.v !== 1) { close(); return; }
         const parsed = mac.framesFor(reply, id);
         for (const frame of parsed?.frames || []) {
