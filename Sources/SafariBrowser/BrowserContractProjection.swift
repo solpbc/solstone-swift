@@ -246,4 +246,3 @@ nonisolated public final class BrowserContractProjection: Sendable {
         self.manifestJsonData = try Data(contentsOf: rootURL.appendingPathComponent("contracts/native-browser/manifest.json"))
     }
 }
-

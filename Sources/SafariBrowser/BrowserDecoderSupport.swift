@@ -35,4 +35,3 @@ nonisolated public enum NativeHostUTF8 {
         }
     }
 }
-

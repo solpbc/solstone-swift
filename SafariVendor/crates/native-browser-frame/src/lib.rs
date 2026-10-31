@@ -12,4 +12,3 @@ pub use frame::{Assembler, Chunk, Direction, FrameError, OutFrame, Step};
 pub use codec::{build_recipe, build_reply, canonical_stringify, decode, encode, DecodeError, DecodeOutcome};
 pub use predicate::*;
 pub use register::{render_registration, RegisterError, RegistrationRender};
-
