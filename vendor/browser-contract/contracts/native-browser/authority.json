@@ -96,14 +96,16 @@
       "chrome_id": "eibbeeoifjoabddfmgeggnageolkcnim",
       "edge_id": "eibbeeoifjoabddfmgeggnageolkcnim",
       "firefox_id": "browser@solstone.app",
-      "safari_id": "app.solstone.observer.safari (7QCG8V4M6H)"
+      "safari_id": "app.solstone.observer.safari (7QCG8V4M6H)",
+      "safari_ios_id": "app.solstone.swift.safari (7QCG8V4M6H)"
     },
     "dev": {
       "host": "app.solstone.browser.dev",
       "chrome_id": "fgfnkcefedeheoeamppkiiloncfekakf",
       "edge_id": "fgfnkcefedeheoeamppkiiloncfekakf",
       "firefox_id": "browser.dev@solstone.app",
-      "safari_id": ""
+      "safari_id": "",
+      "safari_ios_id": ""
     }
   },
   "string_bounds": {

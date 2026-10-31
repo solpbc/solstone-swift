@@ -30,7 +30,18 @@
     "your journal is always private, only yours.",
   ];
 
-  const DISCLOSURE_BODY = `you choose which sites to share. by default, you add sites one at a time. you can also choose all sites after a separate agreement and leave sites out. on the sites you choose, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal:
+  // Where the solstone app runs. Safari on iPhone and iPad carries it on the same
+  // device, and reads while it is closed; everywhere else it is a computer.
+  const PLACE = (() => {
+    const nav = typeof navigator !== "undefined" ? navigator : {};
+    const ua = nav.userAgent || "";
+    if (/iPad/.test(ua) || (nav.platform === "MacIntel" && nav.maxTouchPoints > 1)) return "this iPad";
+    if (/iPhone|iPod/.test(ua)) return "this iPhone";
+    return "this computer";
+  })();
+  const MOBILE = PLACE !== "this computer";
+
+  const DESKTOP_DISCLOSURE = `you choose which sites to share. by default, you add sites one at a time. you can also choose all sites after a separate agreement and leave sites out. on the sites you choose, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal:
 - the text you can see, the text you'd see by scrolling, text in background tabs, some labels pages provide for screen readers and tooltips, and text the page has but doesn't show you
 - each page's address, without anything after a ? or #, its title, when you were on it, and the sites its links point to
 - whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open
@@ -46,11 +57,18 @@ the solstone extension takes in nothing from private windows, even where your br
 pause any time in the solstone extension. pausing the solstone app stops this extension too, unless you turn that off in settings. pausing doesn't hold back what's already taken in. if you remove a site, nothing new comes from it; what's already in your journal stays there.
 
 no analytics. no telemetry. no phone home. nobody counted.`;
+  const MOBILE_WHILE_CLOSED = `the solstone extension keeps taking in the sites you add while the solstone app is closed. what it takes in waits on ${PLACE} and goes into your journal the next time you open the solstone app.`;
+  const DISCLOSURE_BODY = MOBILE
+    ? DESKTOP_DISCLOSURE
+      .replace("to the solstone app on this computer. from there it goes into your journal over the link the solstone app already uses.",
+        `to the solstone app on ${PLACE}. from there it goes into your journal over the link the solstone app already uses. ${MOBILE_WHILE_CLOSED}`)
+      .replace("pausing the solstone app stops this extension too, unless you turn that off in settings.", "pausing the solstone app stops this extension too.")
+    : DESKTOP_DISCLOSURE;
 
-  const STEP1_CANT_REACH_BODY = "the solstone extension works with the solstone app on this computer, and nothing is taken in without it. if the solstone app isn't on this computer yet, get it at solstone.app. this page moves on by itself once the solstone app answers.";
-  const STEP1_OPEN_APP_BODY = "the solstone extension works with the solstone app on this computer, and nothing is taken in without it. open the solstone app to go on. this page moves on by itself once it answers.";
+  const STEP1_CANT_REACH_BODY = `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. if the solstone app isn't on ${PLACE} yet, get it at solstone.app. this page moves on by itself once the solstone app answers.`;
+  const STEP1_OPEN_APP_BODY = `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. open the solstone app to go on. this page moves on by itself once it answers.`;
   const STEP2_PENDING = "you'll agree to this once the step above is done.";
-  const STEP1_NOT_PAIRED_BODY = "pair the solstone app on this computer with your journal. this page moves on by itself once it is.";
+  const STEP1_NOT_PAIRED_BODY = `pair the solstone app on ${PLACE} with your journal. this page moves on by itself once it is.`;
   const STEP1_INTAKE_OFF_BODY = "turn them on under sources in the solstone app's settings. this page moves on by itself.";
   const TRUNCATION_ATTENTION = "part of what you shared on this site was too long to keep";
 
@@ -72,8 +90,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       what: "on every website your browser allows, including sites you visit later, the solstone extension takes in the page's text, address and rough layout whenever a tab is open, and all of it goes into your journal. this includes background tabs, text the page has but doesn't show you, whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open.",
       unsent: "that includes messages on mail and chat sites, words you've typed into a page's editor but haven't sent, and anything a site shows, even something you'd consider secret.",
       leaveOut: ["you can leave sites out at any time. private windows are still left out.", ...kept].join(" "),
-      destination: "your journal, through the solstone app on this computer",
-      destinationDetail: "nothing leaves this browser except to the solstone app on this computer.",
+      destination: `your journal, through the solstone app on ${PLACE}`,
+      destinationDetail: `nothing leaves this browser except to the solstone app on ${PLACE}.`,
       browser: brand === "safari"
         ? "next, you allow it in Safari's own settings, and this page shows you how. nothing new is taken in until you do."
         : `${bName} asks you to allow access to all websites next. if you don't, nothing changes.`,
@@ -226,11 +244,11 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   // Linux reasons. Only the can't-reach one is called: the others wait on
   // command names the Linux app doesn't have yet.
   function linuxUpdateAppReason(cmd) {
-    return `this extension needs a newer version of the solstone app on this computer. run ${escapeToken(cmd)} to get it.`;
+    return `this extension needs a newer version of the solstone app on ${PLACE}. run ${escapeToken(cmd)} to get it.`;
   }
 
   function linuxCantReachAppReason(cmd = "solstone-linux doctor") {
-    return `start the solstone app on this computer. if it's already running, ${escapeToken(cmd)} says what's wrong.`;
+    return `start the solstone app on ${PLACE}. if it's already running, ${escapeToken(cmd)} says what's wrong.`;
   }
 
   function linuxIntakeOffReason(cmd) {
@@ -250,8 +268,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       what: `${whole ? `on every ${host} site and page` : `on ${host}`}, the solstone extension takes in the page's text and rough layout whenever a tab is open, and all of it goes into your journal: what you can see, what you'd see by scrolling, background tabs, some labels meant for screen readers, text the page has but doesn't show you, each page's address, title and time, the sites its links point to. it also takes in whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open. never pixels.`,
       unsent: `that can include words you've typed but haven't sent, and anything the site shows, even something you'd consider secret.`,
       destinationLabel: `it goes to`,
-      destination: `your journal, through the solstone app on this computer`,
-      destinationDetail: `nothing leaves this browser except to the solstone app on this computer.`,
+      destination: `your journal, through the solstone app on ${PLACE}`,
+      destinationDetail: `nothing leaves this browser except to the solstone app on ${PLACE}.`,
       browser: `${bName} will ask you to allow this next. you can remove the site any time; what's already in your journal stays there.`,
       confirmLabel: `add this site`,
       cancelLabel: `cancel`,
@@ -285,6 +303,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   }
 
   globalThis.SolstoneCopy = {
+    PLACE,
+    MOBILE,
     escapeToken,
     browserName,
     WARM_CARD,

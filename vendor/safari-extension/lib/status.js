@@ -4,6 +4,9 @@
 (function () {
   "use strict";
 
+  // The device the solstone app is on, named the way the owner would.
+  const here = () => globalThis.SolstoneCopy?.PLACE || "this computer";
+
   const PREFIX_BY_MARK = {
     healthy: "icon",
     paused: "icon-paused-",
@@ -68,14 +71,14 @@
 
       // Layer 1: Version Skew
       if (behind === "extension") {
-        let reason = `the solstone app on this computer needs a newer version of this extension. ${bName} hasn't found it yet; it checks again on its own.`;
+        let reason = `the solstone app on ${here()} needs a newer version of this extension. ${bName} hasn't found it yet; it checks again on its own.`;
         let action = null;
         if (updateCheck === "pending") {
-          reason = `the solstone app on this computer needs a newer version of this extension. ${bName} is checking for it now.`;
+          reason = `the solstone app on ${here()} needs a newer version of this extension. ${bName} is checking for it now.`;
         } else if (updateCheck === "manual" && status.brand === "safari") {
-          reason = "the solstone app on this computer needs a newer version of this extension. in Safari it comes with the solstone app, so update the solstone app.";
+          reason = `the solstone app on ${here()} needs a newer version of this extension. in Safari it comes with the solstone app, so update the solstone app.`;
         } else if (updateCheck === "manual") {
-          reason = `the solstone app on this computer needs a newer version of this extension. in Firefox, open Add-ons and themes, then choose Check for Updates from the gear menu.`;
+          reason = `the solstone app on ${here()} needs a newer version of this extension. in Firefox, open Add-ons and themes, then choose Check for Updates from the gear menu.`;
         } else if (updateCheck === "update-available") {
           reason = "the update is ready.";
           action = { id: "update-now", label: "update now" };
@@ -92,7 +95,7 @@
           connecting: null,
         });
       } else if (behind === "app") {
-        const reason = platform === "linux" ? "" : "this extension needs a newer version of the solstone app on this computer. look under updates in the solstone app's settings.";
+        const reason = platform === "linux" ? "" : `this extension needs a newer version of the solstone app on ${here()}. look under updates in the solstone app's settings.`;
         items.push({
           layer: 1,
           kind: "update-app",
@@ -133,13 +136,13 @@
         const appInstalled = status.appAnswered === true || brand === "safari";
         if (!everConnected && !appInstalled) {
           mark = "paused";
-          reason = "the solstone extension works with the solstone app on this computer. if the solstone app isn't on this computer yet, get it at solstone.app.";
+          reason = `the solstone extension works with the solstone app on ${here()}. if the solstone app isn't on ${here()} yet, get it at solstone.app.`;
           action = { id: "get-app", label: "get the solstone app" };
         } else if (!everConnected || connected) {
           if (!everConnected) mark = "paused";
-          reason = "the solstone app on this computer isn't answering. open it to go on.";
+          reason = `the solstone app on ${here()} isn't answering. open it to go on.`;
         } else if (platform !== "linux") {
-          reason = "open the solstone app on this computer. if it's already open, look under sources in its settings.";
+          reason = `open the solstone app on ${here()}. if it's already open, look under sources in its settings.`;
         } else if (C) {
           reason = C.linuxCantReachAppReason();
         }
@@ -165,7 +168,7 @@
           badge: "",
           headline: "the solstone app isn't paired yet",
           sub: "nothing is taken in until it is",
-          reason: "pair the solstone app on this computer with your journal, then come back.",
+          reason: `pair the solstone app on ${here()} with your journal, then come back.`,
           action: null,
           connecting: null,
         });
@@ -280,7 +283,7 @@
           badge: "",
           headline: "no room for more right now",
           sub: "nothing new is taken in until there's room",
-          reason: "the room on this computer for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.",
+          reason: `the room on ${here()} for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.`,
           action: null,
           connecting: null,
         });
@@ -306,7 +309,7 @@
             badge: "",
             headline: "no room for more right now",
             sub: "nothing new is taken in until there's room",
-            reason: "the room on this computer for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.",
+            reason: `the room on ${here()} for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.`,
             action: null,
             connecting: null,
           });
@@ -322,7 +325,7 @@
           badge: "",
           headline: "nothing new is taken in right now",
           sub: "",
-          reason: "the solstone app on this computer isn't taking in new pages right now.",
+          reason: `the solstone app on ${here()} isn't taking in new pages right now.`,
           action: null,
           connecting: null,
         });
@@ -334,7 +337,7 @@
             badge: "",
             headline: "no room for more right now",
             sub: "nothing new is taken in until there's room",
-            reason: "the room on this computer for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.",
+            reason: `the room on ${here()} for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.`,
             action: null,
             connecting: null,
           });
@@ -378,7 +381,7 @@
           badge: "!",
           headline: "some pages have waited more than a week",
           sub: "",
-          reason: "some pages from your browsers have waited more than a week to go into your journal. they're still kept on this computer. the solstone app has the details.",
+          reason: `some pages from your browsers have waited more than a week to go into your journal. they're still kept on ${here()}. the solstone app has the details.`,
           action: null,
           connecting: null,
         });
@@ -428,8 +431,8 @@
           mark: "offline",
           badge: "",
           headline: "not reaching your journal",
-          sub: "kept on this computer for now",
-          reason: "what you share from this browser is kept on this computer for now. the solstone app has the details.",
+          sub: `kept on ${here()} for now`,
+          reason: `what you share from this browser is kept on ${here()} for now. the solstone app has the details.`,
           action: null,
           connecting: null,
         });
@@ -459,7 +462,7 @@
           if (hostDelivery === "delivered") {
             deliverySub = hostFailure ? "the last pages reached your journal" : "reaching your journal";
           } else if (hostDelivery === "kept_locally") {
-            deliverySub = "kept on this computer, waiting to go into your journal";
+            deliverySub = `kept on ${here()}, waiting to go into your journal`;
           } else if (hostDelivery === "idle") {
             deliverySub = "nothing waiting to go into your journal";
           }
@@ -511,7 +514,7 @@
       const isWinnerOnOrIdleOrDeliveryConnecting = winner.kind === "on" || winner.kind === "idle" ||
         (winner.kind === "connecting" && winner.connecting === "delivery");
       const appPausedNote = (status.appReportedPaused === true && isWinnerOnOrIdleOrDeliveryConnecting)
-        ? "the solstone app is paused on this computer"
+        ? `the solstone app is paused on ${here()}`
         : "";
 
       return {

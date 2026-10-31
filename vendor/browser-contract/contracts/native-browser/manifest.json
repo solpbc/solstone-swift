@@ -12,15 +12,15 @@
     "sha256": "c14e66318587b8fa451ef1363e113885bdd80a41ce680b0c62fcc9033460a2e1"
   },
   "artifacts": {
-    "contracts/native-browser/authority.json": "326148437e9cbd51043e3d94be7deb97ab9a1333d53434a4427e1392053fb214",
+    "contracts/native-browser/authority.json": "0aaf11cd26b1804128bd80ff899e43f8e54465eee0005ee5dff0a63641cc7693",
     "contracts/native-browser/browser.schema.json": "c14e66318587b8fa451ef1363e113885bdd80a41ce680b0c62fcc9033460a2e1",
     "contracts/native-browser/envelope.schema.json": "9ace302a8acb3ce4fc99263f2019e4abd5cd208842adad3f3ee7d95247c142b8",
     "contracts/native-browser/schemas.js": "5a4511fde65eca4db798b2b8b89b5ae9bf906f2ff543d772b56ab16773c9a20d",
-    "contracts/native-browser/constants.js": "7d71d8c2c1c954e8e04befd0318b5137d08087b30024fb8e1562f9697f544ba1",
+    "contracts/native-browser/constants.js": "2e5374e29e58862c75c04ed251bb88a829e82470a78f3739466dc89fc49b9179",
     "crates/native-browser-frame/src/constants.rs": "4171fa9dc6793a10c1604656aa461fd86d2c732e44f265ab15a1fff58fd01088",
     "contracts/native-browser/corpus.json": "87795e3903da0652da0fec224053a497773624f9cbc45bd8a97ade0cf7b8233c",
     "contracts/native-browser/recipes.json": "90edf430e0854fff26eedf18b2108f5151e2ef931cc00b50a492cd435714b737",
-    "contracts/native-browser/swift.json": "1f747693009d9fc397af123faabdf5f4b4e991724599a830cbad5912ccc4bc69",
+    "contracts/native-browser/swift.json": "88cd3d2939e9d69e446ab62f3fae1a4439d1780d05a84808c53e6823c68d3d6b",
     "contracts/native-browser/adoption.schema.json": "e28b2b4731b1d6fd197233173e5f10a7f77bc1b230f7ca276b6de4b08fc64a7e",
     "contracts/native-browser/registration/production/chrome/linux.json": "e7875ae358fe40c95821e9a5420af9aba668141c4c2c662ace30c57e5091b9e8",
     "contracts/native-browser/registration/production/chrome/macos.json": "e7875ae358fe40c95821e9a5420af9aba668141c4c2c662ace30c57e5091b9e8",

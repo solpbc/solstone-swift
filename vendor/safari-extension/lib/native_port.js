@@ -30,7 +30,8 @@
       runtimeId === table.production?.chrome_id ||
       runtimeId === table.production?.edge_id ||
       runtimeId === table.production?.firefox_id ||
-      (table.production?.safari_id && runtimeId === table.production.safari_id)
+      (table.production?.safari_id && runtimeId === table.production.safari_id) ||
+      (table.production?.safari_ios_id && runtimeId === table.production.safari_ios_id)
     ) {
       return table.production.host;
     }

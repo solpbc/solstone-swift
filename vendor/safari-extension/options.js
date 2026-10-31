@@ -291,7 +291,7 @@
   function getStep1State(st) {
     if (!st || typeof st !== "object" || st.ok === false || !st.inst) {
       return {
-        heading: "looking for the solstone app on this computer\u2026",
+        heading: `looking for the solstone app on ${Copy.PLACE}\u2026`,
         body: "",
         action: null,
         met: false,
@@ -664,6 +664,9 @@
   }
 
   // Settings Pause With App Checkbox
+  // On iPhone and iPad the solstone app's pause is the Safari source's own pause,
+  // so it always stops this extension and there is nothing to choose.
+  if (Copy.MOBILE && $("pauseWithAppCard")) $("pauseWithAppCard").hidden = true;
   if ($("pauseWithApp")) {
     $("pauseWithApp").addEventListener("change", async () => {
       await cmd({ cmd: "setConfig", pauseWithApp: $("pauseWithApp").checked });
