@@ -35,8 +35,8 @@
   const PLACE = (() => {
     const nav = typeof navigator !== "undefined" ? navigator : {};
     const ua = nav.userAgent || "";
-    if (/iPad/.test(ua) || (nav.platform === "MacIntel" && nav.maxTouchPoints > 1)) return "this iPad";
-    if (/iPhone|iPod/.test(ua)) return "this iPhone";
+    if (/iPad/.test(ua) || (nav.platform === "MacIntel" && nav.maxTouchPoints > 1)) return "this ipad";
+    if (/iPhone|iPod/.test(ua)) return "this iphone";
     return "this computer";
   })();
   const MOBILE = PLACE !== "this computer";
@@ -57,18 +57,23 @@ the solstone extension takes in nothing from private windows, even where your br
 pause any time in the solstone extension. pausing the solstone app stops this extension too, unless you turn that off in settings. pausing doesn't hold back what's already taken in. if you remove a site, nothing new comes from it; what's already in your journal stays there.
 
 no analytics. no telemetry. no phone home. nobody counted.`;
-  const MOBILE_WHILE_CLOSED = `the solstone extension keeps taking in the sites you add while the solstone app is closed. what it takes in waits on ${PLACE} and goes into your journal the next time you open the solstone app.`;
+  const MOBILE_WHILE_CLOSED = `the solstone extension keeps taking in the sites you choose while the solstone app is closed. what it takes in waits on ${PLACE} and goes into your journal the next time you open the solstone app.`;
   const DISCLOSURE_BODY = MOBILE
     ? DESKTOP_DISCLOSURE
       .replace("to the solstone app on this computer. from there it goes into your journal over the link the solstone app already uses.",
         `to the solstone app on ${PLACE}. from there it goes into your journal over the link the solstone app already uses. ${MOBILE_WHILE_CLOSED}`)
-      .replace("pausing the solstone app stops this extension too, unless you turn that off in settings.", "pausing the solstone app stops this extension too.")
+      .replace("pausing the solstone app stops this extension too, unless you turn that off in settings.", "pausing Safari in the solstone app stops this extension too.")
+      .replace("the solstone extension takes in nothing from private windows, even where your browser lets it run there.", "the solstone extension takes in nothing from private browsing, even where Safari lets it run there.")
     : DESKTOP_DISCLOSURE;
 
   const STEP1_CANT_REACH_BODY = `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. if the solstone app isn't on ${PLACE} yet, get it at solstone.app. this page moves on by itself once the solstone app answers.`;
-  const STEP1_OPEN_APP_BODY = `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. open the solstone app to go on. this page moves on by itself once it answers.`;
+  const STEP1_OPEN_APP_BODY = MOBILE
+    ? `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. the solstone app isn't answering right now. this extension tries again on its own, and this page moves on by itself once it answers.`
+    : `the solstone extension works with the solstone app on ${PLACE}, and nothing is taken in without it. open the solstone app to go on. this page moves on by itself once it answers.`;
   const STEP2_PENDING = "you'll agree to this once the step above is done.";
-  const STEP1_NOT_PAIRED_BODY = `pair the solstone app on ${PLACE} with your journal. this page moves on by itself once it is.`;
+  const STEP1_NOT_PAIRED_BODY = MOBILE
+    ? `pair the solstone app on ${PLACE} with your journal and confirm your journal's mark. this page moves on by itself once you have.`
+    : `pair the solstone app on ${PLACE} with your journal. this page moves on by itself once it is.`;
   const STEP1_INTAKE_OFF_BODY = "turn them on under sources in the solstone app's settings. this page moves on by itself.";
   const TRUNCATION_ATTENTION = "part of what you shared on this site was too long to keep";
 
@@ -89,7 +94,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       title: "share all sites?",
       what: "on every website your browser allows, including sites you visit later, the solstone extension takes in the page's text, address and rough layout whenever a tab is open, and all of it goes into your journal. this includes background tabs, text the page has but doesn't show you, whether the tab was in front, whether its window had focus, whether audio or video was playing, the page's language, which browser it is, and how long the tab has been open.",
       unsent: "that includes messages on mail and chat sites, words you've typed into a page's editor but haven't sent, and anything a site shows, even something you'd consider secret.",
-      leaveOut: ["you can leave sites out at any time. private windows are still left out.", ...kept].join(" "),
+      leaveOut: [MOBILE ? "you can leave sites out at any time. private browsing is still left out." : "you can leave sites out at any time. private windows are still left out.", ...kept].join(" "),
       destination: `your journal, through the solstone app on ${PLACE}`,
       destinationDetail: `nothing leaves this browser except to the solstone app on ${PLACE}.`,
       browser: brand === "safari"
@@ -180,12 +185,15 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     const safari = brand === "safari";
     return {
       granted: `${bName} allows solstone on all websites.`,
-      grantedNote: safari ? "a site set to Deny in Safari's website settings stays off." : "",
+      grantedNote: safari ? (MOBILE ? "a site set to Deny in Settings, under Apps, Safari, Extensions, solstone stays off." : "a site set to Deny in Safari's website settings stays off.") : "",
       missingTitle: safari ? "allow all websites in Safari" : `${bName} isn't allowing all websites`,
       missingBody: safari
         ? "Safari allows this only in its own settings. nothing new is taken in until you allow it:"
         : "nothing new is taken in until it does. allow it, or switch back to sites you add.",
-      steps: safari ? [
+      steps: safari && MOBILE ? [
+        "in Settings, open Apps, then Safari, then Extensions, then solstone.",
+        "set Other Websites to Allow.",
+      ] : safari ? [
         "in Safari, choose Safari \u203a Settings, then Websites.",
         "under Extensions on the left, choose solstone.",
         "set For other websites to Allow.",
@@ -196,14 +204,14 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       checking: `checking ${bName}\u2026`,
       nowAllowed: `${bName} now allows all websites. all sites are on.`,
       stillMissing: safari
-        ? "Safari still isn't allowing all websites. set For other websites to Allow."
+        ? (MOBILE ? "Safari still isn't allowing all websites. set Other Websites to Allow." : "Safari still isn't allowing all websites. set For other websites to Allow.")
         : `${bName} still isn't allowing all websites.`,
       declined: "permission declined. nothing new is taken in until you allow it.",
       failedTitle: "couldn't start on your sites",
       failedBody: `something went wrong turning on all sites in ${bName}.`,
       retryLabel: "try again",
       deniedTitle: safari ? "Safari is denying these sites, so they aren't taken in:" : `${bName} doesn't let this extension take in these sites:`,
-      deniedHelp: safari ? "to include one, set it to Allow in Safari's website settings for solstone." : "",
+      deniedHelp: safari ? (MOBILE ? "to include one, set it to Allow in Settings, under Apps, Safari, Extensions, solstone." : "to include one, set it to Allow in Safari's website settings for solstone.") : "",
     };
   }
 
@@ -212,13 +220,13 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     const bName = browserName(brand);
     const safari = brand === "safari";
     return {
-      privateState: "private window",
-      privateNote: "this extension takes in nothing from private windows.",
+      privateState: MOBILE ? "private browsing" : "private window",
+      privateNote: MOBILE ? "this extension takes in nothing from private browsing." : "this extension takes in nothing from private windows.",
       restrictedState: `${bName} doesn't let extensions work on this page`,
       unknownState: "this extension can't reach this page",
-      unknownNote: safari ? "if it's set to Deny in Safari's website settings, it isn't taken in." : "",
+      unknownNote: safari ? (MOBILE ? "if it's set to Deny in Settings, under Apps, Safari, Extensions, solstone, it isn't taken in." : "if it's set to Deny in Safari's website settings, it isn't taken in.") : "",
       deniedState: `${bName} is denying this site`,
-      deniedNote: safari ? "to include it, set it to Allow in Safari's website settings." : "",
+      deniedNote: safari ? (MOBILE ? "to include it, set it to Allow in Settings, under Apps, Safari, Extensions, solstone." : "to include it, set it to Allow in Safari's website settings.") : "",
       leaveOutNote: (host) => wholeSite(host)
         ? `leaving it out covers all ${escapeToken(host)} sites and pages. other sites shown inside them are still shared.`
         : `leaving it out covers ${escapeToken(host)}. other sites shown inside its pages are still shared.`,
@@ -238,7 +246,9 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   }
 
   function step3Body(brand) {
-    return `open a site you want to share, open solstone from your browser's toolbar or extensions menu, and choose add this site. ${browserName(brand)} will ask you to allow it.`;
+    return MOBILE
+      ? `open a site you want to share, open solstone from Safari's page menu, and choose add this site. ${browserName(brand)} will ask you to allow it.`
+      : `open a site you want to share, open solstone from your browser's toolbar or extensions menu, and choose add this site. ${browserName(brand)} will ask you to allow it.`;
   }
 
   // Linux reasons. Only the can't-reach one is called: the others wait on

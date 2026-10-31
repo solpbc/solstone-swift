@@ -6,6 +6,8 @@
 
   // The device the solstone app is on, named the way the owner would.
   const here = () => globalThis.SolstoneCopy?.PLACE || "this computer";
+  // Safari on iPhone and iPad: the app answers while closed and pauses Safari on its own.
+  const mobile = () => globalThis.SolstoneCopy?.MOBILE === true;
 
   const PREFIX_BY_MARK = {
     healthy: "icon",
@@ -95,7 +97,8 @@
           connecting: null,
         });
       } else if (behind === "app") {
-        const reason = platform === "linux" ? "" : `this extension needs a newer version of the solstone app on ${here()}. look under updates in the solstone app's settings.`;
+        const reason = platform === "linux" ? "" : mobile() ? `update the solstone app on ${here()}.`
+          : `this extension needs a newer version of the solstone app on ${here()}. look under updates in the solstone app's settings.`;
         items.push({
           layer: 1,
           kind: "update-app",
@@ -140,9 +143,11 @@
           action = { id: "get-app", label: "get the solstone app" };
         } else if (!everConnected || connected) {
           if (!everConnected) mark = "paused";
-          reason = `the solstone app on ${here()} isn't answering. open it to go on.`;
+          reason = mobile() ? `the solstone app on ${here()} isn't answering right now. this extension tries again on its own.`
+            : `the solstone app on ${here()} isn't answering. open it to go on.`;
         } else if (platform !== "linux") {
-          reason = `open the solstone app on ${here()}. if it's already open, look under sources in its settings.`;
+          reason = mobile() ? `the solstone app on ${here()} isn't answering right now. this extension tries again on its own.`
+            : `open the solstone app on ${here()}. if it's already open, look under sources in its settings.`;
         } else if (C) {
           reason = C.linuxCantReachAppReason();
         }
@@ -168,7 +173,8 @@
           badge: "",
           headline: "the solstone app isn't paired yet",
           sub: "nothing is taken in until it is",
-          reason: `pair the solstone app on ${here()} with your journal, then come back.`,
+          reason: mobile() ? `pair the solstone app on ${here()} with your journal and confirm your journal's mark, then come back.`
+            : `pair the solstone app on ${here()} with your journal, then come back.`,
           action: null,
           connecting: null,
         });
@@ -194,9 +200,10 @@
           kind: "app-paused",
           mark: "paused",
           badge: "",
-          headline: "the solstone app is paused",
+          headline: mobile() ? "Safari is paused in the solstone app" : "the solstone app is paused",
           sub: "nothing new is taken in",
-          reason: "pausing doesn't hold back what's already taken in. resume from the solstone app.",
+          reason: mobile() ? "pausing doesn't hold back what's already taken in. resume Safari in the solstone app."
+            : "pausing doesn't hold back what's already taken in. resume from the solstone app.",
           action: null,
           connecting: null,
         });
@@ -247,7 +254,8 @@
           headline: safari ? "allow all websites in Safari" : `${bName} isn't allowing all websites`,
           sub: "nothing new is taken in from this browser",
           reason: safari
-            ? "in Safari, choose Safari \u203a Settings, then Websites and solstone. set For other websites to Allow."
+            ? (mobile() ? "in Settings, open Apps, then Safari, then Extensions, then solstone. set Other Websites to Allow."
+              : "in Safari, choose Safari \u203a Settings, then Websites and solstone. set For other websites to Allow.")
             : "allow it again, or switch back to sites you add.",
           action: safari ? { id: "open-settings", label: "show me how" } : { id: "allow-all-sites", label: `allow in ${bName}` },
           connecting: null });
@@ -283,7 +291,7 @@
           badge: "",
           headline: "no room for more right now",
           sub: "nothing new is taken in until there's room",
-          reason: `the room on ${here()} for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.`,
+          reason: mobile() ? `the room on ${here()} for Safari pages is full. open the solstone app to make room.` : `the room on ${here()} for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.`,
           action: null,
           connecting: null,
         });
@@ -309,7 +317,7 @@
             badge: "",
             headline: "no room for more right now",
             sub: "nothing new is taken in until there's room",
-            reason: `the room on ${here()} for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.`,
+            reason: mobile() ? `the room on ${here()} for Safari pages is full. open the solstone app to make room.` : `the room on ${here()} for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.`,
             action: null,
             connecting: null,
           });
@@ -323,9 +331,10 @@
           kind: "intake-held",
           mark: "offline",
           badge: "",
-          headline: "nothing new is taken in right now",
+          headline: mobile() && custody?.full === true ? "no room for more right now" : "nothing new is taken in right now",
           sub: "",
-          reason: `the solstone app on ${here()} isn't taking in new pages right now.`,
+          reason: mobile() && custody?.full === true ? `the room on ${here()} for Safari pages is full. open the solstone app to make room.`
+            : `the solstone app on ${here()} isn't taking in new pages right now.`,
           action: null,
           connecting: null,
         });
@@ -337,7 +346,7 @@
             badge: "",
             headline: "no room for more right now",
             sub: "nothing new is taken in until there's room",
-            reason: `the room on ${here()} for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.`,
+            reason: mobile() ? `the room on ${here()} for Safari pages is full. open the solstone app to make room.` : `the room on ${here()} for what you share from your browsers is full. new pages are taken in again once there's room. the solstone app has the details.`,
             action: null,
             connecting: null,
           });
@@ -381,7 +390,7 @@
           badge: "!",
           headline: "some pages have waited more than a week",
           sub: "",
-          reason: `some pages from your browsers have waited more than a week to go into your journal. they're still kept on ${here()}. the solstone app has the details.`,
+          reason: mobile() ? `some pages from Safari have waited more than a week to go into your journal. they're still kept on ${here()}. open the solstone app and they go into your journal.` : `some pages from your browsers have waited more than a week to go into your journal. they're still kept on ${here()}. the solstone app has the details.`,
           action: null,
           connecting: null,
         });
