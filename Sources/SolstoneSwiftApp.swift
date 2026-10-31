@@ -33,7 +33,7 @@ struct SolstoneSwiftApp: App {
     @State private var photoLibraryImporter: PhotoLibraryImporter
     @State private var calendarSource: CalendarSourceEngine
     @State private var calendarSourceHandle: CalendarSourceHandle
-    @State private var safariSource: SafariSourceModel
+    @State private var safariSource: SafariSourceModel?
     @State private var calendarTransferHolder: CalendarTransferHolder
     @State private var calendarBackgroundRefresh: CalendarBackgroundRefresh
     @State private var watchSegmentDrain: WatchSegmentDrain?
@@ -413,9 +413,9 @@ struct SolstoneSwiftApp: App {
         let calendarSourceHandle = CalendarSourceHandle(source: calendarSource)
 #endif
 #if DEBUG
-        let safariSource = SafariUITestSource.seeded() ?? SafariSourceModel()
+        let safariSource = SafariUITestSource.seeded() ?? (SafariSourceModel.isBundled ? SafariSourceModel() : nil)
 #else
-        let safariSource = SafariSourceModel()
+        let safariSource = SafariSourceModel.isBundled ? SafariSourceModel() : nil
 #endif
         let mobileSegmentUploader = MobileSegmentUploader(
             transferEngine: transferEngine,
@@ -940,7 +940,7 @@ struct SolstoneSwiftApp: App {
             switch newPhase {
             case .active:
                 self.mobileSegmentTransferHolder.refreshJournalGap()
-                self.safariSource.refresh()
+                self.safariSource?.refresh()
                 self.backgroundDrainTask?.cancel()
                 self.backgroundDrainTask = nil
                 if Self.shouldRunLaunchMaintenance(scenePhase: newPhase) {

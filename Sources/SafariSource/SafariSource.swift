@@ -63,6 +63,13 @@ final class SafariSourceModel {
 
     /// Whether the owner has turned the extension on: only its hello says so.
     var isSetUp: Bool { self.snapshot?.lastContact != nil }
+
+    /// The Safari source exists only in a build that carries the extension.
+    nonisolated static var isBundled: Bool {
+        Bundle.main.builtInPlugInsURL.map {
+            FileManager.default.fileExists(atPath: $0.appendingPathComponent("SolstoneSafariExtension.appex").path)
+        } ?? false
+    }
 }
 
 /// What the Safari tile and page show, from the store.
