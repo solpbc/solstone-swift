@@ -263,7 +263,7 @@ struct SolstoneSwiftApp: App {
         let watchBacklogSnapshotWriter = WatchBacklogSnapshotWriter()
         let appConfig = AppConfig(store: SPLRuntime.pairingStore, appGroupMirror: appGroupMirror)
         appConfig.safariAuthority = { confirmed in try SafariBrowserStore().setConfirmed(confirmed) }
-        appConfig.journalSendConfirmed = appConfig.journalSendConfirmed
+        appConfig.syncSafariAuthority()
         let observerClock = SystemObserverClock()
         let onboardingFlow = OnboardingFlow()
         let transport = CFTunnelTransport(appConfig: appConfig, diagnosticLog: log)
@@ -861,6 +861,7 @@ struct SolstoneSwiftApp: App {
                 .task {
                     while !Task.isCancelled {
                         if self.safariTransferReady {
+                            self.appConfig.syncSafariAuthority()
                             await SafariBrowserDelivery.drain(engine: self.transferEngine)
                         }
                         do { try await Task.sleep(for: .seconds(5)) }

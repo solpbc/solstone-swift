@@ -8,7 +8,7 @@ import XCTest
 nonisolated final class SafariBrowserStoreTests: XCTestCase {
     private func rig() throws -> (URL, BrowserContractProjection) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let vendor = Bundle.main.resourceURL!.appendingPathComponent("SafariVendor")
+        let vendor = Bundle.main.resourceURL!.appendingPathComponent("browser-contract")
         return (root, try BrowserContractProjection(rootURL: vendor))
     }
 
@@ -21,14 +21,22 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
         return try self.object(XCTUnwrap(frames.last))
     }
 
-    private func batch(generation: String, id: String = String(repeating: "a", count: 32), text: String = "synthetic marker") throws -> String {
+    private func batch(generation: String, id: String = String(repeating: "a", count: 32), text: String = "synthetic marker",
+                       delta: Bool = false) throws -> String {
+        let record: [String: Any] = delta
+            ? ["t": "delta", "ts": 2000, "ctx": "context", "inst": "test-instance", "site": "example.test",
+               "op": "add", "block": ["id": "c", "text": text]]
+            : ["t": "segment_start", "ts": 1000, "ctx": "context", "inst": "test-instance",
+               "n": 1, "blocks": [["id": "b", "text": text]], "url": "https://example.test/",
+               "site": "example.test", "adapter": "generic", "title": "synthetic"]
         let value: [String: Any] = ["type": "batch", "destination_generation": generation,
-            "inst": "test-instance", "batch_id": id, "queued_at_ms": 1000,
-            "records": [["t": "segment_start", "ts": 1000, "ctx": "context", "inst": "test-instance",
-                "n": 1, "blocks": [["id": "b", "text": text]], "url": "https://example.test/",
-                "site": "example.test", "adapter": "generic", "title": "synthetic"]]]
+            "inst": "test-instance", "batch_id": id, "queued_at_ms": 1000, "records": [record]]
         return String(decoding: try JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]), as: UTF8.self)
     }
+
+    private func id(_ c: Character) -> String { String(repeating: c, count: 32) }
+
+    private func state(_ frames: [String]) throws -> [String: Any] { try self.object(XCTUnwrap(frames.last)) }
 
     func testFreshInstallClosedAndLostReplyRetriesOnlyOnceAcrossReopen() throws {
         let (root, projection) = try self.rig()
@@ -141,5 +149,104 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
         // The adopted producer stays retired across reopen without depending
         // on a best-effort engine delivery hook.
         XCTAssertTrue(try SafariBrowserStore(root: root).prepareHandoffs().isEmpty)
+    }
+
+    func testAPeriodSealsAtItsAgeAndADeltaAfterwardAsksForASnapshot() throws {
+        let (root, projection) = try self.rig()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try SafariBrowserStore(root: root)
+        try store.setConfirmed(true)
+        let generation = try XCTUnwrap(self.hello(store, projection)["destination_generation"] as? String)
+        let t0 = Date().timeIntervalSince1970
+        let first = try store.exchange(connection: "test", frame: self.batch(generation: generation), projection: projection, now: t0)
+        XCTAssertEqual(try self.object(first[0])["result"] as? String, "accepted")
+        let sameContext = try store.exchange(connection: "test", frame: self.batch(generation: generation, id: self.id("b"), delta: true),
+            projection: projection, now: t0 + 10)
+        XCTAssertEqual(try self.object(sameContext[0])["result"] as? String, "accepted")
+        let later = t0 + SafariBrowserStore.periodSeconds + 1
+        let afterSeal = try store.exchange(connection: "test", frame: self.batch(generation: generation, id: self.id("c"), delta: true),
+            projection: projection, now: later)
+        XCTAssertEqual(try self.object(afterSeal[0])["reason"] as? String, "snapshot_required")
+        let snapshot = try store.exchange(connection: "test", frame: self.batch(generation: generation, id: self.id("d")),
+            projection: projection, now: later + 1)
+        XCTAssertEqual(try self.object(snapshot[0])["result"] as? String, "accepted")
+        let periods = try store.prepareHandoffs(now: later + 2)
+        XCTAssertEqual(periods.count, 2)
+        // The first segment ends at its last page, not when the app drained it.
+        XCTAssertEqual(try XCTUnwrap(periods.first).ended, t0 + 10, accuracy: 0.001)
+        XCTAssertEqual(try XCTUnwrap(periods.last).started, later + 1, accuracy: 0.001)
+    }
+
+    func testDedupIdentitiesLastTheContractWindowAndNoLonger() throws {
+        let (root, projection) = try self.rig()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try SafariBrowserStore(root: root)
+        try store.setConfirmed(true)
+        let generation = try XCTUnwrap(self.hello(store, projection)["destination_generation"] as? String)
+        let t0 = Date().timeIntervalSince1970
+        let frame = try self.batch(generation: generation)
+        _ = try store.exchange(connection: "test", frame: frame, projection: projection, now: t0)
+        let window = Double(projection.policy.acceptedRetentionMs) / 1000
+        let retry = try store.exchange(connection: "test", frame: frame, projection: projection, now: t0 + window - 1)
+        XCTAssertEqual(try self.object(retry[0])["result"] as? String, "duplicate")
+        _ = try store.exchange(connection: "test", frame: nil, projection: projection, now: t0 + window + 1)
+        XCTAssertEqual(try store.inventory()["acceptedBatches"] as? Double, 0)
+    }
+
+    func testDeliveryReadsKeptLocallyOnlyWhileThePhoneStillHoldsPages() throws {
+        let (root, projection) = try self.rig()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try SafariBrowserStore(root: root)
+        try store.setConfirmed(true)
+        XCTAssertEqual(try self.hello(store, projection)["delivery"] as? String, "idle")
+        let generation = try XCTUnwrap(self.hello(store, projection)["destination_generation"] as? String)
+        let accepted = try store.exchange(connection: "test", frame: self.batch(generation: generation), projection: projection)
+        XCTAssertEqual(try self.state(accepted)["delivery"] as? String, "kept_locally")
+        let period = try XCTUnwrap(store.prepareHandoffs().first)
+        try store.adopt(id: period.id)
+        try store.setQueuedBytes(period.payload.count)
+        XCTAssertEqual(try self.state(store.exchange(connection: "test", frame: nil, projection: projection))["delivery"] as? String, "kept_locally")
+        try store.setQueuedBytes(0)
+        XCTAssertEqual(try self.state(store.exchange(connection: "test", frame: nil, projection: projection))["delivery"] as? String, "idle")
+    }
+
+    func testAFullStoreRefusesNewPagesSaysSoAndReopensAfterTheAppTakesThem() throws {
+        let (root, projection) = try self.rig()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try SafariBrowserStore(root: root, quota: 4096)
+        try store.setConfirmed(true)
+        let generation = try XCTUnwrap(self.hello(store, projection)["destination_generation"] as? String)
+        let big = String(repeating: "x", count: 2100)
+        let t0 = Date().timeIntervalSince1970
+        _ = try store.exchange(connection: "test", frame: self.batch(generation: generation, text: big), projection: projection, now: t0)
+        let refused = try store.exchange(connection: "test", frame: self.batch(generation: generation, id: self.id("b"), text: big),
+            projection: projection, now: t0 + 1)
+        XCTAssertEqual(try self.object(refused[0])["result"] as? String, "rejected")
+        let full = try self.state(refused)
+        XCTAssertEqual(full["capture"] as? String, "intake_off")
+        XCTAssertEqual((full["custody"] as? [String: Any])?["full"] as? Bool, true)
+        try store.adopt(id: XCTUnwrap(store.prepareHandoffs().first).id)
+        let reopened = try self.state(store.exchange(connection: "test", frame: nil, projection: projection, now: t0 + 2))
+        XCTAssertEqual(reopened["capture"] as? String, "permitted")
+    }
+
+    func testHeldPagesWaitThroughUnpairAndFollowTheNextConfirmation() throws {
+        let (root, projection) = try self.rig()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try SafariBrowserStore(root: root)
+        try store.setConfirmed(true)
+        let first = try XCTUnwrap(self.hello(store, projection)["destination_generation"] as? String)
+        _ = try store.exchange(connection: "test", frame: self.batch(generation: first), projection: projection)
+        try store.setConfirmed(false)
+        XCTAssertEqual(try self.hello(store, projection)["capture"] as? String, "not_paired")
+        let held = try XCTUnwrap(store.inventory()["heldBytes"] as? Double)
+        XCTAssertGreaterThan(held, 0)
+        try store.setConfirmed(true)
+        let second = try XCTUnwrap(self.hello(store, projection)["destination_generation"] as? String)
+        XCTAssertNotEqual(first, second)
+        // Nothing about the held page names a journal: it seals and hands off as before.
+        let periods = try store.prepareHandoffs()
+        XCTAssertEqual(periods.count, 1)
+        XCTAssertEqual(Double(try XCTUnwrap(periods.first).payload.count), held)
     }
 }

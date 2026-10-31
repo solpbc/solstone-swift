@@ -21,18 +21,28 @@ final class AppConfig {
     var pairedAt: Date?
     var loopbackPort: Int?
     private var journalSendConfirmationValue: Bool
+    /// Mirrors send confirmation into the Safari extension's shared store, which
+    /// is what lets Safari take in pages while the app is closed. A failed write
+    /// never touches the journal's own confirmation; it is retried at the next
+    /// sync (each foreground).
     @ObservationIgnored var safariAuthority: ((Bool) throws -> Void)?
     var journalSendConfirmed: Bool {
         get { self.journalSendConfirmationValue && self.store.hasActiveOwner }
         set {
-            do {
-                try self.safariAuthority?(newValue && self.store.hasActiveOwner)
-                self.journalSendConfirmationValue = newValue
-            } catch {
-                self.journalSendConfirmationValue = false
-                appConfigLog.error("Safari authorization storage unavailable")
-            }
+            self.journalSendConfirmationValue = newValue
+            self.syncSafariAuthority()
         }
+    }
+
+    func syncSafariAuthority() {
+        self.publishSafariAuthority(self.journalSendConfirmed)
+    }
+
+    /// Closes Safari's intake before a pairing changes, so no page is taken in
+    /// under a confirmation that is about to end.
+    private func publishSafariAuthority(_ confirmed: Bool) {
+        do { try self.safariAuthority?(confirmed) }
+        catch { appConfigLog.error("Safari authority write failed; retried on next sync") }
     }
     let journalVersion: JournalVersionMetadata
 
@@ -137,7 +147,7 @@ final class AppConfig {
     }
 
     func applyPairing(_ pairing: StoredPairing) throws {
-        try self.safariAuthority?(false)
+        self.publishSafariAuthority(false)
         let newIdentity = journalVersionMetadataIdentity(for: pairing)
         let unchangedIdentity = newIdentity != nil && newIdentity == self.journalVersion.identity
         self.journalSendConfirmed = false
@@ -242,7 +252,7 @@ final class AppConfig {
     @discardableResult
     func clearPairing() -> Bool {
         do {
-            try self.safariAuthority?(false)
+            self.publishSafariAuthority(false)
             if self.store.snapshot().pairing == nil {
                 try self.store.clearPairing()
             } else {
@@ -262,7 +272,7 @@ final class AppConfig {
         expectedOwnerID: UUID? = nil,
         expectedPairingGeneration: UInt64? = nil
     ) throws -> DeviceMigrationInvalidationLease {
-        try self.safariAuthority?(false)
+        self.publishSafariAuthority(false)
         let lease = try self.store.beginPairingInvalidation(
             expectedOwnerID: expectedOwnerID,
             expectedPairingGeneration: expectedPairingGeneration
@@ -274,7 +284,7 @@ final class AppConfig {
     @discardableResult
     func clearPairing(invalidation lease: DeviceMigrationInvalidationLease) -> Bool {
         do {
-            try self.safariAuthority?(false)
+            self.publishSafariAuthority(false)
             guard try self.store.clearPairing(invalidation: lease) else { return false }
         } catch {
             appConfigLog.error("clear pairing cleanup failed: \(String(describing: error), privacy: .public)")

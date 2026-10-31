@@ -24,7 +24,7 @@ nonisolated final class SafariWebExtensionHandler: NSObject, NSExtensionRequestH
                 reply["padding"] = String(repeating: "x", count: count)
             } else {
                 guard let c = message["c"] as? String,
-                    let root = Bundle.main.resourceURL?.appendingPathComponent("SafariVendor") else { throw SafariBrowserError.malformed }
+                    let root = Bundle.main.resourceURL?.appendingPathComponent("browser-contract") else { throw SafariBrowserError.malformed }
                 let frame = message["f"] as? String
                 if let frame, frame.utf8.count > 33554432 { throw SafariBrowserError.full }
                 let projection = try BrowserContractProjection(rootURL: root)

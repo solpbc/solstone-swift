@@ -15,19 +15,49 @@ nonisolated struct SafariBrowserPeriod: Sendable {
     let payload: Data
 }
 
-/// A request owns one SQLite connection. BEGIN IMMEDIATE serializes app and
-/// extension writers; FULL synchronous commits precede every custody receipt.
+/// What the app shows for the Safari source, read from the shared store.
+nonisolated struct SafariBrowserSnapshot: Sendable, Equatable {
+    var confirmed: Bool
+    var paused: Bool
+    /// Pages the extension handed over that the app has not yet taken into its send queue.
+    var heldBytes: Int
+    /// Browser pages the app's send queue still holds, as last published by the app.
+    var queuedBytes: Int
+    /// When the extension last handed a page over, if ever.
+    var lastAccepted: Date?
+    var full: Bool
+}
+
+/// Durable custody for Safari pages on the phone. The extension's native handler
+/// writes; the app reads, seals and adopts. Each instance owns one SQLite
+/// connection. BEGIN IMMEDIATE serializes the app and the handler; synchronous
+/// FULL commits precede every receipt the extension sees.
+///
+/// Capture authority is the app's pairing confirmation plus the owner's pause,
+/// both held here and checked inside the same transaction as intake. Held pages
+/// carry no journal binding: they wait while unpaired and go to whichever
+/// journal the app is confirmed with when it next runs.
 nonisolated final class SafariBrowserStore {
     let root: URL
     private var db: OpaquePointer?
-    static let quota = 64 * 1024 * 1024
+
+    /// Bytes held on the phone before the app has taken them, whatever the reason.
+    static let defaultQuota = 64 * 1024 * 1024
+    let quota: Int
+    /// Hard cap on dedup identities, independent of the retention window.
+    static let tombstoneCap = 100_000
+    /// A period is sealed into its own segment at this age or size.
+    static let periodSeconds: Double = 300
+    static let periodBytes = 8 * 1024 * 1024
+    static let freshnessMs = 5000
 
     convenience init() throws {
         try self.init(root: AppGroupContainer.rootURL().appendingPathComponent("SafariBrowser", isDirectory: true))
     }
 
-    init(root: URL) throws {
+    init(root: URL, quota: Int = SafariBrowserStore.defaultQuota) throws {
         self.root = root
+        self.quota = quota
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
             attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication])
         var values = URLResourceValues()
@@ -44,10 +74,11 @@ nonisolated final class SafariBrowserStore {
             try self.sql("PRAGMA synchronous=FULL")
             try self.sql("PRAGMA fullfsync=ON")
             try self.sql("PRAGMA checkpoint_fullfsync=ON")
-            try self.sql("CREATE TABLE IF NOT EXISTS control (id INTEGER PRIMARY KEY CHECK(id=1), confirmed INTEGER NOT NULL, paused INTEGER NOT NULL, generation TEXT NOT NULL)")
-            try self.sql("INSERT OR IGNORE INTO control VALUES(1,0,0,?)", [.text(UUID().uuidString)])
-            try self.sql("CREATE TABLE IF NOT EXISTS periods (id TEXT PRIMARY KEY, started REAL NOT NULL, ended REAL, zone TEXT NOT NULL, payload BLOB NOT NULL, handoff INTEGER NOT NULL DEFAULT 0, adopted INTEGER NOT NULL DEFAULT 0)")
-            try self.sql("CREATE TABLE IF NOT EXISTS batches (inst TEXT NOT NULL, batch TEXT NOT NULL, digest TEXT NOT NULL, period TEXT NOT NULL, PRIMARY KEY(inst,batch))")
+            try self.sql("CREATE TABLE IF NOT EXISTS control (id INTEGER PRIMARY KEY CHECK(id=1), confirmed INTEGER NOT NULL, paused INTEGER NOT NULL, generation TEXT NOT NULL, queued INTEGER NOT NULL DEFAULT 0, full INTEGER NOT NULL DEFAULT 0)")
+            try self.sql("INSERT OR IGNORE INTO control(id,confirmed,paused,generation) VALUES(1,0,0,?)", [.text(UUID().uuidString)])
+            try self.sql("CREATE TABLE IF NOT EXISTS periods (id TEXT PRIMARY KEY, started REAL NOT NULL, last REAL, ended REAL, zone TEXT NOT NULL, payload BLOB NOT NULL, handoff INTEGER NOT NULL DEFAULT 0, adopted INTEGER NOT NULL DEFAULT 0)")
+            try self.sql("CREATE TABLE IF NOT EXISTS batches (inst TEXT NOT NULL, batch TEXT NOT NULL, digest TEXT NOT NULL, period TEXT NOT NULL, accepted REAL NOT NULL, PRIMARY KEY(inst,batch))")
+            try self.sql("CREATE INDEX IF NOT EXISTS batches_accepted ON batches(accepted)")
             try self.sql("CREATE TABLE IF NOT EXISTS contexts (inst TEXT NOT NULL, ctx TEXT NOT NULL, period TEXT NOT NULL, PRIMARY KEY(inst,ctx))")
             try self.sql("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, inst TEXT NOT NULL, seen REAL NOT NULL)")
         } catch { sqlite3_close(self.db); self.db = nil; throw error }
@@ -79,6 +110,8 @@ nonisolated final class SafariBrowserStore {
         while true {
             let code = sqlite3_step(stmt)
             if code == SQLITE_DONE { return rows }
+            // A full disk is the one write failure the owner can act on.
+            if code == SQLITE_FULL { throw SafariBrowserError.full }
             guard code == SQLITE_ROW else { throw SafariBrowserError.storage }
             var row: [String: Value] = [:]
             for i in 0..<sqlite3_column_count(stmt) {
@@ -98,6 +131,10 @@ nonisolated final class SafariBrowserStore {
 
     private func sql(_ statement: String, _ args: [Value] = []) throws { _ = try self.query(statement, args) }
 
+    private func number(_ statement: String, _ args: [Value] = []) throws -> Double {
+        try self.query(statement, args).first?.values.first?.number ?? 0
+    }
+
     private func transaction<T>(_ action: () throws -> T) throws -> T {
         try self.sql("BEGIN IMMEDIATE")
         do {
@@ -110,6 +147,10 @@ nonisolated final class SafariBrowserStore {
         }
     }
 
+    // MARK: authority, written by the app
+
+    /// The app's pairing confirmation. Any change mints a new generation, so a
+    /// batch stamped under the old one is refused.
     func setConfirmed(_ confirmed: Bool) throws {
         try self.transaction {
             let row = try self.control()
@@ -119,28 +160,52 @@ nonisolated final class SafariBrowserStore {
         }
     }
 
+    /// The owner's pause for the Safari source.
     func setPaused(_ paused: Bool) throws {
         try self.transaction {
+            guard try self.control().paused != paused else { return }
             try self.sql("UPDATE control SET paused=?,generation=? WHERE id=1",
                 [.number(paused ? 1 : 0), .text(UUID().uuidString)])
         }
     }
 
-    private func control() throws -> (confirmed: Bool, paused: Bool, generation: String) {
+    /// What the app's send queue still holds for this source. Status only:
+    /// nothing here retires or releases custody.
+    func setQueuedBytes(_ bytes: Int) throws {
+        try self.sql("UPDATE control SET queued=? WHERE id=1", [.number(Double(max(0, bytes)))])
+    }
+
+    private func control() throws -> (confirmed: Bool, paused: Bool, generation: String, queued: Int, full: Bool) {
         guard let row = try self.query("SELECT * FROM control WHERE id=1").first,
             case .number(let confirmed) = row["confirmed"], case .number(let paused) = row["paused"],
-            case .text(let generation) = row["generation"] else { throw SafariBrowserError.storage }
-        return (confirmed == 1, paused == 1, generation)
+            case .text(let generation) = row["generation"], case .number(let queued) = row["queued"],
+            case .number(let full) = row["full"] else { throw SafariBrowserError.storage }
+        return (confirmed == 1, paused == 1, generation, Int(queued), full == 1)
+    }
+
+    // MARK: periods
+
+    private func heldBytes() throws -> Double {
+        try self.number("SELECT COALESCE(SUM(length(payload)),0) FROM periods WHERE adopted=0")
+    }
+
+    /// Seals an open period that has reached its age or size, so no segment
+    /// grows without bound while the app stays closed.
+    private func rotate(now: Double) throws {
+        try self.sql("UPDATE periods SET ended=COALESCE(last,started),handoff=1 WHERE ended IS NULL AND length(payload)>0 AND (? - started >= ? OR length(payload) >= ?)",
+            [.number(now), .number(Self.periodSeconds), .number(Double(Self.periodBytes))])
     }
 
     private func openPeriod(now: Double) throws -> String {
-        if let row = try self.query("SELECT id FROM periods WHERE ended IS NULL LIMIT 1").first,
-           case .text(let id) = row["id"] { return id }
+        if let id = try self.query("SELECT id FROM periods WHERE ended IS NULL LIMIT 1").first?["id"]?.text { return id }
         let id = UUID().uuidString
         try self.sql("INSERT INTO periods(id,started,zone,payload) VALUES(?,?,?,X'')",
             [.text(id), .number(now), .text(TimeZone.current.identifier)])
+        try self.sql("DELETE FROM contexts WHERE period NOT IN (SELECT id FROM periods WHERE ended IS NULL)")
         return id
     }
+
+    // MARK: the extension's exchange
 
     func exchange(connection: String, frame: String?, projection: BrowserContractProjection,
                   now: Double = Date().timeIntervalSince1970,
@@ -148,8 +213,13 @@ nonisolated final class SafariBrowserStore {
         guard connection.utf8.count <= 128, !connection.isEmpty else { throw SafariBrowserError.malformed }
         return try self.transaction {
             try self.sql("DELETE FROM sessions WHERE seen < ?", [.number(now - 60)])
+            // The contract's dedup window: a lost reply is retried well inside it.
+            try self.sql("DELETE FROM batches WHERE accepted < ?",
+                [.number(now - Double(projection.policy.acceptedRetentionMs) / 1000)])
             let control = try self.control()
+            try self.rotate(now: now)
             let period = try self.openPeriod(now: now)
+            var full = control.full
             var replies: [[String: Any]] = []
             var hello = false
             var acceptedNewBatch = false
@@ -163,51 +233,71 @@ nonisolated final class SafariBrowserStore {
                     try self.sql("INSERT OR REPLACE INTO sessions VALUES(?,?,?)", [.text(connection), .text(request.inst), .number(now)])
                     hello = true
                 case .accept(.batch(let batch)):
-                    guard let session = try self.query("SELECT inst FROM sessions WHERE id=?", [.text(connection)]).first,
-                        case .text(let inst) = session["inst"], inst == batch.inst else { throw SafariBrowserError.malformed }
+                    guard let inst = try self.query("SELECT inst FROM sessions WHERE id=?", [.text(connection)]).first?["inst"]?.text,
+                        inst == batch.inst else { throw SafariBrowserError.malformed }
                     let digest = SHA256.hash(data: Data(batch.records.flatMap { Array($0.rawSlice) })).map { String(format: "%02x", $0) }.joined()
                     let prior = try self.query("SELECT digest,period FROM batches WHERE inst=? AND batch=?", [.text(inst), .text(batch.batchId)]).first
-                    var receipt: [String: Any] = ["type": "accepted", "destination_generation": control.generation,
+                    var receipt: [String: Any] = ["type": "accepted", "destination_generation": batch.destinationGeneration,
                         "inst": inst, "batch_id": batch.batchId]
+                    func reject(_ reason: String) { receipt["result"] = "rejected"; receipt["reason"] = reason; receipt["class"] = "retryable" }
                     if let prior {
-                        guard case .text(let savedHash) = prior["digest"], savedHash == digest,
-                            case .text(let savedPeriod) = prior["period"] else { throw SafariBrowserError.malformed }
+                        guard prior["digest"]?.text == digest, let savedPeriod = prior["period"]?.text else { throw SafariBrowserError.malformed }
                         receipt["result"] = "duplicate"; receipt["period_id"] = savedPeriod
                     } else if !control.confirmed || control.paused || batch.destinationGeneration != control.generation {
-                        receipt["result"] = "rejected"; receipt["reason"] = "resource_exhausted"; receipt["class"] = "retryable"
+                        // Stale or withdrawn authority: nothing new is taken in.
+                        reject("resource_exhausted")
+                    } else if batch.records[0].t == "delta",
+                              try self.query("SELECT 1 FROM contexts WHERE inst=? AND ctx=? AND period=?",
+                                  [.text(inst), .text(batch.records[0].ctx), .text(period)]).isEmpty {
+                        reject("snapshot_required")
                     } else {
-                        let context = batch.records[0].ctx
-                        let hasSnapshot = batch.records.contains { $0.t == "segment_start" }
-                        let currentContext = try self.query("SELECT period FROM contexts WHERE inst=? AND ctx=?", [.text(inst), .text(context)]).first
-                        let known = currentContext?["period"]?.text == period
-                        if !hasSnapshot && !known {
-                            receipt["result"] = "rejected"; receipt["reason"] = "snapshot_required"; receipt["class"] = "retryable"
+                        var jsonl = Data()
+                        for record in batch.records { jsonl.append(record.rawSlice); jsonl.append(10) }
+                        let held = try self.heldBytes()
+                        let identities = try self.number("SELECT count(*) FROM batches")
+                        if held + Double(jsonl.count) > Double(self.quota) || identities >= Double(Self.tombstoneCap) {
+                            full = true
+                            reject("resource_exhausted")
                         } else {
-                            let used = try self.query("SELECT COALESCE(SUM(length(payload)),0) AS bytes FROM periods").first?["bytes"]?.number ?? Double(Self.quota)
-                            var jsonl = Data()
-                            for record in batch.records { jsonl.append(record.rawSlice); jsonl.append(10) }
-                            guard used + Double(jsonl.count) <= Double(Self.quota),
-                                (try self.query("SELECT count(*) AS n FROM batches").first?["n"]?.number ?? 100000) < 100000 else {
-                                throw SafariBrowserError.full
+                            try self.sql("SAVEPOINT intake")
+                            do {
+                                // The payload and its dedup identity commit together.
+                                try self.sql("UPDATE periods SET started=CASE WHEN length(payload)=0 THEN ? ELSE started END, last=?, payload=CAST(payload || ? AS BLOB) WHERE id=? AND ended IS NULL",
+                                    [.number(now), .number(now), .data(jsonl), .text(period)])
+                                try self.sql("INSERT INTO batches VALUES(?,?,?,?,?)", [.text(inst), .text(batch.batchId), .text(digest), .text(period), .number(now)])
+                                for record in batch.records where record.t != "delta" {
+                                    try self.sql("INSERT OR REPLACE INTO contexts VALUES(?,?,?)", [.text(inst), .text(record.ctx), .text(period)])
+                                }
+                                try self.sql("RELEASE intake")
+                                receipt["result"] = "accepted"; receipt["period_id"] = period
+                                acceptedNewBatch = true
+                                full = false
+                            } catch SafariBrowserError.full {
+                                try self.sql("ROLLBACK TO intake")
+                                try self.sql("RELEASE intake")
+                                full = true
+                                reject("resource_exhausted")
                             }
-                            // The payload and its dedup identity commit together.
-                            try self.sql("UPDATE periods SET payload=CAST(payload || ? AS BLOB) WHERE id=? AND ended IS NULL", [.data(jsonl), .text(period)])
-                            try self.sql("INSERT INTO batches VALUES(?,?,?,?)", [.text(inst), .text(batch.batchId), .text(digest), .text(period)])
-                            try self.sql("INSERT OR REPLACE INTO contexts VALUES(?,?,?)", [.text(inst), .text(context), .text(period)])
-                            receipt["result"] = "accepted"; receipt["period_id"] = period
-                            acceptedNewBatch = true
                         }
                     }
                     replies.append(receipt)
                 default: throw SafariBrowserError.malformed
                 }
             }
-            try self.sql("UPDATE sessions SET seen=? WHERE id=?", [.number(now), .text(connection)])
-            let capture = !control.confirmed ? "not_paired" : control.paused ? "paused" : "permitted"
-            replies.append(["type": hello ? "hello_ack" : "state", "capture": capture,
-                "delivery": "kept_locally", "freshness_ms": control.confirmed ? 5000 : 0,
+            if full != control.full { try? self.sql("UPDATE control SET full=? WHERE id=1", [.number(full ? 1 : 0)]) }
+            try? self.sql("UPDATE sessions SET seen=? WHERE id=?", [.number(now), .text(connection)])
+            let held = try self.heldBytes()
+            let oldest = try self.query("SELECT MIN(started) AS s FROM periods WHERE adopted=0 AND length(payload)>0").first?["s"]?.number
+            let stale = oldest.map { now - $0 > Double(projection.policy.spoolAgeMs) / 1000 } ?? false
+            let capture = !control.confirmed ? "not_paired" : control.paused ? "paused" : full ? "intake_off" : "permitted"
+            var state: [String: Any] = ["type": hello ? "hello_ack" : "state", "capture": capture,
+                "delivery": held > 0 || control.queued > 0 ? "kept_locally" : "idle",
+                "freshness_ms": control.confirmed ? Self.freshnessMs : 0,
                 "destination_generation": control.confirmed ? control.generation as Any : NSNull(),
-                "period_id": control.confirmed ? period as Any : NSNull(), "custody": ["full": false, "stale": false]])
+                "period_id": control.confirmed ? period as Any : NSNull(),
+                "custody": ["full": full, "stale": stale]]
+            if full { state["failure"] = "resource_exhausted" }
+            replies.append(state)
             let frames = try replies.map { value in
                 let validated = try BrowserPayloadDecoder.validatedHostMessage(value, projection: projection)
                 return String(decoding: BrowserPayloadDecoder.encodeHostToExtension(validated), as: UTF8.self)
@@ -217,11 +307,13 @@ nonisolated final class SafariBrowserStore {
         }
     }
 
-    /// Seal before async handoff. No subsequent handler transaction can append
-    /// to these bytes; a new request gets a new period and snapshot boundary.
+    // MARK: the app's adoption
+
+    /// Seal before async handoff. No later handler transaction can append to
+    /// these bytes; the next batch opens a new period and snapshot boundary.
     func prepareHandoffs(now: Double = Date().timeIntervalSince1970) throws -> [SafariBrowserPeriod] {
         try self.transaction {
-            try self.sql("UPDATE periods SET ended=?,handoff=1 WHERE ended IS NULL AND length(payload)>0", [.number(now)])
+            try self.sql("UPDATE periods SET ended=COALESCE(last,?),handoff=1 WHERE ended IS NULL AND length(payload)>0", [.number(now)])
             return try self.query("SELECT * FROM periods WHERE adopted=0 AND handoff=1 ORDER BY started").map { row in
                 guard let id = row["id"]?.text, let start = row["started"]?.number,
                     let end = row["ended"]?.number, let zone = row["zone"]?.text,
@@ -231,23 +323,36 @@ nonisolated final class SafariBrowserStore {
         }
     }
 
+    /// Retires a sealed period's bytes once the send queue durably owns them.
+    /// Only that durable ownership is retirement authority. Dedup identities
+    /// stay for their retention window.
     func adopt(id: String) throws {
         try self.transaction {
             try self.sql("UPDATE periods SET adopted=1,handoff=0,payload=X'' WHERE id=? AND ended IS NOT NULL AND handoff=1", [.text(id)])
             guard sqlite3_changes(self.db) == 1 else { throw SafariBrowserError.storage }
+            try self.sql("DELETE FROM periods WHERE adopted=1 AND id NOT IN (SELECT period FROM batches)")
+            try self.sql("UPDATE control SET full=0 WHERE id=1")
         }
     }
 
     func admitsDispatch() throws -> Bool {
-        try self.query("SELECT count(*) AS n FROM periods WHERE handoff=1 AND adopted=0").first?["n"]?.number == 0
+        try self.number("SELECT count(*) FROM periods WHERE handoff=1 AND adopted=0") == 0
+    }
+
+    func snapshot() throws -> SafariBrowserSnapshot {
+        let c = try self.control()
+        let last = try self.query("SELECT MAX(accepted) AS a FROM batches").first?["a"]?.number
+            ?? self.query("SELECT MAX(last) AS a FROM periods").first?["a"]?.number
+        return SafariBrowserSnapshot(confirmed: c.confirmed, paused: c.paused, heldBytes: Int(try self.heldBytes()),
+            queuedBytes: c.queued, lastAccepted: last.map { Date(timeIntervalSince1970: $0) }, full: c.full)
     }
 
     func inventory() throws -> [String: Any] {
         let c = try self.control()
-        return ["confirmed": c.confirmed, "paused": c.paused,
-            "heldBytes": try self.query("SELECT COALESCE(SUM(length(payload)),0) AS n FROM periods").first?["n"]?.number ?? 0,
-            "acceptedBatches": try self.query("SELECT count(*) AS n FROM batches").first?["n"]?.number ?? 0,
-            "adoptedPeriods": try self.query("SELECT count(*) AS n FROM periods WHERE adopted=1").first?["n"]?.number ?? 0]
+        return ["confirmed": c.confirmed, "paused": c.paused, "heldBytes": try self.heldBytes(), "queuedBytes": c.queued,
+            "acceptedBatches": try self.number("SELECT count(*) FROM batches"),
+            "periods": try self.number("SELECT count(*) FROM periods"),
+            "pendingPeriods": try self.number("SELECT count(*) FROM periods WHERE adopted=0 AND length(payload)>0")]
     }
 }
 

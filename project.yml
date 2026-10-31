@@ -39,7 +39,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources
-      - path: SafariVendor
+      - path: vendor/browser-contract
         type: folder
         buildPhase: resources
     configFiles:
@@ -137,15 +137,16 @@ targets:
         excludes:
           - SafariBrowserDelivery.swift
       - path: Sources/Services/AppGroupContainer.swift
-      - path: SafariVendor
+      - path: vendor/browser-contract
         type: folder
         buildPhase: resources
     postBuildScripts:
-      - name: Bundle Safari resources
+      # Safari loads the extension from the appex's resource root.
+      - name: Bundle the vendored Safari extension
         basedOnDependencyAnalysis: false
         script: |
           set -eu
-          /usr/bin/rsync -a "$SRCROOT/SafariExtensionResources/" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
+          /usr/bin/rsync -a "$SRCROOT/vendor/safari-extension/" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
     entitlements:
       path: SolstoneSafariExtension/SolstoneSafariExtension.entitlements
       properties:
