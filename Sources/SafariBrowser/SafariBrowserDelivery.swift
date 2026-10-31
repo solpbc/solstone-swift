@@ -57,7 +57,7 @@ enum SafariBrowserDelivery {
             await engine.kick()
             // Status only: what the send queue still holds for this source.
             let queued = await engine.itemSnapshots(sourceKey: "browser")
-                .reduce(0) { $0 + $1.manifest.payloadParts.reduce(0) { $0 + $1.byteCount } }
+                .reduce(0) { $0 + $1.manifest.payloadParts.reduce(0) { $0 + ($1.byteCount ?? 0) } }
             try store.setQueuedBytes(queued)
         } catch {
             Logger(subsystem: "app.solstone.swift", category: "safari").error("Safari handoff waits for storage recovery")
