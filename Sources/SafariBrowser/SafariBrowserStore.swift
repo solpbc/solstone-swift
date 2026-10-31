@@ -77,7 +77,7 @@ nonisolated final class SafariBrowserStore {
             try self.sql("PRAGMA synchronous=FULL")
             try self.sql("PRAGMA fullfsync=ON")
             try self.sql("PRAGMA checkpoint_fullfsync=ON")
-            try self.sql("CREATE TABLE IF NOT EXISTS control (id INTEGER PRIMARY KEY CHECK(id=1), confirmed INTEGER NOT NULL, paused INTEGER NOT NULL, generation TEXT NOT NULL, queued INTEGER NOT NULL DEFAULT 0, full INTEGER NOT NULL DEFAULT 0, contact REAL)")
+            try self.sql("CREATE TABLE IF NOT EXISTS control (id INTEGER PRIMARY KEY CHECK(id=1), confirmed INTEGER NOT NULL, paused INTEGER NOT NULL, generation TEXT NOT NULL, queued INTEGER NOT NULL DEFAULT 0, full INTEGER NOT NULL DEFAULT 0, contact REAL, lastaccepted REAL)")
             try self.sql("INSERT OR IGNORE INTO control(id,confirmed,paused,generation) VALUES(1,0,0,?)", [.text(UUID().uuidString)])
             try self.sql("CREATE TABLE IF NOT EXISTS periods (id TEXT PRIMARY KEY, started REAL NOT NULL, last REAL, ended REAL, zone TEXT NOT NULL, payload BLOB NOT NULL, handoff INTEGER NOT NULL DEFAULT 0, adopted INTEGER NOT NULL DEFAULT 0)")
             try self.sql("CREATE TABLE IF NOT EXISTS batches (inst TEXT NOT NULL, batch TEXT NOT NULL, digest TEXT NOT NULL, period TEXT NOT NULL, accepted REAL NOT NULL, PRIMARY KEY(inst,batch))")
@@ -272,6 +272,7 @@ nonisolated final class SafariBrowserStore {
                                 for record in batch.records where record.t != "delta" {
                                     try self.sql("INSERT OR REPLACE INTO contexts VALUES(?,?,?)", [.text(inst), .text(record.ctx), .text(period)])
                                 }
+                                try self.sql("UPDATE control SET lastaccepted=? WHERE id=1", [.number(now)])
                                 try self.sql("RELEASE intake")
                                 receipt["result"] = "accepted"; receipt["period_id"] = period
                                 acceptedNewBatch = true
@@ -345,9 +346,10 @@ nonisolated final class SafariBrowserStore {
 
     func snapshot() throws -> SafariBrowserSnapshot {
         let c = try self.control()
-        let last = try self.query("SELECT MAX(accepted) AS a FROM batches").first?["a"]?.number
-            ?? self.query("SELECT MAX(last) AS a FROM periods").first?["a"]?.number
-        let contact = try self.query("SELECT contact FROM control WHERE id=1").first?["contact"]?.number
+        // Kept on the control row: dedup identities and adopted periods are pruned.
+        let row = try self.query("SELECT contact, lastaccepted FROM control WHERE id=1").first
+        let last = row?["lastaccepted"]?.number
+        let contact = row?["contact"]?.number
         return SafariBrowserSnapshot(confirmed: c.confirmed, paused: c.paused, heldBytes: Int(try self.heldBytes()),
             queuedBytes: c.queued, lastAccepted: last.map { Date(timeIntervalSince1970: $0) },
             lastContact: contact.map { Date(timeIntervalSince1970: $0) }, full: c.full)

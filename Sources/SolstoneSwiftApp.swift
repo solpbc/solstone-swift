@@ -263,8 +263,11 @@ struct SolstoneSwiftApp: App {
         let appGroupMirror = AppGroupMirror()
         let watchBacklogSnapshotWriter = WatchBacklogSnapshotWriter()
         let appConfig = AppConfig(store: SPLRuntime.pairingStore, appGroupMirror: appGroupMirror)
-        appConfig.safariAuthority = { confirmed in try SafariBrowserStore().setConfirmed(confirmed) }
-        appConfig.syncSafariAuthority()
+        // Only a build that carries the Safari extension keeps its store.
+        if SafariSourceModel.isBundled {
+            appConfig.safariAuthority = { confirmed in try SafariBrowserStore().setConfirmed(confirmed) }
+            appConfig.syncSafariAuthority()
+        }
         let observerClock = SystemObserverClock()
         let onboardingFlow = OnboardingFlow()
         let transport = CFTunnelTransport(appConfig: appConfig, diagnosticLog: log)
@@ -864,7 +867,7 @@ struct SolstoneSwiftApp: App {
 #endif
                 .task {
                     await self.bootstrapTransfer()
-                    self.safariTransferReady = true
+                    self.safariTransferReady = SafariSourceModel.isBundled
                 }
                 .task {
                     while !Task.isCancelled {

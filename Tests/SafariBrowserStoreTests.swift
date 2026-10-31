@@ -194,6 +194,8 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
         XCTAssertEqual(try self.object(retry[0])["result"] as? String, "duplicate")
         _ = try store.exchange(connection: "test", frame: nil, projection: projection, now: t0 + window + 1)
         XCTAssertEqual(try store.inventory()["acceptedBatches"] as? Double, 0)
+        // The page's "last page from Safari" outlives the dedup window.
+        XCTAssertEqual(try XCTUnwrap(store.snapshot().lastAccepted).timeIntervalSince1970, t0, accuracy: 0.001)
     }
 
     func testDeliveryReadsKeptLocallyOnlyWhileThePhoneStillHoldsPages() throws {
