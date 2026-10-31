@@ -8,23 +8,25 @@ import Observation
 /// titles) come from `SourceVocabulary` and `LocationVocabulary`.
 nonisolated enum SafariVocabulary {
     static let label = "Safari"
-    static let valueLine = "the text of the sites you allow in Safari goes into your journal."
+    static let valueLine = "on the sites you allow in Safari, the solstone extension takes in the page's text and rough layout, and all of it goes into your journal."
     static let setUpHeader = "set it up"
     static let setUpStepOne = "in Settings, open Apps, then Safari, then Extensions, then solstone, and turn it on."
-    static let setUpStepTwo = "in Safari, agree to what the solstone extension takes in on its welcome page. then open a site you want in your journal, tap solstone in the extensions menu, add the site and allow it."
-    static let setUpFootnote = "this page updates by itself once the solstone extension answers."
+    static let setUpStepTwo = "in Safari, open the page menu, tap solstone, and agree to what it takes in. then, on a site you want in your journal, open solstone the same way, add the site and allow it."
+    static let setUpFootnote = "this page updates by itself once the solstone extension is on in Safari."
     static let whileClosed = "while this is on, the solstone extension keeps taking in the sites you allow, even when this app is closed. pages wait on this device and go into your journal the next time you open this app."
-    static let privateBrowsing = "nothing is taken in from private browsing."
-    static let activeSubtextPaired = "adds the sites you allow to your journal"
+    static let privateBrowsing = "the solstone extension takes in nothing from private browsing."
+    static let activeSubtextPaired = "adds pages from the sites you allow to your journal"
     static let notPaired = "nothing is taken in until you pair."
     static let awaitingMark = "starts once you confirm your journal's mark."
-    static let full = "the room on this device for Safari pages is full. new pages are taken in again once this app makes room."
-    static let unreadable = "this app can't open the Safari pages waiting on this device right now."
+    static let full = "this device is out of storage for Safari pages. free up some space and new pages go into your journal again."
+    static let fullCompact = "out of storage."
+    static let unreadable = "this app can't check for Safari pages on this device right now."
+    static let unreadableCompact = "can't check right now."
     static let noPageYet = "no pages from Safari yet."
     static let waiting = "some pages are waiting on this device."
     static let nothingWaiting = "nothing from Safari is waiting on this device."
     static let pauseHint = "the solstone extension stops taking in new pages. pages already on this device still go into your journal."
-    static let resumeHint = "the sites you allow go into your journal again."
+    static let resumeHint = "pages from the sites you allow go into your journal again."
 
     static func activeSubtext(isJournalPaired: Bool) -> String {
         isJournalPaired ? self.activeSubtextPaired : self.notPaired
@@ -75,7 +77,15 @@ final class SafariSourceModel {
 /// What the Safari tile and page show, from the store.
 nonisolated struct SafariSourceStatus: Equatable, Sendable {
     let sourceState: SourceState
+    /// The page's full reason; the tile shows `compactAttention`.
     let attention: String?
+    var compactAttention: String? {
+        switch self.attention {
+        case SafariVocabulary.full: SafariVocabulary.fullCompact
+        case SafariVocabulary.unreadable: SafariVocabulary.unreadableCompact
+        default: self.attention
+        }
+    }
 
     init(snapshot: SafariBrowserSnapshot?) {
         guard let snapshot else {
@@ -105,7 +115,7 @@ nonisolated struct SafariSourceStatus: Equatable, Sendable {
 
 nonisolated func safariSourceModel(snapshot: SafariBrowserSnapshot?, isJournalPaired: Bool) -> Source {
     let status = SafariSourceStatus(snapshot: snapshot)
-    var subtext = status.attention
+    var subtext = status.compactAttention
     if subtext == nil, status.sourceState == .off {
         subtext = isJournalPaired ? SafariVocabulary.awaitingMark : SafariVocabulary.notPaired
     }

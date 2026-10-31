@@ -26,7 +26,9 @@ struct SafariSourceDetailView: View {
                     SourceDetailBlock(title: SafariVocabulary.setUpHeader) { self.setUpBlock }
                 } else {
                     SourceDetailBlock(title: LocationVocabulary.stateBlockTitle) { self.stateBlock(status) }
-                    SourceDetailBlock(title: LocationVocabulary.deliveryBlockTitle) { self.deliveryBlock }
+                    if self.model.snapshot != nil {
+                        SourceDetailBlock(title: LocationVocabulary.deliveryBlockTitle) { self.deliveryBlock }
+                    }
                 }
                 SourceHomeTileControl(sourceID: "safari")
             }
@@ -77,7 +79,7 @@ struct SafariSourceDetailView: View {
         let paused = self.model.snapshot?.paused == true
         return VStack(alignment: .leading, spacing: 12) {
             SourceDetailVerdictLine(state: status.sourceState)
-            if let subtext = source.subtext {
+            if let subtext = status.attention ?? source.subtext {
                 Text(subtext)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
