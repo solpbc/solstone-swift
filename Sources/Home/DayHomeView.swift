@@ -215,6 +215,7 @@ struct DayHomeView: View {
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
     @Environment(CalendarSourceHandle.self) private var calendarSourceHandle: CalendarSourceHandle?
+    @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AppStorage(UserSettings.hiddenHomeSourceIDsKey) private var hiddenHomeSourceIDsData = Data()
@@ -426,6 +427,20 @@ private extension DayHomeView {
                         route: .calendar,
                         control: calendarTileControl(CalendarSourceStatus(state: handle.source.state)),
                         isOn: self.calendarIsOn(handle.source)
+                    )
+                }
+            }
+            if let safari = self.safariSource {
+                let source = safariSourceModel(snapshot: safari.snapshot, isJournalPaired: self.appConfig.isPaired)
+                if self.isOnHome(source.id) {
+                    HomeSourceTile(
+                        source: source,
+                        route: .safari,
+                        control: safari.isSetUp ? .toggle : .none,
+                        isOn: Binding(
+                            get: { safari.snapshot?.paused == false },
+                            set: { safari.setPaused(!$0) }
+                        )
                     )
                 }
             }

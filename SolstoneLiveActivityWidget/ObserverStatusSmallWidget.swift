@@ -95,7 +95,7 @@ private struct ObserverStatusSmallView: View {
             "location"
         case .screencast:
             SourceVocabulary.screencastDisplayName
-        case .watch, .calendar, nil:
+        case .watch, .calendar, .safari, nil:
             nil
         }
     }

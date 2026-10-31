@@ -11,6 +11,7 @@ struct AddMoreView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(CalendarSourceHandle.self) private var calendarSourceHandle: CalendarSourceHandle?
+    @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @WatchPipelineInputReader private var watchPipelineInputs
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AppStorage(UserSettings.hiddenHomeSourceIDsKey) private var hiddenHomeSourceIDsData = Data()
@@ -90,6 +91,7 @@ struct AddMoreView: View {
             screencast: bundle.screencast,
             watch: bundle.watch,
             calendar: self.calendarSourceHandle.map { makeCalendarSource($0.source, isJournalPaired: self.appConfig.isPaired) },
+            safari: self.safariSource.map { safariSourceModel(snapshot: $0.snapshot, isJournalPaired: self.appConfig.isPaired) },
             hiddenIDs: UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)
         )
     }

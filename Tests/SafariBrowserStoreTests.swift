@@ -16,8 +16,9 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
         try XCTUnwrap(JSONSerialization.jsonObject(with: Data(frame.utf8)) as? [String: Any])
     }
 
-    private func hello(_ store: SafariBrowserStore, _ projection: BrowserContractProjection) throws -> [String: Any] {
-        let frames = try store.exchange(connection: "test", frame: "{\"type\":\"hello\",\"protocol\":1,\"version\":\"0.4.0\",\"brand\":\"safari\",\"inst\":\"test-instance\"}", projection: projection)
+    private func hello(_ store: SafariBrowserStore, _ projection: BrowserContractProjection,
+                       now: Double = Date().timeIntervalSince1970) throws -> [String: Any] {
+        let frames = try store.exchange(connection: "test", frame: "{\"type\":\"hello\",\"protocol\":1,\"version\":\"0.4.0\",\"brand\":\"safari\",\"inst\":\"test-instance\"}", projection: projection, now: now)
         return try self.object(XCTUnwrap(frames.last))
     }
 
@@ -164,6 +165,7 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
             projection: projection, now: t0 + 10)
         XCTAssertEqual(try self.object(sameContext[0])["result"] as? String, "accepted")
         let later = t0 + SafariBrowserStore.periodSeconds + 1
+        _ = try self.hello(store, projection, now: later)
         let afterSeal = try store.exchange(connection: "test", frame: self.batch(generation: generation, id: self.id("c"), delta: true),
             projection: projection, now: later)
         XCTAssertEqual(try self.object(afterSeal[0])["reason"] as? String, "snapshot_required")
@@ -187,6 +189,7 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
         let frame = try self.batch(generation: generation)
         _ = try store.exchange(connection: "test", frame: frame, projection: projection, now: t0)
         let window = Double(projection.policy.acceptedRetentionMs) / 1000
+        _ = try self.hello(store, projection, now: t0 + window - 1)
         let retry = try store.exchange(connection: "test", frame: frame, projection: projection, now: t0 + window - 1)
         XCTAssertEqual(try self.object(retry[0])["result"] as? String, "duplicate")
         _ = try store.exchange(connection: "test", frame: nil, projection: projection, now: t0 + window + 1)
@@ -213,10 +216,10 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
     func testAFullStoreRefusesNewPagesSaysSoAndReopensAfterTheAppTakesThem() throws {
         let (root, projection) = try self.rig()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = try SafariBrowserStore(root: root, quota: 4096)
+        let store = try SafariBrowserStore(root: root, quota: 3000)
         try store.setConfirmed(true)
         let generation = try XCTUnwrap(self.hello(store, projection)["destination_generation"] as? String)
-        let big = String(repeating: "x", count: 2100)
+        let big = String(repeating: "x", count: 2000)
         let t0 = Date().timeIntervalSince1970
         _ = try store.exchange(connection: "test", frame: self.batch(generation: generation, text: big), projection: projection, now: t0)
         let refused = try store.exchange(connection: "test", frame: self.batch(generation: generation, id: self.id("b"), text: big),

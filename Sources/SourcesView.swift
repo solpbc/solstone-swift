@@ -29,7 +29,7 @@ struct SourcesView: View {
 }
 
 nonisolated enum SourceRoute: Hashable, Identifiable, Sendable {
-    case audio, location, screencast, watch, calendar
+    case audio, location, screencast, watch, calendar, safari
 
     var id: String {
         switch self {
@@ -38,6 +38,7 @@ nonisolated enum SourceRoute: Hashable, Identifiable, Sendable {
         case .screencast: "screencast"
         case .watch: "watch"
         case .calendar: "calendar"
+        case .safari: "safari"
         }
     }
 }
@@ -56,6 +57,7 @@ nonisolated enum SourcesViewRowBuilder {
         screencast: Source,
         watch: Source?,
         calendar: Source?,
+        safari: Source? = nil,
         hiddenIDs: Set<String>
     ) -> [SourcesViewRow] {
         var canonical = [
@@ -65,6 +67,9 @@ nonisolated enum SourcesViewRowBuilder {
         ]
         if let calendar {
             canonical.append(SourcesViewRow(route: .calendar, source: calendar))
+        }
+        if let safari {
+            canonical.append(SourcesViewRow(route: .safari, source: safari))
         }
         if let watch {
             canonical.append(SourcesViewRow(route: .watch, source: watch))

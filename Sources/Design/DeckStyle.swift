@@ -236,6 +236,7 @@ nonisolated extension SourceKind {
         case .screencast: "display"
         case .watch: "applewatch"
         case .calendar: "calendar"
+        case .safari: "safari"
         }
     }
 }

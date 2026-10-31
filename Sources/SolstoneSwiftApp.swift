@@ -33,6 +33,7 @@ struct SolstoneSwiftApp: App {
     @State private var photoLibraryImporter: PhotoLibraryImporter
     @State private var calendarSource: CalendarSourceEngine
     @State private var calendarSourceHandle: CalendarSourceHandle
+    @State private var safariSource: SafariSourceModel
     @State private var calendarTransferHolder: CalendarTransferHolder
     @State private var calendarBackgroundRefresh: CalendarBackgroundRefresh
     @State private var watchSegmentDrain: WatchSegmentDrain?
@@ -411,6 +412,11 @@ struct SolstoneSwiftApp: App {
 #else
         let calendarSourceHandle = CalendarSourceHandle(source: calendarSource)
 #endif
+#if DEBUG
+        let safariSource = SafariUITestSource.seeded() ?? SafariSourceModel()
+#else
+        let safariSource = SafariSourceModel()
+#endif
         let mobileSegmentUploader = MobileSegmentUploader(
             transferEngine: transferEngine,
             store: mobileSegmentStore,
@@ -744,6 +750,7 @@ struct SolstoneSwiftApp: App {
         self._photoLibraryImporter = State(initialValue: photoLibraryImporter)
         self._calendarSource = State(initialValue: calendarSource)
         self._calendarSourceHandle = State(initialValue: calendarSourceHandle)
+        self._safariSource = State(initialValue: safariSource)
         self._calendarTransferHolder = State(initialValue: calendarTransferHolder)
         self._calendarBackgroundRefresh = State(initialValue: calendarBackgroundRefresh)
         self._watchSegmentDrain = State(initialValue: watchSegmentDrain)
@@ -814,6 +821,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.photoLibraryImporter)
                 .environment(self.calendarSource)
                 .environment(self.calendarSourceHandle)
+                .environment(self.safariSource)
                 .environment(self.calendarTransferHolder)
                 .environment(self.mobileSegmentUploader)
                 .environment(self.mobileSegmentEngine)
@@ -932,6 +940,7 @@ struct SolstoneSwiftApp: App {
             switch newPhase {
             case .active:
                 self.mobileSegmentTransferHolder.refreshJournalGap()
+                self.safariSource.refresh()
                 self.backgroundDrainTask?.cancel()
                 self.backgroundDrainTask = nil
                 if Self.shouldRunLaunchMaintenance(scenePhase: newPhase) {

@@ -25,6 +25,9 @@ nonisolated struct SafariBrowserSnapshot: Sendable, Equatable {
     var queuedBytes: Int
     /// When the extension last handed a page over, if ever.
     var lastAccepted: Date?
+    /// When Safari's extension last said hello, if ever: the only sign the app has
+    /// that the owner turned it on.
+    var lastContact: Date?
     var full: Bool
 }
 
@@ -74,7 +77,7 @@ nonisolated final class SafariBrowserStore {
             try self.sql("PRAGMA synchronous=FULL")
             try self.sql("PRAGMA fullfsync=ON")
             try self.sql("PRAGMA checkpoint_fullfsync=ON")
-            try self.sql("CREATE TABLE IF NOT EXISTS control (id INTEGER PRIMARY KEY CHECK(id=1), confirmed INTEGER NOT NULL, paused INTEGER NOT NULL, generation TEXT NOT NULL, queued INTEGER NOT NULL DEFAULT 0, full INTEGER NOT NULL DEFAULT 0)")
+            try self.sql("CREATE TABLE IF NOT EXISTS control (id INTEGER PRIMARY KEY CHECK(id=1), confirmed INTEGER NOT NULL, paused INTEGER NOT NULL, generation TEXT NOT NULL, queued INTEGER NOT NULL DEFAULT 0, full INTEGER NOT NULL DEFAULT 0, contact REAL)")
             try self.sql("INSERT OR IGNORE INTO control(id,confirmed,paused,generation) VALUES(1,0,0,?)", [.text(UUID().uuidString)])
             try self.sql("CREATE TABLE IF NOT EXISTS periods (id TEXT PRIMARY KEY, started REAL NOT NULL, last REAL, ended REAL, zone TEXT NOT NULL, payload BLOB NOT NULL, handoff INTEGER NOT NULL DEFAULT 0, adopted INTEGER NOT NULL DEFAULT 0)")
             try self.sql("CREATE TABLE IF NOT EXISTS batches (inst TEXT NOT NULL, batch TEXT NOT NULL, digest TEXT NOT NULL, period TEXT NOT NULL, accepted REAL NOT NULL, PRIMARY KEY(inst,batch))")
@@ -231,6 +234,7 @@ nonisolated final class SafariBrowserStore {
                         return ["{\"type\":\"unsupported\",\"protocol\":1,\"behind\":\"app\"}"]
                     }
                     try self.sql("INSERT OR REPLACE INTO sessions VALUES(?,?,?)", [.text(connection), .text(request.inst), .number(now)])
+                    try self.sql("UPDATE control SET contact=? WHERE id=1", [.number(now)])
                     hello = true
                 case .accept(.batch(let batch)):
                     guard let inst = try self.query("SELECT inst FROM sessions WHERE id=?", [.text(connection)]).first?["inst"]?.text,
@@ -343,8 +347,10 @@ nonisolated final class SafariBrowserStore {
         let c = try self.control()
         let last = try self.query("SELECT MAX(accepted) AS a FROM batches").first?["a"]?.number
             ?? self.query("SELECT MAX(last) AS a FROM periods").first?["a"]?.number
+        let contact = try self.query("SELECT contact FROM control WHERE id=1").first?["contact"]?.number
         return SafariBrowserSnapshot(confirmed: c.confirmed, paused: c.paused, heldBytes: Int(try self.heldBytes()),
-            queuedBytes: c.queued, lastAccepted: last.map { Date(timeIntervalSince1970: $0) }, full: c.full)
+            queuedBytes: c.queued, lastAccepted: last.map { Date(timeIntervalSince1970: $0) },
+            lastContact: contact.map { Date(timeIntervalSince1970: $0) }, full: c.full)
     }
 
     func inventory() throws -> [String: Any] {

@@ -947,6 +947,8 @@ struct RootShellView: View {
                 self.nav.selectFromDeck(.source(.watch))
             case "source:calendar":
                 self.nav.selectFromDeck(.source(.calendar))
+            case "source:safari":
+                self.nav.selectFromDeck(.source(.safari))
             default:
                 break
             }
