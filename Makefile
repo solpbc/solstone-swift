@@ -728,6 +728,13 @@ test-fast:
 
 # --- Device (requires iPhone connected to Mac) ---
 
+.PHONY: safari-device-install safari-device-remove
+safari-device-install:
+	xcrun devicectl device install app --device $(DEVICE) $(DEV_APP)
+
+safari-device-remove:
+	xcrun devicectl device uninstall app --device $(DEVICE) $(BUNDLE_ID)
+
 build: deps unlock
 	xcodebuild -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \

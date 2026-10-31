@@ -57,6 +57,7 @@ struct SolstoneSwiftApp: App {
     @State private var pairFlowPresence: PairFlowPresence
     @State private var backgroundDrainTask: Task<Void, Never>?
     @State private var didBootstrapTransfer = false
+    @State private var safariTransferReady = false
     @State private var integrationObserverStartTask: Task<Void, Never>?
     @State private var integrationObserverStopTask: Task<Void, Never>?
     @State private var didAutoStartIntegrationObserver = false
@@ -261,6 +262,8 @@ struct SolstoneSwiftApp: App {
         let appGroupMirror = AppGroupMirror()
         let watchBacklogSnapshotWriter = WatchBacklogSnapshotWriter()
         let appConfig = AppConfig(store: SPLRuntime.pairingStore, appGroupMirror: appGroupMirror)
+        appConfig.safariAuthority = { confirmed in try SafariBrowserStore().setConfirmed(confirmed) }
+        appConfig.journalSendConfirmed = appConfig.journalSendConfirmed
         let observerClock = SystemObserverClock()
         let onboardingFlow = OnboardingFlow()
         let transport = CFTunnelTransport(appConfig: appConfig, diagnosticLog: log)
@@ -357,7 +360,7 @@ struct SolstoneSwiftApp: App {
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             },
             heardReporter: connectionHeardReporter,
-            sourceGate: calendarGate,
+            sourceGate: SafariBrowserSourceGate(calendar: calendarGate),
             appBuild: Self.refusalAppBuild,
             journalVersion: appConfig.journalVersion.version
         )
@@ -853,6 +856,16 @@ struct SolstoneSwiftApp: App {
 #endif
                 .task {
                     await self.bootstrapTransfer()
+                    self.safariTransferReady = true
+                }
+                .task {
+                    while !Task.isCancelled {
+                        if self.safariTransferReady {
+                            await SafariBrowserDelivery.drain(engine: self.transferEngine)
+                        }
+                        do { try await Task.sleep(for: .seconds(5)) }
+                        catch { break }
+                    }
                 }
                 .task {
                     await Task.yield()

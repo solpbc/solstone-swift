@@ -39,6 +39,9 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - path: SafariVendor
+        type: folder
+        buildPhase: resources
     configFiles:
       Debug: config/BuildMetadata.generated.xcconfig
       Release: config/BuildMetadata.generated.xcconfig
@@ -114,6 +117,8 @@ targets:
         product: Crypto
       - target: SolstoneNotificationService
         embed: true
+      - target: SolstoneSafariExtension
+        embed: true
       - target: SolstoneShareExtension
         embed: true
       - target: SolstoneBroadcastExtension
@@ -122,6 +127,47 @@ targets:
         embed: true
       - target: SolstoneWatch
         embed: true
+  SolstoneSafariExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: SolstoneSafariExtension
+      - path: Sources/SafariBrowser
+        excludes:
+          - SafariBrowserDelivery.swift
+      - path: Sources/Services/AppGroupContainer.swift
+      - path: SafariVendor
+        type: folder
+        buildPhase: resources
+    postBuildScripts:
+      - name: Bundle Safari resources
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          /usr/bin/rsync -a "$SRCROOT/SafariExtensionResources/" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
+    entitlements:
+      path: SolstoneSafariExtension/SolstoneSafariExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.app.solstone.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.safari
+        PRODUCT_NAME: SolstoneSafariExtension
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_VERSION: "6.0"
+        SWIFT_STRICT_CONCURRENCY: complete
+        APPLICATION_EXTENSION_API_ONLY: YES
+    info:
+      path: SolstoneSafariExtension/Info.plist
+      properties:
+        CFBundleDisplayName: solstone
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.Safari.web-extension
+          NSExtensionPrincipalClass: SafariWebExtensionHandler
   SolstoneNotificationService:
     type: app-extension
     platform: iOS
