@@ -30,15 +30,6 @@
       else if (!hasGrant && !paused[matchHost]) actions.push({ op: "pause", matchHost, entries });
     }
 
-    const claimedOrigins = new Set([
-      ...(manifestOrigins || []),
-      ...(exemptOrigins || []),
-      ...(exemptPatterns || []),
-      ...[...groups.keys()].flatMap((matchHost) => H.sitePatternsFor(matchHost)),
-    ]);
-    for (const origin of [...grantedSet].sort()) {
-      if (!claimedOrigins.has(origin)) actions.push({ op: "release", origin });
-    }
     return actions;
   }
 

@@ -118,6 +118,70 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   const ADD_HELP = "adding bank.com shares all bank.com sites and pages, like www.bank.com and login.bank.com. to share only part, add that address, like mail.google.com.";
   const FIELD_ERROR = "enter a website address, like mail.google.com.";
 
+  function addHelp(brand) {
+    return `${ADD_HELP} a site you allow in ${browserName(brand)}'s own settings is added here too.`;
+  }
+
+  function broadInSelected(brand) {
+    return `${browserName(brand)} allows the solstone extension on all websites. only the sites you add are taken in.`;
+  }
+
+  function leftOutSummary(n) {
+    return `sites left out (${n})`;
+  }
+
+  function leftOutRefusal(site) {
+    return `${escapeToken(site)} is left out. include it first.`;
+  }
+
+  function offerLine(brand) {
+    return `${browserName(brand)} already allows the solstone extension on these sites:`;
+  }
+
+  const appOnlyLeftOut = "left out in the solstone app";
+  const desktopScreenOn = "the solstone extension isn't taking in this site. your screen still goes into your journal.";
+  const desktopActivityOn = "the solstone extension isn't taking in this site. this browser's activity still goes into your journal.";
+  const appLeftOutSitesOn = "kept out of your journal, including this browser window on your screen and activity.";
+  const appLeftOutNeedsAccess = "the solstone extension leaves it out. the solstone app needs Accessibility to keep it off your screen and out of activity.";
+  function appLeftOutNotChecked(brand) {
+    return `the solstone extension leaves it out. the solstone app doesn't check ${browserName(brand)} windows on your screen.`;
+  }
+  const appLeftOutAppAway = "the solstone app leaves it out too.";
+  const extensionLeftOut = "the solstone extension leaves it out.";
+  const OFFER_ADD = "add";
+  const OFFER_DECLINE = "don't add";
+
+  function popupNoteKey(status, page, kind) {
+    status = status || {};
+    page = page || {};
+    const H = globalThis.SolstoneHosts;
+    let pageHost = page.host || "";
+    if (!pageHost && page.origin) {
+      try { pageHost = new URL(page.origin).hostname; } catch (_e) {}
+    }
+    const desktop = status.desktop;
+
+    if (kind === "not-added") {
+      if (desktop?.screen === true) return "desktopScreenOn";
+      if (desktop?.screen !== true && desktop?.activity === true) return "desktopActivityOn";
+      return "";
+    }
+
+    if (kind === "left-out") {
+      const appLeftOut = Array.isArray(status.appLeftOut) ? status.appLeftOut : [];
+      const appCovers = !!(pageHost && appLeftOut.some((entry) => H?.hostCovers ? H.hostCovers(entry, pageHost) : false));
+      if (appCovers) {
+        if (!desktop) return "appLeftOutAppAway";
+        if (desktop.sites === "on") return "appLeftOutSitesOn";
+        if (desktop.sites === "needs_access") return "appLeftOutNeedsAccess";
+        return "appLeftOutNotChecked";
+      }
+      return "extensionLeftOut";
+    }
+
+    return "";
+  }
+
   function wholeSite(host) {
     const H = globalThis.SolstoneHosts;
     return !!H?.coversSubdomains?.(H.matchHostFor(String(host || "").replace(/^https?:\/\//i, "")));
@@ -142,6 +206,27 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   function addedAnnouncement(host, onNow) {
     const named = wholeSite(host) ? `all ${escapeToken(host)} sites and pages added.` : `${escapeToken(host)} added.`;
     return onNow ? `${named} what you share there now goes into your journal.` : named;
+  }
+
+  function adoptedAnnouncement(brand, sites) {
+    const bName = browserName(brand);
+    const list = Array.isArray(sites) ? sites : [sites].filter(Boolean);
+    if (list.length > 1) {
+      return `${list.length} sites added. you allowed them in ${bName}.`;
+    }
+    if (list.length === 1) {
+      const item = list[0];
+      const host = typeof item === "string" ? item : (item.host || item.site || "");
+      const H = globalThis.SolstoneHosts;
+      const isLocal = H?.isLocalHostname ? H.isLocalHostname(host) : false;
+      const isSiteWide = typeof item === "object" && item.siteWide !== undefined ? item.siteWide : (H?.coversSubdomains ? H.coversSubdomains(host) : false);
+      const escaped = escapeToken(host);
+      if (isSiteWide && !isLocal) {
+        return `all ${escaped} sites and pages added. you allowed them in ${bName}.`;
+      }
+      return `${escaped} added. you allowed it in ${bName}.`;
+    }
+    return "";
   }
 
   // A site added before sites covered their subdomains, which the browser still
@@ -185,7 +270,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     const safari = brand === "safari";
     return {
       granted: `${bName} allows solstone on all websites.`,
-      grantedNote: safari ? (MOBILE ? "a site set to Deny in Settings, under Apps, Safari, Extensions, solstone stays off." : "a site set to Deny in Safari's website settings stays off.") : "",
+      grantedNote: safari ? (MOBILE ? "in Settings, under Apps, Safari, Extensions, solstone, a site set to Deny stays off." : "a site set to Deny in Safari's website settings stays off.") : "",
       missingTitle: safari ? "allow all websites in Safari" : `${bName} isn't allowing all websites`,
       missingBody: safari
         ? "Safari allows this only in its own settings. nothing new is taken in until you allow it:"
@@ -351,5 +436,22 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     linuxStep1IntakeOffBody,
     sheetCopy,
     classifyFailure,
+    addHelp,
+    adoptedAnnouncement,
+    broadInSelected,
+    leftOutSummary,
+    leftOutRefusal,
+    offerLine,
+    popupNoteKey,
+    appOnlyLeftOut,
+    desktopScreenOn,
+    desktopActivityOn,
+    appLeftOutSitesOn,
+    appLeftOutNeedsAccess,
+    appLeftOutNotChecked,
+    appLeftOutAppAway,
+    extensionLeftOut,
+    OFFER_ADD,
+    OFFER_DECLINE,
   };
 })();

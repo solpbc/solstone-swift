@@ -142,7 +142,7 @@
         if (raw.trim()) { fieldError(Copy.FIELD_ERROR); focus(inputElement); }
         return;
       }
-      const result = await cmd({ cmd: "setExcludedHost", host, excluded: true });
+      const result = await cmd({ cmd: "setLeftOut", host, out: true });
       if (result.error) showActionError(result.error);
       else { inputElement.value = ""; announce(Copy.leftOutAnnouncement(host), "ok"); }
       await refresh();
@@ -151,6 +151,13 @@
     const origin = Hosts.chosenOrigin(raw);
     if (!origin) {
       if (raw.trim()) { fieldError(Copy.FIELD_ERROR); focus(inputElement); }
+      return;
+    }
+    let rawHost = "";
+    try { rawHost = new URL(origin).hostname; } catch (_e) {}
+    const effectiveList = (state?.excludedHosts || []).concat(state?.appLeftOut || []);
+    if (rawHost && effectiveList.some((s) => Hosts?.hostCovers ? Hosts.hostCovers(s, rawHost) : false)) {
+      announce(Copy.leftOutRefusal(rawHost), "bad");
       return;
     }
     const displayHost = Hosts.displayOrigin(origin);
@@ -382,6 +389,7 @@
       : Array.isArray(state && state.grantedOrigins)
       ? state.grantedOrigins
       : [];
+    renderOffersBlock($("welcomeOffersBlock") || $("offersBlock"));
     renderSiteRowsInto("welcomeSiteList", allowlist);
   }
 
@@ -449,6 +457,12 @@
     // Sites Section
     renderSites();
 
+    // Adoption Notices
+    if (state?.adoptionNotices && state.adoptionNotices.length > 0) {
+      announce(Copy.adoptedAnnouncement(state.brand, state.adoptionNotices), "ok");
+      cmd({ cmd: "dismissAdoptionNotices" });
+    }
+
     // Indicator Section
     if ($("showPageIndicator")) $("showPageIndicator").checked = !!(state && state.showPageIndicator);
     if ($("pauseWithApp")) $("pauseWithApp").checked = state?.pauseWithApp !== false;
@@ -514,6 +528,59 @@
     $("accessDeniedHelp").hidden = !words.deniedHelp;
   }
 
+  function renderOffersBlock(container) {
+    if (!container) return;
+    const allSites = state?.siteMode === "all";
+    const offers = (!allSites && Array.isArray(state?.offeredOrigins)) ? state.offeredOrigins : [];
+    if (offers.length === 0) {
+      container.hidden = true;
+      container.replaceChildren();
+      return;
+    }
+    container.hidden = false;
+    container.replaceChildren();
+    const p = document.createElement("p");
+    p.className = "muted";
+    p.textContent = Copy.offerLine(state?.brand);
+    container.append(p);
+
+    for (const origin of offers) {
+      const row = document.createElement("div");
+      row.className = "site";
+      const hostSpan = document.createElement("span");
+      hostSpan.className = "site-host";
+      hostSpan.textContent = Hosts.displayOrigin ? Hosts.displayOrigin(origin) : origin;
+      row.append(hostSpan);
+
+      let originHost = "";
+      try { originHost = new URL(origin).hostname; } catch (_e) {}
+
+      const btnGroup = document.createElement("div");
+      btnGroup.className = "site-actions";
+
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "primary";
+      addBtn.textContent = Copy.OFFER_ADD;
+      addBtn.addEventListener("click", async () => {
+        clearAnnouncement();
+        await SolstoneActions.run({ id: "offer-add", origin }, sharedActionEffects());
+      });
+
+      const declineBtn = document.createElement("button");
+      declineBtn.type = "button";
+      declineBtn.textContent = Copy.OFFER_DECLINE;
+      declineBtn.addEventListener("click", async () => {
+        clearAnnouncement();
+        await SolstoneActions.run({ id: "offer-decline", origin, host: originHost }, sharedActionEffects());
+      });
+
+      btnGroup.append(addBtn, declineBtn);
+      row.append(btnGroup);
+      container.append(row);
+    }
+  }
+
   function renderSites() {
     const allSites = state?.siteMode === "all";
     const chosen = chosenList();
@@ -525,8 +592,17 @@
     renderMode("modeAll", "all", agreedAll);
     renderAccess(agreedAll);
 
+    const broadNote = $("broadInSelectedNote");
+    if (broadNote) {
+      const showBroad = !allSites && state?.broadGranted === true;
+      broadNote.hidden = !showBroad;
+      if (showBroad) broadNote.textContent = Copy.broadInSelected(state?.brand);
+    }
+
+    renderOffersBlock($("offersBlock"));
+
     $("listHeading").textContent = allSites ? "sites left out" : "your sites";
-    $("siteModeHelp").textContent = allSites ? Copy.LEAVE_OUT_HELP : Copy.ADD_HELP;
+    $("siteModeHelp").textContent = allSites ? Copy.LEAVE_OUT_HELP : Copy.addHelp(state?.brand);
     $("siteModeHelp").hidden = false;
     $("siteInputLabel").textContent = allSites ? "leave out a site" : "add a site";
     $("addBtn").textContent = allSites ? "leave out" : "add this site";
@@ -553,6 +629,59 @@
     }
 
     renderSiteRowsInto("siteList", allSites ? excluded : chosen);
+
+    const leftOutDetails = $("leftOutDetails");
+    if (leftOutDetails) {
+      if (allSites) {
+        leftOutDetails.hidden = true;
+      } else {
+        const localEx = state?.excludedHosts || [];
+        const appEx = state?.appLeftOut || [];
+        const effectiveList = Array.from(new Set([...localEx, ...appEx]));
+        if (effectiveList.length === 0) {
+          leftOutDetails.hidden = true;
+        } else {
+          leftOutDetails.hidden = false;
+          if ($("leftOutSummary")) {
+            $("leftOutSummary").textContent = Copy.leftOutSummary(effectiveList.length);
+          }
+          const listDiv = $("leftOutList");
+          if (listDiv) {
+            listDiv.replaceChildren();
+            for (const host of effectiveList) {
+              const isLocal = localEx.includes(host);
+              const row = document.createElement("div");
+              row.className = "site";
+              const hostSpan = document.createElement("span");
+              hostSpan.className = "site-host";
+              hostSpan.textContent = host;
+              row.append(hostSpan);
+
+              if (isLocal || state?.leftOutCapable) {
+                const btn = document.createElement("button");
+                btn.type = "button";
+                btn.textContent = "include";
+                btn.addEventListener("click", async () => {
+                  clearAnnouncement();
+                  const res = await cmd({ cmd: "setLeftOut", host, out: false });
+                  if (res?.error) showActionError(res.error);
+                  else announce(Copy.includedAnnouncement(host), "ok");
+                  await refresh();
+                });
+                row.append(btn);
+              } else {
+                const span = document.createElement("span");
+                span.className = "muted";
+                span.textContent = Copy.appOnlyLeftOut;
+                row.append(span);
+              }
+              listDiv.append(row);
+            }
+          }
+        }
+      }
+    }
+
     const kept = Copy.keptNote(allSites ? "all" : "selected", allSites ? chosen.length : excluded.length);
     $("keptNote").textContent = kept;
     $("keptNote").hidden = !kept;

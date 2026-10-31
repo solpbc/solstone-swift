@@ -176,12 +176,13 @@
     showActionMessage("");
     const Copy = globalThis.SolstoneCopy;
     const Hosts = globalThis.SolstoneHosts;
-    if (action.id === "exclude-site" || action.id === "include-site") {
+    if (action.id === "exclude-site" || action.id === "include-site" || action.id === "leave-out") {
+      if (page.kind === "private" || page.kind === "restricted" || page.kind === "unknown") return;
       // The site this page belongs to: www.bank.com leaves out all of bank.com.
       const site = action.site || Hosts.siteHostname(page.host);
       await runAction({ ...action, host: site, origin: page.origin });
       if (!$("actionMessage").textContent) {
-        showActionMessage(action.id === "exclude-site" ? Copy.leftOutAnnouncement(site) : Copy.includedAnnouncement(site));
+        showActionMessage(action.id === "include-site" ? Copy.includedAnnouncement(site) : Copy.leftOutAnnouncement(site));
       }
       return;
     }
@@ -219,6 +220,17 @@
       siteAction.disabled = section.siteAction.disabled;
       siteAction.className = section.siteAction.primary ? "primary" : "";
       siteAction.onclick = () => runPageSiteAction(section.siteAction);
+    }
+
+    const siteSecondary = $("pageSiteSecondary");
+    if (siteSecondary) {
+      siteSecondary.hidden = !section.siteSecondary;
+      if (section.siteSecondary) {
+        siteSecondary.textContent = section.siteSecondary.label;
+        siteSecondary.disabled = !!section.siteSecondary.disabled;
+        siteSecondary.className = section.siteSecondary.primary ? "primary" : "";
+        siteSecondary.onclick = () => runPageSiteAction(section.siteSecondary);
+      }
     }
 
     const pauseAction = $("pauseAction");

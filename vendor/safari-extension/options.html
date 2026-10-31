@@ -271,6 +271,7 @@
                 <input type="checkbox" id="welcomeShowPageIndicator" />
                 show a small solstone mark on pages you've added
               </label>
+              <div id="welcomeOffersBlock" hidden></div>
               <div id="welcomeSiteList"></div>
             </div>
           </section>
@@ -309,6 +310,7 @@
                 <button id="modeAllBtn" type="button" hidden></button>
               </div>
             </div>
+            <p id="broadInSelectedNote" class="muted" hidden></p>
 
             <div id="accessPanel" class="access" hidden>
               <p id="accessGranted" class="access-granted" hidden></p>
@@ -330,6 +332,7 @@
               </div>
             </div>
 
+            <div id="offersBlock" hidden></div>
             <h3 id="listHeading"></h3>
             <p id="siteModeHelp" class="muted" hidden></p>
             <div id="regrant" class="regrant" hidden>
@@ -352,6 +355,10 @@
             </form>
             <div id="actionMessage" class="action-message" aria-live="polite"></div>
             <div id="siteList"></div>
+            <details id="leftOutDetails" hidden>
+              <summary id="leftOutSummary"></summary>
+              <div id="leftOutList"></div>
+            </details>
             <p id="keptNote" class="muted" hidden></p>
           </div>
           <section id="siteDisclosure" class="agreement" aria-labelledby="siteDisclosureTitle" hidden>

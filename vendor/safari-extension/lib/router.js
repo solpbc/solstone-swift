@@ -15,6 +15,19 @@
   const frameChallenges = new Map(); // tabId:frameId -> challenge
   let ctxCounter = 0;
   let grantChain = Promise.resolve();
+  let grantChainDepth = 0;
+  function enqueueGrant(work, { wait = true, chain = true } = {}) {
+    const run = async () => {
+      grantChainDepth++;
+      try { return await work(); }
+      finally { grantChainDepth--; }
+    };
+    const operation = wait
+      ? grantChain.catch(() => {}).then(run)
+      : run();
+    if (chain) grantChain = operation;
+    return operation;
+  }
   let pauseEpoch = 0;
 
   function originGranted(port, origin) {
@@ -23,7 +36,7 @@
 
   function siteKeyFor(port, origin) {
     if (port.siteMode === "all") return origin;
-    return H.siteForOrigin(port.chosenOrigins, origin, port.exactOnlyOrigins) || origin;
+    return H.siteForOrigin(port.chosenOrigins, origin, port.exactOnlyOrigins, port.siteWideOrigins) || origin;
   }
 
   function ownerStateFor(port) {
@@ -34,6 +47,8 @@
       chosen: Array.from(port.chosenOrigins || []),
       granted: Array.from(port.grantedOrigins || []),
       exactOnly: Array.from(port.exactOnlyOrigins || []),
+      siteWide: Array.from(port.siteWideOrigins || current.siteWide || []),
+      declinedHosts: new Set(port.declinedHosts || current.declinedHosts || []),
       reservation: current.reservation || null,
       registration: { ...(port.registration || current.registration || {}) },
       enqueue: { ...(port.enqueue || current.enqueue || {}) },
@@ -49,11 +64,15 @@
       reservation: state.reservation,
       registration: state.registration,
       enqueue: state.enqueue,
+      siteWide: state.siteWide,
+      declinedHosts: state.declinedHosts,
     };
     port.permissionEpoch = state.permissionEpoch;
     port.chosenOrigins = new Set(state.chosen);
     port.grantedOrigins = new Set(state.granted);
     port.exactOnlyOrigins = new Set(state.exactOnly || []);
+    if (state.siteWide) port.siteWideOrigins = Array.from(state.siteWide);
+    if (state.declinedHosts) port.declinedHosts = Array.from(state.declinedHosts);
     port.registration = state.registration;
     port.enqueue = state.enqueue;
     return transition;
@@ -132,8 +151,12 @@
     const start = ownerStateFor(port);
     const capturedGrantEpoch = reservation ? reservation.grantEpoch : start.grantEpoch;
     const capturedPermissionEpoch = reservation ? reservation.permissionEpoch : start.permissionEpoch;
-    const operation = grantChain.catch(() => {}).then(async () => {
+    return enqueueGrant(async () => {
       await deps.settlePermissionEffects?.();
+      if (Array.isArray(port.pendingRemoveOrigins) && port.pendingRemoveOrigins.includes(origin)) {
+        applyOwnerEvent(port, { type: "drop-reservation" });
+        return { ok: false, error: "capture_unavailable" };
+      }
       if (reservation && (port.ownerSites?.reservation !== reservation || port.now() >= reservation.expiresAt)) {
         return { ok: false, error: "capture_unavailable" };
       }
@@ -167,21 +190,37 @@
       if (reservation && (port.ownerSites?.reservation !== reservation || port.now() >= reservation.expiresAt)) {
         return { ok: false, error: "capture_unavailable" };
       }
-      const liveAuth = !port.paused && !port.pressure?.active && port.consentVersion === Gate.CONSENT_VERSION &&
-        port.capturePermitted === true && port.hostCapture === "permitted" && port.custody?.full !== true &&
-        port.lease && port.now() < port.lease.receivedAt + port.lease.freshnessMs;
+      const consent = port.consentVersion === Gate.CONSENT_VERSION;
       const admission = applyOwnerEvent(port, {
-        type: "begin-add", origin, now: port.now(), liveAuth: !!liveAuth, hasPerm,
+        type: "begin-add", origin, now: port.now(), consent: !!consent, hasPerm,
         capturedGrantEpoch, capturedPermissionEpoch,
       });
       if (!admission.result.ok) return admission.result;
 
       const nextChosen = Array.from(new Set([...Array.from(port.chosenOrigins || []), origin]));
+      const nextOffered = (port.offeredOrigins || []).filter((o) => o !== origin);
       try {
-        if (deps.setCfg) await deps.setCfg({ chosenOrigins: nextChosen });
+        if (deps.setCfg) {
+          const patch = { chosenOrigins: nextChosen };
+          if (nextOffered.length !== (port.offeredOrigins || []).length) {
+            patch.offeredOrigins = nextOffered;
+          }
+          await deps.setCfg(patch);
+        }
       } catch (_e) {
         applyOwnerEvent(port, { type: "drop-reservation" });
         return { ok: false, error: "storage_error" };
+      }
+      port.offeredOrigins = nextOffered;
+
+      if (Array.isArray(port.pendingRemoveOrigins) && port.pendingRemoveOrigins.includes(origin)) {
+        if (deps.setCfg) {
+          try { await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins || []) }); }
+          catch (_e) { return { ok: false, error: "storage_error" }; }
+        }
+        applyOwnerEvent(port, { type: "drop-reservation" });
+        port.notify();
+        return { ok: false, error: "capture_unavailable" };
       }
 
       const fence = applyOwnerEvent(port, {
@@ -259,12 +298,201 @@
       }
       return { ok: true, origin, registration: regStatus };
     });
-    grantChain = operation;
-    return operation;
   }
 
   function completeReservedOrigin(reservation, deps) {
     return addGrantedOrigin(reservation.origin, deps, reservation);
+  }
+
+  function runAdoptionPass(deps = {}) {
+    const port = deps.port;
+    if (!port) return Promise.resolve();
+    return enqueueGrant(async () => {
+      const consent = port.consentVersion === Gate.CONSENT_VERSION;
+      const isUpgrade = !port.declinedHostsKnown;
+      const siteMode = port.siteMode;
+
+      if (siteMode === "all") {
+        return;
+      }
+
+      let perms;
+      try {
+        perms = typeof chrome !== "undefined" && chrome.permissions?.getAll ? await chrome.permissions.getAll() : null;
+      } catch (_e) {
+        return;
+      }
+      const livePatterns = Array.isArray(perms?.origins) ? perms.origins : [];
+      if (typeof deps.checkCleanDeclines === "function") {
+        await deps.checkCleanDeclines(null, livePatterns);
+      }
+
+      const effectiveLeftOut = new Set([...(port.excludedHosts || []), ...(port.appLeftOut || [])]);
+      const eligible = [];
+      const liveHosts = new Set();
+
+      for (const pat of livePatterns) {
+        const grant = H.classifySiteGrant(pat);
+        if (!grant) continue;
+        liveHosts.add(grant.host);
+
+        const alreadyOffered = (port.offeredOrigins || []).some((offeredOrigin) => {
+          try {
+            return new URL(offeredOrigin).hostname === grant.host;
+          } catch (_e) { return false; }
+        });
+        if (alreadyOffered) continue;
+
+        const chosenCovers = Array.from(port.chosenOrigins || []).some((chosen) => {
+          try {
+            const entryHost = new URL(chosen).hostname;
+            return H.hostCovers(entryHost, grant.host);
+          } catch (_e) { return false; }
+        });
+        if (chosenCovers) continue;
+
+        const leftOutCovers = Array.from(effectiveLeftOut).some((exHost) => H.hostCovers(exHost, grant.host));
+        if (leftOutCovers) continue;
+
+        const res = port.ownerSites?.reservation;
+        if (res && port.now() < res.expiresAt) {
+          if (res.pattern && H.classifySiteGrant(res.pattern)?.host === grant.host) continue;
+          if (res.origin) {
+            try {
+              const resHost = new URL(res.origin).hostname;
+              if (H.hostCovers(resHost, grant.host)) continue;
+            } catch (_e) {}
+          }
+        }
+
+        if (port.declinedHosts && port.declinedHosts.includes(grant.host)) continue;
+
+        eligible.push(grant);
+      }
+
+      let stillOffered = (port.offeredOrigins || []).filter((offeredOrigin) => {
+        try {
+          const offHost = new URL(offeredOrigin).hostname;
+          return liveHosts.has(offHost);
+        } catch (_e) { return false; }
+      });
+
+      if (!consent || isUpgrade) {
+        const existingOfferHosts = new Set(stillOffered.map((o) => {
+          try { return new URL(o).hostname; } catch (_e) { return ""; }
+        }));
+        for (const el of eligible) {
+          if (!existingOfferHosts.has(el.host)) {
+            stillOffered.push(el.origin);
+            existingOfferHosts.add(el.host);
+          }
+        }
+        stillOffered.sort();
+        port.offeredOrigins = stillOffered;
+
+        const patch = { offeredOrigins: stillOffered };
+        if (isUpgrade) {
+          patch.declinedHosts = Array.from(port.declinedHosts || []);
+        }
+        if (deps.setCfg) {
+          try {
+            await deps.setCfg(patch);
+            if (isUpgrade) {
+              port.declinedHostsKnown = true;
+            }
+          } catch (_e) {
+            return;
+          }
+        } else if (isUpgrade) {
+          port.declinedHostsKnown = true;
+        }
+        port.notify();
+        return;
+      }
+
+      if (eligible.length === 0) {
+        if (stillOffered.length !== (port.offeredOrigins || []).length) {
+          port.offeredOrigins = stillOffered;
+          if (deps.setCfg) {
+            try { await deps.setCfg({ offeredOrigins: stillOffered }); } catch (_e) {}
+          }
+          port.notify();
+        }
+        return;
+      }
+
+      const start = ownerStateFor(port);
+      const capturedGrantEpoch = start.grantEpoch;
+      const capturedPermissionEpoch = start.permissionEpoch;
+
+      const beginResult = applyOwnerEvent(port, {
+        type: "begin-adopt",
+        origins: eligible.map((e) => ({ origin: e.origin, siteWide: e.siteWide })),
+        capturedGrantEpoch,
+        capturedPermissionEpoch,
+      });
+      if (!beginResult.result.ok) {
+        port.notify();
+        return;
+      }
+
+      const nextChosen = Array.from(new Set([...Array.from(port.chosenOrigins || []), ...eligible.map((e) => e.origin)])).sort();
+      const nextSiteWide = Array.from(new Set([...Array.from(port.siteWideOrigins || []), ...eligible.filter((e) => e.siteWide).map((e) => e.origin)])).sort();
+      const adoptedOriginsSet = new Set(eligible.map((e) => e.origin));
+      const nextOffered = stillOffered.filter((o) => !adoptedOriginsSet.has(o)).sort();
+
+      if (deps.setCfg) {
+        try {
+          await deps.setCfg({
+            chosenOrigins: nextChosen,
+            siteWideOrigins: nextSiteWide,
+            offeredOrigins: nextOffered,
+          });
+        } catch (_e) {
+          return;
+        }
+      }
+
+      const fenceResult = applyOwnerEvent(port, {
+        type: "fence-adopt",
+        origins: eligible.map((e) => ({ origin: e.origin, siteWide: e.siteWide })),
+        capturedGrantEpoch,
+        capturedPermissionEpoch,
+        phase: "after-choice-write",
+      });
+
+      if (!fenceResult.result.ok) {
+        if (fenceResult.effects.includes("align-durable-to-memory") && deps.setCfg) {
+          try {
+            await deps.setCfg({
+              chosenOrigins: Array.from(port.chosenOrigins || []),
+              siteWideOrigins: Array.from(port.siteWideOrigins || []),
+            });
+          } catch (_e) {}
+        }
+        port.notify();
+        return;
+      }
+
+      port.siteWideOrigins = nextSiteWide;
+      port.offeredOrigins = nextOffered;
+
+      applyOwnerEvent(port, {
+        type: "publish-grants",
+        livePatterns,
+        epochAtStart: capturedPermissionEpoch,
+      });
+
+      for (const el of eligible) {
+        if (typeof deps.registerSite === "function") {
+          try { await deps.registerSite(el.host); } catch (_e) {}
+        }
+      }
+
+      port.adoptionNotices = Array.from(new Set([...(port.adoptionNotices || []), ...eligible.map((e) => e.origin)]));
+      port.notify();
+      deps.refreshOpenTabs?.();
+    });
   }
 
   async function route(msg, sender, deps = {}) {
@@ -290,14 +518,73 @@
 
         case "acknowledgeDisclosure": {
           if (msg.version === Gate.CONSENT_VERSION) {
-            try {
-              await DB.put("meta", Gate.CONSENT_VERSION, "consentVersion");
-              port.consentVersion = Gate.CONSENT_VERSION;
-              port.notify();
-              return { ok: true, consentVersion: port.consentVersion };
-            } catch (_err) {
-              return { ok: false, error: "storage_error" };
-            }
+            return enqueueGrant(async () => {
+              let perms;
+              try {
+                if (typeof chrome !== "undefined" && chrome.permissions?.getAll) {
+                  perms = await chrome.permissions.getAll();
+                }
+              } catch (_e) {
+                return { ok: false, error: "permissions_unavailable" };
+              }
+              const livePatterns = Array.isArray(perms?.origins) ? perms.origins : [];
+
+              const effectiveLeftOut = new Set([...(port.excludedHosts || []), ...(port.appLeftOut || [])]);
+              const heldOffers = [...(port.offeredOrigins || [])];
+              const heldHosts = new Set(heldOffers.map((o) => {
+                try { return new URL(o).hostname; } catch (_e) { return ""; }
+              }));
+
+              for (const pat of livePatterns) {
+                const grant = H.classifySiteGrant(pat);
+                if (!grant) continue;
+                if (heldHosts.has(grant.host)) continue;
+
+                const chosenCovers = Array.from(port.chosenOrigins || []).some((chosen) => {
+                  try {
+                    return H.hostCovers(new URL(chosen).hostname, grant.host);
+                  } catch (_e) { return false; }
+                });
+                if (chosenCovers) continue;
+
+                const leftOutCovers = Array.from(effectiveLeftOut).some((exHost) => H.hostCovers(exHost, grant.host));
+                if (leftOutCovers) continue;
+
+                const res = port.ownerSites?.reservation;
+                if (res && port.now() < res.expiresAt) {
+                  if (res.pattern && H.classifySiteGrant(res.pattern)?.host === grant.host) continue;
+                  if (res.origin) {
+                    try {
+                      if (H.hostCovers(new URL(res.origin).hostname, grant.host)) continue;
+                    } catch (_e) {}
+                  }
+                }
+
+                if (port.declinedHosts && port.declinedHosts.includes(grant.host)) continue;
+
+                heldOffers.push(grant.origin);
+                heldHosts.add(grant.host);
+              }
+              heldOffers.sort();
+
+              if (deps.setCfg) {
+                try {
+                  await deps.setCfg({ offeredOrigins: heldOffers });
+                } catch (_err) {
+                  return { ok: false, error: "storage_error" };
+                }
+              }
+              port.offeredOrigins = heldOffers;
+
+              try {
+                await DB.put("meta", Gate.CONSENT_VERSION, "consentVersion");
+                port.consentVersion = Gate.CONSENT_VERSION;
+                port.notify();
+                return { ok: true, consentVersion: port.consentVersion };
+              } catch (_err) {
+                return { ok: false, error: "storage_error" };
+              }
+            });
           }
           return { ok: false, error: "invalid_consent_version" };
         }
@@ -324,12 +611,17 @@
 
         case "intendAllSites": {
           if (port.consentVersion !== Gate.CONSENT_VERSION) return { ok: false, error: "missing_consent" };
-          applyOwnerEvent(port, { type: "reserve", origin: null, pattern: "*://*/*", now: port.now() });
+          applyOwnerEvent(port, {
+            type: "reserve",
+            origin: null,
+            pattern: "*://*/*",
+            now: port.now(),
+            broadAlreadyLive: port.broadGranted === true,
+          });
           return { ok: true };
         }
 
-        case "setSiteMode":
-        case "setExcludedHost": {
+        case "setSiteMode": {
           if (!deps.updateSitePolicy) return { ok: false, error: "policy_unavailable" };
           return deps.updateSitePolicy(msg);
         }
@@ -354,47 +646,333 @@
           return addGrantedOrigin(origin, deps);
         }
 
+        case "declineOffer": {
+          const origin = normalizeOrigin(msg.origin);
+          if (!origin) return { ok: false, error: "invalid_origin" };
+          let host = "";
+          try { host = new URL(origin).hostname; } catch (_e) { return { ok: false, error: "invalid_origin" }; }
+          applyOwnerEvent(port, { type: "decline-offer", host });
+          port.offeredOrigins = (port.offeredOrigins || []).filter((o) => o !== origin);
+          port.notify();
+
+          const op = enqueueGrant(async () => {
+            if (deps.walkRemoveSiteGrant) {
+              await deps.walkRemoveSiteGrant(host);
+            }
+            if (deps.checkCleanDeclines) {
+              await deps.checkCleanDeclines([host]);
+            }
+            if (deps.setCfg) {
+              try {
+                await deps.setCfg({
+                  offeredOrigins: port.offeredOrigins,
+                  declinedHosts: Array.from(port.declinedHosts || []),
+                });
+              } catch (_e) {
+                return { ok: false, error: "storage_error" };
+              }
+            }
+            port.notify();
+            return { ok: true, origin };
+          });
+          op.finally(() => {
+            runAdoptionPass(deps).catch(() => {});
+          });
+          return op;
+        }
+
+        case "adoptOffer": {
+          const origin = normalizeOrigin(msg.origin);
+          if (!origin) return { ok: false, error: "invalid_origin" };
+          let host = "";
+          try { host = new URL(origin).hostname; } catch (_e) { return { ok: false, error: "invalid_origin" }; }
+
+          if (port.consentVersion !== Gate.CONSENT_VERSION) return { ok: false, error: "missing_consent" };
+
+          const effectiveLeftOut = [...(port.excludedHosts || []), ...(port.appLeftOut || [])];
+          if (effectiveLeftOut.some((site) => H.hostCovers(site, host))) {
+            return { ok: false, error: "site_excluded" };
+          }
+          if (port.declinedHosts && port.declinedHosts.includes(host)) {
+            return { ok: false, error: "declined" };
+          }
+
+          return enqueueGrant(async () => {
+            let perms;
+            try {
+              perms = await chrome.permissions.getAll();
+            } catch (_e) {
+              return { ok: false, error: "permissions_unavailable" };
+            }
+            const live = perms?.origins || [];
+            let matchingGrant = null;
+            for (const pat of live) {
+              const grant = H.classifySiteGrant(pat);
+              if (!grant) continue;
+              if (grant.origin === origin || grant.host === host) {
+                matchingGrant = grant;
+                break;
+              }
+            }
+            if (!matchingGrant) {
+              return { ok: false, error: "permission_not_granted" };
+            }
+
+            const start = ownerStateFor(port);
+            const capturedGrantEpoch = start.grantEpoch;
+            const capturedPermissionEpoch = start.permissionEpoch;
+
+            const beginRes = applyOwnerEvent(port, {
+              type: "begin-adopt",
+              origins: [{ origin, siteWide: matchingGrant.siteWide }],
+              capturedGrantEpoch,
+              capturedPermissionEpoch,
+            });
+            if (!beginRes.result.ok) {
+              return { ok: false, error: "capture_unavailable" };
+            }
+
+            const nextChosen = Array.from(new Set([...Array.from(port.chosenOrigins || []), origin])).sort();
+            const nextSiteWide = matchingGrant.siteWide
+              ? Array.from(new Set([...Array.from(port.siteWideOrigins || []), origin])).sort()
+              : Array.from(port.siteWideOrigins || []);
+            const nextOffered = (port.offeredOrigins || []).filter((o) => o !== origin);
+
+            if (deps.setCfg) {
+              try {
+                await deps.setCfg({
+                  chosenOrigins: nextChosen,
+                  siteWideOrigins: nextSiteWide,
+                  offeredOrigins: nextOffered,
+                });
+              } catch (_e) {
+                return { ok: false, error: "storage_error" };
+              }
+            }
+
+            const fenceRes = applyOwnerEvent(port, {
+              type: "fence-adopt",
+              origins: [{ origin, siteWide: matchingGrant.siteWide }],
+              capturedGrantEpoch,
+              capturedPermissionEpoch,
+              phase: "after-choice-write",
+            });
+            if (!fenceRes.result.ok) {
+              return { ok: false, error: "capture_unavailable" };
+            }
+
+            port.siteWideOrigins = nextSiteWide;
+            port.offeredOrigins = nextOffered;
+
+            applyOwnerEvent(port, {
+              type: "publish-grants",
+              livePatterns: live,
+              epochAtStart: capturedPermissionEpoch,
+            });
+
+            if (typeof deps.registerSite === "function") {
+              try { await deps.registerSite(matchingGrant.host); } catch (_e) {}
+            }
+
+            port.notify();
+            deps.refreshOpenTabs?.();
+            return { ok: true, origin };
+          });
+        }
+
+        case "setLeftOut": {
+          const host = H && H.excludedHostname ? H.excludedHostname(msg.host) : null;
+          if (!host || host !== msg.host) return { ok: false, error: "invalid_host" };
+          const out = !!msg.out;
+
+          if (out) {
+            if (!port.excludedHosts.includes(host)) {
+              port.excludedHosts = [...port.excludedHosts, host].sort();
+            }
+            if (port.siteMode === "selected") {
+              applyOwnerEvent(port, { type: "selected-leave-out", host });
+            }
+            port.notify();
+
+            const op = enqueueGrant(async () => {
+              const declinedList = [host];
+              if (port.siteMode === "selected") {
+                let livePerms = [];
+                try {
+                  const p = typeof chrome !== "undefined" && chrome.permissions?.getAll ? await chrome.permissions.getAll() : null;
+                  livePerms = p?.origins || [];
+                } catch (_e) {}
+                const liveGrantHosts = [];
+                for (const pat of livePerms) {
+                  if (pat === "*://*/*" || pat === "<all_urls>") continue;
+                  const grant = H.classifySiteGrant(pat);
+                  if (grant && (grant.host === host || H.hostCovers(host, grant.host))) {
+                    liveGrantHosts.push(grant.host);
+                    if (!declinedList.includes(grant.host)) declinedList.push(grant.host);
+                  }
+                }
+                applyOwnerEvent(port, { type: "selected-leave-out", host, coveringHosts: liveGrantHosts });
+                if (deps.walkRemoveSiteGrant) {
+                  await deps.walkRemoveSiteGrant(host, { livePatterns: livePerms });
+                }
+                if (deps.checkCleanDeclines) {
+                  await deps.checkCleanDeclines(declinedList);
+                }
+              }
+
+              if (deps.setCfg) {
+                try {
+                  const patch = { excludedHosts: [...port.excludedHosts] };
+                  if (port.siteMode === "selected") {
+                    patch.declinedHosts = Array.from(port.declinedHosts || []);
+                  }
+                  await deps.setCfg(patch);
+                } catch (_e) {
+                  await deps.syncSiteRegistrations?.();
+                  return { ok: false, error: "storage_error" };
+                }
+              }
+
+              if (port.leftOutCapable && typeof port.sendSiteRule === "function") {
+                port.sendSiteRule(host, true);
+              }
+
+              await deps.syncSiteRegistrations?.();
+              return { ok: true, host, out: true };
+            });
+            op.finally(() => {
+              runAdoptionPass(deps).catch(() => {});
+            });
+            return op;
+          } else {
+            let res;
+            if (typeof port.commitInclude === "function") {
+              try {
+                res = await port.commitInclude(host, deps.setCfg);
+              } catch (_e) {
+                return { ok: false, error: "storage_error" };
+              }
+            } else {
+              if (deps.setCfg) {
+                try {
+                  await deps.setCfg({ excludedHosts: port.excludedHosts.filter((h) => h !== host) });
+                } catch (_e) {
+                  return { ok: false, error: "storage_error" };
+                }
+              }
+              port.excludedHosts = port.excludedHosts.filter((h) => h !== host);
+              port.notify();
+              if (typeof port.includeHost === "function") {
+                port.includeHost(host);
+              }
+              res = { ok: true, host, out: false };
+            }
+            await deps.syncSiteRegistrations?.();
+            return res;
+          }
+        }
+
+        case "dismissAdoptionNotices": {
+          port.adoptionNotices = [];
+          port.notify();
+          return { ok: true };
+        }
+
         case "removeGrantedOrigin": {
           const origin = normalizeOrigin(msg.origin);
           if (!origin) return { ok: false, error: "invalid_origin" };
+          let host = "";
+          try { host = new URL(origin).hostname; } catch (_e) { return { ok: false, error: "invalid_origin" }; }
 
-          applyOwnerEvent(port, { type: "owner-remove", origin });
-          if (port.clearSiteErrorsWhere) await port.clearSiteErrorsWhere((item) => item === origin);
-          port.notify();
-          deps.refreshOpenTabs?.();
-          let saved = true;
-          if (deps.setCfg) {
-            try {
-              await deps.setCfg({ chosenOrigins: Array.from(port.chosenOrigins || []) });
-            } catch (_e) {
-              saved = false;
-            }
+          if (!Array.isArray(port.pendingRemoveOrigins)) port.pendingRemoveOrigins = [];
+          if (!port.pendingRemoveOrigins.includes(origin)) port.pendingRemoveOrigins.push(origin);
+          const broadcast = typeof deps.broadcastLeaseUpdate === "function"
+            ? deps.broadcastLeaseUpdate
+            : (typeof port.broadcastLeaseUpdate === "function" ? (s) => port.broadcastLeaseUpdate(s) : null);
+          if (broadcast) {
+            broadcast(port.getStatus());
           }
+          port.notify();
 
-          if (typeof deps.removeSiteOrigin === "function") {
-            await deps.removeSiteOrigin(origin).catch(() => {});
-          } else if (typeof deps.unregisterSite === "function") {
+          const op = enqueueGrant(async () => {
             try {
-              const u = new URL(origin);
-              const matchHost = H && H.matchHostFor ? H.matchHostFor(u.host) : u.hostname;
-              const hasSibling = Array.from(port.chosenOrigins || []).some((o) => {
-                try {
-                  const sHost = H && H.matchHostFor ? H.matchHostFor(new URL(o).host) : new URL(o).hostname;
-                  return sHost === matchHost;
-                } catch (_e) { return false; }
-              });
-              if (!hasSibling) {
-                await deps.unregisterSite(u.host);
+              let perms;
+              try {
+                perms = await chrome.permissions.getAll();
+              } catch (_e) {
+                return { ok: false, error: "permissions_unavailable" };
               }
-            } catch (_e) {
-              /* ignore */
-            }
-          }
+              const live = perms?.origins || [];
+              const coveringHosts = [];
+              for (const pat of live) {
+                if (pat === "*://*/*" || pat === "<all_urls>") continue;
+                const grant = H.classifySiteGrant(pat);
+                if (!grant) continue;
+                if (grant.host === host || H.hostCovers(host, grant.host)) {
+                  if (!coveringHosts.includes(grant.host)) coveringHosts.push(grant.host);
+                }
+              }
+              applyOwnerEvent(port, { type: "owner-remove", origin, coveringHosts });
+              port.notify();
 
-          await Outbox.markAllSnapshotRequired().catch(() => {});
-          port.notify();
-          if (!saved) return { ok: false, saved: false, origin };
-          return { ok: true, origin, saved: true };
+              let saved = true;
+              if (deps.setCfg) {
+                try {
+                  await deps.setCfg({
+                    chosenOrigins: Array.from(port.chosenOrigins || []),
+                    siteWideOrigins: Array.from(port.siteWideOrigins || []),
+                    declinedHosts: Array.from(port.declinedHosts || []),
+                  });
+                } catch (_e) {
+                  saved = false;
+                }
+              }
+
+              if (deps.walkRemoveSiteGrant) {
+                await deps.walkRemoveSiteGrant(host, { livePatterns: live });
+              }
+              if (deps.checkCleanDeclines) {
+                const prevDeclined = Array.from(port.declinedHosts || []);
+                await deps.checkCleanDeclines([host, ...coveringHosts]);
+                const nextDeclined = Array.from(port.declinedHosts || []);
+                const changed = prevDeclined.length !== nextDeclined.length ||
+                  prevDeclined.some((h, i) => h !== nextDeclined[i]);
+                if (changed && deps.setCfg) {
+                  try {
+                    await deps.setCfg({ declinedHosts: nextDeclined });
+                  } catch (_e) {
+                    saved = false;
+                  }
+                }
+              }
+
+              if (port.clearSiteErrorsWhere) await port.clearSiteErrorsWhere((item) => item === origin);
+              deps.refreshOpenTabs?.();
+
+              if (typeof deps.removeSiteOrigin === "function") {
+                await deps.removeSiteOrigin(origin).catch(() => {});
+              } else if (typeof deps.unregisterSite === "function") {
+                try { await deps.unregisterSite(host); } catch (_e) {}
+              }
+
+              await Outbox.markAllSnapshotRequired().catch(() => {});
+              port.notify();
+              if (!saved) return { ok: false, saved: false, origin };
+              return { ok: true, origin, saved: true };
+            } finally {
+              if (Array.isArray(port.pendingRemoveOrigins)) {
+                port.pendingRemoveOrigins = port.pendingRemoveOrigins.filter((o) => o !== origin);
+              }
+              if (broadcast) {
+                broadcast(port.getStatus());
+              }
+              port.notify();
+            }
+          });
+          op.finally(() => {
+            runAdoptionPass(deps).catch(() => {});
+          });
+          return op;
         }
 
         case "setPaused": {
@@ -602,8 +1180,11 @@
           showPageIndicator: port.showPageIndicator,
           grantedOrigins: Array.from(port.grantedOrigins),
           exactOnlyOrigins: Array.from(port.exactOnlyOrigins || []),
+          siteWideOrigins: Array.from(port.siteWideOrigins || []),
+          pendingRemoveOrigins: Array.from(port.pendingRemoveOrigins || []),
           siteMode: port.siteMode || "selected",
           excludedHosts: [...(port.excludedHosts || [])],
+          appLeftOut: [...(port.appLeftOut || [])],
           allSitesConsent: port.allSitesConsent || 0,
           broadGranted: port.broadGranted === true,
           hostCapture: port.hostCapture,
@@ -843,7 +1424,9 @@
   }
 
   globalThis.SolstoneRouter = {
+    grantChainBusy: () => grantChainDepth > 0,
     completeReservedOrigin,
+    runAdoptionPass,
     route,
     applyOwnerEvent,
     ownerStateFor,

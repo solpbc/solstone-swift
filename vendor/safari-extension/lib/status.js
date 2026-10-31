@@ -589,15 +589,29 @@
     // An open tab anywhere under the site counts (bank.com covers login.bank.com),
     // except under an older exact-host grant, which covers its host alone.
     const exactOnly = (status.exactOnlyOrigins || []).includes(entry);
+    const siteWide = (status.siteWideOrigins || []).includes(entry);
     const isTabOpen = openTabOrigins.some((origin) => origin === entry ||
-      (status.siteMode !== "all" && globalThis.SolstoneHosts?.originCoveredBy?.(entry, origin, exactOnly)));
+      (status.siteMode !== "all" && globalThis.SolstoneHosts?.originCoveredBy?.(entry, origin, exactOnly, siteWide)));
     const leaseOpen = !!status.lease && Number(status.lease.freshnessMs) > 0;
     const gateOpenFor = (granted) => granted && status.capturePermitted === true && leaseOpen && status.consentVersion === 1 &&
       !status.paused && !status.pressure?.active && status.hostCapture === "permitted" && status.custody?.full !== true;
+    const leftOutList = (status.excludedHosts || []).concat(status.appLeftOut || []);
+    const coveringSite = host && leftOutList.find((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false);
+    if (coveringSite) {
+      if (status.siteMode === "all") {
+        return { kind: "excluded", label: "left out", action: null };
+      }
+      const appCovers = (status.appLeftOut || []).some((site) => globalThis.SolstoneHosts?.hostCovers ? globalThis.SolstoneHosts.hostCovers(site, host) : false);
+      let action = null;
+      if (!(appCovers && !status.leftOutCapable)) {
+        action = { id: "include-site", host: coveringSite, label: `include ${coveringSite}` };
+      }
+      return { kind: "excluded", label: "left out", action };
+    }
+
     if (status.siteMode === "all") {
       // In all-sites mode a site isn't added or granted on its own: it is left
       // out, refused by the browser, or covered by the one broad grant.
-      if ((status.excludedHosts || []).some((site) => globalThis.SolstoneHosts.hostCovers(site, host))) return { kind: "excluded", label: "left out", action: null };
       if ((status.browserDeniedOrigins || []).includes(entry)) {
         return { kind: "denied-by-browser", label: `${bName} is denying this site`, action: null };
       }
@@ -609,7 +623,8 @@
       return { kind: "included", label: "included", action: null };
     }
     const isInactive = inactiveOrigins.includes(entry);
-    const isGranted = grantedOrigins.includes(entry);
+    const isPendingRemove = Array.isArray(status.pendingRemoveOrigins) && status.pendingRemoveOrigins.includes(entry);
+    const isGranted = grantedOrigins.includes(entry) && !isPendingRemove;
 
     if (registration === "failed" || enqueueError) {
       const stored = registration === "failed" ? registration : enqueueError;
@@ -687,7 +702,7 @@
       return { met: false, heading: item.headline, body: bodies[item.kind] || item.reason || "", action: item.action || null };
     }
     const heading = status.hostCapture === "paused"
-      ? "found the solstone app, paired with your journal. it's paused right now."
+      ? (mobile() ? "found the solstone app, paired with your journal. Safari is paused in it right now." : "found the solstone app, paired with your journal. it's paused right now.")
       : "found the solstone app, paired with your journal";
     return { met: true, heading, body: "", action: null };
   }

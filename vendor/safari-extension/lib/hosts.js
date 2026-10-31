@@ -14,6 +14,47 @@
 (function () {
   "use strict";
 
+  // The exact pattern accepted for site_rule and excludedHostname.
+  const SITE_RULE_HOST_PATTERN = "^(\\[[0-9a-fA-F:.]+\\]|(?:\\d{1,3}\\.){3}\\d{1,3}|[a-zA-Z0-9_-]+(?:\\.[a-zA-Z0-9_-]+)*)$";
+
+  function siteRuleHostPattern() {
+    return SITE_RULE_HOST_PATTERN;
+  }
+
+  // Pure classifier for incoming browser permissions.
+  function classifySiteGrant(pattern) {
+    const p = String(pattern || "").trim();
+    if (!p || p === "<all_urls>" || p === "*://*/*") return null;
+    if (/:\d+\/\*$/.test(p)) return null;
+    if (/^https?:\/\/\*\.[^/]+\/\*$/.test(p)) return null;
+
+    const siteWild = /^\*:\/\/\*\.([^/]+)\/\*$/.exec(p);
+    if (siteWild) {
+      const H = siteWild[1].toLowerCase();
+      if (!H || H.includes(":") || H === "*") return null;
+      const scheme = isLocalHostname(H) ? "http:" : "https:";
+      return { host: H, origin: `${scheme}//${H}`, siteWide: true, exactOnly: false };
+    }
+
+    const siteExact = /^\*:\/\/([^/]+)\/\*$/.exec(p);
+    if (siteExact) {
+      const H = siteExact[1].toLowerCase();
+      if (!H || H.includes(":") || H.startsWith("*.") || H === "*") return null;
+      const scheme = isLocalHostname(H) ? "http:" : "https:";
+      return { host: H, origin: `${scheme}//${H}`, siteWide: true, exactOnly: true };
+    }
+
+    const schemeExact = /^(https?):\/\/([^/]+)\/\*$/.exec(p);
+    if (schemeExact) {
+      const scheme = schemeExact[1].toLowerCase();
+      const H = schemeExact[2].toLowerCase();
+      if (!H || H.includes(":") || H.startsWith("*.") || H === "*") return null;
+      return { host: H, origin: `${scheme}://${H}`, siteWide: false, exactOnly: true };
+    }
+
+    return null;
+  }
+
   // Split "name:port" -> {hostname, port}. Conservative: only treats a trailing
   // ":<digits>" as a port (leaves IPv6 literals and bare hosts alone).
   function splitHost(host) {
@@ -57,12 +98,19 @@
 
   // What the browser grants a chosen site: "site" (it and its subdomains),
   // "exact" (an older grant for the host alone), or null.
-  function grantLevel(host, livePatterns) {
+  function grantLevel(host, livePatterns, marked = false, scheme = null) {
     const live = new Set(livePatterns || []);
-    // An explicit exact grant outranks a broad one, so a site added before
-    // sites covered subdomains never widens because "*://*/*" is live.
-    if (live.has(matchPatternFor(host))) return "site";
-    if (live.has(exactPatternFor(host))) return "exact";
+    const h = matchHostFor(host);
+    if (marked) {
+      if (live.has(`*://*.${h}/*`)) return "site";
+      if (live.has(`*://${h}/*`)) return "exact";
+      return null;
+    }
+    if (live.has(matchPatternFor(h))) return "site";
+    if (live.has(exactPatternFor(h))) return "exact";
+    const s = scheme ? scheme.replace(/:$/, "").toLowerCase() : null;
+    if ((!s || s === "https") && live.has(`https://${h}/*`)) return "exact";
+    if ((!s || s === "http") && live.has(`http://${h}/*`)) return "exact";
     if (live.has("*://*/*")) return "site";
     return null;
   }
@@ -83,23 +131,26 @@
 
   // Whether a page origin falls under a chosen site origin: same scheme and
   // port, and the site's host or a name under it. `exactOnly` limits an older
-  // grant to the host alone.
-  function originCoveredBy(siteOrigin, origin, exactOnly = false) {
+  // grant to the host alone. `siteWide` ignores scheme and port.
+  function originCoveredBy(siteOrigin, origin, exactOnly = false, siteWide = false) {
     try {
       const site = new URL(siteOrigin);
       const page = new URL(origin);
-      if (site.protocol !== page.protocol || site.port !== page.port) return false;
+      if (!siteWide) {
+        if (site.protocol !== page.protocol || site.port !== page.port) return false;
+      }
       return exactOnly ? site.hostname === page.hostname : hostCovers(site.hostname, page.hostname);
     } catch (_e) { return false; }
   }
 
   // The chosen site a page belongs to, if any. A site under an older
   // exact-host grant covers its own address alone.
-  function siteForOrigin(chosen, origin, exactOnly = []) {
+  function siteForOrigin(chosen, origin, exactOnly = [], siteWide = []) {
     const entries = Array.from(chosen || []);
     const exact = new Set(exactOnly || []);
+    const wide = new Set(siteWide || []);
     return entries.find((entry) => entry === origin) ||
-      entries.find((entry) => originCoveredBy(entry, origin, exact.has(entry))) || null;
+      entries.find((entry) => originCoveredBy(entry, origin, exact.has(entry), wide.has(entry))) || null;
   }
 
   function permissionOriginForUrl(input) {
@@ -203,13 +254,12 @@
     // `*.bank.com` says what leaving out bank.com already does.
     const raw = String(input || "").trim().replace(/^(https?:\/\/)?(?:\*|%2a)\./i, "$1");
     if (!raw || /\s/.test(raw)) return null;
+    if (!/^https?:\/\//i.test(raw) && raw.includes("/")) return null;
     try {
       const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
       if (!/^https?:$/.test(url.protocol) || url.username || url.password) return null;
       const host = siteHostname(url.hostname);
-      if (/^\[[0-9a-f:.]+\]$/.test(host)) return host;
-      // Browsers open hosts with an underscore, so one can be left out.
-      return isPlainHostname(host.replace(/_/g, "-")) ? host : null;
+      return new RegExp(SITE_RULE_HOST_PATTERN).test(host) ? host : null;
     } catch (_e) { return null; }
   }
 
@@ -231,13 +281,20 @@
     let url;
     try { url = new URL(origin); } catch (_e) { return false; }
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    const hostname = url.hostname.toLowerCase();
+    const effectiveLeftOut = [...(state.excludedHosts || []), ...(state.appLeftOut || [])];
+    if (effectiveLeftOut.some((site) => hostCovers(site, hostname))) return false;
+
     if (state.siteMode === "all") {
-      const hostname = url.hostname.toLowerCase();
-      return state.allSitesConsent === ALL_SITES_CONSENT_VERSION && state.broadGranted === true &&
-        !(state.excludedHosts || []).some((site) => hostCovers(site, hostname));
+      return state.allSitesConsent === ALL_SITES_CONSENT_VERSION && state.broadGranted === true;
     }
     const exactOnly = new Set(state.exactOnlyOrigins || []);
-    return Array.from(state.grantedOrigins || []).some((entry) => originCoveredBy(entry, url.origin, exactOnly.has(entry)));
+    const siteWide = new Set(state.siteWideOrigins || []);
+    const pendingRemove = new Set(state.pendingRemoveOrigins || []);
+    return Array.from(state.grantedOrigins || []).some((entry) => {
+      if (pendingRemove.has(entry)) return false;
+      return originCoveredBy(entry, url.origin, exactOnly.has(entry), siteWide.has(entry));
+    });
   }
 
   function isValidHostInput(input) {
@@ -293,5 +350,7 @@
     siteForOrigin,
     siteHostname,
     patternSiteHost,
+    classifySiteGrant,
+    siteRuleHostPattern,
   };
 })();

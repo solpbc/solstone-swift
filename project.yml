@@ -117,8 +117,10 @@ targets:
         product: Crypto
       - target: SolstoneNotificationService
         embed: true
+      # Built and tested, not shipped: iPhone Safari is held until its privacy
+      # disclosure publishes. Embedding it adds the Safari source to the app.
       - target: SolstoneSafariExtension
-        embed: true
+        embed: false
       - target: SolstoneShareExtension
         embed: true
       - target: SolstoneBroadcastExtension
