@@ -20,8 +20,14 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
     private let audioWriter = ScreencastBroadcastAudioWriter()
     private var session: ScreencastBroadcastSession?
     private var timer: DispatchSourceTimer?
+    #if DEBUG
+    private let micProbe = ScreencastMicProbe()
+    #endif
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
+        #if DEBUG
+        self.micProbe.broadcastStarted()
+        #endif
         self.workQueue.async {
             do {
                 let rootURL = try AppGroupContainer.rootURL()
@@ -62,18 +68,27 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func broadcastPaused() {
+        #if DEBUG
+        self.micProbe.lifecycle("paused")
+        #endif
         self.workQueue.async {
             self.session?.tick()
         }
     }
 
     override func broadcastResumed() {
+        #if DEBUG
+        self.micProbe.lifecycle("resumed")
+        #endif
         self.workQueue.async {
             self.session?.tick()
         }
     }
 
     override func broadcastFinished() {
+        #if DEBUG
+        self.micProbe.broadcastFinished()
+        #endif
         self.workQueue.sync {
             self.timer?.cancel()
             self.timer = nil
@@ -87,6 +102,9 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
         with sampleBufferType: RPSampleBufferType
     ) {
         let kind = Self.sampleKind(from: sampleBufferType)
+        #if DEBUG
+        self.micProbe.record(sampleBuffer, kind: kind)
+        #endif
         guard MobileSegmentScreencastSamplePolicy.accepts(kind) else { return }
         self.workQueue.async {
             self.session?.processSampleBuffer(sampleBuffer, kind: kind)

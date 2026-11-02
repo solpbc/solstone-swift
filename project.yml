@@ -265,6 +265,7 @@ targets:
       - path: Sources/MobileSegment/MobileSegmentScreencastShared.swift
       - path: Sources/MobileSegment/MobileSegmentScreencastSession.swift
       - path: Sources/MobileSegment/ScreencastBroadcastAudioWriter.swift
+      - path: Sources/MobileSegment/ScreencastMicProbe.swift
       - path: Sources/JournalEvents/ISOBMFFBoxWalk.swift
       - path: Sources/JournalEvents/JournalEventStore.swift
     entitlements:
