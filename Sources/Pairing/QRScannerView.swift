@@ -126,7 +126,7 @@ private struct QRScannerOverlay: View {
     }
 }
 
-private struct QRScannerReticle: Shape {
+private nonisolated struct QRScannerReticle: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         let length = min(rect.width, rect.height) * 0.24

@@ -126,7 +126,7 @@ nonisolated final class ScreencastMicProbe: @unchecked Sendable {
     }
 
     func record(_ sampleBuffer: CMSampleBuffer, kind: MobileSegmentScreencastSampleKind) {
-        let arrival = ProcessInfo.processInfo.systemUptime
+        let arrival = CMClockGetTime(CMClockGetHostTimeClock()).seconds
         self.queue.async {
             switch kind {
             case .audioMic:
@@ -161,7 +161,7 @@ nonisolated final class ScreencastMicProbe: @unchecked Sendable {
     }
 
     private func tick() {
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = CMClockGetTime(CMClockGetHostTimeClock()).seconds
         let age = self.lastMicArrival.map { String(format: "%.3f", now - $0) } ?? "never"
         screencastMicProbeLog.notice("mic-probe tick uptime=\(now, format: .fixed(precision: 3), privacy: .public) mic=\(self.micSinceTick, privacy: .public) mic_zero=\(self.micZeroSinceTick, privacy: .public) mic_unreadable=\(self.micUnreadableSinceTick, privacy: .public) app=\(self.appSinceTick, privacy: .public) video=\(self.videoSinceTick, privacy: .public) last_mic_age_s=\(age, privacy: .public)")
         self.micSinceTick = 0

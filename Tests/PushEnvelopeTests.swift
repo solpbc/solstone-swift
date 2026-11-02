@@ -23,7 +23,7 @@ private struct PushVector: Decodable {
     let expect: String
 }
 
-nonisolated final class PushEnvelopeTests: XCTestCase {
+@MainActor final class PushEnvelopeTests: XCTestCase {
     func testPushEnvelopeVectorsFromFixture() throws {
         guard let fixtureURL = Bundle(for: PushEnvelopeTests.self).url(
             forResource: "push-envelope-vectors",

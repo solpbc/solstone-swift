@@ -4,7 +4,7 @@
 @testable import solstone_swift
 import XCTest
 
-nonisolated final class ScreencastCopyTests: XCTestCase {
+@MainActor final class ScreencastCopyTests: XCTestCase {
     func testExactScreencastCopy() {
         XCTAssertEqual(SourceVocabulary.screencastDisplayName, "screen")
         XCTAssertEqual(SourceVocabulary.screencastActiveSubtext, "sharing your screen")

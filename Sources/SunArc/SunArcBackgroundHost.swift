@@ -477,7 +477,7 @@ nonisolated enum SunArcSceneFrame {
     }
 }
 
-extension SunArcBackgroundMoment {
+nonisolated extension SunArcBackgroundMoment {
     /// This moment drawn on a scene of `sceneSize`: the one frame function the Canvas and the
     /// tests share.
     func drawing(

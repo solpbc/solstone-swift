@@ -201,14 +201,8 @@ final class SPLMigrationControlExchange: MigrationControlExchanging {
             return try await withTaskCancellationHandler {
                 try Task.checkCancellation()
                 guard shouldContinue() else { throw CancellationError() }
-                let request = Data((
-                    "\(method) \(path) HTTP/1.1\r\n" +
-                    "Host: journal\r\n" +
-                    "Content-Type: application/json\r\n" +
-                    "Accept: application/json\r\n" +
-                    "Connection: close\r\n" +
-                    "Content-Length: \(body.count)\r\n\r\n"
-                ).utf8) + body
+                let head = "\(method) \(path) HTTP/1.1\r\nHost: journal\r\nContent-Type: application/json\r\nAccept: application/json\r\nConnection: close\r\nContent-Length: \(body.count)\r\n\r\n"
+                let request = Data(head.utf8) + body
                 try await stream.write(request)
                 try Task.checkCancellation()
                 guard shouldContinue() else { throw CancellationError() }

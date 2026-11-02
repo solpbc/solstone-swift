@@ -328,7 +328,7 @@ struct SunArcBothAppearancesTests {
 /// nothing sets it by clock.
 @Suite("SunArc appearance follows the system")
 struct SunArcAppearanceFollowsTheSystemTests {
-    @Test func theSystemSchemeIsTheAppearance() {
+    @Test @MainActor func theSystemSchemeIsTheAppearance() {
         #expect(SunArcAppearance(ColorScheme.dark) == .dark)
         #expect(SunArcAppearance(ColorScheme.light) == .light)
     }

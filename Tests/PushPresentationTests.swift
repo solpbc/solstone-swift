@@ -5,7 +5,7 @@
 import Foundation
 import XCTest
 
-nonisolated final class PushPresentationTests: XCTestCase {
+@MainActor final class PushPresentationTests: XCTestCase {
     private func parseEntry(_ jsonString: String) throws -> Any {
         let data = jsonString.data(using: .utf8)!
         return try JSONSerialization.jsonObject(with: data)

@@ -65,7 +65,7 @@ nonisolated struct JournalMark: Codable, Equatable, Sendable {
 
 #if DEBUG
 extension JournalMark {
-    static let uiTestSample = JournalMark(
+    nonisolated static let uiTestSample = JournalMark(
         icon1: Icon(
             name: "bug",
             color: MarkColor(hex: "#f59e0b", name: "amber"),
@@ -279,7 +279,7 @@ struct JournalMarkIconChip: View {
     }
 }
 
-private struct GlyphShape: Shape {
+private nonisolated struct GlyphShape: Shape {
     let svg: String
 
     func path(in rect: CGRect) -> Path {

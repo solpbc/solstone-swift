@@ -4,7 +4,7 @@
 import AVFoundation
 import SwiftUI
 
-func greeting(forHour hour: Int) -> String {
+nonisolated func greeting(forHour hour: Int) -> String {
     switch hour {
     case 5...11: return SourceVocabulary.greetingMorning
     case 12...16: return SourceVocabulary.greetingAfternoon
