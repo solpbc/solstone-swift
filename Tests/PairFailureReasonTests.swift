@@ -40,6 +40,7 @@ nonisolated final class PairFailureReasonTests: XCTestCase {
         XCTAssertEqual(self.classify(PairError.nonceExpired), .codeExpired)
         XCTAssertEqual(self.classify(PairError.pairingWindowClosed), .codeExpired)
         XCTAssertEqual(self.classify(PairError.lanCAFingerprintMismatch), .wrongSolstone)
+        XCTAssertEqual(self.classify(PairError.directInstanceMismatch), .wrongSolstone)
         XCTAssertEqual(self.classify(PairError.relayInstanceMismatch), .relayInstanceMismatch)
         XCTAssertEqual(self.classify(PairError.directAddressNotLocal), .directAddressNotLocal)
         XCTAssertEqual(self.classify(PairURLError.disallowedDirectAddress("0.0.0.0")), .directAddressNotLocal)

@@ -22,7 +22,9 @@ nonisolated final class JournalSendKeyProvenanceTests: XCTestCase {
 
         let key = journalSendConfirmationKey(for: pairing)
         XCTAssertNotNil(key)
-        XCTAssertEqual(key, "sha256:165b30a8336f6761c68a504de6d23c6d37e839920f1b87dacec3712c53bb516d")
+        // This fixture's id isn't its CA's journal id, so it has the key that holds it and asks again.
+        // JournalSendPromptTests holds the unchanged key of a pairing whose id is.
+        XCTAssertEqual(key, "sha256:0d480efec9128a32fff3a0f591662d3a222905e0575b7bed350d97d7290a21fa")
 
         // Verify repeatability
         let key2 = journalSendConfirmationKey(for: pairing)

@@ -274,17 +274,26 @@ nonisolated internal func journalGapIdentity(for pairing: StoredPairing) -> Stri
     ])
 }
 
+/// A stored pairing whose id isn't its CA's journal id gets a separate key, so an answer given
+/// before pairing checked that doesn't cover it. It is held and asked once more, and its new answer
+/// is kept. Every other pairing's key, and so its answer, is unchanged.
 nonisolated func journalSendConfirmationKey(for pairing: StoredPairing) -> String? {
     guard let normalizedCAFingerprint = normalizedCAFingerprint(for: pairing.caChainPEM),
           let clientCertFingerprint = clientCertFingerprint(for: pairing.clientCertPEM) else {
         return nil
     }
-    return opaqueSHA256([
+    let parts = [
         "journal-send-confirmation-v1",
         pairing.instanceID,
         normalizedCAFingerprint,
         clientCertFingerprint
-    ])
+    ]
+    return opaqueSHA256(pairingIsBoundToItsCA(pairing) ? parts : parts + ["id-not-from-ca"])
+}
+
+/// Whether a stored pairing's id is the journal id of its stored CA. An unreadable CA isn't.
+nonisolated func pairingIsBoundToItsCA(_ pairing: StoredPairing) -> Bool {
+    (try? CertChain.journalID(ofCAChainPEM: pairing.caChainPEM)) == pairing.instanceID
 }
 
 nonisolated func journalInstanceIDsMatch(_ lhs: String?, _ rhs: String?) -> Bool {

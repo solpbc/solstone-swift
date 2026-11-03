@@ -152,22 +152,6 @@ nonisolated final class JournalSendReAskTests: XCTestCase {
     }
 
     @MainActor
-    func testResolveConfirmationCancelledWithStartDeadlineWhenConnected() async {
-        let task = Task { @MainActor in
-            await resolveConfirmation(
-                timeout: .seconds(10),
-                step: .milliseconds(50),
-                startDeadlineWhenConnected: true,
-                connectedPort: { nil },
-                fetchResult: { _ in .missingOrInvalid }
-            )
-        }
-        task.cancel()
-        let outcome = await task.value
-        XCTAssertEqual(outcome, ConfirmOutcome.fallback(.cancelled))
-    }
-
-    @MainActor
     func testPairFlowViewConfirmHeldJournalRendersConnectingFirstAndCompletesViaYes() throws {
         let onboardingSuite = "test.onboarding.\(UUID().uuidString)"
         let markSuite = "test.mark.\(UUID().uuidString)"
@@ -270,11 +254,8 @@ nonisolated final class JournalSendReAskTests: XCTestCase {
         XCTAssertEqual(scanPhaseMountedCount, 0)
         XCTAssertEqual(pairOperationCount, 0)
 
-        let markStore = JournalMarkStore(suiteName: markSuite)
         let gate = PairFlowCompletionGate()
-        try completeJournalSend(
-            mark: .uiTestSample,
-            markStore: markStore,
+        let didComplete = completeJournalSend(
             release: release,
             appConfig: appConfig,
             gate: gate,
@@ -283,8 +264,8 @@ nonisolated final class JournalSendReAskTests: XCTestCase {
             }
         )
 
+        XCTAssertTrue(didComplete)
         XCTAssertTrue(flow.isCompleted)
-        XCTAssertEqual(markStore.load(), .uiTestSample)
         XCTAssertTrue(appConfig.journalSendConfirmed)
     }
 }

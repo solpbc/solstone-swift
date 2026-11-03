@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import Security
 // Reaches SPLTunnel package internals; relies on Xcode compiling SPM products with testability in Debug.
 @testable import SPLTunnel
 import XCTest
@@ -68,6 +69,12 @@ private final class StubLANPairTransport: LANPairTransport, @unchecked Sendable 
 // The dial-time inputs are captured at prepare and replayed to the handler at
 // send, so the existing four-argument handler contract is unchanged.
 private final class StubLANPairAttempt: LANPairAttempt, @unchecked Sendable {
+    let pinnedCACertificateDER: Data = {
+        guard let certificate = try? CertChain.certificates(fromPEM: CertlessTrustFixtures.caPEM).first else {
+            return Data()
+        }
+        return SecCertificateCopyData(certificate) as Data
+    }()
     private let host: String
     private let port: Int
     private let caFingerprintBytes: [UInt8]
@@ -593,7 +600,7 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
     private static func lanSuccessData() throws -> Data {
         try JSONEncoder().encode(LANResponsePayload(
-            instanceID: "instance-123",
+            instanceID: CertChain.journalID(ofCAChainPEM: CertlessTrustFixtures.caPEM),
             homeLabel: "sol",
             clientCert: CertlessTrustFixtures.leafPEM,
             caChain: [CertlessTrustFixtures.caPEM],

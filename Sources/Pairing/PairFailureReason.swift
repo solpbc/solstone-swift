@@ -27,7 +27,8 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         case PairError.nonceExpired,
              PairError.pairingWindowClosed:
             return .codeExpired
-        case PairError.lanCAFingerprintMismatch:
+        case PairError.lanCAFingerprintMismatch,
+             PairError.directInstanceMismatch:
             return .wrongSolstone
         case PairError.relayInstanceMismatch:
             return .relayInstanceMismatch

@@ -211,8 +211,8 @@ struct RootShellView: View {
         // the status sheet's audio screen could not find it and the app stopped.
         .environment(self.observerSourcePauseState)
         .environment(self.journalGapVisit)
-        .task(id: self.tunnelManager.activeConnection?.port) {
-            await self.fetchJournalMark()
+        .task(id: self.appConfig.deviceID) {
+            await self.refreshJournalMark()
         }
         .onChange(of: self.appConfig.deviceID) { priorInstanceID, currentInstanceID in
             self.journalChanged(from: priorInstanceID, to: currentInstanceID)
@@ -847,44 +847,21 @@ struct RootShellView: View {
         return JournalMarkStore().load()
     }
 
-    /// Renders the stored mark immediately, then refreshes it from the journal when a tunnel
-    /// is up.
+    /// Renders the stored mark immediately, then makes sure it's the one derived from the CA this
+    /// pairing pinned. A pairing stored before this device derived marks gets its mark here, once:
+    /// it isn't refused or asked about again, and no tunnel is needed.
     ///
-    /// ⛔ **A failed or absent connection never blanks the mark.** It used to: this ran on
-    /// `activeConnection?.port` changing, and the no-port branch assigned `nil`, so every
-    /// launch and every dropped tunnel dropped the shell back to the generic mark until sync
-    /// came up. The mark belongs to the *pairing*, not the connection — once this device is
-    /// paired it is an absolute, and the only thing that clears it is unpairing.
-    private func fetchJournalMark() async {
+    /// ⛔ **A failed or absent connection never blanks the mark.** The mark belongs to the
+    /// *pairing*, not the connection. If it can't be computed, `JournalIdentity.select` draws a
+    /// confirmed pairing's nil mark as unavailable.
+    private func refreshJournalMark() async {
 #if DEBUG
-        if ProcessInfo.processInfo.arguments.contains("--ui-test-journal-mark"),
-           !ProcessInfo.processInfo.arguments.contains("--ui-test-no-journal")
-        {
-            return
-        }
+        if ProcessInfo.processInfo.arguments.contains("--ui-test") { return }
 #endif
-        if self.journalMark == nil {
-            self.journalMark = Self.storedJournalMark()
-        }
-        guard let port = self.tunnelManager.activeConnection?.port else { return }
-        // With no mark known (a reinstall keeps the pairing but not the mark), ask a few more
-        // times over the first ~45 seconds of this connection: one short read at connect time is
-        // easy to miss. The task is keyed on the port, so a new connection starts over. Until
-        // then a reinstall shows unavailable via select (confirmed pairing with nil mark).
-        for delay in [0, 2, 5, 10, 30] as [UInt64] {
-            if delay > 0 {
-                try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
-            }
-            guard !Task.isCancelled else { return }
-            let expectedInstanceID = self.appConfig.loadStoredPairing()?.instanceID
-            if case .match(let fetched) = await JournalIdentityFetcher().fetch(localPort: port, expectedInstanceID: expectedInstanceID) {
-                guard !Task.isCancelled else { return }
-                self.journalMark = fetched
-                self.journalMarkStore.save(fetched)
-                return
-            }
-            if self.journalMark != nil { return }
-        }
+        guard let pairing = self.appConfig.loadStoredPairing() else { return }
+        let mark = await JournalMarkDerivation.mark(forCAChainPEM: pairing.caChainPEM, store: self.journalMarkStore)
+        guard !Task.isCancelled else { return }
+        self.journalMark = mark
     }
 
     /// Pairing a different journal in place of this one ends the old pairing without an unpair,

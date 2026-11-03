@@ -25,7 +25,7 @@ private final class StoredHolder: @unchecked Sendable {
 nonisolated final class JournalSendGrandfatherTests: XCTestCase {
     private func makePairing() -> StoredPairing {
         StoredPairing(
-            instanceID: "inst-1",
+            instanceID: try! CertChain.journalID(ofCAChainPEM: CertlessTrustConstants.caPEM),
             homeLabel: "Home",
             relayEndpoint: "wss://relay.example.com",
             fingerprint: "sha256:\(String(repeating: "a", count: 64))",

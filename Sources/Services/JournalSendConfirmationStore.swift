@@ -399,6 +399,14 @@ nonisolated final class JournalSendConfirmationStore: @unchecked Sendable {
             return SettleOutcome(isConfirmed: false, isGrandfathered: false)
         }
 
+        if let pairing, !pairingIsBoundToItsCA(pairing), record != key {
+            // A pairing whose id isn't its CA's is asked, never settled as confirmed.
+            self.lock.withLock {
+                self.processState.hasSettledSuccessfully = true
+            }
+            return SettleOutcome(isConfirmed: false, isGrandfathered: false)
+        }
+
         if wasSuppressed {
             // applyPairing saved after failed read: do not grandfather
             self.lock.withLock {

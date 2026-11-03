@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (c) 2026 sol pbc
 
+import CryptoKit
+import Foundation
 @testable import solstone_swift
 import SPLTunnel
 import XCTest
@@ -105,7 +107,7 @@ nonisolated final class JournalSendPromptTests: XCTestCase {
         let confirmButtonBody = confirmSection[..<confirmEnd.lowerBound]
 
         XCTAssertFalse(confirmButtonBody.contains("try?"))
-        XCTAssertTrue(confirmButtonBody.contains("completeJournalSend"))
+        XCTAssertTrue(confirmButtonBody.contains("recordAnswer"))
 
         let couldNotVerifyBlock = try XCTUnwrap(text.range(of: "Button(SourceVocabulary.journalMarkCouldNotVerifyContinue)"))
         let couldNotVerifySection = text[couldNotVerifyBlock.lowerBound...]
@@ -113,7 +115,10 @@ nonisolated final class JournalSendPromptTests: XCTestCase {
         let couldNotVerifyBody = couldNotVerifySection[..<couldNotVerifyEnd.lowerBound]
 
         XCTAssertFalse(couldNotVerifyBody.contains("try?"))
-        XCTAssertTrue(couldNotVerifyBody.contains("completeJournalSend"))
+        XCTAssertTrue(couldNotVerifyBody.contains("recordAnswer"))
+
+        let recordBlock = try XCTUnwrap(text.range(of: "private func recordAnswer()"))
+        XCTAssertTrue(text[recordBlock.lowerBound...].contains("completeJournalSend"))
     }
 
     @MainActor
@@ -174,14 +179,57 @@ nonisolated final class JournalSendPromptTests: XCTestCase {
         XCTAssertTrue(confirmationStore.allowsSend(pairing: pairing))
     }
 
-    @MainActor
-    func testThrowingCompleteJournalSendDoesNotSaveMarkAndDoesNotCompleteOnFailure() throws {
-        let suiteName = "test.prompt.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suiteName)!
-        defaults.removePersistentDomain(forName: suiteName)
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+    func testAStoredPairingWhoseIDIsNotItsCAsGetsItsOwnKey() throws {
+        let unbound = self.makePairing()
+        XCTAssertFalse(pairingIsBoundToItsCA(unbound))
+        let bound = StoredPairing(
+            instanceID: try CertChain.journalID(ofCAChainPEM: CertlessTrustConstants.caPEM),
+            homeLabel: unbound.homeLabel,
+            relayEndpoint: unbound.relayEndpoint,
+            fingerprint: unbound.fingerprint,
+            clientCertPEM: unbound.clientCertPEM,
+            clientKeyPEM: unbound.clientKeyPEM,
+            caChainPEM: unbound.caChainPEM,
+            relayEnrollment: unbound.relayEnrollment,
+            localEndpoints: unbound.localEndpoints,
+            pairedAt: unbound.pairedAt
+        )
+        XCTAssertTrue(pairingIsBoundToItsCA(bound))
 
-        let markStore = JournalMarkStore(suiteName: suiteName)
+        // An answer from before this check, under the key every pairing used then.
+        func opaque(_ parts: [String]) -> String {
+            "sha256:" + SHA256.hash(data: Data(parts.joined(separator: "\u{1F}").utf8)).map { String(format: "%02x", $0) }.joined()
+        }
+        let earlierKey = { (pairing: StoredPairing) -> String in
+            let ca = try! CertChain.certificates(fromPEM: pairing.caChainPEM)
+            let leaf = try! XCTUnwrap(CertChain.certificates(fromPEM: pairing.clientCertPEM).first)
+            return opaque([
+                "journal-send-confirmation-v1",
+                pairing.instanceID,
+                opaque(["journal-version-ca-chain-v1"] + ca.map(CertChain.sha256Fingerprint(of:))),
+                CertChain.sha256Fingerprint(of: leaf)
+            ])
+        }
+        XCTAssertEqual(journalSendConfirmationKey(for: bound), earlierKey(bound), "a bound pairing keeps its answer")
+        XCTAssertNotEqual(journalSendConfirmationKey(for: unbound), earlierKey(unbound), "an unbound pairing is asked again")
+
+        // Held on start, whatever was answered before; a new answer is kept.
+        let store = JournalSendConfirmationStore.memory()
+        try store.grandfather(key: earlierKey(unbound))
+        XCTAssertFalse(store.allowsSend(pairing: unbound))
+        try store.writeRecord(for: unbound)
+        XCTAssertTrue(store.allowsSend(pairing: unbound))
+    }
+
+    func testAnUnboundPairingWithNoAnswerIsNotSettledAsConfirmed() throws {
+        let store = JournalSendConfirmationStore.memory()
+        let outcome = try store.settle(loadPairing: { self.makePairing() })
+        XCTAssertFalse(outcome.isConfirmed)
+        XCTAssertFalse(outcome.isGrandfathered)
+    }
+
+    @MainActor
+    func testAFailedSaveReportsItselfAndDoesNotComplete() throws {
         let pairing = self.makePairing()
         let confirmationStore = JournalSendConfirmationStore.memory()
         let credentialStore = PairingCredentialStore(
@@ -211,25 +259,15 @@ nonisolated final class JournalSendPromptTests: XCTestCase {
 
         let gate = PairFlowCompletionGate()
         var completed = false
-        do {
-            try completeJournalSend(
-                mark: .uiTestSample,
-                markStore: markStore,
-                release: release,
-                appConfig: appConfig,
-                gate: gate,
-                onComplete: { completed = true }
-            )
-            XCTFail("expected completeJournalSend to throw")
-        } catch let error as JournalSendConfirmationStoreError {
-            XCTAssertEqual(error, .confirmFailed)
-            XCTAssertEqual(error.description, "journal-send-confirm-failed")
-        } catch {
-            XCTFail("unexpected error: \(error)")
-        }
+        let didComplete = completeJournalSend(
+            release: release,
+            appConfig: appConfig,
+            gate: gate,
+            onComplete: { completed = true }
+        )
 
+        XCTAssertFalse(didComplete)
         XCTAssertFalse(completed)
-        XCTAssertNil(markStore.load())
         XCTAssertFalse(appConfig.journalSendConfirmed)
     }
 }

@@ -8,7 +8,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
-- if your journal's mark takes a moment to read, the app keeps trying instead of asking you to continue without it. when the check can't finish, the mark shows as unavailable.
+- this is a security fix, please update. someone who got you to use a pairing link or code they made could pair this device with their journal while it showed your journal's mark. what you share with the solstone app on this device then goes to their journal. this device now works out the mark itself, so a link or code someone else made shows their journal's mark, not yours. if you paired before this update, compare the mark this device shows with the one in your journal's network app, opened on the computer your journal lives on, not from the solstone app. if they don't match, forget this journal and pair again with a code from your journal.
+- when your journal's mark can't be worked out, it shows as unavailable.
+- if your answer to the mark question can't be saved, the screen says so and you can try again.
 
 ## [2.0.10 (143)] - 2026-10-30
 

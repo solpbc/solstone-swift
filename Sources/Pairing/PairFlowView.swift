@@ -4,6 +4,7 @@
 import AVFoundation
 import Foundation
 import Observation
+import SPLMark
 import SPLTunnel
 import SwiftUI
 import UIKit
@@ -213,6 +214,7 @@ struct PairFlowView: View {
     @State private var linkAttemptInFlight = false
     @State private var isDismissing = false
     @State private var teardown = PairFlowTeardownState.idle
+    @State private var answerNotSaved = false
 
     init(
         startMode: PairFlowStart = .ceremony,
@@ -388,7 +390,7 @@ struct PairFlowView: View {
             self.connectingContent
         case .confirm(let mark):
             self.confirmContent(mark)
-        case .couldNotVerify, .noCommittedMark:
+        case .couldNotVerify:
             self.goAheadContent
         case .mismatch:
             self.mismatchContent
@@ -498,26 +500,14 @@ struct PairFlowView: View {
             JournalMarkView(identity: .mark(mark))
                 .frame(maxWidth: .infinity, alignment: .center)
 
-            self.teardownFeedback
+            self.answerFeedback
 
             Button(SourceVocabulary.journalMarkConfirmButton) {
-                // The owner just confirmed this is their journal's mark: keep it, so the shell
-                // shows it from the first frame instead of waiting on a fetch.
-                do {
-                    try completeJournalSend(
-                        mark: mark,
-                        markStore: JournalMarkStore(),
-                        release: self.journalSendRelease,
-                        appConfig: self.appConfig,
-                        gate: self.completionGate,
-                        onComplete: self.onComplete
-                    )
-                } catch {
-                    return
-                }
+                self.recordAnswer()
             }
             .buttonStyle(.borderedProminent)
             .disabled(self.teardown == .inProgress)
+            .accessibilityIdentifier("pairFlow.answer.confirm")
             .frame(maxWidth: .infinity, minHeight: 44)
 
             Button(SourceVocabulary.journalMarkMismatchButton) {
@@ -533,10 +523,15 @@ struct PairFlowView: View {
     /// What this screen says while answering takes a moment, and when it could not finish. A
     /// rejection is the worst moment to look like nothing happened.
     @ViewBuilder
-    private var teardownFeedback: some View {
+    private var answerFeedback: some View {
         switch self.teardown {
         case .idle:
-            EmptyView()
+            if self.answerNotSaved {
+                Text(SourceVocabulary.journalMarkAnswerNotSaved)
+                    .font(.body)
+                    .foregroundStyle(.red)
+                    .accessibilityIdentifier(Self.answerNotSavedAccessibilityIdentifier)
+            }
         case .inProgress:
             ProgressView()
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -552,20 +547,13 @@ struct PairFlowView: View {
     @ViewBuilder
     private var goAheadContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let identity = self.displayedPhase.goAheadIdentity {
-                JournalMarkView(identity: identity)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            }
+            JournalMarkView(identity: .unavailable)
+                .frame(maxWidth: .infinity, alignment: .center)
 
-            self.teardownFeedback
+            self.answerFeedback
 
             Button(SourceVocabulary.journalMarkCouldNotVerifyContinue) {
-                guard completeJournalSend(
-                    release: self.journalSendRelease,
-                    appConfig: self.appConfig,
-                    gate: self.completionGate,
-                    onComplete: self.onComplete
-                ) else { return }
+                self.recordAnswer()
             }
             .buttonStyle(.borderedProminent)
             .disabled(self.teardown == .inProgress)
@@ -607,6 +595,7 @@ struct PairFlowView: View {
     static let titleAccessibilityIdentifier = "pairFlow.title"
     static let teardownProgressAccessibilityIdentifier = "pairFlow.teardown.progress"
     static let teardownErrorAccessibilityIdentifier = "pairFlow.teardown.error"
+    static let answerNotSavedAccessibilityIdentifier = "pairFlow.answer.notSaved"
 
     /// The title names the tab the owner is on, in the same order as the subtitle under it.
     static func pairingTitle(for mode: EntryMode) -> String {
@@ -631,7 +620,7 @@ struct PairFlowView: View {
             return SourceVocabulary.journalMarkConnecting
         case .confirm:
             return SourceVocabulary.journalMarkConfirmQuestion
-        case .couldNotVerify, .noCommittedMark:
+        case .couldNotVerify:
             return SourceVocabulary.journalMarkCouldNotVerifyTitle
         case .mismatch:
             return SourceVocabulary.journalMarkMismatchTitle
@@ -648,9 +637,6 @@ struct PairFlowView: View {
             return SourceVocabulary.journalMarkConfirmSubtext
         case .couldNotVerify:
             return SourceVocabulary.journalMarkCouldNotVerifyBody
-        case .noCommittedMark:
-            // The check finished and found no mark, so "didn't finish" would be untrue.
-            return ""
         case .mismatch:
             return SourceVocabulary.journalMarkMismatchBody
         }
@@ -681,7 +667,7 @@ struct PairFlowView: View {
     private var isHeldMarkPhase: Bool {
         if self.startMode == .confirmHeldJournal { return true }
         switch self.phase {
-        case .confirm, .couldNotVerify, .noCommittedMark:
+        case .confirm, .couldNotVerify:
             return true
         default:
             return false
@@ -739,6 +725,7 @@ struct PairFlowView: View {
     /// screen or a line saying it didn't finish, with the buttons live again to retry.
     private func startTeardown(onTornDown: @escaping @MainActor () -> Void) {
         self.cancelFlowTask()
+        self.answerNotSaved = false
         self.teardown = .inProgress
         let generation = self.flowGeneration
         self.flowTask = Task { @MainActor in
@@ -866,29 +853,8 @@ struct PairFlowView: View {
             if let pairing { self.appConfig.reflectCommittedPairing(pairing) }
             guard !Task.isCancelled else { return }
             self.phase = .connecting
-            let fetcher = JournalIdentityFetcher()
-            let expectedInstanceID = pairing?.instanceID
-            let outcome = await resolveConfirmation(
-                startDeadlineWhenConnected: false,
-                connectedPort: {
-                    if case .connected(let port, _) = self.tunnelManager.state {
-                        return port
-                    }
-                    return nil
-                },
-                fetchResult: { port in
-                    await fetcher.fetch(localPort: port, expectedInstanceID: expectedInstanceID)
-                }
-            )
+            await self.askAboutMark(caChainPEM: pairing?.caChainPEM)
             guard !Task.isCancelled else { return }
-            self.errorMessage = nil
-            let applicator = PairFlowConfirmationApplicator(
-                initialPhase: self.phase,
-                completionGate: self.completionGate,
-                tearDown: {}
-            )
-            applicator.apply(outcome)
-            self.phase = applicator.phase
             self.linkAttemptInFlight = false
         } catch {
             guard !Task.isCancelled else { return }
@@ -910,29 +876,44 @@ struct PairFlowView: View {
             defer {
                 if self.flowGeneration == generation { self.flowTask = nil }
             }
-            let fetcher = JournalIdentityFetcher()
-            let expectedInstanceID = self.appConfig.loadStoredPairing()?.instanceID
-            let outcome = await resolveConfirmation(
-                startDeadlineWhenConnected: true,
-                connectedPort: {
-                    if case .connected(let port, _) = self.tunnelManager.state {
-                        return port
-                    }
-                    return nil
-                },
-                fetchResult: { port in
-                    await fetcher.fetch(localPort: port, expectedInstanceID: expectedInstanceID)
-                }
-            )
-            guard !Task.isCancelled else { return }
-            self.errorMessage = nil
-            let applicator = PairFlowConfirmationApplicator(
-                initialPhase: self.phase,
-                completionGate: self.completionGate,
-                tearDown: {}
-            )
-            applicator.apply(outcome)
-            self.phase = applicator.phase
+            await self.askAboutMark(caChainPEM: self.appConfig.loadStoredPairing()?.caChainPEM)
+        }
+    }
+
+    /// The mark question draws what this device computes from the CA the pairing pinned, so it
+    /// doesn't wait on the tunnel. If that can't be computed, the mark is unavailable.
+    private func askAboutMark(caChainPEM: String?) async {
+        var mark: JournalMark?
+        if let caChainPEM {
+            mark = await JournalMarkDerivation.mark(forCAChainPEM: caChainPEM)
+        }
+        guard !Task.isCancelled else { return }
+        self.errorMessage = nil
+        self.answerNotSaved = false
+        self.phase = mark.map(PairFlowPhase.confirm) ?? .couldNotVerify
+    }
+
+    /// Both answers that let the pairing send share this. A failed save leaves the screen up, and
+    /// has to say so: the owner just answered, and nothing else would change.
+    private func recordAnswer() {
+        self.answerNotSaved = false
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(Self.uiTestAnswerFailsArgument) {
+            self.answerNotSaved = true
+            return
+        }
+        #endif
+        guard completeJournalSend(
+            release: self.journalSendRelease,
+            appConfig: self.appConfig,
+            gate: self.completionGate,
+            onComplete: self.onComplete
+        ) else {
+            self.answerNotSaved = true
+            // The line appears away from the button the owner just tapped, and VoiceOver does not
+            // move to it on its own.
+            UIAccessibility.post(notification: .announcement, argument: SourceVocabulary.journalMarkAnswerNotSaved)
+            return
         }
     }
 
@@ -962,12 +943,16 @@ struct PairFlowView: View {
 #if DEBUG
 extension PairFlowView {
     static let uiTestTeardownFailsArgument = "--ui-test-mark-teardown-fails"
+    static let uiTestAnswerFailsArgument = "--ui-test-mark-answer-fails"
 
     /// Which answer screen `--ui-test-mark-confirm` opens on.
     nonisolated static func uiTestMarkPhase(arguments: [String]) -> PairFlowPhase {
         if arguments.contains("--ui-test-mark-could-not-verify") { return .couldNotVerify }
-        if arguments.contains("--ui-test-mark-no-committed-mark") { return .noCommittedMark }
         if arguments.contains("--ui-test-mark-mismatch") { return .mismatch }
+        if arguments.contains("--ui-test-mark-derived"),
+           let derived = try? markFromJournalID("f30ed159-ef46-8e9c-913f-e49f0fe7d201") {
+            return .confirm(JournalMark(derived))
+        }
         return .confirm(.uiTestSample)
     }
 }

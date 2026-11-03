@@ -38,11 +38,22 @@ final class PairFlowAnswerUITests: XCTestCase {
     }
 
     @MainActor
-    func testNoCommittedMarkDrawsAMark() {
-        let app = self.launch(["--ui-test-mark-no-committed-mark"])
+    func testConfirmDrawsTheMark() {
+        let app = self.launch([])
         XCTAssertTrue(app.descendants(matching: .any)["journalMark"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["pairFlow.answer.cancel"].exists)
-        self.attach(app, "no-committed-mark")
+        self.attach(app, "confirm-mark")
+    }
+
+    @MainActor
+    func testAYesThatCannotBeSavedSaysSoAndLeavesTheScreenUp() {
+        let app = self.launch(["--ui-test-mark-answer-fails"])
+        let yes = app.buttons["pairFlow.answer.confirm"]
+        XCTAssertTrue(yes.waitForExistence(timeout: 10))
+        yes.tap()
+
+        XCTAssertTrue(app.descendants(matching: .any)["pairFlow.answer.notSaved"].waitForExistence(timeout: 5))
+        XCTAssertTrue(yes.isEnabled)
+        self.attach(app, "answer-not-saved")
     }
 
     @MainActor
@@ -78,5 +89,31 @@ final class PairFlowAnswerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["pairFlow.teardown.progress"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["pairFlow.teardown.error"].waitForExistence(timeout: 10))
         XCTAssertTrue(cancel.isEnabled)
+    }
+
+    /// Every answer state, in both appearances, for a reviewer to look at.
+    @MainActor
+    func testRenderEveryAnswerStateInBothAppearances() {
+        let states: [(name: String, arguments: [String])] = [
+            ("confirm-derived", ["--ui-test-mark-derived"]),
+            ("could-not-verify", ["--ui-test-mark-could-not-verify"]),
+            ("mismatch", ["--ui-test-mark-mismatch"]),
+        ]
+        defer { XCUIDevice.shared.appearance = .light }
+        for (appearance, style) in [("light", XCUIDevice.Appearance.light), ("dark", .dark)] {
+            XCUIDevice.shared.appearance = style
+            for state in states {
+                let app = self.launch(state.arguments)
+                self.attach(app, "\(state.name)-\(appearance)")
+                app.terminate()
+            }
+            let app = self.launch(["--ui-test-mark-answer-fails"])
+            let yes = app.buttons["pairFlow.answer.confirm"]
+            XCTAssertTrue(yes.waitForExistence(timeout: 10))
+            yes.tap()
+            XCTAssertTrue(app.descendants(matching: .any)["pairFlow.answer.notSaved"].waitForExistence(timeout: 5))
+            self.attach(app, "answer-not-saved-\(appearance)")
+            app.terminate()
+        }
     }
 }

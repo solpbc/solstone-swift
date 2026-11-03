@@ -9,7 +9,7 @@ import XCTest
 nonisolated final class AwaitingMarkConfirmationTests: XCTestCase {
     private func makePairing() -> StoredPairing {
         StoredPairing(
-            instanceID: "inst-awaiting",
+            instanceID: try! CertChain.journalID(ofCAChainPEM: CertlessTrustConstants.caPEM),
             homeLabel: "Home",
             relayEndpoint: "wss://relay.example.com",
             fingerprint: "sha256:\(String(repeating: "a", count: 64))",

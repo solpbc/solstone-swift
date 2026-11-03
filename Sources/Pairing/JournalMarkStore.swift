@@ -16,10 +16,21 @@ import os
 /// ⛔ Never blank a stored mark on a connection failure. The only thing that clears it is
 /// the pairing ending: unpairing, or a different journal paired in its place.
 ///
+/// What's kept is the mark this device derived from the CA a pairing pinned, with that CA's
+/// journal ID. Earlier versions kept a copy of the spec the journal served, tied to no key. That
+/// copy still draws the first frame after an update, until `JournalMarkDerivation` replaces it, and
+/// nothing asks the owner about it.
+///
 /// This is the owner's own data, on the owner's own device, used solely to render their own
 /// journal's identity to them. It is never transmitted anywhere.
 nonisolated struct JournalMarkStore: Sendable {
-    private static let key = "solstone.journalMark.v1"
+    private struct Derived: Codable {
+        let journalID: String
+        let mark: JournalMark
+    }
+
+    private static let derivedKey = "solstone.journalMark.v2"
+    private static let servedKey = "solstone.journalMark.v1"
     private static let log = Logger(subsystem: "app.solstone.swift", category: "journal-mark")
 
     /// A suite *name* rather than a `UserDefaults`, which is not `Sendable` and so can be
@@ -38,35 +49,58 @@ nonisolated struct JournalMarkStore: Sendable {
         return suite
     }
 
-    /// The stored mark, or `nil` when this device has never completed a link.
+    /// The mark to draw now, or `nil` when this device holds none.
     ///
     /// Re-validates on read: a stored mark still has to be a *valid* mark. A malformed blob
     /// (a schema change, a partial write) resolves to "no mark yet" rather than rendering
     /// something broken, and is cleared so it cannot fail again on every launch.
     func load() -> JournalMark? {
-        guard let data = self.defaults.data(forKey: Self.key) else { return nil }
-        guard let decoded = try? JSONDecoder().decode(JournalMark.self, from: data),
-              let valid = JournalMark.validate(decoded)
-        else {
-            Self.log.error("stored journal mark was unreadable or invalid; clearing it")
-            self.clear()
-            return nil
-        }
-        return valid
+        self.loadDerived()?.mark ?? self.loadServed()
     }
 
-    /// Records the mark the journal reported. Idempotent, and cheap enough to call on every
-    /// successful fetch so a mark the owner re-rolled on the journal side lands here too.
-    func save(_ mark: JournalMark) {
-        guard let data = try? JSONEncoder().encode(mark) else {
+    /// The mark derived for this journal ID, if that's the one kept.
+    func mark(forJournalID journalID: String) -> JournalMark? {
+        guard let derived = self.loadDerived(), derived.journalID == journalID else { return nil }
+        return derived.mark
+    }
+
+    /// Keeps a derived mark, and retires any served copy from an earlier version.
+    func save(_ mark: JournalMark, journalID: String) {
+        guard let data = try? JSONEncoder().encode(Derived(journalID: journalID, mark: mark)) else {
             Self.log.error("journal mark encode failed; leaving the stored value alone")
             return
         }
-        self.defaults.set(data, forKey: Self.key)
+        self.defaults.set(data, forKey: Self.derivedKey)
+        self.defaults.removeObject(forKey: Self.servedKey)
     }
 
     /// ⛔ Only ever called when the pairing ends. See the type's invariant.
     func clear() {
-        self.defaults.removeObject(forKey: Self.key)
+        self.defaults.removeObject(forKey: Self.derivedKey)
+        self.defaults.removeObject(forKey: Self.servedKey)
+    }
+
+    private func loadDerived() -> Derived? {
+        guard let data = self.defaults.data(forKey: Self.derivedKey) else { return nil }
+        guard let decoded = try? JSONDecoder().decode(Derived.self, from: data),
+              JournalMark.validate(decoded.mark) != nil
+        else {
+            Self.log.error("stored journal mark was unreadable or invalid; clearing it")
+            self.defaults.removeObject(forKey: Self.derivedKey)
+            return nil
+        }
+        return decoded
+    }
+
+    private func loadServed() -> JournalMark? {
+        guard let data = self.defaults.data(forKey: Self.servedKey) else { return nil }
+        guard let decoded = try? JSONDecoder().decode(JournalMark.self, from: data),
+              let valid = JournalMark.validate(decoded)
+        else {
+            Self.log.error("stored journal mark was unreadable or invalid; clearing it")
+            self.defaults.removeObject(forKey: Self.servedKey)
+            return nil
+        }
+        return valid
     }
 }

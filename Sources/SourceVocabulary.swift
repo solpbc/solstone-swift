@@ -650,6 +650,7 @@ nonisolated enum SourceVocabulary {
     static let journalMarkConnecting = "connecting…"
     static let journalMarkMismatchTitle = "not paired"
     static let journalMarkMismatchBody = "nothing this device has kept went to that journal through this link. you may have scanned the wrong code, or something isn't right. try again, or reach us and we'll help."
+    static let journalMarkAnswerNotSaved = "couldn't save your answer. try again."
     static let journalMarkTeardownFailed = "couldn't disconnect this device yet. nothing it has kept went to that journal through this link. try again."
     static let journalShelfDeviceCertificateLabel = "this device's certificate"
     static let journalMarkMismatchScanAgain = "scan again"

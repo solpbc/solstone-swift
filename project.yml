@@ -31,7 +31,7 @@ packages:
     from: "3.0.0"
   spl-swift:
     url: https://github.com/solpbc/spl-swift.git
-    exactVersion: "0.9.0"
+    exactVersion: "0.10.1"
 
 targets:
   solstone-swift:
@@ -113,6 +113,8 @@ targets:
     dependencies:
       - package: spl-swift
         product: SPLTunnel
+      - package: spl-swift
+        product: SPLMark
       - package: SwiftCrypto
         product: Crypto
       - target: SolstoneNotificationService
@@ -496,6 +498,8 @@ targets:
       - target: solstone-swift
       - package: spl-swift
         product: SPLTunnel
+      - package: spl-swift
+        product: SPLMark
       - package: SwiftCrypto
         product: Crypto
     settings:

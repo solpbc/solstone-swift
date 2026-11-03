@@ -133,27 +133,6 @@ nonisolated final class JournalSendProvenanceTests: XCTestCase {
         let resHeld = await resolver.resolve(descriptor)
         XCTAssertEqual(resHeld, TransferEndpointResolution.unavailable("journal-send-held"))
 
-        // resolveConfirmation with initial instanceMismatch followed by case-different match
-        let attemptsLock = OSAllocatedUnfairLock(initialState: 0)
-        let outcome = await resolveConfirmation(
-            timeout: .seconds(2),
-            step: .milliseconds(10),
-            startDeadlineWhenConnected: false,
-            connectedPort: { 7071 },
-            fetchResult: { _ in
-                let attempt = attemptsLock.withLock { count -> Int in
-                    count += 1
-                    return count
-                }
-                if attempt == 1 {
-                    return .instanceMismatch
-                }
-                // Case-different match for "inst-2" -> "INST-2"
-                return .match(JournalMark.uiTestSample)
-            }
-        )
-
-        XCTAssertEqual(outcome, .confirm(JournalMark.uiTestSample))
         // Still held before confirmation is authorized
         XCTAssertFalse(appConfig.journalSendConfirmed)
         let resHeldAgain = await resolver.resolve(descriptor)

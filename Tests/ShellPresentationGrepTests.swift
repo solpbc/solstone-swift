@@ -5,18 +5,16 @@ import Foundation
 import XCTest
 
 nonisolated final class ShellPresentationGrepTests: XCTestCase {
-    func testFetchTaskUsesTunnelActivePort() throws {
+    func testTheShellMarkComesFromThePairingNotTheConnection() throws {
         let text = try Self.sourceText("Sources/RootShellView.swift")
-        XCTAssertTrue(text.contains(".task(id: self.tunnelManager.activeConnection?.port)"))
+        XCTAssertFalse(text.contains("JournalIdentityFetcher"))
         let body = try Self.slice(
             in: text,
-            from: "private func fetchJournalMark() async {",
+            from: "private func refreshJournalMark() async {",
             to: "\n    private func applyDebugSeeds()"
         )
-        XCTAssertTrue(body.contains("JournalIdentityFetcher"))
-        XCTAssertTrue(body.contains("self.tunnelManager.activeConnection?.port"))
-        XCTAssertTrue(body.contains("fetch(localPort:"))
-        XCTAssertFalse(body.contains("self.localPort"))
+        XCTAssertTrue(body.contains("JournalMarkDerivation.mark(forCAChainPEM:"))
+        XCTAssertFalse(body.contains("activeConnection"))
     }
 
     func testNoScreenChangedPostsInShellTree() throws {
@@ -78,7 +76,7 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         let sheet = try Self.slice(
             in: text,
             from: "private var statusSheet: some View {",
-            to: "\n    private func fetchJournalMark()"
+            to: "\n    private func refreshJournalMark()"
         )
         XCTAssertTrue(sheet.contains("if self.reduceMotion"))
         XCTAssertTrue(sheet.contains(".navigationTransition(.zoom"))

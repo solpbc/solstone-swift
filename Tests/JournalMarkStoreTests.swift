@@ -34,7 +34,7 @@ nonisolated final class JournalMarkStoreTests: XCTestCase {
     }
 
     func testTheMarkSurvivesASaveAndReloadIntact() {
-        self.store.save(.uiTestSample)
+        self.store.save(.uiTestSample, journalID: "journal-1")
 
         let loaded = self.store.load()
         XCTAssertEqual(loaded, JournalMark.uiTestSample)
@@ -48,14 +48,32 @@ nonisolated final class JournalMarkStoreTests: XCTestCase {
     /// point. The shipped bug derived the mark only from a live tunnel and assigned `nil`
     /// when there was none, so every launch showed the generic mark until sync came up.
     func testAFreshStoreOverTheSameDefaultsSeesTheMarkWithNoConnection() {
-        self.store.save(.uiTestSample)
+        self.store.save(.uiTestSample, journalID: "journal-1")
 
         let coldStart = JournalMarkStore(suiteName: self.suiteName)
         XCTAssertEqual(coldStart.load(), JournalMark.uiTestSample)
     }
 
+    func testAMarkIsKeptForTheJournalItWasDerivedFor() {
+        self.store.save(.uiTestSample, journalID: "journal-1")
+
+        XCTAssertEqual(self.store.mark(forJournalID: "journal-1"), JournalMark.uiTestSample)
+        XCTAssertNil(self.store.mark(forJournalID: "journal-2"))
+    }
+
+    func testAServedCopyFromAnEarlierVersionDrawsUntilAMarkIsDerived() throws {
+        let served = try JSONEncoder().encode(JournalMark.uiTestSample)
+        self.defaults.set(served, forKey: "solstone.journalMark.v1")
+
+        XCTAssertEqual(self.store.load(), JournalMark.uiTestSample)
+        XCTAssertNil(self.store.mark(forJournalID: "journal-1"), "a served copy is tied to no key")
+
+        self.store.save(.uiTestSample, journalID: "journal-1")
+        XCTAssertNil(self.defaults.data(forKey: "solstone.journalMark.v1"))
+    }
+
     func testUnpairingIsWhatClearsIt() {
-        self.store.save(.uiTestSample)
+        self.store.save(.uiTestSample, journalID: "journal-1")
         XCTAssertNotNil(self.store.load())
 
         self.store.clear()
