@@ -79,6 +79,28 @@ nonisolated final class PairFlowCouldNotVerifyTests: XCTestCase {
         XCTAssertEqual(count, 1)
     }
 
+    @MainActor
+    func testNoCommittedMarkOutcomeHasItsOwnPhaseWithoutCompletionOrTeardown() {
+        var teardownCalled = false
+        let applicator = PairFlowConfirmationApplicator(
+            initialPhase: .connecting,
+            completionGate: PairFlowCompletionGate(),
+            tearDown: { teardownCalled = true }
+        )
+
+        applicator.apply(.fallback(.noCommittedMark))
+
+        XCTAssertEqual(applicator.phase, .noCommittedMark)
+        XCTAssertFalse(teardownCalled)
+    }
+
+    func testGoAheadPhasesDrawTheMarkStateTheyClaim() {
+        XCTAssertEqual(PairFlowPhase.couldNotVerify.goAheadIdentity, .unavailable)
+        XCTAssertEqual(PairFlowPhase.noCommittedMark.goAheadIdentity, .generic)
+        XCTAssertNil(PairFlowPhase.confirm(.uiTestSample).goAheadIdentity)
+        XCTAssertNil(PairFlowPhase.mismatch.goAheadIdentity)
+    }
+
     // AC3: cancelled outcome leaves phase unchanged (.connecting) without completing gate or tearing down
     @MainActor
     func testOutcomeCancelledLeavesPhaseUnchangedWithoutCompletionOrTeardown() {

@@ -346,7 +346,7 @@ struct InAppJournalView: View {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 8) {
                         JournalMarkCompactChips(identity: self.journalIdentity)
-                        Text(self.headingString)
+                        JournalMarkInlineWords(words: self.journalIdentity.words)
                     }
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(self.journalIdentity.spokenValue)

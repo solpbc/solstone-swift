@@ -212,6 +212,7 @@ struct PairFlowView: View {
     @State private var cameraDenied = false
     @State private var linkAttemptInFlight = false
     @State private var isDismissing = false
+    @State private var teardown = PairFlowTeardownState.idle
 
     init(
         startMode: PairFlowStart = .ceremony,
@@ -247,7 +248,7 @@ struct PairFlowView: View {
                 self.cancelFlowTask()
                 self.fallbackTimer.cancel()
                 self.coordinator.hasAutoPaired = true
-                self.phase = .confirm(.uiTestSample)
+                self.phase = Self.uiTestMarkPhase(arguments: ProcessInfo.processInfo.arguments)
                 return
             }
             #endif
@@ -387,8 +388,8 @@ struct PairFlowView: View {
             self.connectingContent
         case .confirm(let mark):
             self.confirmContent(mark)
-        case .couldNotVerify:
-            self.couldNotVerifyContent
+        case .couldNotVerify, .noCommittedMark:
+            self.goAheadContent
         case .mismatch:
             self.mismatchContent
         }
@@ -497,6 +498,8 @@ struct PairFlowView: View {
             JournalMarkView(identity: .mark(mark))
                 .frame(maxWidth: .infinity, alignment: .center)
 
+            self.teardownFeedback
+
             Button(SourceVocabulary.journalMarkConfirmButton) {
                 // The owner just confirmed this is their journal's mark: keep it, so the shell
                 // shows it from the first frame instead of waiting on a fetch.
@@ -514,19 +517,48 @@ struct PairFlowView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
+            .disabled(self.teardown == .inProgress)
             .frame(maxWidth: .infinity, minHeight: 44)
 
             Button(SourceVocabulary.journalMarkMismatchButton) {
                 self.startMismatchTeardown()
             }
             .buttonStyle(.bordered)
+            .disabled(self.teardown == .inProgress)
+            .accessibilityIdentifier("pairFlow.answer.mismatch")
             .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
 
+    /// What this screen says while answering takes a moment, and when it could not finish. A
+    /// rejection is the worst moment to look like nothing happened.
     @ViewBuilder
-    private var couldNotVerifyContent: some View {
+    private var teardownFeedback: some View {
+        switch self.teardown {
+        case .idle:
+            EmptyView()
+        case .inProgress:
+            ProgressView()
+                .frame(maxWidth: .infinity, alignment: .center)
+                .accessibilityIdentifier(Self.teardownProgressAccessibilityIdentifier)
+        case .failed:
+            Text(SourceVocabulary.journalMarkTeardownFailed)
+                .font(.body)
+                .foregroundStyle(.red)
+                .accessibilityIdentifier(Self.teardownErrorAccessibilityIdentifier)
+        }
+    }
+
+    @ViewBuilder
+    private var goAheadContent: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let identity = self.displayedPhase.goAheadIdentity {
+                JournalMarkView(identity: identity)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+
+            self.teardownFeedback
+
             Button(SourceVocabulary.journalMarkCouldNotVerifyContinue) {
                 guard completeJournalSend(
                     release: self.journalSendRelease,
@@ -536,6 +568,7 @@ struct PairFlowView: View {
                 ) else { return }
             }
             .buttonStyle(.borderedProminent)
+            .disabled(self.teardown == .inProgress)
             .accessibilityLabel(SourceVocabulary.journalMarkCouldNotVerifyContinueAccessibility)
             .frame(maxWidth: .infinity, minHeight: 44)
 
@@ -543,7 +576,9 @@ struct PairFlowView: View {
                 self.startCouldNotVerifyCancel()
             }
             .buttonStyle(.bordered)
+            .disabled(self.teardown == .inProgress)
             .accessibilityLabel(SourceVocabulary.journalMarkCouldNotVerifyCancelAccessibility)
+            .accessibilityIdentifier("pairFlow.answer.cancel")
             .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
@@ -570,6 +605,8 @@ struct PairFlowView: View {
     /// screen is up without caring which tab it is on: the simulator has no camera, so the scan tab
     /// hands over to paste on its own.
     static let titleAccessibilityIdentifier = "pairFlow.title"
+    static let teardownProgressAccessibilityIdentifier = "pairFlow.teardown.progress"
+    static let teardownErrorAccessibilityIdentifier = "pairFlow.teardown.error"
 
     /// The title names the tab the owner is on, in the same order as the subtitle under it.
     static func pairingTitle(for mode: EntryMode) -> String {
@@ -594,7 +631,7 @@ struct PairFlowView: View {
             return SourceVocabulary.journalMarkConnecting
         case .confirm:
             return SourceVocabulary.journalMarkConfirmQuestion
-        case .couldNotVerify:
+        case .couldNotVerify, .noCommittedMark:
             return SourceVocabulary.journalMarkCouldNotVerifyTitle
         case .mismatch:
             return SourceVocabulary.journalMarkMismatchTitle
@@ -611,6 +648,9 @@ struct PairFlowView: View {
             return SourceVocabulary.journalMarkConfirmSubtext
         case .couldNotVerify:
             return SourceVocabulary.journalMarkCouldNotVerifyBody
+        case .noCommittedMark:
+            // The check finished and found no mark, so "didn't finish" would be untrue.
+            return ""
         case .mismatch:
             return SourceVocabulary.journalMarkMismatchBody
         }
@@ -641,7 +681,7 @@ struct PairFlowView: View {
     private var isHeldMarkPhase: Bool {
         if self.startMode == .confirmHeldJournal { return true }
         switch self.phase {
-        case .confirm, .couldNotVerify:
+        case .confirm, .couldNotVerify, .noCommittedMark:
             return true
         default:
             return false
@@ -688,43 +728,56 @@ struct PairFlowView: View {
     }
 
     private func startMismatchTeardown() {
-        self.cancelFlowTask()
-        let generation = self.flowGeneration
-        self.flowTask = Task { @MainActor in
-            defer {
-                if self.flowGeneration == generation { self.flowTask = nil }
-            }
-            let didTearDown = await tearDownMismatchedPairing(
-                appConfig: self.appConfig,
-                tunnelManager: self.tunnelManager,
-                coordinator: self.coordinator
-            )
-            guard !Task.isCancelled, didTearDown else { return }
-            self.phase = .mismatch
-        }
+        self.startTeardown { self.phase = .mismatch }
     }
 
     private func startCouldNotVerifyCancel() {
+        self.startTeardown { self.restoreScanUI() }
+    }
+
+    /// Both answers that end the pairing share this: progress from the tap, and either the next
+    /// screen or a line saying it didn't finish, with the buttons live again to retry.
+    private func startTeardown(onTornDown: @escaping @MainActor () -> Void) {
         self.cancelFlowTask()
+        self.teardown = .inProgress
         let generation = self.flowGeneration
         self.flowTask = Task { @MainActor in
             defer {
                 if self.flowGeneration == generation { self.flowTask = nil }
             }
-            let didTearDown = await tearDownMismatchedPairing(
-                appConfig: self.appConfig,
-                tunnelManager: self.tunnelManager,
-                coordinator: self.coordinator
-            )
-            guard !Task.isCancelled, didTearDown else { return }
-            self.restoreScanUI()
+            let didTearDown = await self.tearDownPairing()
+            guard !Task.isCancelled else { return }
+            guard didTearDown else {
+                self.teardown = .failed
+                // The line appears away from the button the owner just tapped, and VoiceOver does
+                // not move to it on its own.
+                UIAccessibility.post(notification: .announcement, argument: SourceVocabulary.journalMarkTeardownFailed)
+                return
+            }
+            self.teardown = .idle
+            onTornDown()
         }
+    }
+
+    private func tearDownPairing() async -> Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(Self.uiTestTeardownFailsArgument) {
+            try? await Task.sleep(for: .seconds(2))
+            return false
+        }
+        #endif
+        return await tearDownMismatchedPairing(
+            appConfig: self.appConfig,
+            tunnelManager: self.tunnelManager,
+            coordinator: self.coordinator
+        )
     }
 
     private func cancelFlowTask() {
         self.flowGeneration &+= 1
         self.flowTask?.cancel()
         self.flowTask = nil
+        self.teardown = .idle
     }
 
     private func goBack() {
@@ -905,3 +958,17 @@ struct PairFlowView: View {
         self.fallbackTimer.start()
     }
 }
+
+#if DEBUG
+extension PairFlowView {
+    static let uiTestTeardownFailsArgument = "--ui-test-mark-teardown-fails"
+
+    /// Which answer screen `--ui-test-mark-confirm` opens on.
+    nonisolated static func uiTestMarkPhase(arguments: [String]) -> PairFlowPhase {
+        if arguments.contains("--ui-test-mark-could-not-verify") { return .couldNotVerify }
+        if arguments.contains("--ui-test-mark-no-committed-mark") { return .noCommittedMark }
+        if arguments.contains("--ui-test-mark-mismatch") { return .mismatch }
+        return .confirm(.uiTestSample)
+    }
+}
+#endif

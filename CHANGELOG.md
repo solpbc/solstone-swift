@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- if your journal's mark takes a moment to read, the app keeps trying instead of asking you to continue without it. when the check can't finish, the mark shows as unavailable.
+
 ## [2.0.10 (143)] - 2026-10-30
 
 ### Fixed

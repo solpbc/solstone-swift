@@ -40,7 +40,7 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
     }
 
     @MainActor
-    func testFetchReturnsMissingOrInvalidWhenUncommitted() async {
+    func testFetchReturnsNotCommittedWhenUncommitted() async {
         JournalIdentityURLProtocol.handler = { request in
             (
                 HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -50,7 +50,7 @@ nonisolated final class JournalIdentityFetcherTests: XCTestCase {
 
         let result = await JournalIdentityFetcher().fetch(localPort: 7071, expectedInstanceID: "instance-123")
 
-        XCTAssertEqual(result, .missingOrInvalid)
+        XCTAssertEqual(result, .notCommitted)
     }
 
     @MainActor

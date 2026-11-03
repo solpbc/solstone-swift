@@ -8,6 +8,7 @@ import Foundation
 nonisolated enum JournalMarkGeneric {
     static let words = ["your", "journal"]
     static let spokenValue = "your journal, not set up yet"
+    static let awaitingConfirmationSpokenValue = "your journal, mark not confirmed yet"
     static let orangeHex = "#E8913A"
     static let goldHex = "#D4A017"
     static let fillOpacity = 0.07

@@ -13,8 +13,25 @@ nonisolated final class JournalIdentityTests: XCTestCase {
         )
         XCTAssertEqual(
             JournalIdentity.select(isPaired: true, sendConfirmed: false, mark: .uiTestSample),
+            .awaitingConfirmation
+        )
+        XCTAssertEqual(
+            JournalIdentity.select(isPaired: false, sendConfirmed: false, mark: nil),
             .generic
         )
+    }
+
+    func testAwaitingConfirmationSpeaksForItselfAndReadsAsTheGenericMark() {
+        XCTAssertNotEqual(JournalIdentity.awaitingConfirmation.spokenValue, JournalIdentity.generic.spokenValue)
+        XCTAssertEqual(JournalIdentity.awaitingConfirmation.spokenValue, JournalMarkGeneric.awaitingConfirmationSpokenValue)
+        XCTAssertEqual(JournalIdentity.awaitingConfirmation.title, JournalIdentity.generic.title)
+        XCTAssertEqual(JournalIdentity.awaitingConfirmation.words, JournalIdentity.generic.words)
+    }
+
+    func testWordsAreTheOnesTheTitleJoins() {
+        for identity in [JournalIdentity.mark(.uiTestSample), .generic, .awaitingConfirmation, .unavailable] {
+            XCTAssertEqual(identity.words.joined(separator: " · "), identity.title)
+        }
     }
 
     func testSelectReturnsMarkWhenPairedConfirmedAndValid() {

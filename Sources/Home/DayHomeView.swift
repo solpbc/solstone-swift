@@ -326,7 +326,7 @@ private extension DayHomeView {
     var appGroupPairing: AppGroupMirror.PairingSnapshot {
         let name: String? = switch self.journalIdentity {
         case .mark(let mark): journalPaneTitle(mark: mark)
-        case .generic, .unavailable: nil
+        case .generic, .awaitingConfirmation, .unavailable: nil
         }
         return AppGroupMirror.PairingSnapshot(
             journalName: name,
@@ -638,9 +638,8 @@ private extension DayHomeView {
         } label: {
             HStack(spacing: 8) {
                 JournalMarkCompactChips(identity: self.journalIdentity)
-                Text(self.journalPillTitle)
+                JournalMarkInlineWords(words: self.journalIdentity.words)
                     .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
             }
             .frame(maxWidth: .infinity, minHeight: 44)
         }
@@ -656,12 +655,6 @@ private extension DayHomeView {
         .accessibilityIdentifier(
             self.journalState.opensJournal ? "dayHome.openInJournal" : "dayHome.journalSetup"
         )
-    }
-
-    /// The pill presents the journal's identity across all states via select, showing its
-    /// mark when confirmed or the generic mark and title when unpaired or not confirmed yet.
-    var journalPillTitle: String {
-        self.journalIdentity.title
     }
 
     /// The shelf control.

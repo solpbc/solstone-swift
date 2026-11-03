@@ -20,6 +20,7 @@ nonisolated enum JournalIdentityFetchResult: Equatable, Sendable {
     case match(JournalMark)
     case instanceMismatch
     case missingOrInvalid
+    case notCommitted
 }
 
 nonisolated struct JournalIdentityFetcher {
@@ -42,11 +43,14 @@ nonisolated struct JournalIdentityFetcher {
                 return .missingOrInvalid
             }
             let decoded = try JSONDecoder().decode(JournalIdentityResponse.self, from: data)
-            guard decoded.committed,
-                  let mark = decoded.mark,
+            guard decoded.committed else {
+                log.debug("[solstone-swift] journal mark absent: journal has not committed one")
+                return .notCommitted
+            }
+            guard let mark = decoded.mark,
                   let valid = JournalMark.validate(mark)
             else {
-                log.debug("[solstone-swift] journal mark unavailable: uncommitted, missing, or invalid")
+                log.debug("[solstone-swift] journal mark unavailable: missing or invalid")
                 return .missingOrInvalid
             }
             guard journalInstanceIDsMatch(decoded.instanceID, expectedInstanceID) else {

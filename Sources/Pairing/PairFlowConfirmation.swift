@@ -11,12 +11,33 @@ nonisolated enum PairFlowPhase: Equatable, Sendable {
     case connecting
     case confirm(JournalMark)
     case couldNotVerify
+    case noCommittedMark
     case mismatch
+
+    /// The mark state drawn above `continue anyway` and `cancel pairing`. A journal with an
+    /// identity whose mark could not be read is unavailable; one that reports no committed mark
+    /// has no identity yet. The two answers stay the same; the claim above them does not.
+    var goAheadIdentity: JournalIdentity? {
+        switch self {
+        case .couldNotVerify: .unavailable
+        case .noCommittedMark: .generic
+        case .pairing, .connecting, .confirm, .mismatch: nil
+        }
+    }
+}
+
+/// Ending a pairing from an answer screen. Separate from the pairing screen's error line, which
+/// other paths write to while these screens are up.
+nonisolated enum PairFlowTeardownState: Equatable, Sendable {
+    case idle
+    case inProgress
+    case failed
 }
 
 nonisolated enum ConfirmFallbackReason: Equatable, Sendable {
     case timeout
     case missingOrInvalidMark
+    case noCommittedMark
     case cancelled
 }
 
@@ -48,6 +69,8 @@ final class PairFlowConfirmationApplicator {
             self.phase = .confirm(mark)
         case .fallback(.timeout), .fallback(.missingOrInvalidMark):
             self.phase = .couldNotVerify
+        case .fallback(.noCommittedMark):
+            self.phase = .noCommittedMark
         case .fallback(.cancelled):
             break
         }
@@ -116,6 +139,10 @@ func resolveConfirmation(
 ) async -> ConfirmOutcome {
     let clock = ContinuousClock()
     var deadline: ContinuousClock.Instant? = startDeadlineWhenConnected ? nil : clock.now.advanced(by: timeout)
+    // One short read on a new tunnel is easy to miss, and giving up on it would offer the owner a
+    // go-ahead with no comparison. So every failed read tries again until the deadline, and the
+    // deadline reports the last thing the journal said.
+    var reasonAtDeadline = ConfirmFallbackReason.timeout
 
     while true {
         if Task.isCancelled {
@@ -138,16 +165,17 @@ func resolveConfirmation(
             case .match(let mark):
                 return .confirm(mark)
             case .missingOrInvalid:
-                confirmationLog.info("journal mark confirm fallback: missing or invalid mark")
-                return .fallback(.missingOrInvalidMark)
+                reasonAtDeadline = .missingOrInvalidMark
+            case .notCommitted:
+                reasonAtDeadline = .noCommittedMark
             case .instanceMismatch:
-                break
+                reasonAtDeadline = .timeout
             }
         }
 
         if let activeDeadline = deadline, clock.now >= activeDeadline {
-            confirmationLog.info("journal mark confirm fallback: connected port or instance match timeout")
-            return .fallback(.timeout)
+            confirmationLog.info("journal mark confirm fallback at deadline: \(String(describing: reasonAtDeadline), privacy: .public)")
+            return .fallback(reasonAtDeadline)
         }
 
         do {
@@ -158,8 +186,8 @@ func resolveConfirmation(
         }
 
         if let activeDeadline = deadline, clock.now >= activeDeadline {
-            confirmationLog.info("journal mark confirm fallback: deadline reached after step")
-            return .fallback(.timeout)
+            confirmationLog.info("journal mark confirm fallback after step: \(String(describing: reasonAtDeadline), privacy: .public)")
+            return .fallback(reasonAtDeadline)
         }
     }
 }

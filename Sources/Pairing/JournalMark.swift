@@ -91,10 +91,14 @@ struct JournalMarkUnavailableChip: View {
         let glyphSize = MarkGeometry.glyphSide(side: self.side)
         return ZStack {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .fill(MarkGeometry.chipBorder)
+                .fill(MarkGeometry.unavailableChipFill)
+                .overlay {
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .stroke(MarkGeometry.unavailableChipBorder, lineWidth: MarkGeometry.chipBorderWidth(side: self.side))
+                }
             Text("?")
                 .font(.system(size: glyphSize, weight: .semibold, design: .rounded))
-                .foregroundColor(MarkGeometry.wordColor)
+                .foregroundColor(MarkGeometry.unavailableGlyphColor)
         }
         .frame(width: self.side, height: self.side)
     }
@@ -130,7 +134,7 @@ struct JournalMarkView: View {
                         .stroke(self.isConfirmed ? MarkGeometry.confirmedBorder : MarkGeometry.cardBorder, lineWidth: self.isConfirmed ? 2 : 1)
                 }
                 .shadow(color: self.isConfirmed ? MarkGeometry.confirmedBorder.opacity(0.35) : .clear, radius: 10)
-            case .generic:
+            case .generic, .awaitingConfirmation:
                 VStack(spacing: MarkGeometry.verticalGap) {
                     HStack(spacing: MarkGeometry.iconGap) {
                         JournalMarkGenericChip(
@@ -174,6 +178,20 @@ struct JournalMarkView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityValue(self.identity.spokenValue)
         .accessibilityIdentifier("journalMark")
+    }
+}
+
+/// The mark's words in running type, on the pill and the journal title. Same two roles as the
+/// card's word line, in the shell's own inks: this text sits on a ground that follows the
+/// appearance, where the card's fixed-light hexes would not read.
+struct JournalMarkInlineWords: View {
+    let words: [String]
+
+    var body: some View {
+        let first = Text(verbatim: self.words.first ?? "").foregroundStyle(.primary)
+        let middot = Text(verbatim: " · ").foregroundStyle(.secondary)
+        let second = Text(verbatim: self.words.count > 1 ? self.words[1] : "").foregroundStyle(.primary)
+        return Text("\(first)\(middot)\(second)")
     }
 }
 
@@ -311,7 +329,9 @@ enum MarkGeometry {
 
     static let cardFill = Self.color(hex: "#fffdf9")
     static let cardBorder = Self.color(hex: "#e7d8c6")
-    static let chipBorder = Self.color(hex: "#e7d8c6")
+    static let unavailableChipBorder = Self.color(hex: "#ECE3D0")
+    static let unavailableChipFill = Self.color(hex: "#FEFCF8")
+    static let unavailableGlyphColor = Self.color(hex: "#6E6453")
     static let wordColor = Self.color(hex: "#1A1A1A")
     static let wordSeparatorColor = Self.color(hex: "#6E6453")
     static let confirmationColor = Self.color(hex: "#166534")

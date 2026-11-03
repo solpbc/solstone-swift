@@ -37,6 +37,43 @@ nonisolated final class PairFlowConfirmationTests: XCTestCase {
     }
 
     @MainActor
+    func testResolveConfirmationKeepsReadingAfterAFailedRead() async {
+        let fetchCount = OSAllocatedUnfairLock(initialState: 0)
+        let outcome = await resolveConfirmation(
+            timeout: .seconds(5),
+            step: .milliseconds(5),
+            connectedPort: { 7071 },
+            fetchResult: { _ in
+                let attempt = fetchCount.withLock { count in
+                    count += 1
+                    return count
+                }
+                return attempt < 3 ? .missingOrInvalid : .match(.uiTestSample)
+            }
+        )
+
+        XCTAssertEqual(outcome, .confirm(.uiTestSample))
+        XCTAssertEqual(fetchCount.withLock { $0 }, 3)
+    }
+
+    @MainActor
+    func testResolveConfirmationReportsNoCommittedMarkAtTheDeadline() async {
+        let fetchCount = OSAllocatedUnfairLock(initialState: 0)
+        let outcome = await resolveConfirmation(
+            timeout: .milliseconds(30),
+            step: .milliseconds(5),
+            connectedPort: { 7071 },
+            fetchResult: { _ in
+                fetchCount.withLock { $0 += 1 }
+                return .notCommitted
+            }
+        )
+
+        XCTAssertEqual(outcome, .fallback(.noCommittedMark))
+        XCTAssertGreaterThan(fetchCount.withLock { $0 }, 1)
+    }
+
+    @MainActor
     func testResolveConfirmationReturnsConfirmForValidMark() async {
         let outcome = await resolveConfirmation(
             timeout: .milliseconds(20),

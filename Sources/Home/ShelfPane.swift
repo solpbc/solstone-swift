@@ -328,7 +328,7 @@ struct JournalSettingsPane: View {
                 LabeledContent("paired", value: self.pairedAtText)
 
                 DisclosureGroup("technical details") {
-                    LabeledContent("fingerprint", value: self.shortFingerprint)
+                    LabeledContent(SourceVocabulary.journalShelfDeviceCertificateLabel, value: self.shortFingerprint)
                     if self.appConfig.isPaired {
                         let paired = self.tunnelManager.pairedJournalAddresses()
                         if !paired.endpoints.isEmpty {

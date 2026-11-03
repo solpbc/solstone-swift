@@ -26,7 +26,7 @@ struct JournalMarkCompactChips: View {
             case .mark(let mark):
                 JournalMarkIconChip(icon: mark.icon1, side: self.side)
                 JournalMarkIconChip(icon: mark.icon2, side: self.side)
-            case .generic:
+            case .generic, .awaitingConfirmation:
                 JournalMarkGenericChip(
                     hex: JournalMarkGeneric.orangeHex,
                     rotated: false,
