@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.11 (144)] - 2026-11-03
+
 ### Fixed
 
 - this is a security fix, please update. someone who got you to use a pairing link or code they made could pair this device with their journal while it showed your journal's mark. what you share with the solstone app on this device then goes to their journal. this device now works out the mark itself, so a link or code someone else made shows their journal's mark, not yours. if you paired before this update, compare the mark this device shows with the one in your journal's network app, opened on the computer your journal lives on, not from the solstone app. if they don't match, forget this journal and pair again with a code from your journal.
