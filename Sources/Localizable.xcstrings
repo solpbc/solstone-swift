@@ -49,6 +49,8 @@
     "migration.key_refused.action" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "pair again" } } } },
     "migration.choice.body_fallback" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "same device continues the old device with its name and history, and removes its access to your journal. new device keeps both." } } } },
     "migration.replace_confirm.title_fallback" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "replace the selected device?" } } } },
+    "pair_flow.not_changed.title" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "not changed" } } } },
+    "pair_flow.not_changed.body" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "your pairing stays as it was. nothing waiting on this device went to that journal through this link." } } } },
     "about.licenses" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "licenses" } } } },
     "unknown_journal.row.direct" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "unknown journal seen at {address}" } } } },
     "unknown_journal.row.relay" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "unknown journal seen through the relay" } } } },

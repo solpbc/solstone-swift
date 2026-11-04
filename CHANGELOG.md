@@ -10,6 +10,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - when something other than your journal answers, the app now tells you and shows both marks to compare.
 
+### Fixed
+
+- answering "that doesn't match" when you pair again now keeps your current pairing.
+
 ## [2.0.11 (144)] - 2026-11-03
 
 ### Fixed

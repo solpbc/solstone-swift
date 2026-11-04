@@ -66,6 +66,11 @@ final class JournalSendRelease {
             throw JournalSendConfirmationStoreError.confirmFailed
         }
 
+        self.noteAnswerRecorded(appConfig)
+    }
+
+    /// The owner's answer is on disk: let the pairing send.
+    func noteAnswerRecorded(_ appConfig: AppConfig) {
         appConfig.journalSendConfirmed = true
         self.homeJobs?.confirmationDidChange()
         self.kickConfirmedSend()

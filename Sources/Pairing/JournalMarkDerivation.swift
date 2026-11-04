@@ -35,6 +35,16 @@ nonisolated enum JournalMarkDerivation {
         }
     }
 
+    /// The mark for a pairing the owner hasn't answered about yet, held in memory. It stays out of
+    /// the store, which holds the mark of the journal this device is still paired with.
+    static func markKeepingNothing(
+        forCAChainPEM caChainPEM: String,
+        derive: @Sendable (String) async throws -> MarkRenderSpec = { try await deriveMark(fromJournalID: $0) }
+    ) async -> JournalMark? {
+        guard let journalID = try? CertChain.journalID(ofCAChainPEM: caChainPEM) else { return nil }
+        return await Self.mark(forClaimedJournalID: journalID, derive: derive)
+    }
+
     /// The mark for a journal ID a peer claimed. It lives with the sighting and never goes in the
     /// store, which holds only the mark of the journal this device is paired with.
     static func mark(

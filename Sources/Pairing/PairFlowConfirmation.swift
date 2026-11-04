@@ -9,6 +9,8 @@ nonisolated enum PairFlowPhase: Equatable, Sendable {
     case confirm(JournalMark)
     case couldNotVerify
     case mismatch
+    /// The answer was no, or a cancel, on a ceremony that was replacing a pairing.
+    case notChanged
 }
 
 /// Ending a pairing from an answer screen. Separate from the pairing screen's error line, which

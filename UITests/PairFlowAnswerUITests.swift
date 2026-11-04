@@ -29,6 +29,14 @@ final class PairFlowAnswerUITests: XCTestCase {
         add(shot)
     }
 
+    /// A no on a ceremony that was replacing a pairing. What it says is held by the render.
+    @MainActor
+    func testNotChangedOffersAWayOut() {
+        let app = self.launch(["--ui-test-mark-not-changed"])
+        XCTAssertTrue(app.buttons["pairFlow.notChanged.back"].waitForExistence(timeout: 10))
+        self.attach(app, "not-changed")
+    }
+
     @MainActor
     func testCouldNotVerifyDrawsAMark() {
         let app = self.launch(["--ui-test-mark-could-not-verify"])

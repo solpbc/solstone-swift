@@ -310,6 +310,7 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     func applyPairing(
         _ pairing: StoredPairing,
         ifPairingFlowLease lease: DeviceMigrationPairingFlowLease? = nil,
+        recordingOwnerAnswer: Bool = false,
         shouldCommit: @escaping @Sendable () -> Bool = { true }
     ) throws {
         var pairingCredentialChanged = false
@@ -347,8 +348,15 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
                 )
             }
 
+            // why: one confirmation slot. An owner who answered yes is about to lose the prior's
+            // record, so a failure before the save has to put it back.
+            let priorWasConfirmed = recordingOwnerAnswer && self.confirmationStore.allowsSend(pairing: previousPairing)
+
             do {
                 try self.confirmationStore.writeMarkerOnApplyPairing()
+                if recordingOwnerAnswer {
+                    try self.confirmationStore.writeRecord(for: pairing)
+                }
                 try self.savePairingClosure(pairing)
                 pairingWasSaved = true
                 if changedCredential {
@@ -364,6 +372,9 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
             } catch {
                 if !pairingWasSaved {
                     try? self.migrationStore.rollbackPairingReplacement(ownerID: ownerID)
+                    if priorWasConfirmed, let previousPairing {
+                        try? self.confirmationStore.writeRecord(for: previousPairing)
+                    }
                 } else {
                     let pairingOwnerID = (try? self.migrationStore.owns(ownerID: ownerID, pairing: pairing)) == true
                         ? ownerID

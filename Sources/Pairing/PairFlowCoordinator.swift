@@ -20,11 +20,20 @@ enum SPLPairingConstants {
     static let relayEndpoint = URL(string: "https://link.solstone.app")!
 }
 
+/// A ceremony that finished while this device has a pairing, kept in memory until the owner answers
+/// about its mark. Nothing stored has changed: the current pairing, its tunnel and its mark all
+/// carry on, and quitting the app simply loses this.
+struct HeldReplacement: Equatable, Sendable {
+    let pairing: StoredPairing
+    let lease: DeviceMigrationPairingFlowLease
+}
+
 enum PairFlowState: Equatable, Sendable {
     case idle
     case scanning
     case pairing
     case reconnecting
+    case heldForAnswer
     case failed(error: String)
     case connected
     case alreadyConnected
@@ -32,7 +41,7 @@ enum PairFlowState: Equatable, Sendable {
 
     var isPairingInputInProgress: Bool {
         switch self {
-        case .pairing, .reconnecting:
+        case .pairing, .reconnecting, .heldForAnswer:
             return true
         case .idle, .scanning, .failed, .connected, .alreadyConnected, .reconnected:
             return false
@@ -46,11 +55,12 @@ final class PairFlowCoordinator {
     var state: PairFlowState = .idle
     var hasAutoPaired = false
     private(set) var pairingFlowGeneration: UInt64 = 0
+    private(set) var heldReplacement: HeldReplacement?
     var canStartPairingInput: Bool {
         switch state {
         case .idle, .failed:
             true
-        case .scanning, .pairing, .reconnecting, .connected, .alreadyConnected, .reconnected:
+        case .scanning, .pairing, .reconnecting, .heldForAnswer, .connected, .alreadyConnected, .reconnected:
             false
         }
     }
@@ -115,10 +125,14 @@ final class PairFlowCoordinator {
                 pairFlowLog.info("pairing completed against existing journal")
                 return true
             }
-            // Replacing a pairing in place does not tell the previous journal. A changed
-            // certificate fingerprint rotates the push key, so the new journal receives a
-            // fresh key. The previous journal can keep sending the fixed fallback line
-            // until the owner removes this phone there.
+            // why: applying here would replace a pairing that may be healthy before the owner has
+            // seen the new mark, and an owner who answers no would have lost it.
+            if priorPairing != nil {
+                self.heldReplacement = HeldReplacement(pairing: pairing, lease: lease)
+                state = .heldForAnswer
+                pairFlowLog.info("pairing held for the owner's answer")
+                return true
+            }
             try self.store.applyPairing(
                 pairing,
                 ifPairingFlowLease: lease,
@@ -137,7 +151,7 @@ final class PairFlowCoordinator {
                   (try? self.store.migrationStore.owns(ownerID: committedOwnerID, pairing: pairing)) == true,
                   self.store.snapshot().pairing?.fingerprint == pairing.fingerprint,
                   shouldCommit() else { return false }
-            state = priorInstance == nil ? .connected : .reconnected
+            state = .connected
             pairFlowLog.info("pairing saved for \(pairing.homeLabel, privacy: .public)")
             return true
         } catch {
@@ -163,6 +177,38 @@ final class PairFlowCoordinator {
             pairFlowLog.error("pairing failed: \(String(describing: error), privacy: .public)")
             throw error
         }
+    }
+
+    /// The owner answered yes. The answer goes in with the pairing, so neither lands without the
+    /// other. Replacing a pairing in place does not tell the previous journal. A changed certificate
+    /// fingerprint rotates the push key, so the new journal receives a fresh key. The previous
+    /// journal can keep sending the fixed fallback line until the owner removes this phone there.
+    func commitHeldReplacement() async throws -> StoredPairing? {
+        guard let held = self.heldReplacement else { return nil }
+        do {
+            try self.store.applyPairing(held.pairing, ifPairingFlowLease: held.lease, recordingOwnerAnswer: true)
+        } catch {
+            // Past the save the pairing has landed, and only the answer on it can still be retried.
+            if self.store.snapshot().pairing?.fingerprint == held.pairing.fingerprint {
+                self.heldReplacement = nil
+                self.state = .reconnected
+            }
+            pairFlowLog.error("held pairing failed to commit: \(String(describing: error), privacy: .public)")
+            throw error
+        }
+        self.heldReplacement = nil
+        await self.endpointCache.bootstrap(from: held.pairing)
+        self.state = .reconnected
+        pairFlowLog.info("pairing saved for \(held.pairing.homeLabel, privacy: .public)")
+        return held.pairing
+    }
+
+    /// The owner answered no, cancelled or left. Only the memory goes: nothing stored ever changed.
+    func dropHeldReplacement() {
+        guard self.heldReplacement != nil else { return }
+        self.heldReplacement = nil
+        self.hasAutoPaired = false
+        self.state = .idle
     }
 
     func unpair() async {

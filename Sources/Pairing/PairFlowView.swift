@@ -278,6 +278,7 @@ struct PairFlowView: View {
         .onDisappear {
             self.presence.decrement()
             self.cancelFlowTask()
+            self.coordinator.dropHeldReplacement()
             self.fallbackTimer.cancel()
             self.stillTryingTimer.reset()
             self.clearHandoffFlags()
@@ -394,6 +395,8 @@ struct PairFlowView: View {
             self.goAheadContent
         case .mismatch:
             self.mismatchContent
+        case .notChanged:
+            self.notChangedContent
         }
     }
 
@@ -589,6 +592,18 @@ struct PairFlowView: View {
         }
     }
 
+    @ViewBuilder
+    private var notChangedContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            self.mismatchContent
+            Button("back") {
+                self.goBack()
+            }
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityIdentifier("pairFlow.notChanged.back")
+        }
+    }
+
     /// The one marker every state of this screen carries, so a test can ask whether the pairing
     /// screen is up without caring which tab it is on: the simulator has no camera, so the scan tab
     /// hands over to paste on its own.
@@ -624,6 +639,8 @@ struct PairFlowView: View {
             return SourceVocabulary.journalMarkCouldNotVerifyTitle
         case .mismatch:
             return SourceVocabulary.journalMarkMismatchTitle
+        case .notChanged:
+            return String(localized: "pair_flow.not_changed.title")
         }
     }
 
@@ -639,6 +656,8 @@ struct PairFlowView: View {
             return SourceVocabulary.journalMarkCouldNotVerifyBody
         case .mismatch:
             return SourceVocabulary.journalMarkMismatchBody
+        case .notChanged:
+            return String(localized: "pair_flow.not_changed.body")
         }
     }
 
@@ -714,11 +733,25 @@ struct PairFlowView: View {
     }
 
     private func startMismatchTeardown() {
+        if self.declineHeldReplacement() { return }
         self.startTeardown { self.phase = .mismatch }
     }
 
     private func startCouldNotVerifyCancel() {
+        if self.declineHeldReplacement() { return }
         self.startTeardown { self.restoreScanUI() }
+    }
+
+    /// A held replacement has nothing to tear down. `false` when the question is about the stored
+    /// pairing, which still ends the usual way.
+    private func declineHeldReplacement() -> Bool {
+        guard self.coordinator.heldReplacement != nil else { return false }
+        self.cancelFlowTask()
+        self.coordinator.dropHeldReplacement()
+        self.answerNotSaved = false
+        self.linkAttemptInFlight = false
+        self.phase = .notChanged
+        return true
     }
 
     /// Both answers that end the pairing share this: progress from the tap, and either the next
@@ -849,6 +882,20 @@ struct PairFlowView: View {
         do {
             let committed = try await self.coordinator.handlePairURL(pairURL, shouldCommit: { !Task.isCancelled })
             guard committed else { return }
+            if let held = self.coordinator.heldReplacement {
+                self.phase = .connecting
+                await self.askAboutMark(caChainPEM: held.pairing.caChainPEM, keepingMark: false)
+                guard !Task.isCancelled else { return }
+                self.linkAttemptInFlight = false
+                return
+            }
+            // The same certificate came back, so the owner's answer still stands. Asking again would
+            // offer "that doesn't match" against a pairing nothing has touched.
+            if self.coordinator.state == .alreadyConnected, self.appConfig.journalSendConfirmed {
+                self.linkAttemptInFlight = false
+                self.completeOnce()
+                return
+            }
             let pairing = try SPLRuntime.keychainStore.load()
             if let pairing { self.appConfig.reflectCommittedPairing(pairing) }
             guard !Task.isCancelled else { return }
@@ -882,10 +929,12 @@ struct PairFlowView: View {
 
     /// The mark question draws what this device computes from the CA the pairing pinned, so it
     /// doesn't wait on the tunnel. If that can't be computed, the mark is unavailable.
-    private func askAboutMark(caChainPEM: String?) async {
+    private func askAboutMark(caChainPEM: String?, keepingMark: Bool = true) async {
         var mark: JournalMark?
         if let caChainPEM {
-            mark = await JournalMarkDerivation.mark(forCAChainPEM: caChainPEM)
+            mark = keepingMark
+                ? await JournalMarkDerivation.mark(forCAChainPEM: caChainPEM)
+                : await JournalMarkDerivation.markKeepingNothing(forCAChainPEM: caChainPEM)
         }
         guard !Task.isCancelled else { return }
         self.errorMessage = nil
@@ -903,6 +952,10 @@ struct PairFlowView: View {
             return
         }
         #endif
+        if self.coordinator.heldReplacement != nil {
+            self.commitHeldAnswer()
+            return
+        }
         guard completeJournalSend(
             release: self.journalSendRelease,
             appConfig: self.appConfig,
@@ -914,6 +967,25 @@ struct PairFlowView: View {
             // move to it on its own.
             UIAccessibility.post(notification: .announcement, argument: SourceVocabulary.journalMarkAnswerNotSaved)
             return
+        }
+    }
+
+    private func commitHeldAnswer() {
+        self.cancelFlowTask()
+        let generation = self.flowGeneration
+        self.flowTask = Task { @MainActor in
+            defer {
+                if self.flowGeneration == generation { self.flowTask = nil }
+            }
+            do {
+                guard let pairing = try await self.coordinator.commitHeldReplacement() else { return }
+                self.appConfig.reflectCommittedPairing(pairing)
+                self.journalSendRelease.noteAnswerRecorded(self.appConfig)
+                self.completionGate.completeOnce(self.onComplete)
+            } catch {
+                self.answerNotSaved = true
+                UIAccessibility.post(notification: .announcement, argument: SourceVocabulary.journalMarkAnswerNotSaved)
+            }
         }
     }
 
@@ -949,6 +1021,7 @@ extension PairFlowView {
     nonisolated static func uiTestMarkPhase(arguments: [String]) -> PairFlowPhase {
         if arguments.contains("--ui-test-mark-could-not-verify") { return .couldNotVerify }
         if arguments.contains("--ui-test-mark-mismatch") { return .mismatch }
+        if arguments.contains("--ui-test-mark-not-changed") { return .notChanged }
         if arguments.contains("--ui-test-mark-derived"),
            let derived = try? markFromJournalID("f30ed159-ef46-8e9c-913f-e49f0fe7d201") {
             return .confirm(JournalMark(derived))

@@ -327,6 +327,9 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
 
+        XCTAssertEqual(coordinator.state, .heldForAnswer)
+        let committedReplacement = try await coordinator.commitHeldReplacement()
+        XCTAssertNotNil(committedReplacement)
         XCTAssertEqual(coordinator.state, .reconnected)
         XCTAssertEqual(try store.load(), returned)
         XCTAssertEqual(pairCalls.withLock { $0 }, 1)
@@ -364,6 +367,9 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalRelayURL()))
 
+        XCTAssertEqual(coordinator.state, .heldForAnswer)
+        let committedReplacement = try await coordinator.commitHeldReplacement()
+        XCTAssertNotNil(committedReplacement)
         XCTAssertEqual(coordinator.state, .reconnected)
         XCTAssertEqual(try store.load(), returned)
         XCTAssertEqual(pairCalls.withLock { $0 }, 1)
@@ -401,6 +407,7 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
         )
 
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+        _ = try await coordinator.commitHeldReplacement()
 
         let endpoints = await endpointCache.endpoints()
         XCTAssertTrue(endpoints.contains(.lan(host: freshEndpoint.host, port: freshEndpoint.port, scope: freshEndpoint.scope)))
@@ -423,6 +430,9 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalRelayURL()))
 
+        XCTAssertEqual(coordinator.state, .heldForAnswer)
+        let committedReplacement = try await coordinator.commitHeldReplacement()
+        XCTAssertNotNil(committedReplacement)
         XCTAssertEqual(coordinator.state, .reconnected)
         XCTAssertEqual(try store.load(), replacement)
     }
@@ -443,6 +453,9 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
         try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
 
+        XCTAssertEqual(coordinator.state, .heldForAnswer)
+        let committedReplacement = try await coordinator.commitHeldReplacement()
+        XCTAssertNotNil(committedReplacement)
         XCTAssertEqual(coordinator.state, .reconnected)
         XCTAssertEqual(try store.load(), replacement)
     }
@@ -579,13 +592,207 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
 
         let pairURL = try PairURL.parse(Self.canonicalDirectURL())
         try await coordinator.handlePairURL(pairURL)
-
+        // Held: nothing changes until the owner answers.
+        XCTAssertTrue(appConfig.journalSendConfirmed)
+        let committedReplacement = try await coordinator.commitHeldReplacement()
+        XCTAssertNotNil(committedReplacement)
+        // The answer went in with the pairing; the app's own flag follows through reflect and release.
         XCTAssertFalse(appConfig.journalSendConfirmed)
 
         let countBeforeRetry2 = loadCounter.withLock { $0 }
         _ = appConfig.retrySettleIfNeeded()
         let countAfterRetry2 = loadCounter.withLock { $0 }
         XCTAssertGreaterThan(countAfterRetry2, countBeforeRetry2)
+    }
+
+    // MARK: - A ceremony replacing a pairing is held until the owner answers
+
+    private struct HeldFixture {
+        let store: PairingCredentialStore
+        let confirmation: JournalSendConfirmationStore
+        let coordinator: PairFlowCoordinator
+        let prior: StoredPairing
+        let replacement: StoredPairing
+        let priorOwner: UUID?
+        let priorGeneration: UInt64
+    }
+
+    private static func heldPairing(instanceID: String, fingerprint: Character) -> StoredPairing {
+        StoredPairing(
+            instanceID: instanceID,
+            homeLabel: instanceID,
+            relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:\(String(repeating: fingerprint, count: 64))",
+            clientCertPEM: CertlessTrustConstants.leafPEM,
+            clientKeyPEM: "key",
+            caChainPEM: CertlessTrustConstants.caPEM,
+            relayEnrollment: .unavailable,
+            localEndpoints: [LocalEndpoint(host: "192.168.1.20", port: 7657, scope: "")],
+            pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
+        )
+    }
+
+    @MainActor
+    private static func heldFixture() throws -> HeldFixture {
+        let prior = Self.heldPairing(instanceID: "journal-a", fingerprint: "a")
+        let replacement = Self.heldPairing(instanceID: "journal-b", fingerprint: "b")
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: prior)
+        let confirmation = JournalSendConfirmationStore.memory()
+        try confirmation.writeRecord(for: prior)
+        let store = PairingCredentialStore(
+            confirmationStore: confirmation,
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { pairing in holder.withLock { $0 = pairing } },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        let coordinator = PairFlowCoordinator(
+            store: store,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in replacement }
+        )
+        let snapshot = store.snapshot()
+        return HeldFixture(
+            store: store,
+            confirmation: confirmation,
+            coordinator: coordinator,
+            prior: prior,
+            replacement: replacement,
+            priorOwner: snapshot.deviceOwnerID,
+            priorGeneration: snapshot.pairingGeneration
+        )
+    }
+
+    private static func assertUnchanged(_ fixture: HeldFixture, file: StaticString = #filePath, line: UInt = #line) throws {
+        let snapshot = fixture.store.snapshot()
+        XCTAssertEqual(try fixture.store.load(), fixture.prior, file: file, line: line)
+        XCTAssertEqual(snapshot.deviceOwnerID, fixture.priorOwner, file: file, line: line)
+        XCTAssertEqual(snapshot.pairingGeneration, fixture.priorGeneration, file: file, line: line)
+        XCTAssertTrue(fixture.store.hasActiveOwner, file: file, line: line)
+        XCTAssertTrue(fixture.confirmation.allowsSend(pairing: fixture.prior), file: file, line: line)
+        XCTAssertFalse(fixture.confirmation.allowsSend(pairing: fixture.replacement), file: file, line: line)
+    }
+
+    // Falsified by applying the pairing before the question: every path below would start from a
+    // device that has already lost the pairing it had.
+    @MainActor
+    func testAskingAboutAReplacementChangesNothingStored() async throws {
+        let fixture = try Self.heldFixture()
+
+        let handled = try await fixture.coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+
+        XCTAssertTrue(handled)
+        XCTAssertEqual(fixture.coordinator.heldReplacement?.pairing, fixture.replacement)
+        XCTAssertEqual(fixture.coordinator.state, .heldForAnswer)
+        try Self.assertUnchanged(fixture)
+    }
+
+    // That doesn't match, cancelling at couldn't verify, and backing out all arrive here.
+    @MainActor
+    func testDroppingAHeldReplacementLeavesThePhoneAsItWas() async throws {
+        let fixture = try Self.heldFixture()
+        try await fixture.coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+
+        fixture.coordinator.dropHeldReplacement()
+
+        XCTAssertNil(fixture.coordinator.heldReplacement)
+        XCTAssertEqual(fixture.coordinator.state, .idle)
+        XCTAssertTrue(fixture.coordinator.canStartPairingInput)
+        try Self.assertUnchanged(fixture)
+    }
+
+    @MainActor
+    func testBackingOutMidCeremonyLeavesThePhoneAsItWas() async throws {
+        let fixture = try Self.heldFixture()
+
+        let handled = try await fixture.coordinator.handlePairURL(
+            try PairURL.parse(Self.canonicalDirectURL()),
+            shouldCommit: { false }
+        )
+
+        XCTAssertFalse(handled)
+        XCTAssertNil(fixture.coordinator.heldReplacement)
+        try Self.assertUnchanged(fixture)
+    }
+
+    // Falsified by committing the pairing without the answer: an answered replacement would land held.
+    @MainActor
+    func testAnsweringYesCommitsTheReplacementWithItsAnswer() async throws {
+        let fixture = try Self.heldFixture()
+        try await fixture.coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+
+        let committed = try await fixture.coordinator.commitHeldReplacement()
+
+        XCTAssertEqual(committed, fixture.replacement)
+        XCTAssertNil(fixture.coordinator.heldReplacement)
+        XCTAssertEqual(fixture.coordinator.state, .reconnected)
+        XCTAssertEqual(try fixture.store.load(), fixture.replacement)
+        XCTAssertTrue(fixture.store.hasActiveOwner)
+        XCTAssertTrue(fixture.confirmation.allowsSend(pairing: fixture.replacement))
+        XCTAssertFalse(fixture.confirmation.allowsSend(pairing: fixture.prior))
+    }
+
+    // Falsified by losing the prior's confirmation on the way to a yes that couldn't be saved.
+    @MainActor
+    func testAYesThatCannotBeSavedLeavesThePhoneAsItWasAndCanBeRetried() async throws {
+        let prior = Self.heldPairing(instanceID: "journal-a", fingerprint: "a")
+        let replacement = Self.heldPairing(instanceID: "journal-b", fingerprint: "b")
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: prior)
+        let failSave = OSAllocatedUnfairLock(initialState: true)
+        let confirmation = JournalSendConfirmationStore.memory()
+        try confirmation.writeRecord(for: prior)
+        let store = PairingCredentialStore(
+            confirmationStore: confirmation,
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { pairing in
+                if failSave.withLock({ $0 }) { throw CoordinatorDummyError() }
+                holder.withLock { $0 = pairing }
+            },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        let coordinator = PairFlowCoordinator(
+            store: store,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in replacement }
+        )
+        let snapshot = store.snapshot()
+        let fixture = HeldFixture(
+            store: store,
+            confirmation: confirmation,
+            coordinator: coordinator,
+            prior: prior,
+            replacement: replacement,
+            priorOwner: snapshot.deviceOwnerID,
+            priorGeneration: snapshot.pairingGeneration
+        )
+        try await coordinator.handlePairURL(try PairURL.parse(Self.canonicalDirectURL()))
+
+        do {
+            _ = try await coordinator.commitHeldReplacement()
+            XCTFail("expected the save to fail")
+        } catch {}
+        XCTAssertEqual(coordinator.heldReplacement?.pairing, replacement)
+        try Self.assertUnchanged(fixture)
+
+        failSave.withLock { $0 = false }
+        let retried = try await coordinator.commitHeldReplacement()
+        XCTAssertEqual(retried, replacement)
+        XCTAssertEqual(try store.load(), replacement)
+    }
+
+    // Falsified by saving the mark asked about: a no would leave a stranger's mark on home.
+    func testAHeldReplacementsMarkIsKeptNowhere() async throws {
+        let suite = "held-mark-\(UUID().uuidString)"
+        let store = JournalMarkStore(suiteName: suite)
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+        store.save(.uiTestSample, journalID: "journal-a")
+
+        let mark = await JournalMarkDerivation.markKeepingNothing(forCAChainPEM: CertlessTrustConstants.caPEM)
+
+        XCTAssertNotNil(mark)
+        XCTAssertEqual(store.load(), .uiTestSample)
+        XCTAssertEqual(store.mark(forJournalID: "journal-a"), .uiTestSample)
     }
 
     private static func canonicalRelayURL() -> URL {
@@ -620,7 +827,7 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
             homeLabel: homeLabel,
             relayEndpoint: "wss://relay.example.com",
             fingerprint: fingerprint,
-            clientCertPEM: "cert",
+            clientCertPEM: CertlessTrustConstants.leafPEM,
             clientKeyPEM: "key",
             caChainPEM: CertlessTrustConstants.caPEM,
             relayEnrollment: .enrolled(deviceToken: "device-token", expiresAt: nil),
