@@ -48,7 +48,20 @@
     "migration.key_refused.body" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "this device couldn't open its saved connection to your journal. anything waiting to send is still here. pair again to reconnect." } } } },
     "migration.key_refused.action" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "pair again" } } } },
     "migration.choice.body_fallback" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "same device continues the old device with its name and history, and removes its access to your journal. new device keeps both." } } } },
-    "migration.replace_confirm.title_fallback" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "replace the selected device?" } } } }
+    "migration.replace_confirm.title_fallback" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "replace the selected device?" } } } },
+    "unknown_journal.row.direct" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "unknown journal seen at {address}" } } } },
+    "unknown_journal.row.relay" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "unknown journal seen through the relay" } } } },
+    "unknown_journal.expand" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "view details" } } } },
+    "unknown_journal.heading" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "something answered instead of your journal" } } } },
+    "unknown_journal.body.direct" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "something answered this device at {address}, and it isn't the journal this device is paired with. this could be another device now using that address, or your journal, if its identity was reset. if the mark under \"what answered\" matches the one your journal shows now, pair this device again." } } } },
+    "unknown_journal.body.relay" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "something answered this device through the relay, and it isn't the journal this device is paired with. this is less certain than a direct connection." } } } },
+    "unknown_journal.label.what_answered" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "what answered" } } } },
+    "unknown_journal.label.your_journal" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "your journal" } } } },
+    "unknown_journal.caption.claimed" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "claimed, not verified" } } } },
+    "unknown_journal.caption.no_identity" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "no identity presented" } } } },
+    "unknown_journal.slot.spoken" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "no identity presented" } } } },
+    "unknown_journal.slot.word_1" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "not" } } } },
+    "unknown_journal.slot.word_2" : { "localizations" : { "en" : { "stringUnit" : { "state" : "translated", "value" : "presented" } } } }
   },
   "version" : "1.0"
 }

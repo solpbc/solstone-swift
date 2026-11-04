@@ -230,6 +230,8 @@ extension TransportStage {
             return "attemptUpdatesFinished"
         case .attemptUpdatesUnavailable:
             return "attemptUpdatesUnavailable"
+        case .unknownJournal:
+            return "unknownJournal"
         }
     }
 }

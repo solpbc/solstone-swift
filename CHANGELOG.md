@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Added
+
+- when something other than your journal answers, the app now tells you and shows both marks to compare.
+
 ## [2.0.11 (144)] - 2026-11-03
 
 ### Fixed

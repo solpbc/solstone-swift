@@ -107,18 +107,22 @@ struct JournalMarkUnavailableChip: View {
 struct JournalMarkView: View {
     let identity: JournalIdentity
     var isConfirmed = false
+    /// The chip's side. Everything in the card scales with it, so a smaller card is the same mark.
+    var side: CGFloat = MarkGeometry.size
+
+    private var scale: CGFloat { self.side / MarkGeometry.size }
 
     var body: some View {
         Group {
             switch self.identity {
             case .mark(let mark):
-                VStack(spacing: MarkGeometry.verticalGap) {
-                    HStack(spacing: MarkGeometry.iconGap) {
-                        JournalMarkIconChip(icon: mark.icon1)
-                        JournalMarkIconChip(icon: mark.icon2)
+                VStack(spacing: MarkGeometry.verticalGap * self.scale) {
+                    HStack(spacing: MarkGeometry.iconGap(side: self.side)) {
+                        JournalMarkIconChip(icon: mark.icon1, side: self.side)
+                        JournalMarkIconChip(icon: mark.icon2, side: self.side)
                     }
 
-                    JournalMarkWordLine(words: mark.words)
+                    JournalMarkWordLine(words: mark.words, scale: self.scale)
 
                     if self.isConfirmed {
                         Text(SourceVocabulary.journalMarkConfirmedLine)
@@ -126,58 +130,85 @@ struct JournalMarkView: View {
                             .foregroundStyle(MarkGeometry.confirmationColor)
                     }
                 }
-                .padding(.horizontal, MarkGeometry.cardHorizontalPadding)
-                .padding(.vertical, MarkGeometry.cardVerticalPadding)
-                .background(MarkGeometry.cardFill, in: RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous)
-                        .stroke(self.isConfirmed ? MarkGeometry.confirmedBorder : MarkGeometry.cardBorder, lineWidth: self.isConfirmed ? 2 : 1)
-                }
+                .markCard(
+                    scale: self.scale,
+                    border: self.isConfirmed ? MarkGeometry.confirmedBorder : MarkGeometry.cardBorder,
+                    borderWidth: self.isConfirmed ? 2 : 1
+                )
                 .shadow(color: self.isConfirmed ? MarkGeometry.confirmedBorder.opacity(0.35) : .clear, radius: 10)
             case .generic, .awaitingConfirmation:
-                VStack(spacing: MarkGeometry.verticalGap) {
-                    HStack(spacing: MarkGeometry.iconGap) {
+                VStack(spacing: MarkGeometry.verticalGap * self.scale) {
+                    HStack(spacing: MarkGeometry.iconGap(side: self.side)) {
                         JournalMarkGenericChip(
                             hex: JournalMarkGeneric.orangeHex,
-                            rotated: false
+                            rotated: false,
+                            side: self.side
                         )
                         JournalMarkGenericChip(
                             hex: JournalMarkGeneric.goldHex,
-                            rotated: true
+                            rotated: true,
+                            side: self.side
                         )
                     }
 
-                    JournalMarkWordLine(words: JournalMarkGeneric.words)
+                    JournalMarkWordLine(words: JournalMarkGeneric.words, scale: self.scale)
                 }
-                .padding(.horizontal, MarkGeometry.cardHorizontalPadding)
-                .padding(.vertical, MarkGeometry.cardVerticalPadding)
-                .background(MarkGeometry.cardFill, in: RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous)
-                        .stroke(MarkGeometry.cardBorder, lineWidth: 1)
-                }
+                .markCard(scale: self.scale)
             case .unavailable:
-                VStack(spacing: MarkGeometry.verticalGap) {
-                    HStack(spacing: MarkGeometry.iconGap) {
-                        JournalMarkUnavailableChip()
-                        JournalMarkUnavailableChip()
+                VStack(spacing: MarkGeometry.verticalGap * self.scale) {
+                    HStack(spacing: MarkGeometry.iconGap(side: self.side)) {
+                        JournalMarkUnavailableChip(side: self.side)
+                        JournalMarkUnavailableChip(side: self.side)
                     }
 
-                    JournalMarkWordLine(words: JournalIdentity.unavailableWords)
+                    JournalMarkWordLine(words: JournalIdentity.unavailableWords, scale: self.scale)
                 }
-                .padding(.horizontal, MarkGeometry.cardHorizontalPadding)
-                .padding(.vertical, MarkGeometry.cardVerticalPadding)
-                .background(MarkGeometry.cardFill, in: RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous)
-                        .stroke(MarkGeometry.cardBorder, lineWidth: 1)
-                }
+                .markCard(scale: self.scale)
             }
         }
         // ignore is load-bearing for the four-token / generic spoken value; chips must not be separate elements.
         .accessibilityElement(children: .ignore)
         .accessibilityValue(self.identity.spokenValue)
         .accessibilityIdentifier("journalMark")
+    }
+}
+
+/// The slot for a peer that presented no identity. Same geometry as every other mark state, in
+/// neutral ink: brand colour would claim an affiliation this peer doesn't have.
+struct JournalMarkNotPresentedView: View {
+    var side: CGFloat = MarkGeometry.size
+
+    private var scale: CGFloat { self.side / MarkGeometry.size }
+
+    var body: some View {
+        VStack(spacing: MarkGeometry.verticalGap * self.scale) {
+            HStack(spacing: MarkGeometry.iconGap(side: self.side)) {
+                JournalMarkGenericChip(hex: JournalMarkGeneric.neutralHex, rotated: false, side: self.side)
+                JournalMarkGenericChip(hex: JournalMarkGeneric.neutralHex, rotated: true, side: self.side)
+            }
+
+            JournalMarkWordLine(words: UnknownJournalCopy.notPresentedWordKeys.map(UnknownJournalCopy.localized), scale: self.scale)
+        }
+        .markCard(scale: self.scale)
+        .accessibilityElement(children: .ignore)
+        .accessibilityValue(UnknownJournalCopy.localized(UnknownJournalCopy.noIdentitySpokenKey))
+    }
+}
+
+private extension View {
+    func markCard(
+        scale: CGFloat,
+        border: Color = MarkGeometry.cardBorder,
+        borderWidth: CGFloat = 1
+    ) -> some View {
+        self
+            .padding(.horizontal, MarkGeometry.cardHorizontalPadding * scale)
+            .padding(.vertical, MarkGeometry.cardVerticalPadding * scale)
+            .background(MarkGeometry.cardFill, in: RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: MarkGeometry.cardRadius, style: .continuous)
+                    .stroke(border, lineWidth: borderWidth)
+            }
     }
 }
 
@@ -197,6 +228,7 @@ struct JournalMarkInlineWords: View {
 
 private struct JournalMarkWordLine: View {
     let words: [String]
+    var scale: CGFloat = 1
 
     var body: some View {
         // Separate spans: the words carry the mark's own ink and only the middot is quiet.
@@ -207,7 +239,7 @@ private struct JournalMarkWordLine: View {
             + Text(" · ").foregroundColor(MarkGeometry.wordSeparatorColor)
             + Text(self.words.count > 1 ? self.words[1] : "").foregroundColor(MarkGeometry.wordColor)
         return joined
-            .font(.custom("Comfortaa-Bold", size: MarkGeometry.wordFontSize, relativeTo: .headline))
+            .font(.custom("Comfortaa-Bold", size: MarkGeometry.wordFontSize * self.scale, relativeTo: .headline))
             .lineLimit(1)
             .minimumScaleFactor(0.75)
     }

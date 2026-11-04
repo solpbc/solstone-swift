@@ -7,10 +7,13 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
     nonisolated let stateUpdates: AsyncStream<TunnelState>
     nonisolated let connectionModeUpdates: AsyncStream<ConnectionMode?>
     nonisolated let attemptUpdates: AsyncStream<TunnelAttemptEvent>
+    nonisolated let unknownJournalSightings: AsyncStream<UnknownJournalSighting>
 
     private let stateContinuation: AsyncStream<TunnelState>.Continuation
     private let connectionModeContinuation: AsyncStream<ConnectionMode?>.Continuation
     private let attemptUpdatesContinuation: AsyncStream<TunnelAttemptEvent>.Continuation
+    private let sightingsContinuation: AsyncStream<UnknownJournalSighting>.Continuation
+    private let sightingsDuringConnect: [UnknownJournalSighting]
     private let connectedVia: ConnectedVia
     private let connectedMode: ConnectionMode
     private let yieldAwaitingBrokerDuringConnect: Bool
@@ -35,8 +38,13 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
         yieldAwaitingBrokerDuringConnect: Bool = false,
         finishAttemptUpdatesAfterConnect: Bool = true,
         suspendConnect: Bool = false,
-        suspendDisconnect: Bool = false
+        suspendDisconnect: Bool = false,
+        sightingsDuringConnect: [UnknownJournalSighting] = []
     ) {
+        let sightings = AsyncStream<UnknownJournalSighting>.makeStream()
+        self.unknownJournalSightings = sightings.stream
+        self.sightingsContinuation = sightings.continuation
+        self.sightingsDuringConnect = sightingsDuringConnect
         let state = AsyncStream<TunnelState>.makeStream()
         self.stateUpdates = state.stream
         self.stateContinuation = state.continuation
@@ -61,6 +69,9 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
         connectCallCount += 1
         if suspendConnect { await withCheckedContinuation { connectContinuation = $0 } }
         stateContinuation.yield(.connecting(candidates: endpoints.map(\.connectedVia)))
+        for sighting in sightingsDuringConnect {
+            sightingsContinuation.yield(sighting)
+        }
         if let failureDuringConnect {
             stateContinuation.yield(.failed(failureDuringConnect))
             try await Task.sleep(for: .milliseconds(200))
@@ -88,6 +99,7 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
         stateContinuation.yield(.disconnected)
         stateContinuation.finish()
         connectionModeContinuation.finish()
+        sightingsContinuation.finish()
         for event in attemptsOnDisconnect {
             attemptUpdatesContinuation.yield(event)
         }

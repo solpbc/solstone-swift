@@ -7,6 +7,8 @@
 import XCTest
 import os
 
+extension FakeTunnelSession: UnknownJournalObserving {}
+
 nonisolated final class CFTunnelTransportTests: XCTestCase {
     @MainActor
     func testMissingPairingSurfacesCleanErrorAndStage() async {
@@ -52,6 +54,37 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
 
         stream.continuation.finish()
         await transport.disconnect()
+    }
+
+    // Falsified by holding a sighting to the session epoch or cancelling its reader at disconnect:
+    // a race that fails on an unknown journal disconnects at once, and the sighting explains why.
+    @MainActor
+    func testASightingFromAFailedRaceStillArrivesAfterTheDisconnect() async throws {
+        let sighting = UnknownJournalSighting(dialled: .lanDirect(host: "127.0.0.1", port: 8676), claimedJournalID: nil)
+        let fakeSession = FakeTunnelSession(
+            thrownDuringConnect: SessionError.unknownJournal,
+            sightingsDuringConnect: [sighting]
+        )
+        let transport = CFTunnelTransport(
+            loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in fakeSession }
+        )
+        let stages = OSAllocatedUnfairLock(initialState: [TransportStage]())
+
+        do {
+            _ = try await transport.connect(
+                candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+                onDisconnect: { _ in },
+                onStageChange: { stage in stages.withLock { $0.append(stage) } }
+            )
+            XCTFail("expected the connect to fail")
+        } catch {}
+        await transport.disconnect()
+        for _ in 0..<50 where !stages.withLock({ $0 }).contains(.unknownJournal(sighting)) {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertTrue(stages.withLock { $0 }.contains(.unknownJournal(sighting)))
     }
 
     @MainActor

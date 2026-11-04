@@ -288,6 +288,7 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
 
 struct StatusPane: View {
     let presentation: ShellPanePresentation
+    var journalMark: JournalMark? = nil
 
     @Environment(AppConfig.self) private var appConfig
     @Environment(ShellStatusContext.self) private var shellStatusContext
@@ -330,6 +331,14 @@ struct StatusPane: View {
         case .connected, .connecting, .disconnected:
             return nil
         }
+    }
+
+    private var yourJournalIdentity: JournalIdentity {
+        JournalIdentity.select(
+            isPaired: self.appConfig.isPaired,
+            sendConfirmed: self.appConfig.journalSendConfirmed,
+            mark: self.journalMark
+        )
     }
 
     private var showsConnectionDetails: Bool {
@@ -714,6 +723,10 @@ struct StatusPane: View {
                     } else if let tried = self.triedAddresses {
                         self.renderTriedAddresses(tried)
                     }
+                }
+
+                ForEach(self.tunnelManager.unknownJournals) { notice in
+                    UnknownJournalRow(notice: notice, yourJournal: self.yourJournalIdentity)
                 }
             } header: {
                 Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)

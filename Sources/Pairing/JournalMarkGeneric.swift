@@ -11,6 +11,8 @@ nonisolated enum JournalMarkGeneric {
     static let awaitingConfirmationSpokenValue = "your journal, mark not confirmed yet"
     static let orangeHex = "#E8913A"
     static let goldHex = "#D4A017"
+    /// A peer that presented no identity is not ours, so its slot takes no brand colour.
+    static let neutralHex = "#6E6453"
     static let fillOpacity = 0.07
     static let dashOnUnits: CGFloat = 3.2
     static let dashOffUnits: CGFloat = 2.4

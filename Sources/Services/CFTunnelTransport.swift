@@ -159,6 +159,7 @@ final class CFTunnelTransport: Transporting {
         )
         observeConnectionModeUpdates(session.connectionModeUpdates)
         observeAttemptUpdates(session, onStageChange: onStageChange)
+        observeUnknownJournalSightings(session, onStageChange: onStageChange)
 
         do {
             let port = try await raceStartupAgainstConnectWindow(
@@ -389,6 +390,21 @@ final class CFTunnelTransport: Transporting {
         }
     }
 
+    /// Forwards a session's sightings until its stream finishes at `disconnect()`.
+    private func observeUnknownJournalSightings(
+        _ session: any TunnelSessioning,
+        onStageChange: @Sendable @escaping (TransportStage) -> Void
+    ) {
+        guard let observing = session as? any UnknownJournalObserving else { return }
+        // why: no epoch check and no cancel. A failed race disconnects at once, and a sighting
+        // from that race is what explains the failure, so what the stream buffered still arrives.
+        Task { @MainActor in
+            for await sighting in observing.unknownJournalSightings {
+                onStageChange(.unknownJournal(sighting))
+            }
+        }
+    }
+
     private func drainAttemptUpdates() async {
         await self.drainAttemptUpdates(task: self.attemptUpdatesTask)
     }
@@ -437,6 +453,7 @@ final class CFTunnelTransport: Transporting {
         )
         // Keep the runtime existential narrow while making an SDK conformance change a compile error.
         let _: any TunnelAttemptObserving = session
+        let _: any UnknownJournalObserving = session
         return session
     }
 }

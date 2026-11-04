@@ -278,6 +278,10 @@ final class TunnelManager {
     }
     /// The direct addresses the last dial tried when it reached none of them.
     private(set) var lastFailedDial: TriedAddresses?
+    /// Peers that answered where the paired journal was expected, one per address, direct addresses
+    /// first. Beside `state`, never feeding it. In memory only: a restart clears them, and there is
+    /// no dismiss.
+    private(set) var unknownJournals: [UnknownJournalNotice] = []
     /// The address the current connection won through, or "the relay".
     private(set) var connectedAddress: String?
     /// The direct address the current connection won through; nil through the relay.
@@ -303,6 +307,12 @@ final class TunnelManager {
     @ObservationIgnored private let probeSession: URLSession
     @ObservationIgnored private let probeURLBuilder: @Sendable (Int) -> URL?
     @ObservationIgnored private let activeLocalTransferCountProvider: @Sendable @MainActor () -> Int
+    @ObservationIgnored private let deriveClaimedMark: @Sendable (String) async -> JournalMark?
+    /// The pairing the current notices were seen against. A sighting only means anything against
+    /// the journal this device expected.
+    @ObservationIgnored private var unknownJournalPairingKey: String?
+    /// One Argon2 per jid at a time. A jid can answer at more than one place.
+    @ObservationIgnored private var claimedMarkDerivations: [String: Task<JournalMark?, Never>] = [:]
     @ObservationIgnored private var connectTask: Task<Void, Never>?
     @ObservationIgnored private var pairingReconnectTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
@@ -393,7 +403,8 @@ final class TunnelManager {
         journalVersion: JournalVersionMetadata? = nil,
         homeJobs: HomeAuthenticatedJobs? = nil,
         migrationCoordinator: DeviceMigrationCoordinator? = nil,
-        automaticallyReconnectOnCredentialReplacement: Bool = true
+        automaticallyReconnectOnCredentialReplacement: Bool = true,
+        deriveClaimedMark: @escaping @Sendable (String) async -> JournalMark? = { await JournalMarkDerivation.mark(forClaimedJournalID: $0) }
     ) {
         let effectiveStore = store ?? PairingCredentialStore(
             loadPairing: loadPairing,
@@ -414,6 +425,7 @@ final class TunnelManager {
         self.probeSession = probeSession
         self.probeURLBuilder = probeURLBuilder
         self.activeLocalTransferCountProvider = activeLocalTransferCountProvider
+        self.deriveClaimedMark = deriveClaimedMark
         self.connectDeadline = connectDeadline
         self.clock = clock
         self.healthyProbeInterval = probeWatchdogPolicy.healthyInterval
@@ -423,10 +435,12 @@ final class TunnelManager {
         self.diagnosticLog = diagnosticLog
         effectiveStore.registerOnCredentialInvalidation { [weak self] in
             self?.closeOrdinaryAdmission()
+            self?.adoptUnknownJournalPairingKey(nil)
         }
         effectiveStore.registerOnCredentialReplacement { [weak self] in
             guard let self else { return }
             self.closeOrdinaryAdmission()
+            self.adoptUnknownJournalPairingKey(self.store.snapshot().pairing.map(Self.unknownJournalPairingKey))
             guard automaticallyReconnectOnCredentialReplacement else { return }
             Task { @MainActor in await self.reconnectAfterPairingChange() }
         }
@@ -704,9 +718,94 @@ final class TunnelManager {
         self.lastFailedDial = selected ? nil : self.triedAddressesFromTelemetry()
     }
 
+    /// Instance and CA, not the client certificate. Moving this device to a new key keeps the
+    /// journal it expects, so what was seen against that journal still stands.
+    private nonisolated static func unknownJournalPairingKey(for pairing: StoredPairing) -> String {
+        "\(pairing.instanceID)|\(pairing.caChainPEM)"
+    }
+
+    private func adoptUnknownJournalPairingKey(_ key: String?) {
+        guard self.unknownJournalPairingKey != key else { return }
+        self.unknownJournalPairingKey = key
+        self.unknownJournals = []
+    }
+
+    private func noteUnknownJournal(_ sighting: UnknownJournalSighting, pairingKey: String) {
+        guard pairingKey == self.unknownJournalPairingKey else { return }
+        let place = UnknownJournalNotice.Place(sighting.dialled)
+        let jid = sighting.claimedJournalID
+        let claim: UnknownJournalNotice.Claim = jid == nil ? .noIdentity : .deriving
+        if let index = self.unknownJournals.firstIndex(where: { $0.place == place }) {
+            // The derivation is deliberately slow, so it runs once per jid per place, unless the
+            // last try couldn't draw it.
+            guard self.unknownJournals[index].claimedJournalID != jid
+                    || self.unknownJournals[index].claim == .unavailable else { return }
+            self.unknownJournals[index].claimedJournalID = jid
+            self.unknownJournals[index].claim = claim
+        } else {
+            let notice = UnknownJournalNotice(place: place, claimedJournalID: jid, claim: claim)
+            if case .relay = place {
+                self.unknownJournals.append(notice)
+            } else {
+                let firstRelay = self.unknownJournals.firstIndex { $0.place == .relay }
+                self.unknownJournals.insert(notice, at: firstRelay ?? self.unknownJournals.endIndex)
+            }
+        }
+        guard let jid else { return }
+        let derivation = self.claimedMarkDerivations[jid] ?? {
+            let derive = self.deriveClaimedMark
+            let task = Task { await derive(jid) }
+            self.claimedMarkDerivations[jid] = task
+            return task
+        }()
+        Task { @MainActor [weak self] in
+            let mark = await derivation.value
+            guard let self else { return }
+            if self.claimedMarkDerivations[jid] == derivation {
+                self.claimedMarkDerivations[jid] = nil
+            }
+            guard let index = self.unknownJournals.firstIndex(where: { $0.place == place }),
+                  self.unknownJournals[index].claimedJournalID == jid else { return }
+            self.unknownJournals[index].claim = mark.map { .mark($0) } ?? .unavailable
+        }
+    }
+
+    /// An address this device no longer dials can't clear itself, so it doesn't stay.
+    private func dropUnknownJournalRowsNotIn(_ candidates: [TransportEndpoint]) {
+        let dialled = Set(candidates.compactMap { candidate -> String? in
+            guard case .lan(let host, let port, _, _) = candidate else { return nil }
+            return JournalAddress.display(host: host, port: port)
+        })
+        self.unknownJournals.removeAll { notice in
+            guard case .address(let address) = notice.place else { return false }
+            return !dialled.contains(address)
+        }
+    }
+
+    /// A candidate is only ready once its handshake verified the pinned CA, so reaching this point
+    /// at a place means the paired journal answered there.
+    private func clearUnknownJournal(reachedOrdinal ordinal: Int, route: TunnelAttemptRoute) {
+        let place: UnknownJournalNotice.Place
+        switch self.candidateEndpoint(ordinal: ordinal, route: route) {
+        case .lan(let host, let port, _, _):
+            place = .address(JournalAddress.display(host: host, port: port))
+        case .relay:
+            place = .relay
+        case nil:
+            return
+        }
+        self.unknownJournals.removeAll { $0.place == place }
+    }
+
     private func handleAttemptEvent(_ event: TunnelAttemptEvent, epoch: UInt64) {
         guard self.isCurrentAttempt(epoch), self.currentTelemetryEpoch == epoch else { return }
         let now = self.clock.monotonicNow()
+        switch event.phase {
+        case .transportReady, .selected:
+            self.clearUnknownJournal(reachedOrdinal: event.ordinal, route: event.route)
+        case .started, .waitingForBroker, .failed, .cancelled:
+            break
+        }
         if case .started = event.phase {
             self.candidateTelemetryTotal += 1
             guard self.candidateTelemetry[event.ordinal] != nil || self.candidateTelemetry.count < maximumSnapshotCandidateLines else {
@@ -1106,8 +1205,15 @@ final class TunnelManager {
         }
         self.updateJournalFingerprint(from: pairingForIdentity)
         self.dialedPairingIdentity = journalVersionMetadataIdentity(for: pairingForIdentity)
+        let unknownJournalPairingKey = Self.unknownJournalPairingKey(for: pairingForIdentity)
+        // why: with no active owner this device's pairing is between owners. What was seen against
+        // the journal it last expected stands until one takes over.
+        if self.store.hasActiveOwner {
+            self.adoptUnknownJournalPairingKey(unknownJournalPairingKey)
+        }
         let (candidates, prepared) = try await self.candidateList(pairingOverride: pairingOverride, permit: permit)
         guard permit.isValid, !Task.isCancelled, self.isCurrentAttempt(epoch) else { throw CancellationError() }
+        self.dropUnknownJournalRowsNotIn(candidates)
         onPrepared(prepared)
         self.completeStage(.prepareCandidates, detail: Self.candidateCountDetail(candidates.count))
         self.candidateEndpointByOrdinal = Dictionary(
@@ -1147,6 +1253,12 @@ final class TunnelManager {
             },
             onStageChange: { [weak self] event in
                 Task { @MainActor [weak self] in
+                    // why: a sighting belongs to the pairing it was seen against, so it isn't held
+                    // to the attempt. A re-race can retire the attempt before its sighting lands.
+                    if case .unknownJournal(let sighting) = event {
+                        self?.noteUnknownJournal(sighting, pairingKey: unknownJournalPairingKey)
+                        return
+                    }
                     guard let self, self.isCurrentAttempt(epoch) else { return }
                     self.handleStageChange(event, epoch: epoch, dialGeneration: dialGeneration)
                 }
@@ -1358,6 +1470,23 @@ final class TunnelManager {
 
     func forceDisconnectedForUITest() {
         self.state = .disconnected
+    }
+
+    /// One sighting that claimed a jid at a direct address, and one through the relay that claimed nothing.
+    func seedUnknownJournalsForUITest() {
+        let pairingKey = "ui-test"
+        self.adoptUnknownJournalPairingKey(pairingKey)
+        self.noteUnknownJournal(
+            UnknownJournalSighting(
+                dialled: .lanDirect(host: "192.168.4.63", port: 7657),
+                claimedJournalID: "0190f3a2-7c4e-7d21-9b3f-5e8a1c2d4f60"
+            ),
+            pairingKey: pairingKey
+        )
+        self.noteUnknownJournal(
+            UnknownJournalSighting(dialled: .relay(endpoint: URL(string: "wss://relay.example.com")!), claimedJournalID: nil),
+            pairingKey: pairingKey
+        )
     }
 
     func forceNetworkStatus(isSatisfied: Bool, isWiFi: Bool) {
@@ -1982,6 +2111,9 @@ final class TunnelManager {
             guard dialGeneration == self.currentDialGeneration else { return }
             self.telemetryCompleteness = .unavailable
             self.completeStage(.raceCandidates)
+        case .unknownJournal:
+            // Taken before the attempt check, at the dial's stage callback.
+            break
         }
     }
 

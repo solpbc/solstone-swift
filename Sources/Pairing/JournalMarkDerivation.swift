@@ -34,6 +34,20 @@ nonisolated enum JournalMarkDerivation {
             return nil
         }
     }
+
+    /// The mark for a journal ID a peer claimed. It lives with the sighting and never goes in the
+    /// store, which holds only the mark of the journal this device is paired with.
+    static func mark(
+        forClaimedJournalID journalID: String,
+        derive: @Sendable (String) async throws -> MarkRenderSpec = { try await deriveMark(fromJournalID: $0) }
+    ) async -> JournalMark? {
+        do {
+            return JournalMark.validate(JournalMark(try await derive(journalID)))
+        } catch {
+            Self.log.error("claimed journal mark derivation failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
 }
 
 nonisolated extension JournalMark {

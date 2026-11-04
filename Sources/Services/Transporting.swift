@@ -42,4 +42,5 @@ public enum TransportStage: Sendable, Equatable {
     case attemptEvent(TunnelAttemptEvent)
     case attemptUpdatesFinished
     case attemptUpdatesUnavailable
+    case unknownJournal(UnknownJournalSighting)
 }

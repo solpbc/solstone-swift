@@ -817,9 +817,9 @@ struct RootShellView: View {
         NavigationStack(path: self.$statusPath) {
             Group {
                 if self.reduceMotion || self.prefersCrossFade {
-                    StatusPane(presentation: .phoneModal)
+                    StatusPane(presentation: .phoneModal, journalMark: self.journalMark)
                 } else {
-                    StatusPane(presentation: .phoneModal)
+                    StatusPane(presentation: .phoneModal, journalMark: self.journalMark)
                         .navigationTransition(.zoom(sourceID: HomeChromeID.status, in: self.homeChrome))
                 }
             }
@@ -888,6 +888,9 @@ struct RootShellView: View {
            !arguments.contains("--ui-test-no-journal")
         {
             self.journalMark = .uiTestSample
+        }
+        if arguments.contains("--ui-test-seed-unknown-journal") {
+            self.tunnelManager.seedUnknownJournalsForUITest()
         }
         if let raw = arguments.first(where: { $0.hasPrefix("--ui-test-open-pane=") }) {
             let pane = String(raw.dropFirst("--ui-test-open-pane=".count))

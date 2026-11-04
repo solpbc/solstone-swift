@@ -22,7 +22,7 @@ nonisolated final class ShellDestinationRoutingTests: XCTestCase {
             ("case .source(.watch):", "WatchSourceDetailView()"),
             ("case .source(.calendar):", "CalendarSourceDetailView()"),
             ("case .source(.safari):", "SafariSourceDetailView()"),
-            ("case .status:", "StatusPane(presentation: .detail)"),
+            ("case .status:", "StatusPane(presentation: .detail, journalMark: self.journalMark)"),
             ("case .journal:", "InAppJournalView(mark: self.journalMark, presentation: .detail, path: self.journalPath)"),
             ("case .journalSetup:", "JournalLivesPane()"),
             ("case .addMore:", "AddMoreView"),

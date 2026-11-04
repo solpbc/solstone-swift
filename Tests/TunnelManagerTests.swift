@@ -144,7 +144,8 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         jitterRandom: @escaping @Sendable (ClosedRange<Double>) -> Double = { Double.random(in: $0) },
         activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
         diagnosticLog: DiagnosticLog? = nil,
-        migrationCoordinator: DeviceMigrationCoordinator? = nil
+        migrationCoordinator: DeviceMigrationCoordinator? = nil,
+        deriveClaimedMark: @escaping @Sendable (String) async -> JournalMark? = { _ in .uiTestSample }
     ) -> TunnelManager {
         let probeWatchdogPolicy = ProbeWatchdogPolicy(
             healthyInterval: probeInterval,
@@ -170,8 +171,368 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             random: jitterRandom,
             activeLocalTransferCountProvider: activeLocalTransferCountProvider,
             diagnosticLog: diagnosticLog,
-            migrationCoordinator: migrationCoordinator
+            migrationCoordinator: migrationCoordinator,
+            deriveClaimedMark: deriveClaimedMark
         )
+    }
+
+    // MARK: - Unknown journal notices
+
+    private static let sightingA = "192.168.1.20:7657"
+    private static let sightingB = "192.168.1.21:7657"
+    private static let claimedJID = "0190f3a2-7c4e-7d21-9b3f-5e8a1c2d4f60"
+    private static let otherClaimedJID = "0190f3a2-7c4e-7d21-9b3f-5e8a1c2d4f61"
+
+    private static func twoAddressPairing() -> StoredPairing {
+        Self.fixturePairing(localEndpoints: [
+            LocalEndpoint(host: "192.168.1.20", port: 7657, scope: "lan"),
+            LocalEndpoint(host: "192.168.1.21", port: 7657, scope: "lan"),
+        ])
+    }
+
+    private static func sighting(_ host: String, jid: String? = claimedJID) -> TransportStage {
+        .unknownJournal(UnknownJournalSighting(dialled: .lanDirect(host: host, port: 7657), claimedJournalID: jid))
+    }
+
+    private static func relaySighting(jid: String? = nil) -> TransportStage {
+        .unknownJournal(UnknownJournalSighting(dialled: .relay(endpoint: URL(string: "wss://relay.example.com")!), claimedJournalID: jid))
+    }
+
+    // Falsified by collapsing places into one row, or by a sighting moving the connection's state.
+    @MainActor
+    func testSightingsAreOneRowPerPlaceWithAddressesFirstAndLeaveTheConnectionAlone() async {
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, pairing: Self.twoAddressPairing())
+        await manager.connect()
+        let connected = manager.state
+        XCTAssertTrue(connected.isConnected)
+
+        transport.emitStage(Self.relaySighting(), attempt: 1)
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        transport.emitStage(Self.sighting("192.168.1.21", jid: nil), attempt: 1)
+        await Self.settle()
+
+        XCTAssertEqual(manager.unknownJournals.map(\.place), [
+            .address(Self.sightingA),
+            .address(Self.sightingB),
+            .relay,
+        ])
+        XCTAssertEqual(manager.unknownJournals.map(\.claim), [.mark(.uiTestSample), .noIdentity, .noIdentity])
+        XCTAssertEqual(manager.state, connected)
+        await manager.disconnect()
+    }
+
+    // Falsified by deriving per sighting (argon2id on every re-dial), by keying the cache on the
+    // jid alone (the second address shares the first's slot), or by not recomputing on a new jid.
+    @MainActor
+    func testClaimedMarkIsDerivedOncePerPlaceAndRecomputedOnlyWhenTheJidChanges() async {
+        let derived = OSAllocatedUnfairLock(initialState: [String]())
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            pairing: Self.twoAddressPairing(),
+            deriveClaimedMark: { jid in
+                derived.withLock { $0.append(jid) }
+                return .uiTestSample
+            }
+        )
+        await manager.connect()
+
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(derived.withLock { $0 }, [Self.claimedJID])
+
+        transport.emitStage(Self.sighting("192.168.1.21"), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(derived.withLock { $0 }, [Self.claimedJID, Self.claimedJID])
+
+        transport.emitStage(Self.sighting("192.168.1.20", jid: Self.otherClaimedJID), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(derived.withLock { $0 }, [Self.claimedJID, Self.claimedJID, Self.otherClaimedJID])
+        XCTAssertEqual(manager.unknownJournals.first?.claimedJournalID, Self.otherClaimedJID)
+        await manager.disconnect()
+    }
+
+    // Falsified by showing a claimed jid as if it presented no identity while its mark is computed,
+    // or by a slow derivation for an old jid overwriting the newer jid's slot.
+    @MainActor
+    func testAnOlderDerivationNeverLandsOnANewerClaim() async {
+        let gate = AsyncStream<Void>.makeStream()
+        let otherMark = JournalMark(
+            icon1: JournalMark.uiTestSample.icon2,
+            icon2: JournalMark.uiTestSample.icon1,
+            words: ["other", "mark"]
+        )
+        let transport = MockCFTunnelTransport()
+        let firstJID = Self.claimedJID
+        let manager = makeManager(
+            transport: transport,
+            pairing: Self.twoAddressPairing(),
+            deriveClaimedMark: { jid in
+                guard jid == firstJID else { return otherMark }
+                for await _ in gate.stream { break }
+                return .uiTestSample
+            }
+        )
+        await manager.connect()
+
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.first?.claim, .deriving)
+
+        transport.emitStage(Self.sighting("192.168.1.20", jid: Self.otherClaimedJID), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.first?.claim, .mark(otherMark))
+
+        gate.continuation.yield()
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.first?.claim, .mark(otherMark))
+        await manager.disconnect()
+    }
+
+    // Falsified by saying no identity was presented when one was and it only couldn't be drawn, or
+    // by never trying again.
+    @MainActor
+    func testAClaimThatCannotBeDrawnIsUnavailableAndRetriedOnTheNextSighting() async {
+        let attempts = OSAllocatedUnfairLock(initialState: 0)
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            pairing: Self.twoAddressPairing(),
+            deriveClaimedMark: { _ in
+                attempts.withLock { $0 += 1 }
+                return attempts.withLock { $0 } == 1 ? nil : .uiTestSample
+            }
+        )
+        await manager.connect()
+
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.map(\.place), [.address(Self.sightingA)])
+        XCTAssertEqual(manager.unknownJournals.first?.claim, .unavailable)
+
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(attempts.withLock { $0 }, 2)
+        XCTAssertEqual(manager.unknownJournals.first?.claim, .mark(.uiTestSample))
+
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(attempts.withLock { $0 }, 2)
+        await manager.disconnect()
+    }
+
+    // Falsified by running Argon2 for each place while one is already running for that jid.
+    @MainActor
+    func testAJidSeenAtTwoPlacesSharesOneDerivationInFlight() async {
+        let gate = AsyncStream<Void>.makeStream()
+        let derived = OSAllocatedUnfairLock(initialState: 0)
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(
+            transport: transport,
+            pairing: Self.twoAddressPairing(),
+            deriveClaimedMark: { _ in
+                derived.withLock { $0 += 1 }
+                for await _ in gate.stream { break }
+                return .uiTestSample
+            }
+        )
+        await manager.connect()
+
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        transport.emitStage(Self.sighting("192.168.1.21"), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(derived.withLock { $0 }, 1)
+        XCTAssertEqual(manager.unknownJournals.map(\.claim), [.deriving, .deriving])
+
+        gate.continuation.yield()
+        await Self.settle()
+        XCTAssertEqual(derived.withLock { $0 }, 1)
+        XCTAssertEqual(manager.unknownJournals.map(\.claim), [.mark(.uiTestSample), .mark(.uiTestSample)])
+        await manager.disconnect()
+    }
+
+    // Falsified by keeping a row for an address nothing dials any more: it could never clear.
+    @MainActor
+    func testAnAddressNoLongerACandidateLosesItsRowAndTheRelaysStays() async {
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: Self.twoAddressPairing())
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, loadPairing: { holder.withLock { $0 } })
+        await manager.connect()
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        transport.emitStage(Self.sighting("10.9.9.9"), attempt: 1)
+        transport.emitStage(Self.relaySighting(), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.count, 3)
+
+        await manager.reconnectAfterPairingChange()
+
+        XCTAssertEqual(manager.unknownJournals.map(\.place), [.address(Self.sightingA), .relay])
+        await manager.disconnect()
+    }
+
+    // Falsified by adopting a new comparison while the pairing has no owner: the rows would go, and
+    // a sighting would be recorded against a pairing that is on its way out.
+    @MainActor
+    func testADialWithNoActiveOwnerLeavesTheNoticesAlone() async throws {
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: Self.twoAddressPairing())
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } },
+            deletePairing: {}
+        )
+        let transport = MockCFTunnelTransport()
+        let manager = TunnelManager(
+            transport: transport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            store: store,
+            deriveClaimedMark: { _ in .uiTestSample }
+        )
+        _ = try store.beginPairingInvalidation()
+        XCTAssertFalse(store.hasActiveOwner)
+        await manager.connect()
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+
+        XCTAssertTrue(manager.unknownJournals.isEmpty)
+        await manager.disconnect()
+    }
+
+    // Falsified by clearing everything on any connection, by requiring the address to win the race
+    // (a loser that verified the CA still reached the paired journal), or by clearing on a failure.
+    @MainActor
+    func testANoticeClearsOnlyWhenThePairedJournalIsReachedAtThatPlace() async {
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, pairing: Self.twoAddressPairing())
+        await manager.connect()
+
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        transport.emitStage(Self.sighting("192.168.1.21"), attempt: 1)
+        transport.emitStage(Self.relaySighting(), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.count, 3)
+
+        // Sorted map: 0 A pinned, 1 B pinned, 2 A unpinned, 3 B unpinned, 4 relay.
+        Self.emitFailedCandidate(transport, route: .directPinned, ordinal: 0, failure: .unknownJournal, milliseconds: 5)
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.count, 3)
+
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(route: .directPinned, ordinal: 0, phase: .transportReady(elapsedMilliseconds: 6))),
+            attempt: 1
+        )
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.map(\.place), [.address(Self.sightingB), .relay])
+
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(route: .relay, ordinal: 4, phase: .selected(elapsedMilliseconds: 7))),
+            attempt: 1
+        )
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.map(\.place), [.address(Self.sightingB)])
+
+        transport.emitStage(
+            .attemptEvent(TunnelAttemptEvent(route: .directUnpinned, ordinal: 3, phase: .selected(elapsedMilliseconds: 8))),
+            attempt: 1
+        )
+        await Self.settle()
+        XCTAssertTrue(manager.unknownJournals.isEmpty)
+        await manager.disconnect()
+    }
+
+    // Falsified by holding a sighting to the attempt that saw it, or by clearing notices when the
+    // connection goes down: a notice has no such state.
+    @MainActor
+    func testASightingOutlivesItsAttemptAndADisconnect() async {
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport, pairing: Self.twoAddressPairing())
+        await manager.connect()
+
+        manager.cancelConnect()
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.map(\.place), [.address(Self.sightingA)])
+
+        await manager.disconnect()
+        XCTAssertEqual(manager.unknownJournals.map(\.place), [.address(Self.sightingA)])
+    }
+
+    // Falsified by comparing a sighting against a journal the device is no longer paired with, or
+    // by a late sighting from the old pairing landing on the new one. A new key for the same
+    // journal changes neither.
+    @MainActor
+    func testNoticesEndWithThePairingTheyWereSeenAgainstAndSurviveANewKey() async throws {
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: Self.twoAddressPairing())
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } }
+        )
+        let transport = MockCFTunnelTransport()
+        let manager = TunnelManager(
+            transport: transport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            store: store,
+            automaticallyReconnectOnCredentialReplacement: false,
+            deriveClaimedMark: { _ in .uiTestSample }
+        )
+        await manager.connect()
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+
+        let current = Self.twoAddressPairing()
+        try store.applyPairing(StoredPairing(
+            instanceID: current.instanceID,
+            homeLabel: current.homeLabel,
+            relayEndpoint: current.relayEndpoint,
+            fingerprint: "sha256:\(String(repeating: "b", count: 64))",
+            clientCertPEM: "new cert",
+            clientKeyPEM: "new key",
+            caChainPEM: current.caChainPEM,
+            relayEnrollment: current.relayEnrollment,
+            localEndpoints: current.localEndpoints,
+            pairedAt: current.pairedAt
+        ))
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.map(\.place), [.address(Self.sightingA)])
+
+        try store.applyPairing(Self.fixturePairing(instanceID: "another-journal"))
+        await Self.settle()
+        XCTAssertTrue(manager.unknownJournals.isEmpty)
+
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+        XCTAssertTrue(manager.unknownJournals.isEmpty)
+        await manager.disconnect()
+    }
+
+    // Falsified by leaving a notice standing once there is no journal to compare it with.
+    @MainActor
+    func testForgettingThePairingEndsItsNotices() async throws {
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: Self.twoAddressPairing())
+        let store = PairingCredentialStore(
+            loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } },
+            deletePairing: { holder.withLock { $0 = nil } }
+        )
+        let transport = MockCFTunnelTransport()
+        let manager = TunnelManager(
+            transport: transport,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            store: store,
+            deriveClaimedMark: { _ in .uiTestSample }
+        )
+        await manager.connect()
+        transport.emitStage(Self.sighting("192.168.1.20"), attempt: 1)
+        await Self.settle()
+        XCTAssertEqual(manager.unknownJournals.count, 1)
+
+        let lease = try store.beginPairingInvalidation()
+        XCTAssertTrue(try store.clearPairing(invalidation: lease))
+        await Self.settle()
+
+        XCTAssertTrue(manager.unknownJournals.isEmpty)
+        await manager.disconnect()
     }
 
     @MainActor

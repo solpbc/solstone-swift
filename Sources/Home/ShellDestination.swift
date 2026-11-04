@@ -133,7 +133,7 @@ struct ShellDestinationView: View {
         case .source(.safari):
             SafariSourceDetailView()
         case .status:
-            StatusPane(presentation: .detail)
+            StatusPane(presentation: .detail, journalMark: self.journalMark)
         case .journal:
             InAppJournalView(mark: self.journalMark, presentation: .detail, path: self.journalPath)
         case .journalSetup:
