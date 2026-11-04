@@ -3955,11 +3955,12 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let transport = MockCFTunnelTransport()
         let manager = makeManager(transport: transport, probeSession: session)
         manager.forceConnected(port: 8080, via: .lan)
+        manager.lastHeardAt = nil
 
         let result = await manager.probeConnection()
 
         XCTAssertEqual(result?.alive, false)
-        XCTAssertEqual(manager.lastProbeAlive, false)
+        XCTAssertNil(manager.lastHeardAt)
         XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 1)
     }
 
@@ -3982,11 +3983,12 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let transport = MockCFTunnelTransport()
         let manager = makeManager(transport: transport, probeSession: session)
         manager.forceConnected(port: 8080, via: .lan)
+        manager.lastHeardAt = nil
 
         let result = await manager.probeConnection()
 
         XCTAssertEqual(result?.alive, true)
-        XCTAssertEqual(manager.lastProbeAlive, true)
+        XCTAssertNotNil(manager.lastHeardAt)
         XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 1)
     }
 
@@ -4004,11 +4006,12 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let transport = MockCFTunnelTransport()
         let manager = makeManager(transport: transport, probeSession: session)
         manager.forceConnected(port: 8080, via: .lan)
+        manager.lastHeardAt = nil
 
         let result = await manager.probeConnection()
 
         XCTAssertEqual(result?.alive, false)
-        XCTAssertEqual(manager.lastProbeAlive, false)
+        XCTAssertNil(manager.lastHeardAt)
         XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, 1)
     }
 
@@ -4029,11 +4032,12 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         let transport = MockCFTunnelTransport()
         let manager = makeManager(transport: transport, probeSession: session)
         manager.forceConnected(port: 8080, via: .lan)
+        manager.lastHeardAt = nil
 
         let first = await manager.probeConnection()
 
         XCTAssertEqual(first?.alive, false)
-        XCTAssertEqual(manager.lastProbeAlive, false)
+        XCTAssertNil(manager.lastHeardAt)
     }
 
     @MainActor

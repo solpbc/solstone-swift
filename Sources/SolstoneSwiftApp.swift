@@ -530,8 +530,9 @@ struct SolstoneSwiftApp: App {
             dialedIdentity: { [weak tunnel] in
                 await MainActor.run { tunnel?.dialedPairingIdentity }
             },
-            sink: { [weak connectionStallMonitor] event in
+            sink: { [weak connectionStallMonitor, weak tunnel] event in
                 await MainActor.run {
+                    tunnel?.noteJournalHeard()
                     connectionStallMonitor?.noteHeard(identity: event.pairingIdentity)
                 }
             }
@@ -564,7 +565,15 @@ struct SolstoneSwiftApp: App {
                 ),
                 backlogPending: totals.pending,
                 backlogFailed: totals.failed,
-                lastProbeAlive: tunnel.lastProbeAlive
+                lastHeardAt: tunnel.lastHeardAt,
+                captureBacklog: {
+                    let capture = captureUploadTotals(
+                        mobileSegment: mobileSegmentTransferHolder,
+                        watch: watchUploaderHolder,
+                        calendar: calendarTransferHolder
+                    )
+                    return capture.pending + capture.failed
+                }()
             )
         }
         let locationManager = LocationManager(mobileSegmentEngine: mobileSegmentEngine)
@@ -962,7 +971,7 @@ struct SolstoneSwiftApp: App {
                 guard self.appConfig.isPaired else {
                     return
                 }
-                self.connectionSyncModel.refreshFromInputChange()
+                self.connectionSyncModel.noteForeground()
                 self.tunnelManager.startNetworkMonitoring()
                 if self.appConfig.retrySettleIfNeeded() {
                     self.journalSendRelease.kickConfirmedSend()

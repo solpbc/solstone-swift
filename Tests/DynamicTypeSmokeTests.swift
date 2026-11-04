@@ -150,7 +150,8 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: tunnelManager.lastHeardAt
             )
         }
         let problemReportsRoot = FileManager.default.temporaryDirectory

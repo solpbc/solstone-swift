@@ -30,10 +30,10 @@ enum IntegrationGateConstants {
     // recovery the product intentionally permits.
     static let observationWindowMilliseconds: UInt64 = 30_000
     // Bounded extension past `observationWindowMilliseconds`, entered only while the raw
-    // status has recovered and the published one has not caught up yet. Publishing lags
-    // raw by up to `pollCadence + debounceInterval` (2.5s), so a window that ends the
+    // status has recovered and the published one has not caught up yet. Publishing can lag
+    // raw recovery by the presenter's minimum drop dwell (1s), so a window that ends the
     // instant raw recovers hands the verifier a pessimistic sample and G4/G5 fail on the
-    // benign direction. 10s is 4x the worst-case publish latency.
+    // benign direction. 10s is comfortably past that.
     static let syncRecoveryTailMilliseconds: UInt64 = 10_000
     // Samples held after the label converges, so the coordinator's out-of-process owner-UI
     // observer has a window in which the correct label is actually on screen. Still

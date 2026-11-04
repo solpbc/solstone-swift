@@ -181,8 +181,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
         await Self.drainUntil { harness.clock.pendingSleeperCount == 1 }
         harness.inputs.current = Self.inputs(status: .connectedIdle)
         // Converge the owner-visible label at the same moment the transport comes up.
-        // G1 now waits for the PUBLISHED status, because sampling the instant raw goes
-        // positive reads the 2.5s publish debounce every time and reports it as
+        // G1 waits for the PUBLISHED status, because sampling the instant raw goes
+        // positive can read a label that has not caught up yet and report it as
         // `false_healthy` -- an app under-claiming its own health.
         harness.sync.refreshNow()
         harness.clock.advance(by: 1)
@@ -200,8 +200,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
 
     func testCanaryActionKeepsSamplingUntilTheOwnerLabelCatchesUp() async throws {
         // The behaviour the window exists for, and the one nothing else here pins.
-        // Raw goes positive while the published label is still catching up -- the
-        // designed 2.5s debounce. Breaking there hands the verifier a sample it is
+        // Raw goes positive while the published label is still catching up (here the
+        // model has not re-evaluated since launch). Breaking there hands the verifier a sample it is
         // guaranteed to reject and G1 reports `false_healthy` about an app that was
         // under-claiming its own health. Run 20260731T2135Z did exactly this: one
         // sample, raw=connectedIdle, pub=waitingForHome, published never positive.
@@ -239,7 +239,7 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
         )
         // The selected sample is the converged one, which is what the verifier reads.
         XCTAssertEqual(result.samples.last?.publishedConnectionSyncStatus, "connectedIdle")
-        XCTAssertEqual(result.samples[2].publishedConnectionSyncStatus, "offline")
+        XCTAssertEqual(result.samples[2].publishedConnectionSyncStatus, "connecting")
     }
 
     func testCanaryActionSamplesPersistThroughResultJSONBoundary() throws {
@@ -433,7 +433,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: .distantFuture
             )
         case .connectedIdle:
             return ConnectionSyncInputs(
@@ -443,7 +444,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: .distantFuture
             )
         case .connectedWaiting:
             return ConnectionSyncInputs(
@@ -453,7 +455,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 1,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: .distantFuture
             )
         case .connectedTransferring:
             return ConnectionSyncInputs(
@@ -463,7 +466,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
                 confirmedTransferCount: 1,
                 recentBytesPerSecond: 1,
                 backlogPending: 1,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: .distantFuture
             )
         case .connecting:
             return ConnectionSyncInputs(
@@ -473,7 +477,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: .distantFuture
             )
         case .waitingForHome:
             return ConnectionSyncInputs(
@@ -483,7 +488,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: .distantFuture
             )
         case .reconnecting:
             return ConnectionSyncInputs(
@@ -493,7 +499,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: .distantFuture
             )
         case .unreachable:
             return ConnectionSyncInputs(
@@ -503,7 +510,8 @@ final class IntegrationGateG1CanaryTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: .distantFuture
             )
         }
     }

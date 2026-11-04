@@ -180,7 +180,8 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: manager.lastHeardAt
             )
         }
         let sampler = IntegrationGateSampler(
@@ -267,7 +268,8 @@ final class IntegrationGateG3GenerationRetryTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: manager.lastHeardAt
             )
         }
         let sampler = IntegrationGateSampler(

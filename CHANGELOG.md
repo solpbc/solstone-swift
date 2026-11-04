@@ -13,6 +13,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Fixed
 
 - answering "that doesn't match" when you pair again now keeps your current pairing.
+- the status at the top of home now says connected only once your journal has answered in the last few seconds. it changes as soon as the connection drops or comes back, and no longer flickers when you open the app or while things sync.
 
 ## [2.0.11 (144)] - 2026-11-03
 

@@ -563,7 +563,7 @@ private extension DayHomeView {
         HomeStatusPillState.resolve(
             isPaired: self.appConfig.isPaired,
             status: self.connectionSyncModel.status,
-            hasBacklog: self.backlogCount.knownCount > 0,
+            hasBacklog: self.backlogCount.knownCount > 0 || self.connectionSyncModel.syncingLingers,
             isStalled: self.connectionStallMonitor.isStalled,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
             hasJournalGap: self.mobileSegmentTransferHolder.journalGapNotice.isShowing

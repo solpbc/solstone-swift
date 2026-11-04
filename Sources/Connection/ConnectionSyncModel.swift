@@ -7,29 +7,35 @@ import os
 
 private let connectionSyncLog = Logger(subsystem: "app.solstone.swift", category: "connection-sync")
 
+/// Runs `ConnectionPresenter` against the live inputs: on every observed input change, and
+/// on a timer that wakes when one of the presenter's holds or leases comes due.
 @MainActor
 @Observable
 final class ConnectionSyncModel {
     private(set) var status: ConnectionSyncStatus
+    /// The capture queue drained moments ago; the pill keeps reading syncing until this clears.
+    private(set) var syncingLingers: Bool = false
 
     @ObservationIgnored private let clock: any ObserverClock
-    @ObservationIgnored private let debounceInterval: Duration
     @ObservationIgnored private let pollCadence: Duration
     @ObservationIgnored private let sample: @MainActor () -> ConnectionSyncInputs
+    @ObservationIgnored private var presenter: ConnectionPresenter
     @ObservationIgnored private var isRunning = false
-    @ObservationIgnored private var publishGeneration: UInt64 = 0
 
     init(
         clock: any ObserverClock,
-        debounceInterval: Duration = .seconds(1.5),
+        policy: ConnectionPresenter.Policy = ConnectionPresenter.Policy(),
         pollCadence: Duration = .seconds(1),
         sample: @escaping @MainActor () -> ConnectionSyncInputs
     ) {
         self.clock = clock
-        self.debounceInterval = debounceInterval
         self.pollCadence = pollCadence
         self.sample = sample
-        self.status = ConnectionSyncStatus.derive(sample())
+        var presenter = ConnectionPresenter(policy: policy, now: clock.now())
+        presenter.step(sample(), now: clock.now())
+        self.presenter = presenter
+        self.status = presenter.shown
+        self.syncingLingers = presenter.syncingLingers
     }
 
     func run() async {
@@ -39,7 +45,7 @@ final class ConnectionSyncModel {
 
         await withTaskGroup(of: Void.self) { group in
             group.addTask { [weak self] in
-                await self?.pollInputChanges()
+                await self?.runTimers()
             }
             group.addTask { [weak self] in
                 await self?.observeInputChanges()
@@ -48,42 +54,34 @@ final class ConnectionSyncModel {
         }
     }
 
+    /// Show exactly what the current facts support, skipping every hold. For seeded states.
     func refreshNow() {
-        let raw = ConnectionSyncStatus.derive(self.sample())
-        self.publish(raw, verb: "refreshed")
+        self.presenter.reset(self.sample(), now: self.clock.now())
+        self.publish(verb: "refreshed")
     }
 
-    func refreshFromInputChange() {
-        let inputs = self.sample()
-        let derived = ConnectionSyncStatus.derive(inputs)
-        guard derived != self.status else { return }
-        guard self.shouldPublishImmediately(inputs: inputs, derived: derived) else { return }
-        self.publish(derived, verb: "changed")
+    /// The app returned to the foreground.
+    func noteForeground() {
+        self.presenter.noteForeground(now: self.clock.now())
+        self.step()
     }
 
-    private func pollInputChanges() async {
+    private func step() {
+        guard self.presenter.step(self.sample(), now: self.clock.now()) else { return }
+        self.publish(verb: "changed")
+    }
+
+    private func runTimers() async {
         while !Task.isCancelled {
-            try? await self.clock.sleep(for: self.pollCadence)
-            guard !Task.isCancelled else { return }
-
-            let inputs = self.sample()
-            let raw = ConnectionSyncStatus.derive(inputs)
-            guard raw != self.status else { continue }
-
-            if self.shouldPublishImmediately(inputs: inputs, derived: raw) {
-                self.publish(raw, verb: "changed")
-                continue
+            var wait = self.pollCadence
+            let now = self.clock.now()
+            if let deadline = self.presenter.nextDeadline(after: now) {
+                let untilDeadline = deadline.timeIntervalSince(now)
+                wait = min(wait, .milliseconds(max(Int((untilDeadline * 1_000).rounded(.up)), 1)))
             }
-
-            let generation = self.publishGeneration
-            try? await self.clock.sleep(for: self.debounceInterval)
+            try? await self.clock.sleep(for: wait)
             guard !Task.isCancelled else { return }
-            guard generation == self.publishGeneration else { continue }
-
-            let confirmed = ConnectionSyncStatus.derive(self.sample())
-            guard confirmed == raw, confirmed != self.status else { continue }
-
-            self.publish(confirmed, verb: "changed")
+            self.step()
         }
     }
 
@@ -93,7 +91,7 @@ final class ConnectionSyncModel {
 
         for await _ in stream {
             self.installInputTracking(yielding: continuation)
-            self.refreshFromInputChange()
+            self.step()
         }
     }
 
@@ -105,32 +103,14 @@ final class ConnectionSyncModel {
         }
     }
 
-    private func shouldPublishImmediately(
-        inputs: ConnectionSyncInputs,
-        derived: ConnectionSyncStatus
-    ) -> Bool {
-        let publishedReachable = isJournalReachable(self.status)
-        let derivedReachable = isJournalReachable(derived)
-
-        if publishedReachable, !derivedReachable {
-            return !ConnectionSyncStatus.isNetworkBlipWhileTunnelConnected(
-                inputs: inputs,
-                derived: derived
-            )
-        }
-
-        if publishedReachable, derivedReachable {
-            return true
-        }
-
-        return false
-    }
-
-    private func publish(_ next: ConnectionSyncStatus, verb: String) {
-        guard next != self.status else { return }
+    private func publish(verb: String) {
         let previous = self.status
+        let next = self.presenter.shown
+        if self.syncingLingers != self.presenter.syncingLingers {
+            self.syncingLingers = self.presenter.syncingLingers
+        }
+        guard next != previous else { return }
         self.status = next
-        self.publishGeneration &+= 1
         connectionSyncLog.debug("connection sync status \(verb, privacy: .public) \(previous.statusLine, privacy: .public) -> \(next.statusLine, privacy: .public)")
     }
 

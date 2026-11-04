@@ -333,7 +333,9 @@ final class TunnelManager {
     var currentPathStatus: NetworkPathStatus?
     var isNetworkSatisfied: Bool?
     var currentInterfaceIsWiFi: Bool?
-    var lastProbeAlive: Bool?
+    /// When the journal last answered on the current connection: the handshake, a probe,
+    /// inbound bytes or an acknowledged transfer. Nil while there is no connection.
+    var lastHeardAt: Date?
     var connectionHeardSink: ConnectionHeardSink?
     private(set) var dialedPairingIdentity: String?
     @ObservationIgnored private var lastEmittedPathSignature: PathMeaningfulSignature?
@@ -1020,7 +1022,8 @@ final class TunnelManager {
                 self.completeStage(.loopback)
                 self.appendStage(.connected)
                 self.completeStage(.connected)
-                self.lastProbeAlive = nil
+                // The inner TLS handshake just completed end to end with the journal.
+                self.lastHeardAt = Date()
                 self.consecutiveKeepaliveFailures = 0
                 self.consecutiveNotEntitled = 0
                 self.probeWatchdog.noteConnectionEstablished()
@@ -1333,7 +1336,7 @@ final class TunnelManager {
         self.clearBrokerWaitEpisode()
         self.stopLivenessProbe()
         self.state = .disconnected
-        self.lastProbeAlive = nil
+        self.lastHeardAt = nil
         self.consecutiveKeepaliveFailures = 0
         self.consecutiveNotEntitled = 0
         self.reconnectCount = 0
@@ -1466,6 +1469,8 @@ final class TunnelManager {
         self.connectionEpoch += 1
         self.ordinaryAdmissionClosed = false
         self.state = .connected(localPort: port, via: via)
+        // Forced connections run no probe; treat them as answering for as long as they last.
+        self.lastHeardAt = .distantFuture
     }
 
     func forceDisconnectedForUITest() {
@@ -1565,6 +1570,9 @@ final class TunnelManager {
                 }
                 let inboundAfterProbe = await self.transport.inboundActivitySnapshot()
                 let inboundAdvanced = inboundAfterProbe > inboundBeforeProbe
+                if inboundAdvanced {
+                    self.noteJournalHeard()
+                }
                 let activeLocalTransfers = self.activeLocalTransferCountProvider()
                 let verdict = self.probeWatchdog.evaluate(
                     probeSucceeded: result.alive,
@@ -1623,6 +1631,7 @@ final class TunnelManager {
         self.connectTask?.cancel()
         self.connectTask = nil
         self.state = .error(tunnelError)
+        self.lastHeardAt = nil
         await self.transport.disconnect()
         self.scheduleReconnect(for: tunnelError, epoch: epoch)
     }
@@ -1694,6 +1703,12 @@ final class TunnelManager {
         self.lastEmittedPathSignature = nil
     }
 
+    /// Something from the journal arrived on the current connection.
+    func noteJournalHeard() {
+        guard case .connected = self.state else { return }
+        self.lastHeardAt = Date()
+    }
+
     func probeConnection() async -> (alive: Bool, latency: Duration)? {
         guard case .connected(let localPort, _) = self.state else { return nil }
         let active = self.activeConnection
@@ -1742,8 +1757,8 @@ final class TunnelManager {
         }
         let elapsed = clock.now - start
         guard self.isCurrentAttempt(attemptEpoch), self.journalFingerprint == fingerprint else { return nil }
-        self.lastProbeAlive = alive
         if alive {
+            self.noteJournalHeard()
             self.connectionHeardSink?(ConnectionHeardEvent(pairingIdentity: self.dialedPairingIdentity))
         }
         if let listenerGeneration,

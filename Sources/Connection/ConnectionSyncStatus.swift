@@ -38,50 +38,31 @@ nonisolated enum ConnectionSyncStatus: Equatable, Sendable {
         }
     }
 
+    /// What the transport reports right now. Whether the journal has been heard from
+    /// recently enough to *show* connected is `ConnectionPresenter`'s call, not this one's.
     nonisolated static func derive(_ inputs: ConnectionSyncInputs) -> ConnectionSyncStatus {
-        if case .disconnected = inputs.tunnelState {
-            return .offline
-        }
-        if inputs.isNetworkSatisfied == false {
-            return .offline
-        }
-
         switch inputs.tunnelState {
         case .disconnected:
             return .offline
-        case .connecting:
-            return .connecting
-        case .waitingForHome:
-            return .waitingForHome
-        case .error(let error):
-            return error.isRetryable && inputs.reconnectCountdown != nil ? .reconnecting : .unreachable
         case .connected:
-            // A live loopback socket is not proof that the journal still answers behind it.
-            // Withdraw the reachability claim on the first failed status probe; the watchdog
-            // keeps its separate multi-strike threshold before it tears down the transport.
-            if inputs.lastProbeAlive == false {
-                return .unreachable
-            }
+            // A path reading alone never withdraws a tunnel the journal is still answering on:
+            // the presenter's lease does that, from evidence.
             let backlog = inputs.backlogPending + inputs.backlogFailed
             if backlog == 0 {
                 return .connectedIdle
             }
             let transferActive = inputs.recentBytesPerSecond > 0 || inputs.confirmedTransferCount > 0
             return transferActive ? .connectedTransferring : .connectedWaiting
+        case .connecting:
+            return inputs.isNetworkSatisfied == false ? .offline : .connecting
+        case .waitingForHome:
+            return inputs.isNetworkSatisfied == false ? .offline : .waitingForHome
+        case .error(let error):
+            if inputs.isNetworkSatisfied == false {
+                return .offline
+            }
+            return error.isRetryable && inputs.reconnectCountdown != nil ? .reconnecting : .unreachable
         }
-    }
-
-    nonisolated static func isNetworkBlipWhileTunnelConnected(
-        inputs: ConnectionSyncInputs,
-        derived: ConnectionSyncStatus
-    ) -> Bool {
-        guard !isJournalReachable(derived), inputs.isNetworkSatisfied == false else {
-            return false
-        }
-        if case .connected = inputs.tunnelState {
-            return true
-        }
-        return false
     }
 }
 
@@ -93,7 +74,11 @@ nonisolated struct ConnectionSyncInputs: Sendable {
     let recentBytesPerSecond: Double
     let backlogPending: Int
     let backlogFailed: Int
-    let lastProbeAlive: Bool?
+    /// When the journal last answered on the current connection: the handshake, a probe,
+    /// inbound bytes or an acknowledged transfer. Nil once the connection is gone.
+    let lastHeardAt: Date?
+    /// What the home pill counts as waiting (capture sources), for the syncing linger.
+    let captureBacklog: Int
 
     nonisolated init(
         tunnelState: TunnelState,
@@ -103,7 +88,8 @@ nonisolated struct ConnectionSyncInputs: Sendable {
         recentBytesPerSecond: Double,
         backlogPending: Int,
         backlogFailed: Int,
-        lastProbeAlive: Bool? = nil
+        lastHeardAt: Date? = nil,
+        captureBacklog: Int = 0
     ) {
         self.tunnelState = tunnelState
         self.reconnectCountdown = reconnectCountdown
@@ -112,7 +98,8 @@ nonisolated struct ConnectionSyncInputs: Sendable {
         self.recentBytesPerSecond = recentBytesPerSecond
         self.backlogPending = backlogPending
         self.backlogFailed = backlogFailed
-        self.lastProbeAlive = lastProbeAlive
+        self.lastHeardAt = lastHeardAt
+        self.captureBacklog = captureBacklog
     }
 }
 

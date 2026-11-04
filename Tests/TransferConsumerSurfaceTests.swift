@@ -202,7 +202,8 @@ final class TransferConsumerSurfaceTests: XCTestCase {
                     share: zeroSurfaces.shareHolder
                 ),
                 backlogPending: totals.pending,
-                backlogFailed: totals.failed
+                backlogFailed: totals.failed,
+                lastHeardAt: .distantFuture
             )
         }
         XCTAssertEqual(syncModel.status, .connectedTransferring)
@@ -385,7 +386,8 @@ final class TransferConsumerSurfaceTests: XCTestCase {
                     share: shareHolder
                 ),
                 backlogPending: totals.pending,
-                backlogFailed: totals.failed
+                backlogFailed: totals.failed,
+                lastHeardAt: .distantFuture
             )
         }
         XCTAssertEqual(syncModel.status, .connectedTransferring)

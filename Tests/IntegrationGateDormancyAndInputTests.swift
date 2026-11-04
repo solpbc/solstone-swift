@@ -229,7 +229,8 @@ final class IntegrationGateDormancyAndInputTests: XCTestCase {
                 confirmedTransferCount: 0,
                 recentBytesPerSecond: 0,
                 backlogPending: 0,
-                backlogFailed: 0
+                backlogFailed: 0,
+                lastHeardAt: tunnel.lastHeardAt
             )
         }
         return IntegrationGateDependencies(
