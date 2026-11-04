@@ -24,8 +24,8 @@ nonisolated enum LicensesText {
         return text
     }
 
-    /// Reads the file line by line: heading lines lose their markers, a `---` line is a divider, and
-    /// every other line is kept as it is, in runs between blank lines so VoiceOver can move through
+    /// Reads the file line by line: heading lines lose their markers, a `---` line is a divider, a
+    /// code fence is dropped, and every other line is kept as it is, in runs between blank lines so VoiceOver can move through
     /// the text and the list lays out only what's on screen.
     static func blocks(of text: String) -> [Block] {
         var blocks: [Block] = []
@@ -42,6 +42,8 @@ nonisolated enum LicensesText {
             } else if line == "---" {
                 endRun()
                 blocks.append(.divider)
+            } else if line == "```" {
+                endRun()
             } else if let heading = Self.heading(in: line) {
                 endRun()
                 blocks.append(heading)

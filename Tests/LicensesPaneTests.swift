@@ -35,6 +35,14 @@ nonisolated final class LicensesPaneTests: XCTestCase {
         )
     }
 
+    // Falsified by a code fence reaching the owner as three backticks.
+    func testCodeFencesEndARunAndAreNotShown() {
+        XCTAssertEqual(
+            LicensesText.blocks(of: "- license: x\n```\nlicence text\n```\n"),
+            [.text("- license: x"), .text("licence text")]
+        )
+    }
+
     // Falsified by reading CRLF lines as one long line: the upstream font licence ends its lines
     // that way, so its blank lines would stop separating anything and a --- would go unseen.
     func testCRLFLinesAreLinesToo() {
@@ -50,7 +58,7 @@ nonisolated final class LicensesPaneTests: XCTestCase {
         let text = LicensesText.load()
         var fileLines: [String] = []
         text.enumerateLines { line, _ in
-            if !line.allSatisfy(\.isWhitespace), line != "---" { fileLines.append(line) }
+            if !line.allSatisfy(\.isWhitespace), line != "---", line != "```" { fileLines.append(line) }
         }
         let shown: [String] = LicensesText.blocks(of: text).flatMap { block -> [String] in
             switch block {

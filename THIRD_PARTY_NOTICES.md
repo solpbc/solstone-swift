@@ -264,7 +264,7 @@ This product contains a derivation of various files from SwiftNIO.
 ## Comfortaa
 
 - project: Comfortaa (https://github.com/alexeiva/comfortaa)
-- file: `Sources/Comfortaa-Bold.ttf`, shipped inside the app
+- file: Sources/Comfortaa-Bold.ttf, shipped inside the app
 - license: SIL Open Font License 1.1
 
 ```
