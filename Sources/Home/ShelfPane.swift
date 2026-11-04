@@ -857,6 +857,14 @@ struct AboutPane: View {
                     LabeledContent("journal root", value: self.journalRoot)
                 }
 
+                Section {
+                    NavigationLink(value: ShellDestination.licenses) {
+                        Text("about.licenses")
+                    }
+                    .accessibilityIdentifier("shell.pane.shelfAbout.licenses")
+                    .hoverEffect(.highlight)
+                }
+
                 Section("about") {
                     Text(aboutBlock)
                         .textSelection(.enabled)

@@ -39,6 +39,8 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - path: THIRD_PARTY_NOTICES.md
+        buildPhase: resources
       - path: vendor/browser-contract
         type: folder
         buildPhase: resources

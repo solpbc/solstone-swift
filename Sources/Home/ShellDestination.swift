@@ -28,6 +28,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
     case shelfNotifications
     case shelfHelp
     case shelfAbout
+    case licenses
     case diagnostics
     case problemReports
     case pairFlow
@@ -45,7 +46,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
         case .shelfAbout:
             "about solstone"
         case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
-             .diagnostics, .problemReports, .pairFlow:
+             .licenses, .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfTitle is only available for shelf destinations")
         }
     }
@@ -65,7 +66,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
         case .shelfAbout:
             "sun.max"
         case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
-             .diagnostics, .problemReports, .pairFlow:
+             .licenses, .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfGlyph is only available for shelf destinations")
         }
     }
@@ -83,7 +84,7 @@ nonisolated enum ShellDestination: Hashable, Sendable {
         case .shelfAbout:
             "shell.pane.shelf.about"
         case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
-             .diagnostics, .problemReports, .pairFlow:
+             .licenses, .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfRowIdentifier is only available for shelf destinations")
         }
     }
@@ -165,6 +166,8 @@ struct ShellDestinationView: View {
             HelpPane()
         case .shelfAbout:
             AboutPane()
+        case .licenses:
+            LicensesPane()
         case .diagnostics:
             DiagnosticsView()
         case .problemReports:

@@ -1,17 +1,15 @@
 # third-party notices
 
-the solstone app for iphone and ipad, including its embedded apple watch app, redistributes the following third-party software. license texts are reproduced verbatim from upstream.
-
-note: spl-swift and swift-crypto versions are set in `project.yml`.
+the solstone app for iphone and ipad, including its embedded apple watch app, redistributes the following third-party software. license texts and links are reproduced verbatim from upstream.
 
 ---
 
 ## swift-crypto
 
 - project: apple/swift-crypto
-- version: 3.0.0 (manifest floor)
+- version: 3.15.1 at the time of this notice
 - license: Apache-2.0
-- source: https://github.com/apple/swift-crypto/tree/3.0.0
+- source: https://github.com/apple/swift-crypto/tree/3.15.1
 
 
                                  Apache License
@@ -215,6 +213,51 @@ note: spl-swift and swift-crypto versions are set in `project.yml`.
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+### NOTICE.txt, from swift-crypto 3.15.1
+
+                            The SwiftCrypto Project
+                            =======================
+
+Please visit the SwiftCrypto web site for more information:
+
+  * https://github.com/apple/swift-crypto
+
+Copyright 2019 The SwiftCrypto Project
+
+The SwiftCrypto Project licenses this file to you under the Apache License,
+version 2.0 (the "License"); you may not use this file except in compliance
+with the License. You may obtain a copy of the License at:
+
+  https://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations
+under the License.
+
+Also, please refer to each LICENSE.<component>.txt file, which is located in
+the 'license' directory of the distribution file, for the license terms of the
+components that this product depends on.
+
+-------------------------------------------------------------------------------
+
+This product contains test vectors from Google's wycheproof project.
+
+  * LICENSE (Apache License 2.0):
+    * https://github.com/C2SP/wycheproof/blob/31387e2cd596587c859c611027b6a44d2e2b65ff/LICENSE
+  * HOMEPAGE:
+    * https://github.com/google/wycheproof
+
+---
+
+This product contains a derivation of various files from SwiftNIO.
+
+  * LICENSE (Apache License 2.0):
+    * https://www.apache.org/licenses/LICENSE-2.0
+  * HOMEPAGE:
+    * https://github.com/apple/swift-nio
 
 ---
 

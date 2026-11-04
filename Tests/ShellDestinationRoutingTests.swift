@@ -34,6 +34,7 @@ nonisolated final class ShellDestinationRoutingTests: XCTestCase {
             ("case .shelfNotifications:", "NotificationsPane()"),
             ("case .shelfHelp:", "HelpPane()"),
             ("case .shelfAbout:", "AboutPane()"),
+            ("case .licenses:", "LicensesPane()"),
             ("case .diagnostics:", "DiagnosticsView()"),
             ("case .problemReports:", "ProblemReportsView()"),
             ("case .pairFlow:", "PairFlowView("),
