@@ -6,9 +6,12 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.11 (145)] - 2026-11-04
+
 ### Added
 
-- when something other than your journal answers, the app now tells you and shows both marks to compare.
+- when something other than your journal answers, the status screen now tells you and shows both marks to compare.
+- about solstone now has a licenses row that shows the third-party notices for what the app is built with.
 
 ### Changed
 
@@ -16,8 +19,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
-- answering "that doesn't match" when you pair again now keeps your current pairing.
-- the status at the top of home now says connected only once your journal has answered in the last few seconds. it changes as soon as the connection drops or comes back, and no longer flickers when you open the app or while things sync.
+- answering "that doesn't match" or backing out when you pair again now keeps your current pairing.
+- the status at the top of home now says connected only once this device has reached your journal in the last few seconds. it changes within seconds when the connection drops and as soon as this device reaches your journal again. it also flickers less when you open the app or while things sync.
 
 ## [2.0.11 (144)] - 2026-11-03
 
