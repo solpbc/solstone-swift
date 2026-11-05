@@ -128,6 +128,10 @@ struct JournalWebView: UIViewRepresentable {
                 return session
             }
             let session = JournalWebNavigationSession(
+                restoreLoopbackCookie: { [weak webView] in
+                    guard let webView, let cookie = LoopbackCapability.process.httpCookie() else { return }
+                    await webView.configuration.websiteDataStore.httpCookieStore.setCookie(cookie)
+                },
                 load: { [weak webView] request in
                     webView?.load(request)
                 },
@@ -170,6 +174,41 @@ struct JournalWebView: UIViewRepresentable {
                     request: request,
                     decisionHandler: decisionHandler
                 )
+            }
+        }
+
+        nonisolated func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationResponse: WKNavigationResponse,
+            decisionHandler: @escaping @MainActor (WKNavigationResponsePolicy) -> Void
+        ) {
+            let isMainFrame = navigationResponse.isForMainFrame
+            let httpResponse = navigationResponse.response as? HTTPURLResponse
+            let httpStatus = httpResponse?.statusCode
+            let refusalHeader = httpResponse?.value(forHTTPHeaderField: "X-SPL-Loopback-Refused")
+            let responseURL = navigationResponse.response.url
+            Task { @MainActor [weak self] in
+                guard let self, !self.isTornDown else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                guard let session = self.session else {
+                    decisionHandler(.allow)
+                    return
+                }
+                let snapshot = self.latestLoad
+                let decision = session.decideLoopbackResponse(
+                    isMainFrame: isMainFrame,
+                    httpStatus: httpStatus,
+                    refusalHeader: refusalHeader,
+                    responseURL: responseURL,
+                    stillCurrent: { [weak self] in
+                        guard let self, !self.isTornDown else { return false }
+                        return (self.latestLoad == nil && snapshot == nil) ||
+                            (self.latestLoad?.url == snapshot?.url && self.latestLoad?.reloadToken == snapshot?.reloadToken)
+                    }
+                )
+                decisionHandler(decision == .allow ? .allow : .cancel)
             }
         }
 

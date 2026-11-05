@@ -5,6 +5,7 @@
 import Foundation
 import Network
 import os
+import SPLTunnel
 import WebKit
 import XCTest
 
@@ -49,6 +50,173 @@ final class JournalWKWebViewRuntimeTests: XCTestCase {
             ),
             "requested paths: \(fixture.requestedPaths)"
         )
+    }
+
+    func testDeletedLoopbackCookieIsRestoredForSameOriginNavigation() async throws {
+        let fixture = try LoopbackJournalFixture()
+        let port = try await fixture.start()
+        defer { fixture.stop() }
+
+        let log = DiagnosticLog()
+        var states: [JournalWebPresentation.LoadState] = []
+        let coordinator = JournalWebView.Coordinator(diagnosticLog: log) { state in
+            states.append(state)
+        }
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.navigationDelegate = coordinator
+        defer {
+            coordinator.teardown()
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+        }
+
+        coordinator.requestLoad(
+            url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/")),
+            reloadToken: 0,
+            webView: webView
+        )
+
+        let title = try await self.waitForDocumentTitle("journal-ready", in: webView)
+        XCTAssertEqual(title, "journal-ready")
+
+        await self.deleteLoopbackCookies(from: webView)
+
+        _ = try await webView.evaluateJavaScript("window.location = '/app/recovered/'")
+        let recoveredTitle = try await self.waitForDocumentTitle("journal-recovered", in: webView)
+        XCTAssertEqual(recoveredTitle, "journal-recovered")
+
+        let recoveredAdmissions = fixture.admissionsSnapshot.filter { $0.path == "/app/recovered/" }
+        XCTAssertEqual(recoveredAdmissions.count, 2)
+        XCTAssertEqual(recoveredAdmissions.map(\.admitted), [false, true])
+    }
+
+    func testRecoveryOfSameURLDoesNotDedupAwayTheReload() async throws {
+        let fixture = try LoopbackJournalFixture()
+        let port = try await fixture.start()
+        defer { fixture.stop() }
+
+        let log = DiagnosticLog()
+        var states: [JournalWebPresentation.LoadState] = []
+        let coordinator = JournalWebView.Coordinator(diagnosticLog: log) { state in
+            states.append(state)
+        }
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.navigationDelegate = coordinator
+        defer {
+            coordinator.teardown()
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+        }
+
+        let originalURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/"))
+        coordinator.requestLoad(
+            url: originalURL,
+            reloadToken: 0,
+            webView: webView
+        )
+
+        let initialTitle = try await self.waitForDocumentTitle("journal-ready", in: webView)
+        XCTAssertEqual(initialTitle, "journal-ready")
+
+        await self.deleteLoopbackCookies(from: webView)
+
+        _ = try await webView.evaluateJavaScript("window.location = '\(originalURL.absoluteString)'")
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        var completed = false
+        while clock.now < deadline {
+            let admissions = fixture.admissionsSnapshot
+            if let refusalIndex = admissions.firstIndex(where: { $0.path == "/" && !$0.admitted }) {
+                if admissions[refusalIndex...].contains(where: { $0.path == "/api/pulse" && $0.admitted }) {
+                    completed = true
+                    break
+                }
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(completed, "recovery document did not finish booting")
+
+        let snapshot = fixture.admissionsSnapshot
+        coordinator.requestLoad(url: originalURL, reloadToken: 0, webView: webView)
+
+        let pollDeadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < pollDeadline {
+            XCTAssertEqual(
+                fixture.admissionsSnapshot.map { "\($0.path):\($0.admitted)" },
+                snapshot.map { "\($0.path):\($0.admitted)" }
+            )
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        let rootAdmissions = fixture.admissionsSnapshot.filter { $0.path == "/" }
+        XCTAssertEqual(rootAdmissions.count, 3)
+        XCTAssertEqual(rootAdmissions.filter { !$0.admitted }.count, 1)
+        XCTAssertEqual(rootAdmissions.filter { $0.admitted }.count, 2)
+    }
+
+    func testRecoveryOfDifferentURLDoesNotReplaceLatestLoad() async throws {
+        let fixture = try LoopbackJournalFixture()
+        let port = try await fixture.start()
+        defer { fixture.stop() }
+
+        let log = DiagnosticLog()
+        var states: [JournalWebPresentation.LoadState] = []
+        let coordinator = JournalWebView.Coordinator(diagnosticLog: log) { state in
+            states.append(state)
+        }
+        let webView = WKWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        webView.navigationDelegate = coordinator
+        defer {
+            coordinator.teardown()
+            webView.stopLoading()
+            webView.navigationDelegate = nil
+        }
+
+        let originalURL = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/"))
+        coordinator.requestLoad(
+            url: originalURL,
+            reloadToken: 0,
+            webView: webView
+        )
+
+        let initialTitle = try await self.waitForDocumentTitle("journal-ready", in: webView)
+        XCTAssertEqual(initialTitle, "journal-ready")
+
+        await self.deleteLoopbackCookies(from: webView)
+
+        _ = try await webView.evaluateJavaScript("window.location = '/app/recovered/'")
+        let recoveredTitle = try await self.waitForDocumentTitle("journal-recovered", in: webView)
+        XCTAssertEqual(recoveredTitle, "journal-recovered")
+
+        let recoveredAdmissions = fixture.admissionsSnapshot.filter { $0.path == "/app/recovered/" }
+        XCTAssertEqual(recoveredAdmissions.count, 2)
+        XCTAssertEqual(recoveredAdmissions.map(\.admitted), [false, true])
+
+        let snapshot = fixture.admissionsSnapshot
+        coordinator.requestLoad(url: originalURL, reloadToken: 0, webView: webView)
+
+        let clock = ContinuousClock()
+        let pollDeadline = clock.now.advanced(by: .seconds(1))
+        while clock.now < pollDeadline {
+            XCTAssertEqual(
+                fixture.admissionsSnapshot.map { "\($0.path):\($0.admitted)" },
+                snapshot.map { "\($0.path):\($0.admitted)" }
+            )
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    private func deleteLoopbackCookies(from webView: WKWebView) async {
+        let store = webView.configuration.websiteDataStore.httpCookieStore
+        let cookies = await withCheckedContinuation { continuation in
+            store.getAllCookies { continuation.resume(returning: $0) }
+        }
+        for cookie in cookies where cookie.name == LoopbackCapability.cookieName {
+            await withCheckedContinuation { continuation in
+                store.delete(cookie) { continuation.resume() }
+            }
+        }
     }
 
     func testExternalLocationActivationsAreHandedOffWithoutLoadFailure() async throws {
@@ -221,10 +389,15 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
     private let listener: NWListener
     private let queue = DispatchQueue(label: "app.solstone.swift.tests.journal-loopback")
     private let paths = OSAllocatedUnfairLock<[String]>(initialState: [])
+    private let admissions = OSAllocatedUnfairLock<[(path: String, admitted: Bool)]>(initialState: [])
     private let startup = OSAllocatedUnfairLock<CheckedContinuation<UInt16, any Error>?>(initialState: nil)
 
     var requestedPaths: [String] {
         self.paths.withLock { $0 }
+    }
+
+    var admissionsSnapshot: [(path: String, admitted: Bool)] {
+        self.admissions.withLock { $0 }
     }
 
     init() throws {
@@ -311,6 +484,24 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
             let target = firstLine.split(separator: " ")[1]
             let path = String(target.split(separator: "?", maxSplits: 1)[0])
             self.paths.withLock { $0.append(path) }
+
+            let admitted = Self.hasCapabilityCookie(in: request)
+            self.admissions.withLock { $0.append((path: path, admitted: admitted)) }
+
+            if !admitted {
+                let body = "refused: this connection is missing the solstone app's local secret\n"
+                let refusalResponse = "HTTP/1.1 403 Forbidden\r\n"
+                    + "Content-Type: text/plain; charset=utf-8\r\n"
+                    + "X-SPL-Loopback-Refused: missing\r\n"
+                    + "Content-Length: \(body.utf8.count)\r\n"
+                    + "Connection: close\r\n\r\n"
+                    + body
+                connection.send(content: Data(refusalResponse.utf8), completion: .contentProcessed { _ in
+                    connection.cancel()
+                })
+                return
+            }
+
             let response = self.response(for: path)
             connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
                 connection.cancel()
@@ -318,10 +509,31 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
         }
     }
 
+    private static func hasCapabilityCookie(in request: String) -> Bool {
+        for line in request.components(separatedBy: "\r\n").dropFirst() {
+            guard let colon = line.firstIndex(of: ":"),
+                  line[..<colon].trimmingCharacters(in: .whitespaces).lowercased() == "cookie"
+            else { continue }
+            for pair in line[line.index(after: colon)...].split(separator: ";") {
+                let trimmed = pair.trimmingCharacters(in: .whitespaces)
+                if trimmed == LoopbackCapability.process.cookieHeaderValue {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
     private func response(for path: String) -> String {
         switch path {
         case "/":
             return Self.httpResponse(status: "302 Found", headers: ["Location: /app/home/"], body: "")
+        case "/app/recovered/":
+            return Self.httpResponse(
+                status: "200 OK",
+                headers: ["Content-Type: text/html; charset=utf-8"],
+                body: "<!doctype html><html><head><title>journal-recovered</title></head><body>recovered</body></html>"
+            )
         case "/app/home/":
             return Self.httpResponse(
                 status: "200 OK",

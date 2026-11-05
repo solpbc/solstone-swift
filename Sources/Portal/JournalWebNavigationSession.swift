@@ -6,6 +6,11 @@ import os
 
 nonisolated let journalWebLog = Logger(subsystem: "app.solstone.swift", category: "journalweb")
 
+enum JournalWebLoopbackResponseDecision: Sendable, Equatable {
+    case allow
+    case cancel
+}
+
 @MainActor
 final class JournalWebNavigationSession {
     private struct LastRequest: Equatable {
@@ -25,6 +30,8 @@ final class JournalWebNavigationSession {
 
     private let timeout: Duration
     private let sleep: @Sendable (Duration) async -> Void
+    private let clock: @MainActor () -> ContinuousClock.Instant
+    private let restoreLoopbackCookie: @MainActor () async -> Void
     private let load: @MainActor (URLRequest) -> AnyObject?
     private let setState: @MainActor (JournalWebPresentation.LoadState) -> Void
     private let diagnosticLog: DiagnosticLog?
@@ -43,16 +50,22 @@ final class JournalWebNavigationSession {
     private var lastRequest: LastRequest?
     private var isTornDown = false
     private var restoreAfterHandoff = false
+    private var recoveryStamp: ContinuousClock.Instant?
+    private var recoveryInFlight = false
 
     init(
         timeout: Duration = .seconds(20),
         sleep: @escaping @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) },
+        clock: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now },
+        restoreLoopbackCookie: @escaping @MainActor () async -> Void = { },
         load: @escaping @MainActor (URLRequest) -> AnyObject?,
         setState: @escaping @MainActor (JournalWebPresentation.LoadState) -> Void,
         diagnosticLog: DiagnosticLog? = nil
     ) {
         self.timeout = timeout
         self.sleep = sleep
+        self.clock = clock
+        self.restoreLoopbackCookie = restoreLoopbackCookie
         self.load = load
         self.setState = setState
         self.diagnosticLog = diagnosticLog
@@ -130,6 +143,60 @@ final class JournalWebNavigationSession {
         }
 
         return decision
+    }
+
+    @discardableResult
+    func decideLoopbackResponse(
+        isMainFrame: Bool,
+        httpStatus: Int?,
+        refusalHeader: String?,
+        responseURL: URL?,
+        stillCurrent: @escaping @MainActor () -> Bool
+    ) -> JournalWebLoopbackResponseDecision {
+        guard !self.isTornDown else { return .cancel }
+
+        // Every marked 403 takes this path, including reason `oversize`.
+        // The pinned proxy marks oversize; an unmarked 431 is not this signal.
+        guard isMainFrame, httpStatus == 403, let refusalHeader else {
+            return .allow
+        }
+
+        guard let responseURL else {
+            return .cancel
+        }
+
+        guard !self.recoveryInFlight else {
+            return .cancel
+        }
+
+        let reason = refusalHeader
+        if let stamp = self.recoveryStamp, stamp.duration(to: self.clock()) <= .seconds(10) {
+            self.cancelBound()
+            self.retire(self.currentNavigation)
+            self.retire(self.expectedNavigation)
+            self.unkeyedCallbacksSealed = true
+            self.attemptPhase = .terminalError
+            self.setState(.error(message: JournalWebPresentation.loadFailureMessage))
+            self.emit(
+                "loopback_give_up",
+                severity: .error,
+                detail: "generation=\(self.generation) reason=\(reason)"
+            )
+            return .cancel
+        }
+
+        self.recoveryInFlight = true
+        self.recoveryStamp = self.clock()
+        self.emit("loopback_recovery", detail: "generation=\(self.generation) reason=\(reason)")
+        Task { @MainActor [weak self] in
+            if responseURL.host == "127.0.0.1" {
+                await self?.restoreLoopbackCookie()
+            }
+            self?.recoveryInFlight = false
+            guard let self, !self.isTornDown, stillCurrent() else { return }
+            self.loadInCurrentView(URLRequest(url: responseURL))
+        }
+        return .cancel
     }
 
     func loadInCurrentView(_ request: URLRequest) {
@@ -266,6 +333,8 @@ final class JournalWebNavigationSession {
         self.attemptPhase = .loading
         self.liveAuthority = nil
         self.lastRequest = nil
+        self.recoveryStamp = nil
+        self.recoveryInFlight = false
     }
 
     private func armBound(generation: Int) {

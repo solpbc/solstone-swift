@@ -4,6 +4,7 @@
 @testable import solstone_swift
 import Foundation
 import os
+import SPLTunnel
 import WebKit
 import XCTest
 
@@ -1191,6 +1192,439 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         gate.fireAll()
     }
 
+    func testMarkedMainFrameRefusalRestoresCookieThenLoadsRefusedURL() async throws {
+        let reasons = ["missing", "mismatch", "oversize", "other"]
+        for reason in reasons {
+            let gate = CookieStepGate()
+            let recorder = SessionRecorder()
+            let log = DiagnosticLog()
+            let session = recorder.makeSession(
+                restoreLoopbackCookie: { await gate.step() },
+                diagnosticLog: log
+            )
+            let homeURL = try self.url("http://127.0.0.1:8080/app/home/")
+            session.requestLoad(url: homeURL, reloadToken: 0)
+            XCTAssertEqual(recorder.loads.count, 1)
+
+            let refusedURL: URL
+            if reason == "missing" || reason == "oversize" {
+                refusedURL = try self.url("http://127.0.0.1:8080/app/elsewhere/")
+            } else {
+                refusedURL = homeURL
+            }
+
+            let decision = session.decideLoopbackResponse(
+                isMainFrame: true,
+                httpStatus: 403,
+                refusalHeader: reason,
+                responseURL: refusedURL,
+                stillCurrent: { true }
+            )
+            XCTAssertEqual(decision, .cancel)
+
+            let initialRecoveryEvents = log.events.filter { $0.category == .journal && $0.message == "loopback_recovery" }
+            XCTAssertEqual(initialRecoveryEvents.count, 1)
+
+            try await self.waitFor("cookie gate entered") {
+                gate.entered
+            }
+            XCTAssertEqual(recorder.loads.count, 1)
+
+            gate.release()
+
+            try await self.waitFor("recovery load issued") {
+                recorder.loads.count == 2
+            }
+            let recoveryRequest = recorder.loads[1]
+            XCTAssertEqual(recoveryRequest.url, refusedURL)
+            XCTAssertTrue(recoveryRequest.httpMethod == nil || recoveryRequest.httpMethod == "GET")
+
+            session.requestLoad(url: homeURL, reloadToken: 0)
+            XCTAssertEqual(recorder.loads.count, 2)
+
+            let recoveryEvents = log.events.filter { $0.category == .journal && $0.message == "loopback_recovery" }
+            XCTAssertEqual(recoveryEvents.count, 1)
+            let detail = try XCTUnwrap(recoveryEvents.first?.detail)
+            XCTAssertTrue(detail.contains("reason=\(reason)"))
+            XCTAssertTrue(detail.contains("generation="))
+
+            let secretHeaderValue = LoopbackCapability.process.cookieHeaderValue
+            for event in log.events {
+                XCTAssertFalse(event.message.contains(secretHeaderValue))
+                XCTAssertFalse(event.message.contains("spl_loopback="))
+                if let eventDetail = event.detail {
+                    XCTAssertFalse(eventDetail.contains(secretHeaderValue))
+                    XCTAssertFalse(eventDetail.contains("spl_loopback="))
+                }
+            }
+
+            session.teardown()
+        }
+    }
+
+    func testSecondMarkedRefusalInsideTenSecondsGivesUpAndCancelsBound() async throws {
+        let probe = BoundSleepProbe()
+        let recorder = SessionRecorder()
+        let log = DiagnosticLog()
+        let start = ContinuousClock.now
+        var offset: Duration = .seconds(0)
+
+        let session = recorder.makeSession(
+            sleep: { duration in await probe.sleep(duration) },
+            clock: { start.advanced(by: offset) },
+            restoreLoopbackCookie: { },
+            diagnosticLog: log
+        )
+
+        let url = try self.url("http://127.0.0.1:8080/app/home/")
+        let token = NavigationToken()
+        recorder.enqueueLoadNavigation(token)
+        session.requestLoad(url: url, reloadToken: 0)
+        session.didStart(navigation: token)
+
+        try await self.waitFor("initial bound probe entered") {
+            probe.entered == 1
+        }
+
+        // Offset 0
+        offset = .seconds(0)
+        let decision0 = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "missing",
+            responseURL: url,
+            stillCurrent: { true }
+        )
+        XCTAssertEqual(decision0, .cancel)
+
+        try await self.waitFor("recovery load and second bound armed") {
+            recorder.loads.count == 2 && probe.entered == 2
+        }
+        let recoveryEventsAfterFirst = log.events.filter { $0.category == .journal && $0.message == "loopback_recovery" }
+        XCTAssertEqual(recoveryEventsAfterFirst.count, 1)
+
+        // Offset 5 seconds
+        offset = .seconds(5)
+        let decision5 = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "oversize",
+            responseURL: url,
+            stillCurrent: { true }
+        )
+        XCTAssertEqual(decision5, .cancel)
+        XCTAssertEqual(recorder.states.last, .error(message: JournalWebPresentation.loadFailureMessage))
+
+        let giveUpEventsAfterSecond = log.events.filter { $0.category == .journal && $0.message == "loopback_give_up" }
+        XCTAssertEqual(giveUpEventsAfterSecond.count, 1)
+        XCTAssertTrue(giveUpEventsAfterSecond.first?.detail?.contains("reason=oversize") == true)
+
+        if probe.cancelled < 2 {
+            await Task.yield()
+        }
+        XCTAssertEqual(probe.cancelled, 2)
+
+        session.didCommit(navigation: token)
+        XCTAssertEqual(recorder.states.last, .error(message: JournalWebPresentation.loadFailureMessage))
+
+        probe.resumePending()
+        await Task.yield()
+        XCTAssertEqual(recorder.states.last, .error(message: JournalWebPresentation.loadFailureMessage))
+        XCTAssertTrue(log.events.filter { $0.category == .journal && $0.message == "timeout" }.isEmpty)
+
+        // Offset exactly 10 seconds
+        offset = .seconds(10)
+        let decision10 = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "mismatch",
+            responseURL: url,
+            stillCurrent: { true }
+        )
+        XCTAssertEqual(decision10, .cancel)
+        XCTAssertEqual(recorder.states.last, .error(message: JournalWebPresentation.loadFailureMessage))
+        let giveUpEventsAfterThird = log.events.filter { $0.category == .journal && $0.message == "loopback_give_up" }
+        XCTAssertEqual(giveUpEventsAfterThird.count, 2)
+        XCTAssertEqual(recorder.loads.count, 2)
+
+        // Offset 11 seconds
+        offset = .seconds(11)
+        let decision11 = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "missing",
+            responseURL: url,
+            stillCurrent: { true }
+        )
+        XCTAssertEqual(decision11, .cancel)
+
+        try await self.waitFor("recovery load after 11 seconds") {
+            recorder.loads.count == 3
+        }
+
+        let recoveryEventsFinal = log.events.filter { $0.category == .journal && $0.message == "loopback_recovery" }
+        let giveUpEventsFinal = log.events.filter { $0.category == .journal && $0.message == "loopback_give_up" }
+        XCTAssertEqual(recoveryEventsFinal.count, 2)
+        XCTAssertEqual(giveUpEventsFinal.count, 2)
+
+        let timeoutEvents = log.events.filter { $0.category == .journal && $0.message == "timeout" }
+        XCTAssertTrue(timeoutEvents.isEmpty)
+
+        probe.resumePending()
+        await Task.yield()
+        XCTAssertTrue(log.events.filter { $0.category == .journal && $0.message == "timeout" }.isEmpty)
+
+        session.teardown()
+    }
+
+    func testSecondMarkerWhileCookieStepPendingDoesNotStartAnotherRecovery() async throws {
+        let gate = CookieStepGate()
+        let recorder = SessionRecorder()
+        let log = DiagnosticLog()
+        let session = recorder.makeSession(
+            restoreLoopbackCookie: { await gate.step() },
+            diagnosticLog: log
+        )
+        let url1 = try self.url("http://127.0.0.1:8080/app/first/")
+        let url2 = try self.url("http://127.0.0.1:8080/app/second/")
+
+        let decision1 = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "missing",
+            responseURL: url1,
+            stillCurrent: { true }
+        )
+        XCTAssertEqual(decision1, .cancel)
+
+        try await self.waitFor("cookie gate entered") {
+            gate.entered
+        }
+
+        let decision2 = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "mismatch",
+            responseURL: url2,
+            stillCurrent: { true }
+        )
+        XCTAssertEqual(decision2, .cancel)
+
+        let recoveryEvents = log.events.filter { $0.category == .journal && $0.message == "loopback_recovery" }
+        let giveUpEvents = log.events.filter { $0.category == .journal && $0.message == "loopback_give_up" }
+        XCTAssertEqual(recoveryEvents.count, 1)
+        XCTAssertEqual(giveUpEvents.count, 0)
+        XCTAssertEqual(recorder.loads.count, 0)
+
+        gate.release()
+
+        try await self.waitFor("single recovery load") {
+            recorder.loads.count == 1
+        }
+        XCTAssertEqual(recorder.loads.count, 1)
+        XCTAssertEqual(recorder.loads.first?.url, url1)
+
+        session.teardown()
+    }
+
+    func testNewerProgrammaticLoadSuppressesRecoveryLoad() async throws {
+        let gate = CookieStepGate()
+        let recorder = SessionRecorder()
+        let log = DiagnosticLog()
+        let session = recorder.makeSession(
+            restoreLoopbackCookie: { await gate.step() },
+            diagnosticLog: log
+        )
+        let urlA = try self.url("http://127.0.0.1:8080/app/a/")
+        let urlB = try self.url("http://127.0.0.1:8080/app/b/")
+        let urlC = try self.url("http://127.0.0.1:8080/app/c/")
+
+        session.requestLoad(url: urlA, reloadToken: 0)
+        XCTAssertEqual(recorder.loads.count, 1)
+
+        var stillCurrent = true
+        let decision = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "missing",
+            responseURL: urlB,
+            stillCurrent: { stillCurrent }
+        )
+        XCTAssertEqual(decision, .cancel)
+
+        try await self.waitFor("cookie gate entered") {
+            gate.entered
+        }
+        XCTAssertEqual(recorder.loads.count, 1)
+
+        stillCurrent = false
+        session.requestLoad(url: urlC, reloadToken: 1)
+        XCTAssertEqual(recorder.loads.count, 2)
+        XCTAssertEqual(recorder.loads.last?.url, urlC)
+
+        gate.release()
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(recorder.loads.count, 2)
+        XCTAssertFalse(recorder.loads.contains { $0.url == urlB })
+
+        let recoveryEvents = log.events.filter { $0.category == .journal && $0.message == "loopback_recovery" }
+        let giveUpEvents = log.events.filter { $0.category == .journal && $0.message == "loopback_give_up" }
+        XCTAssertEqual(recoveryEvents.count, 1)
+        XCTAssertEqual(giveUpEvents.count, 0)
+
+        session.teardown()
+    }
+
+    func testRecoveryLoadsWhenNotTornDown() async throws {
+        let gate = CookieStepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(
+            restoreLoopbackCookie: { await gate.step() }
+        )
+        let homeURL = try self.url("http://127.0.0.1:8080/app/home/")
+        let refusedURL = try self.url("http://127.0.0.1:8080/app/refused/")
+
+        session.requestLoad(url: homeURL, reloadToken: 0)
+        XCTAssertEqual(recorder.loads.count, 1)
+
+        let decision = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "missing",
+            responseURL: refusedURL,
+            stillCurrent: { true }
+        )
+        XCTAssertEqual(decision, .cancel)
+
+        try await self.waitFor("cookie gate entered") {
+            gate.entered
+        }
+        XCTAssertEqual(recorder.loads.count, 1)
+
+        gate.release()
+
+        try await self.waitFor("recovery load issued") {
+            recorder.loads.count == 2
+        }
+        XCTAssertEqual(recorder.loads.last?.url, refusedURL)
+
+        session.teardown()
+    }
+
+    func testTeardownDuringCookieStepLoadsNothing() async throws {
+        let gate = CookieStepGate()
+        let recorder = SessionRecorder()
+        let session = recorder.makeSession(
+            restoreLoopbackCookie: { await gate.step() }
+        )
+        let homeURL = try self.url("http://127.0.0.1:8080/app/home/")
+        let refusedURL = try self.url("http://127.0.0.1:8080/app/refused/")
+
+        session.requestLoad(url: homeURL, reloadToken: 0)
+        XCTAssertEqual(recorder.loads.count, 1)
+
+        let decision = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "missing",
+            responseURL: refusedURL,
+            stillCurrent: { true }
+        )
+        XCTAssertEqual(decision, .cancel)
+
+        try await self.waitFor("cookie gate entered") {
+            gate.entered
+        }
+        XCTAssertEqual(recorder.loads.count, 1)
+
+        session.teardown()
+        gate.release()
+
+        for _ in 0..<10 {
+            await Task.yield()
+        }
+
+        XCTAssertEqual(recorder.loads.count, 1)
+    }
+
+    func testUnmarkedResponsesAreAllowed() async throws {
+        let gate = CookieStepGate()
+        let recorder = SessionRecorder()
+        let log = DiagnosticLog()
+        let session = recorder.makeSession(
+            restoreLoopbackCookie: { await gate.step() },
+            diagnosticLog: log
+        )
+        let sampleURL = try self.url("http://127.0.0.1:8080/app/sample/")
+
+        let cases: [(isMainFrame: Bool, status: Int?, header: String?)] = [
+            (isMainFrame: false, status: 403, header: "missing"),
+            (isMainFrame: true, status: 403, header: nil),
+            (isMainFrame: true, status: 200, header: "missing"),
+            (isMainFrame: true, status: 431, header: nil),
+            (isMainFrame: true, status: nil, header: nil),
+        ]
+
+        for testCase in cases {
+            let decision = session.decideLoopbackResponse(
+                isMainFrame: testCase.isMainFrame,
+                httpStatus: testCase.status,
+                refusalHeader: testCase.header,
+                responseURL: sampleURL,
+                stillCurrent: {
+                    XCTFail("stillCurrent must not be evaluated for non-qualifying responses")
+                    return true
+                }
+            )
+            XCTAssertEqual(decision, .allow)
+            XCTAssertFalse(gate.entered)
+            XCTAssertEqual(recorder.loads.count, 0)
+            XCTAssertTrue(log.events.filter { $0.category == .journal }.isEmpty)
+        }
+
+        // Marked main-frame 403 with responseURL nil
+        let nilURLDecision = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "missing",
+            responseURL: nil,
+            stillCurrent: {
+                XCTFail("stillCurrent must not be evaluated when responseURL is nil")
+                return true
+            }
+        )
+        XCTAssertEqual(nilURLDecision, .cancel)
+        XCTAssertFalse(gate.entered)
+        XCTAssertEqual(recorder.loads.count, 0)
+        XCTAssertTrue(log.events.filter { $0.category == .journal }.isEmpty)
+        XCTAssertEqual(recorder.states.count, 0)
+
+        // Later marked 403 with URL recovers (proving nil URL did not stamp)
+        let recoverDecision = session.decideLoopbackResponse(
+            isMainFrame: true,
+            httpStatus: 403,
+            refusalHeader: "missing",
+            responseURL: sampleURL,
+            stillCurrent: { true }
+        )
+        XCTAssertEqual(recoverDecision, .cancel)
+        try await self.waitFor("cookie gate entered for later recovery") {
+            gate.entered
+        }
+        XCTAssertEqual(recorder.loads.count, 0)
+
+        gate.release()
+        try await self.waitFor("recovery load issued") {
+            recorder.loads.count == 1
+        }
+        XCTAssertEqual(recorder.loads.first?.url, sampleURL)
+
+        session.teardown()
+    }
+
     private func url(_ value: String) throws -> URL {
         try XCTUnwrap(URL(string: value))
     }
@@ -1220,13 +1654,22 @@ private final class SessionRecorder {
     }
 
     func makeSession(
-        gate: CoalescerSleepGate,
+        gate: CoalescerSleepGate? = nil,
+        sleep: (@Sendable (Duration) async -> Void)? = nil,
+        clock: (@MainActor () -> ContinuousClock.Instant)? = nil,
+        restoreLoopbackCookie: (@MainActor () async -> Void)? = nil,
         diagnosticLog: DiagnosticLog? = nil
     ) -> JournalWebNavigationSession {
         JournalWebNavigationSession(
             sleep: { duration in
-                await gate.sleep(duration)
+                if let sleep {
+                    await sleep(duration)
+                } else if let gate {
+                    await gate.sleep(duration)
+                }
             },
+            clock: clock ?? { ContinuousClock.now },
+            restoreLoopbackCookie: restoreLoopbackCookie ?? { },
             load: { request in
                 self.loads.append(request)
                 if self.loadNavigations.isEmpty {
@@ -1239,6 +1682,55 @@ private final class SessionRecorder {
             },
             diagnosticLog: diagnosticLog
         )
+    }
+}
+
+@MainActor
+private final class CookieStepGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private(set) var entered = false
+
+    func step() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            self.entered = true
+            self.continuation = continuation
+        }
+    }
+
+    func release() {
+        let continuation = self.continuation
+        self.continuation = nil
+        continuation?.resume()
+    }
+}
+
+@MainActor
+private final class BoundSleepProbe {
+    private(set) var entered = 0
+    private(set) var cancelled = 0
+    private var pending: CheckedContinuation<Void, Never>?
+
+    func sleep(_ duration: Duration) async {
+        guard !Task.isCancelled else { return }
+        let generation = self.entered + 1
+        self.entered = generation
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                self.pending = continuation
+            }
+        } onCancel: {
+            Task { @MainActor in
+                if self.cancelled < generation {
+                    self.cancelled = generation
+                }
+            }
+        }
+    }
+
+    func resumePending() {
+        let continuation = self.pending
+        self.pending = nil
+        continuation?.resume()
     }
 }
 
