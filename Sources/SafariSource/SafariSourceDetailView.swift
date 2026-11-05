@@ -3,13 +3,19 @@
 
 import SwiftUI
 
-/// The Safari source's page: how to turn the extension on until it has answered, then
-/// its state, its pause, and whether anything is still waiting on this device.
+/// The Safari source's page: two setup steps until the first page comes in, then its
+/// state, its pause, and whether anything is still waiting on this device.
 struct SafariSourceDetailView: View {
     @Environment(SafariSourceModel.self) private var model
     @Environment(AppConfig.self) private var appConfig
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
+    @AppStorage("safari.setup.firstSite") private var typedSite = ""
+    @AppStorage("safari.setup.sawWorking") private var sawWorking = false
+    @State private var wentToSettings = false
+    @State private var settingsFailed = false
+    @State private var wentToSafari = false
 
     var body: some View {
         let status = SafariSourceStatus(snapshot: self.model.snapshot)
@@ -22,15 +28,25 @@ struct SafariSourceDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color.deckSurface, in: ShellMetrics.cardShape)
                     .accessibilityIdentifier("safari.page.valueLine")
-                if status.sourceState == .readyToSetUp {
-                    SourceDetailBlock(title: SafariVocabulary.setUpHeader) { self.setUpBlock }
+                if SafariSetUpStep.isShown(snapshot: self.model.snapshot) {
+                    self.setUpSteps(status)
                 } else {
+                    if self.model.snapshot?.lastAccepted != nil, !self.sawWorking {
+                        self.workingBlock
+                    }
                     SourceDetailBlock(title: LocationVocabulary.stateBlockTitle) { self.stateBlock(status) }
                     if self.model.snapshot != nil {
                         SourceDetailBlock(title: LocationVocabulary.deliveryBlockTitle) { self.deliveryBlock }
                     }
+                    if status.sourceState == .active {
+                        SourceDetailBlock(title: SafariVocabulary.addAnother) {
+                            self.tapRow([.pageMenu, .solstone, .add])
+                        }
+                    }
                 }
-                SourceHomeTileControl(sourceID: "safari")
+                if !SafariSetUpStep.isShown(snapshot: self.model.snapshot) {
+                    SourceHomeTileControl(sourceID: "safari")
+                }
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
@@ -51,27 +67,218 @@ struct SafariSourceDetailView: View {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+        .task { await self.model.refreshExtensionState() }
         .onChange(of: self.scenePhase) { _, phase in
-            if phase == .active { self.model.refresh() }
+            guard phase == .active else { return }
+            self.model.refresh()
+            Task { await self.model.refreshExtensionState() }
+        }
+        .onDisappear {
+            if self.model.snapshot?.lastAccepted != nil { self.sawWorking = true }
         }
     }
 
-    private var setUpBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(SafariVocabulary.setUpStepOne, systemImage: "1.circle")
-                .accessibilityIdentifier("safari.page.stepOne")
-            Label(SafariVocabulary.setUpStepTwo, systemImage: "2.circle")
-                .accessibilityIdentifier("safari.page.stepTwo")
-            Text(SafariVocabulary.whileClosed)
+    private func setUpSteps(_ status: SafariSourceStatus) -> some View {
+        let step = SafariSetUpStep(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn)
+        let source = safariSourceModel(snapshot: self.model.snapshot, isJournalPaired: self.appConfig.isPaired)
+        return VStack(alignment: .leading, spacing: 0) {
+            if status.sourceState == .off, let reason = source.subtext {
+                Text(reason)
+                    .font(.subheadline)
+                    .padding(.bottom, 12)
+                    .accessibilityIdentifier("safari.page.subtext")
+            }
+            self.stepRow(number: 1, title: SafariVocabulary.stepTurnOn, isDone: step == .addSite, isCurrent: step == .turnOn) {
+                self.turnOnStep
+            }
+            Divider().padding(.vertical, 10)
+            self.stepRow(number: 2, title: SafariVocabulary.stepAddSite, isDone: false, isCurrent: step == .addSite) {
+                self.addSiteStep
+            }
+        }
+        .padding(ShellMetrics.surfacePadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.deckSurface, in: ShellMetrics.cardShape)
+        .overlay { ShellMetrics.cardShape.stroke(Color.deckHairline, lineWidth: 0.5) }
+    }
+
+    private func stepRow<Content: View>(number: Int, title: String, isDone: Bool, isCurrent: Bool,
+                                        @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: isDone ? "checkmark.circle.fill" : "\(number).circle")
+                .font(.title3)
+                .foregroundStyle(isDone ? Color.green : (isCurrent ? Color.solOrange : Color.secondary))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(title)
+                    .font(ShellFont.sectionTitle)
+                    .foregroundStyle(isCurrent || isDone ? .primary : .secondary)
+                if isCurrent { content() }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("safari.page.step\(number)\(isDone ? ".done" : "")")
+    }
+
+    private var turnOnStep: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(SafariVocabulary.stepTurnOnBody)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("safari.page.whileClosed")
-            Text(SafariVocabulary.setUpFootnote)
+            HStack {
+                Text(SafariVocabulary.switchName)
+                    .font(.subheadline)
+                Spacer()
+                Toggle("", isOn: .constant(true))
+                    .labelsHidden()
+                    .disabled(true)
+                    .tint(.green)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(SafariVocabulary.switchName)
+            if SafariExtensionControl.canOpenSettings, !self.settingsFailed {
+                Button {
+                    Task {
+                        let opened = await self.model.openExtensionSettings()
+                        self.wentToSettings = opened
+                        self.settingsFailed = !opened
+                    }
+                } label: {
+                    Text(SafariVocabulary.openSettings).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .accessibilityIdentifier("safari.openSettings")
+                if self.wentToSettings, self.scenePhase == .active {
+                    Text(SafariVocabulary.notOnYet)
+                        .font(.subheadline)
+                        .accessibilityIdentifier("safari.page.notOnYet")
+                }
+                Text(SafariVocabulary.appleWarning)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(SafariVocabulary.settingsByHand)
+                    .font(.subheadline)
+                    .accessibilityIdentifier("safari.page.settingsByHand")
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var addSiteStep: some View {
+        let host = SafariFirstSite.host(from: self.typedSite)
+        return VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(SafariVocabulary.siteField)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                TextField(SafariVocabulary.sitePlaceholder, text: self.$typedSite)
+                    .textFieldStyle(.roundedBorder)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .accessibilityIdentifier("safari.page.siteField")
+            }
+            self.tapRow([.pageMenu, .solstone, .add, .alwaysAllow])
+            Text(SafariVocabulary.safariAsks)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+            Button {
+                guard let host else { return }
+                self.open(SafariFirstSite.urls(for: host)[...])
+                self.wentToSafari = true
+            } label: {
+                Text(SafariVocabulary.openInSafari).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(host == nil)
+            .accessibilityIdentifier("safari.openInSafari")
+            if self.wentToSafari, let host {
+                Text(SafariVocabulary.waitingFor(host))
+                    .font(.subheadline)
+                    .accessibilityIdentifier("safari.page.waitingFor")
+            }
         }
-        .font(.subheadline)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func open(_ urls: ArraySlice<URL>) {
+        guard let url = urls.first else { return }
+        self.openURL(url) { opened in
+            if !opened { self.open(urls.dropFirst()) }
+        }
+    }
+
+    private var workingBlock: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "sun.max.fill")
+                .font(.largeTitle)
+                .foregroundStyle(Color.solOrange)
+                .accessibilityHidden(true)
+            Text(SafariVocabulary.working)
+                .font(ShellFont.sectionTitle)
+            Text(SafariVocabulary.workingBody)
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+        }
+        .padding(ShellMetrics.surfacePadding)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("safari.page.working")
+    }
+
+    private enum SafariTap {
+        case pageMenu, solstone, add, alwaysAllow
+
+        var label: String {
+            switch self {
+            case .pageMenu: SafariVocabulary.tapPageMenu
+            case .solstone: SafariVocabulary.tapSolstone
+            case .add: SafariVocabulary.tapAdd
+            case .alwaysAllow: SafariVocabulary.tapAlwaysAllow
+            }
+        }
+
+        var symbol: String {
+            switch self {
+            case .pageMenu: "line.3.horizontal.decrease"
+            case .solstone: "sun.max"
+            case .add: "plus"
+            case .alwaysAllow: "checkmark"
+            }
+        }
+    }
+
+    /// The controls to tap in Safari, in order. Safari can't be drawn over, so they're shown first.
+    private func tapRow(_ taps: [SafariTap]) -> some View {
+        HStack(alignment: .top, spacing: 4) {
+            ForEach(Array(taps.enumerated()), id: \.offset) { index, tap in
+                if index > 0 {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(height: 34)
+                }
+                VStack(spacing: 3) {
+                    Image(systemName: tap.symbol)
+                        .frame(maxWidth: .infinity, minHeight: 34)
+                        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 9))
+                    Text(tap.label)
+                        .font(.caption2)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(taps.map(\.label).joined(separator: ", then "))
     }
 
     private func stateBlock(_ status: SafariSourceStatus) -> some View {

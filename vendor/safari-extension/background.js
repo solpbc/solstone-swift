@@ -40,7 +40,7 @@ const PortController = globalThis.SolstoneNativePort;
 const Outbox = globalThis.SolstoneNativeOutbox;
 const Status = globalThis.SolstoneStatus;
 
-const VERSION = "0.5.6";
+const VERSION = "0.5.7";
 const ALARM_NAME = "native-port";
 
 const CONTENT_SCRIPT_FILES = [
@@ -843,7 +843,13 @@ async function doInit() {
     if (mirror.inst !== inst) await chrome.storage.local.set({ inst });
   }
 
-  const consentVersion = (await DB.get("meta", "consentVersion")) || 0;
+  let consentVersion = (await DB.get("meta", "consentVersion")) || 0;
+  // Safari on iPhone and iPad has no separate agreement: nothing leaves the owner's
+  // device and journal, Safari asks about each site, and the first add says what it takes in.
+  if (globalThis.SolstoneCopy?.MOBILE === true && consentVersion !== globalThis.SolstoneCaptureGate.CONSENT_VERSION) {
+    consentVersion = globalThis.SolstoneCaptureGate.CONSENT_VERSION;
+    await DB.put("meta", consentVersion, "consentVersion");
+  }
   const everConnected = !!(await DB.get("meta", "everConnected"));
   const cfg = await getCfg();
   const lossNotice = await DB.get("meta", "lossNotice");
@@ -1202,7 +1208,8 @@ function init() {
 }
 
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason === "install") {
+  // On iPhone and iPad, the solstone app walks the owner through setup.
+  if (details.reason === "install" && globalThis.SolstoneCopy?.MOBILE !== true) {
     try {
       chrome.runtime.openOptionsPage();
     } catch (_e) {}

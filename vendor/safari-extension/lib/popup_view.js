@@ -296,6 +296,8 @@
     if (effects.status?.consentVersion !== 1 || effects.status?.addSiteEligible !== true) {
       return { ok: false, cancelled: true, ineligible: true };
     }
+    // After the first site on iPhone and iPad, Safari's own prompt is the only question.
+    if (effects.skipSheet === true) return grantSite(host, effects);
     // The sheet calls confirm inside the owner's confirming click, so the
     // browser's prompt opens from that click. Firefox refuses a permission
     // request made after the click's handler has returned.

@@ -5,7 +5,7 @@
 import Foundation
 
 /// `--ui-test-safari=<mode>` shows the Safari source in one state without Safari:
-/// `setUp`, `on`, `paused`, `waiting`, `full`.
+/// `setUp`, `addSite`, `on`, `paused`, `waiting`, `full`.
 @MainActor
 enum SafariUITestSource {
     static func seeded(arguments: [String] = ProcessInfo.processInfo.arguments) -> SafariSourceModel? {
@@ -17,13 +17,15 @@ enum SafariUITestSource {
             lastAccepted: now.addingTimeInterval(-90), lastContact: now, full: false)
         switch mode {
         case "setUp": snapshot.lastContact = nil; snapshot.lastAccepted = nil
+        case "addSite": snapshot.lastAccepted = nil
         case "paused": snapshot.paused = true
         case "waiting": snapshot.heldBytes = 4096
         case "full": snapshot.full = true; snapshot.heldBytes = 64 * 1024 * 1024
         default: break
         }
         let box = Box(snapshot)
-        return SafariSourceModel(load: { box.value }, writePause: { box.value.paused = $0 })
+        return SafariSourceModel(load: { box.value }, writePause: { box.value.paused = $0 },
+                                 readExtensionOn: { nil }, openSettings: { false })
     }
 
     private final class Box {

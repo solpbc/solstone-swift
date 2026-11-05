@@ -402,8 +402,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       unsent: `that can include words you've typed but haven't sent, and anything the site shows, even something you'd consider secret.`,
       destinationLabel: `it goes to`,
       destination: `your journal, through the solstone app on ${PLACE}`,
-      destinationDetail: `nothing leaves this browser except to the solstone app on ${PLACE}.`,
-      browser: `${bName} will ask you to allow this next. you can remove the site any time; what's already in your journal stays there.`,
+      destinationDetail: `nothing leaves this browser except to the solstone app on ${PLACE}.${MOBILE ? ` ${MOBILE_WHILE_CLOSED}` : ""}`,
+      browser: `${bName} will ask you to allow this next.${MOBILE ? " choose Always Allow so it keeps working when you come back." : ""} you can remove the site any time; what's already in your journal stays there.`,
       confirmLabel: `add this site`,
       cancelLabel: `cancel`,
     };

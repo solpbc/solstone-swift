@@ -36,6 +36,10 @@
         background: var(--ground);
         color: var(--ink);
       }
+      /* Safari's popup on iPhone and iPad is a sheet: fill it. */
+      @media (hover: none) and (pointer: coarse) {
+        body { width: auto; }
+      }
       header, footer { flex: none; }
       header {
         display: flex;
