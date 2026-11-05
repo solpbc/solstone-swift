@@ -608,11 +608,31 @@ nonisolated final class TransferTests: XCTestCase {
     }
 
     func testHeldObserverEndpointMakesZeroNetworkCalls() async throws {
-        let engine = self.makeEngine(resolver: TransferEndpointResolverStub(.unavailable("held")))
+        TransferURLProtocol.handler = { request, body in
+            (Self.response(for: request, statusCode: 200), transferTestMatchingReceipt(body: body, contentType: request.value(forHTTPHeaderField: "Content-Type")))
+        }
+        let resolver = TransferEndpointResolverStub(.unavailable("held"))
+        let events = OSAllocatedUnfairLock<[TransferDiagnosticEvent]>(initialState: [])
+        let engine = self.makeEngine(resolver: resolver, diagnosticsSink: { event in
+            events.withLock { $0.append(event) }
+        })
+        let manifest = self.makeManifest()
         try await engine.start()
-        _ = try await engine.enqueue(manifest: self.makeManifest(), payloads: self.audioPayloads())
-        try await self.waitFor("held observer item") { (await engine.snapshot()).counters.queuedCount == 1 }
-        XCTAssertEqual(TransferURLProtocol.requests.count, 0)
+        _ = try await engine.enqueue(manifest: manifest, payloads: self.audioPayloads())
+        try await self.waitFor("held observer item") {
+            let snapshot = await engine.snapshot()
+            return events.withLock { $0.contains { $0.outcome == .held } }
+                && snapshot.counters.queuedCount == 1
+        }
+        // Earlier engines can still finish requests against the shared protocol fixture.
+        XCTAssertEqual(TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:)).filter { $0 == manifest.itemID }.count, 0)
+
+        // Prove that the same transfer is visible to this assertion once admitted.
+        resolver.setResolution(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!)))
+        await engine.endpointAvailabilityChanged()
+        try await self.waitFor("released observer item") { (await engine.snapshot()).counters.deliveredCount == 1 }
+        XCTAssertEqual(TransferURLProtocol.requests.compactMap(Self.boundaryItemID(from:)).filter { $0 == manifest.itemID }.count, 1)
+        await engine.pause()
     }
 
     func testSaveThenStartUnsupportedAndMalformedItemsMoveToAttentionWithoutRequests() async throws {
