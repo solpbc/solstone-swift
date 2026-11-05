@@ -207,6 +207,7 @@
     }
     const result = await View.addSite(Hosts.chosenOrigin(page.origin) || page.origin || page.host, Object.assign(siteEffects(), {
       disclose: presentDisclosure,
+      skipSheet: Copy.MOBILE === true && state?.chosenOrigins?.length > 0,
     }));
     if (result.cancelled) return;
     if (result.denied) {

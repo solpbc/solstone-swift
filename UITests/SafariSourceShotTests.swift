@@ -7,7 +7,8 @@ import XCTest
 /// and attaches a screenshot of each.
 final class SafariSourceShotTests: XCTestCase {
     private static let states: [(mode: String, probe: String, element: String)] = [
-        ("setUp", "readyToSetUp", "safari.page.stepOne"),
+        ("setUp", "readyToSetUp", "safari.page.step1"),
+        ("addSite", "readyToSetUp", "safari.page.step1.done"),
         ("on", "active", "safari.pauseResume"),
         ("waiting", "active", "safari.page.waiting"),
         ("paused", "paused", "safari.pauseResume"),
