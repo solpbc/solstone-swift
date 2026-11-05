@@ -10,6 +10,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - when something other than your journal answers, the app now tells you and shows both marks to compare.
 
+### Changed
+
+- opening your journal in the app no longer starts from scratch after the connection drops, when you come back to the app or when you reopen it. forgetting your journal also clears what the journal page left on this device.
+
 ### Fixed
 
 - answering "that doesn't match" when you pair again now keeps your current pairing.

@@ -3,7 +3,10 @@
 
 import Foundation
 import Observation
+import os
 import SPLTunnel
+
+nonisolated private let cfTunnelTransportLog = Logger(subsystem: "app.solstone.swift", category: "tunnel")
 
 enum CFTunnelTransportError: Error, Sendable, Equatable {
     case missingPairing
@@ -120,19 +123,23 @@ final class CFTunnelTransport: Transporting {
     private var attemptUpdatesTask: Task<Void, Never>?
     @ObservationIgnored
     private let attemptUpdatesDrainDeadline: Duration
+    @ObservationIgnored
+    private let origins: JournalWebOriginStore
 
     init(
         appConfig: AppConfig? = nil,
         diagnosticLog: DiagnosticLog? = nil,
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         makeSession: @escaping @Sendable (StoredPairing) -> any TunnelSessioning & MuxStreamOpening = CFTunnelTransport.makeProductionSession,
-        attemptUpdatesDrainDeadline: Duration = CFTunnelTransport.defaultAttemptUpdatesDrainDeadline
+        attemptUpdatesDrainDeadline: Duration = CFTunnelTransport.defaultAttemptUpdatesDrainDeadline,
+        origins: JournalWebOriginStore = .shared
     ) {
         self.appConfig = appConfig
         self.diagnosticLog = diagnosticLog
         self.loadPairing = loadPairing
         self.makeSession = makeSession
         self.attemptUpdatesDrainDeadline = attemptUpdatesDrainDeadline
+        self.origins = origins
     }
 
     public func connect(
@@ -164,6 +171,7 @@ final class CFTunnelTransport: Transporting {
         do {
             let port = try await raceStartupAgainstConnectWindow(
                 session: session,
+                journalInstanceID: pairing.instanceID,
                 candidates: candidates,
                 onStageChange: onStageChange,
                 connectWindow: connectWindow,
@@ -186,6 +194,7 @@ final class CFTunnelTransport: Transporting {
 
     private func raceStartupAgainstConnectWindow(
         session: any TunnelSessioning & MuxStreamOpening,
+        journalInstanceID: String,
         candidates: [TransportEndpoint],
         onStageChange: @Sendable @escaping (TransportStage) -> Void,
         connectWindow: ConnectWindowTerminalSignal,
@@ -194,6 +203,7 @@ final class CFTunnelTransport: Transporting {
         let startupTask = Task { @MainActor in
             try await self.startSessionAndProxy(
                 session: session,
+                journalInstanceID: journalInstanceID,
                 candidates: candidates,
                 onStageChange: onStageChange,
                 epoch: epoch
@@ -245,6 +255,7 @@ final class CFTunnelTransport: Transporting {
 
     private func startSessionAndProxy(
         session: any TunnelSessioning & MuxStreamOpening,
+        journalInstanceID: String,
         candidates: [TransportEndpoint],
         onStageChange: @Sendable @escaping (TransportStage) -> Void,
         epoch: UInt64
@@ -268,10 +279,18 @@ final class CFTunnelTransport: Transporting {
                 diagnosticLog?.noteJournalLinkEvent(kind, at: timestamp)
             }
         })
+        // The in-app journal's origin is the proxy's port: asking for the port
+        // the last proxy had keeps the page's cache and storage.
+        let preferredPort = self.origins.preferredPort(for: journalInstanceID)
         let port: Int
         do {
-            port = Int(try await proxy.start())
+            let binding = try await proxy.start(preferredPort: preferredPort)
             try self.checkCurrent(epoch)
+            port = Int(binding.port)
+            self.origins.recordPort(binding.port, for: journalInstanceID)
+            if preferredPort != nil, let fallback = binding.fallback {
+                self.noteOriginChanged(fallback)
+            }
         } catch {
             await proxy.stop()
             throw error
@@ -285,6 +304,20 @@ final class CFTunnelTransport: Transporting {
         )
         onStageChange(.loopbackReady(port: port))
         return port
+    }
+
+    private func noteOriginChanged(_ fallback: LoopbackBinding.Fallback) {
+        let reason = switch fallback {
+        case .preferredPortInUse: "port-in-use"
+        case .preferredPortFailed: "bind-failed"
+        }
+        cfTunnelTransportLog.notice("journal page origin changed: \(reason, privacy: .public)")
+        self.diagnosticLog?.append(
+            category: .journal,
+            severity: .info,
+            message: "journal page started fresh",
+            detail: "reason=\(reason)"
+        )
     }
 
     public func disconnect() async {

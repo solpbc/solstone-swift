@@ -313,6 +313,8 @@ final class AppConfig {
         // The mark is a property of the pairing, so unpairing is the one and only event that
         // clears it. ⛔ Nothing else may — see `JournalMarkStore`.
         self.journalMarkStore.clear()
+        // The in-app journal's cached pages and remembered port belong to this pairing.
+        JournalWebDataStore.forgetPairing()
         appConfigLog.info("pairing cleared")
     }
 

@@ -13,6 +13,8 @@ import WebKit
 struct JournalWebView: UIViewRepresentable {
     let url: URL
     let reloadToken: Int
+    /// The paired journal; its pages live in that pairing's own data store.
+    var journalInstanceID: String? = nil
     @Binding var loadState: JournalWebPresentation.LoadState
     let diagnosticLog: DiagnosticLog
 
@@ -24,6 +26,9 @@ struct JournalWebView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = JournalWebHostContractConfiguration.make(diagnosticLog: self.diagnosticLog)
+        if let journalInstanceID, !journalInstanceID.isEmpty {
+            configuration.websiteDataStore = JournalWebDataStore.store(for: journalInstanceID)
+        }
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
@@ -439,6 +444,7 @@ struct InAppJournalView: View {
                         JournalWebView(
                             url: url,
                             reloadToken: self.reloadToken,
+                            journalInstanceID: self.appConfig.deviceID,
                             loadState: self.$loadState,
                             diagnosticLog: self.diagnosticLog
                         )
