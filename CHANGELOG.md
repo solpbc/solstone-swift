@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Added
+
+- the solstone extension for Safari now comes with the app on iphone and ipad. turn it on in settings, under Safari's extensions, then add your sites from solstone in Safari's page menu. it keeps taking in those sites while the app is closed, and what it takes in waits on your device and goes into your journal the next time you open the app.
+
 ### Fixed
 
 - coming back to the app with your journal open no longer flashes "can't reach your journal" and a try again button while it reconnects. you see it connecting, then your journal.

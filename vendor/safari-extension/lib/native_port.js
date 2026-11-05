@@ -491,7 +491,7 @@
         consentVersion: this.consentVersion,
         chosenOrigins: chosenList,
         grantedOrigins: grantedList,
-        exactOnlyOrigins: Array.from(this.exactOnlyOrigins || []).filter((o) => this.grantedOrigins.has(o)).sort(),
+        exactOnlyOrigins: Array.from(this.exactOnlyOrigins || []).filter((o) => this.chosenOrigins.has(o)).sort(),
         siteWideOrigins: Array.from(this.siteWideOrigins || []).sort(),
         pendingRemoveOrigins: Array.from(this.pendingRemoveOrigins || []),
         offeredOrigins: Array.from(this.offeredOrigins || []).sort(),
@@ -1092,9 +1092,24 @@
       this.pumpRuleQueue();
     }
 
+    // Owner rules wait behind any rule already in flight, so an answer is
+    // never matched to the wrong rule.
+    queueSiteRule(host, out) {
+      if (!this.ruleQueue.some((item) => item.host === host && item.out === !!out)) {
+        this.ruleQueue.push({ host, out: !!out });
+      }
+      this.pumpRuleQueue();
+    }
+
     pumpRuleQueue() {
       if (!this.leftOutCapable || !this.livePort || this.handshake !== "ready") return;
-      if (this.outstandingRule) return;
+      if (this.outstandingRule) {
+        // A rule unanswered for 10 s stops migration for this connection but
+        // never blocks the owner's own later rules.
+        if (this.now() - this.outstandingRule.sentAt < 10000) return;
+        this.migrationBlocked = true;
+        this.outstandingRule = null;
+      }
       if (this.ruleQueue.length > 0) {
         const next = this.ruleQueue.shift();
         this.sendSiteRule(next.host, next.out);
@@ -1213,6 +1228,7 @@
 
     async poll(now) {
       const consts = getConsts();
+      this.pumpRuleQueue();
       const codec = globalThis.SolstoneNativeBrowser;
       const monoNow = Number(now !== undefined ? now : this.now());
 

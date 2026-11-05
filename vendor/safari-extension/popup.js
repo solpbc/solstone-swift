@@ -63,12 +63,19 @@
   let state = null;
   let page = { origin: "", host: "", ok: false, kind: "" };
   let disclosureResolve = null;
+  let disclosureConfirm = null;
   let previousActiveElement = null;
   let paintSequence = 0;
   let appliedCaptureEpoch = -1;
 
+  // The message sits at the end of a popup that scrolls, so bring it into view:
+  // otherwise a refused add or a removal says nothing the owner can see.
   function showActionMessage(message) {
-    $("actionMessage").textContent = message || "";
+    const region = $("actionMessage");
+    region.textContent = message || "";
+    if (message && typeof region.scrollIntoView === "function") {
+      try { region.scrollIntoView({ block: "nearest" }); } catch (_e) {}
+    }
   }
 
   function showActionError(error) {
@@ -131,6 +138,7 @@
       status: state,
       cmd,
       requestPermission: (request) => chrome.permissions.request(request),
+      getAllPermissions: () => chrome.permissions.getAll(),
       removePermission: (request) => chrome.permissions.remove(request),
     };
   }
@@ -198,7 +206,10 @@
       disclose: presentDisclosure,
     }));
     if (result.cancelled) return;
-    if (result.denied) showActionMessage("permission declined. nothing added.");
+    if (result.denied) {
+      const blocked = result.blockedBy ? Copy.addBlockedBelow(state?.brand, Hosts.matchHostFor(page.host), result.blockedBy) : "";
+      showActionMessage(blocked || "permission declined. nothing added.");
+    }
     else if (result.error) showActionError(result.error);
     await refresh();
   }
@@ -254,6 +265,11 @@
 
   function closeDisclosure(confirmed) {
     if (!disclosureResolve) return;
+    // Runs inside the confirming click, before anything else, so the
+    // browser's permission prompt opens from the owner's gesture.
+    const confirm = disclosureConfirm;
+    disclosureConfirm = null;
+    const outcome = confirmed && confirm ? confirm() : confirmed;
     $("disclosure").hidden = true;
     $("popupMain").hidden = false;
     $("popupFooter").hidden = false;
@@ -262,11 +278,12 @@
     if (previousActiveElement && typeof previousActiveElement.focus === "function") {
       previousActiveElement.focus();
     }
-    resolve(confirmed);
+    resolve(outcome);
   }
 
-  function presentDisclosure(host) {
+  function presentDisclosure(host, confirm = null) {
     previousActiveElement = document.activeElement;
+    disclosureConfirm = typeof confirm === "function" ? confirm : null;
     const copy = Disclosure.addSite(host, state);
     $("disclosureTitle").textContent = copy.title;
     $("disclosureWhat").textContent = copy.what;
@@ -392,6 +409,35 @@
   }
   subscribeStatus();
 
-  globalThis.SolstonePopup = { refresh };
+  // Safari doesn't always deliver the status channel's messages to an open
+  // popup, and can restart the background without closing the channel. So an
+  // answer from the app, such as a site left out or included, would show only
+  // on reopening. While the popup is open it also reads the state each second,
+  // and repaints only when something changed. A lower epoch means a restarted
+  // background, so the popup resubscribes.
+  function sameState(a, b) {
+    return JSON.stringify({ ...(a || {}), ok: undefined }) === JSON.stringify({ ...(b || {}), ok: undefined });
+  }
+  async function readState() {
+    const sequence = paintSequence;
+    const nextState = await cmd({ cmd: "getState" });
+    if (sequence !== paintSequence || nextState.ok === false || sameState(nextState, state)) return;
+    const epoch = Number.isSafeInteger(nextState.captureEpoch) ? nextState.captureEpoch : appliedCaptureEpoch;
+    if (epoch < appliedCaptureEpoch) subscribeStatus();
+    appliedCaptureEpoch = Math.max(appliedCaptureEpoch, epoch);
+    await paint(nextState, ++paintSequence);
+  }
+  function watchState() {
+    if (typeof document.visibilityState !== "string") return;
+    setTimeout(async () => {
+      if (document.visibilityState === "visible") {
+        try { await readState(); } catch (_e) { /* the next read tries again */ }
+      }
+      watchState();
+    }, 1000);
+  }
+  watchState();
+
+  globalThis.SolstonePopup = { refresh, readState };
   refresh();
 })();

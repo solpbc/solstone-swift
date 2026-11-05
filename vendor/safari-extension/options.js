@@ -41,6 +41,7 @@
   const SITES_CARD_ACTIONS = new Set(["open-settings", "allow-all-sites", "retry-all-sites", "allow-again-all"]);
   let state = null;
   let disclosureResolve = null;
+  let disclosureConfirm = null;
   let allSitesDisclosure = false;
   let disclosureReturnFocus = null;
   let accessCheck = null;
@@ -71,6 +72,7 @@
       status: state,
       cmd,
       requestPermission: (request) => chrome.permissions.request(request),
+      getAllPermissions: () => chrome.permissions.getAll(),
       removePermission: (request) => chrome.permissions.remove(request),
     };
   }
@@ -82,17 +84,23 @@
 
   function closeDisclosure(confirmed) {
     if (!disclosureResolve) return;
+    // Runs inside the confirming click, before anything else, so the
+    // browser's permission prompt opens from the owner's gesture.
+    const confirm = disclosureConfirm;
+    disclosureConfirm = null;
+    const outcome = confirmed && confirm ? confirm() : confirmed;
     if ($("siteDisclosure")) $("siteDisclosure").hidden = true;
     if ($("sitesMain")) $("sitesMain").hidden = false;
     const resolve = disclosureResolve;
     disclosureResolve = null;
     focus(disclosureReturnFocus || "newHost");
     disclosureReturnFocus = null;
-    resolve(confirmed);
+    resolve(outcome);
   }
 
-  function presentDisclosure(host, allSites = false) {
+  function presentDisclosure(host, confirm = null, allSites = false) {
     allSitesDisclosure = allSites;
+    disclosureConfirm = typeof confirm === "function" ? confirm : null;
     const copy = allSites
       ? Copy.allSitesCopy(state?.brand, { excludedCount: (state?.excludedHosts || []).length, chosenCount: chosenList().length })
       : Disclosure.addSite(host, state);
@@ -156,8 +164,10 @@
     let rawHost = "";
     try { rawHost = new URL(origin).hostname; } catch (_e) {}
     const effectiveList = (state?.excludedHosts || []).concat(state?.appLeftOut || []);
-    if (rawHost && effectiveList.some((s) => Hosts?.hostCovers ? Hosts.hostCovers(s, rawHost) : false)) {
-      announce(Copy.leftOutRefusal(rawHost), "bad");
+    // Name the left-out entry that covers it (google.com for mail.google.com).
+    const coveringEntry = rawHost ? effectiveList.find((s) => Hosts?.hostCovers ? Hosts.hostCovers(s, rawHost) : false) : null;
+    if (coveringEntry) {
+      announce(Copy.leftOutRefusal(coveringEntry), "bad");
       return;
     }
     const displayHost = Hosts.displayOrigin(origin);
@@ -180,7 +190,8 @@
     await refresh();
     if (inputElement && typeof inputElement.focus === "function") inputElement.focus();
     if (result.denied) {
-      announce(Copy.ADD_DENIED, "bad");
+      const blocked = result.blockedBy ? Copy.addBlockedBelow(state?.brand, rawHost, result.blockedBy) : "";
+      announce(blocked || Copy.ADD_DENIED, "bad");
     } else if (result.error) {
       showActionError(result.error);
     } else if (result.ok) {
@@ -268,7 +279,7 @@
       }
       const remove = document.createElement("button");
       remove.type = "button";
-      remove.textContent = excluded ? "include again" : "remove";
+      remove.textContent = excluded ? "stop leaving out" : "remove";
       if (typeof remove.setAttribute === "function") remove.setAttribute("aria-label", `${remove.textContent} ${host}`);
       remove.addEventListener("click", () => runSiteAction({ id: excluded ? "include-site" : "remove-site", host: hostname, label: host, origin: entry }));
       actions.append(remove);
@@ -531,7 +542,15 @@
   function renderOffersBlock(container) {
     if (!container) return;
     const allSites = state?.siteMode === "all";
-    const offers = (!allSites && Array.isArray(state?.offeredOrigins)) ? state.offeredOrigins : [];
+    // An offer for a site that is now left out (here or in the app) or declined
+    // is not shown: there is nothing to add.
+    const leftOut = [...(state?.excludedHosts || []), ...(state?.appLeftOut || [])];
+    const declined = state?.declinedHosts || [];
+    const offers = (!allSites && Array.isArray(state?.offeredOrigins) ? state.offeredOrigins : []).filter((origin) => {
+      let host = "";
+      try { host = new URL(origin).hostname; } catch (_e) { return false; }
+      return !leftOut.some((site) => Hosts.hostCovers(site, host)) && !declined.includes(host);
+    });
     if (offers.length === 0) {
       container.hidden = true;
       container.replaceChildren();
@@ -625,6 +644,7 @@
         const words = Copy.exactOnlyCopy(state?.brand, exactOnly.map((origin) => Hosts.displayOrigin(origin)));
         $("exactOnlyLine").textContent = words.line;
         $("exactOnlyBtn").textContent = words.label;
+        $("exactOnlyBtn").hidden = !words.label;
       }
     }
 
@@ -660,7 +680,7 @@
               if (isLocal || state?.leftOutCapable) {
                 const btn = document.createElement("button");
                 btn.type = "button";
-                btn.textContent = "include";
+                btn.textContent = "stop leaving out";
                 btn.addEventListener("click", async () => {
                   clearAnnouncement();
                   const res = await cmd({ cmd: "setLeftOut", host, out: false });
@@ -834,7 +854,7 @@
     if (state?.siteMode === "all" && state.allSitesConsent === Hosts.ALL_SITES_CONSENT_VERSION) return;
     clearAnnouncement();
     disclosureReturnFocus = $("modeAllBtn");
-    await presentDisclosure(null, true);
+    await presentDisclosure(null, null, true);
   });
   $("modeSelectedBtn").addEventListener("click", async () => {
     clearAnnouncement();
@@ -889,7 +909,7 @@
   if ($("exactOnlyBtn")) $("exactOnlyBtn").addEventListener("click", async () => {
     clearAnnouncement();
     const exactOnly = state?.exactOnlyOrigins || [];
-    const result = await View.grantChosenSites(exactOnly, siteEffects());
+    const result = await View.grantChosenSites(exactOnly, siteEffects(), { widen: true });
     if (result.denied) announce(Copy.exactOnlyCopy(state?.brand, exactOnly.map((origin) => Hosts.displayOrigin(origin))).declined, "bad");
     else if (result.error) showActionError(result.error);
     await refresh();

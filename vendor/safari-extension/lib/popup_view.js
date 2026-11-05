@@ -119,10 +119,13 @@
       pageState = "left out";
       pageNoteKey = Copy?.popupNoteKey ? Copy.popupNoteKey(state, page, "left-out") : "";
       const rawLeftOutNote = pageNoteKey && Copy ? Copy[pageNoteKey] : "";
-      pageNote = !allSites ? (typeof rawLeftOutNote === "function" ? rawLeftOutNote(state.brand) : (rawLeftOutNote || "")) : "";
+      pageNote = typeof rawLeftOutNote === "function" ? rawLeftOutNote(state.brand) : (rawLeftOutNote || "");
       const site = coveringExcludedSite;
-      const includeLabel = site === H.siteHostname(page.host) ? "include this site" : `include ${site}`;
-      if (!isLocalLeftOut && !state.leftOutCapable) {
+      const includeLabel = site === H.siteHostname(page.host) ? "stop leaving this site out" : `stop leaving ${site} out`;
+      // Taking it off the list can't reach the app while it can't be told, so a
+      // site its list also covers offers no such button (same rule as the site row).
+      const appCovers = (state.appLeftOut || []).some((s2) => H.hostCovers(s2, page.host));
+      if ((appCovers || !isLocalLeftOut) && !state.leftOutCapable) {
         siteAction = null;
       } else {
         siteAction = { id: "include-site", site, label: includeLabel, disabled: false, primary: false };
@@ -239,7 +242,7 @@
     }
     if (!granted) {
       try { effects.cmd({ cmd: "clearAddIntent" }); } catch (_e) {}
-      return { ok: false, denied: true };
+      return withBlockedBy({ ok: false, denied: true }, host, effects);
     }
 
     const freshState = await effects.cmd({ cmd: "getState" });
@@ -248,7 +251,35 @@
       return { ok: false, denied: true, ineligible: true };
     }
 
-    return effects.cmd({ cmd: "addGrantedOrigin", origin });
+    const added = await effects.cmd({ cmd: "addGrantedOrigin", origin });
+    if (added && added.ok === false) {
+      const blocked = await withBlockedBy({ ok: false, denied: true }, host, effects);
+      if (blocked.blockedBy) return blocked;
+    }
+    return added;
+  }
+
+  // Safari keeps only the broadest grant, so while it allows a site under this
+  // one it doesn't ask about this one, and the request grants nothing. The
+  // failure names that site, unless this site's own grant is live after all.
+  async function withBlockedBy(result, host, effects) {
+    if (typeof effects?.getAllPermissions !== "function") return result;
+    const H = globalThis.SolstoneHosts;
+    if (!H) return result;
+    let live;
+    try {
+      live = (await effects.getAllPermissions())?.origins;
+    } catch (_e) {
+      return result;
+    }
+    if (!Array.isArray(live)) return result;
+    const h = H.matchHostFor(host);
+    if (!h || live.includes(H.matchPatternFor(h))) return result;
+    for (const pattern of live) {
+      const site = H.patternSiteHost(pattern);
+      if (site && site !== h && site.endsWith(`.${h}`)) return { ...result, blockedBy: site };
+    }
+    return result;
   }
 
   // The sheet names the site by host; a caller may hand in a full origin for the grant.
@@ -265,9 +296,12 @@
     if (effects.status?.consentVersion !== 1 || effects.status?.addSiteEligible !== true) {
       return { ok: false, cancelled: true, ineligible: true };
     }
-    const confirmed = await effects.disclose(sheetHost(host));
-    if (!confirmed) return { ok: false, cancelled: true };
-    return grantSite(host, effects);
+    // The sheet calls confirm inside the owner's confirming click, so the
+    // browser's prompt opens from that click. Firefox refuses a permission
+    // request made after the click's handler has returned.
+    const outcome = await effects.disclose(sheetHost(host), () => grantSite(host, effects));
+    if (!outcome) return { ok: false, cancelled: true };
+    return outcome;
   }
 
   async function grantAllSites(effects) {
@@ -307,16 +341,19 @@
   // One browser prompt for the owner's own chosen sites that lost their grant,
   // such as after switching back from all sites. Only already-chosen origins are
   // asked for, so nothing new joins the list.
-  async function grantChosenSites(origins, effects) {
+  // `widen` asks for each site's whole-site pattern: the settings bar for sites
+  // that cover only their exact address. Allowing again restores what was there.
+  async function grantChosenSites(origins, effects, options = {}) {
     const H = globalThis.SolstoneHosts;
     const chosen = new Set(effects.status?.chosenOrigins || []);
     const exactOnly = new Set(effects.status?.exactOnlyOrigins || []);
+    const widen = options?.widen === true;
     const patterns = [];
     for (const origin of origins || []) {
       if (!chosen.has(origin)) continue;
       try {
         const host = new URL(origin).host;
-        patterns.push(exactOnly.has(origin) ? H.exactPatternFor(host) : H.matchPatternFor(host));
+        patterns.push(exactOnly.has(origin) && !widen ? H.exactPatternFor(host) : H.matchPatternFor(host));
       } catch (_e) {}
     }
     if (effects.status?.siteMode === "all" || patterns.length === 0) return { ok: false, error: "wrong_site_mode" };

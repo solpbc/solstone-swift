@@ -47,6 +47,7 @@
       chosen: Array.from(port.chosenOrigins || []),
       granted: Array.from(port.grantedOrigins || []),
       exactOnly: Array.from(port.exactOnlyOrigins || []),
+      exactOnlyKnown: port.exactOnlyKnown !== false,
       siteWide: Array.from(port.siteWideOrigins || current.siteWide || []),
       declinedHosts: new Set(port.declinedHosts || current.declinedHosts || []),
       reservation: current.reservation || null,
@@ -70,7 +71,15 @@
     port.permissionEpoch = state.permissionEpoch;
     port.chosenOrigins = new Set(state.chosen);
     port.grantedOrigins = new Set(state.granted);
+    const priorExact = Array.from(port.exactOnlyOrigins || []).sort();
     port.exactOnlyOrigins = new Set(state.exactOnly || []);
+    const nextExact = Array.from(port.exactOnlyOrigins).sort();
+    const exactChanged = priorExact.length !== nextExact.length || priorExact.some((o, i) => o !== nextExact[i]);
+    if (event.type === "publish-grants" && transition.result?.ok !== false) port.exactOnlyKnown = true;
+    // A removal saves its mark with the rest of the list in one write.
+    if (exactChanged && event.type !== "owner-remove" && typeof port.onExactOnlyChange === "function") {
+      try { port.onExactOnlyChange(nextExact); } catch (_e) {}
+    }
     if (state.siteWide) port.siteWideOrigins = Array.from(state.siteWide);
     if (state.declinedHosts) port.declinedHosts = Array.from(state.declinedHosts);
     port.registration = state.registration;
@@ -323,8 +332,15 @@
         return;
       }
       const livePatterns = Array.isArray(perms?.origins) ? perms.origins : [];
-      if (typeof deps.checkCleanDeclines === "function") {
-        await deps.checkCleanDeclines(null, livePatterns);
+      // A decline lasts only while a live site grant still covers its host;
+      // once the browser has dropped it, the owner's next Allow adopts again.
+      if (typeof deps.checkCleanDeclines === "function" && (port.declinedHosts || []).length > 0) {
+        const before = Array.from(port.declinedHosts || []);
+        await deps.checkCleanDeclines(before, livePatterns);
+        const after = Array.from(port.declinedHosts || []);
+        if (after.length !== before.length && deps.setCfg) {
+          try { await deps.setCfg({ declinedHosts: after }); } catch (_e) {}
+        }
       }
 
       const effectiveLeftOut = new Set([...(port.excludedHosts || []), ...(port.appLeftOut || [])]);
@@ -489,7 +505,14 @@
         }
       }
 
-      port.adoptionNotices = Array.from(new Set([...(port.adoptionNotices || []), ...eligible.map((e) => e.origin)]));
+      // Announced by site: its host, and whether the grant covered the whole site.
+      const notices = [...(port.adoptionNotices || [])];
+      for (const e of eligible) {
+        if (!notices.some((n) => n && n.host === e.host)) {
+          notices.push({ host: e.host, siteWide: !!e.siteWide && !e.exactOnly });
+        }
+      }
+      port.adoptionNotices = notices;
       port.notify();
       deps.refreshOpenTabs?.();
     });
@@ -688,6 +711,7 @@
           try { host = new URL(origin).hostname; } catch (_e) { return { ok: false, error: "invalid_origin" }; }
 
           if (port.consentVersion !== Gate.CONSENT_VERSION) return { ok: false, error: "missing_consent" };
+          if (port.siteMode !== "selected") return { ok: false, error: "wrong_site_mode" };
 
           const effectiveLeftOut = [...(port.excludedHosts || []), ...(port.appLeftOut || [])];
           if (effectiveLeftOut.some((site) => H.hostCovers(site, host))) {
@@ -758,6 +782,16 @@
               phase: "after-choice-write",
             });
             if (!fenceRes.result.ok) {
+              // Storage was written ahead of memory; put it back to what memory holds.
+              if (deps.setCfg) {
+                try {
+                  await deps.setCfg({
+                    chosenOrigins: Array.from(port.chosenOrigins || []),
+                    siteWideOrigins: Array.from(port.siteWideOrigins || []),
+                    offeredOrigins: Array.from(port.offeredOrigins || []),
+                  });
+                } catch (_e) {}
+              }
               return { ok: false, error: "capture_unavailable" };
             }
 
@@ -789,6 +823,9 @@
             if (!port.excludedHosts.includes(host)) {
               port.excludedHosts = [...port.excludedHosts, host].sort();
             }
+            // A frame commit already in flight re-saves the current set when
+            // this changes, so it can never write an older snapshot over it.
+            port.excludedGen = (port.excludedGen || 0) + 1;
             if (port.siteMode === "selected") {
               applyOwnerEvent(port, { type: "selected-leave-out", host });
             }
@@ -833,8 +870,8 @@
                 }
               }
 
-              if (port.leftOutCapable && typeof port.sendSiteRule === "function") {
-                port.sendSiteRule(host, true);
+              if (port.leftOutCapable && typeof port.queueSiteRule === "function") {
+                port.queueSiteRule(host, true);
               }
 
               await deps.syncSiteRegistrations?.();
@@ -909,7 +946,11 @@
                 const grant = H.classifySiteGrant(pat);
                 if (!grant) continue;
                 if (grant.host === host || H.hostCovers(host, grant.host)) {
-                  if (!coveringHosts.includes(grant.host)) coveringHosts.push(grant.host);
+                  // A sub-site the owner still has chosen is not declined with its parent.
+                  const stillChosen = grant.host !== host && Array.from(port.chosenOrigins || []).some((o) => {
+                    try { return new URL(o).hostname === grant.host; } catch (_e) { return false; }
+                  });
+                  if (!stillChosen && !coveringHosts.includes(grant.host)) coveringHosts.push(grant.host);
                 }
               }
               applyOwnerEvent(port, { type: "owner-remove", origin, coveringHosts });
@@ -918,11 +959,13 @@
               let saved = true;
               if (deps.setCfg) {
                 try {
-                  await deps.setCfg({
+                  const patch = {
                     chosenOrigins: Array.from(port.chosenOrigins || []),
                     siteWideOrigins: Array.from(port.siteWideOrigins || []),
                     declinedHosts: Array.from(port.declinedHosts || []),
-                  });
+                  };
+                  if (port.exactOnlyKnown !== false) patch.exactOnlyOrigins = Array.from(port.exactOnlyOrigins || []).sort();
+                  await deps.setCfg(patch);
                 } catch (_e) {
                   saved = false;
                 }

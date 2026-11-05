@@ -131,7 +131,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   }
 
   function leftOutRefusal(site) {
-    return `${escapeToken(site)} is left out. include it first.`;
+    return `${escapeToken(site)} is left out. stop leaving it out first.`;
   }
 
   function offerLine(brand) {
@@ -141,10 +141,17 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   const appOnlyLeftOut = "left out in the solstone app";
   const desktopScreenOn = "the solstone extension isn't taking in this site. your screen still goes into your journal.";
   const desktopActivityOn = "the solstone extension isn't taking in this site. this browser's activity still goes into your journal.";
-  const appLeftOutSitesOn = "kept out of your journal, including this browser window on your screen and activity.";
-  const appLeftOutNeedsAccess = "the solstone extension leaves it out. the solstone app needs Accessibility to keep it off your screen and out of activity.";
+  function desktopNeedsAccess(brand) {
+    return `the solstone extension isn't taking in this site. the solstone app can't check addresses right now, so this page may not go into your journal from your screen. the solstone app's settings say why.`;
+  }
+  function appLeftOutSitesOn(brand) {
+    return `${browserName(brand)} windows showing it stay out of your journal, on your screen and in activity.`;
+  }
+  function appLeftOutNeedsAccess(brand) {
+    return `${browserName(brand)} windows showing it stay out of your journal, on your screen and in activity. the solstone app can't check addresses right now, so it's keeping out more than this site. its settings say why.`;
+  }
   function appLeftOutNotChecked(brand) {
-    return `the solstone extension leaves it out. the solstone app doesn't check ${browserName(brand)} windows on your screen.`;
+    return `the solstone extension leaves it out. ${browserName(brand)} windows showing it can still go into your journal, on your screen and in activity.`;
   }
   const appLeftOutAppAway = "the solstone app leaves it out too.";
   const extensionLeftOut = "the solstone extension leaves it out.";
@@ -162,6 +169,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     const desktop = status.desktop;
 
     if (kind === "not-added") {
+      const appHasList = Array.isArray(status.appLeftOut) && status.appLeftOut.length > 0;
+      if (desktop?.screen === true && desktop?.sites === "needs_access" && appHasList) return "desktopNeedsAccess";
       if (desktop?.screen === true) return "desktopScreenOn";
       if (desktop?.screen !== true && desktop?.activity === true) return "desktopActivityOn";
       return "";
@@ -171,7 +180,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       const appLeftOut = Array.isArray(status.appLeftOut) ? status.appLeftOut : [];
       const appCovers = !!(pageHost && appLeftOut.some((entry) => H?.hostCovers ? H.hostCovers(entry, pageHost) : false));
       if (appCovers) {
-        if (!desktop) return "appLeftOutAppAway";
+        // With neither the screen nor activity going in, the app's list is all that matters.
+        if (!desktop || (desktop.screen !== true && desktop.activity !== true)) return "appLeftOutAppAway";
         if (desktop.sites === "on") return "appLeftOutSitesOn";
         if (desktop.sites === "needs_access") return "appLeftOutNeedsAccess";
         return "appLeftOutNotChecked";
@@ -187,6 +197,15 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     return !!H?.coversSubdomains?.(H.matchHostFor(String(host || "").replace(/^https?:\/\//i, "")));
   }
   const ADD_DENIED = "permission declined. nothing added.";
+
+  // Safari on a Mac doesn't ask about a site while it allows a site under it,
+  // and says the request succeeded without granting anything. Elsewhere a
+  // failed add is an ordinary decline.
+  function addBlockedBelow(brand, host, under) {
+    if (brand !== "safari" || MOBILE || !host || !under) return "";
+    const h = escapeToken(host);
+    return `Safari won't ask about ${h} while it allows ${escapeToken(under)}. to add ${h}, set it to Allow in Safari's website settings.`;
+  }
   const ADD_NOT_NOW = "can't add a site right now. the status above says why.";
 
   function alreadyAdded(host) {
@@ -199,8 +218,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
 
   function includedAnnouncement(host) {
     return wholeSite(host)
-      ? `all ${escapeToken(host)} sites and pages are included again.`
-      : `${escapeToken(host)} included again.`;
+      ? `all ${escapeToken(host)} sites and pages are no longer left out.`
+      : `${escapeToken(host)} is no longer left out.`;
   }
 
   function addedAnnouncement(host, onNow) {
@@ -212,7 +231,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     const bName = browserName(brand);
     const list = Array.isArray(sites) ? sites : [sites].filter(Boolean);
     if (list.length > 1) {
-      return `${list.length} sites added. you allowed them in ${bName}.`;
+      return `${list.length} sites added. you allowed them in ${bName}. what you share there goes into your journal.`;
     }
     if (list.length === 1) {
       const item = list[0];
@@ -222,9 +241,9 @@ no analytics. no telemetry. no phone home. nobody counted.`;
       const isSiteWide = typeof item === "object" && item.siteWide !== undefined ? item.siteWide : (H?.coversSubdomains ? H.coversSubdomains(host) : false);
       const escaped = escapeToken(host);
       if (isSiteWide && !isLocal) {
-        return `all ${escaped} sites and pages added. you allowed them in ${bName}.`;
+        return `all ${escaped} sites and pages added. you allowed them in ${bName}. what you share there goes into your journal.`;
       }
-      return `${escaped} added. you allowed it in ${bName}.`;
+      return `${escaped} added. you allowed it in ${bName}. what you share there goes into your journal.`;
     }
     return "";
   }
@@ -234,6 +253,25 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   function exactOnlyCopy(brand, hosts) {
     const bName = browserName(brand);
     const list = Array.from(hosts || []);
+    // Safari can't widen a site it already allows, so there's no button there.
+    if (brand === "safari") {
+      if (list.length === 1) {
+        const host = escapeToken(list[0]);
+        return {
+          line: `${host} covers only that address. to include all ${host} sites and pages, remove it and add it again.`,
+          label: "",
+          declined: "",
+        };
+      }
+      // Named, since each one is removed and added again by hand.
+      const names = list.map((h) => escapeToken(h));
+      const named = `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+      return {
+        line: `${named} cover only their exact address. to include all their sites and pages, remove each one and add it again.`,
+        label: "",
+        declined: "",
+      };
+    }
     if (list.length === 1) {
       const host = escapeToken(list[0]);
       return {
@@ -394,6 +432,9 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     if (["capture_unavailable", "permission_not_granted", "registration_failed", "invalid_phase"].includes(s)) return "couldn't add the site. try again.";
     if (s === "missing_consent") return "finish setting up first.";
     if (s === "invalid_host" || s === "invalid_origin") return FIELD_ERROR;
+    if (s === "site_excluded") return "this site is left out. stop leaving it out first.";
+    if (s === "declined") return `you chose not to add this site. to add it, allow it in ${browserName(brandInput)} again.`;
+    if (s === "permissions_unavailable") return `couldn't check what ${browserName(brandInput)} allows. try again.`;
     return "something went wrong. try again.";
   }
 
@@ -419,6 +460,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     ADD_HELP,
     FIELD_ERROR,
     ADD_DENIED,
+    addBlockedBelow,
     ADD_NOT_NOW,
     alreadyAdded,
     removedAnnouncement,
@@ -448,6 +490,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     desktopActivityOn,
     appLeftOutSitesOn,
     appLeftOutNeedsAccess,
+    desktopNeedsAccess,
     appLeftOutNotChecked,
     appLeftOutAppAway,
     extensionLeftOut,
