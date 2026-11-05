@@ -63,6 +63,7 @@ final class ConnectionSyncModel {
     /// The app returned to the foreground.
     func noteForeground() {
         self.presenter.noteForeground(now: self.clock.now())
+        self.publish(verb: "foreground")
         self.step()
     }
 

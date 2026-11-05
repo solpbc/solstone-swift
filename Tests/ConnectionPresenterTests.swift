@@ -156,6 +156,25 @@ nonisolated final class ConnectionPresenterTests: XCTestCase {
         XCTAssertEqual(presenter.shown, .connecting)
     }
 
+    func testReturningWithADropShownSaysConnectingThroughTheGraceThenTheTruth() {
+        for shown in [ConnectionSyncStatus.offline, .unreachable] {
+            var presenter = self.connectedPresenter()
+            presenter.step(Self.inputs(.error(.unreachable)), now: self.at(5))
+            if shown == .offline {
+                presenter.step(Self.inputs(.error(.unreachable)), now: self.at(40))
+            }
+            XCTAssertEqual(presenter.shown, shown)
+
+            presenter.noteForeground(now: self.at(100))
+            XCTAssertEqual(presenter.shown, .connecting)
+            presenter.step(Self.inputs(.error(.unreachable)), now: self.at(100.4))
+            XCTAssertEqual(presenter.shown, .connecting)
+
+            presenter.step(Self.inputs(.error(.unreachable)), now: self.at(100.5))
+            XCTAssertEqual(presenter.shown, .unreachable)
+        }
+    }
+
     // MARK: - syncing
 
     func testSyncingLingersAfterTheQueueDrains() {

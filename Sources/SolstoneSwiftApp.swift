@@ -942,13 +942,19 @@ struct SolstoneSwiftApp: App {
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
         }
-        .onChange(of: self.scenePhase) { _, newPhase in
+        .onChange(of: self.scenePhase) { oldPhase, newPhase in
             self.screencastManager.receiveScenePhase(Self.screencastScenePhase(newPhase))
             ConnectionScenePhaseFanout.deliver(
                 newPhase,
                 tunnel: self.tunnelManager,
                 monitor: self.connectionStallMonitor
             )
+            // Leaving the background comes a frame before `.active`, and that first frame must
+            // not show the drop going to the background caused.
+            if oldPhase == .background, newPhase == .inactive,
+               !Self.isIntegrationMode, !Self.isUITest, self.appConfig.isPaired {
+                self.connectionSyncModel.noteForeground()
+            }
             switch newPhase {
             case .active:
                 self.mobileSegmentTransferHolder.refreshJournalGap()

@@ -403,9 +403,8 @@ struct InAppJournalView: View {
         .accessibilityIdentifier("shell.pane.journal")
         .onAppear { self.headingFocused = true }
         .onChange(of: self.tunnelManager.activeConnection?.port) { _, newPort in
-            if newPort == nil {
-                self.loadState = JournalWebPresentation.connectionLostState
-            }
+            // A new port means a new page load: the drop it replaces is no longer true.
+            self.loadState = newPort == nil ? JournalWebPresentation.connectionLostState : .loading
         }
     }
 

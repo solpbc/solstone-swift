@@ -19,7 +19,9 @@ import Foundation
 /// - Not reaching the journal for `offlineAfter` reads as offline rather than connecting.
 ///   A new attempt (the network returning, the app returning to the foreground) starts over.
 /// - At launch and on return to the foreground the last shown state is held for at most
-///   `resumeGrace` while a fresh probe answers, so opening the app does not blink.
+///   `resumeGrace` while a fresh probe answers, so opening the app does not blink. A drop
+///   shown from before the return is not held: going to the background is what caused it, so
+///   the return shows connecting until the new attempt says otherwise.
 /// - Syncing lingers `syncingLinger` after the queue drains, so consecutive items don't strobe.
 nonisolated struct ConnectionPresenter: Sendable {
     nonisolated struct Policy: Sendable, Equatable {
@@ -134,6 +136,9 @@ nonisolated struct ConnectionPresenter: Sendable {
     mutating func noteForeground(now: Date) {
         self.holdUntil = now.addingTimeInterval(self.policy.resumeGrace)
         self.restartAttempt(now: now)
+        if self.shown == .offline || self.shown == .unreachable {
+            self.show(.connecting)
+        }
     }
 
     /// Show exactly what the facts support now, with no holding. For seeded test states.

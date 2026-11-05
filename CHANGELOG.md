@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- coming back to the app with your journal open no longer flashes "can't reach your journal" and a try again button while it reconnects. you see it connecting, then your journal.
+
 ## [2.0.11 (145)] - 2026-11-04
 
 ### Added
