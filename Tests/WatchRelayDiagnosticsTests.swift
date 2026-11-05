@@ -1392,45 +1392,34 @@ final class WatchRelayDiagnosticsCollectorTests: XCTestCase {
 
         // This callback path proves relay effects still complete; store-level tests isolate marker tripping per record method.
         writer.failWrites = true
+        let completionHandled = self.expectation(description: "failed transfer was requeued")
+        sender.onStateChanged = { [weak sender] in
+            sender?.onStateChanged = nil
+            completionHandled.fulfill()
+        }
         session.finishTransfer(
             id: failed.manifest.id,
             failure: WatchConnectivityTransferFailureSnapshot(domain: "TestFailureDomain", code: 80, boundedRedactedDescription: "failed")
         )
-        await self.settleConnectivityCallback()
-        var failedState: WatchSegmentState?
-        for _ in 0..<256 {
-            if let manifest = await self.catalogEntries(for: storage)
-                .first(where: { $0.directoryURL == failed.directoryURL })?
-                .manifest {
-                failedState = manifest.state
-            }
-            if failedState == .queued {
-                break
-            }
-            await Task.yield()
-        }
+        await self.fulfillment(of: [completionHandled], timeout: 10)
+        let failedState = await self.catalogEntries(for: storage)
+            .first(where: { $0.directoryURL == failed.directoryURL })?
+            .manifest.state
         XCTAssertEqual(failedState, .queued)
 
-        session.deliverUserInfo(WatchRelayACK.userInfo(id: acked.manifest.id))
-        await self.settleConnectivityCallback()
-        for _ in 0..<256 {
-            if !(await storage.fileWriter.fileExists(at: acked.directoryURL)) {
-                break
-            }
-            await Task.yield()
+        let acknowledgementHandled = self.expectation(description: "acknowledged recording was deleted")
+        sender.onStateChanged = { [weak sender] in
+            sender?.onStateChanged = nil
+            acknowledgementHandled.fulfill()
         }
+        session.deliverUserInfo(WatchRelayACK.userInfo(id: acked.manifest.id))
+        await self.fulfillment(of: [acknowledgementHandled], timeout: 10)
         let ackedDirectoryExists = await storage.fileWriter.fileExists(at: acked.directoryURL)
         XCTAssertFalse(ackedDirectoryExists)
         let summaryAvailability = await store.readDiagnosticsSummary()
         XCTAssertEqual(summaryAvailability.unavailableReason, WatchRelayDiagnosticsEnvelopeReason.historyUnavailable)
 
         _ = sender
-    }
-
-    private func settleConnectivityCallback() async {
-        for _ in 0..<64 {
-            await Task.yield()
-        }
     }
 
     private func storage(_ name: String, fileWriter: (any WatchFileWriting)? = nil) throws -> WatchCaptureTestStorage {
