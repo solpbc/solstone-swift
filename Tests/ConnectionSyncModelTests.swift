@@ -95,14 +95,14 @@ final class ConnectionSyncModelTests: XCTestCase {
     // MARK: - helpers
 
     private static func drainUntilPendingSleeperCount(_ count: Int, in clock: MockObserverClock) async {
-        for _ in 0..<200 where clock.pendingSleeperCount < count {
-            await Task.yield()
-        }
+        await self.drain { clock.pendingSleeperCount >= count }
     }
 
+    /// Bounded by time, not yields: the model's tasks run on a shared pool, which a busy host can starve.
     private static func drain(until condition: () -> Bool) async {
-        for _ in 0..<200 where !condition() {
-            await Task.yield()
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !condition(), ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(1))
         }
     }
 
