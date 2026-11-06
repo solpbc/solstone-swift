@@ -6,9 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.11 (152)] - 2026-11-05
+
 ### Added
 
-- the solstone extension for Safari now comes with the app on iphone and ipad. on the app's Safari page, turn it on and add your first site. it keeps taking in the sites you add while the app is closed, and what it takes in waits on your device and goes into your journal the next time you open the app.
+- the solstone extension for Safari now comes with the app on iphone and ipad. on the app's Safari page, turn it on and add your first site. it keeps taking in pages from the sites you add, even while the app is closed, and what it takes in waits on your device and goes into your journal the next time you open the app.
 
 ### Fixed
 
