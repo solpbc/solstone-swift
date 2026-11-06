@@ -412,7 +412,8 @@ struct InAppJournalView: View {
     private var content: some View {
         if !self.appConfig.isPaired {
             ScrollView {
-                JournalSetupRoute {
+                // The pane's title is already the mark, so the doors don't draw it again.
+                JournalSetupRoute(showsMark: false) {
                     Button {
                         if self.presentation.isPhoneModal {
                             let router = self.pairFlowRouter
@@ -427,6 +428,7 @@ struct InAppJournalView: View {
                     .accessibilityIdentifier("journal.alreadyHaveOne")
                 }
                 .padding(24)
+                .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {

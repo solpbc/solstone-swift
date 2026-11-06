@@ -659,10 +659,13 @@ struct StatusPane: View {
                         } label: {
                             JournalSetupPairLabel()
                         }
-                        .buttonStyle(.borderless)
                         .accessibilityIdentifier("status.alreadyHaveOne")
                     }
+                    .frame(maxWidth: .infinity)
                 }
+                // The doors are cards of their own; a row card around them would nest a card in a card.
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
             }
             Section {
                 if self.pillState == .stalled {

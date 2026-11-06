@@ -105,7 +105,8 @@ nonisolated enum SourceState: Codable, Equatable, Sendable {
     func compactSubtext(activeSubtext: String) -> String? {
         switch self {
         case .off:
-            SourceVocabulary.offSubtextCompact
+            // The tile's switch already says it can be turned on, so an off tile has no sub-line.
+            nil
         case .enrolling:
             SourceVocabulary.enrollingSubtextCompact
         case .paused:
@@ -147,7 +148,6 @@ nonisolated enum SourceVocabulary {
     private static let offSubtextUnpaired = "turn it on any time."
     private static let offSubtextPaired = "intake is off. turn it on any time."
     // The tile-sized half of the sub-lines above. Each is the tail of its long form.
-    static let offSubtextCompact = "turn it on any time."
     static let enrollingSubtextCompact = "getting ready…"
     static let pausedSubtextCompact = "you paused this."
 
@@ -540,7 +540,7 @@ nonisolated enum SourceVocabulary {
     static let greetingMorning = "good morning"
     static let greetingAfternoon = "good afternoon"
     static let greetingEvening = "good evening"
-    static let dayLocalityNoJournal = "on this device · not paired"
+    static let dayLocalityNoJournal = "not paired"
     static let notPaired = "not paired"
     static let journalConnected = "your journal · connected"
     static let journalOffline = "your journal · offline"
@@ -627,13 +627,8 @@ nonisolated enum SourceVocabulary {
     static let audioPlaybackPlayLabel = "play audio"
     static let audioPlaybackPauseLabel = "pause audio"
     static let audioPlaybackHint = "plays this audio from this device."
-    static let connectJournalIntro = "your memories are on this device. connect a journal and everything you've shared so far flows in."
     static let connectDoorOwnTitle = "your own journal"
     static let connectDoorOwnSubtitle = "pair this device to your journal running on your computer."
-    static let connectDoorOnYourPhoneTitle = "on a dedicated phone or tablet"
-    static let connectDoorOnYourPhoneBody = "your journal as its own app on a device you dedicate to it."
-    static let connectJournalFloorLine = "no journal yet? that's fine. everything the solstone app takes in is on this device."
-    static let connectJournalHowJournalsWork = "how journals work →"
     // VPX: functional placeholders pending product voice review.
     static let pairingLinked = "journal connected"
     static let pairingAlreadyConnected = "this journal is already connected"
@@ -664,15 +659,19 @@ nonisolated enum SourceVocabulary {
     static let rePairLine = "your journal asked this device to reconnect."
     static let rePairAction = "re-pair"
     static let journalLivesTitle = "where your journal lives"
-    static let journalLivesPromise = "your journal is always private, only yours."
     static let journalLivesOwnTitle = "your own journal"
     static let journalLivesOwnBody = "pair to your journal on your computer. everything you've shared so far flows in."
-    static let journalLivesOnYourPhoneTitle = connectDoorOnYourPhoneTitle
-    static let journalLivesOnYourPhoneBody = connectDoorOnYourPhoneBody
-    static let journalLivesCachedLine = "right now, just your memories are on this device, waiting to be processed."
-    static let journalLivesComingLater = "coming later"
     static let journalLivesConnectAction = "connect"
     static let journalLivesRepairAction = "re-pair"
+    // The setup doors: one view behind every no-journal entry (home pill, shelf, iPad pane,
+    // status, welcome, the journal pane). The lead follows the mark, so "it" is your journal.
+    static let journalSetupLead = "today, it lives on a computer you own."
+    static let journalSetupNewTitle = "set up a journal"
+    static let journalSetupOpenPage = "open the setup page"
+    static let journalSetupShareLink = "send yourself the link"
+    static let journalSetupHaveOneTitle = "i already have one"
+    static let journalSetupHaveOneSubline = "scan the code it shows"
+    static let journalSetupDataLine = "what you share stays on this device and isn't processed until you connect a journal."
 
     static func journalLivesAction(isPaired: Bool) -> String {
         isPaired ? journalLivesRepairAction : journalLivesConnectAction

@@ -48,9 +48,6 @@ nonisolated final class JournalMarkAccessibilityTests: XCTestCase {
         XCTAssertEqual(JournalMarkGeneric.dashOff(side: 27), 2.4, accuracy: 0.0001)
         XCTAssertEqual(JournalMarkGeneric.dashOn(side: 64), 3.2 * 64 / 27, accuracy: 0.0001)
         XCTAssertEqual(JournalMarkGeneric.dashOff(side: 64), 2.4 * 64 / 27, accuracy: 0.0001)
-        XCTAssertEqual(JournalMarkGeneric.fillOpacity, 0.07)
-        XCTAssertEqual(JournalMarkGeneric.orangeHex, "#E8913A")
-        XCTAssertEqual(JournalMarkGeneric.goldHex, "#D4A017")
     }
 
     func testJournalMarkViewUsesIgnoreAndSpokenValue() throws {
@@ -69,6 +66,9 @@ nonisolated final class JournalMarkAccessibilityTests: XCTestCase {
         XCTAssertTrue(chip.contains("dash:"))
         XCTAssertTrue(chip.contains("JournalMarkGeneric.dashOn"))
         XCTAssertTrue(chip.contains("JournalMarkGeneric.dashOff"))
+        // The dashes sit on the chip's own paper, which also runs under the border.
+        XCTAssertTrue(chip.contains("JournalMarkGeneric.paperHex"))
+        XCTAssertTrue(chip.contains("JournalMarkGeneric.backingWidthRatio"))
         XCTAssertFalse(chip.contains("GlyphShape"))
         XCTAssertFalse(chip.contains("GlyphParser"))
         XCTAssertFalse(chip.contains(".svg"))

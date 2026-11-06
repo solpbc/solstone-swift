@@ -262,7 +262,7 @@ struct OnThisPhoneMomentsView: View {
                 self.coalescer.cancel()
             }
             .sheet(isPresented: self.$showingConnectJournal) {
-                ConnectJournalSheet(isPresented: self.$showingConnectJournal)
+                JournalLivesSheet(isPresented: self.$showingConnectJournal)
             }
     }
 }

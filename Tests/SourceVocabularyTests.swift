@@ -98,43 +98,17 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.transferRateLabel, "transfer rate")
         XCTAssertEqual(SourceVocabulary.transferRateIdle, "idle")
         XCTAssertEqual(SourceVocabulary.details, "details")
-        XCTAssertEqual(SourceVocabulary.dayLocalityNoJournal, "on this device · not paired")
         XCTAssertEqual(SourceVocabulary.journalConnected, "your journal · connected")
         XCTAssertEqual(SourceVocabulary.journalOffline, "your journal · offline")
         XCTAssertEqual(SourceVocabulary.openInJournal, "open in journal")
-        XCTAssertEqual(
-            SourceVocabulary.connectJournalIntro,
-            "your memories are on this device. connect a journal and everything you've shared so far flows in."
-        )
         XCTAssertEqual(SourceVocabulary.connectDoorOwnTitle, "your own journal")
         XCTAssertEqual(SourceVocabulary.connectDoorOwnSubtitle, "pair this device to your journal running on your computer.")
-        XCTAssertEqual(SourceVocabulary.connectDoorOnYourPhoneTitle, "on a dedicated phone or tablet")
-        XCTAssertEqual(
-            SourceVocabulary.connectDoorOnYourPhoneBody,
-            "your journal as its own app on a device you dedicate to it."
-        )
-        XCTAssertEqual(
-            SourceVocabulary.connectJournalFloorLine,
-            "no journal yet? that's fine. everything the solstone app takes in is on this device."
-        )
-        XCTAssertEqual(SourceVocabulary.connectJournalHowJournalsWork, "how journals work →")
         XCTAssertEqual(SourceVocabulary.journalLivesTitle, "where your journal lives")
-        XCTAssertEqual(SourceVocabulary.journalLivesPromise, "your journal is always private, only yours.")
         XCTAssertEqual(SourceVocabulary.journalLivesOwnTitle, "your own journal")
         XCTAssertEqual(
             SourceVocabulary.journalLivesOwnBody,
             "pair to your journal on your computer. everything you've shared so far flows in."
         )
-        XCTAssertEqual(SourceVocabulary.journalLivesOnYourPhoneTitle, "on a dedicated phone or tablet")
-        XCTAssertEqual(
-            SourceVocabulary.journalLivesOnYourPhoneBody,
-            "your journal as its own app on a device you dedicate to it."
-        )
-        XCTAssertEqual(
-            SourceVocabulary.journalLivesCachedLine,
-            "right now, just your memories are on this device, waiting to be processed."
-        )
-        XCTAssertEqual(SourceVocabulary.journalLivesComingLater, "coming later")
         XCTAssertEqual(SourceVocabulary.pairingLinked, "journal connected")
         XCTAssertEqual(SourceVocabulary.pairingAlreadyConnected, "this journal is already connected")
         XCTAssertEqual(SourceVocabulary.pairingReconnected, "journal connection updated")
@@ -577,6 +551,8 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         // line underneath it — "ready to set up. on." — which is the defect, not the spec.
         XCTAssertNil(SourceState.readyToSetUp.subtext(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true))
         XCTAssertNil(SourceState.readyToSetUp.compactSubtext(activeSubtext: SourceVocabulary.observerActiveSubtext))
+        // An off tile's switch already says it can be turned on, so the tile carries no sub-line.
+        XCTAssertNil(SourceState.off.compactSubtext(activeSubtext: SourceVocabulary.observerActiveSubtext))
         XCTAssertEqual(
             SourceState.readyToSetUp.voiceOverText(activeSubtext: SourceVocabulary.observerActiveSubtext, isJournalPaired: true),
             "ready to set up"
@@ -838,15 +814,14 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.reinstallNoticeKeep,
             SourceVocabulary.reinstallNoticeForget,
             SourceVocabulary.dayLocalityNoJournal,
-            SourceVocabulary.connectJournalIntro,
-            SourceVocabulary.connectDoorOnYourPhoneTitle,
-            SourceVocabulary.connectDoorOnYourPhoneBody,
-            SourceVocabulary.connectJournalFloorLine,
-            SourceVocabulary.connectJournalHowJournalsWork,
             SourceVocabulary.journalLivesOwnBody,
-            SourceVocabulary.journalLivesOnYourPhoneTitle,
-            SourceVocabulary.journalLivesOnYourPhoneBody,
-            SourceVocabulary.journalLivesCachedLine,
+            SourceVocabulary.journalSetupLead,
+            SourceVocabulary.journalSetupNewTitle,
+            SourceVocabulary.journalSetupOpenPage,
+            SourceVocabulary.journalSetupShareLink,
+            SourceVocabulary.journalSetupHaveOneTitle,
+            SourceVocabulary.journalSetupHaveOneSubline,
+            SourceVocabulary.journalSetupDataLine,
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneTruthLine,
             SourceVocabulary.onThisPhoneConnectJournalButton,
@@ -914,15 +889,14 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.standingSyncFootnote(sustaining: true),
             SourceVocabulary.standingSyncFootnote(sustaining: false),
             SourceVocabulary.dayLocalityNoJournal,
-            SourceVocabulary.connectJournalIntro,
-            SourceVocabulary.connectDoorOnYourPhoneTitle,
-            SourceVocabulary.connectDoorOnYourPhoneBody,
-            SourceVocabulary.connectJournalFloorLine,
-            SourceVocabulary.connectJournalHowJournalsWork,
             SourceVocabulary.journalLivesOwnBody,
-            SourceVocabulary.journalLivesOnYourPhoneTitle,
-            SourceVocabulary.journalLivesOnYourPhoneBody,
-            SourceVocabulary.journalLivesCachedLine,
+            SourceVocabulary.journalSetupLead,
+            SourceVocabulary.journalSetupNewTitle,
+            SourceVocabulary.journalSetupOpenPage,
+            SourceVocabulary.journalSetupShareLink,
+            SourceVocabulary.journalSetupHaveOneTitle,
+            SourceVocabulary.journalSetupHaveOneSubline,
+            SourceVocabulary.journalSetupDataLine,
             SourceVocabulary.onThisPhoneEmpty,
             SourceVocabulary.onThisPhoneTruthLine,
             SourceVocabulary.onThisPhoneConnectJournalButton,
@@ -1106,21 +1080,18 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.onThisPhoneShareSummary(originApp: "Files", relativeDay: "today", shortTime: "9:30 AM"),
             SourceVocabulary.onThisPhoneFileDetail(filename: "item.pdf", size: "2 KB"),
             SourceVocabulary.onThisPhoneFixCount(count: 2),
-            SourceVocabulary.connectJournalIntro,
             SourceVocabulary.connectDoorOwnTitle,
             SourceVocabulary.connectDoorOwnSubtitle,
-            SourceVocabulary.connectDoorOnYourPhoneTitle,
-            SourceVocabulary.connectDoorOnYourPhoneBody,
-            SourceVocabulary.connectJournalFloorLine,
-            SourceVocabulary.connectJournalHowJournalsWork,
             SourceVocabulary.journalLivesTitle,
-            SourceVocabulary.journalLivesPromise,
             SourceVocabulary.journalLivesOwnTitle,
             SourceVocabulary.journalLivesOwnBody,
-            SourceVocabulary.journalLivesOnYourPhoneTitle,
-            SourceVocabulary.journalLivesOnYourPhoneBody,
-            SourceVocabulary.journalLivesCachedLine,
-            SourceVocabulary.journalLivesComingLater,
+            SourceVocabulary.journalSetupLead,
+            SourceVocabulary.journalSetupNewTitle,
+            SourceVocabulary.journalSetupOpenPage,
+            SourceVocabulary.journalSetupShareLink,
+            SourceVocabulary.journalSetupHaveOneTitle,
+            SourceVocabulary.journalSetupHaveOneSubline,
+            SourceVocabulary.journalSetupDataLine,
             SourceVocabulary.journalLivesConnectAction,
             SourceVocabulary.journalLivesRepairAction,
             SourceVocabulary.pairingLinked,

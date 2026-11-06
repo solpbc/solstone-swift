@@ -63,6 +63,17 @@ extension Color {
             ? UIColor(red: 0.949, green: 0.643, blue: 0.318, alpha: 1)
             : UIColor(red: 0.690, green: 0.416, blue: 0.102, alpha: 1)   // orange ink
     })
+
+    /// Text on a sol-orange fill, in both appearances: ink, 7.08:1. White on that orange is 2.5:1.
+    static let inkOnBrand = Color(red: 0.102, green: 0.102, blue: 0.102)   // #1A1A1A
+
+    /// Secondary text that still reads as text: a sub-line, the line under an action.
+    /// The system's `.secondary` measured about 4:1 on the deck's surfaces.
+    static let inkSoft = Color(uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0.816, green: 0.776, blue: 0.722, alpha: 1)   // #D0C6B8
+            : UIColor(red: 0.357, green: 0.322, blue: 0.275, alpha: 1)   // #5B5246
+    })
 }
 
 /// Measurements the shell is laid out from. One place, so a margin cannot drift
@@ -78,6 +89,9 @@ nonisolated enum ShellMetrics {
     /// source at once, and at 16 the seven-tile deck overflowed the screen by about
     /// half a row — which reads as broken rather than as scrollable.
     static let tilePadding: CGFloat = 12
+    /// A tile's top line: the glyph, and the switch where there is one. Reserved on every
+    /// tile so names line up across a row.
+    static let tileTopLineHeight: CGFloat = 44
     /// The container radius the deck sits within.
     static let containerRadius: CGFloat = 28
 

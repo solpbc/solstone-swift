@@ -26,13 +26,12 @@ struct WelcomeScreen: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
 
-                JournalSetupRoute {
+                JournalSetupRoute(showsMark: false) {
                     Button {
                         self.isShowingPairFlow = true
                     } label: {
                         JournalSetupPairLabel()
                     }
-                    .buttonStyle(.borderless)
                     .accessibilityIdentifier("welcome.alreadyHaveOne")
                 }
 

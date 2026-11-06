@@ -245,7 +245,7 @@ private struct JournalMarkWordLine: View {
     }
 }
 
-/// The no-identity-yet chip: same tile, dashed border, no glyph.
+/// The no-identity-yet chip: same tile, dashed border, no glyph, on its own paper.
 /// journal-mark.md section 4.3. Parameterised by side for the same reason the
 /// identified chip is — one drawing, every surface.
 struct JournalMarkGenericChip: View {
@@ -255,21 +255,27 @@ struct JournalMarkGenericChip: View {
 
     var body: some View {
         let color = MarkGeometry.color(hex: self.hex)
+        let paper = MarkGeometry.color(hex: JournalMarkGeneric.paperHex)
         let radius = MarkGeometry.chipRadius(side: self.side)
-        return RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(color.opacity(JournalMarkGeneric.fillOpacity))
+        let border = MarkGeometry.chipBorderWidth(side: self.side)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return shape
+            .fill(paper)
             .overlay {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .stroke(
-                        color,
-                        style: StrokeStyle(
-                            lineWidth: MarkGeometry.chipBorderWidth(side: self.side),
-                            dash: [
-                                JournalMarkGeneric.dashOn(side: self.side),
-                                JournalMarkGeneric.dashOff(side: self.side),
-                            ]
-                        )
+                // Paper under the dashes too, so the gaps never show the ground behind the mark.
+                shape.stroke(paper, lineWidth: border * JournalMarkGeneric.backingWidthRatio)
+            }
+            .overlay {
+                shape.stroke(
+                    color,
+                    style: StrokeStyle(
+                        lineWidth: border,
+                        dash: [
+                            JournalMarkGeneric.dashOn(side: self.side),
+                            JournalMarkGeneric.dashOff(side: self.side),
+                        ]
                     )
+                )
             }
             .frame(width: self.side, height: self.side)
             .rotationEffect(.degrees(self.rotated ? 45 : 0))

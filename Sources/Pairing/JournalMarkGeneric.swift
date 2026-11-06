@@ -9,11 +9,17 @@ nonisolated enum JournalMarkGeneric {
     static let words = ["your", "journal"]
     static let spokenValue = "your journal, not set up yet"
     static let awaitingConfirmationSpokenValue = "your journal, mark not confirmed yet"
-    static let orangeHex = "#E8913A"
-    static let goldHex = "#D4A017"
+    /// The dashes are drawn on paper, so they need to clear 3:1 against paper, not against
+    /// whatever ground the mark sits on (journal-mark.md section 4.3, amended 2026-11-06).
+    static let orangeHex = "#B06A1A"
+    static let goldHex = "#A57F0E"
+    /// The chip's own ground. It fills the chip and also runs under the dashed border, so every
+    /// dash and gap sits on paper: over glass or the night ground the old tinted chip read 1.0:1.
+    static let paperHex = "#FEFCF8"
+    /// The paper backing under the border, as a multiple of the border width.
+    static let backingWidthRatio: CGFloat = 3
     /// A peer that presented no identity is not ours, so its slot takes no brand colour.
     static let neutralHex = "#6E6453"
-    static let fillOpacity = 0.07
     static let dashOnUnits: CGFloat = 3.2
     static let dashOffUnits: CGFloat = 2.4
     static let dashReferenceSide: CGFloat = 27

@@ -82,23 +82,20 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testConnectEntryOpensPairFlowAndShowsOnYourPhoneLane() {
+    func testConnectEntryOpensTheSetupDoorsAndPairFlow() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
         self.openStandaloneOnThisPhoneBrowse(in: app)
 
+        // One setup view behind every no-journal entry: this one opens the same sheet as the pill.
         app.buttons["onThisPhone.connectJournalButton"].tap()
-        XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["today, your journal lives on a computer you own."].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.onYourPhone"].waitForExistence(timeout: 5))
-        XCTAssertEqual(
-            app.descendants(matching: .any)["connectJournal.onYourPhone.comingLater"].label,
-            "coming later"
-        )
-        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.noJournalYet"].exists)
-        self.revealConnectSheetAction(app.buttons["connectJournal.howJournalsWork"], in: app)
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["connectJournal.sheet"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["journalSetup.newDoor"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["journalSetup.haveOneDoor"].exists)
+        XCTAssertTrue(app.buttons["journalSetup.setOneUp"].exists)
+        XCTAssertTrue(app.buttons["journalSetup.shareLink"].exists)
 
-        self.revealConnectSheetAction(app.buttons["connectJournal.ownJournal"], in: app)
-        app.buttons["connectJournal.ownJournal"].tap()
+        app.buttons["journalLives.ownJournal"].tap()
         self.assertSinglePairFlowMarker(in: app)
     }
 
@@ -113,7 +110,7 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
         self.openStandaloneOnThisPhoneBrowse(in: app)
         app.buttons["onThisPhone.connectJournalButton"].tap()
-        app.buttons["connectJournal.ownJournal"].tap()
+        app.buttons["journalLives.ownJournal"].tap()
         self.assertSinglePairFlowMarker(in: app)
 
         let field = app.descendants(matching: .any)["pairFlow.pasteField"]
@@ -160,12 +157,12 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["chat.surface"].exists)
         let status = app.buttons["dayHome.statusPill"]
         XCTAssertTrue(status.waitForExistence(timeout: 5))
-        XCTAssertTrue(status.label.contains("on this device · not paired"), status.label)
+        XCTAssertTrue(status.label.contains("not paired"), status.label)
         XCTAssertFalse(app.navigationBars["on this device"].exists)
     }
 
     @MainActor
-    func testJournalLivesSheetShowsPositionsAndDismisses() throws {
+    func testJournalLivesSheetShowsTheDoorsAndDismisses() throws {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
@@ -174,30 +171,15 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         journalSetup.tap()
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
 
-        let promise = app.descendants(matching: .any)["journalLives.promise"]
-        XCTAssertTrue(promise.exists)
-        XCTAssertEqual(promise.label, "your journal is always private, only yours.")
-
-        XCTAssertTrue(app.staticTexts["today, your journal lives on a computer you own."].exists)
-        XCTAssertTrue(app.staticTexts["i already have one"].exists)
-        XCTAssertTrue(app.descendants(matching: .any)["journalLives.onYourPhone"].exists)
-        XCTAssertTrue(app.staticTexts["your journal as its own app on a device you dedicate to it."].exists)
-        XCTAssertTrue(app.staticTexts["right now, just your memories are on this device, waiting to be processed."].exists)
-        XCTAssertFalse(app.staticTexts["your memories rest here, yours and nowhere else."].exists)
-
-        let currentRows = app.descendants(matching: .any).matching(NSPredicate(
-            format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
-            "journalLives.",
-            ".current"
-        ))
-        XCTAssertEqual(currentRows.count, 0)
+        // The doors, the data line once, and nothing about a future device or a second promise.
+        XCTAssertTrue(app.descendants(matching: .any)["journalMark"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["journalSetup.newDoor"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["journalSetup.haveOneDoor"].exists)
+        XCTAssertTrue(app.descendants(matching: .any)["journalSetup.dataLine"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["journalLives.promise"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["journalLives.onYourPhone"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["journalLives.cachedLine"].exists)
         XCTAssertFalse(app.descendants(matching: .any)["journalLives.ownJournal.current"].exists)
-        XCTAssertFalse(app.descendants(matching: .any)["journalLives.onYourPhone.current"].exists)
-
-        XCTAssertFalse(app.buttons["journalLives.onYourPhone"].exists)
-        let comingLater = app.descendants(matching: .any)["journalLives.onYourPhone.comingLater"]
-        XCTAssertTrue(comingLater.exists)
-        XCTAssertEqual(comingLater.label, "coming later")
 
         app.buttons["done"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForNonExistence(timeout: 3))
@@ -216,25 +198,6 @@ nonisolated final class NoJournalShellTests: XCTestCase {
         app.buttons["journalLives.ownJournal"].tap()
 
         self.assertSinglePairFlowMarker(in: app)
-    }
-
-    @MainActor
-    func testHowJournalsWorkPresentsJournalLivesAboveConnectSheet() {
-        let app = self.launchNoJournalApp(extraArguments: ["--ui-test-reset-on-this-phone"])
-        self.openStandaloneOnThisPhoneBrowse(in: app)
-
-        app.buttons["onThisPhone.connectJournalButton"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.sheet"].waitForExistence(timeout: 5))
-        self.revealConnectSheetAction(app.buttons["connectJournal.howJournalsWork"], in: app)
-        app.buttons["connectJournal.howJournalsWork"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
-
-        app.buttons["journalLives.ownJournal"].tap()
-        self.assertSinglePairFlowMarker(in: app)
-
-        self.dismissPresentedSheet(in: app, untilMissingElementID: "journalLives.sheet")
-        XCTAssertTrue(app.descendants(matching: .any)["connectJournal.sheet"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.navigationBars["connect a journal"].exists)
     }
 
     @MainActor
@@ -384,27 +347,27 @@ nonisolated final class NoJournalShellTests: XCTestCase {
     }
 
     @MainActor
-    func testOnThisPhoneNotBackedUpNudgeOpensConnectSheet() {
+    func testOnThisPhoneNotBackedUpNudgeOpensTheSetupSheet() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-on-this-phone"])
         self.openStandaloneOnThisPhoneBrowse(in: app)
 
         XCTAssertTrue(app.staticTexts["onThisPhone.notBackedUp"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.staticTexts.matching(identifier: "onThisPhone.notBackedUp").count, 1)
         app.buttons["onThisPhone.connectJournal"].tap()
-        XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["connectJournal.ownJournal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["journalLives.ownJournal"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)
     }
 
     @MainActor
-    func testMagicMomentSecondaryButtonOpensConnectSheetDirectly() {
+    func testMagicMomentSecondaryButtonOpensTheSetupSheetDirectly() {
         let app = self.launchNoJournalApp(extraArguments: ["--ui-test-seed-audio-magic"])
         self.openStandaloneOnThisPhoneBrowse(in: app)
 
         XCTAssertTrue(app.descendants(matching: .any)["magicMoment.card"].waitForExistence(timeout: 10))
         app.buttons["magicMoment.connectJournal"].tap()
-        XCTAssertTrue(app.navigationBars["connect a journal"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["connectJournal.ownJournal"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["journalLives.sheet"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["journalLives.ownJournal"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["askPreview.sheet"].exists)
     }
 
@@ -452,24 +415,6 @@ private extension NoJournalShellTests {
         let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9))
         top.press(forDuration: 0.1, thenDragTo: bottom)
         XCTAssertTrue(app.descendants(matching: .any)[missingElementID].waitForNonExistence(timeout: 5))
-    }
-
-    func revealConnectSheetAction(_ element: XCUIElement, in app: XCUIApplication) {
-        let list = app.collectionViews["connectJournal.sheet"].firstMatch
-        XCTAssertTrue(list.waitForExistence(timeout: 5))
-        let visible = list.frame.intersection(app.frame)
-        for _ in 0..<12 {
-            if element.exists && element.isHittable &&
-                element.frame.minY >= visible.minY + 8 && element.frame.maxY <= visible.maxY - 8 {
-                return
-            }
-            if element.exists && element.frame.minY < visible.minY + 8 {
-                list.swipeDown()
-            } else {
-                list.swipeUp()
-            }
-        }
-        XCTFail("connect-sheet action did not enter the visible list viewport")
     }
 
     func seedAudioRow(in app: XCUIApplication) -> XCUIElement {

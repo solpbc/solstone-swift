@@ -48,62 +48,42 @@ struct JournalLivesPane: View {
     @AccessibilityFocusState private var headingFocused: Bool
 
     var body: some View {
-        List {
-            Section {
-                Text(SourceVocabulary.journalLivesPromise)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("journalLives.promise")
-            }
-            .listRowBackground(Color.deckSurface)
-
-            Section {
-                if !self.appConfig.isPaired {
+        Group {
+            if self.appConfig.isPaired {
+                List {
+                    Section {
+                        NavigationLink(value: ShellDestination.pairFlow) {
+                            self.positionRow(
+                                rowID: "journalLives.ownJournal",
+                                title: SourceVocabulary.journalLivesOwnTitle,
+                                body: SourceVocabulary.journalLivesOwnBody,
+                                current: true
+                            ) {
+                                Text(SourceVocabulary.journalLivesAction(isPaired: true))
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(self.colorScheme == .dark ? Color.primary : Color.textOrangeAA)
+                            }
+                        }
+                        .accessibilityIdentifier("journalLives.ownJournal")
+                    }
+                    .listRowBackground(Color.deckSurface)
+                }
+                .scrollContentBackground(.hidden)
+            } else {
+                // No journal yet: the setup doors, centered in a readable column on iPad.
+                ScrollView {
                     JournalSetupRoute {
                         NavigationLink(value: ShellDestination.pairFlow) {
                             JournalSetupPairLabel()
                         }
-                        .buttonStyle(.borderless)
                         .accessibilityIdentifier("journalLives.ownJournal")
                     }
-                } else {
-                    NavigationLink(value: ShellDestination.pairFlow) {
-                        self.positionRow(
-                            rowID: "journalLives.ownJournal",
-                            title: SourceVocabulary.journalLivesOwnTitle,
-                            body: SourceVocabulary.journalLivesOwnBody,
-                            current: true
-                        ) {
-                            Text(SourceVocabulary.journalLivesAction(isPaired: true))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(self.colorScheme == .dark ? Color.primary : Color.textOrangeAA)
-                        }
-                    }
-                    .accessibilityIdentifier("journalLives.ownJournal")
-                }
-
-                self.positionRow(
-                    rowID: "journalLives.onYourPhone",
-                    title: SourceVocabulary.journalLivesOnYourPhoneTitle,
-                    body: SourceVocabulary.journalLivesOnYourPhoneBody,
-                    current: false
-                ) {
-                    Text(SourceVocabulary.journalLivesComingLater)
-                        .font(.subheadline.weight(.semibold))
-                        .accessibilityIdentifier("journalLives.onYourPhone.comingLater")
-                }
-                .foregroundStyle(.secondary)
-            } footer: {
-                if !self.appConfig.isPaired {
-                    Text(SourceVocabulary.journalLivesCachedLine)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("journalLives.cachedLine")
+                    .padding(.horizontal, ShellMetrics.screenMargin)
+                    .padding(.vertical, 24)
+                    .frame(maxWidth: .infinity)
                 }
             }
-            .listRowBackground(Color.deckSurface)
         }
-        .scrollContentBackground(.hidden)
         .background(Color.deckGround)
         .navigationTitle(SourceVocabulary.journalLivesTitle)
         .navigationBarTitleDisplayMode(.inline)

@@ -96,7 +96,9 @@ struct HomeSourceTile: View {
                     self.switchSlot
                 }
             }
-            .frame(minHeight: 22)
+            // Every tile reserves the switch's row, with or without a switch, so the names
+            // below line up across a row instead of dropping wherever a switch happens to sit.
+            .frame(minHeight: ShellMetrics.tileTopLineHeight, alignment: .top)
         }
     }
 
@@ -201,11 +203,12 @@ private struct HomeDestinationTile: View {
 
     var body: some View {
         Button(action: self.action) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 Image(systemName: self.glyph)
                     .font(.system(size: self.glyphSize, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(minHeight: 22, alignment: .top)
+                    // The same top line as a source tile, so `import` and `add more` line up with it.
+                    .frame(minHeight: ShellMetrics.tileTopLineHeight, alignment: .top)
                     .overlay(alignment: .topTrailing) {
                         if self.badgeVisible {
                             Circle()
@@ -241,8 +244,10 @@ private struct HomeDestinationTile: View {
         .background(self.isSlot ? Color.clear : Color.deckSurface, in: ShellMetrics.tileShape)
         .overlay {
             if self.isSlot {
+                // Ink, not the hairline: the slot sits straight on the sun arc's ground, and the
+                // hairline vanished on the night ground.
                 ShellMetrics.tileShape.stroke(
-                    Color.deckHairline,
+                    Color.primary.opacity(0.38),
                     style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])
                 )
             } else {
