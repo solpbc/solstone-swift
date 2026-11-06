@@ -182,7 +182,7 @@
       focus(inputElement);
       return;
     }
-    const result = await View.addSite(origin, Object.assign(siteEffects(), { disclose: presentDisclosure }));
+    const result = await View.addSite(origin, Object.assign(siteEffects(), { disclose: presentDisclosure, skipSheet: Copy.MOBILE === true }));
     // Adding needs the solstone app answering and nothing paused; the status
     // card says which, and the owner is never left with a silent button.
     if (result.ineligible) {
@@ -415,6 +415,9 @@
     if ($("settingsView")) $("settingsView").hidden = false;
 
     // Status Section
+    // On a phone the card is only for what needs the owner; the list says the rest.
+    if ($("statusCard")) $("statusCard").hidden = Copy.MOBILE === true && ["no-sites", "on", "idle"].includes(derived.kind);
+    if ($("pauseSwitch")) $("pauseSwitch").checked = state?.paused === true;
     if ($("statusLead")) $("statusLead").textContent = derived.sub || derived.headline;
     if ($("statusStateChip")) {
       $("statusStateChip").textContent = derived.headline;
@@ -739,7 +742,7 @@
     const derived = Status.derive(state);
 
     if ($("optionsMark")) {
-      $("optionsMark").src = `brand/mark-${derived.mark || "healthy"}.svg`;
+      $("optionsMark").src = `brand/mark-${Copy.MOBILE === true ? "healthy" : derived.mark || "healthy"}.svg`;
     }
 
     const chosen = Array.isArray(state && state.chosenOrigins)
@@ -831,9 +834,20 @@
   }
 
   // Settings Pause With App Checkbox
-  // On iPhone and iPad the solstone app's pause is the Safari source's own pause,
-  // so it always stops this extension and there is nothing to choose.
+  // On iPhone and iPad the solstone app has no pause, so there is nothing to choose.
   if (Copy.MOBILE && $("pauseWithAppCard")) $("pauseWithAppCard").hidden = true;
+  // A phone's settings are one list: its sites, two switches, and what it takes in.
+  if (Copy.MOBILE) {
+    document.documentElement.classList.add("mobile");
+    document.querySelector("#disclosureCard summary").textContent = "what it takes in";
+    document.querySelector("#indicatorCard label").lastChild.textContent = " show an icon on pages you share";
+    $("newHost").placeholder = "eff.org";
+    $("pauseCard").hidden = false;
+    $("pauseSwitch").addEventListener("change", async () => {
+      await cmd({ cmd: "setPaused", paused: $("pauseSwitch").checked });
+      await refresh();
+    });
+  }
   if ($("pauseWithApp")) {
     $("pauseWithApp").addEventListener("change", async () => {
       await cmd({ cmd: "setConfig", pauseWithApp: $("pauseWithApp").checked });

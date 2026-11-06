@@ -60,6 +60,8 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   const MOBILE_WHILE_CLOSED = `the solstone extension keeps taking in the sites you choose while the solstone app is closed. what it takes in waits on ${PLACE} and goes into your journal the next time you open the solstone app.`;
   const DISCLOSURE_BODY = MOBILE
     ? DESKTOP_DISCLOSURE
+      .replace(" by default, you add sites one at a time. you can also choose all sites after a separate agreement and leave sites out.", " you add sites one at a time.")
+      .replace(" sites you leave out aren't taken in, but other sites shown inside those pages still are.", "")
       .replace("to the solstone app on this computer. from there it goes into your journal over the link the solstone app already uses.",
         `to the solstone app on ${PLACE}. from there it goes into your journal over the link the solstone app already uses. ${MOBILE_WHILE_CLOSED}`)
       .replace(" pausing the solstone app stops this extension too, unless you turn that off in settings.", "")
@@ -119,6 +121,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
   const FIELD_ERROR = "enter a website address, like mail.google.com.";
 
   function addHelp(brand) {
+    if (MOBILE) return "adding a site covers all its sites and pages.";
     return `${ADD_HELP} a site you allow in ${browserName(brand)}'s own settings is added here too.`;
   }
 

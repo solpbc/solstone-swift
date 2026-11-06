@@ -144,7 +144,8 @@
       pageNote = typeof rawNotAddedNote === "function" ? rawNotAddedNote(state.brand) : (rawNotAddedNote || "");
       const canAdd = state.addSiteEligible === true && state.consentVersion === 1;
       siteAction = { id: "add-site", label: "add this site", disabled: !canAdd, primary: true };
-      if (pageKind === "web" && page.ok) {
+      // Nothing on a page is read until it's added, so a phone has nothing to leave out here.
+      if (pageKind === "web" && page.ok && Copy?.MOBILE !== true) {
         siteSecondary = { id: "leave-out", label: "leave this site out" };
       }
     } else {
@@ -176,8 +177,12 @@
       reason: derived.reason,
       action: derived.action || null,
       appPausedNote: derived.appPausedNote || "",
+      // On a phone the page's own line says these. The verdict is only for what needs the owner.
+      quiet: Copy?.MOBILE === true && ["no-sites", "on", "idle"].includes(derived.kind),
     }];
-    if (attentionRows.length > 0) sections.push({ id: "siteIssues", rows: attentionRows });
+    // A phone doesn't list "no sites yet" under something bigger: the button below says it.
+    const issues = Copy?.MOBILE === true ? attentionRows.filter((row) => row.kind !== "no-sites") : attentionRows;
+    if (issues.length > 0) sections.push({ id: "siteIssues", rows: issues });
     sections.push({
       id: "page",
       kind: pageKind,
@@ -187,7 +192,8 @@
       pageNoteKey,
       siteAction,
       siteSecondary,
-      pauseAction: !allSites && chosenOrigins.length === 0 && !state.paused ? null : {
+      // A phone's pause lives in settings, and resume stays here so nobody is stuck.
+      pauseAction: (Copy?.MOBILE === true && !state.paused) || (!allSites && chosenOrigins.length === 0 && !state.paused) ? null : {
         id: "set-paused",
         label: state.paused ? "resume" : "pause all",
         primary: !!state.paused,
@@ -296,7 +302,7 @@
     if (effects.status?.consentVersion !== 1 || effects.status?.addSiteEligible !== true) {
       return { ok: false, cancelled: true, ineligible: true };
     }
-    // After the first site on iPhone and iPad, Safari's own prompt is the only question.
+    // On iPhone and iPad, Safari's own prompt is the only question.
     if (effects.skipSheet === true) return grantSite(host, effects);
     // The sheet calls confirm inside the owner's confirming click, so the
     // browser's prompt opens from that click. Firefox refuses a permission

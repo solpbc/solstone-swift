@@ -7,6 +7,7 @@
   const Status = globalThis.SolstoneStatus;
   const Failures = globalThis.SolstoneFailures;
   const Disclosure = globalThis.SolstoneDisclosure;
+  if (globalThis.SolstoneCopy?.MOBILE === true) document.documentElement.classList.add("mobile");
   const View = globalThis.SolstonePopupView;
   const Actions = globalThis.SolstoneActions;
   const $ = (id) => document.getElementById(id);
@@ -114,6 +115,7 @@
     const treatment = TONE[section.tone] || TONE.unavailable;
     const verdict = $("verdict");
     verdict.className = `verdict ${treatment.bandClass}`;
+    verdict.hidden = section.quiet === true;
     $("verdictDot").className = `dot ${treatment.dotClass}`;
     $("verdictHeadline").textContent = section.headline;
     $("verdictSub").textContent = section.sub;
@@ -207,7 +209,7 @@
     }
     const result = await View.addSite(Hosts.chosenOrigin(page.origin) || page.origin || page.host, Object.assign(siteEffects(), {
       disclose: presentDisclosure,
-      skipSheet: Copy.MOBILE === true && state?.chosenOrigins?.length > 0,
+      skipSheet: Copy.MOBILE === true,
     }));
     if (result.cancelled) return;
     if (result.denied) {
@@ -216,6 +218,19 @@
     }
     else if (result.error) showActionError(result.error);
     await refresh();
+  }
+
+  // On a phone adding takes one tap. What it takes in is there for whoever wants it.
+  function renderPageLearn(section) {
+    if (!$("pageLearn")) return;
+    const adding = globalThis.SolstoneCopy.MOBILE === true && section.siteAction?.id === "add-site";
+    $("pageLearn").hidden = !adding;
+    $("pageHint").hidden = !adding || section.siteAction.disabled === true;
+    if (!adding) return;
+    const copy = Disclosure.addSite(section.host, state);
+    $("pageLearnWhat").textContent = copy.what;
+    $("pageLearnUnsent").textContent = copy.unsent;
+    $("pageLearnWhere").textContent = copy.destinationDetail;
   }
 
   function renderPage(section) {
@@ -227,6 +242,8 @@
       $("pageNote").textContent = section.note || "";
       $("pageNote").hidden = !section.note;
     }
+
+    renderPageLearn(section);
 
     const siteAction = $("pageSiteAction");
     siteAction.hidden = !section.siteAction;
@@ -383,6 +400,7 @@
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("disclosure").hidden) closeDisclosure(false);
   });
+  if (globalThis.SolstoneCopy?.MOBILE === true) $("allSitesLink").textContent = "settings \u203a";
   $("allSitesLink").addEventListener("click", (event) => {
     event.preventDefault();
     openSettings();

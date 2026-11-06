@@ -40,7 +40,7 @@ const PortController = globalThis.SolstoneNativePort;
 const Outbox = globalThis.SolstoneNativeOutbox;
 const Status = globalThis.SolstoneStatus;
 
-const VERSION = "0.5.8";
+const VERSION = "0.5.9";
 const ALARM_NAME = "native-port";
 
 const CONTENT_SCRIPT_FILES = [
@@ -851,7 +851,7 @@ async function doInit() {
 
   let consentVersion = (await DB.get("meta", "consentVersion")) || 0;
   // Safari on iPhone and iPad has no separate agreement: nothing leaves the owner's
-  // device and journal, Safari asks about each site, and the first add says what it takes in.
+  // device and journal, Safari asks about each site, and a link and settings say what it takes in.
   if (globalThis.SolstoneCopy?.MOBILE === true && consentVersion !== globalThis.SolstoneCaptureGate.CONSENT_VERSION) {
     consentVersion = globalThis.SolstoneCaptureGate.CONSENT_VERSION;
     await DB.put("meta", consentVersion, "consentVersion");
