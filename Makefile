@@ -6,6 +6,7 @@
 			       sim-shots watch-shots launch-shots sim-widget-shots screenshot logs logs-collect log-show crash devices deps clean signing-check
 
 SCHEME    ?= solstone-swift
+TEST_TARGET ?= $(SCHEME)Tests
 PROJECT   ?= solstone-swift.xcodeproj
 comma := ,
 BUNDLE_ID ?= app.solstone.swift
@@ -285,8 +286,8 @@ ui-test: deps
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-derivedDataPath $(DERIVED)
 
-# Three owned-leaves UITests with a pinned result bundle. `ui-test` has none;
-# `test-one` only sees unit tests.
+# Three owned-leaves UITests with a pinned result bundle. `ui-test` and
+# `test-one` do not pin a result bundle.
 # SIM_DESTINATION so a private `make sim-create` UDID can dodge a contended
 # `name=iPhone 17 Pro` (kAXErrorAPIDisabled under host load).
 primer-shots: deps
@@ -709,9 +710,9 @@ ci-selftest:
 test-one: deps
 	xcodebuild test -project $(PROJECT) -scheme $(SCHEME) \
 		-skipMacroValidation \
-		-destination 'platform=iOS Simulator,name=$(SIM)' \
+		-destination '$(SIM_DESTINATION)' \
 		-derivedDataPath $(DERIVED) \
-		-only-testing:'$(SCHEME)Tests/$(TEST)'
+		-only-testing:'$(TEST_TARGET)/$(TEST)'
 
 test-build: deps
 	xcodebuild build-for-testing -project $(PROJECT) -scheme $(SCHEME) \

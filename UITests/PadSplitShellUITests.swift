@@ -132,7 +132,7 @@ final class PadSplitShellUITests: XCTestCase {
         XCTAssertTrue(self.deck(in: app).exists, "deck left the leading column on an in-pane push")
 
         // Pushed, not replaced: it pops back to the pane root.
-        let back = app.navigationBars.buttons.firstMatch
+        let back = app.navigationBars.buttons["BackButton"]
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
         XCTAssertTrue(
@@ -528,7 +528,7 @@ final class PadSplitShellUITests: XCTestCase {
 
     @MainActor
     private func popPane(in app: XCUIApplication) {
-        let back = app.navigationBars.buttons.firstMatch
+        let back = app.navigationBars.buttons["BackButton"]
         XCTAssertTrue(back.waitForExistence(timeout: 10))
         back.tap()
     }
