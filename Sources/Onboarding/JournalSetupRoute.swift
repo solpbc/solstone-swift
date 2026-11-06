@@ -78,6 +78,7 @@ struct JournalSetupRoute<PairControl: View>: View {
                 self.openURL(JournalSetupLink.installURL)
             } label: {
                 Text(SourceVocabulary.journalSetupOpenPage)
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
             .buttonStyle(JournalSetupPrimaryButtonStyle())
             .accessibilityIdentifier("journalSetup.setOneUp")
