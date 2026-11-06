@@ -57,7 +57,7 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
             frame: self.batch(generation: XCTUnwrap(state["destination_generation"] as? String), text: "different"), projection: projection))
     }
 
-    func testUnpairAndPauseRefusePriorAuthorityWithoutDroppingHeldPages() throws {
+    func testUnpairRefusesPriorAuthorityWithoutDroppingHeldPages() throws {
         let (root, projection) = try self.rig()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try SafariBrowserStore(root: root)
@@ -70,12 +70,19 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
         let late = try store.exchange(connection: "test", frame: self.batch(generation: generation,
             id: String(repeating: "b", count: 32)), projection: projection)
         XCTAssertEqual(try self.object(late[0])["result"] as? String, "rejected")
-        let current = try self.hello(store, projection)
-        try store.setPaused(true)
-        let paused = try store.exchange(connection: "test", frame: self.batch(generation: XCTUnwrap(current["destination_generation"] as? String),
-            id: String(repeating: "c", count: 32)), projection: projection)
-        XCTAssertEqual(try self.object(paused[0])["result"] as? String, "rejected")
         XCTAssertGreaterThan(try XCTUnwrap(store.inventory()["heldBytes"] as? Double), 0)
+    }
+
+    func testAQuietConnectionKeepsItsSession() throws {
+        let (root, projection) = try self.rig()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try SafariBrowserStore(root: root)
+        try store.setConfirmed(true)
+        let state = try self.hello(store, projection)
+        let frame = try self.batch(generation: XCTUnwrap(state["destination_generation"] as? String))
+        let later = try store.exchange(connection: "test", frame: frame, projection: projection,
+                                       now: Date().timeIntervalSince1970 + 3600)
+        XCTAssertEqual(try self.object(later[0])["result"] as? String, "accepted")
     }
 
     func testPendingHandoffSurvivesReopenAndOnlyAdoptsItsSealedBytes() throws {

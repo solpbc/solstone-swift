@@ -4,7 +4,7 @@
 import SwiftUI
 
 /// The Safari source's page: two setup steps until the first page comes in, then its
-/// state, its pause, and whether anything is still waiting on this device.
+/// state, the way to its switch in Settings, and whether anything is still waiting on this device.
 struct SafariSourceDetailView: View {
     @Environment(SafariSourceModel.self) private var model
     @Environment(AppConfig.self) private var appConfig
@@ -18,7 +18,7 @@ struct SafariSourceDetailView: View {
     @State private var wentToSafari = false
 
     var body: some View {
-        let status = SafariSourceStatus(snapshot: self.model.snapshot)
+        let status = SafariSourceStatus(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text(SafariVocabulary.valueLine)
@@ -80,7 +80,8 @@ struct SafariSourceDetailView: View {
 
     private func setUpSteps(_ status: SafariSourceStatus) -> some View {
         let step = SafariSetUpStep(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn)
-        let source = safariSourceModel(snapshot: self.model.snapshot, isJournalPaired: self.appConfig.isPaired)
+        let source = safariSourceModel(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn,
+                                       isJournalPaired: self.appConfig.isPaired)
         return VStack(alignment: .leading, spacing: 0) {
             if status.sourceState == .off, let reason = source.subtext {
                 Text(reason)
@@ -282,8 +283,8 @@ struct SafariSourceDetailView: View {
     }
 
     private func stateBlock(_ status: SafariSourceStatus) -> some View {
-        let source = safariSourceModel(snapshot: self.model.snapshot, isJournalPaired: self.appConfig.isPaired)
-        let paused = self.model.snapshot?.paused == true
+        let source = safariSourceModel(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn,
+                                       isJournalPaired: self.appConfig.isPaired)
         return VStack(alignment: .leading, spacing: 12) {
             SourceDetailVerdictLine(state: status.sourceState)
             if let subtext = status.attention ?? source.subtext {
@@ -302,16 +303,31 @@ struct SafariSourceDetailView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             if self.model.snapshot != nil {
-                Button(paused ? SourceVocabulary.resume : SourceVocabulary.pause) {
-                    self.model.setPaused(!paused)
-                }
-                .buttonStyle(.bordered)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .accessibilityHint(paused ? SafariVocabulary.resumeHint : SafariVocabulary.pauseHint)
-                .accessibilityIdentifier("safari.pauseResume")
+                self.settingsRow
             }
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Safari and Settings own the extension's switch, so the page takes the owner there.
+    @ViewBuilder
+    private var settingsRow: some View {
+        if SafariExtensionControl.canOpenSettings, !self.settingsFailed {
+            Text(SafariVocabulary.manageInSettings)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button(SafariVocabulary.openSettings) {
+                Task { self.settingsFailed = await !self.model.openExtensionSettings() }
+            }
+            .buttonStyle(.bordered)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .accessibilityIdentifier("safari.page.openSettings")
+        } else {
+            Text(SafariVocabulary.manageByHand)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("safari.page.manageByHand")
+        }
     }
 
     private var deliveryBlock: some View {

@@ -431,16 +431,13 @@ private extension DayHomeView {
                 }
             }
             if let safari = self.safariSource {
-                let source = safariSourceModel(snapshot: safari.snapshot, isJournalPaired: self.appConfig.isPaired)
+                let source = safariSourceModel(snapshot: safari.snapshot, extensionOn: safari.extensionOn,
+                                               isJournalPaired: self.appConfig.isPaired)
                 if self.isOnHome(source.id) {
                     HomeSourceTile(
                         source: source,
                         route: .safari,
-                        control: safari.isSetUp && safari.snapshot?.confirmed == true ? .toggle : .none,
-                        isOn: Binding(
-                            get: { safari.snapshot?.paused == false },
-                            set: { safari.setPaused(!$0) }
-                        )
+                        control: .none
                     )
                 }
             }

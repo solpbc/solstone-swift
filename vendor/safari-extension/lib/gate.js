@@ -30,6 +30,7 @@
     if (!lease || !lease.token || !lease.generation) {
       return { ok: false, reason: "disconnected" };
     }
+    if (lease.standing === true) return { ok: true, lease };
     const codec = globalThis.SolstoneNativeBrowser;
     if (!codec || typeof codec.freshnessAuthorizesSkim !== "function") {
       return { ok: false, reason: "stale" };

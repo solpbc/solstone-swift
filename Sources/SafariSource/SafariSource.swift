@@ -5,7 +5,7 @@ import Foundation
 import Observation
 import SafariServices
 
-/// Owner-facing words for the Safari source. Shared words (pause, state words, block
+/// Owner-facing words for the Safari source. Shared words (state words, block
 /// titles) come from `SourceVocabulary` and `LocationVocabulary`.
 nonisolated enum SafariVocabulary {
     static let label = "Safari"
@@ -41,8 +41,9 @@ nonisolated enum SafariVocabulary {
     static let noPageYet = "no pages from Safari yet. on a site you want in your journal, open solstone from Safari's page menu and add it."
     static let waiting = "some pages are waiting on this device."
     static let nothingWaiting = "nothing from Safari is waiting on this device."
-    static let pauseHint = "the solstone extension stops taking in new pages. pages already on this device still go into your journal."
-    static let resumeHint = "pages from the sites you allow go into your journal again."
+    static let extensionOff = "the extension is off. turn it on in Settings to start intake."
+    static let manageInSettings = "turn it on or off, or change its sites, in Settings."
+    static let manageByHand = "to turn it on or off, in Safari, open the page menu, then Manage Extensions."
 
     static func waitingFor(_ site: String) -> String {
         "waiting for a page from \(site)."
@@ -108,12 +109,13 @@ nonisolated enum SafariSetUpStep: Equatable, Sendable {
     case addSite
 
     init(snapshot: SafariBrowserSnapshot?, extensionOn: Bool?) {
-        self = extensionOn == true || snapshot?.lastContact != nil ? .addSite : .turnOn
+        // The switch says when the system can; before iOS 26.2 only a hello can.
+        self = extensionOn ?? (snapshot?.lastContact != nil) ? .addSite : .turnOn
     }
 
     static func isShown(snapshot: SafariBrowserSnapshot?) -> Bool {
         guard let snapshot else { return false }
-        return snapshot.lastAccepted == nil && !snapshot.paused && !snapshot.full
+        return snapshot.lastAccepted == nil && !snapshot.full
     }
 }
 
@@ -126,16 +128,13 @@ final class SafariSourceModel {
     /// `nil` where the system can't say.
     private(set) var extensionOn: Bool?
     @ObservationIgnored private let load: () throws -> SafariBrowserSnapshot
-    @ObservationIgnored private let writePause: (Bool) throws -> Void
     @ObservationIgnored private let readExtensionOn: () async -> Bool?
     @ObservationIgnored private let openSettings: () async -> Bool
 
     init(load: @escaping () throws -> SafariBrowserSnapshot = { try SafariBrowserStore().snapshot() },
-         writePause: @escaping (Bool) throws -> Void = { try SafariBrowserStore().setPaused($0) },
          readExtensionOn: @escaping () async -> Bool? = { await SafariExtensionControl.isOn() },
          openSettings: @escaping () async -> Bool = { await SafariExtensionControl.openSettings() }) {
         self.load = load
-        self.writePause = writePause
         self.readExtensionOn = readExtensionOn
         self.openSettings = openSettings
         self.refresh()
@@ -153,11 +152,6 @@ final class SafariSourceModel {
     func refresh() {
         let next = try? self.load()
         if next != self.snapshot { self.snapshot = next }
-    }
-
-    func setPaused(_ paused: Bool) {
-        do { try self.writePause(paused) } catch {}
-        self.refresh()
     }
 
     /// Whether the extension has ever answered.
@@ -184,7 +178,7 @@ nonisolated struct SafariSourceStatus: Equatable, Sendable {
         }
     }
 
-    init(snapshot: SafariBrowserSnapshot?) {
+    init(snapshot: SafariBrowserSnapshot?, extensionOn: Bool? = nil) {
         guard let snapshot else {
             self.sourceState = .needsAttention
             self.attention = SafariVocabulary.unreadable
@@ -193,8 +187,8 @@ nonisolated struct SafariSourceStatus: Equatable, Sendable {
         if snapshot.lastContact == nil {
             self.sourceState = .readyToSetUp
             self.attention = nil
-        } else if snapshot.paused {
-            self.sourceState = .paused
+        } else if extensionOn == false {
+            self.sourceState = .off
             self.attention = nil
         } else if !snapshot.confirmed {
             // Pairing and the mark are what let the extension take anything in.
@@ -213,11 +207,12 @@ nonisolated struct SafariSourceStatus: Equatable, Sendable {
     }
 }
 
-nonisolated func safariSourceModel(snapshot: SafariBrowserSnapshot?, isJournalPaired: Bool) -> Source {
-    let status = SafariSourceStatus(snapshot: snapshot)
+nonisolated func safariSourceModel(snapshot: SafariBrowserSnapshot?, extensionOn: Bool? = nil, isJournalPaired: Bool) -> Source {
+    let status = SafariSourceStatus(snapshot: snapshot, extensionOn: extensionOn)
     var subtext = status.compactAttention
     if subtext == nil, status.sourceState == .off {
-        subtext = isJournalPaired ? SafariVocabulary.awaitingMark : SafariVocabulary.notPaired
+        subtext = extensionOn == false ? SafariVocabulary.extensionOff
+            : isJournalPaired ? SafariVocabulary.awaitingMark : SafariVocabulary.notPaired
     }
     return Source(
         id: "safari",
