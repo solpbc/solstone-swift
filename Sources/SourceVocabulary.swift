@@ -670,7 +670,7 @@ nonisolated enum SourceVocabulary {
     static let journalSetupOpenPage = "open the setup page"
     static let journalSetupShareLink = "send yourself the link"
     static let journalSetupHaveOneTitle = "i already have one"
-    static let journalSetupHaveOneSubline = "scan the code it shows"
+    static let journalSetupHaveOneSubline = "scan its pairing code"
     static let journalSetupDataLine = "what you share stays on this device and isn't processed until you connect a journal."
 
     static func journalLivesAction(isPaired: Bool) -> String {
