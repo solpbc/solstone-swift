@@ -45,6 +45,7 @@ struct JournalLivesPane: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @AccessibilityFocusState private var headingFocused: Bool
 
     var body: some View {
@@ -79,7 +80,9 @@ struct JournalLivesPane: View {
                         .accessibilityIdentifier("journalLives.ownJournal")
                     }
                     .padding(.horizontal, ShellMetrics.screenMargin)
-                    .padding(.vertical, 24)
+                    // The iPad pane has room to let the column breathe below its title.
+                    .padding(.top, self.horizontalSizeClass == .regular ? 48 : 16)
+                    .padding(.bottom, 24)
                     .frame(maxWidth: .infinity)
                 }
             }
