@@ -108,7 +108,8 @@ final class ShareImportStore {
                 targetJournal: targetJournal,
                 itemID: handle.itemIDString
             )
-            let descriptor = RequestDescriptor(source: source, filename: rawInfo.filename, contentType: rawInfo.mimeType)
+            let requestFilename = ShareImportOrigin.requestFilename(originApp: originApp, ownName: delivery.filename, standIn: rawInfo.filename)
+            let descriptor = RequestDescriptor(source: source, filename: requestFilename, contentType: rawInfo.mimeType)
             try self.writeData(Self.orderedNoteData(note), to: self.noteURL(itemID: handle.itemIDString, status: .staging))
             try self.writeData(self.encoder.encode(descriptor), to: self.descriptorURL(itemID: handle.itemIDString, status: .staging))
             try self.fileManager.moveItem(

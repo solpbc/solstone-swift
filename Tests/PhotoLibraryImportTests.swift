@@ -311,6 +311,60 @@ nonisolated final class PhotoLibraryImportTests: XCTestCase {
         XCTAssertEqual(PhotoLibraryFilename.name(original: nil, dataUTI: UTType.png.identifier), "photo.png")
     }
 
+    func testAPhotoGoesToTheJournalUnderItsOwnName() {
+        func name(_ own: String?, _ standIn: String = "image.jpg", origin: String? = ShareImportOrigin.photos) -> String {
+            ShareImportOrigin.requestFilename(originApp: origin, ownName: own, standIn: standIn)
+        }
+        XCTAssertEqual(name("IMG_0001.JPG"), "IMG_0001.jpg")
+        XCTAssertEqual(name("IMG_0001.jpeg"), "IMG_0001.jpg")
+        XCTAssertEqual(name("IMG_0002.png", "image.png"), "IMG_0002.png")
+        // A picked photo's name comes without an extension, and the journal routes on one.
+        XCTAssertEqual(name("IMG_0003"), "IMG_0003.jpg")
+        XCTAssertEqual(name("Screenshot at 12.34.56", "image.png"), "Screenshot at 12.34.56.png")
+        XCTAssertEqual(name("Déjà vu 東京 🌅.jpg"), "Déjà vu 東京 🌅.jpg")
+
+        // Nothing in the name can end the header it travels in or leave the journal's folder.
+        XCTAssertEqual(name("a\"b\\c\r\nd/e:f.jpg"), "a_b_c__d_e_f.jpg")
+        XCTAssertEqual(name("  .jpg"), "image.jpg")
+        XCTAssertEqual(name(".."), "...jpg")
+
+        // The journal refuses a name over 128 bytes, and a cut never splits a character.
+        let long = name(String(repeating: "東", count: 60) + ".jpg")
+        XCTAssertEqual(long, String(repeating: "東", count: 41) + ".jpg")
+        XCTAssertLessThanOrEqual(long.utf8.count, 128)
+
+        XCTAssertEqual(name(nil), "image.jpg")
+        XCTAssertEqual(name("IMG_0001.JPG", origin: nil), "image.jpg")
+        XCTAssertEqual(name("IMG_0001.JPG", origin: "Files"), "image.jpg")
+    }
+
+    @MainActor
+    func testOnlyAPhotoFromPhotosLeavesTheFixedName() async throws {
+        let source = self.tempDirectory.appendingPathComponent("source.jpg")
+        try Data("jpeg".utf8).write(to: source)
+        let queueRoot = self.tempDirectory.appendingPathComponent("queue", isDirectory: true)
+        let store = ShareImportStore(cacheRootURL: queueRoot)
+
+        func requestFilename(originApp: String?) async throws -> String {
+            let provider = NSItemProvider(contentsOf: source)
+            let item = try XCTUnwrap(provider)
+            item.suggestedName = "IMG_0001.JPG"
+            let coordinator = ShareImportCoordinator(queue: store, originApp: originApp)
+            guard case .success(let itemID) = await coordinator.accept(provider: ShareExtensionItemProvider(provider: item)) else {
+                XCTFail("the item did not land")
+                return ""
+            }
+            let id = ShareImportStore.itemIDString(itemID)
+            let data = try Data(contentsOf: queueRoot.appendingPathComponent("pending/\(id)/request.json"))
+            return try JSONDecoder().decode(ShareImportStore.RequestDescriptor.self, from: data).filename
+        }
+
+        let photo = try await requestFilename(originApp: ShareImportOrigin.photos)
+        let shared = try await requestFilename(originApp: nil)
+        XCTAssertEqual(photo, "IMG_0001.jpg")
+        XCTAssertEqual(shared, "image.jpg")
+    }
+
     func testADayRangeCoversBothDaysEndToEnd() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "America/Denver"))

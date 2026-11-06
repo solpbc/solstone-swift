@@ -220,6 +220,7 @@ targets:
       - SolstoneShareExtension
       - Sources/Background/MaintenanceCooperator.swift
       - Sources/ShareImport/ShareImportStore.swift
+      - Sources/ShareImport/ShareImportOrigin.swift
       - Sources/ShareImport/ShareImportPayloadIO.swift
       - Sources/ShareImport/ShareImportFileLanding.swift
       - Sources/ShareImport/ShareExtensionItemProvider.swift

@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- photos you bring in from your library or the photo picker now reach your journal under their own names, instead of all being called image.jpg or image.png.
+
 ## [2.0.11 (152)] - 2026-11-05
 
 ### Added
