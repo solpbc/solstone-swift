@@ -19,7 +19,7 @@ nonisolated enum SafariVocabulary {
     static let settingsByHand = "in Safari, open the page menu, then Manage Extensions, and turn on solstone."
     static let stepAddSite = "add your first site"
     static let siteField = "which site?"
-    static let sitePlaceholder = "nytimes.com"
+    static let sitePlaceholder = "eff.org"
     static let tapPageMenu = "page menu"
     static let tapSolstone = "solstone"
     static let tapAdd = "add this site"
