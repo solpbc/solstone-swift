@@ -6,8 +6,8 @@ import Foundation
 import XCTest
 
 final class SafariSourceStatusTests: XCTestCase {
-    private func snapshot(contact: Bool = true, paused: Bool = false, full: Bool = false, confirmed: Bool = true, accepted: Bool = true) -> SafariBrowserSnapshot {
-        SafariBrowserSnapshot(confirmed: confirmed, paused: paused, heldBytes: 0, queuedBytes: 0, lastAccepted: accepted ? Date() : nil,
+    private func snapshot(contact: Bool = true, full: Bool = false, confirmed: Bool = true, accepted: Bool = true) -> SafariBrowserSnapshot {
+        SafariBrowserSnapshot(confirmed: confirmed, heldBytes: 0, queuedBytes: 0, lastAccepted: accepted ? Date() : nil,
             lastContact: contact ? Date() : nil, full: full)
     }
 
@@ -21,7 +21,7 @@ final class SafariSourceStatusTests: XCTestCase {
         XCTAssertEqual(SafariSourceStatus(snapshot: waiting).sourceState, .readyToSetUp)
         XCTAssertTrue(SafariSetUpStep.isShown(snapshot: waiting))
         XCTAssertFalse(SafariSetUpStep.isShown(snapshot: self.snapshot()))
-        XCTAssertFalse(SafariSetUpStep.isShown(snapshot: self.snapshot(paused: true, accepted: false)))
+        XCTAssertFalse(SafariSetUpStep.isShown(snapshot: self.snapshot(full: true, accepted: false)))
     }
 
     func testTheSwitchOrTheExtensionsHelloMovesSetUpOn() {
@@ -30,6 +30,7 @@ final class SafariSourceStatusTests: XCTestCase {
         XCTAssertEqual(SafariSetUpStep(snapshot: silent, extensionOn: false), .turnOn)
         XCTAssertEqual(SafariSetUpStep(snapshot: silent, extensionOn: true), .addSite)
         XCTAssertEqual(SafariSetUpStep(snapshot: self.snapshot(accepted: false), extensionOn: nil), .addSite)
+        XCTAssertEqual(SafariSetUpStep(snapshot: self.snapshot(accepted: false), extensionOn: false), .turnOn)
     }
 
     func testTheFirstSiteIsReadAsABareHost() {
@@ -41,8 +42,15 @@ final class SafariSourceStatusTests: XCTestCase {
                        ["x-safari-https://nytimes.com", "https://nytimes.com"])
     }
 
-    func testPauseAndAFullStoreShowAsTheirOwnStates() {
-        XCTAssertEqual(SafariSourceStatus(snapshot: self.snapshot(paused: true)).sourceState, .paused)
+    func testTurningTheExtensionOffInSettingsShowsAsOff() {
+        let off = safariSourceModel(snapshot: self.snapshot(), extensionOn: false, isJournalPaired: true)
+        XCTAssertEqual(off.state, .off)
+        XCTAssertEqual(off.subtext, SafariVocabulary.extensionOff)
+        XCTAssertEqual(SafariSourceStatus(snapshot: self.snapshot(), extensionOn: true).sourceState, .active)
+        XCTAssertEqual(SafariSourceStatus(snapshot: self.snapshot(), extensionOn: nil).sourceState, .active)
+    }
+
+    func testAFullStoreShowsAsItsOwnState() {
         let full = SafariSourceStatus(snapshot: self.snapshot(full: true))
         XCTAssertEqual(full.sourceState, .needsAttention)
         XCTAssertEqual(full.attention, SafariVocabulary.full)

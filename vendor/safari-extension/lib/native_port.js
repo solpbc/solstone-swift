@@ -89,6 +89,9 @@
       this.clearSchedule = options.clearSchedule || ((id) => clearTimeout(id));
       this.requestUpdateCheck = options.requestUpdateCheck || (typeof chrome !== "undefined" && chrome.runtime?.requestUpdateCheck ? chrome.runtime.requestUpdateCheck.bind(chrome.runtime) : null);
       this.onStatusChange = options.onStatusChange || null;
+      // Safari on iPhone and iPad: the handler's last answer stands until the next
+      // exchange, and the handler still refuses a batch it wouldn't take.
+      this.standingAuthority = options.standingAuthority ?? globalThis.SolstoneSafariPort?.ios === true;
       this.runtimeId = options.runtimeId || (typeof chrome !== "undefined" && chrome.runtime?.id ? chrome.runtime.id : "");
       this.manifestVersion = options.manifestVersion || "0.2.0";
       this.inst = options.inst !== undefined ? options.inst : null;
@@ -426,7 +429,7 @@
         ? this.broadGranted && this.allSitesConsent === globalThis.SolstoneHosts.ALL_SITES_CONSENT_VERSION
         : this.grantedOrigins.size > 0);
       const fresh = (this.hostStateDeadline == null || nowMs < this.hostStateDeadline) &&
-        (!this.lease || nowMs < this.lease.receivedAt + this.lease.freshnessMs);
+        (!this.lease || this.lease.standing === true || nowMs < this.lease.receivedAt + this.lease.freshnessMs);
       const capturePermitted = fresh && this.capturePermitted === true;
 
       const addSiteDecision = Gate.computeDecision({
@@ -1002,7 +1005,7 @@
       this.destinationGeneration = val.destination_generation || null;
       this.behind = null;
       this.capturePermitted = codec.captureIsPermitted(stateForCapture);
-      this.hostStateDeadline = val.freshness_ms > 0 ? nowMs + val.freshness_ms : null;
+      this.hostStateDeadline = val.freshness_ms > 0 && !this.standingAuthority ? nowMs + val.freshness_ms : null;
       if (about) {
         this.about = about;
         this.aboutDeadline = this.hostStateDeadline;
@@ -1021,7 +1024,8 @@
         expire();
       } else {
         if (this.capturePermitted) {
-          this.lease = { token, generation: val.destination_generation, receivedAt: nowMs, freshnessMs: val.freshness_ms };
+          this.lease = { token, generation: val.destination_generation, receivedAt: nowMs, freshnessMs: val.freshness_ms,
+            ...(this.standingAuthority ? { standing: true } : {}) };
         }
         if (this.hostStateDeadline != null) this.schedule(expire, this.hostStateDeadline - this.now());
       }
@@ -1262,7 +1266,7 @@
 
       if (this.lease || this.hostStateDeadline != null) {
         if ((this.hostStateDeadline != null && monoNow >= this.hostStateDeadline) ||
-            (this.lease && !codec.freshnessAuthorizesSkim(this.lease.receivedAt, this.lease.freshnessMs, monoNow))) {
+            (this.lease && this.lease.standing !== true && !codec.freshnessAuthorizesSkim(this.lease.receivedAt, this.lease.freshnessMs, monoNow))) {
           this.lease = null;
           this.hostCapture = null;
           this.hostDelivery = null;

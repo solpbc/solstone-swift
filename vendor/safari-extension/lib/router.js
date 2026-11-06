@@ -1217,7 +1217,8 @@
           captureEpoch: port.captureEpoch,
           ok: true,
           ctx: binding ? binding.ctx : null,
-          lease: port.lease ? { ...port.lease, freshnessMs: Math.max(0, Math.floor(port.lease.receivedAt + port.lease.freshnessMs - port.now())) } : null,
+          lease: port.lease ? { ...port.lease, freshnessMs: port.lease.standing === true ? port.lease.freshnessMs :
+            Math.max(0, Math.floor(port.lease.receivedAt + port.lease.freshnessMs - port.now())) } : null,
           consentVersion: port.consentVersion,
           paused: port.paused,
           showPageIndicator: port.showPageIndicator,

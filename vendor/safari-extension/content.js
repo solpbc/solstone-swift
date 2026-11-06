@@ -243,7 +243,8 @@
 
     if (response.lease) {
       const freshnessMs = Number(response.lease.freshnessMs || 0);
-      if (now() >= reqTime + freshnessMs) {
+      const standing = response.lease.standing === true;
+      if (!standing && now() >= reqTime + freshnessMs) {
         lease = null;
       } else {
         lease = {
@@ -251,6 +252,7 @@
           generation: response.lease.generation,
           freshnessMs,
           receivedAt: reqTime,
+          ...(standing ? { standing } : {}),
         };
       }
     } else {
@@ -261,7 +263,7 @@
     clearTimeout(leaseTimer);
     if (decision.open) {
       const grantedLease = lease;
-      leaseTimer = setTimeout(() => {
+      if (lease.standing !== true) leaseTimer = setTimeout(() => {
         if (lease !== grantedLease) return;
         lease = null;
         stopObserving();

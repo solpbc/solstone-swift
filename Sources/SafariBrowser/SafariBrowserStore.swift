@@ -18,7 +18,6 @@ nonisolated struct SafariBrowserPeriod: Sendable {
 /// What the app shows for the Safari source, read from the shared store.
 nonisolated struct SafariBrowserSnapshot: Sendable, Equatable {
     var confirmed: Bool
-    var paused: Bool
     /// Pages the extension handed over that the app has not yet taken into its send queue.
     var heldBytes: Int
     /// Browser pages the app's send queue still holds, as last published by the app.
@@ -36,8 +35,9 @@ nonisolated struct SafariBrowserSnapshot: Sendable, Equatable {
 /// connection. BEGIN IMMEDIATE serializes the app and the handler; synchronous
 /// FULL commits precede every receipt the extension sees.
 ///
-/// Capture authority is the app's pairing confirmation plus the owner's pause,
-/// both held here and checked inside the same transaction as intake. Held pages
+/// Capture authority is the app's pairing confirmation, held here and checked
+/// inside the same transaction as intake. Turning the extension off is Safari's
+/// and Settings' job. An older store's `paused` column is ignored. Held pages
 /// carry no journal binding: they wait while unpaired and go to whichever
 /// journal the app is confirmed with when it next runs.
 nonisolated final class SafariBrowserStore {
@@ -163,27 +163,18 @@ nonisolated final class SafariBrowserStore {
         }
     }
 
-    /// The owner's pause for the Safari source.
-    func setPaused(_ paused: Bool) throws {
-        try self.transaction {
-            guard try self.control().paused != paused else { return }
-            try self.sql("UPDATE control SET paused=?,generation=? WHERE id=1",
-                [.number(paused ? 1 : 0), .text(UUID().uuidString)])
-        }
-    }
-
     /// What the app's send queue still holds for this source. Status only:
     /// nothing here retires or releases custody.
     func setQueuedBytes(_ bytes: Int) throws {
         try self.sql("UPDATE control SET queued=? WHERE id=1", [.number(Double(max(0, bytes)))])
     }
 
-    private func control() throws -> (confirmed: Bool, paused: Bool, generation: String, queued: Int, full: Bool) {
+    private func control() throws -> (confirmed: Bool, generation: String, queued: Int, full: Bool) {
         guard let row = try self.query("SELECT * FROM control WHERE id=1").first,
-            case .number(let confirmed) = row["confirmed"], case .number(let paused) = row["paused"],
+            case .number(let confirmed) = row["confirmed"],
             case .text(let generation) = row["generation"], case .number(let queued) = row["queued"],
             case .number(let full) = row["full"] else { throw SafariBrowserError.storage }
-        return (confirmed == 1, paused == 1, generation, Int(queued), full == 1)
+        return (confirmed == 1, generation, Int(queued), full == 1)
     }
 
     // MARK: periods
@@ -215,7 +206,8 @@ nonisolated final class SafariBrowserStore {
                   beforeCustodyCommit: (() throws -> Void)? = nil) throws -> [String] {
         guard connection.utf8.count <= 128, !connection.isEmpty else { throw SafariBrowserError.malformed }
         return try self.transaction {
-            try self.sql("DELETE FROM sessions WHERE seen < ?", [.number(now - 60)])
+            // The extension only exchanges when it has a reason to, so a quiet connection is normal.
+            try self.sql("DELETE FROM sessions WHERE seen < ?", [.number(now - 86400)])
             // The contract's dedup window: a lost reply is retried well inside it.
             try self.sql("DELETE FROM batches WHERE accepted < ?",
                 [.number(now - Double(projection.policy.acceptedRetentionMs) / 1000)])
@@ -247,7 +239,7 @@ nonisolated final class SafariBrowserStore {
                     if let prior {
                         guard prior["digest"]?.text == digest, let savedPeriod = prior["period"]?.text else { throw SafariBrowserError.malformed }
                         receipt["result"] = "duplicate"; receipt["period_id"] = savedPeriod
-                    } else if !control.confirmed || control.paused || batch.destinationGeneration != control.generation {
+                    } else if !control.confirmed || batch.destinationGeneration != control.generation {
                         // Stale or withdrawn authority: nothing new is taken in.
                         reject("resource_exhausted")
                     } else if batch.records[0].t == "delta",
@@ -294,7 +286,7 @@ nonisolated final class SafariBrowserStore {
             let held = try self.heldBytes()
             let oldest = try self.query("SELECT MIN(started) AS s FROM periods WHERE adopted=0 AND length(payload)>0").first?["s"]?.number
             let stale = oldest.map { now - $0 > Double(projection.policy.spoolAgeMs) / 1000 } ?? false
-            let capture = !control.confirmed ? "not_paired" : control.paused ? "paused" : full ? "intake_off" : "permitted"
+            let capture = !control.confirmed ? "not_paired" : full ? "intake_off" : "permitted"
             var state: [String: Any] = ["type": hello ? "hello_ack" : "state", "capture": capture,
                 "delivery": held > 0 || control.queued > 0 ? "kept_locally" : "idle",
                 "freshness_ms": control.confirmed ? Self.freshnessMs : 0,
@@ -350,14 +342,14 @@ nonisolated final class SafariBrowserStore {
         let row = try self.query("SELECT contact, lastaccepted FROM control WHERE id=1").first
         let last = row?["lastaccepted"]?.number
         let contact = row?["contact"]?.number
-        return SafariBrowserSnapshot(confirmed: c.confirmed, paused: c.paused, heldBytes: Int(try self.heldBytes()),
+        return SafariBrowserSnapshot(confirmed: c.confirmed, heldBytes: Int(try self.heldBytes()),
             queuedBytes: c.queued, lastAccepted: last.map { Date(timeIntervalSince1970: $0) },
             lastContact: contact.map { Date(timeIntervalSince1970: $0) }, full: c.full)
     }
 
     func inventory() throws -> [String: Any] {
         let c = try self.control()
-        return ["confirmed": c.confirmed, "paused": c.paused, "heldBytes": try self.heldBytes(), "queuedBytes": c.queued,
+        return ["confirmed": c.confirmed, "heldBytes": try self.heldBytes(), "queuedBytes": c.queued,
             "acceptedBatches": try self.number("SELECT count(*) FROM batches"),
             "periods": try self.number("SELECT count(*) FROM periods"),
             "pendingPeriods": try self.number("SELECT count(*) FROM periods WHERE adopted=0 AND length(payload)>0")]

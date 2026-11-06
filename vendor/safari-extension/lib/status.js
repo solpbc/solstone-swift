@@ -6,7 +6,7 @@
 
   // The device the solstone app is on, named the way the owner would.
   const here = () => globalThis.SolstoneCopy?.PLACE || "this computer";
-  // Safari on iPhone and iPad: the app answers while closed and pauses Safari on its own.
+  // Safari on iPhone and iPad: the app answers while closed.
   const mobile = () => globalThis.SolstoneCopy?.MOBILE === true;
 
   const PREFIX_BY_MARK = {
@@ -202,10 +202,9 @@
           kind: "app-paused",
           mark: "paused",
           badge: "",
-          headline: mobile() ? "Safari is paused in the solstone app" : "the solstone app is paused",
+          headline: "the solstone app is paused",
           sub: "nothing new is taken in",
-          reason: mobile() ? "pausing doesn't hold back what's already taken in. resume Safari in the solstone app."
-            : "pausing doesn't hold back what's already taken in. resume from the solstone app.",
+          reason: "pausing doesn't hold back what's already taken in. resume from the solstone app.",
           action: null,
           connecting: null,
         });

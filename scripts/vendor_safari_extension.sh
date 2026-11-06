@@ -22,6 +22,13 @@ test -f "$STAGE/manifest.json"
 rm -rf vendor/safari-extension vendor/browser-contract
 mkdir -p vendor
 cp -R "$STAGE" vendor/safari-extension
+# This app's copy starts on the normal logo: iPhone and iPad never repaint the toolbar.
+node --input-type=module -e "
+import { iosSafariManifest } from '$SRC/scripts/verify-package.mjs';
+import { readFileSync, writeFileSync } from 'node:fs';
+const path = 'vendor/safari-extension/manifest.json';
+writeFileSync(path, JSON.stringify(iosSafariManifest(JSON.parse(readFileSync(path, 'utf8'))), null, 2) + '\\n');
+"
 mkdir -p vendor/browser-contract/contracts/native-browser vendor/browser-contract/crates/native-browser-frame/src
 for f in authority.json envelope.schema.json browser.schema.json manifest.json; do
   cp "$SRC/contracts/native-browser/$f" vendor/browser-contract/contracts/native-browser/

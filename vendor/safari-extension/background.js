@@ -40,7 +40,7 @@ const PortController = globalThis.SolstoneNativePort;
 const Outbox = globalThis.SolstoneNativeOutbox;
 const Status = globalThis.SolstoneStatus;
 
-const VERSION = "0.5.7";
+const VERSION = "0.5.8";
 const ALARM_NAME = "native-port";
 
 const CONTENT_SCRIPT_FILES = [
@@ -229,6 +229,8 @@ async function updateBadge(status) {
 }
 
 async function paintToolbar(status) {
+  // Safari on iPhone and iPad keeps the logo it starts with. The popup says the state.
+  if (globalThis.SolstoneCopy?.MOBILE === true) return;
   const now = port ? port.now() : Date.now();
   toolbarLink = Status.present(toolbarLink, status, undefined, now);
   if (toolbarWake != null && port) port.clearSchedule(toolbarWake);
@@ -269,11 +271,15 @@ async function paintToolbar(status) {
 // between tries.
 function tryAppNow() {
   ensureInit().then(() => {
-    if (!port || port.livePort || port.behind) return;
+    if (!port || port.behind) return;
+    // A live port only needs asking when it answers one exchange at a time.
+    const live = port.livePort;
+    if (live && typeof live.refresh !== "function") return;
     const now = port.now();
     if (now - lastAppNudgeAt < 5000) return;
     lastAppNudgeAt = now;
-    port.connect();
+    if (live) live.refresh();
+    else port.connect();
   }).catch(() => {});
 }
 
@@ -1011,6 +1017,7 @@ function ensureInit() {
 // Register all listeners synchronously during evaluation
 chrome.runtime.onConnect.addListener((p) => {
   if (p.name === "status") {
+    if (globalThis.SolstoneCopy?.MOBILE === true) tryAppNow();
     if (!Router.isExtensionPageSender(p.sender, chrome.runtime.id)) {
       try { p.disconnect(); } catch (_e) {}
       return;
@@ -1036,6 +1043,8 @@ chrome.runtime.onConnect.addListener((p) => {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (sender?.id === chrome.runtime.id && sender.tab?.id != null) leaseTabs.add(sender.tab.id);
+  // A page opening is when Safari on iPhone and iPad catches up with the app.
+  if (msg?.kind === "hello" && globalThis.SolstoneCopy?.MOBILE === true) tryAppNow();
   ensureInit().then(() => {
     const deps = {
       port,

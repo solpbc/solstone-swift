@@ -959,6 +959,9 @@ struct SolstoneSwiftApp: App {
             case .active:
                 self.mobileSegmentTransferHolder.refreshJournalGap()
                 self.safariSource?.refresh()
+                if let safariSource = self.safariSource {
+                    Task { await safariSource.refreshExtensionState() }
+                }
                 self.backgroundDrainTask?.cancel()
                 self.backgroundDrainTask = nil
                 if Self.shouldRunLaunchMaintenance(scenePhase: newPhase) {

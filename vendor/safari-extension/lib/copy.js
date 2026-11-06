@@ -62,7 +62,7 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     ? DESKTOP_DISCLOSURE
       .replace("to the solstone app on this computer. from there it goes into your journal over the link the solstone app already uses.",
         `to the solstone app on ${PLACE}. from there it goes into your journal over the link the solstone app already uses. ${MOBILE_WHILE_CLOSED}`)
-      .replace("pausing the solstone app stops this extension too, unless you turn that off in settings.", "pausing Safari in the solstone app stops this extension too.")
+      .replace(" pausing the solstone app stops this extension too, unless you turn that off in settings.", "")
       .replace("the solstone extension takes in nothing from private windows, even where your browser lets it run there.", "the solstone extension takes in nothing from private browsing, even where Safari lets it run there.")
     : DESKTOP_DISCLOSURE;
 
