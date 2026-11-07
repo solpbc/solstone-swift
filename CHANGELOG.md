@@ -6,15 +6,16 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.11 (153)] - 2026-11-06
+
 ### Changed
 
 - before you connect a journal, the app shows one setup screen wherever you start from: set up a journal, or connect the one you already have.
-- the status at the top of home now reads "not paired".
+- before you pair, the status at the top of home now reads "not paired".
 
 ### Fixed
 
 - before you pair, the "your · journal" mark is now easy to see on any background, including the evening home screen on ipad.
-
 - photos you bring in from your library or the photo picker now reach your journal under their own names, instead of all being called image.jpg or image.png.
 
 ## [2.0.11 (152)] - 2026-11-05
