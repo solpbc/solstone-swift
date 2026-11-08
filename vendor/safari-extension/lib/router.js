@@ -586,16 +586,8 @@
         case "setConfig": {
           let hasChange = false;
           const patch = {};
-          const prevShowPageIndicator = port.showPageIndicator;
           const prevPauseWithApp = port.pauseWithApp;
 
-          if (typeof msg.showPageIndicator === "boolean") {
-            port.showPageIndicator = msg.showPageIndicator;
-            patch.showPageIndicator = port.showPageIndicator;
-            // The owner chose, so the phone's one-time default never applies again.
-            patch.indicatorDefaultApplied = true;
-            hasChange = true;
-          }
           if (typeof msg.pauseWithApp === "boolean") {
             port.pauseWithApp = msg.pauseWithApp;
             patch.pauseWithApp = port.pauseWithApp;
@@ -616,15 +608,11 @@
             }
 
             if (!saveOk) {
-              port.showPageIndicator = prevShowPageIndicator;
               port.pauseWithApp = prevPauseWithApp;
               port.notify();
               return { ok: false, error: "storage_error" };
             }
 
-            if (Object.hasOwn(patch, "showPageIndicator") && typeof deps.broadcastIndicator === "function") {
-              deps.broadcastIndicator(port.showPageIndicator);
-            }
             if (Object.hasOwn(patch, "pauseWithApp") && typeof port.reapplyLastCapture === "function") {
               await port.reapplyLastCapture();
             }
@@ -761,7 +749,6 @@
             Math.max(0, Math.floor(port.lease.receivedAt + port.lease.freshnessMs - port.now())) } : null,
           consentVersion: port.consentVersion,
           paused: port.paused,
-          showPageIndicator: port.showPageIndicator,
           livePatterns: port.livePatterns ? [...port.livePatterns] : [],
           fence: port.fence ? { ...port.fence } : null,
           broadGrant: port.broadGrant === true,

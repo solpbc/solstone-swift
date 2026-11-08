@@ -49,7 +49,6 @@ const CONTENT_SCRIPT_FILES = [
   "lib/hosts.js",
   "adapters.js",
   "skim.js",
-  "indicator.js",
   "lib/gate.js",
   "lib/page_facts.js",
   "content.js",
@@ -57,7 +56,6 @@ const CONTENT_SCRIPT_FILES = [
 
 const DEFAULT_CFG = {
   paused: false,
-  showPageIndicator: false,
   pauseWithApp: true,
   excludedHosts: [],
   appLeftOut: [],
@@ -77,7 +75,6 @@ function formatAddIntent(intent) {
 function formatCfg(stored) {
   const res = {
     paused: !!stored.paused,
-    showPageIndicator: !!stored.showPageIndicator,
     pauseWithApp: stored.pauseWithApp !== false,
     excludedHosts: Array.isArray(stored.excludedHosts)
       ? [...new Set(stored.excludedHosts.map(H.storedExcludedHostname).filter(Boolean))].sort()
@@ -118,7 +115,6 @@ function formatCfg(stored) {
     res.fence = null;
   }
   res.addIntent = formatAddIntent(stored.addIntent);
-  if (stored.indicatorDefaultApplied === true) res.indicatorDefaultApplied = true;
   return res;
 }
 
@@ -332,7 +328,6 @@ function broadcastLeaseUpdate(status = port?.getStatus(), epoch = badgeEpoch) {
     broadGrant: status.broadGrant === true,
     excludedHosts: status.excludedHosts || [],
     appLeftOut: status.appLeftOut || [],
-    showIndicator: status.showPageIndicator,
     hostCapture: status.hostCapture,
     hostDelivery: status.hostDelivery,
     hostFailure: status.hostFailure,
@@ -370,15 +365,6 @@ function broadcastPause(paused) {
     for (const tab of tabs || []) {
       if (tab.id == null) continue;
       chrome.tabs.sendMessage(tab.id, { kind: "setPaused", paused }, () => void chrome.runtime.lastError);
-    }
-  });
-}
-
-function broadcastIndicator(show) {
-  chrome.tabs.query({}, (tabs) => {
-    for (const tab of tabs || []) {
-      if (tab.id == null) continue;
-      chrome.tabs.sendMessage(tab.id, { kind: "setIndicator", show }, () => void chrome.runtime.lastError);
     }
   });
 }
@@ -663,11 +649,8 @@ async function executeBrowserRead(binding, request, authorize) {
 }
 
 function clearedSafariCfg() {
-  const phone = globalThis.SolstoneCopy?.MOBILE === true;
   return {
-    ...(phone ? { indicatorDefaultApplied: true } : {}),
     paused: true,
-    showPageIndicator: phone,
     pauseWithApp: true,
     clearedNotice: true,
     siteGrant: "live",
@@ -1069,15 +1052,6 @@ async function doInit() {
     await setCfg({ firstRunAnswered: true });
     cfg.firstRunAnswered = true;
   }
-  // On a phone the on-page icon starts on, once. After that the owner's switch decides.
-  // A save that fails keeps it on for this run and tries again next start.
-  if (globalThis.SolstoneCopy?.MOBILE === true && cfg.indicatorDefaultApplied !== true) {
-    cfg.showPageIndicator = true;
-    try {
-      await setCfg({ showPageIndicator: true, indicatorDefaultApplied: true });
-      cfg.indicatorDefaultApplied = true;
-    } catch (_e) {}
-  }
   const everConnected = !!(await DB.get("meta", "everConnected"));
   const lossNotice = await DB.get("meta", "lossNotice");
   const storedTruncation = await DB.get("meta", "truncationByOrigin");
@@ -1129,7 +1103,6 @@ async function doInit() {
   port.everConnected = everConnected;
   port.paused = safariClearedFailed ? true : cfg.paused;
   port.clearedNotice = safariClearedFailed ? true : (cfg.paused === false ? false : !!cfg.clearedNotice);
-  port.showPageIndicator = cfg.showPageIndicator;
   port.pauseWithApp = cfg.pauseWithApp !== false;
   port.excludedHosts = cfg.excludedHosts;
   port.appLeftOut = cfg.appLeftOut ? [...cfg.appLeftOut] : [];
@@ -1209,7 +1182,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       unregisterSite,
       syncSiteRegistrations,
       broadcastPause,
-      broadcastIndicator,
       refreshOpenTabs,
       executeBrowserRead,
       broadcastLeaseUpdate,

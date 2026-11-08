@@ -210,7 +210,7 @@
       :root.mobile { color-scheme: light dark; }
       .mobile body { padding: 8px 16px 32px; font: 17px/1.35 -apple-system, system-ui, sans-serif; }
       .mobile #pageSubTitle, .mobile #pageFooter, .mobile #sitesHeading, .mobile .modes,
-      .mobile #indicatorCard h2, .mobile #disclosureCard h2 { display: none; }
+      .mobile #disclosureCard h2 { display: none; }
       .mobile h1 { font-size: 28px; padding: 8px 0 4px; }
       .mobile h3 { margin: 0 0 6px; font-size: 15px; font-weight: 400; color: var(--soft); }
       .mobile .card { margin: 12px 0; padding: 12px 16px; border: 0; border-radius: 14px; }
@@ -254,8 +254,6 @@
         color: var(--bad);
         font-size: 17px;
       }
-      .mobile #pauseCard { margin-bottom: 0; border-radius: 14px 14px 0 0; }
-      .mobile #pauseCard + #indicatorCard { margin-top: 0; border-top: 1px solid var(--line); border-radius: 0 0 14px 14px; }
       .mobile .marker-label {
         display: flex;
         align-items: center;
@@ -371,10 +369,6 @@
             </h2>
             <div id="step3Content" hidden>
               <p id="step3Body" class="muted"></p>
-              <label class="marker-label" style="margin-top: 14px;">
-                <input type="checkbox" id="welcomeShowPageIndicator" />
-                show a small solstone icon on pages you've added
-              </label>
               <div id="welcomeOffersBlock" hidden></div>
               <div id="welcomeSiteList"></div>
             </div>
@@ -488,14 +482,6 @@
           <label class="marker-label">
             <input type="checkbox" id="pauseSwitch" />
             pause
-          </label>
-        </section>
-
-        <section id="indicatorCard" class="card">
-          <h2>on-page icon</h2>
-          <label class="marker-label">
-            <input type="checkbox" id="showPageIndicator" />
-            show a small solstone icon on pages you share
           </label>
         </section>
 

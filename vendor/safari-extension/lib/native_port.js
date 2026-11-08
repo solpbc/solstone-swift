@@ -157,14 +157,12 @@
       this.truncationChain = Promise.resolve();
       this.siteErrors = { registration: {}, enqueue: {} };
       this.allSitesRegistration = null;
-      this.showPageIndicator = false;
       this.pauseWithApp = true;
       this.startup = null;
       this.siteGrant = null;
       this.clearedNotice = false;
       this.openTabs = { known: false, openOrigins: null, anyGrantedTabOpen: null };
       this.consentVersion = 0;
-      this.showPageIndicator = false;
       this.pauseWithApp = true;
       this.siteWideOrigins = [];
       this.pendingRemoveOrigins = [];
@@ -532,7 +530,6 @@
         allSitesRegistration: this.allSitesRegistration,
         sitePolicyPending: this.sitePolicyPending,
         openTabs: this.openTabs ? { ...this.openTabs, openOrigins: Array.isArray(this.openTabs.openOrigins) ? this.openTabs.openOrigins.slice() : null } : { known: false, openOrigins: null, anyGrantedTabOpen: null },
-        showPageIndicator: !!this.showPageIndicator,
         pauseWithApp: this.pauseWithApp !== false,
         appReportedPaused: this.appReportedPaused() === true,
         updateCheck: this.updateCheck,

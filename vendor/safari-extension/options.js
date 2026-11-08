@@ -504,8 +504,6 @@
     // Sites Section
     renderSites();
 
-    // Indicator Section
-    if ($("showPageIndicator")) $("showPageIndicator").checked = !!(state && state.showPageIndicator);
     if ($("pauseWithApp")) $("pauseWithApp").checked = state?.pauseWithApp !== false;
 
   }
@@ -1197,14 +1195,6 @@
     });
   }
 
-  // Welcome Step 3 Marker Checkbox
-  if ($("welcomeShowPageIndicator")) {
-    $("welcomeShowPageIndicator").addEventListener("change", async () => {
-      await cmd({ cmd: "setConfig", showPageIndicator: $("welcomeShowPageIndicator").checked });
-      await refresh();
-    });
-  }
-
   // Settings Add Form
   if ($("addForm")) {
     $("addForm").addEventListener("submit", async (event) => {
@@ -1213,22 +1203,13 @@
     });
   }
 
-  // Settings Marker Checkbox
-  if ($("showPageIndicator")) {
-    $("showPageIndicator").addEventListener("change", async () => {
-      await cmd({ cmd: "setConfig", showPageIndicator: $("showPageIndicator").checked });
-      await refresh();
-    });
-  }
-
   // Settings Pause With App Checkbox
   // On iPhone and iPad the solstone app has no pause, so there is nothing to choose.
   if (Copy.MOBILE && $("pauseWithAppCard")) $("pauseWithAppCard").hidden = true;
-  // A phone's settings are one list: its sites, two switches, and what it takes in.
+  // A phone's settings are one list: its sites, the pause switch, and what it takes in.
   if (Copy.MOBILE) {
     document.documentElement.classList.add("mobile");
     document.querySelector("#disclosureCard summary").textContent = "what it takes in";
-    document.querySelector("#indicatorCard label").lastChild.textContent = " show an icon on pages you share";
     $("newHost").placeholder = "eff.org";
     $("pauseCard").hidden = false;
     $("pauseSwitch").addEventListener("change", async () => {

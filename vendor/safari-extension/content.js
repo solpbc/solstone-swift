@@ -11,7 +11,6 @@
 
   const A = globalThis.SolstoneAdapters;
   const Skim = globalThis.SolstoneSkim;
-  const Indicator = globalThis.SolstoneIndicator;
   const Gate = globalThis.SolstoneCaptureGate;
 
   const realmTokenBytes = new Uint8Array(16);
@@ -34,7 +33,6 @@
   let readSequence = 0;
   let readRequestedAt = 0;
   let readTimer = null;
-  let showIndicator = false;
   let hostCapture = null;
   let capturePermitted = false;
   let pressure = { active: false };
@@ -174,14 +172,7 @@
       // In broad mode a retained listener only schedules browser-authorized
       // execution. Safari can retain it after a denial with no removal event.
       if (browserMediated) { scheduleSkim(); return; }
-      const indicatorHost = document.getElementById("solstone-observer-indicator-host");
-      const filtered = mutations.filter((m) => {
-        if (!indicatorHost) return true;
-        return m.target !== indicatorHost && !indicatorHost.contains(m.target);
-      });
-      if (filtered.length > 0) {
-        scheduleSkim();
-      }
+      if (mutations.length > 0) scheduleSkim();
     });
 
     observer.observe(rootEl, {
@@ -192,18 +183,7 @@
       attributeFilter: ["aria-label", "aria-level", "role"],
     });
 
-    if (showIndicator) Indicator.show(false);
     doSkim("initial");
-  }
-
-  // The marker's word is a promise about this page: "on" only while it is
-  // read, "paused" only on a shared page during a pause, and gone otherwise,
-  // so a left-out page or a lost app never shows "on".
-  function syncIndicator() {
-    if (!showIndicator) { Indicator.remove(); return; }
-    if (paused && originGranted) { Indicator.show(true); return; }
-    if (getDecision().open) { Indicator.show(false); return; }
-    Indicator.remove();
   }
 
   function stopObserving() {
@@ -239,7 +219,6 @@
     }
     browserMediated = nextMediated;
     originGranted = nextGranted;
-    if (typeof response.showPageIndicator === "boolean") showIndicator = response.showPageIndicator;
     hostCapture = response.hostCapture || null;
     capturePermitted = response.capturePermitted === true;
     if (response.pressure) pressure = response.pressure;
@@ -273,14 +252,12 @@
         if (lease !== grantedLease) return;
         lease = null;
         stopObserving();
-        syncIndicator();
       }, Math.max(0, lease.receivedAt + lease.freshnessMs - now()));
       if (!observer && !rootEl) {
         if (refusedReadCount < 3) waitForRoot();
       } else if (!observer && rootEl) startObserving();
     } else {
       stopObserving();
-      syncIndicator();
     }
   }
 
@@ -294,7 +271,6 @@
     }
     browserMediated = nextMediated;
     originGranted = nextGranted;
-    if (typeof msg.showIndicator === "boolean") showIndicator = msg.showIndicator;
     hostCapture = msg.hostCapture || null;
     capturePermitted = msg.capturePermitted === true;
     if (msg.pressure) pressure = msg.pressure;
@@ -306,7 +282,6 @@
     if (isClosed) {
       lease = null;
       stopObserving();
-      syncIndicator();
       return;
     }
 
@@ -443,17 +418,12 @@
       const decision = getDecision();
       if (decision.open) startObserving();
       else stopObserving();
-      syncIndicator();
     } else if (msg.kind === "resnapshot") {
       if (!getDecision().open) requestGrant();
       else doSkim("change");
     } else if (msg.kind === "stop" || msg.kind === "permissionRemoved") {
       lease = null;
       stopObserving();
-      Indicator.remove();
-    } else if (msg.kind === "setIndicator") {
-      showIndicator = !!msg.show;
-      syncIndicator();
     } else if (msg.kind === "ping") {
       sendResponse({ ok: true });
     }
