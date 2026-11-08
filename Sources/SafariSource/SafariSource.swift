@@ -16,7 +16,7 @@ nonisolated enum SafariVocabulary {
     static let stepTurnOnBodyWithLink = "flip Allow Extension in Settings. to put every site in your journal, also set Other Websites to Allow, further down the same page. then come back here."
     static let switchName = "Allow Extension"
     static let openSettings = "open Settings"
-    static let notOnYet = "not on yet. the switch is Allow Extension."
+    static let notOnYet = "not on yet. if Settings opened somewhere else, go to Apps, Safari, Extensions, solstone. the switch is Allow Extension."
     static let settingsByHand = "in Safari, open the page menu, then Manage Extensions, and turn on solstone."
     static let stepChooseSites = "which sites do you want in your journal?"
     static let chooseEverySite = "share every site"
