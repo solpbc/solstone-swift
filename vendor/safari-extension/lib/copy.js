@@ -127,9 +127,10 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     };
   }
 
-  function fenceQuiet(brand) {
+  function fenceQuiet(brand, allowsMore = true) {
     const browser = browserName(brand);
-    return `${browser} allows more than your sites. this extension takes in only the sites you added, and all of it goes into your journal.`;
+    const kept = "this extension takes in only the sites you added, and all of it goes into your journal.";
+    return allowsMore ? `${browser} allows more than your sites. ${kept}` : kept;
   }
 
   function clearedStorageNotice() {
@@ -281,9 +282,11 @@ no analytics. no telemetry. no phone home. nobody counted.`;
     return {
       granted: everySiteOnLine(brand),
       grantedNote: safari ? (MOBILE ? "in Settings, under Apps, Safari, Extensions, solstone, a site set to Deny stays off." : "a site set to Deny in Safari's website settings stays off.") : "",
-      missingTitle: safari ? "allow every website in Safari" : `${bName} isn't allowing every website`,
+      // No title on Safari either: an owner who chose one site at a time reads
+      // this too, and it isn't a step they owe.
+      missingTitle: safari ? "" : `${bName} isn't allowing every website`,
       missingBody: safari
-        ? "until you do, only the sites Safari already allows are on:"
+        ? "only the sites Safari already allows are on. to share every site:"
         : `only the sites ${bName} already allows are on.`,
       steps: safari && MOBILE ? [
         "in Settings, open Apps, then Safari, then Extensions, then solstone.",
