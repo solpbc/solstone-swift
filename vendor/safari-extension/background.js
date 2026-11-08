@@ -118,6 +118,7 @@ function formatCfg(stored) {
     res.fence = null;
   }
   res.addIntent = formatAddIntent(stored.addIntent);
+  if (stored.indicatorDefaultApplied === true) res.indicatorDefaultApplied = true;
   return res;
 }
 
@@ -662,9 +663,11 @@ async function executeBrowserRead(binding, request, authorize) {
 }
 
 function clearedSafariCfg() {
+  const phone = globalThis.SolstoneCopy?.MOBILE === true;
   return {
+    ...(phone ? { indicatorDefaultApplied: true } : {}),
     paused: true,
-    showPageIndicator: false,
+    showPageIndicator: phone,
     pauseWithApp: true,
     clearedNotice: true,
     siteGrant: "live",
@@ -1065,6 +1068,15 @@ async function doInit() {
   if (rawCfg?.siteGrant === "live" && (cfg.startup === "existing" || cfg.startup === "cleared") && cfg.firstRunAnswered !== true) {
     await setCfg({ firstRunAnswered: true });
     cfg.firstRunAnswered = true;
+  }
+  // On a phone the on-page icon starts on, once. After that the owner's switch decides.
+  // A save that fails keeps it on for this run and tries again next start.
+  if (globalThis.SolstoneCopy?.MOBILE === true && cfg.indicatorDefaultApplied !== true) {
+    cfg.showPageIndicator = true;
+    try {
+      await setCfg({ showPageIndicator: true, indicatorDefaultApplied: true });
+      cfg.indicatorDefaultApplied = true;
+    } catch (_e) {}
   }
   const everConnected = !!(await DB.get("meta", "everConnected"));
   const lossNotice = await DB.get("meta", "lossNotice");

@@ -592,6 +592,8 @@
           if (typeof msg.showPageIndicator === "boolean") {
             port.showPageIndicator = msg.showPageIndicator;
             patch.showPageIndicator = port.showPageIndicator;
+            // The owner chose, so the phone's one-time default never applies again.
+            patch.indicatorDefaultApplied = true;
             hasChange = true;
           }
           if (typeof msg.pauseWithApp === "boolean") {

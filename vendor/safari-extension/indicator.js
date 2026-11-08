@@ -53,6 +53,8 @@
   }
 
   function show(paused) {
+    // One icon per page: embedded frames don't show their own.
+    if (globalThis.top !== globalThis.self) return;
     ensure();
     if (labelEl) labelEl.textContent = paused ? "paused" : "on";
     if (pillEl) pillEl.style.background = paused ? "rgba(91,82,70,0.95)" : "rgba(26,26,26,0.92)";
