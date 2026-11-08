@@ -6,7 +6,6 @@ import Observation
 
 nonisolated enum LocationEnrollmentEvent: Equatable, Sendable {
     case tierSelected(LocationTier)
-    case primerShown
     case startRequested(LocationTier)
 }
 
@@ -15,10 +14,7 @@ nonisolated struct LocationEnrollmentPresentation: Equatable, Sendable {
     let tierDialHeader: String
     let tierDialSubhead: String
     let batteryHonesty: String
-    let alwaysBackgroundPrimer: String
     let turnOnLocation: String
-    let alwaysPrimerHeader: String
-    let alwaysPrimerContinue: String
 
     static func current(isJournalPaired: Bool) -> LocationEnrollmentPresentation {
         LocationEnrollmentPresentation(
@@ -26,10 +22,7 @@ nonisolated struct LocationEnrollmentPresentation: Equatable, Sendable {
             tierDialHeader: LocationVocabulary.tierDialHeader,
             tierDialSubhead: LocationVocabulary.tierDialSubhead,
             batteryHonesty: LocationVocabulary.batteryHonesty,
-            alwaysBackgroundPrimer: LocationVocabulary.alwaysBackgroundPrimer,
-            turnOnLocation: LocationVocabulary.turnOnLocation,
-            alwaysPrimerHeader: LocationVocabulary.alwaysPrimerHeader,
-            alwaysPrimerContinue: LocationVocabulary.alwaysPrimerContinue
+            turnOnLocation: LocationVocabulary.turnOnLocation
         )
     }
 }
@@ -38,7 +31,6 @@ nonisolated struct LocationEnrollmentPresentation: Equatable, Sendable {
 @Observable
 final class LocationEnrollmentCoordinator {
     var selectedTier: LocationTier
-    var showingPrimer = false
 
     @ObservationIgnored private let manager: LocationManager
     @ObservationIgnored private let recordEvent: @MainActor @Sendable (LocationEnrollmentEvent) -> Void
@@ -59,25 +51,6 @@ final class LocationEnrollmentCoordinator {
     }
 
     func confirm() async {
-        guard !self.showingPrimer else { return }
-
-        switch self.selectedTier.requiredAuthorization {
-        case .whenInUse:
-            self.emit(.startRequested(self.selectedTier))
-            await self.manager.start(tier: self.selectedTier)
-        case .always:
-            if self.manager.isAuthorizationSufficient(for: self.selectedTier) {
-                self.emit(.startRequested(self.selectedTier))
-                await self.manager.start(tier: self.selectedTier)
-            } else {
-                self.showingPrimer = true
-                self.emit(.primerShown)
-            }
-        }
-    }
-
-    func acknowledgePrimer() async {
-        self.showingPrimer = false
         self.emit(.startRequested(self.selectedTier))
         await self.manager.start(tier: self.selectedTier)
     }

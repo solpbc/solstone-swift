@@ -14,9 +14,6 @@ nonisolated final class LocationEnrollmentPresentationTests: XCTestCase {
         XCTAssertEqual(paired.tierDialHeader, LocationVocabulary.tierDialHeader)
         XCTAssertEqual(paired.tierDialSubhead, LocationVocabulary.tierDialSubhead)
         XCTAssertEqual(paired.batteryHonesty, LocationVocabulary.batteryHonesty)
-        XCTAssertEqual(paired.alwaysBackgroundPrimer, LocationVocabulary.alwaysBackgroundPrimer)
         XCTAssertEqual(paired.turnOnLocation, LocationVocabulary.turnOnLocation)
-        XCTAssertEqual(paired.alwaysPrimerHeader, LocationVocabulary.alwaysPrimerHeader)
-        XCTAssertEqual(paired.alwaysPrimerContinue, LocationVocabulary.alwaysPrimerContinue)
     }
 }

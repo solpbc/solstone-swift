@@ -133,7 +133,7 @@ nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
         XCTAssertTrue(primerText.contains("screencast.primer.sheet"))
         XCTAssertTrue(primerText.contains("screencast.primer.illustration"))
         XCTAssertTrue(primerText.contains("screencast.primer.action"))
-        XCTAssertTrue(primerText.contains("LocationVocabulary.alwaysPrimerHeader"))
+        XCTAssertTrue(primerText.contains("SourceVocabulary.screencastPrimerTitle"))
         XCTAssertTrue(primerText.contains("SourceVocabulary.screencastPrimerBody(state:"))
         XCTAssertTrue(primerText.contains("SourceVocabulary.screencastOpenSystemSheet"))
         XCTAssertFalse(primerText.contains(".fill(Color.solOrange)"))

@@ -339,17 +339,6 @@ private struct LocationEnrollmentContent: View {
                 }
             }
         }
-        .alert(self.presentation.alwaysPrimerHeader, isPresented: $coordinator.showingPrimer) {
-            Button(self.presentation.alwaysPrimerContinue) {
-                Task {
-                    await coordinator.acknowledgePrimer()
-                }
-            }
-            .accessibilityHint("Continues to the ios location permission step.")
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text(self.presentation.alwaysBackgroundPrimer)
-        }
     }
 }
 

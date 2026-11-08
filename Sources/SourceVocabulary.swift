@@ -200,6 +200,7 @@ nonisolated enum SourceVocabulary {
     static let screencastFilesystemFailedText = "screen video could not be stored"
     static let screencastStorageLowText = "screen stopped. this device is low on storage."
     static let screencastSystemEndedSubtext = "screen sharing ended"
+    static let screencastPrimerTitle = "before ios asks"
     static let screencastPrimerBodyActive = "to stop sharing your screen, tap \"Stop Broadcast\" in the sheet that comes up."
     static let screencastPrimerBodyOff = "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks."
     static let screencastPrimerBody = screencastPrimerBodyOff

@@ -8,6 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Changed
 
+- turning on location at a fuller setting goes straight to ios's own prompt.
 - with Other Websites set to Allow in Settings, the solstone extension takes in every site you don't leave out, and all of it goes into your journal. if you used the solstone extension before this update, only the sites you'd added go in until you choose otherwise.
 - the Safari page asks which sites you want in your journal: every site, or sites one at a time.
 

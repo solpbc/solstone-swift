@@ -27,7 +27,7 @@ struct ScreencastPrimerSheet: View {
                 .padding(ShellMetrics.screenMargin)
             }
             .background(Color.deckGround.ignoresSafeArea())
-            .navigationTitle(LocationVocabulary.alwaysPrimerHeader)
+            .navigationTitle(SourceVocabulary.screencastPrimerTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

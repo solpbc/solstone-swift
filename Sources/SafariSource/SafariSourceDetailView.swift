@@ -165,9 +165,6 @@ struct SafariSourceDetailView: View {
                         .font(.subheadline)
                         .accessibilityIdentifier("safari.page.notOnYet")
                 }
-                Text(SafariVocabulary.appleWarning)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             } else {
                 Text(SafariVocabulary.settingsByHand)
                     .font(.subheadline)

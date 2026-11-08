@@ -34,10 +34,7 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
         XCTAssertEqual(LocationVocabulary.fullLabel, "the complete picture")
         XCTAssertEqual(LocationVocabulary.fullBody, "the full, detailed picture of where your day happened. uses more battery.")
         XCTAssertEqual(LocationVocabulary.batteryHonesty, "fuller settings run in the background and use more battery. ios shows its location arrow whenever location is on.")
-        XCTAssertEqual(LocationVocabulary.alwaysBackgroundPrimer, "to keep this when the solstone app isn't open, ios will ask to allow location \"Always.\" you can change it any time in ios settings.")
         XCTAssertEqual(LocationVocabulary.turnOnLocation, "turn on location")
-        XCTAssertEqual(LocationVocabulary.alwaysPrimerHeader, "before ios asks")
-        XCTAssertEqual(LocationVocabulary.alwaysPrimerContinue, "continue")
         XCTAssertEqual(LocationVocabulary.stateBlockTitle, "state")
         XCTAssertEqual(LocationVocabulary.tierBlockTitle, "detail level")
         XCTAssertEqual(LocationVocabulary.recentBlockTitle, "recent")
@@ -127,10 +124,7 @@ nonisolated final class LocationVocabularyTests: XCTestCase {
             LocationVocabulary.fullLabel,
             LocationVocabulary.fullBody,
             LocationVocabulary.batteryHonesty,
-            LocationVocabulary.alwaysBackgroundPrimer,
             LocationVocabulary.turnOnLocation,
-            LocationVocabulary.alwaysPrimerHeader,
-            LocationVocabulary.alwaysPrimerContinue,
             LocationVocabulary.stateBlockTitle,
             LocationVocabulary.tierBlockTitle,
             LocationVocabulary.recentBlockTitle,
