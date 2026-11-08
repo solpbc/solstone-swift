@@ -28,6 +28,7 @@
   let consentVersion = 0;
   let originGranted = false;
   let browserMediated = false;
+  let refusedReadCount = 0;
   let injectedRead = null;
   let browserReadPending = false;
   let readSequence = 0;
@@ -231,8 +232,13 @@
   function handleSolicitedGrant(response, reqTime) {
     if (typeof response.paused === "boolean") paused = response.paused;
     if (typeof response.consentVersion === "number") consentVersion = response.consentVersion;
-    browserMediated = response.siteMode === "all";
-    originGranted = globalThis.SolstoneHosts.originGranted(response, location.origin);
+    const nextMediated = response.broadGrant ?? (globalThis.SolstoneHosts?.broadLive ? globalThis.SolstoneHosts.broadLive(response.livePatterns) : false);
+    const nextGranted = globalThis.SolstoneHosts.originGranted(response, location.origin);
+    if (nextMediated !== browserMediated || nextGranted !== originGranted) {
+      refusedReadCount = 0;
+    }
+    browserMediated = nextMediated;
+    originGranted = nextGranted;
     if (typeof response.showPageIndicator === "boolean") showIndicator = response.showPageIndicator;
     hostCapture = response.hostCapture || null;
     capturePermitted = response.capturePermitted === true;
@@ -269,8 +275,9 @@
         stopObserving();
         syncIndicator();
       }, Math.max(0, lease.receivedAt + lease.freshnessMs - now()));
-      if (!observer && !rootEl) waitForRoot();
-      else if (!observer && rootEl) startObserving();
+      if (!observer && !rootEl) {
+        if (refusedReadCount < 3) waitForRoot();
+      } else if (!observer && rootEl) startObserving();
     } else {
       stopObserving();
       syncIndicator();
@@ -280,8 +287,13 @@
   function handleLeaseUpdate(msg) {
     if (typeof msg.paused === "boolean") paused = msg.paused;
     if (typeof msg.consentVersion === "number") consentVersion = msg.consentVersion;
-    browserMediated = msg.siteMode === "all";
-    originGranted = globalThis.SolstoneHosts.originGranted(msg, location.origin);
+    const nextMediated = msg.broadGrant ?? (globalThis.SolstoneHosts?.broadLive ? globalThis.SolstoneHosts.broadLive(msg.livePatterns) : false);
+    const nextGranted = globalThis.SolstoneHosts.originGranted(msg, location.origin);
+    if (nextMediated !== browserMediated || nextGranted !== originGranted) {
+      refusedReadCount = 0;
+    }
+    browserMediated = nextMediated;
+    originGranted = nextGranted;
     if (typeof msg.showIndicator === "boolean") showIndicator = msg.showIndicator;
     hostCapture = msg.hostCapture || null;
     capturePermitted = msg.capturePermitted === true;
@@ -311,6 +323,13 @@
   }
 
   function waitForRoot() {
+    if (refusedReadCount >= 3) {
+      if (rootInterval !== null) {
+        clearInterval(rootInterval);
+        rootInterval = null;
+      }
+      return;
+    }
     let tries = 0;
     if (rootInterval) clearInterval(rootInterval);
     const check = () => {
@@ -344,6 +363,7 @@
 
   let rootCheck = null;
   function requestBrowserRead(action, reason) {
+    if (refusedReadCount >= 3) return;
     if (browserReadPending || !getDecision().open) return;
     browserReadPending = true;
     const requestId = ++readSequence;
@@ -356,11 +376,18 @@
     try {
       chrome.runtime.sendMessage({ kind: "read", action, reason, requestId,
         realmToken: REALM_TOKEN, documentKey: DOCUMENT_KEY,
-        captureEpoch, leaseToken: lease?.token || null }, () => {
+        captureEpoch, leaseToken: lease?.token || null }, (res) => {
         if (readSequence !== requestId) return;
         browserReadPending = false;
         clearTimeout(readTimer);
         void chrome.runtime.lastError;
+        if (res && res.ok === false && (res.error === "browser_access_denied" || res.error === "read_not_executed")) {
+          refusedReadCount++;
+          if (refusedReadCount >= 3 && rootInterval !== null) {
+            clearInterval(rootInterval);
+            rootInterval = null;
+          }
+        }
       });
     } catch (_e) { browserReadPending = false; }
   }
@@ -372,6 +399,7 @@
     if (!browserMediated || realm !== REALM_TOKEN || documentKey !== DOCUMENT_KEY ||
         !browserReadPending || read.requestId !== readSequence || now() >= readRequestedAt + 5000 ||
         read.captureEpoch !== captureEpoch || read.leaseToken !== lease?.token || !getDecision().open) return false;
+    refusedReadCount = 0;
     injectedRead = read;
     try {
       if (read.action === "root") rootCheck?.();
@@ -448,6 +476,7 @@
   }, { capture: true });
   window.addEventListener("pageshow", (e) => {
     if (e.persisted) {
+      refusedReadCount = 0;
       requestGrant();
     }
   });

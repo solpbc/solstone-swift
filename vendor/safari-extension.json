@@ -1,7 +1,7 @@
 {
   "source": "solstone-browser",
-  "revision": "7bb27d50b70c40349724cf8061f561b7e3d53606",
-  "version": "0.5.9",
-  "tree_sha256": "fc792cafc9023eca77f70c03999e4f41b6ec287dc958d96d8223be1da7438287",
+  "revision": "9eb004d27d8e7cc8f5122afcd99b10935b038474",
+  "version": "0.5.10",
+  "tree_sha256": "95671b6e11a8ecb889b19989946c18b6b730220a0a289a32b79c49c03094ce67",
   "contract_sha256": "4047821775f5ed8f30355817f8dbbbf14b305eea369f5c6df98860fa7584dad4"
 }

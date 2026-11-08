@@ -4,7 +4,11 @@
 (function () {
   "use strict";
 
-  const CONSENT_VERSION = 1;
+  const CONSENT_VERSION = 2;
+
+  function consentAccepted(version) {
+    return version === 1 || version === 2;
+  }
 
   function runIfPermitted(decision, hooks) {
     if (!decision || decision.open !== true) {
@@ -48,7 +52,7 @@
     if (paused) {
       return { open: false, reason: "extension-paused" };
     }
-    if (consentVersion !== CONSENT_VERSION) {
+    if (!consentAccepted(consentVersion)) {
       return { open: false, reason: "missing-consent" };
     }
     if (!originGranted) {
@@ -84,6 +88,7 @@
 
   globalThis.SolstoneCaptureGate = {
     CONSENT_VERSION,
+    consentAccepted,
     runIfPermitted,
     evaluateLease,
     computeDecision,

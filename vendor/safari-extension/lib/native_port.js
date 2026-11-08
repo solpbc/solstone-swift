@@ -141,23 +141,27 @@
       this.appAnswered = false;
       this.updateCheck = "pending";
       this.paused = false;
-      this.chosenOrigins = new Set();
-      this.grantedOrigins = new Set();
-      this.exactOnlyOrigins = new Set();
-      this.siteMode = "selected";
+      this.livePatterns = [];
+      this.fence = null;
+      this.broadGrant = false;
+      this.faults = new Map();
       this.excludedHosts = [];
-      this.allSitesConsent = 0;
-      this.broadGranted = false;
-      this.allSitesRegistration = null;
-      this.browserDeniedOrigins = new Set();
+      this.appLeftOut = [];
+      this.appLeftOutRaw = [];
+      this.appLeftOutEpoch = null;
+      this.appLeftOutRev = 0;
       this.sitePolicyPending = false;
-      this.permissionEpoch = 0;
-      this.ownerSites = { grantEpoch: 0, reservation: null, registration: {}, enqueue: {} };
       this.registration = {};
       this.enqueue = {};
       this.truncationByOrigin = {};
       this.truncationChain = Promise.resolve();
       this.siteErrors = { registration: {}, enqueue: {} };
+      this.allSitesRegistration = null;
+      this.showPageIndicator = false;
+      this.pauseWithApp = true;
+      this.startup = null;
+      this.siteGrant = null;
+      this.clearedNotice = false;
       this.openTabs = { known: false, openOrigins: null, anyGrantedTabOpen: null };
       this.consentVersion = 0;
       this.showPageIndicator = false;
@@ -196,11 +200,31 @@
     }
 
     syncCaptureAuthority() {
-      const signature = JSON.stringify([this.connectionToken, this.stateRevision, this.paused,
-        this.consentVersion, [...this.chosenOrigins].sort(), [...this.grantedOrigins].sort(),
-        [...(this.exactOnlyOrigins || [])].sort(), this.pressure.active,
-        this.siteMode, this.excludedHosts, this.allSitesConsent, this.broadGranted, this.sitePolicyPending, this.permissionEpoch,
-        this.capturePermitted, this.hostCapture, this.lease]);
+      const signature = JSON.stringify([
+        this.connectionToken,
+        this.stateRevision,
+        this.paused,
+        this.consentVersion,
+        this.pressure?.active,
+        this.capturePermitted,
+        this.hostCapture,
+        this.lease,
+        this.sitePolicyPending,
+        this.livePatterns ? [...this.livePatterns].sort() : [],
+        this.fence ? {
+          entries: [...(this.fence.entries || [])].sort(),
+          exact: [...(this.fence.exact || [])].sort(),
+          exactKnown: this.fence.exactKnown,
+          siteWide: [...(this.fence.siteWide || [])].sort(),
+          declined: [...(this.fence.declined || [])].sort(),
+          answered: this.fence.answered,
+          sawMore: this.fence.sawMore,
+          cleanAt: this.fence.cleanAt,
+        } : null,
+        !!this.broadGrant,
+        this.excludedHosts ? [...this.excludedHosts].sort() : [],
+        this.appLeftOut ? [...this.appLeftOut].sort() : [],
+      ]);
       if (signature !== this.captureSignature) {
         this.captureSignature = signature;
         this.captureEpoch++;
@@ -419,15 +443,9 @@
     getStatus() {
       this.syncCaptureAuthority();
       const nowMs = this.now();
-      if (this.ownerSites?.reservation && nowMs >= this.ownerSites.reservation.expiresAt) {
-        if (typeof this.onLapseReservation === "function") this.onLapseReservation();
-      }
-      const chosenList = Array.from(this.chosenOrigins).sort();
-      const grantedList = Array.from(this.grantedOrigins).sort();
-      const inactiveOrigins = this.siteMode === "all" ? [] : chosenList.filter((o) => !this.grantedOrigins.has(o)).sort();
-      const originGranted = !this.sitePolicyPending && (this.siteMode === "all"
-        ? this.broadGranted && this.allSitesConsent === globalThis.SolstoneHosts.ALL_SITES_CONSENT_VERSION
-        : this.grantedOrigins.size > 0);
+      const originGranted = !this.sitePolicyPending && (this.fence !== null
+        ? (this.fence.entries || []).length > 0 && (this.livePatterns || []).length > 0
+        : (this.livePatterns || []).length > 0);
       const fresh = (this.hostStateDeadline == null || nowMs < this.hostStateDeadline) &&
         (!this.lease || this.lease.standing === true || nowMs < this.lease.receivedAt + this.lease.freshnessMs);
       const capturePermitted = fresh && this.capturePermitted === true;
@@ -455,6 +473,10 @@
         now: nowMs,
       });
 
+      const faultsObj = this.faults instanceof Map
+        ? Object.fromEntries(this.faults.entries())
+        : { ...(this.faults || {}) };
+
       return {
         inst: this.inst,
         captureEpoch: this.captureEpoch,
@@ -475,8 +497,6 @@
         lease: fresh && this.lease ? { ...this.lease } : null,
         connectionGeneration: this.connectionGeneration,
         connectionToken: this.connectionToken,
-        // Between withdrawing and re-granting authority for a host state. The
-        // withdrawal is real for capture, but not news for the owner's surfaces.
         hostSettling: this.settlingRevision != null && this.settlingRevision === this.stateRevision &&
           this.livePort != null && this.handshake === "ready" && nowMs < this.settleUntil,
         behind: this.behind,
@@ -492,29 +512,25 @@
         lossNotice: this.lossNotice ? { ...this.lossNotice } : null,
         drift: this.drift ? { ...this.drift } : null,
         paused: !!this.paused,
+        clearedNotice: !!this.clearedNotice,
         consentVersion: this.consentVersion,
-        chosenOrigins: chosenList,
-        grantedOrigins: grantedList,
-        exactOnlyOrigins: Array.from(this.exactOnlyOrigins || []).filter((o) => this.chosenOrigins.has(o)).sort(),
-        siteWideOrigins: Array.from(this.siteWideOrigins || []).sort(),
-        pendingRemoveOrigins: Array.from(this.pendingRemoveOrigins || []),
-        offeredOrigins: Array.from(this.offeredOrigins || []).sort(),
-        declinedHosts: Array.from(this.declinedHosts || []).sort(),
-        declinedHostsKnown: !!this.declinedHostsKnown,
-        siteMode: this.siteMode,
-        excludedHosts: [...this.excludedHosts],
-        appLeftOut: Array.from(this.appLeftOut || []).sort(),
+        consentAccepted: Gate.consentAccepted(this.consentVersion) === true,
+        agreementRules: this.agreementRules === "firefox" || this.agreementRules === "safari" ? this.agreementRules : "chrome",
+        versionOneFence: this.agreementRules === "chrome" && this.consentVersion === 1,
+        firstRunAnswered: this.firstRunAnswered === true,
+        livePatterns: [...(this.livePatterns || [])],
+        fence: this.fence ? JSON.parse(JSON.stringify(this.fence)) : null,
+        broadGrant: !!this.broadGrant,
+        faults: faultsObj,
+        excludedHosts: [...(this.excludedHosts || [])],
+        appLeftOut: [...(this.appLeftOut || [])],
+        appLeftOutRaw: [...(this.appLeftOutRaw || [])],
         appLeftOutEpoch: this.appLeftOutEpoch ?? null,
         appLeftOutRev: this.appLeftOutRev ?? null,
         leftOutCapable: !!this.leftOutCapable,
         desktop: this.desktop ? { ...this.desktop } : null,
-        adoptionNotices: Array.from(this.adoptionNotices || []),
-        allSitesConsent: this.allSitesConsent,
-        broadGranted: this.broadGranted,
         allSitesRegistration: this.allSitesRegistration,
-        browserDeniedOrigins: [...this.browserDeniedOrigins],
         sitePolicyPending: this.sitePolicyPending,
-        inactiveOrigins,
         openTabs: this.openTabs ? { ...this.openTabs, openOrigins: Array.isArray(this.openTabs.openOrigins) ? this.openTabs.openOrigins.slice() : null } : { known: false, openOrigins: null, anyGrantedTabOpen: null },
         showPageIndicator: !!this.showPageIndicator,
         pauseWithApp: this.pauseWithApp !== false,
