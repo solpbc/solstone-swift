@@ -766,7 +766,7 @@
     // The app answering says nothing about whether the owner has confirmed the
     // pairing: a held pairing reports the same capture state as a confirmed one.
     const heading = status.hostCapture === "paused"
-      ? (mobile() ? "found the solstone app. Safari is paused in it right now." : "found the solstone app. it's paused right now.")
+      ? "found the solstone app. it's paused right now."
       : "found the solstone app";
     return { met: true, heading, body: "", action: null };
   }
