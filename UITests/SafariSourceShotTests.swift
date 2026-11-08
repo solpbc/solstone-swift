@@ -9,6 +9,8 @@ final class SafariSourceShotTests: XCTestCase {
     private static let states: [(mode: String, probe: String, element: String)] = [
         ("setUp", "readyToSetUp", "safari.page.step1"),
         ("addSite", "readyToSetUp", "safari.page.step1.done"),
+        ("chooseEverySite", "readyToSetUp", "safari.page.everySite"),
+        ("chooseOneAtATime", "readyToSetUp", "safari.page.oneAtATime.otherWebsites"),
         ("on", "active", "safari.page.openSettings"),
         ("waiting", "active", "safari.page.waiting"),
         ("off", "off", "safari.page.openSettings"),

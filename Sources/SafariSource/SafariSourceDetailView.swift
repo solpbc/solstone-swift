@@ -13,6 +13,7 @@ struct SafariSourceDetailView: View {
     @Environment(\.openURL) private var openURL
     @AppStorage("safari.setup.firstSite") private var typedSite = ""
     @AppStorage("safari.setup.sawWorking") private var sawWorking = false
+    @AppStorage(SafariSetUpChoice.storageKey) private var storedChoice = ""
     @State private var wentToSettings = false
     @State private var settingsFailed = false
     @State private var wentToSafari = false
@@ -40,7 +41,7 @@ struct SafariSourceDetailView: View {
                     }
                     if status.sourceState == .active {
                         SourceDetailBlock(title: SafariVocabulary.addAnother) {
-                            self.tapRow([.pageMenu, .solstone, .add])
+                            self.tapRow([.pageMenu, .solstone])
                         }
                     }
                 }
@@ -56,6 +57,7 @@ struct SafariSourceDetailView: View {
 #if DEBUG
         .overlay(alignment: .topLeading) {
             UITestStateProbe(identifier: "safari.page.state.\(status.sourceState)")
+            UITestStateProbe(identifier: "safari.page.openSettings.calls.\(SafariUITestSource.calls.openSettings)")
         }
 #endif
         .navigationTitle(SafariVocabulary.label)
@@ -93,8 +95,8 @@ struct SafariSourceDetailView: View {
                 self.turnOnStep
             }
             Divider().padding(.vertical, 10)
-            self.stepRow(number: 2, title: SafariVocabulary.stepAddSite, isDone: false, isCurrent: step == .addSite) {
-                self.addSiteStep
+            self.stepRow(number: 2, title: SafariVocabulary.stepChooseSites, isDone: false, isCurrent: step == .addSite) {
+                self.chooseSitesStep
             }
         }
         .padding(ShellMetrics.surfacePadding)
@@ -122,9 +124,14 @@ struct SafariSourceDetailView: View {
         .accessibilityIdentifier("safari.page.step\(number)\(isDone ? ".done" : "")")
     }
 
+    /// Whether this view can still take the owner to the extension's page in Settings.
+    private var canOpenSettings: Bool {
+        SafariExtensionControl.canOpenSettings && !self.settingsFailed
+    }
+
     private var turnOnStep: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(SafariVocabulary.stepTurnOnBody)
+            Text(self.canOpenSettings ? SafariVocabulary.stepTurnOnBodyWithLink : SafariVocabulary.stepTurnOnBody)
                 .font(.subheadline)
             HStack {
                 Text(SafariVocabulary.switchName)
@@ -140,7 +147,7 @@ struct SafariSourceDetailView: View {
             .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(SafariVocabulary.switchName)
-            if SafariExtensionControl.canOpenSettings, !self.settingsFailed {
+            if self.canOpenSettings {
                 Button {
                     Task {
                         let opened = await self.model.openExtensionSettings()
@@ -166,6 +173,80 @@ struct SafariSourceDetailView: View {
                     .font(.subheadline)
                     .accessibilityIdentifier("safari.page.settingsByHand")
             }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Step 2 asks which sites; the answer only picks the panel below it.
+    private var chooseSitesStep: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            self.choiceButton(.everySite, title: SafariVocabulary.chooseEverySite)
+            self.choiceButton(.oneAtATime, title: SafariVocabulary.chooseOneAtATime)
+            switch SafariSetUpChoice(rawValue: self.storedChoice) {
+            case .everySite: self.everySitePanel.padding(.top, 4)
+            case .oneAtATime: self.oneAtATimePanel.padding(.top, 4)
+            case nil: EmptyView()
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func choiceButton(_ choice: SafariSetUpChoice, title: String) -> some View {
+        let isChosen = SafariSetUpChoice(rawValue: self.storedChoice) == choice
+        return Button {
+            self.storedChoice = choice.rawValue
+        } label: {
+            HStack(spacing: 6) {
+                if isChosen {
+                    Image(systemName: "checkmark")
+                        .accessibilityHidden(true)
+                }
+                Text(title)
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .accessibilityAddTraits(isChosen ? .isSelected : [])
+        .accessibilityIdentifier("safari.page.choose.\(choice.rawValue)")
+    }
+
+    /// Any site will do once Other Websites allows them all, so there is no site to open.
+    private var everySitePanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if self.canOpenSettings {
+                Text(SafariVocabulary.everySiteBody)
+                    .font(.subheadline)
+                    .accessibilityIdentifier("safari.page.everySite.body")
+                Button {
+                    Task { self.settingsFailed = await !self.model.openExtensionSettings() }
+                } label: {
+                    Text(SafariVocabulary.openSettings).frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .accessibilityIdentifier("safari.page.everySite.openSettings")
+            } else {
+                Text(SafariVocabulary.everySiteByHand)
+                    .font(.subheadline)
+                    .accessibilityIdentifier("safari.page.everySite.byHand")
+            }
+            Text(SafariVocabulary.everySiteNext)
+                .font(.subheadline)
+                .accessibilityIdentifier("safari.page.everySite.next")
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("safari.page.everySite")
+    }
+
+    /// The app can't see Other Websites, so this says what Allow there means without claiming it's set.
+    private var oneAtATimePanel: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(SafariVocabulary.oneAtATimeOtherWebsites)
+                .font(.subheadline)
+                .accessibilityIdentifier("safari.page.oneAtATime.otherWebsites")
+            self.addSiteStep
         }
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -312,7 +393,7 @@ struct SafariSourceDetailView: View {
     /// Safari and Settings own the extension's switch, so the page takes the owner there.
     @ViewBuilder
     private var settingsRow: some View {
-        if SafariExtensionControl.canOpenSettings, !self.settingsFailed {
+        if self.canOpenSettings {
             Text(SafariVocabulary.manageInSettings)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

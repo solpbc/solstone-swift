@@ -13,12 +13,19 @@ nonisolated enum SafariVocabulary {
     static let valueLine = "on the sites you allow in Safari, the solstone extension takes in the page's text and rough layout, and all of it goes into your journal."
     static let stepTurnOn = "turn on the extension"
     static let stepTurnOnBody = "one switch in Settings. flip it, then come back here."
+    static let stepTurnOnBodyWithLink = "flip Allow Extension in Settings. to put every site in your journal, also set Other Websites to Allow, further down the same page. then come back here."
     static let switchName = "Allow Extension"
     static let openSettings = "open Settings"
-    static let appleWarning = "Apple's page warns about what an extension could read. you choose the sites."
+    static let appleWarning = "Apple's page warns about what an extension could read. you choose which sites."
     static let notOnYet = "not on yet. the switch is Allow Extension."
     static let settingsByHand = "in Safari, open the page menu, then Manage Extensions, and turn on solstone."
-    static let stepAddSite = "add your first site"
+    static let stepChooseSites = "which sites do you want in your journal?"
+    static let chooseEverySite = "share every site"
+    static let chooseOneAtATime = "add sites one at a time"
+    static let everySiteBody = "with Allow Extension on, set Other Websites to Allow in Settings. that's every website, including ones you visit later. you can leave sites out."
+    static let everySiteByHand = "in Settings, go to Apps, Safari, Extensions, solstone. with Allow Extension on, set Other Websites to Allow. that's every website, including ones you visit later. you can leave sites out."
+    static let everySiteNext = "once it's set, open any site in Safari, then open solstone from the page menu to check it's on."
+    static let oneAtATimeOtherWebsites = "if Other Websites is set to Allow in Settings, every site you don't leave out goes into your journal. set it back to Ask to add sites one at a time."
     static let siteField = "which site?"
     static let sitePlaceholder = "eff.org"
     static let tapPageMenu = "page menu"
@@ -29,7 +36,7 @@ nonisolated enum SafariVocabulary {
     static let openInSafari = "open in Safari"
     static let working = "it's working."
     static let workingBody = "your first page just came in. it's on its way to your journal."
-    static let addAnother = "add another site"
+    static let addAnother = "add or leave out a site"
     static let whileClosed = "while this is on, the solstone extension keeps taking in pages from the sites you allow, even when this app is closed. pages wait on this device and go into your journal the next time you open this app."
     static let privateBrowsing = "the solstone extension takes in nothing from private browsing."
     static let activeSubtextPaired = "adds pages from the sites you allow to your journal."
@@ -43,7 +50,7 @@ nonisolated enum SafariVocabulary {
     static let waiting = "some pages are waiting on this device."
     static let nothingWaiting = "nothing from Safari is waiting on this device."
     static let extensionOff = "the extension is off. turn it on in Settings to start intake."
-    static let manageInSettings = "turn it on or off, or change its sites, in Settings."
+    static let manageInSettings = "turn it on or off in Settings. to put every site in your journal, set Other Websites to Allow there. to change one site, open it, then open solstone from Safari's page menu."
     static let manageByHand = "to turn it on or off, in Safari, open the page menu, then Manage Extensions."
 
     static func waitingFor(_ site: String) -> String {
@@ -125,6 +132,15 @@ nonisolated enum SafariSetUpStep: Equatable, Sendable {
         guard let snapshot else { return false }
         return snapshot.lastAccepted == nil && !snapshot.full
     }
+}
+
+/// The owner's answer to setup's second step. It only picks which panel shows; an
+/// unknown stored value is no answer.
+nonisolated enum SafariSetUpChoice: String, Sendable {
+    case everySite
+    case oneAtATime
+
+    static let storageKey = "safari.setup.choice"
 }
 
 /// The Safari source as the app shows it, read from the store the extension writes.
