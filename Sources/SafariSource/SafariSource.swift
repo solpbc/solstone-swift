@@ -3,6 +3,7 @@
 
 import Foundation
 import Observation
+import os
 import SafariServices
 
 /// Owner-facing words for the Safari source. Shared words (state words, block
@@ -62,6 +63,7 @@ nonisolated enum SafariVocabulary {
 /// Both arrived in iOS 26.2. Before that, only the extension's first hello says it's on.
 nonisolated enum SafariExtensionControl {
     private static var identifier: String { (Bundle.main.bundleIdentifier ?? "app.solstone.swift") + ".safari" }
+    private static let log = Logger(subsystem: "app.solstone.swift", category: "safari")
 
     static var canOpenSettings: Bool {
         if #available(iOS 26.2, *) { return true }
@@ -70,7 +72,13 @@ nonisolated enum SafariExtensionControl {
 
     static func isOn() async -> Bool? {
         guard #available(iOS 26.2, *) else { return nil }
-        return try? await SFSafariExtensionManager.stateOfExtension(withIdentifier: self.identifier).isEnabled
+        do {
+            return try await SFSafariExtensionManager.stateOfExtension(withIdentifier: self.identifier).isEnabled
+        } catch {
+            let error = error as NSError
+            self.log.error("extension state unreadable: \(error.domain, privacy: .public) \(error.code, privacy: .public)")
+            return nil
+        }
     }
 
     static func openSettings() async -> Bool {
