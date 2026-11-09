@@ -447,7 +447,7 @@ struct PairFlowView: View {
                 Button("scan a code instead") {
                     self.selectMode(.scan)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(BrandQuietButtonStyle())
                 .frame(maxWidth: .infinity, minHeight: 44)
             }
 
@@ -471,7 +471,7 @@ struct PairFlowView: View {
                 Button("open settings") {
                     UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(BrandQuietButtonStyle())
                 .frame(maxWidth: .infinity, minHeight: 44)
             }
 
@@ -516,7 +516,7 @@ struct PairFlowView: View {
             Button(SourceVocabulary.journalMarkMismatchButton) {
                 self.startMismatchTeardown()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(BrandQuietButtonStyle())
             .disabled(self.teardown == .inProgress)
             .accessibilityIdentifier("pairFlow.answer.mismatch")
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -566,7 +566,7 @@ struct PairFlowView: View {
             Button(SourceVocabulary.journalMarkCouldNotVerifyCancel) {
                 self.startCouldNotVerifyCancel()
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(BrandQuietButtonStyle())
             .disabled(self.teardown == .inProgress)
             .accessibilityLabel(SourceVocabulary.journalMarkCouldNotVerifyCancelAccessibility)
             .accessibilityIdentifier("pairFlow.answer.cancel")
@@ -587,7 +587,7 @@ struct PairFlowView: View {
                 SourceVocabulary.journalMarkMismatchEmailSupport,
                 destination: URL(string: "mailto:support@solstone.app")!
             )
-            .buttonStyle(.bordered)
+            .buttonStyle(BrandQuietButtonStyle())
             .frame(maxWidth: .infinity, minHeight: 44)
         }
     }

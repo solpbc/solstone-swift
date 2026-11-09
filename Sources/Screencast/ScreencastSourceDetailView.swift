@@ -66,8 +66,7 @@ private extension ScreencastSourceDetailView {
             Button(buttonTitle) {
                 self.showingScreencastPrimer = true
             }
-            .buttonStyle(.bordered)
-            .tint(.solOrange)
+            .buttonStyle(BrandQuietButtonStyle())
             .frame(minHeight: 44)
             .accessibilityIdentifier("source.screencast.start")
         }

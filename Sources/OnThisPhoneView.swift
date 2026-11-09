@@ -512,7 +512,7 @@ private extension OnThisPhoneMomentsView {
                 .font(.footnote.weight(.bold))
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(BrandQuietButtonStyle())
         .controlSize(.regular)
         .accessibilityLabel("dismiss")
         .accessibilityIdentifier("magicMoment.dismiss")
@@ -653,7 +653,7 @@ private extension OnThisPhoneMomentsView {
                 .font(.footnote.weight(.bold))
                 .frame(width: 32, height: 32)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(BrandQuietButtonStyle())
         .controlSize(.regular)
         .accessibilityLabel("dismiss")
         .accessibilityIdentifier("onThisPhone.finishSyncing.dismiss")
@@ -704,7 +704,7 @@ private extension OnThisPhoneMomentsView {
                     .font(.footnote.weight(.bold))
                     .frame(width: 32, height: 32)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(BrandQuietButtonStyle())
             .controlSize(.regular)
             .accessibilityLabel("dismiss")
             .accessibilityIdentifier("onThisPhone.agedBacklog.dismiss")

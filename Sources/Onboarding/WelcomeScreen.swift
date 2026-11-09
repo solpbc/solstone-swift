@@ -38,7 +38,7 @@ struct WelcomeScreen: View {
                 Button("not now") {
                     WelcomeSetup.notNow(onboarding: self.onboardingFlow)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(BrandQuietButtonStyle())
                 .controlSize(.large)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityIdentifier("welcome.notNow")

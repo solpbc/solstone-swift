@@ -121,7 +121,7 @@ private extension LocationSourceDetailView {
                     await self.handlePauseResumeTap()
                 }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(BrandQuietButtonStyle())
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .accessibilityHint(self.locationManager.sourceState == .paused ? "Resumes location updates to your journal." : "Pauses location updates to your journal.")
         }
@@ -202,7 +202,7 @@ private extension LocationSourceDetailView {
             Button(SourceVocabulary.openJournalLink) {
                 self.showingJournal = true
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(BrandQuietButtonStyle())
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .disabled(self.journalURL == nil)
             .accessibilityLabel(SourceVocabulary.openJournalLink)

@@ -308,7 +308,7 @@ private extension OnThisPhoneAudioPlayerView {
                 .font(.headline)
                 .frame(width: 44, height: 44)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(BrandQuietButtonStyle())
         .disabled(self.isObserverActive && !model.isPlaying)
         .accessibilityLabel(model.isPlaying ? SourceVocabulary.audioPlaybackPauseLabel : SourceVocabulary.audioPlaybackPlayLabel)
         .accessibilityHint(self.isObserverActive && !model.isPlaying ? self.gateHint : SourceVocabulary.audioPlaybackHint)

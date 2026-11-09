@@ -154,7 +154,7 @@ private extension SourceDetailView {
                     await self.handlePauseResumeTap()
                 }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(BrandQuietButtonStyle())
             .disabled(self.pauseButtonDisabled)
         }
         .frame(maxWidth: .infinity)

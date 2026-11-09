@@ -97,6 +97,26 @@ struct BrandProminentButtonStyle: ButtonStyle {
     }
 }
 
+/// The app's quieter button: ink on the raised surface, with an edge you can see. The system's
+/// outline style puts orange-brown on a peach fill, 3.1:1. It sizes to its label like the
+/// system button. A destructive one keeps its red.
+struct BrandQuietButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.controlSize) private var controlSize
+
+    func makeBody(configuration: Configuration) -> some View {
+        let large = self.controlSize == .large || self.controlSize == .extraLarge
+        let ink: Color = configuration.role == .destructive ? .red : .primary
+        configuration.label
+            .foregroundStyle(self.isEnabled ? ink : Color.secondary)
+            .padding(.horizontal, large ? 20 : 14)
+            .padding(.vertical, large ? 14 : 8)
+            .background(Capsule().fill(Color.deckSurfaceRaised.opacity(configuration.isPressed ? 0.6 : 1)))
+            .overlay(Capsule().stroke(Color.primary.opacity(self.isEnabled ? 0.22 : 0.12), lineWidth: 1))
+            .contentShape(Capsule())
+    }
+}
+
 /// Measurements the shell is laid out from. One place, so a margin cannot drift
 /// between the deck, a pane and a detail view.
 nonisolated enum ShellMetrics {

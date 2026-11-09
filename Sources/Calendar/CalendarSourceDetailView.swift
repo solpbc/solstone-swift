@@ -137,7 +137,7 @@ private struct CalendarSourcePageView: View {
                 Button(CalendarVocabulary.tryAgain) {
                     Task { await self.model.count() }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(BrandQuietButtonStyle())
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .accessibilityIdentifier("calendar.tryAgain")
             }
@@ -251,7 +251,7 @@ private struct CalendarSourcePageView: View {
                 Button(state.paused ? SourceVocabulary.resume : SourceVocabulary.pause) {
                     Task { await self.model.pauseOrResume() }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(BrandQuietButtonStyle())
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .accessibilityHint(state.paused ? CalendarVocabulary.resumeHint : CalendarVocabulary.pauseHint)
                 .accessibilityIdentifier("calendar.pauseResume")
@@ -285,7 +285,7 @@ private struct CalendarSourcePageView: View {
                         Button(CalendarVocabulary.tryAgain) {
                             Task { await self.model.setCalendar(calendar.id, on: true) }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(BrandQuietButtonStyle())
                         .frame(minWidth: 44, minHeight: 44)
                         .disabled(!self.model.canChangeCalendars)
                         .accessibilityIdentifier("calendar.calendar.\(calendar.id).tryAgain")
@@ -304,7 +304,7 @@ private struct CalendarSourcePageView: View {
                             Button(CalendarVocabulary.notNow) {
                                 Task { await self.model.notNow(calendar.id) }
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(BrandQuietButtonStyle())
                             .frame(minWidth: 44, minHeight: 44)
                             .accessibilityIdentifier("calendar.calendar.\(calendar.id).notNow")
                         }

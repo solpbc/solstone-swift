@@ -355,7 +355,7 @@ struct PhotoLibraryImportView: View {
                     .buttonStyle(BrandProminentButtonStyle())
             } else {
                 Button(title, role: role, action: action)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(BrandQuietButtonStyle())
             }
         }
         .frame(minWidth: 44, minHeight: 44)

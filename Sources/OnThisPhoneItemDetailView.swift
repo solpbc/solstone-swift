@@ -142,7 +142,7 @@ private extension OnThisPhoneItemDetailView {
                 Button(SourceVocabulary.openJournalLink) {
                     self.showingJournal = true
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(BrandQuietButtonStyle())
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .disabled(!availability.enabled)
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
@@ -222,7 +222,7 @@ private extension OnThisPhoneItemDetailView {
         Button(SourceVocabulary.onThisPhoneDropFromPhone, role: .destructive) {
             self.showingDropConfirm = true
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(BrandQuietButtonStyle())
         .frame(minHeight: 44)
         .accessibilityHint("removes this from this device.")
         .accessibilityIdentifier("onThisPhone.drop.button")
