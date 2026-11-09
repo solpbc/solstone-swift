@@ -156,15 +156,20 @@ private struct JournalSetupDoor<Actions: View>: View {
 }
 
 /// The brand button: ink on sol orange, 7.08:1 in either appearance.
+/// Disabled, it drops the orange so it can't be mistaken for the next step.
 struct JournalSetupPrimaryButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.body.weight(.semibold))
-            .foregroundStyle(Color.inkOnBrand)
+            .foregroundStyle(self.isEnabled ? Color.inkOnBrand : Color.secondary)
             .multilineTextAlignment(.center)
             .frame(maxWidth: .infinity, minHeight: 48)
             .padding(.horizontal, 12)
-            .background(Capsule().fill(Color.solOrange.opacity(configuration.isPressed ? 0.8 : 1)))
+            .background(Capsule().fill(self.isEnabled
+                ? Color.solOrange.opacity(configuration.isPressed ? 0.8 : 1)
+                : Color.secondary.opacity(0.15)))
             .contentShape(Capsule())
     }
 }

@@ -21,41 +21,52 @@ struct SafariSourceDetailView: View {
     @State private var wentToSettings = false
     @State private var settingsFailed = false
     @State private var wentToSafari = false
+    @FocusState private var siteFieldFocused: Bool
 
     var body: some View {
         let status = SafariSourceStatus(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(SafariVocabulary.valueLine)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.deckSurface, in: ShellMetrics.cardShape)
-                    .accessibilityIdentifier("safari.page.valueLine")
-                if SafariSetUpStep.isShown(snapshot: self.model.snapshot) {
-                    self.setUpSteps(status)
-                } else {
-                    if self.model.snapshot?.lastAccepted != nil, !self.sawWorking {
-                        self.workingBlock
-                    }
-                    SourceDetailBlock(title: LocationVocabulary.stateBlockTitle) { self.stateBlock(status) }
-                    if self.model.snapshot != nil {
-                        SourceDetailBlock(title: LocationVocabulary.deliveryBlockTitle) { self.deliveryBlock }
-                    }
-                    if status.sourceState == .active {
-                        SourceDetailBlock(title: SafariVocabulary.addAnother) {
-                            self.tapRow([self.menuTap, .solstone])
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(SafariVocabulary.valueLine)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.deckSurface, in: ShellMetrics.cardShape)
+                        .accessibilityIdentifier("safari.page.valueLine")
+                    if SafariSetUpStep.isShown(snapshot: self.model.snapshot) {
+                        self.setUpSteps(status)
+                    } else {
+                        if self.model.snapshot?.lastAccepted != nil, !self.sawWorking {
+                            self.workingBlock
+                        }
+                        SourceDetailBlock(title: LocationVocabulary.stateBlockTitle) { self.stateBlock(status) }
+                        if self.model.snapshot != nil {
+                            SourceDetailBlock(title: LocationVocabulary.deliveryBlockTitle) { self.deliveryBlock }
+                        }
+                        if status.sourceState == .active {
+                            SourceDetailBlock(title: SafariVocabulary.addAnother) {
+                                self.tapRow([self.menuTap, .solstone])
+                            }
                         }
                     }
+                    if !SafariSetUpStep.isShown(snapshot: self.model.snapshot) {
+                        SourceHomeTileControl(sourceID: "safari")
+                    }
                 }
-                if !SafariSetUpStep.isShown(snapshot: self.model.snapshot) {
-                    SourceHomeTileControl(sourceID: "safari")
+                .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
+                .padding()
+                .frame(maxWidth: .infinity)
+            }
+            // On a phone the keyboard covers the site field, so the page brings it up once the keyboard is in.
+            .onChange(of: self.siteFieldFocused) { _, focused in
+                guard focused else { return }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    withAnimation { proxy.scrollTo(Self.siteFieldID, anchor: .center) }
                 }
             }
-            .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
-            .padding()
-            .frame(maxWidth: .infinity)
         }
         .accessibilityIdentifier("safari.page")
 #if DEBUG
@@ -161,8 +172,7 @@ struct SafariSourceDetailView: View {
                 } label: {
                     Text(SafariVocabulary.openSettings).frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(JournalSetupPrimaryButtonStyle())
                 .accessibilityIdentifier("safari.openSettings")
                 if self.wentToSettings, self.scenePhase == .active {
                     Text(SafariVocabulary.notOnYet)
@@ -206,8 +216,7 @@ struct SafariSourceDetailView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
+        .buttonStyle(JournalSetupSecondaryButtonStyle())
         .accessibilityAddTraits(isChosen ? .isSelected : [])
         .accessibilityIdentifier("safari.page.choose.\(choice.rawValue)")
     }
@@ -224,8 +233,7 @@ struct SafariSourceDetailView: View {
                 } label: {
                     Text(SafariVocabulary.openSettings).frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(JournalSetupPrimaryButtonStyle())
                 .accessibilityIdentifier("safari.page.everySite.openSettings")
             } else {
                 Text(SafariVocabulary.everySiteByHand)
@@ -266,21 +274,21 @@ struct SafariSourceDetailView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .submitLabel(.go)
+                    .focused(self.$siteFieldFocused)
+                    .onSubmit { self.openTypedSite() }
                     .accessibilityIdentifier("safari.page.siteField")
             }
+            .id(Self.siteFieldID)
             self.tapRow([self.menuTap, .solstone, .add, .alwaysAllow])
-            Text(SafariVocabulary.safariAsks)
+            Text(self.isPad ? SafariVocabulary.safariAsks : SafariVocabulary.safariAsksPhone)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Button {
-                guard let host else { return }
-                self.open(SafariFirstSite.urls(for: host)[...])
-                self.wentToSafari = true
+                self.openTypedSite()
             } label: {
                 Text(SafariVocabulary.openInSafari).frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .buttonStyle(JournalSetupPrimaryButtonStyle())
             .disabled(host == nil)
             .accessibilityIdentifier("safari.openInSafari")
             if self.wentToSafari, let host {
@@ -290,6 +298,15 @@ struct SafariSourceDetailView: View {
             }
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private static let siteFieldID = "safari.page.siteStep"
+
+    /// The keyboard's Go and the button both open the typed site.
+    private func openTypedSite() {
+        guard let host = SafariFirstSite.host(from: self.typedSite) else { return }
+        self.open(SafariFirstSite.urls(for: host)[...])
+        self.wentToSafari = true
     }
 
     private func open(_ urls: ArraySlice<URL>) {
@@ -404,8 +421,7 @@ struct SafariSourceDetailView: View {
             Button(SafariVocabulary.openSettings) {
                 Task { self.settingsFailed = await !self.model.openExtensionSettings() }
             }
-            .buttonStyle(.bordered)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .buttonStyle(JournalSetupSecondaryButtonStyle())
             .accessibilityIdentifier("safari.page.openSettings")
         } else {
             Text(self.isPad ? SafariVocabulary.manageByHandPad : SafariVocabulary.manageByHand)

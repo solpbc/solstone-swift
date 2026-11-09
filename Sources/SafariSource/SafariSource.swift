@@ -36,6 +36,8 @@ nonisolated enum SafariVocabulary {
     static let tapAdd = "add this site"
     static let tapAlwaysAllow = "Always Allow"
     static let safariAsks = "choose Always Allow so it keeps working when you come back."
+    /// On iPhone the page menu opens on its top items; the extensions sit below them.
+    static let safariAsksPhone = "solstone is further down the page menu. choose Always Allow so it keeps working when you come back."
     static let openInSafari = "open in Safari"
     static let working = "it's working."
     static let workingBody = "your first page just came in. it's on its way to your journal."

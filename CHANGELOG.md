@@ -16,6 +16,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - if "open Settings" on the Safari page doesn't land on the solstone extension, the page now tells you where to find it when you come back.
 - on ipad, the Safari page points to the extensions button in Safari's address bar, where ipad keeps the solstone extension.
+- on iphone, the Safari page keeps the site you're typing above the keyboard. the keyboard's go button now opens the site in Safari.
+- the Safari page's buttons are easier to read: dark text on the orange buttons.
+- on iphone, the Safari page says the solstone extension is further down Safari's page menu.
 
 ## [2.0.11 (153)] - 2026-11-06
 
