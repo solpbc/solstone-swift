@@ -352,7 +352,7 @@ struct PhotoLibraryImportView: View {
         Group {
             if prominent {
                 Button(title, role: role, action: action)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(BrandProminentButtonStyle())
             } else {
                 Button(title, role: role, action: action)
                     .buttonStyle(.bordered)

@@ -76,6 +76,27 @@ extension Color {
     })
 }
 
+/// The app's filled button: ink on sol orange, 7.08:1 in either appearance. The system's
+/// prominent style puts white on this orange, 2.5:1. It sizes to its label like the system
+/// button, so a row, banner or snackbar that holds one still fits. Disabled, it drops the
+/// orange so it can't be mistaken for the next step.
+struct BrandProminentButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.controlSize) private var controlSize
+
+    func makeBody(configuration: Configuration) -> some View {
+        let large = self.controlSize == .large || self.controlSize == .extraLarge
+        configuration.label
+            .foregroundStyle(self.isEnabled ? Color.inkOnBrand : Color.secondary)
+            .padding(.horizontal, large ? 20 : 14)
+            .padding(.vertical, large ? 14 : 8)
+            .background(Capsule().fill(self.isEnabled
+                ? Color.solOrange.opacity(configuration.isPressed ? 0.8 : 1)
+                : Color.secondary.opacity(0.15)))
+            .contentShape(Capsule())
+    }
+}
+
 /// Measurements the shell is laid out from. One place, so a margin cannot drift
 /// between the deck, a pane and a detail view.
 nonisolated enum ShellMetrics {

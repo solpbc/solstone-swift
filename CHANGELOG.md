@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- the orange buttons across the app now have dark text, so they're easier to read.
+
 ## [2.0.11 (154)] - 2026-11-08
 
 ### Changed

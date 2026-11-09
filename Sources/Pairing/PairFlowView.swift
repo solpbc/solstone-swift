@@ -441,7 +441,7 @@ struct PairFlowView: View {
                 Button("pair this device") {
                     self.startPastedURL()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandProminentButtonStyle())
                 .disabled(self.pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 Button("scan a code instead") {
@@ -456,7 +456,7 @@ struct PairFlowView: View {
                     self.fallbackTimer.cancel()
                     self.selectMode(.paste)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandProminentButtonStyle())
                 .frame(maxWidth: .infinity, minHeight: 44)
             }
 
@@ -508,7 +508,7 @@ struct PairFlowView: View {
             Button(SourceVocabulary.journalMarkConfirmButton) {
                 self.recordAnswer()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .disabled(self.teardown == .inProgress)
             .accessibilityIdentifier("pairFlow.answer.confirm")
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -558,7 +558,7 @@ struct PairFlowView: View {
             Button(SourceVocabulary.journalMarkCouldNotVerifyContinue) {
                 self.recordAnswer()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .disabled(self.teardown == .inProgress)
             .accessibilityLabel(SourceVocabulary.journalMarkCouldNotVerifyContinueAccessibility)
             .frame(maxWidth: .infinity, minHeight: 44)
@@ -580,7 +580,7 @@ struct PairFlowView: View {
             Button(SourceVocabulary.journalMarkMismatchScanAgain) {
                 self.resetForScan()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .frame(maxWidth: .infinity, minHeight: 44)
 
             Link(

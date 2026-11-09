@@ -347,9 +347,8 @@ private struct AudioEnrollmentContent: View {
                     .font(ShellFont.tileName)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .controlSize(.large)
-            .tint(.solOrange)
             .disabled(self.isStarting)
             .accessibilityHint("starts taking in audio on this device, and it goes into your journal.")
 
@@ -363,8 +362,7 @@ private struct AudioEnrollmentContent: View {
                         Button("open settings") {
                             UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.red)
+                        .buttonStyle(BrandProminentButtonStyle())
                         .frame(minWidth: 44, minHeight: 44)
                     }
                 }

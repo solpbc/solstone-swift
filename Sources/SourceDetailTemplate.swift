@@ -36,7 +36,7 @@ struct SourceFaultActionControl: View {
     var body: some View {
         if self.action != .none {
             Button(self.title, action: self.perform)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandProminentButtonStyle())
                 .frame(minWidth: 44, minHeight: 44)
                 .accessibilityHint(self.hint)
         }

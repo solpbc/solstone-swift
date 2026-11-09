@@ -84,7 +84,7 @@ private struct CalendarSourcePageView: View {
             Button(CalendarVocabulary.turnOn) {
                 Task { await self.model.turnOn() }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .controlSize(.large)
             .frame(maxWidth: .infinity, minHeight: 44)
             .accessibilityHint(CalendarVocabulary.turnOnHint)
@@ -146,7 +146,7 @@ private struct CalendarSourcePageView: View {
             Button(Self.confirmTitle(label)) {
                 Task { await self.model.confirm() }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .controlSize(.large)
             .frame(maxWidth: .infinity, minHeight: 44)
             .disabled(!self.model.canConfirm)
@@ -189,7 +189,7 @@ private struct CalendarSourcePageView: View {
         Button(LocationVocabulary.openSettingsAction) {
             UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(BrandProminentButtonStyle())
         .frame(minWidth: 44, minHeight: 44)
         .accessibilityIdentifier("calendar.openSettings")
     }
@@ -297,7 +297,7 @@ private struct CalendarSourcePageView: View {
                             Button(count == 0 ? CalendarVocabulary.startFromToday : CalendarVocabulary.bringIn(count: count)) {
                                 Task { await self.model.confirmCalendar(calendar.id) }
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(BrandProminentButtonStyle())
                             .frame(minWidth: 44, minHeight: 44)
                             .accessibilityHint(CalendarVocabulary.confirmHint)
                             .accessibilityIdentifier("calendar.calendar.\(calendar.id).confirm")

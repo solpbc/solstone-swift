@@ -103,7 +103,7 @@ nonisolated final class JournalSendPromptTests: XCTestCase {
 
         let confirmBlock = try XCTUnwrap(text.range(of: "Button(SourceVocabulary.journalMarkConfirmButton)"))
         let confirmSection = text[confirmBlock.lowerBound...]
-        let confirmEnd = try XCTUnwrap(confirmSection.range(of: ".buttonStyle(.borderedProminent)"))
+        let confirmEnd = try XCTUnwrap(confirmSection.range(of: ".buttonStyle(BrandProminentButtonStyle())"))
         let confirmButtonBody = confirmSection[..<confirmEnd.lowerBound]
 
         XCTAssertFalse(confirmButtonBody.contains("try?"))
@@ -111,7 +111,7 @@ nonisolated final class JournalSendPromptTests: XCTestCase {
 
         let couldNotVerifyBlock = try XCTUnwrap(text.range(of: "Button(SourceVocabulary.journalMarkCouldNotVerifyContinue)"))
         let couldNotVerifySection = text[couldNotVerifyBlock.lowerBound...]
-        let couldNotVerifyEnd = try XCTUnwrap(couldNotVerifySection.range(of: ".buttonStyle(.borderedProminent)"))
+        let couldNotVerifyEnd = try XCTUnwrap(couldNotVerifySection.range(of: ".buttonStyle(BrandProminentButtonStyle())"))
         let couldNotVerifyBody = couldNotVerifySection[..<couldNotVerifyEnd.lowerBound]
 
         XCTAssertFalse(couldNotVerifyBody.contains("try?"))

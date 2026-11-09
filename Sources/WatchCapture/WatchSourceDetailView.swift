@@ -348,7 +348,7 @@ private extension WatchSourceDetailView {
             } label: {
                 Label(buttonTitle, systemImage: "applewatch")
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .accessibilityIdentifier(self.setupActionAccessibilityIdentifier(step.id))
             .accessibilityHint(SourceVocabulary.watchSetupInstallButtonHint)
         }

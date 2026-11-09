@@ -19,7 +19,7 @@ struct RePairBanner: View {
             Button(SourceVocabulary.rePairAction) {
                 self.onRePair()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .controlSize(.regular)
         }
         .padding(.horizontal, 16)

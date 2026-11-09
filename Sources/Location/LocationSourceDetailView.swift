@@ -332,7 +332,7 @@ private struct LocationEnrollmentContent: View {
                             await self.coordinator.confirm()
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(BrandProminentButtonStyle())
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .accessibilityHint("Starts adding location updates to your journal.")

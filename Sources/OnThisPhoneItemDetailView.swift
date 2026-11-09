@@ -212,7 +212,7 @@ private extension OnThisPhoneItemDetailView {
             Text(self.isRetrying ? "trying…" : SourceVocabulary.tryNow)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(BrandProminentButtonStyle())
         .disabled(self.isRetrying)
         .accessibilityIdentifier("onThisPhone.retry.button")
         .accessibilityLabel(SourceVocabulary.tryNow)

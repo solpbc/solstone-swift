@@ -464,7 +464,7 @@ private extension OnThisPhoneMomentsView {
                 Button(SourceVocabulary.magicMomentShownSecondary) {
                     self.showingConnectJournal = true
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandProminentButtonStyle())
                 .controlSize(.regular)
                 .frame(minWidth: 44, minHeight: 44)
                 .accessibilityIdentifier("magicMoment.connectJournal")
@@ -535,7 +535,7 @@ private extension OnThisPhoneMomentsView {
             Button("connect") {
                 self.showingConnectJournal = true
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .controlSize(.regular)
             .frame(minWidth: 44, minHeight: 44)
             .accessibilityIdentifier("onThisPhone.connectJournal")
@@ -628,7 +628,7 @@ private extension OnThisPhoneMomentsView {
                 Button(SourceVocabulary.finishSyncingButton) {
                     self.finishSyncingCoordinator.submit()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandProminentButtonStyle())
                 .controlSize(.regular)
                 .frame(minWidth: 44, minHeight: 44)
                 .disabled(unavailableReason != nil)
@@ -731,7 +731,7 @@ private extension OnThisPhoneMomentsView {
                 Button(SourceVocabulary.undo) {
                     self.dropController.undo(itemID: surfaced.id)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandProminentButtonStyle())
                 .controlSize(.regular)
                 .frame(minWidth: 44, minHeight: 44)
                 .accessibilityIdentifier("onThisPhone.drop.undo")
@@ -808,7 +808,7 @@ private extension OnThisPhoneMomentsView {
                 Label(SourceVocabulary.onThisPhoneTurnOnSourceButton, systemImage: "square.stack.3d.up")
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(BrandProminentButtonStyle())
             .controlSize(.regular)
             .accessibilityIdentifier("onThisPhone.turnOnSource")
 
@@ -824,7 +824,7 @@ private extension OnThisPhoneMomentsView {
                     Text(SourceVocabulary.onThisPhoneConnectJournalButton)
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandProminentButtonStyle())
                 .controlSize(.regular)
                 .accessibilityIdentifier("onThisPhone.connectJournalButton")
             }

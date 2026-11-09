@@ -501,7 +501,7 @@ struct InAppJournalView: View {
 
             if !attemptInFlight {
                 Button("try again", action: self.retry)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(BrandProminentButtonStyle())
                     .accessibilityHint("attempts to reconnect to your journal")
             }
         }
@@ -532,7 +532,7 @@ struct InAppJournalView: View {
                 .multilineTextAlignment(.center)
 
             Button("try again", action: self.retry)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(BrandProminentButtonStyle())
                 .accessibilityHint("attempts to reconnect to your journal")
         }
         .padding()
