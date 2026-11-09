@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Added
+
+- with All Websites (or Other Websites) set to Allow in Settings, the solstone extension's settings in Safari now have a field to leave a site out by typing its address, so it stays out before you ever open it. they also say that Safari's own settings don't show the sites you leave out.
+
 ### Fixed
 
 - buttons across the app are easier to read: dark text on the orange ones.
