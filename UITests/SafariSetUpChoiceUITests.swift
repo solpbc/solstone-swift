@@ -139,7 +139,7 @@ final class SafariSetUpChoiceUITests: XCTestCase {
     @MainActor
     func testStepOneKeepsItsBodyWhereSettingsCantBeOpened() throws {
         let app = try self.launch("setUp")
-        let withLink = "flip Allow Extension in Settings. to put every site in your journal, also set Other Websites to Allow, further down the same page. then come back here."
+        let withLink = "flip Allow Extension in Settings. to put every site in your journal, also set All Websites (or Other Websites) to Allow, further down the same page. then come back here."
         let byHand = "one switch in Settings. flip it, then come back here."
         let text = { (label: String) in app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch }
         let open = app.buttons["safari.openSettings"]

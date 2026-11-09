@@ -11,6 +11,10 @@ struct SafariSourceDetailView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+
+    /// Safari on iPad opens extensions from a button in its address bar; on iPhone, from the page menu.
+    private var isPad: Bool { UIDevice.current.userInterfaceIdiom == .pad }
+    private var menuTap: SafariTap { self.isPad ? .extensions : .pageMenu }
     @AppStorage("safari.setup.firstSite") private var typedSite = ""
     @AppStorage("safari.setup.sawWorking") private var sawWorking = false
     @AppStorage(SafariSetUpChoice.storageKey) private var storedChoice = ""
@@ -41,7 +45,7 @@ struct SafariSourceDetailView: View {
                     }
                     if status.sourceState == .active {
                         SourceDetailBlock(title: SafariVocabulary.addAnother) {
-                            self.tapRow([.pageMenu, .solstone])
+                            self.tapRow([self.menuTap, .solstone])
                         }
                     }
                 }
@@ -166,7 +170,7 @@ struct SafariSourceDetailView: View {
                         .accessibilityIdentifier("safari.page.notOnYet")
                 }
             } else {
-                Text(SafariVocabulary.settingsByHand)
+                Text(self.isPad ? SafariVocabulary.settingsByHandPad : SafariVocabulary.settingsByHand)
                     .font(.subheadline)
                     .accessibilityIdentifier("safari.page.settingsByHand")
             }
@@ -228,7 +232,7 @@ struct SafariSourceDetailView: View {
                     .font(.subheadline)
                     .accessibilityIdentifier("safari.page.everySite.byHand")
             }
-            Text(SafariVocabulary.everySiteNext)
+            Text(self.isPad ? SafariVocabulary.everySiteNextPad : SafariVocabulary.everySiteNext)
                 .font(.subheadline)
                 .accessibilityIdentifier("safari.page.everySite.next")
         }
@@ -242,6 +246,7 @@ struct SafariSourceDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(SafariVocabulary.oneAtATimeOtherWebsites)
                 .font(.subheadline)
+                .foregroundStyle(.secondary)
                 .accessibilityIdentifier("safari.page.oneAtATime.otherWebsites")
             self.addSiteStep
         }
@@ -263,7 +268,7 @@ struct SafariSourceDetailView: View {
                     .submitLabel(.go)
                     .accessibilityIdentifier("safari.page.siteField")
             }
-            self.tapRow([.pageMenu, .solstone, .add, .alwaysAllow])
+            self.tapRow([self.menuTap, .solstone, .add, .alwaysAllow])
             Text(SafariVocabulary.safariAsks)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -313,11 +318,12 @@ struct SafariSourceDetailView: View {
     }
 
     private enum SafariTap {
-        case pageMenu, solstone, add, alwaysAllow
+        case pageMenu, extensions, solstone, add, alwaysAllow
 
         var label: String {
             switch self {
             case .pageMenu: SafariVocabulary.tapPageMenu
+            case .extensions: SafariVocabulary.tapExtensions
             case .solstone: SafariVocabulary.tapSolstone
             case .add: SafariVocabulary.tapAdd
             case .alwaysAllow: SafariVocabulary.tapAlwaysAllow
@@ -327,6 +333,7 @@ struct SafariSourceDetailView: View {
         var symbol: String {
             switch self {
             case .pageMenu: "line.3.horizontal.decrease"
+            case .extensions: "puzzlepiece.extension"
             case .solstone: "sun.max"
             case .add: "plus"
             case .alwaysAllow: "checkmark"
@@ -391,7 +398,7 @@ struct SafariSourceDetailView: View {
     @ViewBuilder
     private var settingsRow: some View {
         if self.canOpenSettings {
-            Text(SafariVocabulary.manageInSettings)
+            Text(self.isPad ? SafariVocabulary.manageInSettingsPad : SafariVocabulary.manageInSettings)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Button(SafariVocabulary.openSettings) {
@@ -401,7 +408,7 @@ struct SafariSourceDetailView: View {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .accessibilityIdentifier("safari.page.openSettings")
         } else {
-            Text(SafariVocabulary.manageByHand)
+            Text(self.isPad ? SafariVocabulary.manageByHandPad : SafariVocabulary.manageByHand)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("safari.page.manageByHand")
@@ -421,7 +428,7 @@ struct SafariSourceDetailView: View {
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("safari.page.lastPage")
             } else {
-                Text(SafariVocabulary.noPageYet)
+                Text(self.isPad ? SafariVocabulary.noPageYetPad : SafariVocabulary.noPageYet)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
