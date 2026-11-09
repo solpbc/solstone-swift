@@ -6,11 +6,14 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.11 (154)] - 2026-11-08
+
 ### Changed
 
-- turning on location at a fuller setting goes straight to ios's own prompt.
 - with All Websites (or Other Websites) set to Allow in Settings, the solstone extension takes in every site you don't leave out, and all of it goes into your journal. if you used the solstone extension before this update, only the sites you'd added go in until you choose otherwise.
+- turning on location at a fuller setting goes straight to ios's own prompt.
 - the Safari page asks which sites you want in your journal: every site, or sites one at a time.
+- the solstone extension no longer offers a small icon on the pages that go into your journal.
 
 ### Fixed
 
@@ -19,6 +22,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 - on iphone, the Safari page keeps the site you're typing above the keyboard. the keyboard's go button now opens the site in Safari.
 - the Safari page's buttons are easier to read: dark text on the orange buttons.
 - on iphone, the Safari page says the solstone extension is further down Safari's page menu.
+- on ipad, the solstone extension's window in Safari is now wide enough to read.
+- if you say no when Safari asks to allow a site, the solstone extension no longer shows your answer in red, as if something went wrong.
 
 ## [2.0.11 (153)] - 2026-11-06
 
