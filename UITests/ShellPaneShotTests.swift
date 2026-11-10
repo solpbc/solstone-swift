@@ -315,7 +315,7 @@ private extension ShellPaneShotTests {
             "import still present after pop to deck"
         )
 
-        self.tapHittable(app.buttons["dayHome.sourcesEntry"], in: app, missing: "add more tile missing")
+        self.tapDayHomeSourcesEntry(in: app)
         XCTAssertTrue(
             app.descendants(matching: .any)["shell.pane.addMore"].waitForExistence(timeout: 10),
             "add more pane missing"

@@ -21,11 +21,26 @@ extension XCTestCase {
 
     func tapDayHomeSourcesEntry(in app: XCUIApplication) {
         let sources = app.buttons["dayHome.sourcesEntry"]
+        let surface = app.scrollViews["dayHome.surface"]
         XCTAssertTrue(sources.waitForExistence(timeout: 10))
-        if !sources.isHittable {
-            app.swipeUp()
+        XCTAssertTrue(surface.waitForExistence(timeout: 5))
+        // SwiftUI can report this below-fold tile as hittable while its center
+        // is underneath the journal bar. Scroll it into the actual content area
+        // before tapping, including when the deck grows or type is enlarged.
+        for _ in 0..<12 {
+            let footer = app.buttons["dayHome.journalSetup"].exists
+                ? app.buttons["dayHome.journalSetup"] : app.buttons["dayHome.openInJournal"]
+            let bottom = footer.exists ? footer.frame.minY : app.frame.maxY - 34
+            let nav = app.navigationBars.firstMatch
+            let top = nav.exists ? nav.frame.maxY : app.frame.minY
+            if sources.isHittable, sources.frame.minY >= top,
+               sources.frame.maxY <= bottom {
+                sources.tap()
+                return
+            }
+            surface.swipeUp()
         }
-        sources.tap()
+        XCTFail("add more tile never became visible above the journal bar")
     }
 
     func assertDayHomeGreeting(in app: XCUIApplication) {
