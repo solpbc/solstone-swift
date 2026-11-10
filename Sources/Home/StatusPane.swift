@@ -322,6 +322,10 @@ struct StatusPane: View {
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(LocationManager.self) private var locationManager
+    @Environment(SourceIntakeModel.self) private var sourceIntake: SourceIntakeModel?
+    @WatchPipelineInputReader private var watchPipelineInputs
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(PairFlowRouter.self) private var pairFlowRouter
     @Environment(JournalSendRelease.self) private var journalSendRelease
     @Environment(\.dismiss) private var dismiss
@@ -513,6 +517,79 @@ struct StatusPane: View {
         }
     }
 
+    @ViewBuilder
+    private var intakeSection: some View {
+        if let model = self.sourceIntake,
+           let rows = model.statusRows(
+               includeSafari: SafariSourceModel.isBundled,
+               includeWatch: watchSourceModel(
+                   from: self.watchPipelineInputs.assembly(now: model.now).lane,
+                   isJournalPaired: self.appConfig.isPaired
+               ) != nil,
+               locale: .current,
+               calendar: .current
+           ) {
+            Section {
+                ForEach(rows) { row in
+                    NavigationLink(value: row.destination) {
+                        self.intakeRow(row)
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel(row.name)
+                            .accessibilityValue("\(row.soFar), \(row.last)")
+                    }
+                    .accessibilityIdentifier("intake.status.\(row.id)")
+                }
+            } header: {
+                if !self.dynamicTypeSize.isAccessibilitySize {
+                    HStack {
+                        Text(SourceIntakePhrases.soFar)
+                        Spacer(minLength: 8)
+                        Text(SourceIntakePhrases.lastTakenIn)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(nil)
+                }
+            }
+            .onAppear { model.reload() }
+            .onChange(of: self.scenePhase) { _, phase in
+                if phase == .active { model.reload() }
+            }
+        }
+    }
+
+    /// Three columns at the sizes where a word fits in a third of the row. At accessibility
+    /// sizes those columns slice the words, so the same phrases sit on the row itself.
+    @ViewBuilder
+    private func intakeRow(_ row: SourceIntakeStatusRow) -> some View {
+        if self.dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(row.name)
+                    .font(ShellFont.tileName)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                LabeledContent(SourceIntakePhrases.soFar, value: row.soFar)
+                LabeledContent(SourceIntakePhrases.lastTakenIn, value: row.last)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minHeight: 44)
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(row.name)
+                    .font(ShellFont.tileName)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(row.soFar)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(row.last)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 44)
+        }
+    }
+
     private var pillState: HomeStatusPillState {
         HomeStatusPillState.resolve(
             isPaired: self.appConfig.isPaired,
@@ -667,6 +744,7 @@ struct StatusPane: View {
         List {
             self.leadSection
             self.whatIsWaitingSection
+            self.intakeSection
             if !self.appConfig.isPaired {
                 Section {
                     JournalSetupRoute {

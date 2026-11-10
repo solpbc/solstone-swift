@@ -110,6 +110,7 @@ final class CalendarSourceEngine {
     @ObservationIgnored private let delivery: any CalendarNoteDelivering
     @ObservationIgnored private let settings: Settings
     @ObservationIgnored private let dependencies: Dependencies
+    @ObservationIgnored private let intake: SourceIntakeStore?
     @ObservationIgnored private var tail: Task<Void, Never>?
     @ObservationIgnored private var operationCount = 0
     @ObservationIgnored private var checkQueued = false
@@ -133,7 +134,8 @@ final class CalendarSourceEngine {
         store: CalendarSourceStore,
         delivery: any CalendarNoteDelivering,
         settings: Settings = Settings(),
-        dependencies: Dependencies = Dependencies()
+        dependencies: Dependencies = Dependencies(),
+        intake: SourceIntakeStore? = nil
     ) {
         self.accessProvider = access
         self.worker = CalendarWorker(
@@ -149,6 +151,7 @@ final class CalendarSourceEngine {
         self.delivery = delivery
         self.settings = settings
         self.dependencies = dependencies
+        self.intake = intake
         self.access = access.access()
         self.document = store.document
         self.storeSynced = store.isLoaded
@@ -326,7 +329,10 @@ final class CalendarSourceEngine {
         self.started = true
         self.accessSeen(self.accessProvider.access())
         self.delivery.clearStaging()
-        await self.perform { _ = await self.finishPendingStep() }
+        await self.perform {
+            await self.settleIntakeBaseline()
+            _ = await self.finishPendingStep()
+        }
         self.observeChangesIfSetUp()
         self.requestPump()
         self.requestCheck()
@@ -505,6 +511,46 @@ final class CalendarSourceEngine {
         return true
     }
 
+    /// The first launch snapshots which imports were already confirmed, then seeds the intake
+    /// record. A later launch that finds the record seeded does not change its event total.
+    private func settleIntakeBaseline() async {
+        guard let intake = self.intake, self.ensureStore() else { return }
+        if self.document.intakeBaselineImportIDs == nil {
+            var document = self.document
+            document.intakeBaselineImportIDs = document.imports.filter(\.confirmed).map(\.id)
+            self.store.saveDocument(document)
+            self.document = self.store.document
+        }
+        let history = await self.intakeHistoryKeys()
+        let pending = self.store.record.compactMap { $0.value.intakePending == true ? $0.key : nil }
+        let result = intake.seedCalendar(history: Array(history), pending: pending, now: self.dependencies.now())
+        if result == .recorded || result == .unchanged {
+            try? self.clearIntakeFlags()
+        }
+    }
+
+    private func intakeHistoryKeys() async -> Set<String> {
+        var keys = Set(self.store.record.compactMap { key, entry in
+            (entry.wasSent && entry.intakePending != true) ? key : nil
+        })
+        for id in self.document.intakeBaselineImportIDs ?? [] {
+            keys.formUnion(await self.worker.frozenIdentityKeys(importID: id))
+        }
+        return keys
+    }
+
+    private func clearIntakeFlags() throws {
+        guard let seen = self.intake?.calendarSeen() else { return }
+        var clearing: [String: CalendarSentEntry] = [:]
+        for (key, entry) in self.store.record where entry.intakePending == true && seen.contains(key) {
+            var copy = entry
+            copy.intakePending = nil
+            clearing[key] = copy
+        }
+        guard !clearing.isEmpty else { return }
+        try self.store.applyRecord(clearing)
+    }
+
     /// Finishes a step a kill interrupted. `false` while it still cannot be finished, or while
     /// the store cannot be read.
     private func finishPendingStep() async -> Bool {
@@ -539,8 +585,26 @@ final class CalendarSourceEngine {
     }
 
     private func apply(_ step: CalendarPendingStep) async throws {
-        try self.store.applyRecord(step.upserts)
+        let gate = self.intake?.calendarGate() ?? .flagOnly(seen: [])
+        let history = await self.intakeHistoryKeys()
+        var upserts = step.upserts
+        if self.intake != nil {
+            for (key, entry) in upserts {
+                var entry = entry
+                let counts = entry.wasSent && !history.contains(key) && !gate.seen.contains(key)
+                entry.intakePending = counts ? Optional(true) : nil
+                upserts[key] = entry
+            }
+        }
+        try self.store.applyRecord(upserts)
         try self.store.interrupt(at: .afterRecordWritten)
+        if case .increment = gate, let intake = self.intake {
+            let pending = self.store.record.compactMap { $0.value.intakePending == true ? $0.key : nil }
+            let result = intake.recordCalendarNew(keys: pending, now: self.dependencies.now())
+            if result == .recorded || result == .unchanged {
+                try self.clearIntakeFlags()
+            }
+        }
         var document = step.document
         document.paused = self.document.paused
         try self.store.writeDocument(document)

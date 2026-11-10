@@ -36,6 +36,8 @@ final class ShareImportStore {
     @ObservationIgnored private let ledgerDropSink: @MainActor @Sendable (Int) -> Void
     @ObservationIgnored private let encoder = JSONEncoder()
     @ObservationIgnored let decoder = JSONDecoder()
+    /// Nil in tests and when the app group is unavailable. A skipped count does not fail the enqueue.
+    @ObservationIgnored var intake: SourceIntakeStore? = nil
 
     init(
         cacheRootURL: URL? = nil,
@@ -116,6 +118,7 @@ final class ShareImportStore {
                 at: handle.stagingDirectoryURL,
                 to: self.pendingItemDirectoryURL(itemID: handle.itemIDString)
             )
+            self.intake?.recordImport(itemID: handle.itemIDString, now: self.now())
             shareImportLog.info("share import item staged \(handle.itemIDString, privacy: .public)")
             self.refreshCounts()
             return handle.itemID

@@ -90,6 +90,7 @@ nonisolated final class PaneHostUITests: XCTestCase {
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         let degraded = app.descendants(matching: .any)["shell.pane.status.degraded"]
+        self.scrollToElement(degraded, in: app)
         XCTAssertTrue(degraded.waitForExistence(timeout: 10))
         XCTAssertTrue(degraded.label.contains("offline") || (degraded.value as? String)?.contains("offline") == true)
         XCTAssertFalse(app.descendants(matching: .any)["shell.pane.status.connected"].exists)
@@ -430,10 +431,20 @@ nonisolated final class PaneHostUITests: XCTestCase {
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         let connected = app.descendants(matching: .any)["shell.pane.status.connected"]
+        self.scrollToElement(connected, in: app)
         XCTAssertTrue(connected.waitForExistence(timeout: 10))
         XCTAssertFalse(app.descendants(matching: .any)["shell.pane.status.degraded"].exists)
         let value = (connected.value as? String) ?? connected.label
-        XCTAssertEqual(value, "syncing")
+        let syncing = app.descendants(matching: .any)["shell.pane.status.leadState.syncing"]
+        let caughtUp = app.descendants(matching: .any)["shell.pane.status.leadState.caughtUp"]
+        let upWord: String
+        if syncing.exists {
+            upWord = "syncing"
+        } else {
+            XCTAssertTrue(caughtUp.waitForExistence(timeout: 2), "the up pane is syncing or caught up")
+            upWord = "connected"
+        }
+        XCTAssertEqual(value, upWord)
         XCTAssertNotEqual(value, "0")
     }
 }

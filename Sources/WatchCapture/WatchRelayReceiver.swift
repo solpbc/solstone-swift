@@ -22,6 +22,8 @@ final class WatchRelayReceiver {
 
     private let session: any WatchConnectivitySession
     private let ledger: WatchSegmentLedger
+    /// Nil in tests and when the app group is unavailable. A skipped count does not fail the receive.
+    var intake: SourceIntakeStore? = nil
     private let fileWriter: any WatchFileWriting
     private let facts: WatchSourceFacts
 
@@ -88,6 +90,7 @@ final class WatchRelayReceiver {
             )
             try await self.fileWriter.moveItem(at: incomingURL, to: committedURL)
             self.ledger.recordReceived(id: id)
+            self.noteWatchIntake(id: id, directory: committedURL)
             self.lastReceivedAt = Date()
             self.facts.noteSegmentFileReceived()
             self.lastStagingError = nil
@@ -118,6 +121,17 @@ private extension WatchRelayReceiver {
 
     func committedURL(for id: UUID) -> URL {
         self.stagingRootURL.appendingPathComponent(id.uuidString, isDirectory: true)
+    }
+
+    func noteWatchIntake(id: UUID, directory: URL) {
+        guard let intake = self.intake else { return }
+        let manifestURL = directory.appendingPathComponent(WatchSegmentBundleCodec.manifestFilename)
+        guard let data = try? Data(contentsOf: manifestURL),
+              let manifest = try? WatchSegmentBundleCodec.decodeManifest(from: data) else {
+            watchRelayReceiverLog.error("watch intake manifest unreadable id=\(id.uuidString, privacy: .public)")
+            return
+        }
+        intake.recordWatch(id: id, duration: manifest.duration, lost: manifest.lost, now: Date())
     }
 
     func sendACK(id: UUID) {

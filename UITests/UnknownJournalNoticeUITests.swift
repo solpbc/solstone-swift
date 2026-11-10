@@ -74,7 +74,9 @@ final class UnknownJournalNoticeUITests: XCTestCase {
         self.scroll(to: yourJournal, in: app)
         XCTAssertTrue(whatAnswered.waitForExistence(timeout: 10))
         XCTAssertTrue(yourJournal.waitForExistence(timeout: 10))
-        XCTAssertTrue(self.element("\(self.direct).pairAgain", in: app).waitForExistence(timeout: 10))
+        let pairAgain = self.element("\(self.direct).pairAgain", in: app)
+        self.scroll(to: pairAgain, in: app)
+        XCTAssertTrue(pairAgain.waitForExistence(timeout: 10))
         XCTAssertFalse(self.element("\(self.relay).pairAgain", in: app).exists, "each row has its own expand")
         self.attach(app, "02-status-direct-detail")
 

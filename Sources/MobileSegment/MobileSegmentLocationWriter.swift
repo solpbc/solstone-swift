@@ -285,6 +285,33 @@ nonisolated enum MobileSegmentLocationWriter {
         return FrozenLocation(data: data, fixCount: batch.fixes.count)
     }
 
+    /// Readings for the intake distance, in file order. The header and any other line are skipped.
+    static func intakeReadings(from data: Data) -> [SourceIntakeReading] {
+        let decoder = Self.decoder()
+        var readings: [SourceIntakeReading] = []
+        for line in data.split(separator: 0x0A) where !line.isEmpty {
+            let line = Data(line)
+            if let fix = try? decoder.decode(FixLine.self, from: line) {
+                readings.append(SourceIntakeReading(
+                    time: fix.fix.t,
+                    latitude: fix.fix.lat,
+                    longitude: fix.fix.lon,
+                    horizontalAccuracy: fix.fix.hAcc,
+                    isFix: true
+                ))
+            } else if let visit = try? decoder.decode(VisitLine.self, from: line) {
+                readings.append(SourceIntakeReading(
+                    time: visit.visit.arrival,
+                    latitude: visit.visit.lat,
+                    longitude: visit.visit.lon,
+                    horizontalAccuracy: visit.visit.hAcc,
+                    isFix: false
+                ))
+            }
+        }
+        return readings
+    }
+
     static func loadSnapshotHeader(from data: Data) throws -> SnapshotHeaderLine {
         let lineData: Data
         if let newline = data.firstIndex(of: 0x0A) {

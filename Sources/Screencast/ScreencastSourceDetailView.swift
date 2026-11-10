@@ -28,6 +28,7 @@ struct ScreencastSourceDetailView: View {
                     self.deliveryBlock
                 }
 
+                SourceIntakeFacts(source: .screen)
                 SourceHomeTileControl(sourceID: "screencast")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)

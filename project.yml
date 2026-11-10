@@ -141,6 +141,7 @@ targets:
         excludes:
           - SafariBrowserDelivery.swift
       - path: Sources/Services/AppGroupContainer.swift
+      - path: Sources/SourceIntake/SourceIntakeStore.swift
       - path: vendor/browser-contract
         type: folder
         buildPhase: resources
@@ -227,6 +228,7 @@ targets:
       - Sources/Instrumentation/DrainSignpost.swift
       - Sources/OnThisPhoneModel.swift
       - Sources/Services/AppGroupContainer.swift
+      - Sources/SourceIntake/SourceIntakeStore.swift
       - Sources/Observer/ObserverAudioTransferSource.swift
       - Sources/Observer/ObserverServerURL.swift
       - Sources/SourceVocabulary.swift

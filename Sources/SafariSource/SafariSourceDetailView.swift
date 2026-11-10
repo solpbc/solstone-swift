@@ -51,6 +51,7 @@ struct SafariSourceDetailView: View {
                             }
                         }
                     }
+                    SourceIntakeFacts(source: .safari)
                     if !SafariSetUpStep.isShown(snapshot: self.model.snapshot) {
                         SourceHomeTileControl(sourceID: "safari")
                     }

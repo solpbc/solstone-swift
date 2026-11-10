@@ -413,6 +413,7 @@ final class CalendarHarness {
     var settings: CalendarSourceEngine.Settings
     private(set) var store: CalendarSourceStore
     private(set) var engine: CalendarSourceEngine
+    var intake: SourceIntakeStore? = nil
     private let engineDelivery: any CalendarNoteDelivering
     private let dependencies: ((CalendarHarness) -> CalendarSourceEngine.Dependencies)?
 
@@ -460,7 +461,8 @@ final class CalendarHarness {
             dependencies: self.dependencies?(self) ?? CalendarSourceEngine.Dependencies(
                 now: { [weak self] in self?.now ?? Date() },
                 timeZone: { provider.deviceTimeZone }
-            )
+            ),
+            intake: self.intake
         )
     }
 

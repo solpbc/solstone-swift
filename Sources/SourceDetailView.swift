@@ -25,6 +25,7 @@ struct SourceDetailView: View {
                 } else {
                     AudioEnrollmentContent()
                 }
+                SourceIntakeFacts(source: .audio)
                 SourceHomeTileControl(sourceID: "audio")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)

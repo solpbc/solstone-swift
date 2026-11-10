@@ -1885,7 +1885,22 @@ private extension MobileSegmentUploader {
             fixCount: frozen.fixCount
         )
         try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: endedAt)
+        self.store.intake?.recordLocation(
+            segmentID: manifest.segmentID,
+            readings: Self.intakeReadings(batch),
+            now: endedAt
+        )
         self.removeLocationLiveFiles(in: directory)
+    }
+
+    private static func intakeReadings(_ batch: LocationSegmentBatch) -> [SourceIntakeReading] {
+        let fixes = batch.fixes.map {
+            SourceIntakeReading(time: $0.t, latitude: $0.lat, longitude: $0.lon, horizontalAccuracy: $0.hAcc, isFix: true)
+        }
+        let visits = batch.visits.map {
+            SourceIntakeReading(time: $0.arrival, latitude: $0.lat, longitude: $0.lon, horizontalAccuracy: $0.hAcc, isFix: false)
+        }
+        return fixes + visits
     }
 
     func removeLocationLiveFiles(in directory: URL) {
@@ -1933,6 +1948,13 @@ private extension MobileSegmentUploader {
             fixCount: header?.fixCount
         )
         try self.store.writeOutcome(resolution, source: .location, manifest: &manifest, in: directory, now: now)
+        if let data = try? self.store.readData(at: locationURL) {
+            self.store.intake?.recordLocation(
+                segmentID: segmentID,
+                readings: MobileSegmentLocationWriter.intakeReadings(from: data),
+                now: now
+            )
+        }
         self.removeLocationLiveFiles(in: directory)
         mobileSegmentUploadLog.info("location canonical artifact recovered segment=\(segmentID.uuidString, privacy: .public)")
     }

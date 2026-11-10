@@ -69,6 +69,8 @@ struct ImportView: View {
                     }
                 }
 
+                SourceIntakeFacts(source: .imports)
+
                 SourceDetailBlock(title: "recent") {
                     Text(ImportRecentPresentation.recentText(
                         pendingCount: self.shareTransferHolder.pendingCount,

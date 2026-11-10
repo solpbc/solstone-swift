@@ -29,6 +29,7 @@ struct SolstoneSwiftApp: App {
     @State private var transferEngine: TransferEngine
     @State private var transferEnqueuer: ObserverAudioTransferEnqueuer
     @State private var shareImportStore: ShareImportStore
+    @State private var sourceIntakeModel: SourceIntakeModel
     @State private var shareTransferHolder: ShareTransferHolder
     @State private var photoLibraryImporter: PhotoLibraryImporter
     @State private var calendarSource: CalendarSourceEngine
@@ -285,11 +286,14 @@ struct SolstoneSwiftApp: App {
         let mobileSegmentStore: MobileSegmentStore
         let mobileSegmentStorageDisabledReason: String?
         let mobileSegmentMigrationDiagnostics: [String]
+        let sourceIntakeStore: SourceIntakeStore?
         do {
             let appGroupRoot = try AppGroupContainer.rootURL()
+            sourceIntakeStore = SourceIntakeStore(containerRoot: appGroupRoot)
             let appGroupMobileSegmentRoot = appGroupRoot
                 .appendingPathComponent(MobileSegmentStore.directoryName, isDirectory: true)
             mobileSegmentStore = MobileSegmentStore(rootURL: appGroupMobileSegmentRoot)
+            mobileSegmentStore.intake = sourceIntakeStore
             mobileSegmentStorageDisabledReason = nil
             let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             let legacyMobileSegmentRoot = cachesRoot?
@@ -305,6 +309,7 @@ struct SolstoneSwiftApp: App {
                 cachesRootURL: cachesRoot
             )
         } catch {
+            sourceIntakeStore = nil
             let diagnostic = "mobile segment storage unavailable source=app-group"
             Logger(subsystem: "app.solstone.swift", category: "mobile-segment")
                 .error("\(diagnostic, privacy: .public)")
@@ -400,7 +405,8 @@ struct SolstoneSwiftApp: App {
                 deliveryChanged: {
                     Task { await calendarTransferHolder.refreshNoteCounts() }
                 }
-            )
+            ),
+            intake: sourceIntakeStore
         )
         let calendarBackgroundRefresh = CalendarBackgroundRefresh(engine: calendarSource)
         calendarTransferHolder.importFilesNotYetQueued = { [weak calendarSource] in
@@ -453,6 +459,7 @@ struct SolstoneSwiftApp: App {
         let watchUploaderHolder = watchPipeline.watchUploaderHolder
         let watchSegmentDrain = watchPipeline.watchSegmentDrain
         let watchRelayReceiver = watchPipeline.watchRelayReceiver
+        watchRelayReceiver?.intake = sourceIntakeStore
         let watchSegmentLedger = watchPipeline.watchSegmentLedger
         let phoneSessionHistoryStore = watchPipeline.phoneSessionHistoryStore
         let watchLink = watchPipeline.watchLink
@@ -472,6 +479,7 @@ struct SolstoneSwiftApp: App {
                 )
             }
         )
+        shareImportStore.intake = sourceIntakeStore
         let shareTransferHolder = ShareTransferHolder(
             transferEngine: transferEngine,
             mirror: transferStatusMirror,
@@ -753,6 +761,7 @@ struct SolstoneSwiftApp: App {
         self._transferEngine = State(initialValue: transferEngine)
         self._transferEnqueuer = State(initialValue: transferEnqueuer)
         self._shareImportStore = State(initialValue: shareImportStore)
+        self._sourceIntakeModel = State(initialValue: SourceIntakeModel(store: sourceIntakeStore))
         self._shareTransferHolder = State(initialValue: shareTransferHolder)
         self._photoLibraryImporter = State(initialValue: photoLibraryImporter)
         self._calendarSource = State(initialValue: calendarSource)
@@ -824,6 +833,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.watchSegmentLedger)
                 .environment(self.phoneSessionHistoryStore)
                 .environment(self.shareImportStore)
+                .environment(self.sourceIntakeModel)
                 .environment(self.shareTransferHolder)
                 .environment(self.photoLibraryImporter)
                 .environment(self.calendarSource)

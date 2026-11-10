@@ -84,7 +84,7 @@ nonisolated enum WatchSegmentBundleCodec {
     }
 }
 
-nonisolated private extension WatchSegmentBundleCodec {
+nonisolated extension WatchSegmentBundleCodec {
     static func decodeManifest(from data: Data) throws -> WatchSegmentManifest {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

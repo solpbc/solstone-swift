@@ -73,6 +73,9 @@ nonisolated struct CalendarSentEntry: Codable, Equatable, Sendable {
     var firstMissingAt: Int64?
     /// A version that failed the contract and was not sent, so it is not tried again.
     var skipped: String?
+    /// Set while this identity is waiting for the intake baseline or a count that did not land.
+    /// Absent means it is not waiting. Stored only when true.
+    var intakePending: Bool? = nil
 
     enum CodingKeys: String, CodingKey {
         case event = "e"
@@ -91,6 +94,7 @@ nonisolated struct CalendarSentEntry: Codable, Equatable, Sendable {
         case removed = "r"
         case firstMissingAt = "m"
         case skipped = "x"
+        case intakePending = "i"
     }
 
     init(identity: CalendarIdentity) {
@@ -193,6 +197,8 @@ nonisolated struct CalendarSourceDocument: Codable, Equatable, Sendable {
     var lastNoticed: Int64?
     var imports: [CalendarImportRecord] = []
     var recent: [CalendarRecentNote] = []
+    /// Import ids that were already confirmed the first time this code launched. Nil until that snapshot.
+    var intakeBaselineImportIDs: [String]? = nil
 
     mutating func noteRecent(_ notes: [CalendarRecentNote]) {
         guard !notes.isEmpty else { return }

@@ -30,6 +30,7 @@ struct LocationSourceDetailView: View {
                     self.stateContent
                 }
 
+                SourceIntakeFacts(source: .location)
                 SourceHomeTileControl(sourceID: "location")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)

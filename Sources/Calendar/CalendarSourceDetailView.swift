@@ -32,6 +32,7 @@ private struct CalendarSourcePageView: View {
                 } else {
                     self.enrolContent
                 }
+                SourceIntakeFacts(source: .calendar)
                 SourceHomeTileControl(sourceID: "calendar")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)

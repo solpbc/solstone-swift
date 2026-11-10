@@ -460,6 +460,17 @@ actor CalendarWorker {
         }
     }
 
+    func frozenIdentityKeys(importID: String) -> Set<String> {
+        guard let frozen = self.frozen(id: importID) else { return [] }
+        var keys = Set<String>()
+        for file in frozen.files {
+            for line in file.lines {
+                keys.insert(line.line.identity.key)
+            }
+        }
+        return keys
+    }
+
     private func frozen(id: String) -> CalendarFrozenImport? {
         if let cached = self.frozenCache[id] { return cached }
         let url = self.frozenURL(id: id)

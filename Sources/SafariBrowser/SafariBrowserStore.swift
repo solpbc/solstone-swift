@@ -55,9 +55,13 @@ nonisolated final class SafariBrowserStore {
     static let periodSeconds: Double = 300
     static let periodBytes = 8 * 1024 * 1024
     static let freshnessMs = 5000
+    /// Set by the extension's convenience init. Tests that use `init(root:)` leave it nil.
+    var intake: SourceIntakeStore? = nil
 
     convenience init() throws {
-        try self.init(root: AppGroupContainer.rootURL().appendingPathComponent("SafariBrowser", isDirectory: true))
+        let container = try AppGroupContainer.rootURL()
+        try self.init(root: container.appendingPathComponent("SafariBrowser", isDirectory: true))
+        self.intake = SourceIntakeStore(containerRoot: container)
     }
 
     init(root: URL, quota: Int = SafariBrowserStore.defaultQuota) throws {
@@ -220,6 +224,7 @@ nonisolated final class SafariBrowserStore {
             var replies: [[String: Any]] = []
             var hello = false
             var acceptedNewBatch = false
+            var acceptedVisits: [SourceIntakeSafariVisit] = []
             if let frame {
                 guard let data = frame.data(using: .utf8) else { throw SafariBrowserError.malformed }
                 switch BrowserPayloadDecoder.decode(bytes: data, direction: "extension_to_host", projection: projection) {
@@ -270,6 +275,7 @@ nonisolated final class SafariBrowserStore {
                                 try self.sql("RELEASE intake")
                                 receipt["result"] = "accepted"; receipt["period_id"] = period
                                 acceptedNewBatch = true
+                                acceptedVisits = Self.intakeVisits(inst: inst, records: batch.records)
                                 full = false
                             } catch SafariBrowserError.full {
                                 try self.sql("ROLLBACK TO intake")
@@ -301,8 +307,22 @@ nonisolated final class SafariBrowserStore {
                 let validated = try BrowserPayloadDecoder.validatedHostMessage(value, projection: projection)
                 return String(decoding: BrowserPayloadDecoder.encodeHostToExtension(validated), as: UTF8.self)
             }
-            if acceptedNewBatch { try beforeCustodyCommit?() }
+            if acceptedNewBatch {
+                if let intake = self.intake {
+                    try intake.recordSafariVisits(acceptedVisits, now: Date(timeIntervalSince1970: now))
+                }
+                try beforeCustodyCommit?()
+            }
             return frames
+        }
+    }
+
+    private static func intakeVisits(inst: String, records: [BrowserDecodedBatchRecord]) -> [SourceIntakeSafariVisit] {
+        records.compactMap { record in
+            guard record.t == "segment_start",
+                  let object = try? JSONSerialization.jsonObject(with: record.rawSlice) as? [String: Any],
+                  let url = object["url"] as? String else { return nil }
+            return SourceIntakeSafariVisit(instance: inst, tab: record.ctx, url: url)
         }
     }
 

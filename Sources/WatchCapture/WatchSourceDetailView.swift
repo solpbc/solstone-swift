@@ -111,6 +111,7 @@ struct WatchSourceDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 self.content
+                SourceIntakeFacts(source: .watch)
                 SourceHomeTileControl(sourceID: "watch")
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)

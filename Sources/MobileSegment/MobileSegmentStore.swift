@@ -19,6 +19,8 @@ final class MobileSegmentStore {
     var testCreateActiveError: (any Error)?
     var testMoveItemError: (any Error)?
     var testWriteManifestError: (any Error)?
+    /// Nil in tests and when the app group is unavailable. A skipped count does not fail the outcome.
+    var intake: SourceIntakeStore?
 
     init(rootURL: URL, fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -220,6 +222,27 @@ final class MobileSegmentStore {
         try outcomeData.write(to: self.outcomeURL(in: directory, source: source, state: resolution.state), options: .atomic)
         manifest.setResolution(resolution, for: source, now: now)
         try self.writeManifest(manifest, in: directory)
+        self.recordIntake(resolution, source: source, segmentID: manifest.segmentID, now: now)
+    }
+
+    /// Audio and screen only, and only a kept artifact with a positive duration. Location is counted
+    /// from the finalized readings, not from this outcome.
+    private func recordIntake(
+        _ resolution: MobileSegmentSourceResolution,
+        source: MobileSegmentSource,
+        segmentID: UUID,
+        now: Date
+    ) {
+        guard resolution.state == .finalizedArtifact, let intake = self.intake else { return }
+        let duration = resolution.durationS ?? 0
+        switch source {
+        case .audio:
+            intake.recordDuration(source: .audio, segmentID: segmentID, duration: duration, now: now)
+        case .screencast:
+            intake.recordDuration(source: .screen, segmentID: segmentID, duration: duration, now: now)
+        case .location:
+            break
+        }
     }
 
     func writeFailure(_ failure: MobileSegmentFailureSidecar, in directory: URL) throws {
