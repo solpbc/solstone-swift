@@ -9,6 +9,7 @@ nonisolated enum OnThisPhoneSourceKind: Hashable, Sendable {
     case screencast
     case share
     case calendar
+    case obsidian
 
     var accessibilityID: String {
         switch self {
@@ -22,6 +23,8 @@ nonisolated enum OnThisPhoneSourceKind: Hashable, Sendable {
             "share"
         case .calendar:
             "calendar"
+        case .obsidian:
+            "obsidian"
         }
     }
 }
@@ -233,7 +236,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
             } ?? SourceVocabulary.notProvided
         case .screencast:
             return self.filename ?? SourceVocabulary.notProvided
-        case .share, .calendar:
+        case .share, .calendar, .obsidian:
             return self.filename ?? SourceVocabulary.notProvided
         }
     }
@@ -279,7 +282,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
             case .screencast:
                 return SourceVocabulary.onThisPhoneDropScreencastDescriptor
             }
-        case .share, .calendarTransfer:
+        case .share, .calendarTransfer, .obsidianTransfer:
             return self.filename ?? SourceVocabulary.notProvided
         }
     }
@@ -304,7 +307,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         switch itemID {
         case .transfer(itemID: _, source: let source):
             return source
-        case .share, .mobileSegment, .mobileSegmentTransfer, .calendarTransfer:
+        case .share, .mobileSegment, .mobileSegmentTransfer, .calendarTransfer, .obsidianTransfer:
             return nil
         }
     }
@@ -332,7 +335,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
             return "\(countText) · \(itemTime.formatted())"
         case .screencast:
             return self.filename ?? SourceVocabulary.notProvided
-        case .share, .calendar:
+        case .share, .calendar, .obsidian:
             return self.filename ?? SourceVocabulary.notProvided
         }
     }
@@ -461,6 +464,7 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
     case transfer(itemID: UUID, source: OnThisPhoneAudioSource)
     case mobileSegmentTransfer(itemID: UUID, facet: OnThisPhoneMobileSegmentFacet)
     case calendarTransfer(UUID)
+    case obsidianTransfer(UUID)
 
     init?(sourceKind: OnThisPhoneSourceKind, id: String) {
         switch sourceKind {
@@ -470,6 +474,12 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
                 return nil
             }
             self = .calendarTransfer(itemID)
+        case .obsidian:
+            let prefix = "transfer:obsidian:"
+            guard id.hasPrefix(prefix), let itemID = UUID(uuidString: String(id.dropFirst(prefix.count))) else {
+                return nil
+            }
+            self = .obsidianTransfer(itemID)
         case .share:
             guard let itemID = UUID(uuidString: id) else { return nil }
             self = .share(itemID)
@@ -506,6 +516,10 @@ nonisolated enum OnThisPhoneItemID: Equatable, Sendable {
 
     static func calendarTransferIDString(itemID: UUID) -> String {
         "transfer:\(ObserverAudioTransferSource.calendar):\(itemID.uuidString)"
+    }
+
+    static func obsidianTransferIDString(itemID: UUID) -> String {
+        "transfer:obsidian:\(itemID.uuidString)"
     }
 
     static func mobileSegmentTransferIDString(itemID: UUID, facet: OnThisPhoneMobileSegmentFacet) -> String {

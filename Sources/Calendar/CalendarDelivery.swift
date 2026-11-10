@@ -166,6 +166,10 @@ actor CalendarCapabilityGate: TransferSourceGate {
         self.capability
     }
 
+    func admits(manifest: TransferManifest, endpoint: TransferResolvedEndpoint) async -> Bool {
+        await self.admits(sourceKey: manifest.sourceKey, endpoint: endpoint)
+    }
+
     func admits(sourceKey: String, endpoint: TransferResolvedEndpoint) async -> Bool {
         guard sourceKey == CalendarTransfer.sourceKey else { return true }
         if self.endpoint != endpoint {

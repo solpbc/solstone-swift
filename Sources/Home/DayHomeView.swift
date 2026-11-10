@@ -218,6 +218,8 @@ struct DayHomeView: View {
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
     @Environment(CalendarSourceHandle.self) private var calendarSourceHandle: CalendarSourceHandle?
+    @Environment(ObsidianTransferHolder.self) private var obsidianTransferHolder: ObsidianTransferHolder?
+    @Environment(ObsidianSourceHandle.self) private var obsidianSourceHandle: ObsidianSourceHandle?
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -436,6 +438,17 @@ private extension DayHomeView {
                     )
                 }
             }
+            if let handle = self.obsidianSourceHandle {
+                let obsidian = makeObsidianSource(handle.source, isJournalPaired: self.appConfig.isPaired)
+                if self.isOnHome(obsidian.id) {
+                    HomeSourceTile(
+                        source: obsidian,
+                        route: .obsidian,
+                        control: obsidianTileControl(handle.source.status),
+                        isOn: self.obsidianIsOn(handle.source)
+                    )
+                }
+            }
             if let safari = self.safariSource {
                 let source = safariSourceModel(snapshot: safari.snapshot, extensionOn: safari.extensionOn,
                                                isJournalPaired: self.appConfig.isPaired)
@@ -468,6 +481,18 @@ private extension DayHomeView {
             set: { isOn in
                 Task { @MainActor in
                     await setCalendarTile(source, on: isOn)
+                }
+            }
+        )
+    }
+
+    /// The Obsidian tile's switch pauses and resumes; it never asks for access.
+    func obsidianIsOn(_ source: any ObsidianEngineControlling) -> Binding<Bool> {
+        Binding(
+            get: { source.status.tileState == .active },
+            set: { isOn in
+                Task { @MainActor in
+                    await setObsidianTile(source, on: isOn)
                 }
             }
         )
@@ -559,7 +584,8 @@ private extension DayHomeView {
             watch: self.watchUploaderHolder,
             share: self.shareTransferHolder,
             calendar: self.calendarTransferHolder,
-            safari: self.safariSource
+            safari: self.safariSource,
+            obsidian: self.obsidianTransferHolder
         )
         return .known(totals.pending + totals.failed)
     }

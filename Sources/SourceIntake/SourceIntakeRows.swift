@@ -32,6 +32,7 @@ nonisolated enum SourceIntakeRows {
         if includeWatch {
             sources.append((.watch, SourceVocabulary.watchSourceDisplayName, .source(.watch)))
         }
+        sources.append((.obsidian, ObsidianVocabulary.TITLE, .source(.obsidian)))
         sources.append((.imports, SourceVocabulary.importTitle, ShellDestination.import))
         return sources.map { source, name, destination in
             let values = SourceIntakeFormat.status(

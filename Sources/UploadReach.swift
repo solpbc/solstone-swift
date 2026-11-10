@@ -9,12 +9,13 @@ func uploadTotals(
     watch: WatchUploaderHolder,
     share: ShareTransferHolder,
     calendar: CalendarTransferHolder? = nil,
-    safari: SafariSourceModel? = nil
+    safari: SafariSourceModel? = nil,
+    obsidian: ObsidianTransferHolder? = nil
 ) -> (failed: Int, pending: Int) {
     (
-        failed: mobileSegment.failedCount + watch.failedCount + share.failedCount + (calendar?.failedCount ?? 0),
+        failed: mobileSegment.failedCount + watch.failedCount + share.failedCount + (calendar?.failedCount ?? 0) + (obsidian?.failedCount ?? 0),
         pending: mobileSegment.pendingCount + watch.pendingCount + share.pendingCount + (calendar?.pendingCount ?? 0)
-            + (safari?.waitingCount ?? 0)
+            + (safari?.waitingCount ?? 0) + (obsidian?.pendingCount ?? 0)
     )
 }
 
@@ -27,12 +28,13 @@ func sendableUploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder,
-    calendar: CalendarTransferHolder? = nil
+    calendar: CalendarTransferHolder? = nil,
+    obsidian: ObsidianTransferHolder? = nil
 ) -> (failed: Int, pending: Int) {
-    let totals = uploadTotals(mobileSegment: mobileSegment, watch: watch, share: share, calendar: calendar)
+    let totals = uploadTotals(mobileSegment: mobileSegment, watch: watch, share: share, calendar: calendar, obsidian: obsidian)
     let paced = mobileSegment.refusalPacedCount + watch.refusalPacedCount + share.refusalPacedCount
-        + (calendar?.refusalPacedCount ?? 0)
-    let held = calendar?.unsendableCount ?? 0
+        + (calendar?.refusalPacedCount ?? 0) + (obsidian?.refusalPacedCount ?? 0)
+    let held = (calendar?.unsendableCount ?? 0) + (obsidian?.unsendableCount ?? 0)
     return (failed: max(0, totals.failed - paced), pending: max(0, totals.pending - held))
 }
 
@@ -40,11 +42,12 @@ func sendableUploadTotals(
 func captureUploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
     watch: WatchUploaderHolder,
-    calendar: CalendarTransferHolder? = nil
+    calendar: CalendarTransferHolder? = nil,
+    obsidian: ObsidianTransferHolder? = nil
 ) -> (failed: Int, pending: Int) {
     (
-        failed: mobileSegment.failedCount + watch.failedCount + (calendar?.failedCount ?? 0),
-        pending: mobileSegment.pendingCount + watch.pendingCount + (calendar?.pendingCount ?? 0)
+        failed: mobileSegment.failedCount + watch.failedCount + (calendar?.failedCount ?? 0) + (obsidian?.failedCount ?? 0),
+        pending: mobileSegment.pendingCount + watch.pendingCount + (calendar?.pendingCount ?? 0) + (obsidian?.pendingCount ?? 0)
     )
 }
 

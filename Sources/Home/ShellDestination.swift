@@ -131,6 +131,8 @@ struct ShellDestinationView: View {
             WatchSourceDetailView()
         case .source(.calendar):
             CalendarSourceDetailView()
+        case .source(.obsidian):
+            ObsidianSourceDetailView()
         case .source(.safari):
             SafariSourceDetailView()
         case .status:

@@ -313,6 +313,38 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         }
     }
 
+    func fetchObsidianVaults(localPort: Int, timeout: Duration = .seconds(5)) async -> [ObsidianSameNameAdvisory]? {
+        guard (1...65535).contains(localPort),
+              let url = URL(string: "http://127.0.0.1:\(localPort)/app/devices/ingest/obsidian/vaults") else { return nil }
+        let session = self.sessionFactory(timeout)
+        defer { session.invalidateAndCancel() }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.timeInterval(for: timeout))
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue(ObserverServerURL.ingestProtocolVersion, forHTTPHeaderField: ObserverServerURL.protocolVersionHeaderName)
+        do {
+            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
+            if httpResponse.statusCode == 404 {
+                return []
+            }
+            guard httpResponse.statusCode == 200,
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let vaultsArray = object["vaults"] as? [[String: Any]]
+            else {
+                return nil
+            }
+            var advisories: [ObsidianSameNameAdvisory] = []
+            for dict in vaultsArray {
+                guard let vault = dict["vault"] as? String, !vault.isEmpty,
+                      let date = dict["last_synced_at"] as? String, !date.isEmpty,
+                      let rawDevice = dict["device"], rawDevice is String || rawDevice is NSNull else { return nil }
+                advisories.append(ObsidianSameNameAdvisory(vault: vault, device: rawDevice as? String, lastSyncedAt: date))
+            }
+            return advisories
+        } catch {
+            return nil
+        }
+    }
+
     func fetchAbout(localPort: Int, timeout: Duration = .seconds(5)) async -> JournalAboutFetchResult {
         guard (1...65535).contains(localPort),
               let url = URL(string: "http://127.0.0.1:\(localPort)/api/system/about") else { return .failed }

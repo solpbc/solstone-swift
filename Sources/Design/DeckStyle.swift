@@ -292,6 +292,7 @@ nonisolated extension SourceKind {
         case .watch: "applewatch"
         case .calendar: "calendar"
         case .safari: "safari"
+        case .obsidian: "doc.text"
         }
     }
 }

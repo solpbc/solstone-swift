@@ -27,6 +27,17 @@ nonisolated enum SourceIntakeResult: Equatable, Sendable {
     case failed
 }
 
+nonisolated struct ObsidianUnappliedIntakeOp: Codable, Equatable, Sendable {
+    var hash: String
+    var intakeTime: Date
+    var sequence: UInt64 = 0
+    var kind: Kind = .keep
+    var previousHash: String? = nil
+    var baselineHashes: [String] = []
+
+    enum Kind: String, Codable, Sendable { case seed, keep, move, remove }
+}
+
 nonisolated struct SourceIntakeLane: Equatable, Sendable {
     var total: Int
     var last: Date?
@@ -40,6 +51,7 @@ nonisolated struct SourceIntakeSnapshot: Equatable, Sendable {
     var calendar: SourceIntakeLane
     var safari: SourceIntakeLane
     var watch: SourceIntakeLane
+    var obsidian: SourceIntakeLane
     var imports: SourceIntakeLane
 
     static let empty = SourceIntakeSnapshot(
@@ -50,6 +62,7 @@ nonisolated struct SourceIntakeSnapshot: Equatable, Sendable {
         calendar: SourceIntakeLane(total: 0, last: nil),
         safari: SourceIntakeLane(total: 0, last: nil),
         watch: SourceIntakeLane(total: 0, last: nil),
+        obsidian: SourceIntakeLane(total: 0, last: nil),
         imports: SourceIntakeLane(total: 0, last: nil)
     )
 }
@@ -197,6 +210,73 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
             file.imports.last = self.stamp(now)
             return true
         }
+    }
+
+    @discardableResult
+    func seedObsidianVault(vaultID: String, seenHashes: [String]) -> SourceIntakeResult {
+        let now = Date()
+        return self.mutate(now: now, create: true) { file in
+            var lane = file.obsidian ?? ObsidianLane()
+            guard !lane.seededVaults.contains(vaultID) else { return false }
+            lane.seededVaults.append(vaultID)
+            for hash in seenHashes {
+                if !lane.seen.contains(hash) {
+                    lane.seen.append(hash)
+                }
+            }
+            file.obsidian = lane
+            return true
+        }
+    }
+
+    @discardableResult
+    func recordObsidianNew(vaultID: String, seenHash: String, now: Date) -> SourceIntakeResult {
+        self.mutate(now: now, create: true) { file in
+            var lane = file.obsidian ?? ObsidianLane()
+            guard !lane.seen.contains(seenHash) else { return false }
+            lane.seen.append(seenHash)
+            lane.notes += 1
+            lane.last = self.stamp(now)
+            file.obsidian = lane
+            return true
+        }
+    }
+
+    /// Ordered replay is part of the same locked replacement as the count.
+    /// A replayed rename must never remove the seen mark of a later new note
+    /// that reused its old path.
+    @discardableResult
+    func applyObsidianOperation(vaultID: String, operation: ObsidianUnappliedIntakeOp) -> SourceIntakeResult {
+        var outOfOrder = false
+        let result = self.mutate(now: operation.intakeTime, create: true) { file in
+            var lane = file.obsidian ?? ObsidianLane()
+            var sequences = lane.appliedSequences ?? [:]
+            guard operation.sequence > sequences[vaultID, default: 0] else { return false }
+            guard operation.sequence == sequences[vaultID, default: 0] + 1 else { outOfOrder = true; return false }
+            var seen = Set(lane.seen)
+            switch operation.kind {
+            case .seed:
+                seen.formUnion(operation.baselineHashes)
+                if !lane.seededVaults.contains(vaultID) { lane.seededVaults.append(vaultID) }
+            case .keep:
+                if seen.insert(operation.hash).inserted {
+                    lane.notes += 1
+                    let stamp = self.stamp(operation.intakeTime)
+                    if lane.last.flatMap(self.parseStamp).map({ operation.intakeTime > $0 }) ?? true { lane.last = stamp }
+                }
+            case .move:
+                if let previous = operation.previousHash { seen.remove(previous) }
+                seen.insert(operation.hash)
+            case .remove:
+                seen.remove(operation.hash)
+            }
+            sequences[vaultID] = operation.sequence
+            lane.appliedSequences = sequences
+            lane.seen = seen.sorted()
+            file.obsidian = lane
+            return true
+        }
+        return outOfOrder ? .failed : result
     }
 
     @discardableResult
@@ -508,7 +588,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     private func stampsReadable(_ file: File) -> Bool {
         let stamps = [
             file.audio.last, file.screen.last, file.location.last, file.calendar.last,
-            file.safari.last, file.watch.last, file.imports.last, file.location.cursor?.t,
+            file.safari.last, file.watch.last, file.imports.last, file.obsidian?.last, file.location.cursor?.t,
         ]
         for stamp in stamps {
             if let stamp, self.parseStamp(stamp) == nil { return false }
@@ -551,6 +631,7 @@ nonisolated private extension SourceIntakeStore {
         var safari: SafariLane
         var watch: DurationLane
         var imports: CountLane
+        var obsidian: ObsidianLane?
 
         nonisolated enum CodingKeys: String, CodingKey {
             case version
@@ -562,6 +643,61 @@ nonisolated private extension SourceIntakeStore {
             case safari
             case watch
             case imports = "import"
+            case obsidian
+        }
+
+        init(
+            version: Int,
+            started: String,
+            audio: DurationLane,
+            screen: DurationLane,
+            location: LocationLane,
+            calendar: CalendarLane,
+            safari: SafariLane,
+            watch: DurationLane,
+            imports: CountLane,
+            obsidian: ObsidianLane? = nil
+        ) {
+            self.version = version
+            self.started = started
+            self.audio = audio
+            self.screen = screen
+            self.location = location
+            self.calendar = calendar
+            self.safari = safari
+            self.watch = watch
+            self.imports = imports
+            self.obsidian = obsidian
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.version = try container.decode(Int.self, forKey: .version)
+            self.started = try container.decode(String.self, forKey: .started)
+            self.audio = try container.decode(DurationLane.self, forKey: .audio)
+            self.screen = try container.decode(DurationLane.self, forKey: .screen)
+            self.location = try container.decode(LocationLane.self, forKey: .location)
+            self.calendar = try container.decode(CalendarLane.self, forKey: .calendar)
+            self.safari = try container.decode(SafariLane.self, forKey: .safari)
+            self.watch = try container.decode(DurationLane.self, forKey: .watch)
+            self.imports = try container.decode(CountLane.self, forKey: .imports)
+            self.obsidian = try container.decodeIfPresent(ObsidianLane.self, forKey: .obsidian)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(self.version, forKey: .version)
+            try container.encode(self.started, forKey: .started)
+            try container.encode(self.audio, forKey: .audio)
+            try container.encode(self.screen, forKey: .screen)
+            try container.encode(self.location, forKey: .location)
+            try container.encode(self.calendar, forKey: .calendar)
+            try container.encode(self.safari, forKey: .safari)
+            try container.encode(self.watch, forKey: .watch)
+            try container.encode(self.imports, forKey: .imports)
+            if let obsidian {
+                try container.encode(obsidian, forKey: .obsidian)
+            }
         }
 
         static func empty(started: String) -> File {
@@ -574,7 +710,8 @@ nonisolated private extension SourceIntakeStore {
                 calendar: CalendarLane(),
                 safari: SafariLane(),
                 watch: DurationLane(),
-                imports: CountLane()
+                imports: CountLane(),
+                obsidian: nil
             )
         }
 
@@ -585,6 +722,8 @@ nonisolated private extension SourceIntakeStore {
             self.calendar.seen.sort()
             self.watch.seen.sort()
             self.imports.seen.sort()
+            self.obsidian?.seen.sort()
+            self.obsidian?.seededVaults.sort()
         }
 
         func lane(_ source: SourceIntakeDurationSource) -> DurationLane {
@@ -610,6 +749,7 @@ nonisolated private extension SourceIntakeStore {
                 calendar: SourceIntakeLane(total: self.calendar.events, last: self.calendar.last.flatMap(parse)),
                 safari: SourceIntakeLane(total: self.safari.pages, last: self.safari.last.flatMap(parse)),
                 watch: self.watch.lane(parse: parse),
+                obsidian: SourceIntakeLane(total: self.obsidian?.notes ?? 0, last: self.obsidian?.last.flatMap(parse)),
                 imports: SourceIntakeLane(total: self.imports.items, last: self.imports.last.flatMap(parse))
             )
         }
@@ -660,5 +800,21 @@ nonisolated private extension SourceIntakeStore {
         var items: Int = 0
         var last: String?
         var seen: [String] = []
+    }
+
+    nonisolated struct ObsidianLane: Codable {
+        var notes: Int = 0
+        var last: String?
+        var seen: [String] = []
+        var seededVaults: [String] = []
+        var appliedSequences: [String: UInt64]? = nil
+
+        enum CodingKeys: String, CodingKey {
+            case notes
+            case last
+            case seen
+            case seededVaults = "seeded_vaults"
+            case appliedSequences = "applied_sequences"
+        }
     }
 }

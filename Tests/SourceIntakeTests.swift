@@ -330,17 +330,18 @@ final class SourceIntakeTests: XCTestCase {
         let rows = SourceIntakeRows.statusRows(
             snapshot: snapshot, includeSafari: false, includeWatch: false, now: now, locale: locale, calendar: calendar
         )
-        XCTAssertEqual(rows.map(\.id), ["audio", "location", "screen", "calendar", "imports"])
+        XCTAssertEqual(rows.map(\.id), ["audio", "location", "screen", "calendar", "obsidian", "imports"])
         XCTAssertEqual(rows[0].soFar, "1 hour")
         XCTAssertFalse(rows[0].soFar.contains("since"))
         XCTAssertEqual(rows[0].last, "10 min ago")
         XCTAssertEqual(rows[0].name, "audio")
         XCTAssertEqual(rows[2].name, "screen")
-        XCTAssertEqual(rows[4].destination, ShellDestination.import)
+        XCTAssertEqual(rows[4].destination, .source(.obsidian))
+        XCTAssertEqual(rows[5].destination, ShellDestination.import)
         let empty = SourceIntakeRows.statusRows(
             snapshot: .empty, includeSafari: true, includeWatch: true, now: now, locale: locale, calendar: calendar
         )
-        XCTAssertEqual(empty.map(\.id), ["audio", "location", "screen", "calendar", "safari", "watch", "imports"])
+        XCTAssertEqual(empty.map(\.id), ["audio", "location", "screen", "calendar", "safari", "watch", "obsidian", "imports"])
         XCTAssertTrue(empty.allSatisfy { $0.soFar == "nothing yet" && $0.last == "nothing yet" })
         let page = SourceIntakeFormat.page(lane: snapshot.audio, kind: .duration, started: snapshot.started, now: now, locale: locale, calendar: calendar)
         XCTAssertEqual(page.soFar, "1 hour, since march 3")
@@ -727,6 +728,43 @@ final class SourceIntakeTests: XCTestCase {
         let scratch = self.root.appendingPathComponent("scratch-\(UUID().uuidString)")
         try bundle.write(to: scratch)
         await receiver.receiveFile(scratch, metadata: ["id": id.uuidString])
+    }
+
+    func testObsidianLaneDecodingMissingKeyIsZero() throws {
+        let store = SourceIntakeStore(directoryURL: self.root)
+        let snapshot = try self.ready(store)
+        XCTAssertEqual(snapshot.obsidian.total, 0)
+        XCTAssertNil(snapshot.obsidian.last)
+    }
+
+    func testObsidianLaneMalformedStaysUnreadable() throws {
+        let store = SourceIntakeStore(directoryURL: self.root)
+        let malformedJSON = "{\"version\":1,\"obsidian\":\"not-an-object\"}"
+        try malformedJSON.write(to: store.intakeFileURL, atomically: true, encoding: .utf8)
+        XCTAssertEqual(store.load(), .unreadable)
+        let bytesOnDisk = try String(contentsOf: store.intakeFileURL, encoding: .utf8)
+        XCTAssertEqual(bytesOnDisk, malformedJSON)
+    }
+
+    func testObsidianSeedingAndNewNotes() throws {
+        let store = SourceIntakeStore(directoryURL: self.root)
+        let vaultID = "vault-1"
+        store.seedObsidianVault(vaultID: vaultID, seenHashes: ["h1", "h2", "h3", "h4", "h5"])
+        var snapshot = try self.ready(store)
+        XCTAssertEqual(snapshot.obsidian.total, 0)
+
+        let t1 = Date(timeIntervalSince1970: 1_700_000_000)
+        XCTAssertEqual(store.recordObsidianNew(vaultID: vaultID, seenHash: "h1", now: t1), .unchanged)
+        snapshot = try self.ready(store)
+        XCTAssertEqual(snapshot.obsidian.total, 0)
+
+        XCTAssertEqual(store.recordObsidianNew(vaultID: vaultID, seenHash: "h6", now: t1), .recorded)
+        snapshot = try self.ready(store)
+        XCTAssertEqual(snapshot.obsidian.total, 1)
+
+        XCTAssertEqual(store.recordObsidianNew(vaultID: vaultID, seenHash: "h6", now: t1), .unchanged)
+        snapshot = try self.ready(store)
+        XCTAssertEqual(snapshot.obsidian.total, 1)
     }
 }
 

@@ -34,6 +34,9 @@ struct SolstoneSwiftApp: App {
     @State private var photoLibraryImporter: PhotoLibraryImporter
     @State private var calendarSource: CalendarSourceEngine
     @State private var calendarSourceHandle: CalendarSourceHandle
+    @State private var obsidianSource: ObsidianSourceEngine
+    @State private var obsidianSourceHandle: ObsidianSourceHandle
+    @State private var obsidianTransferHolder: ObsidianTransferHolder
     @State private var safariSource: SafariSourceModel?
     @State private var calendarTransferHolder: CalendarTransferHolder
     @State private var calendarBackgroundRefresh: CalendarBackgroundRefresh
@@ -120,7 +123,8 @@ struct SolstoneSwiftApp: App {
         _ metadata: JournalVersionMetadata,
         watchLink: WatchLink,
         transferEngine: TransferEngine,
-        calendarGate: CalendarCapabilityGate? = nil
+        calendarGate: CalendarCapabilityGate? = nil,
+        obsidianGate: ObsidianCapabilityGate? = nil
     ) {
         watchLink.journalVersionProvider = { [metadata] in
             (
@@ -142,6 +146,7 @@ struct SolstoneSwiftApp: App {
                 await transferEngine.noteJournalVersion(version)
                 // Whether a journal takes calendar notes is read again for a new pairing or version.
                 await calendarGate?.journalChanged(identity: identity, version: version)
+                await obsidianGate?.journalChanged(identity: identity, version: version)
             }
         }
     }
@@ -333,6 +338,19 @@ struct SolstoneSwiftApp: App {
                 await transferEndpointResolver.isCurrent(endpoint)
             }
         )
+        let obsidianGate = ObsidianCapabilityGate(
+            readStatus: { endpoint in
+                guard let port = endpoint.port else { return .failed }
+                return await AuthenticatedHomeClient().fetchStatusReport(localPort: port)
+            },
+            fetchVaults: { endpoint in
+                guard let port = endpoint.port else { return nil }
+                return await AuthenticatedHomeClient().fetchObsidianVaults(localPort: port)
+            },
+            isCurrent: { endpoint in
+                await transferEndpointResolver.isCurrent(endpoint)
+            }
+        )
         let transferStatusMirror = TransferStatusMirror()
         let transferConditionsSource = TransferConditionsSource()
         let transferSpool: TransferSpool
@@ -369,7 +387,7 @@ struct SolstoneSwiftApp: App {
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             },
             heardReporter: connectionHeardReporter,
-            sourceGate: SafariBrowserSourceGate(calendar: calendarGate),
+            sourceGate: SafariBrowserSourceGate(calendar: calendarGate, obsidian: obsidianGate),
             appBuild: Self.refusalAppBuild,
             journalVersion: appConfig.journalVersion.version
         )
@@ -421,6 +439,83 @@ struct SolstoneSwiftApp: App {
 #else
         let calendarSourceHandle = CalendarSourceHandle(source: calendarSource)
 #endif
+        let obsidianTransferHolder = ObsidianTransferHolder(transferEngine: transferEngine, mirror: transferStatusMirror)
+        let obsidianStore = ObsidianStore()
+        let obsidianSource = ObsidianSourceEngine(
+            store: obsidianStore,
+            intakeStore: sourceIntakeStore,
+            delivery: ObsidianTransferDelivery(engine: transferEngine)
+        )
+        obsidianSource.journalIdentityProvider = { [weak appConfig] in
+            guard let appConfig, appConfig.isPaired else { return nil }
+            _ = appConfig.journalIdentityEpoch
+            guard let pairing = appConfig.store.snapshot().pairing else { return nil }
+            return journalGapIdentity(for: pairing)
+        }
+        obsidianTransferHolder.activeVaultIDProvider = { [weak obsidianSource] in
+            obsidianSource?.status.selectedVaultID
+        }
+        obsidianTransferHolder.isEnabledProvider = { [weak obsidianSource] in
+            obsidianSource?.canDeliver ?? false
+        }
+        obsidianTransferHolder.isPausedProvider = { [weak obsidianSource] in
+            obsidianSource?.status.isPaused ?? false
+        }
+        obsidianTransferHolder.continueSameNameAction = { [weak obsidianGate] in
+            await obsidianGate?.continueSameName()
+        }
+        obsidianTransferHolder.publishSnapshots = { [weak obsidianSource] snapshots in
+            obsidianSource?.transferSnapshots = snapshots
+            obsidianSource?.refreshStatus()
+        }
+        obsidianTransferHolder.cancelSameNameAction = { [weak obsidianGate] in
+            await obsidianGate?.cancelSameName()
+        }
+        Task { [weak obsidianSource] in
+            await transferEngine.registerObsidianAcknowledgementCommit { [weak obsidianSource, weak appConfig] manifest, successKind, endpoint in
+                let journalIdentity = await MainActor.run { () -> String? in
+                    guard let pairing = appConfig?.store.snapshot().pairing,
+                          pairing.fingerprint == endpoint.dispatchOwner?.credentialCID else { return nil }
+                    return journalGapIdentity(for: pairing)
+                }
+                guard let obsidianSource, let journalIdentity else { throw CocoaError(.fileWriteUnknown) }
+                try await obsidianSource.commitDelivered(manifest: manifest, successKind: successKind, journalIdentity: journalIdentity)
+            }
+            await obsidianGate.configure(
+                isSourceEnabled: {
+                    await MainActor.run { obsidianSource?.canDeliver ?? false }
+                },
+                isSourcePaused: {
+                    await MainActor.run { obsidianSource?.status.isPaused ?? false }
+                },
+                activeVaultID: {
+                    await MainActor.run { obsidianSource?.status.selectedVaultID }
+                },
+                isAcceptedForSameName: { vaultID, endpointID in
+                    await MainActor.run { obsidianSource?.isAcceptedForSameName(vaultID: vaultID, endpointID: endpointID) ?? false }
+                },
+                recordAcceptance: { vaultID, endpointID in
+                    await MainActor.run { obsidianSource?.markSameNameAccepted(vaultID: vaultID, endpointID: endpointID) ?? false }
+                },
+                turnSourceOff: {
+                    await MainActor.run { obsidianSource?.turnOff() }
+                },
+                wake: { await transferEngine.kick() },
+                publishCapability: { capability in
+                    Task { @MainActor in
+                        obsidianTransferHolder.capability = capability
+                    }
+                },
+                publishAdvisory: { advisory in
+                    Task { @MainActor in
+                        obsidianTransferHolder.sameNameAdvisory = advisory
+                    }
+                }
+            )
+
+        }
+        calendarBackgroundRefresh.obsidianEngine = obsidianSource
+        let obsidianSourceHandle = ObsidianSourceHandle(source: obsidianSource)
 #if DEBUG
         let safariSource = SafariUITestSource.seeded() ?? (SafariSourceModel.isBundled ? SafariSourceModel() : nil)
 #else
@@ -467,7 +562,8 @@ struct SolstoneSwiftApp: App {
             appConfig.journalVersion,
             watchLink: watchLink,
             transferEngine: transferEngine,
-            calendarGate: calendarGate
+            calendarGate: calendarGate,
+            obsidianGate: obsidianGate
         )
         let shareImportStore = ShareImportStore(
             ledgerDropSink: { droppedCount in
@@ -555,7 +651,8 @@ struct SolstoneSwiftApp: App {
                 watch: watchUploaderHolder,
                 share: shareTransferHolder,
                 calendar: calendarTransferHolder,
-                safari: safariSource
+                safari: safariSource,
+                obsidian: obsidianTransferHolder
             )
             return ConnectionSyncInputs(
                 tunnelState: tunnel.state,
@@ -608,7 +705,8 @@ struct SolstoneSwiftApp: App {
                     mobileSegment: mobileSegmentTransferHolder,
                     watch: watchUploaderHolder,
                     share: shareTransferHolder,
-                    calendar: calendarTransferHolder
+                    calendar: calendarTransferHolder,
+                    obsidian: obsidianTransferHolder
                 )
             },
             heldTotals: {
@@ -616,7 +714,8 @@ struct SolstoneSwiftApp: App {
                     mobileSegment: mobileSegmentTransferHolder,
                     watch: watchUploaderHolder,
                     share: shareTransferHolder,
-                    calendar: calendarTransferHolder
+                    calendar: calendarTransferHolder,
+                    obsidian: obsidianTransferHolder
                 )
             },
             inFlight: {
@@ -766,6 +865,9 @@ struct SolstoneSwiftApp: App {
         self._photoLibraryImporter = State(initialValue: photoLibraryImporter)
         self._calendarSource = State(initialValue: calendarSource)
         self._calendarSourceHandle = State(initialValue: calendarSourceHandle)
+        self._obsidianSource = State(initialValue: obsidianSource)
+        self._obsidianSourceHandle = State(initialValue: obsidianSourceHandle)
+        self._obsidianTransferHolder = State(initialValue: obsidianTransferHolder)
         self._safariSource = State(initialValue: safariSource)
         self._calendarTransferHolder = State(initialValue: calendarTransferHolder)
         self._calendarBackgroundRefresh = State(initialValue: calendarBackgroundRefresh)
@@ -838,6 +940,9 @@ struct SolstoneSwiftApp: App {
                 .environment(self.photoLibraryImporter)
                 .environment(self.calendarSource)
                 .environment(self.calendarSourceHandle)
+                .environment(self.obsidianSource)
+                .environment(self.obsidianSourceHandle)
+                .environment(self.obsidianTransferHolder)
                 .environment(self.safariSource)
                 .environment(self.calendarTransferHolder)
                 .environment(self.mobileSegmentUploader)
@@ -949,6 +1054,7 @@ struct SolstoneSwiftApp: App {
                 }
         }
         .onChange(of: self.scenePhase) { oldPhase, newPhase in
+            self.obsidianSource.setAppActive(newPhase == .active)
             self.screencastManager.receiveScenePhase(Self.screencastScenePhase(newPhase))
             ConnectionScenePhaseFanout.deliver(
                 newPhase,
@@ -980,6 +1086,7 @@ struct SolstoneSwiftApp: App {
                 }
                 self.photoLibraryImporter.refreshAccess()
                 self.calendarSource.foreground()
+                Task { await self.obsidianSource.checkNow() }
                 if Self.isIntegrationMode || Self.isUITest {
                     return
                 }
@@ -1036,7 +1143,8 @@ struct SolstoneSwiftApp: App {
                             mobileSegment: self.mobileSegmentTransferHolder,
                             watch: self.watchUploaderHolder,
                             share: self.shareTransferHolder,
-                            calendar: self.calendarTransferHolder
+                            calendar: self.calendarTransferHolder,
+                            obsidian: self.obsidianTransferHolder
                         )
                     },
                     inFlight: {
@@ -1178,6 +1286,14 @@ struct SolstoneSwiftApp: App {
             }
             await calendarTransferHolder.refreshNoteCounts()
         }
+        // An obsidian file reaching the journal leaves room for next files.
+        await self.transferEngine.registerDeliveredHook(sourceKey: ObsidianTransfer.sourceKey) { [obsidianTransferHolder = self.obsidianTransferHolder] _, _ in
+            await obsidianTransferHolder.refreshNoteCounts()
+        }
+        // An obsidian file the journal turned away leaves the queue too.
+        await self.transferEngine.registerAttentionHook(sourceKey: ObsidianTransfer.sourceKey) { [obsidianTransferHolder = self.obsidianTransferHolder] _ in
+            await obsidianTransferHolder.refreshNoteCounts()
+        }
 
         let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         await Self.bootstrapTransfer(
@@ -1221,6 +1337,9 @@ struct SolstoneSwiftApp: App {
                 // It reads nothing unless the owner has set it up.
                 await self.calendarSource.launch()
                 await self.calendarTransferHolder.refreshNoteCounts()
+                self.obsidianSource.setAppActive(self.scenePhase == .active)
+                await self.obsidianSource.launch()
+                await self.obsidianTransferHolder.refreshNoteCounts()
             },
             enableDispatch: {
                 await self.transferEngine.enableDispatch()

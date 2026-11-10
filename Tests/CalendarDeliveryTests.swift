@@ -152,27 +152,27 @@ nonisolated final class CalendarDeliveryTests: XCTestCase {
         )
         let listed = CalendarDeliveryRig.endpoint(credential: "journal-a")
         let other = CalendarDeliveryRig.endpoint(credential: "journal-b")
-        let otherSource = await gate.admits(sourceKey: "watch-audio", endpoint: other)
+        let otherSource = await gate.admits(manifest: CalendarDeliveryRig.manifest(sourceKey: "watch-audio"), endpoint: other)
         XCTAssertTrue(otherSource, "other sources are never held")
-        let beforeRead = await gate.admits(sourceKey: "calendar", endpoint: listed)
+        let beforeRead = await gate.admits(manifest: CalendarDeliveryRig.manifest(sourceKey: "calendar"), endpoint: listed)
         XCTAssertFalse(beforeRead, "before the first read")
         for _ in 0..<50 {
             if await gate.currentCapability == .listed { break }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        let afterRead = await gate.admits(sourceKey: "calendar", endpoint: listed)
+        let afterRead = await gate.admits(manifest: CalendarDeliveryRig.manifest(sourceKey: "calendar"), endpoint: listed)
         XCTAssertTrue(afterRead)
-        let repaired = await gate.admits(sourceKey: "calendar", endpoint: other)
+        let repaired = await gate.admits(manifest: CalendarDeliveryRig.manifest(sourceKey: "calendar"), endpoint: other)
         XCTAssertFalse(repaired, "a different pairing starts again from not known")
         for _ in 0..<50 {
             if await gate.currentCapability == .notListed { break }
             try? await Task.sleep(for: .milliseconds(10))
         }
-        let repairedAfterRead = await gate.admits(sourceKey: "calendar", endpoint: other)
+        let repairedAfterRead = await gate.admits(manifest: CalendarDeliveryRig.manifest(sourceKey: "calendar"), endpoint: other)
         XCTAssertFalse(repairedAfterRead)
         let capability = await gate.currentCapability
         XCTAssertEqual(capability, .notListed)
-        let backAgain = await gate.admits(sourceKey: "calendar", endpoint: listed)
+        let backAgain = await gate.admits(manifest: CalendarDeliveryRig.manifest(sourceKey: "calendar"), endpoint: listed)
         XCTAssertFalse(backAgain, "what an earlier connection said is not trusted")
     }
 
@@ -182,7 +182,7 @@ nonisolated final class CalendarDeliveryTests: XCTestCase {
         let gate = CalendarCapabilityGate(read: { _ in report.value }, retryDelay: .milliseconds(300))
         let endpoint = CalendarDeliveryRig.endpoint(credential: "journal-a")
         for _ in 0..<5 {
-            _ = await gate.admits(sourceKey: "calendar", endpoint: endpoint)
+            _ = await gate.admits(manifest: CalendarDeliveryRig.manifest(sourceKey: "calendar"), endpoint: endpoint)
             try await Task.sleep(for: .milliseconds(20))
         }
         let readsBeforeRetry = await gate.readCount
@@ -192,14 +192,14 @@ nonisolated final class CalendarDeliveryTests: XCTestCase {
 
         report.set(.read(version: "2.2.0", capabilities: ["calendar_notes"]))
         try await Task.sleep(for: .milliseconds(400))
-        _ = await gate.admits(sourceKey: "calendar", endpoint: endpoint)
+        _ = await gate.admits(manifest: CalendarDeliveryRig.manifest(sourceKey: "calendar"), endpoint: endpoint)
         for _ in 0..<50 {
             if await gate.currentCapability == .listed { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         let reads = await gate.readCount
         XCTAssertEqual(reads, 2)
-        let admitted = await gate.admits(sourceKey: "calendar", endpoint: endpoint)
+        let admitted = await gate.admits(manifest: CalendarDeliveryRig.manifest(sourceKey: "calendar"), endpoint: endpoint)
         XCTAssertTrue(admitted)
     }
 
@@ -494,6 +494,17 @@ final class CalendarDeliveryRig {
         )
     }
 
+    nonisolated static func manifest(sourceKey: String) -> TransferManifest {
+        TransferManifest(
+            itemID: UUID(),
+            source: sourceKey,
+            createdAt: Date(),
+            priority: TransferPriorityInputs(basePriority: .low, sourceKey: sourceKey),
+            payloadParts: [],
+            endpoint: TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/app/devices/ingest")
+        )
+    }
+
     convenience init(capabilities: [String]) async throws {
         try await self.init(report: .read(version: "2.1.0", capabilities: capabilities))
     }
@@ -589,7 +600,7 @@ final class CalendarDeliveryRig {
     /// Reads the capability for the current endpoint once, as a waiting calendar file would.
     func prime() async -> Bool {
         let endpoint = Self.endpoint(credential: "journal-a")
-        _ = await self.gate.admits(sourceKey: "calendar", endpoint: endpoint)
+        _ = await self.gate.admits(manifest: Self.manifest(sourceKey: "calendar"), endpoint: endpoint)
         for _ in 0..<100 {
             if await self.gate.currentCapability != .unknown { break }
             try? await Task.sleep(for: .milliseconds(10))

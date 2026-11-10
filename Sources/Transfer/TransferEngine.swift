@@ -14,6 +14,7 @@ nonisolated enum TransferBodyPayload: Sendable {
 
 typealias TransferBodyBuilder = @Sendable (TransferStoredItem, TransferSpool) async throws -> TransferBodyPayload
 typealias TransferDeliveredHook = @Sendable (TransferManifest, TransferSuccessKind) async throws -> Void
+typealias ObsidianAcknowledgementCommit = @Sendable (TransferManifest, TransferSuccessKind, TransferResolvedEndpoint) async throws -> Void
 typealias TransferAttentionHook = @Sendable (TransferManifest) async -> Void
 
 nonisolated private struct TransferDispatchLogState: Equatable, Sendable {
@@ -60,7 +61,7 @@ nonisolated enum TransferPriorityBand: Int, CaseIterable, Sendable {
 /// just waits: the engine is not held, so every other source's items keep moving. The gate is
 /// asked when an item is chosen and again just before it is sent.
 nonisolated protocol TransferSourceGate: Sendable {
-    func admits(sourceKey: String, endpoint: TransferResolvedEndpoint) async -> Bool
+    func admits(manifest: TransferManifest, endpoint: TransferResolvedEndpoint) async -> Bool
 }
 
 nonisolated enum TransferEnqueueIfAbsentOutcome: Equatable, Sendable {
@@ -271,6 +272,7 @@ actor TransferEngine {
     private var sourceStates: [String: TransferSourceRuntimeState] = [:]
     private var aggregateByteWindow = TransferByteWindow()
     private var deliveredHooks: [String: TransferDeliveredHook] = [:]
+    private var obsidianAcknowledgementCommit: ObsidianAcknowledgementCommit?
     private var attentionHooks: [String: TransferAttentionHook] = [:]
     private var workPassScheduled = false
     private var workPassRunning = false
@@ -827,6 +829,10 @@ actor TransferEngine {
     /// not be a producer's only durable delivery signal. A throwing or
     /// cancelled hook is swallowed, emits a `.hookFailed` diagnostic, and never
     /// mutates engine state.
+    func registerObsidianAcknowledgementCommit(_ hook: @escaping ObsidianAcknowledgementCommit) {
+        self.obsidianAcknowledgementCommit = hook
+    }
+
     func registerDeliveredHook(sourceKey: String, hook: @escaping TransferDeliveredHook) {
         self.deliveredHooks[sourceKey] = hook
     }
@@ -1162,14 +1168,48 @@ actor TransferEngine {
     /// leaving the queue) and earlier returns from attention. Counting only the
     /// second would let one item that keeps failing in place hold its source
     /// indefinitely.
+    private func laneKey(for manifest: TransferManifest) -> String {
+        if manifest.sourceKey == "obsidian" {
+            if case .object(let fields) = manifest.meta {
+                if case .string(let id) = fields["vaultID"] { return "obsidian:\(id)" }
+                if case .string(let id) = fields["vault_id"] { return "obsidian:\(id)" }
+                if case .string(let id) = fields["vaultId"] { return "obsidian:\(id)" }
+            }
+            return "obsidian:"
+        }
+        return manifest.sourceKey
+    }
+
+    private func isLaneHeld(_ item: TransferStoredItem) -> Bool {
+        if case .object(let fields) = item.manifest.meta,
+           case .bool(let held) = fields["laneHold"] {
+            return held
+        }
+        return false
+    }
+
     private func orderedCandidates(wallNow: Date) -> [TransferStoredItem] {
         let waiting = self.queuedItems.values
-            .filter { !self.inFlight.contains($0.manifest.itemID) }
             .filter { !self.droppedItemIDs.contains($0.manifest.itemID) }
             .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
         var candidates: [TransferStoredItem] = []
-        for items in Dictionary(grouping: waiting, by: { $0.manifest.sourceKey }).values {
-            for item in items.sorted(by: self.itemSort) {
+        for lane in Dictionary(grouping: waiting, by: { self.laneKey(for: $0.manifest) }).values {
+            let ordered = lane.sorted(by: self.itemSort)
+            if ordered.first?.manifest.sourceKey == "obsidian" {
+                // A vault is one serial lane, including in-flight and backed-off
+                // windows. Attention has already been set aside from this queue.
+                guard let first = ordered.first,
+                      !self.inFlight.contains(first.manifest.itemID),
+                      TransferClockMath.retryEligible(
+                        nextAttemptAt: first.manifest.nextAttemptAt,
+                        wallNow: wallNow,
+                        maxDelay: self.pacer.defaults.maxDelay
+                      )
+                else { continue }
+                candidates.append(first)
+                continue
+            }
+            for item in ordered where !self.inFlight.contains(item.manifest.itemID) {
                 if TransferClockMath.retryEligible(
                     nextAttemptAt: item.manifest.nextAttemptAt,
                     wallNow: wallNow,
@@ -1178,7 +1218,7 @@ actor TransferEngine {
                     candidates.append(item)
                     break
                 }
-                if self.orderedFailureCount(for: item) < Self.orderedRetryLimit {
+                if self.isLaneHeld(item) || self.orderedFailureCount(for: item) < Self.orderedRetryLimit {
                     break
                 }
             }
@@ -1197,7 +1237,7 @@ actor TransferEngine {
             let bandItems = candidates
                 .filter { self.band(for: $0.manifest, wallNow: wallNow) == band }
             guard !bandItems.isEmpty else { continue }
-            let grouped = Dictionary(grouping: bandItems, by: { $0.manifest.sourceKey })
+            let grouped = Dictionary(grouping: bandItems, by: { self.laneKey(for: $0.manifest) })
             let sources = grouped.keys.sorted()
             let start = self.sourceCursorByBand[band, default: 0] % max(sources.count, 1)
             for offset in 0..<sources.count {
@@ -1213,7 +1253,7 @@ actor TransferEngine {
                 case .available(let endpoint):
                     self.markEndpointAvailable()
                     if let sourceGate = self.sourceGate,
-                       !(await sourceGate.admits(sourceKey: item.manifest.sourceKey, endpoint: endpoint))
+                       !(await sourceGate.admits(manifest: item.manifest, endpoint: endpoint))
                     {
                         continue
                     }
@@ -1311,7 +1351,7 @@ actor TransferEngine {
         // Asked again at the last moment: an item chosen for one journal never goes to another
         // that the gate has not admitted it for. It waits, and the engine is not held.
         if let sourceGate = self.sourceGate,
-           !(await sourceGate.admits(sourceKey: item.manifest.sourceKey, endpoint: endpoint))
+           !(await sourceGate.admits(manifest: item.manifest, endpoint: endpoint))
         {
             // Not an attempt: the item was never offered to the journal.
             if attempt > 1 {
@@ -1366,7 +1406,17 @@ actor TransferEngine {
             return
         }
 
-        let outcome = TransferHTTPClassifier.classify(result: result, endpointPhase: phase)
+        var outcome = TransferHTTPClassifier.classify(result: result, endpointPhase: phase)
+        if item.manifest.sourceKey == "obsidian" {
+            let refusal = 400..<500 ~= (result.statusCode ?? 0) ? (try? JSONSerialization.jsonObject(with: result.data) as? [String: Any]) : nil
+            let reasonCode = refusal?["reason_code"] as? String
+
+            if result.statusCode == 409 || reasonCode == "obsidian_note_ahead" {
+                outcome = .transientRetry(.httpServerError(statusCode: 409))
+            } else if reasonCode == "obsidian_note_invalid" {
+                // Stays attention
+            }
+        }
         switch outcome {
         case .terminalSuccess(let successKind):
             // `segment_removed` carries no receipt; the answer itself confirms the segment.
@@ -1425,6 +1475,28 @@ actor TransferEngine {
                 }
             }
 
+            if item.manifest.sourceKey == ObsidianTransfer.sourceKey {
+                do {
+                    guard let commit = self.obsidianAcknowledgementCommit else { throw CocoaError(.fileWriteUnknown) }
+                    try await commit(item.manifest, successKind, endpoint)
+                } catch {
+                    // The HTTP acknowledgement is real, but the producer must
+                    // durably keep its progress before we retire these bytes.
+                    self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+                    let held = item.manifest.replacingNextAttemptAt(self.clock.wallNow().addingTimeInterval(60))
+                    self.queuedItems[itemID] = (try? self.spool.updateQueuedManifest(held, directoryURL: item.directoryURL))
+                        ?? TransferStoredItem(manifest: held, directoryURL: item.directoryURL)
+                    self.scheduleStatusUpdate(summary: "retrying")
+                    self.scheduleWork()
+                    return
+                }
+                guard await self.endpointResolver.isCurrent(endpoint), self.queuedItems[itemID] != nil else {
+                    self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+                    self.scheduleWork()
+                    return
+                }
+            }
+
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             self.queuedItems.removeValue(forKey: itemID)
             self.counters.queuedCount -= 1
@@ -1471,8 +1543,9 @@ actor TransferEngine {
                 lastOutcome: reason
             ))
             let nextAttemptAt = self.clock.wallNow().addingTimeInterval(decision.delay)
-            let updatedManifest = item.manifest.replacingNextAttemptAt(nextAttemptAt)
-            var retryItem = item
+            let currentManifest = self.queuedItems[itemID]?.manifest ?? item.manifest
+            let updatedManifest = currentManifest.replacingNextAttemptAt(nextAttemptAt)
+            var retryItem = self.queuedItems[itemID] ?? item
             var retryDetail = reason.retryDetail
             do {
                 let updated = try self.spool.updateQueuedManifest(updatedManifest, directoryURL: item.directoryURL)
@@ -1562,9 +1635,19 @@ actor TransferEngine {
         }
 
         guard !data.isEmpty,
-              let response = try? JSONDecoder().decode(ObserverIngestReceiptResponse.self, from: data),
-              let descriptors = response.fileDescriptors
+              let response = try? JSONDecoder().decode(ObserverIngestReceiptResponse.self, from: data)
         else {
+            return "receipt_absent"
+        }
+
+        if item.manifest.sourceKey == "obsidian" {
+            if response.status == "ok" || response.status == "duplicate" || response.status == "collision" {
+                return nil
+            }
+            return "receipt_status_\(response.status)"
+        }
+
+        guard let descriptors = response.fileDescriptors else {
             return "receipt_absent"
         }
 
@@ -1655,8 +1738,9 @@ actor TransferEngine {
                 lastOutcome: transientOutcome
             ))
             let nextAttemptAt = self.clock.wallNow().addingTimeInterval(decision.delay)
-            let updatedManifest = item.manifest.replacingNextAttemptAt(nextAttemptAt)
-            var retryItem = item
+            let currentManifest = self.queuedItems[itemID]?.manifest ?? item.manifest
+            let updatedManifest = currentManifest.replacingNextAttemptAt(nextAttemptAt)
+            var retryItem = self.queuedItems[itemID] ?? item
             var retryDetail = "retry persistence failed"
             do {
                 let updated = try self.spool.updateQueuedManifest(updatedManifest, directoryURL: item.directoryURL)

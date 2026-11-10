@@ -7,13 +7,22 @@ import os
 
 actor SafariBrowserSourceGate: TransferSourceGate {
     let calendar: CalendarCapabilityGate
-    init(calendar: CalendarCapabilityGate) { self.calendar = calendar }
-    func admits(sourceKey: String, endpoint: TransferResolvedEndpoint) async -> Bool {
-        if sourceKey == "browser" {
+    let obsidian: (any TransferSourceGate)?
+
+    init(calendar: CalendarCapabilityGate, obsidian: (any TransferSourceGate)? = nil) {
+        self.calendar = calendar
+        self.obsidian = obsidian
+    }
+
+    func admits(manifest: TransferManifest, endpoint: TransferResolvedEndpoint) async -> Bool {
+        if manifest.sourceKey == "browser" {
             do { return try SafariBrowserStore().admitsDispatch() }
             catch { return false }
         }
-        return await self.calendar.admits(sourceKey: sourceKey, endpoint: endpoint)
+        if let obsidian, manifest.sourceKey == "obsidian" {
+            return await obsidian.admits(manifest: manifest, endpoint: endpoint)
+        }
+        return await self.calendar.admits(manifest: manifest, endpoint: endpoint)
     }
 }
 

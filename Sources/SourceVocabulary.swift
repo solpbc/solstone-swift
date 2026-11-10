@@ -243,6 +243,7 @@ nonisolated enum SourceVocabulary {
     static let addMoreSuggestionsBody = "suggest other sources you'd like to have here"
     static let importTitle = "import"
     static let calendarTitle = "calendar"
+    static let obsidianTitle = "Obsidian"
     // `anything` is not an honest category: the import surface names photos and files
     // and nothing else, so the tile names those two and stops.
     static let importSubline = "photos and files"
@@ -842,6 +843,8 @@ extension SourceVocabulary {
             Self.importTitle
         case .calendar:
             Self.calendarTitle
+        case .obsidian:
+            Self.obsidianTitle
         }
     }
 }

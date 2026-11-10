@@ -10,6 +10,7 @@ nonisolated enum SourceIntakeSource: String, Equatable, Sendable, CaseIterable {
     case calendar
     case safari
     case watch
+    case obsidian
     case imports
 }
 
@@ -19,6 +20,7 @@ nonisolated enum SourceIntakeKind: Equatable, Sendable {
     case events
     case pages
     case items
+    case notes
 }
 
 nonisolated enum SourceIntakePhrases {
@@ -53,6 +55,8 @@ nonisolated enum SourceIntakeFormat {
             return self.count(lane.total, singular: "page", plural: "pages", locale: locale)
         case .items:
             return self.count(lane.total, singular: "item", plural: "items", locale: locale)
+        case .notes:
+            return self.count(lane.total, singular: "note", plural: "notes", locale: locale)
         }
     }
 
@@ -157,6 +161,7 @@ nonisolated extension SourceIntakeSource {
         case .location: .distance
         case .calendar: .events
         case .safari: .pages
+        case .obsidian: .notes
         case .imports: .items
         }
     }
@@ -171,6 +176,7 @@ nonisolated extension SourceIntakeSnapshot {
         case .calendar: self.calendar
         case .safari: self.safari
         case .watch: self.watch
+        case .obsidian: self.obsidian
         case .imports: self.imports
         }
     }
@@ -189,6 +195,7 @@ nonisolated enum SourceIntakeSample {
             calendar: SourceIntakeLane(total: 1, last: now.addingTimeInterval(-86_400 - 3_600)),
             safari: SourceIntakeLane(total: 12, last: now.addingTimeInterval(-30)),
             watch: SourceIntakeLane(total: 40 * 60, last: now.addingTimeInterval(-50)),
+            obsidian: SourceIntakeLane(total: 0, last: nil),
             imports: SourceIntakeLane(total: 3, last: now.addingTimeInterval(-120))
         )
     }
