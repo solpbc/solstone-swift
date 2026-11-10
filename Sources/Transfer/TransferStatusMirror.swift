@@ -87,6 +87,7 @@ nonisolated struct TransferStatusSnapshot: Codable, Equatable, Sendable {
     var lastUpdatedAt: Date
     var sources: [String: TransferSourceStatusSnapshot]
     var aggregateBytesPerSecond: Double
+    var heldItemIDs: Set<UUID> = []
 }
 
 @MainActor
@@ -107,6 +108,7 @@ final class TransferStatusMirror {
     private(set) var sources: [String: TransferSourceStatusSnapshot] = [:]
     private(set) var aggregateBytesPerSecond = 0.0
     private(set) var applyCount = 0
+    private(set) var heldItemIDs: Set<UUID> = []
 
     func apply(snapshot: TransferStatusSnapshot) {
         self.queuedCount = snapshot.counters.queuedCount
@@ -123,6 +125,7 @@ final class TransferStatusMirror {
         self.lastUpdatedAt = snapshot.lastUpdatedAt
         self.sources = snapshot.sources
         self.aggregateBytesPerSecond = snapshot.aggregateBytesPerSecond
+        self.heldItemIDs = snapshot.heldItemIDs
         self.applyCount += 1
     }
 }

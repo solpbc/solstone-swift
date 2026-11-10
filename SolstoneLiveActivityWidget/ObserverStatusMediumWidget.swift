@@ -13,7 +13,7 @@ struct ObserverStatusMediumWidget: Widget {
         }
         .supportedFamilies([.systemMedium])
         .configurationDisplayName("your sources")
-        .description("every source, and how much is waiting to sync.")
+        .description("audio, location, screen and watch, with how much is waiting to sync.")
     }
 }
 

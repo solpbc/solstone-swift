@@ -11,6 +11,7 @@ private let onThisPhoneUITestSeedLog = Logger(subsystem: "app.solstone.swift", c
 @MainActor
 enum OnThisPhoneUITestSeeder {
     private static let defaultSeedFlag = "--ui-test-seed-on-this-phone"
+    private static let waitingImportSeedFlag = "--ui-test-seed-waiting-import"
     private static let agedBacklogSeedFlag = "--ui-test-seed-aged-backlog"
     private static let audioMagicSeedFlag = "--ui-test-seed-audio-magic"
     private static let audioMagicDurationPrefix = "--ui-test-seed-audio-magic-duration="
@@ -40,6 +41,7 @@ enum OnThisPhoneUITestSeeder {
         }
 
         let seedDefault = arguments.contains(Self.defaultSeedFlag)
+        let seedWaitingImport = arguments.contains(Self.waitingImportSeedFlag)
         let seedAgedBacklog = arguments.contains(Self.agedBacklogSeedFlag)
         let seedAudioMagic = arguments.contains(Self.audioMagicSeedFlag)
         let seedLargeBacklog = arguments.contains(Self.largeBacklogSeedFlag)
@@ -48,18 +50,27 @@ enum OnThisPhoneUITestSeeder {
         let seedMixedBacklog = !mixedBacklogSources.isEmpty
         let resetOnThisPhone = arguments.contains(Self.resetOnThisPhoneFlag)
         let seedJournalLoss = arguments.contains(Self.journalLossSeedFlag)
-        guard resetOnThisPhone || seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
+        guard resetOnThisPhone || seedDefault || seedWaitingImport || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
             || seedMixedBacklog || seedJournalLoss else { return }
 
         do {
             let roots = try Self.roots(fileManager: fileManager)
             try Self.reset(roots: roots, fileManager: fileManager)
-            guard seedDefault || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
+            guard seedDefault || seedWaitingImport || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
                 || seedMixedBacklog else {
                 onThisPhoneUITestSeedLog.info("on-this-phone ui-test reset complete")
                 return
             }
-            if seedAudioMagic {
+            if seedWaitingImport {
+                let store = ShareImportStore(cacheRootURL: roots.importQueue, fileManager: fileManager)
+                let handle = try store.beginEnqueue()
+                let payload = Data("waiting import".utf8)
+                try payload.write(to: handle.stagingRawURL, options: .atomic)
+                _ = try store.commitEnqueue(handle: handle,
+                    delivery: ShareFileDelivery(byteCount: Int64(payload.count), itemTime: Date(),
+                        basis: "file", contentType: "text/plain", filename: "waiting.txt"),
+                    source: "quick", targetJournal: "", originApp: nil)
+            } else if seedAudioMagic {
                 let duration = Self.audioMagicDuration(arguments: arguments)
                 var audioData: Data?
                 #if targetEnvironment(simulator)

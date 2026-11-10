@@ -5,29 +5,29 @@ import SwiftUI
 import UIKit
 
 nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
-    case audio
-    case location
-    case screencast
-    case watch
-    case calendar
+    case audio, location, screencast, watch, calendar, safari, `import`
 
-    var route: SourceRoute {
+    var route: SourceRoute? {
         switch self {
         case .audio: .audio
         case .location: .location
         case .screencast: .screencast
         case .watch: .watch
         case .calendar: .calendar
+        case .safari: .safari
+        case .import: nil
         }
     }
 
-    var kind: SourceKind {
+    var kind: SourceKind? {
         switch self {
         case .audio: .observer
         case .location: .location
         case .screencast: .screencast
         case .watch: .watch
         case .calendar: .calendar
+        case .safari: .safari
+        case .import: nil
         }
     }
 
@@ -38,6 +38,8 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .screencast: SourceVocabulary.screencastDisplayName
         case .watch: "watch"
         case .calendar: CalendarVocabulary.label
+        case .safari: SafariVocabulary.label
+        case .import: SourceVocabulary.importTitle
         }
     }
 }
@@ -46,9 +48,12 @@ nonisolated struct StatusPaneWaitingRow: Equatable, Sendable {
     let source: StatusPaneWaitingSource
     let count: Int
 
-    var route: SourceRoute { self.source.route }
-    var kind: SourceKind { self.source.kind }
+    var route: SourceRoute? { self.source.route }
+    var kind: SourceKind? { self.source.kind }
     var name: String { self.source.name }
+    var id: String { self.route?.id ?? "import" }
+    var destination: ShellDestination { self.route.map { .source($0) } ?? .import }
+    var glyph: String { self.kind?.glyph ?? "square.and.arrow.down" }
 }
 
 nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
@@ -61,7 +66,9 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
         locationCount: Int,
         screencastCount: Int,
         watchCount: Int,
-        calendarCount: Int = 0
+        calendarCount: Int = 0,
+        safariCount: Int = 0,
+        importCount: Int = 0
     ) -> Self {
         let candidates = [
             StatusPaneWaitingRow(source: .audio, count: audioCount),
@@ -69,9 +76,11 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
             StatusPaneWaitingRow(source: .screencast, count: screencastCount),
             StatusPaneWaitingRow(source: .watch, count: watchCount),
             StatusPaneWaitingRow(source: .calendar, count: calendarCount),
+            StatusPaneWaitingRow(source: .safari, count: safariCount),
+            StatusPaneWaitingRow(source: .import, count: importCount),
         ]
         return Self(
-            total: mobileAggregateCount + watchCount + calendarCount,
+            total: mobileAggregateCount + watchCount + calendarCount + safariCount + importCount,
             rows: candidates.filter { $0.count > 0 }
         )
     }
@@ -152,7 +161,7 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
         }
     }
 
-    let lead: Lead
+    var lead: Lead
     let subline: String?
     let region: Region
     let showsStandingSyncFootnote: Bool
@@ -179,7 +188,8 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
         pillState: HomeStatusPillState,
         waitingTotal: Int,
         showsConnectionDetails: Bool,
-        gapDayLine: String? = nil
+        gapDayLine: String? = nil,
+        waitingIsKnown: Bool = true
     ) -> StatusPaneLead {
         var resolved = Self.resolveLead(
             pillState: pillState,
@@ -187,6 +197,14 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
             showsConnectionDetails: showsConnectionDetails,
             gapDayLine: gapDayLine
         )
+        if !waitingIsKnown {
+            if case .count(_, _, let statusLine) = resolved.lead {
+                resolved.lead = .headline(statusLine)
+            }
+            if pillState == .caughtUp || pillState == .syncing {
+                resolved.lead = .headline(waitingTotal > 0 ? SourceVocabulary.waitingToSync : SourceVocabulary.connectedLabel)
+            }
+        }
         resolved.showsJournalGapNotice = gapDayLine != nil && pillState != .journalGap
         resolved.journalGapDayLine = gapDayLine
         return resolved
@@ -302,6 +320,7 @@ struct StatusPane: View {
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
+    @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(LocationManager.self) private var locationManager
     @Environment(PairFlowRouter.self) private var pairFlowRouter
     @Environment(JournalSendRelease.self) private var journalSendRelease
@@ -372,7 +391,8 @@ struct StatusPane: View {
             pillState: self.pillState,
             waitingTotal: self.waitingTotal,
             showsConnectionDetails: self.showsConnectionDetails,
-            gapDayLine: self.displayedJournalGap.dayLine
+            gapDayLine: self.displayedJournalGap.dayLine,
+            waitingIsKnown: self.safariSource?.waitingIsKnown != false
         )
     }
 
@@ -467,10 +487,10 @@ struct StatusPane: View {
     private var whatIsWaitingSection: some View {
         if !self.waitingRows.isEmpty {
             Section {
-                ForEach(self.waitingRows, id: \.route.id) { row in
-                    NavigationLink(value: ShellDestination.source(row.route)) {
+                ForEach(self.waitingRows, id: \.id) { row in
+                    NavigationLink(value: row.destination) {
                         HStack(spacing: 14) {
-                            Image(systemName: row.kind.glyph)
+                            Image(systemName: row.glyph)
                                 .font(.system(size: 17, weight: .medium))
                                 .foregroundStyle(Color.solOrangeAdaptive)
                                 .frame(width: 26)
@@ -483,7 +503,7 @@ struct StatusPane: View {
                         .accessibilityLabel(row.name)
                         .accessibilityValue(SourceVocabulary.waitingToSync)
                     }
-                    .accessibilityIdentifier("shell.pane.status.waiting.\(row.route.id)")
+                    .accessibilityIdentifier("shell.pane.status.waiting.\(row.id)")
                     .hoverEffect(.highlight)
                 }
             } header: {
@@ -530,7 +550,9 @@ struct StatusPane: View {
             locationCount: location.pendingCount + location.failedCount,
             screencastCount: screencast.pendingCount + screencast.failedCount,
             watchCount: self.watchUploaderHolder.pendingCount + self.watchUploaderHolder.failedCount,
-            calendarCount: (self.calendarTransferHolder?.pendingCount ?? 0) + (self.calendarTransferHolder?.failedCount ?? 0)
+            calendarCount: (self.calendarTransferHolder?.pendingCount ?? 0) + (self.calendarTransferHolder?.failedCount ?? 0),
+            safariCount: self.safariSource?.waitingCount ?? 0,
+            importCount: self.shareTransferHolder.pendingCount + self.shareTransferHolder.failedCount
         )
     }
 

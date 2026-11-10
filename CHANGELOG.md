@@ -12,6 +12,9 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
+- the sync status now includes Safari pages and imports still waiting on this device.
+- opening location for the first time shows its setup choices.
+- the medium widget's description names the sources it shows.
 - buttons across the app are easier to read: dark text on the orange ones.
 
 ## [2.0.11 (154)] - 2026-11-08

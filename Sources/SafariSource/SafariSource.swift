@@ -159,6 +159,7 @@ final class SafariSourceModel {
     private(set) var snapshot: SafariBrowserSnapshot?
     /// `nil` where the system can't say.
     private(set) var extensionOn: Bool?
+    private var transferMirror: TransferStatusMirror?
     @ObservationIgnored private let load: () throws -> SafariBrowserSnapshot
     @ObservationIgnored private let readExtensionOn: () async -> Bool?
     @ObservationIgnored private let openSettings: () async -> Bool
@@ -171,6 +172,18 @@ final class SafariSourceModel {
         self.openSettings = openSettings
         self.refresh()
     }
+
+    func bindTransferMirror(_ mirror: TransferStatusMirror) { self.transferMirror = mirror }
+
+    /// The same period may be visible in both stores during adoption. Count its identity once.
+    var waitingCount: Int {
+        let queued = self.transferMirror?.sources["browser"]
+        let local = self.snapshot?.pendingPeriodIDs ?? []
+        return (queued?.queuedCount ?? 0) + (queued?.attentionCount ?? 0)
+            + local.subtracting(self.transferMirror?.heldItemIDs ?? []).count
+    }
+
+    var waitingIsKnown: Bool { self.snapshot != nil }
 
     func refreshExtensionState() async {
         let next = await self.readExtensionOn()

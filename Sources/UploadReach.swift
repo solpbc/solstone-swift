@@ -8,11 +8,13 @@ func uploadTotals(
     mobileSegment: MobileSegmentTransferHolder,
     watch: WatchUploaderHolder,
     share: ShareTransferHolder,
-    calendar: CalendarTransferHolder? = nil
+    calendar: CalendarTransferHolder? = nil,
+    safari: SafariSourceModel? = nil
 ) -> (failed: Int, pending: Int) {
     (
         failed: mobileSegment.failedCount + watch.failedCount + share.failedCount + (calendar?.failedCount ?? 0),
         pending: mobileSegment.pendingCount + watch.pendingCount + share.pendingCount + (calendar?.pendingCount ?? 0)
+            + (safari?.waitingCount ?? 0)
     )
 }
 

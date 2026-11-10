@@ -95,6 +95,21 @@ nonisolated final class AppGroupMirrorTests: XCTestCase {
     }
 
     @MainActor
+    func testBacklogReadabilityChangesPersistWithTheSameZeroCount() throws {
+        let mirror = self.makeMirror()
+        for known in [false, true] {
+            self.assertSuccess(mirror.updateSessionAndSources(
+                pairing: self.pairedPairing, microphonePermission: .granted,
+                session: .notLive, sourceStates: [:], backlogCount: 0,
+                awaitingMarkConfirmation: false, journalGap: false, backlogKnown: known
+            ))
+            let stored = try XCTUnwrap(mirror.snapshot())
+            XCTAssertEqual(stored.backlogCount, 0)
+            XCTAssertEqual(stored.backlogKnown, known)
+        }
+    }
+
+    @MainActor
     func testFreshSnapshotReturnsValuesAndWritesBytesAtContainerPath() throws {
         let mirror = self.makeMirror()
         let sourceStates: [SourceKind: SourceState] = [.observer: .active, .location: .off]

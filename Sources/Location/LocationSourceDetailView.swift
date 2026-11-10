@@ -4,6 +4,10 @@
 import SwiftUI
 import UIKit
 
+nonisolated func locationShowsEnrollment(state: SourceState, hasAttention: Bool) -> Bool {
+    (state == .off || state == .readyToSetUp) && !hasAttention
+}
+
 struct LocationSourceDetailView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(LocationManager.self) private var locationManager
@@ -17,7 +21,7 @@ struct LocationSourceDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if self.locationManager.sourceState == .off {
+                if locationShowsEnrollment(state: self.locationManager.sourceState, hasAttention: self.locationManager.sourceAttention != nil) {
                     LocationEnrollmentContent(
                         manager: self.locationManager,
                         isJournalPaired: self.appConfig.isPaired
@@ -336,6 +340,7 @@ private struct LocationEnrollmentContent: View {
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .accessibilityHint("Starts adding location updates to your journal.")
+                    .accessibilityIdentifier("location.enrollment.turnOn")
                 }
             }
         }

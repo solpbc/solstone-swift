@@ -420,6 +420,7 @@ struct SolstoneSwiftApp: App {
 #else
         let safariSource = SafariSourceModel.isBundled ? SafariSourceModel() : nil
 #endif
+        safariSource?.bindTransferMirror(transferStatusMirror)
         let mobileSegmentUploader = MobileSegmentUploader(
             transferEngine: transferEngine,
             store: mobileSegmentStore,
@@ -545,7 +546,8 @@ struct SolstoneSwiftApp: App {
                 mobileSegment: mobileSegmentTransferHolder,
                 watch: watchUploaderHolder,
                 share: shareTransferHolder,
-                calendar: calendarTransferHolder
+                calendar: calendarTransferHolder,
+                safari: safariSource
             )
             return ConnectionSyncInputs(
                 tunnelState: tunnel.state,
@@ -566,14 +568,7 @@ struct SolstoneSwiftApp: App {
                 backlogPending: totals.pending,
                 backlogFailed: totals.failed,
                 lastHeardAt: tunnel.lastHeardAt,
-                captureBacklog: {
-                    let capture = captureUploadTotals(
-                        mobileSegment: mobileSegmentTransferHolder,
-                        watch: watchUploaderHolder,
-                        calendar: calendarTransferHolder
-                    )
-                    return capture.pending + capture.failed
-                }()
+                captureBacklog: totals.pending + totals.failed
             )
         }
         let locationManager = LocationManager(mobileSegmentEngine: mobileSegmentEngine)
@@ -883,6 +878,7 @@ struct SolstoneSwiftApp: App {
                         if self.safariTransferReady {
                             self.appConfig.syncSafariAuthority()
                             await SafariBrowserDelivery.drain(engine: self.transferEngine)
+                            self.safariSource?.refresh()
                         }
                         do { try await Task.sleep(for: .seconds(5)) }
                         catch { break }

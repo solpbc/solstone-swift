@@ -6,6 +6,13 @@ import Foundation
 import XCTest
 
 nonisolated final class StatusPaneTests: XCTestCase {
+    func testSafariAndImportHaveTheirOwnRoutesAndJoinTheTotal() {
+        let p = StatusPaneWaitingPresentation.build(mobileAggregateCount: 1, audioCount: 1,
+            locationCount: 1, screencastCount: 1, watchCount: 0, safariCount: 2, importCount: 3)
+        XCTAssertEqual(p.total, 6)
+        XCTAssertEqual(p.rows.suffix(2).map(\.destination), [.source(.safari), .import])
+    }
+
     func testScreenOnlyWaitingPresentationUsesScreenRouteAndAggregateTotal() {
         let presentation = StatusPaneWaitingPresentation.build(
             mobileAggregateCount: 1,

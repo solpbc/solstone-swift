@@ -1013,7 +1013,8 @@ actor TransferEngine {
             lastEventSummary: self.lastEventSummary,
             lastUpdatedAt: now,
             sources: self.sourceSnapshots(now: now),
-            aggregateBytesPerSecond: self.aggregateByteWindow.bytesPerSecond(now: now)
+            aggregateBytesPerSecond: self.aggregateByteWindow.bytesPerSecond(now: now),
+            heldItemIDs: Set(self.queuedItems.keys).union(self.attentionItems.keys)
         )
     }
 

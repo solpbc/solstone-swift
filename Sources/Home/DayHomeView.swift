@@ -89,6 +89,7 @@ private struct AppGroupSnapshotInputs: Equatable {
     let observerState: ObserverState
     let bundle: HomeSourceBundle
     let backlogCount: WatchAwareBacklog
+    let backlogKnown: Bool
     let pairing: AppGroupMirror.PairingSnapshot
     let microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot
     let awaitingMarkConfirmation: Bool
@@ -111,7 +112,8 @@ func writeObserverWidgetSnapshot(
     sourceStates: [SourceKind: SourceState],
     backlogCount: Int,
     awaitingMarkConfirmation: Bool,
-    journalGap: Bool
+    journalGap: Bool,
+    backlogKnown: Bool = true
 ) -> Result<Void, AppGroupMirror.StorageError> {
     mirror.updateSessionAndSources(
         pairing: pairing,
@@ -120,7 +122,8 @@ func writeObserverWidgetSnapshot(
         sourceStates: sourceStates,
         backlogCount: backlogCount,
         awaitingMarkConfirmation: awaitingMarkConfirmation,
-        journalGap: journalGap
+        journalGap: journalGap,
+        backlogKnown: backlogKnown
     )
 }
 
@@ -274,7 +277,8 @@ struct DayHomeView: View {
                 sourceStates: self.appGroupSourceStates,
                 backlogCount: self.backlogCount.knownCount,
                 awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-                journalGap: widgetJournalGap(self.mobileSegmentTransferHolder)
+                journalGap: widgetJournalGap(self.mobileSegmentTransferHolder),
+                backlogKnown: self.safariSource?.waitingIsKnown != false
             )
             self.watchBacklogSnapshotWriter.write(
                 backlog: self.backlogCount,
@@ -301,6 +305,7 @@ private extension DayHomeView {
             observerState: self.observerManager.state,
             bundle: self.bundle,
             backlogCount: self.backlogCount,
+            backlogKnown: self.safariSource?.waitingIsKnown != false,
             pairing: self.appGroupPairing,
             microphonePermission: self.appGroupMicrophonePermission,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
@@ -354,6 +359,7 @@ private extension DayHomeView {
         return .live(mode: session.mode, startedAt: session.startedAt)
     }
 
+    // Only sources supported by the widget picker publish glyph states here.
     var appGroupSourceStates: [SourceKind: SourceState] {
         let sources = [
             self.bundle.audio,
@@ -548,10 +554,12 @@ private extension DayHomeView {
     }
 
     var backlogCount: WatchAwareBacklog {
-        let totals = captureUploadTotals(
+        let totals = uploadTotals(
             mobileSegment: self.mobileSegmentTransferHolder,
             watch: self.watchUploaderHolder,
-            calendar: self.calendarTransferHolder
+            share: self.shareTransferHolder,
+            calendar: self.calendarTransferHolder,
+            safari: self.safariSource
         )
         return .known(totals.pending + totals.failed)
     }
@@ -570,7 +578,7 @@ private extension DayHomeView {
     @ViewBuilder
     private var statusPillButton: some View {
         let button = Button(action: self.onOpenStatus) {
-            HomeStatusPillLabel(state: self.statusPillState, backlog: self.backlogCount)
+            HomeStatusPillLabel(state: self.statusPillState, backlog: self.backlogCount, countIsKnown: self.safariSource?.waitingIsKnown != false)
         }
         .tint(.primary)
         .matchedTransitionSource(id: HomeChromeID.status, in: self.homeChrome)
@@ -578,7 +586,7 @@ private extension DayHomeView {
         .accessibilityValue(self.statusPillAccessibilityValue)
 
         if self.statusPillState == .stalled {
-            let label = self.backlogCount.knownCount > 0
+            let label = self.safariSource?.waitingIsKnown != false && self.backlogCount.knownCount > 0
                 ? "\(self.backlogCount.knownCount) \(SourceVocabulary.waitingToSync)"
                 : self.statusPillState.label(hasBacklog: false)
             button
@@ -588,7 +596,7 @@ private extension DayHomeView {
         } else if self.statusPillState == .awaitingMarkConfirmation {
             button
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(self.statusPillState.accessibilityLabel(backlog: self.backlogCount))
+                .accessibilityLabel(self.statusPillState.accessibilityLabel(backlog: self.safariSource?.waitingIsKnown == false ? .known(0) : self.backlogCount))
                 .accessibilityValue(self.statusPillState.accessibilityValue)
         } else {
             button
@@ -607,6 +615,7 @@ private extension DayHomeView {
     }
 
     var statusPillAccessibilityValue: String {
+        if self.safariSource?.waitingIsKnown == false { return self.statusPillState.label }
         if self.statusPillState == .stalled {
             return self.statusPillState.label(hasBacklog: self.backlogCount.knownCount > 0)
         }

@@ -11,6 +11,72 @@ final class SafariSourceStatusTests: XCTestCase {
             lastContact: contact ? Date() : nil, full: full)
     }
 
+    @MainActor
+    func testWaitingCountsSafariOnceAcrossAdoptionAndReadFailureStaysUnknown() {
+        let first = UUID(), second = UUID()
+        var local: SafariBrowserSnapshot? = self.snapshot()
+        local?.pendingPeriodIDs = [first, second]
+        let source = SafariSourceModel(load: {
+            guard let local else { throw SafariBrowserError.storage }
+            return local
+        })
+        let mirror = TransferStatusMirror()
+        source.bindTransferMirror(mirror)
+        XCTAssertEqual(source.waitingCount, 2)
+        var browser = TransferSourceStatusSnapshot(queuedCount: 1, attentionCount: 0, inFlightCount: 0,
+            deliveredCount: 0, droppedCount: 0, lastDeliveredAt: nil, lastErrorDetail: nil,
+            recentErrorCount: 0, bytesPerSecond: 0)
+        var transfer = TransferStatusSnapshot(counters: .empty, paused: false, policyPaused: false,
+            backoffPendingCount: 0, soonestNextAttemptAt: nil, endpointHeld: false,
+            lastEventSummary: nil, lastUpdatedAt: Date(), sources: ["browser": browser],
+            aggregateBytesPerSecond: 0, heldItemIDs: [first])
+        mirror.apply(snapshot: transfer)
+        XCTAssertEqual(source.waitingCount, 2)
+        local?.pendingPeriodIDs = []
+        source.refresh()
+        XCTAssertEqual(source.waitingCount, 1)
+        browser.queuedCount = 0
+        transfer.sources = ["browser": browser]
+        transfer.heldItemIDs = []
+        mirror.apply(snapshot: transfer)
+        XCTAssertEqual(source.waitingCount, 0)
+        XCTAssertTrue(source.waitingIsKnown)
+        local = nil
+        source.refresh()
+        XCTAssertFalse(source.waitingIsKnown)
+        for state in [HomeStatusPillState.caughtUp, .syncing] {
+            let lead = StatusPaneLead.resolve(pillState: state, waitingTotal: 0,
+                showsConnectionDetails: true, waitingIsKnown: source.waitingIsKnown)
+            XCTAssertEqual(lead.lead, .headline(SourceVocabulary.connectedLabel))
+        }
+        local = self.snapshot()
+        source.refresh()
+        XCTAssertTrue(source.waitingIsKnown)
+    }
+
+    func testUnreadableSafariWithholdsPartialTotalInEveryConnectionState() {
+        let states: [HomeStatusPillState] = [.caughtUp, .journalGap, .syncing, .connecting,
+            .offline, .notPaired, .stalled, .awaitingMarkConfirmation]
+        for state in states {
+            for knownWaiting in [0, 2] {
+                let presentation = StatusPaneLead.resolve(pillState: state, waitingTotal: knownWaiting,
+                    showsConnectionDetails: true, waitingIsKnown: false)
+                if case .count = presentation.lead {
+                    XCTFail("Unknown Safari custody must not present a partial total in \(state)")
+                }
+            }
+        }
+    }
+
+    func testFreshLocationUsesEnrollmentButDeniedSetupKeepsRecovery() {
+        XCTAssertTrue(locationShowsEnrollment(state: .readyToSetUp, hasAttention: false))
+        XCTAssertTrue(locationShowsEnrollment(state: .off, hasAttention: false))
+        XCTAssertFalse(locationShowsEnrollment(state: .readyToSetUp, hasAttention: true))
+        for state in [SourceState.active, .paused, .needsAttention, .enrolling] {
+            XCTAssertFalse(locationShowsEnrollment(state: state, hasAttention: false))
+        }
+    }
+
     func testTheSourceIsReadyToSetUpUntilSafarisExtensionAnswers() {
         XCTAssertEqual(SafariSourceStatus(snapshot: self.snapshot(contact: false)).sourceState, .readyToSetUp)
         XCTAssertEqual(SafariSourceStatus(snapshot: self.snapshot()).sourceState, .active)

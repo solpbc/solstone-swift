@@ -40,6 +40,7 @@ final class AppGroupMirror {
         var session: SessionState
         var sourceStates: [SourceKind: SourceState]
         var backlogCount: Int
+        var backlogKnown: Bool = true
         var awaitingMarkConfirmation: Bool = false
         /// Something shared will not reach the journal. A missing key is false. The old
         /// `audioInterrupted` key is not read.
@@ -97,7 +98,8 @@ final class AppGroupMirror {
         sourceStates: [SourceKind: SourceState],
         backlogCount: Int,
         awaitingMarkConfirmation: Bool,
-        journalGap: Bool
+        journalGap: Bool,
+        backlogKnown: Bool = true
     ) -> Result<Void, StorageError> {
         let now = self.now()
         let existing = self.freshSnapshotOrDefault(now: now)
@@ -105,6 +107,7 @@ final class AppGroupMirror {
            existing.snapshot.session == session,
            existing.snapshot.sourceStates == sourceStates,
            existing.snapshot.backlogCount == backlogCount,
+           existing.snapshot.backlogKnown == backlogKnown,
            existing.snapshot.pairing == pairing,
            existing.snapshot.microphonePermission == microphonePermission,
            existing.snapshot.awaitingMarkConfirmation == awaitingMarkConfirmation,
@@ -120,6 +123,7 @@ final class AppGroupMirror {
         snapshot.session = session
         snapshot.sourceStates = sourceStates
         snapshot.backlogCount = backlogCount
+        snapshot.backlogKnown = backlogKnown
         snapshot.awaitingMarkConfirmation = awaitingMarkConfirmation
         snapshot.journalGap = journalGap
         snapshot.writtenAt = now
@@ -143,6 +147,7 @@ extension AppGroupMirror.Snapshot: Codable {
         case session
         case sourceStates
         case backlogCount
+        case backlogKnown
         case awaitingMarkConfirmation
         case journalGap
     }
@@ -156,6 +161,7 @@ extension AppGroupMirror.Snapshot: Codable {
         self.session = try container.decode(AppGroupMirror.SessionState.self, forKey: .session)
         self.sourceStates = try container.decode([SourceKind: SourceState].self, forKey: .sourceStates)
         self.backlogCount = try container.decode(Int.self, forKey: .backlogCount)
+        self.backlogKnown = try container.decodeIfPresent(Bool.self, forKey: .backlogKnown) ?? true
         // For up to 60s after upgrade (`Snapshot.maximumAge`) a pre-upgrade file with no key
         // reads as not awaiting; past `maximumAge`, `snapshot()` is nil anyway. Accepted.
         self.awaitingMarkConfirmation = try container.decodeIfPresent(Bool.self, forKey: .awaitingMarkConfirmation) ?? false
@@ -171,6 +177,7 @@ extension AppGroupMirror.Snapshot: Codable {
         try container.encode(self.session, forKey: .session)
         try container.encode(self.sourceStates, forKey: .sourceStates)
         try container.encode(self.backlogCount, forKey: .backlogCount)
+        try container.encode(self.backlogKnown, forKey: .backlogKnown)
         try container.encode(self.awaitingMarkConfirmation, forKey: .awaitingMarkConfirmation)
         try container.encode(self.journalGap, forKey: .journalGap)
     }

@@ -28,6 +28,8 @@ nonisolated struct SafariBrowserSnapshot: Sendable, Equatable {
     /// that the owner turned it on.
     var lastContact: Date?
     var full: Bool
+    /// Nonempty periods not yet adopted; identities survive the handoff.
+    var pendingPeriodIDs: Set<UUID> = []
 }
 
 /// Durable custody for Safari pages on the phone. The extension's native handler
@@ -344,7 +346,10 @@ nonisolated final class SafariBrowserStore {
         let contact = row?["contact"]?.number
         return SafariBrowserSnapshot(confirmed: c.confirmed, heldBytes: Int(try self.heldBytes()),
             queuedBytes: c.queued, lastAccepted: last.map { Date(timeIntervalSince1970: $0) },
-            lastContact: contact.map { Date(timeIntervalSince1970: $0) }, full: c.full)
+            lastContact: contact.map { Date(timeIntervalSince1970: $0) }, full: c.full,
+            pendingPeriodIDs: Set(try self.query("SELECT id FROM periods WHERE adopted=0 AND length(payload)>0").compactMap {
+                $0["id"]?.text.flatMap(UUID.init(uuidString:))
+            }))
     }
 
     func inventory() throws -> [String: Any] {

@@ -30,8 +30,8 @@ enum SafariUITestSource {
         case "setUp": snapshot.lastContact = nil; snapshot.lastAccepted = nil
         case "addSite", "chooseEverySite", "chooseOneAtATime", "chooseGarbage", "chooseEverySiteOpens":
             snapshot.lastAccepted = nil
-        case "waiting": snapshot.heldBytes = 4096
-        case "full": snapshot.full = true; snapshot.heldBytes = 64 * 1024 * 1024
+        case "waiting": snapshot.heldBytes = 4096; snapshot.pendingPeriodIDs = [UUID()]
+        case "full": snapshot.full = true; snapshot.heldBytes = 64 * 1024 * 1024; snapshot.pendingPeriodIDs = [UUID()]
         default: break
         }
         let choice: String? = switch mode {

@@ -83,6 +83,8 @@ nonisolated enum ObserverStatusPresentations {
             return .needsAttention
         }
 
+        if !snapshot.backlogKnown { return .unavailable }
+
         if snapshot.awaitingMarkConfirmation {
             return .awaitingMarkConfirmation(count: snapshot.backlogCount)
         }
@@ -111,6 +113,8 @@ nonisolated enum ObserverStatusPresentations {
             return .needsAttention
         }
 
+        if !snapshot.backlogKnown { return .unavailable }
+
         if snapshot.awaitingMarkConfirmation {
             return .awaitingMarkConfirmation(count: snapshot.backlogCount)
         }
@@ -138,6 +142,8 @@ nonisolated enum ObserverStatusPresentations {
         if snapshot.sourceStates.values.contains(.needsAttention) {
             return .needsAttention
         }
+
+        if !snapshot.backlogKnown { return .unavailable }
 
         if snapshot.awaitingMarkConfirmation {
             return .awaitingMarkConfirmation(count: snapshot.backlogCount)

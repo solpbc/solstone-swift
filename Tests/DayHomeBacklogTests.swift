@@ -95,34 +95,6 @@ final class DayHomeBacklogTests: XCTestCase {
         XCTAssertEqual(allTotal - captureTotal, shareTotal)
     }
 
-    func testDayHomeBacklogReadsOnlyCaptureTotals() throws {
-        let text = try String(
-            contentsOf: StringLiteralGrepSupport.worktreeRoot()
-                .appendingPathComponent("Sources/Home/DayHomeView.swift"),
-            encoding: .utf8
-        )
-        let body = try Self.slice(
-            in: text,
-            from: "var backlogCount: WatchAwareBacklog {",
-            to: "\n    var statusPillState: HomeStatusPillState"
-        )
-
-        XCTAssertTrue(body.contains("captureUploadTotals("))
-        XCTAssertTrue(body.contains("mobileSegment: self.mobileSegmentTransferHolder"))
-        XCTAssertTrue(body.contains("watch: self.watchUploaderHolder"))
-        XCTAssertTrue(body.contains("return .known(totals.pending + totals.failed)"))
-        XCTAssertFalse(body.contains("shareTransferHolder"))
-        XCTAssertFalse(body.contains("watchAwareBacklog("))
-        XCTAssertFalse(body.contains("watchPipelineAssembly"))
-    }
-
-    private static func slice(in text: String, from startToken: String, to endToken: String) throws -> Substring {
-        let start = try XCTUnwrap(text.range(of: startToken))
-        let remaining = text[start.lowerBound...]
-        let end = try XCTUnwrap(remaining.range(of: endToken))
-        return text[start.lowerBound..<end.lowerBound]
-    }
-
     private static func mobileManifest(itemID: UUID, startedAt: Date) -> TransferManifest {
         ObserverAudioTransferEnqueuer.makeManifest(
             itemID: itemID,

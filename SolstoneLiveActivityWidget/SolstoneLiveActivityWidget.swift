@@ -122,7 +122,8 @@ struct SolstoneLiveActivityWidget: Widget {
     }
 
     fileprivate static func backlogCount() -> Int? {
-        AppGroupMirror().snapshot()?.backlogCount
+        guard let snapshot = AppGroupMirror().snapshot(), snapshot.backlogKnown else { return nil }
+        return snapshot.backlogCount
     }
 
     fileprivate static func backlogLabel(for backlogCount: Int?) -> String {

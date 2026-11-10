@@ -151,6 +151,7 @@ struct HomeStatusDot: View {
 struct HomeStatusPillLabel: View {
     let state: HomeStatusPillState
     let backlog: WatchAwareBacklog
+    var countIsKnown: Bool = true
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -160,7 +161,7 @@ struct HomeStatusPillLabel: View {
         HStack(alignment: .center, spacing: 6) {
             HomeStatusDot(state: self.state)
             if self.state == .awaitingMarkConfirmation {
-                Text(self.state.composedText(backlog: self.backlog))
+                Text(self.state.composedText(backlog: self.countIsKnown ? self.backlog : .known(0)))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -186,7 +187,8 @@ struct HomeStatusPillLabel: View {
     /// Only shown when there is something waiting. `known(0)` is not a number worth
     /// putting on the pill — `connected` already says it, in words.
     private var countText: String? {
-        switch self.backlog {
+        guard self.countIsKnown else { return nil }
+        return switch self.backlog {
         case .known(let count):
             count > 0 ? "\(count)" : nil
         case .partiallyUnknown(let known, _):

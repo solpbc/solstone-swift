@@ -18,6 +18,63 @@ final class SafariSourceShotTests: XCTestCase {
     ]
 
     @MainActor
+    func testWaitingSafariPeriodAppearsInStatusAndOpensSafari() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test", "--ui-test-reset-on-this-phone", "--ui-test-safari=waiting",
+            "--ui-test-open-pane=status"]
+        app.launch()
+        let row = app.descendants(matching: .any)["shell.pane.status.waiting.safari"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        let lead = app.descendants(matching: .any)["shell.pane.status.lead"].firstMatch
+        XCTAssertEqual(lead.label.components(separatedBy: ",").first, "1")
+        let pill = app.buttons.matching(identifier: "dayHome.statusPill").firstMatch
+        let pillCount = pill.label + " " + ((pill.value as? String) ?? "")
+        XCTAssertNotNil(pillCount.range(of: "\\b1\\b", options: .regularExpression))
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "status-with-waiting-safari"
+        shot.lifetime = .keepAlways
+        add(shot)
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["safari.page.waiting"].waitForExistence(timeout: 10))
+        app.terminate()
+    }
+
+    @MainActor
+    func testWaitingImportsOpenTheImportPane() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test", "--ui-test-seed-waiting-import",
+            "--ui-test-open-pane=status"]
+        app.launch()
+        let row = app.descendants(matching: .any)["shell.pane.status.waiting.import"]
+        XCTAssertTrue(row.waitForExistence(timeout: 15))
+        let lead = app.descendants(matching: .any)["shell.pane.status.lead"].firstMatch
+        XCTAssertEqual(lead.label.components(separatedBy: ",").first, "1")
+        let pill = app.buttons.matching(identifier: "dayHome.statusPill").firstMatch
+        let pillCount = pill.label + " " + ((pill.value as? String) ?? "")
+        XCTAssertNotNil(pillCount.range(of: "\\b1\\b", options: .regularExpression))
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "status-with-waiting-import"
+        shot.lifetime = .keepAlways
+        add(shot)
+        row.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 10))
+        app.terminate()
+    }
+
+    @MainActor
+    func testFreshLocationOpensEnrollmentWithoutStartingIt() {
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test", "--ui-test-no-journal", "--ui-test-open-pane=source:location"]
+        app.launch()
+        XCTAssertTrue(app.buttons["location.enrollment.turnOn"].waitForExistence(timeout: 15))
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "location-first-setup"
+        shot.lifetime = .keepAlways
+        add(shot)
+        app.terminate()
+    }
+
+    @MainActor
     func testCaptureEachSafariPageState() throws {
         for (index, state) in Self.states.enumerated() {
             let app = XCUIApplication()
