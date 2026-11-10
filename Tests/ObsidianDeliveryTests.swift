@@ -431,6 +431,74 @@ final class ObsidianDeliveryTests: XCTestCase {
         throw CancellationError()
     }
 
+    func testSameNameApprovalSurvivesReconnectAndColdGateButNotAnotherPairing() async throws {
+        let accepted = OSAllocatedUnfairLock(initialState: Set<String>())
+        let advisory = ObsidianSameNameAdvisory(vault: "Notes", device: "studio", lastSyncedAt: nil)
+        func makeGate(identity: String = "journal-a", version: String = "2.0.73", statusVersion: String? = nil) async -> ObsidianCapabilityGate {
+            let reportedVersion = statusVersion ?? version
+            let gate = ObsidianCapabilityGate(
+                readStatus: { _ in .read(version: reportedVersion, capabilities: ["obsidian_notes"]) },
+                fetchVaults: { _ in [advisory] })
+            await gate.configure(isSourceEnabled: { true }, isSourcePaused: { false },
+                activeVaultID: { "vault" },
+                isAcceptedForSameName: { vault, key in accepted.withLock { $0.contains(vault + key) } },
+                recordAcceptance: { vault, key in accepted.withLock { $0.insert(vault + key); return true } },
+                wake: {}, publishCapability: { _ in }, publishAdvisory: { _ in })
+            await gate.journalChanged(identity: identity, version: version)
+            return gate
+        }
+        let manifest = Self.makeManifest(vaultID: "vault", folderName: "Notes")
+        let first = ObsidianDeliveryRig.endpoint()
+        let gate = await makeGate()
+        _ = await gate.admits(manifest: manifest, endpoint: first)
+        try await self.waitUntil { await gate.currentCapability == .listed }
+        _ = await gate.admits(manifest: manifest, endpoint: first)
+        try await self.waitUntil { await gate.currentAdvisory != nil }
+        await gate.continueSameName()
+        let approved = await gate.admits(manifest: manifest, endpoint: first)
+        XCTAssertTrue(approved)
+
+        var reconnect = ObsidianDeliveryRig.endpoint(port: 8082)
+        reconnect.dispatchOwner?.admissionGeneration = 42
+        _ = await gate.admits(manifest: manifest, endpoint: reconnect)
+        try await self.waitUntil { await gate.currentCapability == .listed }
+        let reconnected = await gate.admits(manifest: manifest, endpoint: reconnect)
+        XCTAssertTrue(reconnected)
+        let cold = await makeGate()
+        reconnect.dispatchOwner = TransferDispatchOwner(pairingGeneration: 0,
+            ownerID: first.dispatchOwner!.ownerID, credentialCID: first.dispatchOwner!.credentialCID)
+        _ = await cold.admits(manifest: manifest, endpoint: reconnect)
+        try await self.waitUntil { await cold.currentCapability == .listed }
+        let restored = await cold.admits(manifest: manifest, endpoint: reconnect)
+        XCTAssertTrue(restored)
+
+        // A fresh status read wins even while the metadata callback still has
+        // the previously approved version.
+        let upgraded = await makeGate(statusVersion: "2.0.74")
+        _ = await upgraded.admits(manifest: manifest, endpoint: reconnect)
+        try await self.waitUntil { await upgraded.currentCapability == .listed }
+        let staleVersionApproval = await upgraded.admits(manifest: manifest, endpoint: reconnect)
+        XCTAssertFalse(staleVersionApproval)
+        try await self.waitUntil { await upgraded.currentAdvisory != nil }
+
+        var otherOwner = reconnect
+        otherOwner.dispatchOwner = TransferDispatchOwner(pairingGeneration: 0,
+            ownerID: UUID(), credentialCID: first.dispatchOwner!.credentialCID)
+        for (identity, version, endpoint) in [
+            ("journal-a", "2.0.73", ObsidianDeliveryRig.endpoint(credential: "journal-b", port: 8082)),
+            ("journal-a", "2.0.73", otherOwner),
+            ("journal-b", "2.0.73", reconnect),
+            ("journal-a", "2.0.74", reconnect)
+        ] {
+            let replacement = await makeGate(identity: identity, version: version)
+            _ = await replacement.admits(manifest: manifest, endpoint: endpoint)
+            try await self.waitUntil { await replacement.currentCapability == .listed }
+            let admitted = await replacement.admits(manifest: manifest, endpoint: endpoint)
+            XCTAssertFalse(admitted)
+            try await self.waitUntil { await replacement.currentAdvisory != nil }
+        }
+    }
+
     func testSwitchingOpaqueVaultsWithTheSameNameInvalidatesFetchAndWarning() async throws {
         for finishBeforeSwitch in [false, true] {
             let selected = OSAllocatedUnfairLock(initialState: "A")

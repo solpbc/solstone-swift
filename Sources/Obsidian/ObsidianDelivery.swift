@@ -170,6 +170,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
 
     private var endpoint: TransferResolvedEndpoint?
     private var capability: Capability = .unknown
+    private var statusVersion: String?
     private var generation: UInt64 = 0
     private var admissionIdentity = UUID().uuidString
     private var readingStatus = false
@@ -224,9 +225,16 @@ actor ObsidianCapabilityGate: TransferSourceGate {
     }
 
     private func endpointID(for endpoint: TransferResolvedEndpoint) -> String {
-        // Acceptance never survives an endpoint, pairing, version or gate reset.
-        // A recycled loopback port is not a journal identity.
-        self.admissionIdentity
+        guard let owner = endpoint.dispatchOwner else { return self.admissionIdentity }
+        // A reconnect changes the local port and dispatch admission generation,
+        // but not the owner-approved pairing. Persist that approval across normal
+        // reconnects and process launches without authorizing another credential.
+        let fields = [
+            "obsidian-same-name-v1", owner.ownerID.uuidString, owner.credentialCID,
+            self.journal.identity ?? "", self.statusVersion ?? ""
+        ]
+        let encoded = fields.map { "\($0.utf8.count):\($0)" }.joined()
+        return ObsidianWire.sha256Hex(Data(encoded.utf8))
     }
 
     func continueSameName() async {
@@ -235,7 +243,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
               let vaultID = self.pendingAdvisoryVaultID
         else { return }
         let generation = self.generation
-        let acceptance = self.admissionIdentity
+        let acceptance = self.endpointID(for: endpoint)
         guard await self.isCurrent(endpoint),
               self.generation == generation, self.endpoint == endpoint,
               await self.activeVaultID?() == vaultID
@@ -339,6 +347,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
         self.generation &+= 1
         self.admissionIdentity = UUID().uuidString
         self.readingStatus = false
+        self.statusVersion = nil
         self.fetchingSameName = false
         self.retryScheduled = false
         self.pendingAdvisory = nil
@@ -370,7 +379,8 @@ actor ObsidianCapabilityGate: TransferSourceGate {
         guard self.generation == generation else { return }
         self.readingStatus = false
         switch report {
-        case .read(_, let capabilities):
+        case .read(let version, let capabilities):
+            self.statusVersion = version
             let takesNotes = capabilities?.contains(ObsidianTransfer.capability) == true
             self.setCapability(takesNotes ? .listed : .notListed)
             if takesNotes {
