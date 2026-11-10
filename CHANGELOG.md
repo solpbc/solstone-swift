@@ -6,14 +6,16 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.11 (155)] - 2026-11-09
+
 ### Added
 
 - with All Websites (or Other Websites) set to Allow in Settings, the solstone extension's settings in Safari now have a field to leave a site out by typing its address, so it stays out before you ever open it. they also say that Safari's own settings don't show the sites you leave out.
-- on iphone and ipad, the status pane and each source show what that source has taken in on this device since this update, and when it last took something in.
+- on iphone and ipad, the status screen and each source's page show how much each source has taken in for your journal on this device since this update, and when it last took something in.
 
 ### Fixed
 
-- the sync status now includes Safari pages and imports still waiting on this device.
+- the app's status and the widgets now count pages from Safari and imports still waiting on this device.
 - opening location for the first time shows its setup choices.
 - the medium widget's description names the sources it shows.
 - buttons across the app are easier to read: dark text on the orange ones.
