@@ -53,8 +53,11 @@ nonisolated enum ObsidianLocationValidator {
         }
 
         // Location classification check
+        // iOS omits isUbiquitousItem for a native On My iPhone vault.
+        // Locality comes from BOTH the positive volume flag and the canonical
+        // app-container Documents path, never from an absent cloud flag.
         guard res.isDirectory == true,
-              res.isUbiquitousItem == false,
+              res.isUbiquitousItem != true,
               res.volumeIsLocal == true,
               let canonicalPath = res.canonicalPath,
               isDocumentsClass(canonicalPath: canonicalPath)
@@ -119,7 +122,6 @@ nonisolated enum ObsidianLocationValidator {
                 .isSymbolicLinkKey
             ])
             guard let isDir = values.isDirectory,
-                  let isUbiq = values.isUbiquitousItem,
                   let isLocal = values.volumeIsLocal,
                   let canon = values.canonicalPath
             else {
@@ -136,7 +138,7 @@ nonisolated enum ObsidianLocationValidator {
 
             return ObsidianLocationResources(
                 isDirectory: isDir,
-                isUbiquitousItem: isUbiq,
+                isUbiquitousItem: values.isUbiquitousItem,
                 volumeIsLocal: isLocal,
                 canonicalPath: canon,
                 isSymbolicLink: isSymlink,

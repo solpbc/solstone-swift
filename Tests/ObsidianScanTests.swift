@@ -45,6 +45,21 @@ final class ObsidianScanTests: XCTestCase {
         XCTAssertTrue(ObsidianLocationValidator.isDocumentsClass(canonicalPath: "/private/var/mobile/Containers/Data/Application/uuid/Documents/Vault"))
     }
 
+    func testNativeLocalVaultMayOmitUbiquitousResourceButNeedsPositiveLocalEvidence() {
+        let url = URL(fileURLWithPath: "/private/var/mobile/Containers/Data/Application/uuid/Documents/Notes")
+        var resources = ObsidianLocationResources(isDirectory: true, isUbiquitousItem: nil,
+            volumeIsLocal: true, canonicalPath: url.path, isSymbolicLink: false)
+        XCTAssertTrue(ObsidianLocationValidator.validate(url: url, resources: resources).isSuccess)
+        resources.volumeIsLocal = nil
+        XCTAssertFalse(ObsidianLocationValidator.validate(url: url, resources: resources).isSuccess)
+        resources.volumeIsLocal = true
+        resources.canonicalPath = "/var/mobile/Library/File Provider Storage/Notes"
+        XCTAssertFalse(ObsidianLocationValidator.validate(url: url, resources: resources).isSuccess)
+        resources.canonicalPath = url.path
+        resources.isUbiquitousItem = true
+        XCTAssertFalse(ObsidianLocationValidator.validate(url: url, resources: resources).isSuccess)
+    }
+
     func testCorruptStoreIsVisibleAndCannotBeOverwrittenBySelection() async throws {
         let corrupt = Data("broken private checkpoint".utf8)
         try corrupt.write(to: self.storeURL.appendingPathComponent("store.json"))
