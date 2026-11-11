@@ -518,6 +518,45 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
     }
 
     @MainActor
+    func testBackOnAJournalThatHasItNothingIsLeftWaiting() async throws {
+        // A screenshot this journal has, set to go again for another journal and still waiting
+        // when the owner came back, taken while the source was paused.
+        let start = Date().addingTimeInterval(-600)
+        let taken = start.addingTimeInterval(60)
+        var document = ScreenshotsDocument()
+        document.everOn = true
+        document.enabled = true
+        document.needsSpan = true
+        document.fullAccessWasHeld = true
+        document.journalIdentity = "journal-c"
+        document.pauseWindows = [ScreenshotsPauseWindow(start: start, end: start.addingTimeInterval(120))]
+        document.items = [ScreenshotsItem(
+            localIdentifier: "paused", created: taken, phase: .pending, hash: "h", deliveredTo: nil,
+            inFrozen: true, countedInProgress: false, exportAttempts: 0
+        )]
+        document.remember(hash: "h", localIdentifier: "paused", journal: "journal-a")
+        let url = self.makeRoot().appendingPathComponent("state.json")
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(document).write(to: url)
+
+        let library = FakeScreenshotsLibrary()
+        library.status = .full
+        library.assets = [Self.asset("paused", created: taken, uti: "public.png")]
+        let sender = FakeScreenshotsSender()
+        let engine = ScreenshotsSourceEngine(
+            library: library, store: ScreenshotsStore(fileURL: url), sender: sender,
+            timeZone: TimeZone(identifier: "America/Denver")!
+        )
+        engine.journalIdentity = { "journal-a" }
+        await engine.chooseSpan(.fromToday)
+        guard case .ready(_, let count) = engine.snapshot.confirm else { return XCTFail("count") }
+        XCTAssertEqual(count, 0)
+        await engine.confirm()
+        XCTAssertEqual(engine.snapshot.waiting, 0)
+        XCTAssertTrue(sender.sent.isEmpty)
+    }
+
+    @MainActor
     func testHistoryExpiryDoesNotSendAScreenshotTwice() async {
         let png = Data("once".utf8)
         let rig = self.rig(assets: [Self.asset("once", age: -60, uti: "public.png")], exports: [

@@ -165,6 +165,13 @@ final class ScreenshotsSourceEngine {
         }
         for index in self.store.document.items.indices where !ids.contains(self.store.document.items[index].localIdentifier) {
             self.store.document.items[index].inFrozen = false
+            // Set to go again for another journal, and this journal already has it: it is in.
+            // Left waiting, one taken during a pause would never go and never stop waiting.
+            if let journal, self.store.document.items[index].phase == .pending,
+               receivedLocals.contains(self.store.document.items[index].localIdentifier) {
+                self.store.document.items[index].phase = .delivered
+                self.store.document.items[index].deliveredTo = journal
+            }
         }
         self.recountFrozen()
         if self.store.document.changeToken == nil {
