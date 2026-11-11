@@ -2,7 +2,9 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import CoreGraphics
 import Foundation
+import ImageIO
 import os
 import Photos
 import XCTest
@@ -80,6 +82,25 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         XCTAssertEqual(ScreenshotsWire.kind(uniformTypeIdentifier: "public.heif"), .refused)
         XCTAssertFalse(ScreenshotsVocabulary.refusedType.localizedCaseInsensitiveContains("heif"))
         XCTAssertFalse(ScreenshotsVocabulary.refusedType.localizedCaseInsensitiveContains("hdr"))
+    }
+
+    func testPngStaysExactAndHeicBecomesPngWithItsCaptureTime() throws {
+        let png = try XCTUnwrap(Self.encodedImage(uti: "public.png", exifDate: "2026:11:03 14:32:07"))
+        let kept = try XCTUnwrap(ScreenshotsWire.uploadBytes(data: png, uniformTypeIdentifier: "public.png"))
+        XCTAssertEqual(kept.data, png)
+        XCTAssertEqual(kept.ext, "png")
+        XCTAssertEqual(kept.contentType, "image/png")
+
+        let stamp = "2026:11:10 14:32:07"
+        let heic = try XCTUnwrap(Self.encodedImage(uti: "public.heic", exifDate: stamp), "the heic encoder is unavailable")
+        let converted = try XCTUnwrap(ScreenshotsWire.uploadBytes(data: heic, uniformTypeIdentifier: "public.heic"))
+        XCTAssertEqual(converted.ext, "png")
+        XCTAssertEqual(converted.contentType, "image/png")
+        XCTAssertNotEqual(converted.data, heic)
+        XCTAssertTrue(converted.data.starts(with: Data([0x89, 0x50, 0x4E, 0x47])))
+        XCTAssertEqual(Self.exifDate(in: converted.data), stamp)
+        XCTAssertEqual(Self.colorSpaceName(in: converted.data), CGColorSpace.displayP3 as String)
+        XCTAssertNil(ScreenshotsWire.uploadBytes(data: Data("not-an-image".utf8), uniformTypeIdentifier: "public.heic"))
     }
 
     func testSpanLabelsMatchCalendarAndTheButtonFollowsTheChoice() {
@@ -266,14 +287,37 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
     }
 
     @MainActor
-    func testRefusedTypeIsFinalAndNotUploaded() async {
-        let rig = self.rig(assets: [Self.asset("heic", age: -60, uti: "public.heic")])
+    func testUnconvertibleBytesStayFinalAndAreNotUploaded() async {
+        let rig = self.rig(
+            assets: [Self.asset("heic", age: -60, uti: "public.heic")],
+            exports: ["heic": .bytes(Data("not-an-image".utf8), uniformTypeIdentifier: "public.heic")]
+        )
         await rig.engine.turnOn()
         await rig.engine.confirm()
         XCTAssertTrue(rig.sender.sent.isEmpty)
         XCTAssertEqual(rig.engine.snapshot.finals.map(\.phase), [.refusedType])
         XCTAssertEqual(rig.engine.snapshot.progressDone, 1)
         XCTAssertEqual(rig.engine.snapshot.progressTotal, 1)
+    }
+
+    @MainActor
+    func testHeicScreenshotIsSentAsPng() async throws {
+        let stamp = "2026:11:10 16:08:13"
+        let heic = try XCTUnwrap(Self.encodedImage(uti: "public.heic", exifDate: stamp))
+        let rig = self.rig(
+            assets: [Self.asset("hdr", age: -60, uti: "public.heic")],
+            exports: ["hdr": .bytes(heic, uniformTypeIdentifier: "public.heic")]
+        )
+        await rig.engine.turnOn()
+        await rig.engine.confirm()
+        let sent = try XCTUnwrap(rig.sender.sent.first)
+        XCTAssertEqual(rig.sender.sent.count, 1)
+        XCTAssertEqual(sent.filename, "screenshot_screen.png")
+        XCTAssertEqual(sent.contentType, "image/png")
+        XCTAssertNotEqual(sent.bytes, heic)
+        XCTAssertEqual(sent.hash, ScreenshotsWire.sha256Hex(sent.bytes))
+        XCTAssertEqual(Self.exifDate(in: sent.bytes), stamp)
+        XCTAssertTrue(rig.engine.snapshot.finals.isEmpty)
     }
 
     @MainActor
@@ -422,6 +466,45 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         )
         engine.journalIdentity = { "journal-a" }
         return (library, sender, engine)
+    }
+
+    private static func encodedImage(uti: String, exifDate: String) -> Data? {
+        guard let space = CGColorSpace(name: CGColorSpace.displayP3),
+              let context = CGContext(
+                data: nil,
+                width: 2,
+                height: 2,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ),
+              let image = context.makeImage()
+        else { return nil }
+        let encoded = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(encoded, uti as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(
+            destination,
+            image,
+            [kCGImagePropertyExifDictionary: [kCGImagePropertyExifDateTimeOriginal: exifDate]] as CFDictionary
+        )
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return encoded as Data
+    }
+
+    private static func exifDate(in data: Data) -> String? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
+        else { return nil }
+        return exif[kCGImagePropertyExifDateTimeOriginal] as? String
+    }
+
+    private static func colorSpaceName(in data: Data) -> String? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { return nil }
+        return image.colorSpace?.name as String?
     }
 
     private static func asset(_ id: String, age: TimeInterval, uti: String) -> ScreenshotsAsset {

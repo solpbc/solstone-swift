@@ -129,6 +129,44 @@ nonisolated enum ScreenshotsWire {
         "\(self.filenameStem).\(ext)"
     }
 
+    /// Bytes the journal receives. A png, jpg or webp goes unchanged. Any other image
+    /// is written as PNG, and ImageIO carries the source metadata across with it.
+    static func uploadBytes(data: Data, uniformTypeIdentifier: String) -> (data: Data, ext: String, contentType: String)? {
+        if case .accepted(let ext, let contentType) = self.kind(uniformTypeIdentifier: uniformTypeIdentifier) {
+            return (data, ext, contentType)
+        }
+        if let sniffed = self.containerType(of: data),
+           case .accepted(let ext, let contentType) = self.kind(uniformTypeIdentifier: sniffed) {
+            return (data, ext, contentType)
+        }
+        guard let png = self.pngKeepingMetadata(data) else { return nil }
+        return (png, "png", "image/png")
+    }
+
+    static func containerType(of data: Data) -> String? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              let type = CGImageSourceGetType(source)
+        else { return nil }
+        return type as String
+    }
+
+    /// One PNG whose metadata is the source image's, not a rebuilt bare bitmap.
+    static func pngKeepingMetadata(_ data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0
+        else { return nil }
+        let encoded = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(encoded, "public.png" as CFString, 1, nil) else {
+            return nil
+        }
+        CGImageDestinationAddImageFromSource(destination, source, 0, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        let png = encoded as Data
+        guard png.count >= 8, self.pixels(in: png) != nil else { return nil }
+        return png
+    }
+
     static func exceedsLimits(byteCount: Int, pixelWidth: Int, pixelHeight: Int) -> Bool {
         if byteCount > self.maxBytes { return true }
         guard pixelWidth > 0, pixelHeight > 0 else { return false }

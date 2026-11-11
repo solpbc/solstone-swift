@@ -415,11 +415,6 @@ final class ScreenshotsSourceEngine {
             self.finish(index, .tooBig)
             return
         }
-        if case .refused = ScreenshotsWire.kind(uniformTypeIdentifier: asset.uniformTypeIdentifier),
-           asset.uniformTypeIdentifier != "public.image" {
-            self.finish(index, .refusedType)
-            return
-        }
         let exported = await self.library.export(localIdentifier: localIdentifier)
         guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == localIdentifier }) else { return }
         switch exported {
@@ -439,61 +434,59 @@ final class ScreenshotsSourceEngine {
     }
 
     private func accept(index: Int, asset: ScreenshotsAsset, data: Data, uti: String) async {
-        switch ScreenshotsWire.kind(uniformTypeIdentifier: uti) {
-        case .refused:
+        guard let prepared = ScreenshotsWire.uploadBytes(data: data, uniformTypeIdentifier: uti) else {
             self.finish(index, .refusedType)
             return
-        case .accepted(let ext, let contentType):
-            let pixels = ScreenshotsWire.pixels(in: data)
-            let width = pixels?.0 ?? asset.pixelWidth
-            let height = pixels?.1 ?? asset.pixelHeight
-            if ScreenshotsWire.exceedsLimits(byteCount: data.count, pixelWidth: width, pixelHeight: height) {
-                self.finish(index, .tooBig)
-                return
-            }
-            let hash = ScreenshotsWire.sha256Hex(data)
-            let journal = self.journalIdentity() ?? self.store.document.journalIdentity
-            if let journal, self.store.document.receivedHashSet(journal).contains(hash) {
-                self.store.document.items[index].hash = hash
-                self.store.document.items[index].phase = .delivered
-                self.store.document.items[index].deliveredTo = journal
-                self.store.document.remember(hash: hash, localIdentifier: asset.localIdentifier, journal: journal)
-                self.markProgress(at: index)
+        }
+        let pixels = ScreenshotsWire.pixels(in: prepared.data)
+        let width = pixels?.0 ?? asset.pixelWidth
+        let height = pixels?.1 ?? asset.pixelHeight
+        if ScreenshotsWire.exceedsLimits(byteCount: prepared.data.count, pixelWidth: width, pixelHeight: height) {
+            self.finish(index, .tooBig)
+            return
+        }
+        let hash = ScreenshotsWire.sha256Hex(prepared.data)
+        let journal = self.journalIdentity() ?? self.store.document.journalIdentity
+        if let journal, self.store.document.receivedHashSet(journal).contains(hash) {
+            self.store.document.items[index].hash = hash
+            self.store.document.items[index].phase = .delivered
+            self.store.document.items[index].deliveredTo = journal
+            self.store.document.remember(hash: hash, localIdentifier: asset.localIdentifier, journal: journal)
+            self.markProgress(at: index)
+            self.store.save()
+            self.publish()
+            return
+        }
+        let zone = self.timeZone
+        let placement = ScreenshotsWire.placement(of: asset.created, timeZone: zone)
+        let upload = ScreenshotsUpload(
+            localIdentifier: asset.localIdentifier,
+            itemID: ScreenshotsWire.itemID(forHash: hash),
+            bytes: prepared.data,
+            filename: ScreenshotsWire.filename(ext: prepared.ext),
+            contentType: prepared.contentType,
+            hash: hash,
+            capturedAt: placement.capturedAt,
+            day: placement.day,
+            segment: placement.segment,
+            offsetSeconds: placement.offsetSeconds,
+            timeZoneIdentifier: zone.identifier,
+            created: asset.created
+        )
+        do {
+            try await self.sender.send(upload)
+            guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
+            self.store.document.items[index].phase = .queued
+            self.store.document.items[index].hash = hash
+            self.intake?.recordScreenshot(hash: hash, now: Date())
+            self.store.save()
+            self.publish()
+        } catch {
+            self.store.document.items[index].exportAttempts += 1
+            if self.store.document.items[index].exportAttempts >= ScreenshotsWire.exportAttempts {
+                self.finish(index, .unreadable)
+            } else {
                 self.store.save()
-                self.publish()
-                return
-            }
-            let zone = self.timeZone
-            let placement = ScreenshotsWire.placement(of: asset.created, timeZone: zone)
-            let upload = ScreenshotsUpload(
-                localIdentifier: asset.localIdentifier,
-                itemID: ScreenshotsWire.itemID(forHash: hash),
-                bytes: data,
-                filename: ScreenshotsWire.filename(ext: ext),
-                contentType: contentType,
-                hash: hash,
-                capturedAt: placement.capturedAt,
-                day: placement.day,
-                segment: placement.segment,
-                offsetSeconds: placement.offsetSeconds,
-                timeZoneIdentifier: zone.identifier,
-                created: asset.created
-            )
-            do {
-                try await self.sender.send(upload)
-                guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
-                self.store.document.items[index].phase = .queued
-                self.store.document.items[index].hash = hash
-                self.intake?.recordScreenshot(hash: hash, now: Date())
-                self.store.save()
-                self.publish()
-            } catch {
-                self.store.document.items[index].exportAttempts += 1
-                if self.store.document.items[index].exportAttempts >= ScreenshotsWire.exportAttempts {
-                    self.finish(index, .unreadable)
-                } else {
-                    self.store.save()
-                }
             }
         }
     }
