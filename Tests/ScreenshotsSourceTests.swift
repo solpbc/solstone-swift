@@ -366,6 +366,26 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
     }
 
     @MainActor
+    func testSameJournalKeepsTheSourceOnAndANewJournalAsksAgain() async throws {
+        let rig = self.rig(assets: [Self.asset("first", age: -3_600, uti: "public.png")], exports: [
+            "first": .bytes(Data("first-png".utf8), uniformTypeIdentifier: "public.png"),
+        ])
+        var journal = "journal-a"
+        rig.engine.journalIdentity = { journal }
+        await rig.engine.turnOn()
+        await rig.engine.confirm()
+        rig.engine.pause()
+        rig.engine.noteJournal()
+        XCTAssertTrue(rig.engine.snapshot.paused)
+        XCTAssertFalse(rig.engine.snapshot.needsSpan)
+        await rig.engine.resume()
+
+        journal = "journal-b"
+        rig.engine.noteJournal()
+        XCTAssertTrue(rig.engine.snapshot.needsSpan)
+    }
+
+    @MainActor
     func testHistoryExpiryDoesNotSendAScreenshotTwice() async {
         let png = Data("once".utf8)
         let rig = self.rig(assets: [Self.asset("once", age: -60, uti: "public.png")], exports: [

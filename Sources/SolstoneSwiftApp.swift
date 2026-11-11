@@ -153,7 +153,7 @@ struct SolstoneSwiftApp: App {
                 await obsidianGate?.journalChanged(identity: identity, version: version)
                 await screenshotsGate?.journalChanged(identity: identity, version: version)
                 await MainActor.run {
-                    screenshotsEngine?.noteJournal(identity)
+                    screenshotsEngine?.noteJournal()
                 }
             }
         }

@@ -83,7 +83,7 @@ final class ScreenshotsSourceEngine {
 
     func launch() async {
         self.refreshAccess()
-        self.noteJournal(self.journalIdentity())
+        self.noteJournal()
         await self.catchUp()
         if self.snapshot.view.showChooser { await self.count() }
         await self.pump()
@@ -226,8 +226,11 @@ final class ScreenshotsSourceEngine {
         await self.pump()
     }
 
-    func noteJournal(_ identity: String?) {
-        guard let identity else {
+    /// Asks how far back again only when the paired journal is a different one. It reads this
+    /// engine's own journal identity, the one it stores, so another identity scheme for the same
+    /// journal never looks like a new journal.
+    func noteJournal() {
+        guard let identity = self.journalIdentity() else {
             self.publish()
             return
         }

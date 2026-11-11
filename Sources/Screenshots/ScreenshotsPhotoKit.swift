@@ -5,8 +5,9 @@ import Foundation
 import Photos
 
 /// PhotoKit, scoped to the screenshot subtype. Original resource bytes only: nothing is
-/// re-encoded, and no date is written into the file.
-final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPhotoLibraryChangeObserver, @unchecked Sendable {
+/// re-encoded, and no date is written into the file. Nonisolated: PhotoKit calls the change
+/// observer and the resource handlers on its own queues.
+nonisolated final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPhotoLibraryChangeObserver, @unchecked Sendable {
     private let library: PHPhotoLibrary
     private let lock = NSLock()
     private var onChange: (@Sendable () -> Void)?
@@ -82,9 +83,10 @@ final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPhotoLibraryCha
         let typeIdentifier = resource.uniformTypeIdentifier
         return await withCheckedContinuation { continuation in
             let box = ExportBox()
-            PHAssetResourceManager.default().requestData(for: resource, options: options) { chunk in
+            // @Sendable: PhotoKit runs these on its own queue, not the caller's actor.
+            PHAssetResourceManager.default().requestData(for: resource, options: options) { @Sendable chunk in
                 box.append(chunk)
-            } completionHandler: { error in
+            } completionHandler: { @Sendable error in
                 if error != nil {
                     continuation.resume(returning: .failed)
                 } else {
@@ -174,7 +176,7 @@ final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPhotoLibraryCha
     }
 }
 
-private final class ExportBox: @unchecked Sendable {
+private nonisolated final class ExportBox: @unchecked Sendable {
     private let lock = NSLock()
     private var storage = Data()
 
