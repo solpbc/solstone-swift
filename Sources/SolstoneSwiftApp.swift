@@ -923,7 +923,9 @@ struct SolstoneSwiftApp: App {
         self._transferEngine = State(initialValue: transferEngine)
         self._transferEnqueuer = State(initialValue: transferEnqueuer)
         self._shareImportStore = State(initialValue: shareImportStore)
-        self._sourceIntakeModel = State(initialValue: SourceIntakeModel(store: sourceIntakeStore))
+        let sourceIntakeModel = SourceIntakeModel(store: sourceIntakeStore)
+        screenshotsSource.onIntakeRecorded = { [weak sourceIntakeModel] in sourceIntakeModel?.reload() }
+        self._sourceIntakeModel = State(initialValue: sourceIntakeModel)
         self._shareTransferHolder = State(initialValue: shareTransferHolder)
         self._photoLibraryImporter = State(initialValue: photoLibraryImporter)
         self._calendarSource = State(initialValue: calendarSource)

@@ -4,6 +4,20 @@
 import SwiftUI
 import UIKit
 
+/// The `so far` · `last taken in` rows. Three columns while every word fits its column: the name
+/// column is as wide as the widest source name, so a name never breaks inside the word, and the
+/// two facts share the rest. Above the default text size a fact's own word (`screenshots`) no
+/// longer fits beside it, so the same phrases sit on the row itself.
+nonisolated enum StatusPaneIntakeColumns {
+    static func widestName(_ names: [String]) -> String {
+        names.max { $0.count < $1.count } ?? ""
+    }
+
+    static func stacks(_ size: DynamicTypeSize) -> Bool {
+        size > .large
+    }
+}
+
 nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
     case audio, location, screencast, watch, calendar, obsidian, screenshots, safari, `import`
 
@@ -541,10 +555,11 @@ struct StatusPane: View {
                locale: .current,
                calendar: .current
            ) {
+            let widest = StatusPaneIntakeColumns.widestName(rows.map(\.name))
             Section {
                 ForEach(rows) { row in
                     NavigationLink(value: row.destination) {
-                        self.intakeRow(row)
+                        self.intakeRow(row, widest: widest)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(row.name)
                             .accessibilityValue("\(row.soFar), \(row.last)")
@@ -552,12 +567,20 @@ struct StatusPane: View {
                     .accessibilityIdentifier("intake.status.\(row.id)")
                 }
             } header: {
-                if !self.dynamicTypeSize.isAccessibilitySize {
-                    HStack {
+                if !self.stacksIntakeRows {
+                    // The headings sit over the columns they name: the source names' width first,
+                    // and the row's disclosure chevron's width last.
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(widest)
+                            .font(ShellFont.tileName)
+                            .fixedSize()
+                            .hidden()
                         Text(SourceIntakePhrases.soFar)
-                        Spacer(minLength: 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         Text(SourceIntakePhrases.lastTakenIn)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .padding(.trailing, Self.intakeChevronAllowance)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .textCase(nil)
@@ -570,11 +593,16 @@ struct StatusPane: View {
         }
     }
 
-    /// Three columns at the sizes where a word fits in a third of the row. At accessibility
-    /// sizes those columns slice the words, so the same phrases sit on the row itself.
+    /// The width a row's disclosure chevron takes beside its content.
+    private static let intakeChevronAllowance: CGFloat = 20
+
+    private var stacksIntakeRows: Bool {
+        StatusPaneIntakeColumns.stacks(self.dynamicTypeSize)
+    }
+
     @ViewBuilder
-    private func intakeRow(_ row: SourceIntakeStatusRow) -> some View {
-        if self.dynamicTypeSize.isAccessibilitySize {
+    private func intakeRow(_ row: SourceIntakeStatusRow, widest: String) -> some View {
+        if self.stacksIntakeRows {
             VStack(alignment: .leading, spacing: 6) {
                 Text(row.name)
                     .font(ShellFont.tileName)
@@ -586,9 +614,12 @@ struct StatusPane: View {
             .frame(minHeight: 44)
         } else {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(row.name)
-                    .font(ShellFont.tileName)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ZStack(alignment: .leading) {
+                    Text(widest).hidden()
+                    Text(row.name)
+                }
+                .font(ShellFont.tileName)
+                .fixedSize()
                 Text(row.soFar)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)

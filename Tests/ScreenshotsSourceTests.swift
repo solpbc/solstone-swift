@@ -7,6 +7,7 @@ import Foundation
 import ImageIO
 import os
 import Photos
+import SwiftUI
 import XCTest
 
 /// The screenshots source: identity, the span, pause, and what reaches the journal.
@@ -167,6 +168,32 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         XCTAssertEqual(restricted.sourceState, .needsAttention)
         XCTAssertEqual(restricted.pageReason, ScreenshotsVocabulary.restricted)
         XCTAssertFalse(restricted.opensSettings)
+
+        let turnedOff = ScreenshotsPresentation.viewState(Self.input(
+            everOn: true, enabled: false, access: .denied, fullAccessWasHeld: true
+        ))
+        XCTAssertEqual(turnedOff.sourceState, .off)
+        XCTAssertNil(turnedOff.pageReason)
+        XCTAssertFalse(turnedOff.opensSettings)
+        XCTAssertFalse(turnedOff.switchOn)
+
+        // Turned on again: it asks how far back, and its switch can still turn it off.
+        let askingAgain = ScreenshotsPresentation.viewState(Self.input(
+            everOn: true, enabled: true, needsSpan: true, access: .full, fullAccessWasHeld: true
+        ))
+        XCTAssertEqual(askingAgain.sourceState, .readyToSetUp)
+        XCTAssertTrue(askingAgain.switchOn)
+        XCTAssertEqual(askingAgain.pageSubline, ScreenshotsVocabulary.readyToSetUpSubline)
+
+        // The page says the pause's promise in full, under its verdict, as the tile does.
+        let paused = ScreenshotsPresentation.viewState(Self.input(
+            everOn: true, enabled: true, paused: true, access: .full, fullAccessWasHeld: true
+        ))
+        XCTAssertEqual(paused.sourceState, .paused)
+        XCTAssertEqual(paused.pageSubline, ScreenshotsVocabulary.pausedSubtext)
+        XCTAssertNil(ScreenshotsPresentation.viewState(Self.input(
+            everOn: true, enabled: true, access: .full, fullAccessWasHeld: true
+        )).pageSubline)
 
         let held = ScreenshotsPresentation.viewState(Self.input(
             everOn: true, enabled: true, access: .full, capabilityNotListed: true
@@ -366,6 +393,39 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
     }
 
     @MainActor
+    func testAChangeToAScreenshotFromBeforeTheChosenSpanDoesNotBringItIn() async {
+        let rig = self.rig(assets: [
+            Self.asset("old", age: -90 * 86_400, uti: "public.png"),
+            Self.asset("recent", age: -3_600, uti: "public.png"),
+        ], exports: [
+            "old": .bytes(Data("old-png".utf8), uniformTypeIdentifier: "public.png"),
+            "recent": .bytes(Data("recent-png".utf8), uniformTypeIdentifier: "public.png"),
+            "new": .bytes(Data("new-png".utf8), uniformTypeIdentifier: "public.png"),
+        ])
+        await rig.engine.turnOn()
+        await rig.engine.confirm()
+        XCTAssertEqual(rig.sender.sent.map(\.localIdentifier), ["recent"])
+
+        // Photos reports a favourite or a new date on the old screenshot, and a new one taken now.
+        rig.library.assets.append(Self.asset("new", age: 0, uti: "public.png"))
+        rig.library.changeResult = .delta(inserted: ["new"], updated: ["old"], deleted: [], token: Data("next".utf8))
+        await rig.engine.libraryChanged()
+        XCTAssertEqual(rig.sender.sent.map(\.localIdentifier), ["recent", "new"])
+
+        // Off, then on again from today: what was taken while it was off, before today, stays out.
+        rig.engine.turnOff()
+        rig.library.assets.append(Self.asset("whileOff", age: -2 * 86_400, uti: "public.png"))
+        rig.library.exports["whileOff"] = .bytes(Data("while-off-png".utf8), uniformTypeIdentifier: "public.png")
+        await rig.engine.turnOn()
+        await rig.engine.chooseSpan(.fromToday)
+        await rig.engine.confirm()
+        rig.library.changeResult = .delta(inserted: ["whileOff"], updated: [], deleted: [], token: Data("later".utf8))
+        await rig.engine.libraryChanged()
+        XCTAssertFalse(rig.sender.sent.map(\.localIdentifier).contains("whileOff"))
+        XCTAssertFalse(rig.sender.sent.map(\.localIdentifier).contains("old"))
+    }
+
+    @MainActor
     func testSameJournalKeepsTheSourceOnAndANewJournalAsksAgain() async throws {
         let rig = self.rig(assets: [Self.asset("first", age: -3_600, uti: "public.png")], exports: [
             "first": .bytes(Data("first-png".utf8), uniformTypeIdentifier: "public.png"),
@@ -383,6 +443,78 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         journal = "journal-b"
         rig.engine.noteJournal()
         XCTAssertTrue(rig.engine.snapshot.needsSpan)
+    }
+
+    @MainActor
+    func testANewJournalIsAskedWithItsOwnCount() async throws {
+        let rig = self.rig(assets: [
+            Self.asset("one", age: -3_600, uti: "public.png"),
+            Self.asset("two", age: -7_200, uti: "public.png"),
+        ], exports: [
+            "one": .bytes(Data("one-png".utf8), uniformTypeIdentifier: "public.png"),
+            "two": .bytes(Data("two-png".utf8), uniformTypeIdentifier: "public.png"),
+        ])
+        var journal = "journal-a"
+        rig.engine.journalIdentity = { journal }
+        await rig.engine.turnOn()
+        await rig.engine.confirm()
+        for upload in rig.sender.sent {
+            rig.engine.noteDelivered(localIdentifier: upload.localIdentifier, hash: upload.hash)
+        }
+        // Off and on again against the same journal: nothing is left to bring in.
+        rig.engine.turnOff()
+        await rig.engine.turnOn()
+        guard case .ready(_, let sameJournal) = rig.engine.snapshot.confirm else { return XCTFail("recount") }
+        XCTAssertEqual(sameJournal, 0)
+
+        // Another journal: the last count was that journal's, so it never shows as this one's.
+        journal = "journal-b"
+        rig.engine.noteJournal()
+        XCTAssertTrue(rig.engine.snapshot.needsSpan)
+        XCTAssertEqual(rig.engine.snapshot.confirm, .checking)
+        for _ in 0..<200 {
+            if case .ready = rig.engine.snapshot.confirm { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard case .ready(_, let newJournal) = rig.engine.snapshot.confirm else { return XCTFail("count for b") }
+        XCTAssertEqual(newJournal, 2)
+    }
+
+    @MainActor
+    func testTheInstallCountTellsTheScreenOnceForEachNewScreenshot() async {
+        let library = FakeScreenshotsLibrary()
+        library.status = .full
+        library.assets = [Self.asset("one", age: -60, uti: "public.png")]
+        library.exports = ["one": .bytes(Data("one-png".utf8), uniformTypeIdentifier: "public.png")]
+        let sender = FakeScreenshotsSender()
+        let intake = SourceIntakeStore(containerRoot: self.makeRoot(), timeZone: TimeZone(secondsFromGMT: 0)!)
+        let engine = ScreenshotsSourceEngine(
+            library: library,
+            store: ScreenshotsStore(fileURL: self.makeRoot().appendingPathComponent("state.json")),
+            sender: sender,
+            intake: intake,
+            timeZone: TimeZone(identifier: "America/Denver")!
+        )
+        engine.journalIdentity = { "journal-a" }
+        var told = 0
+        engine.onIntakeRecorded = { told += 1 }
+        await engine.turnOn()
+        await engine.confirm()
+        XCTAssertEqual(told, 1)
+        engine.noteDelivered(localIdentifier: "one", hash: sender.sent[0].hash)
+        XCTAssertEqual(told, 1)
+    }
+
+    func testStatusRowsKeepTheWidestNameWholeAndStackAboveTheDefaultSize() {
+        XCTAssertEqual(
+            StatusPaneIntakeColumns.widestName(["audio", "location", ScreenshotsVocabulary.label, "import"]),
+            ScreenshotsVocabulary.label
+        )
+        XCTAssertEqual(StatusPaneIntakeColumns.widestName([]), "")
+        XCTAssertFalse(StatusPaneIntakeColumns.stacks(.large))
+        XCTAssertFalse(StatusPaneIntakeColumns.stacks(.small))
+        XCTAssertTrue(StatusPaneIntakeColumns.stacks(.xLarge))
+        XCTAssertTrue(StatusPaneIntakeColumns.stacks(.accessibility5))
     }
 
     @MainActor

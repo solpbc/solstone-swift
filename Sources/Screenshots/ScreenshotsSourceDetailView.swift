@@ -15,13 +15,18 @@ struct ScreenshotsSourceDetailView: View {
 private struct ScreenshotsPage: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @ScaledMetric(relativeTo: .subheadline) private var markWidth: CGFloat = 24
     let source: ScreenshotsSourceEngine
 
     var body: some View {
         let snapshot = self.source.snapshot
         let view = snapshot.view
         ScrollView {
+            // The accepted design's order: the verdict with its line and its one action, then
+            // what the source takes in, then setting it up, then when it looks, then the facts.
             VStack(alignment: .leading, spacing: 16) {
+                self.stateBlock(snapshot)
+
                 Text(ScreenshotsVocabulary.whatItTakesIn)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -30,26 +35,16 @@ private struct ScreenshotsPage: View {
                     .background(Color.deckSurface, in: ShellMetrics.cardShape)
                     .accessibilityIdentifier("screenshots.page.valueLine")
 
-                Text(ScreenshotsVocabulary.honestyLine)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("screenshots.page.honesty")
-
                 if view.showChooser {
                     self.chooser(snapshot)
                 } else if view.showTurnOn {
                     self.turnOnButton
                 }
 
-                if let reason = view.pageReason {
-                    SourceDetailReasonLine(message: reason)
-                        .accessibilityIdentifier("screenshots.page.reason")
-                    if view.opensSettings { self.settingsButton }
-                }
-
-                if view.showOnControls || snapshot.everOn {
-                    self.stateBlock(snapshot)
-                }
+                Text(ScreenshotsVocabulary.honestyLine)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("screenshots.page.honesty")
 
                 self.facts(snapshot)
 
@@ -126,7 +121,8 @@ private struct ScreenshotsPage: View {
             HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? Color.solOrange : .secondary)
-                    .frame(width: 24)
+                    .frame(width: self.markWidth)
+                    .accessibilityHidden(true)
                 Text(ScreenshotsVocabulary.spanLabel(span))
                     .font(.subheadline.weight(isSelected ? .semibold : .regular))
                 Spacer(minLength: 0)
@@ -159,22 +155,41 @@ private struct ScreenshotsPage: View {
         .accessibilityIdentifier("screenshots.openSettings")
     }
 
+    private func toggle(_ snapshot: ScreenshotsSnapshot) -> some View {
+        Toggle(ScreenshotsVocabulary.label, isOn: Binding(
+            get: { snapshot.view.switchOn },
+            set: { on in
+                Task {
+                    if on { await self.source.turnOn() } else { self.source.turnOff() }
+                }
+            }
+        ))
+        .tint(.solOrange)
+        .frame(minHeight: 44)
+        .accessibilityIdentifier("screenshots.toggle")
+    }
+
     @ViewBuilder
     private func stateBlock(_ snapshot: ScreenshotsSnapshot) -> some View {
         SourceDetailBlock(title: LocationVocabulary.stateBlockTitle) {
             VStack(alignment: .leading, spacing: 12) {
                 SourceDetailVerdictLine(state: snapshot.view.sourceState)
-                Toggle(ScreenshotsVocabulary.label, isOn: Binding(
-                    get: { snapshot.enabled && !snapshot.needsSpan },
-                    set: { on in
-                        Task {
-                            if on { await self.source.turnOn() } else { self.source.turnOff() }
-                        }
-                    }
-                ))
-                .tint(.solOrange)
-                .frame(minHeight: 44)
-                .accessibilityIdentifier("screenshots.toggle")
+                if let line = snapshot.view.pageSubline {
+                    Text(line)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("screenshots.page.subline")
+                }
+                if let reason = snapshot.view.pageReason {
+                    SourceDetailReasonLine(message: reason)
+                        .accessibilityIdentifier("screenshots.page.reason")
+                    if snapshot.view.opensSettings { self.settingsButton }
+                }
+                if snapshot.everOn {
+                    self.toggle(snapshot)
+                }
+
 
                 if snapshot.view.showProgress {
                     Text(ScreenshotsVocabulary.progress(done: snapshot.progressDone, total: snapshot.progressTotal, onPage: true))

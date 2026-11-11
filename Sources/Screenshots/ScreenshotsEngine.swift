@@ -50,6 +50,8 @@ final class ScreenshotsSourceEngine {
     private let intake: SourceIntakeStore?
     private let timeZone: TimeZone
     var journalIdentity: () -> String? = { nil }
+    /// Called when this install's screenshot count moved, so a page or pane on screen reads it again.
+    var onIntakeRecorded: () -> Void = {}
     private(set) var snapshot = ScreenshotsSnapshot()
     private var pumping = false
 
@@ -139,6 +141,7 @@ final class ScreenshotsSourceEngine {
         self.store.document.needsSpan = false
         self.store.document.paused = false
         self.store.document.journalIdentity = journal
+        self.store.document.liveFloor = span.start(now: Date(), timeZone: self.timeZone)
         self.store.document.progressDone = 0
         self.store.document.progressTotal = ids.count
         let receivedLocals = journal.map { self.store.document.receivedLocalSet($0) } ?? []
@@ -242,8 +245,12 @@ final class ScreenshotsSourceEngine {
         self.closePause(at: Date())
         self.store.document.paused = false
         self.store.document.needsSpan = true
+        // The last count was made against the other journal: it is not this one's consent.
+        self.store.document.countedSpan = nil
+        self.store.document.countedIDs = []
         self.store.save()
         self.publish()
+        Task { await self.count() }
     }
 
     func noteCapability(_ capability: ScreenshotsCapabilityGate.Capability) {
@@ -264,7 +271,7 @@ final class ScreenshotsSourceEngine {
             self.store.document.remember(hash: hash, localIdentifier: localIdentifier, journal: journal)
         }
         self.markProgress(at: index)
-        self.intake?.recordScreenshot(hash: hash, now: Date())
+        self.recordIntake(hash: hash)
         self.store.save()
         self.publish()
         Task { await self.pump() }
@@ -331,7 +338,8 @@ final class ScreenshotsSourceEngine {
     }
 
     private func rescan() async {
-        let start = self.store.document.selectedSpan.start(now: Date(), timeZone: self.timeZone)
+        let start = self.store.document.liveFloor
+            ?? self.store.document.selectedSpan.start(now: Date(), timeZone: self.timeZone)
         guard let assets = try? await self.library.screenshots(onOrAfter: start) else { return }
         let journal = self.journalIdentity() ?? self.store.document.journalIdentity
         let received = journal.map { self.store.document.receivedLocalSet($0) } ?? []
@@ -361,8 +369,10 @@ final class ScreenshotsSourceEngine {
             }
             return
         }
-        let frozen = false
-        if !frozen && (self.store.document.paused || ScreenshotsWire.takenWhilePaused(created: asset.created, windows: self.store.document.pauseWindows)) {
+        // Photos reports an edit, a favourite or a new date on an old screenshot as a change.
+        // One from before what the owner chose, that this source never took, stays out.
+        if let floor = self.store.document.liveFloor, asset.created < floor { return }
+        if self.store.document.paused || ScreenshotsWire.takenWhilePaused(created: asset.created, windows: self.store.document.pauseWindows) {
             return
         }
         self.store.document.items.append(ScreenshotsItem(
@@ -481,7 +491,7 @@ final class ScreenshotsSourceEngine {
             guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
             self.store.document.items[index].phase = .queued
             self.store.document.items[index].hash = hash
-            self.intake?.recordScreenshot(hash: hash, now: Date())
+            self.recordIntake(hash: hash)
             self.store.save()
             self.publish()
         } catch {
@@ -491,6 +501,12 @@ final class ScreenshotsSourceEngine {
             } else {
                 self.store.save()
             }
+        }
+    }
+
+    private func recordIntake(hash: String) {
+        if self.intake?.recordScreenshot(hash: hash, now: Date()) == .recorded {
+            self.onIntakeRecorded()
         }
     }
 

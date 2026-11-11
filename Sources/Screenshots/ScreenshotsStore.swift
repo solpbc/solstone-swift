@@ -29,6 +29,9 @@ nonisolated struct ScreenshotsDocument: Codable, Equatable, Sendable {
     var journalIdentity: String?
     var pauseWindows: [ScreenshotsPauseWindow] = []
     var changeToken: Data?
+    /// The start of what the owner chose at the last confirm. A screenshot the source has
+    /// not seen and that was taken before it stays out when Photos reports a change to it.
+    var liveFloor: Date?
     var lastChecked: Date?
     var items: [ScreenshotsItem] = []
     var receivedHashes: [String: [String]] = [:]

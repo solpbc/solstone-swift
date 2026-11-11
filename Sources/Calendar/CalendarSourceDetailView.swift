@@ -18,6 +18,7 @@ private struct CalendarSourcePageView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
+    @ScaledMetric(relativeTo: .subheadline) private var markWidth: CGFloat = 24
     @State private var model: CalendarPageModel
 
     init(source: any CalendarSourceControlling) {
@@ -172,7 +173,7 @@ private struct CalendarSourcePageView: View {
             HStack(spacing: 10) {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? Color.solOrange : .secondary)
-                    .frame(width: 24)
+                    .frame(width: self.markWidth)
                 Text(CalendarVocabulary.spanLabel(span))
                     .font(.subheadline.weight(isSelected ? .semibold : .regular))
                 Spacer(minLength: 0)

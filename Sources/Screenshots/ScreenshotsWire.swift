@@ -246,12 +246,31 @@ nonisolated struct ScreenshotsViewState: Equatable, Sendable {
     var showS17: Bool
     var showS21: Bool
     var showProgress: Bool
+    /// The page's switch is the owner's wish, so it can always turn the source off, including
+    /// while it asks how far back again or needs access.
+    var switchOn: Bool = false
+    /// The source's own line under the page's verdict, as on its tile: S11 while it asks how
+    /// far back, S16 while paused.
+    var pageSubline: String? = nil
 }
 
 nonisolated enum ScreenshotsPresentation {
     static func viewState(_ input: ScreenshotsViewInput) -> ScreenshotsViewState {
+        var state = self.baseViewState(input)
+        state.switchOn = input.enabled
+        switch state.sourceState {
+        case .readyToSetUp where state.showChooser, .paused:
+            state.pageSubline = state.subtextOverride
+        case .active, .off, .enrolling, .readyToSetUp, .checking, .needsAttention:
+            state.pageSubline = nil
+        }
+        return state
+    }
+
+    private static func baseViewState(_ input: ScreenshotsViewInput) -> ScreenshotsViewState {
         let pairedLine = ScreenshotsVocabulary.activeSubtext(isJournalPaired: input.paired)
-        if input.everOn && input.access != .full && input.fullAccessWasHeld {
+        // A fault needs a wish: a source the owner turned off says off, whatever Photos allows.
+        if input.everOn && input.enabled && input.access != .full && input.fullAccessWasHeld {
             switch input.access {
             case .limited:
                 return self.make(
