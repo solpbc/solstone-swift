@@ -12,6 +12,7 @@ final class SourceIntakeModel {
     private let store: SourceIntakeStore?
     private let showsSample: Bool
     private(set) var load: SourceIntakeLoad
+    @ObservationIgnored private var changes: SourceIntakeChanges?
 
     init(store: SourceIntakeStore?, showsSample: Bool? = nil) {
         let sample = showsSample ?? Self.argumentsRequestSample()
@@ -21,6 +22,11 @@ final class SourceIntakeModel {
             self.load = .ready(SourceIntakeSample.snapshot())
         } else {
             self.load = store?.load() ?? .ready(.empty)
+        }
+        // Every source's count moves through the one store, so one listener keeps every row and
+        // page that shows a count current while it is on screen, whichever process wrote it.
+        if self.store != nil {
+            self.changes = SourceIntakeChanges { [weak self] in self?.reload() }
         }
     }
 
@@ -60,5 +66,39 @@ final class SourceIntakeModel {
     private static func argumentsRequestSample() -> Bool {
         let arguments = ProcessInfo.processInfo.arguments
         return arguments.contains("--ui-test") && arguments.contains("--ui-test-intake-sample")
+    }
+}
+
+/// The store's change notification, observed for as long as this lives.
+nonisolated final class SourceIntakeChanges: @unchecked Sendable {
+    let handler: @MainActor @Sendable () -> Void
+
+    init(handler: @escaping @MainActor @Sendable () -> Void) {
+        self.handler = handler
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            sourceIntakeChangedCallback,
+            SourceIntakeStore.changedNotificationName as CFString,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    deinit {
+        CFNotificationCenterRemoveObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            CFNotificationName(SourceIntakeStore.changedNotificationName as CFString),
+            nil
+        )
+    }
+}
+
+private nonisolated let sourceIntakeChangedCallback: CFNotificationCallback = { _, observer, _, _, _ in
+    guard let observer else { return }
+    let changes = Unmanaged<SourceIntakeChanges>.fromOpaque(observer).takeUnretainedValue()
+    Task { @MainActor in
+        changes.handler()
     }
 }

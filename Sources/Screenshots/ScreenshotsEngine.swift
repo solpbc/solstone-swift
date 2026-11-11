@@ -50,8 +50,6 @@ final class ScreenshotsSourceEngine {
     private let intake: SourceIntakeStore?
     private let timeZone: TimeZone
     var journalIdentity: () -> String? = { nil }
-    /// Called when this install's screenshot count moved, so a page or pane on screen reads it again.
-    var onIntakeRecorded: () -> Void = {}
     private(set) var snapshot = ScreenshotsSnapshot()
     private var pumping = false
 
@@ -278,7 +276,7 @@ final class ScreenshotsSourceEngine {
             self.store.document.remember(hash: hash, localIdentifier: localIdentifier, journal: journal)
         }
         self.markProgress(at: index)
-        self.recordIntake(hash: hash)
+        self.intake?.recordScreenshot(hash: hash, now: Date())
         self.store.save()
         self.publish()
         Task { await self.pump() }
@@ -498,7 +496,7 @@ final class ScreenshotsSourceEngine {
             guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
             self.store.document.items[index].phase = .queued
             self.store.document.items[index].hash = hash
-            self.recordIntake(hash: hash)
+            self.intake?.recordScreenshot(hash: hash, now: Date())
             self.store.save()
             self.publish()
         } catch {
@@ -508,12 +506,6 @@ final class ScreenshotsSourceEngine {
             } else {
                 self.store.save()
             }
-        }
-    }
-
-    private func recordIntake(hash: String) {
-        if self.intake?.recordScreenshot(hash: hash, now: Date()) == .recorded {
-            self.onIntakeRecorded()
         }
     }
 

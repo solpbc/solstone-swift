@@ -480,31 +480,6 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         XCTAssertEqual(newJournal, 2)
     }
 
-    @MainActor
-    func testTheInstallCountTellsTheScreenOnceForEachNewScreenshot() async {
-        let library = FakeScreenshotsLibrary()
-        library.status = .full
-        library.assets = [Self.asset("one", age: -60, uti: "public.png")]
-        library.exports = ["one": .bytes(Data("one-png".utf8), uniformTypeIdentifier: "public.png")]
-        let sender = FakeScreenshotsSender()
-        let intake = SourceIntakeStore(containerRoot: self.makeRoot(), timeZone: TimeZone(secondsFromGMT: 0)!)
-        let engine = ScreenshotsSourceEngine(
-            library: library,
-            store: ScreenshotsStore(fileURL: self.makeRoot().appendingPathComponent("state.json")),
-            sender: sender,
-            intake: intake,
-            timeZone: TimeZone(identifier: "America/Denver")!
-        )
-        engine.journalIdentity = { "journal-a" }
-        var told = 0
-        engine.onIntakeRecorded = { told += 1 }
-        await engine.turnOn()
-        await engine.confirm()
-        XCTAssertEqual(told, 1)
-        engine.noteDelivered(localIdentifier: "one", hash: sender.sent[0].hash)
-        XCTAssertEqual(told, 1)
-    }
-
     func testStatusRowsKeepTheWidestNameWholeAndStackAboveTheDefaultSize() {
         XCTAssertEqual(
             StatusPaneIntakeColumns.widestName(["audio", "location", ScreenshotsVocabulary.label, "import"]),

@@ -117,6 +117,9 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     static let directoryName = "SourceIntake"
     static let fileName = "intake.json"
     static let lockName = "intake.lock"
+    /// Posted after every write, from any process that shares the file, so a pane or page on
+    /// screen reads the totals again. It carries nothing: readers load the file.
+    static let changedNotificationName = "app.solstone.swift.source-intake.changed"
 
     let directoryURL: URL
     let timeZone: TimeZone
@@ -582,6 +585,13 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         try written.setResourceValues(values)
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(Self.changedNotificationName as CFString),
+            nil,
+            nil,
+            true
+        )
     }
 
     private nonisolated enum Loaded {

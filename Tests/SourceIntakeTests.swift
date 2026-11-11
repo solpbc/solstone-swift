@@ -22,6 +22,36 @@ final class SourceIntakeTests: XCTestCase {
         super.tearDown()
     }
 
+    /// A pane on screen reads every source's new total without being opened again, including
+    /// one written by another store on the same file, as the share and Safari extensions do.
+    func testAnOpenPaneReadsEveryWriteToTheStore() async throws {
+        let app = self.store()
+        let model = SourceIntakeModel(store: app, showsSample: false)
+        let other = SourceIntakeStore(directoryURL: app.directoryURL, timeZone: app.timeZone)
+        let now = Date()
+        XCTAssertEqual(other.recordImport(itemID: "shared", now: now), .recorded)
+        let sawImport = await Self.waitUntil {
+            if case .ready(let snapshot) = model.load { return snapshot.imports.total == 1 }
+            return false
+        }
+        XCTAssertTrue(sawImport)
+        XCTAssertEqual(app.recordDuration(source: .audio, segmentID: UUID(), duration: 120, now: now), .recorded)
+        let sawAudio = await Self.waitUntil {
+            if case .ready(let snapshot) = model.load { return snapshot.audio.total == 120 }
+            return false
+        }
+        XCTAssertTrue(sawAudio)
+    }
+
+    private static func waitUntil(timeout: Duration = .seconds(3), _ condition: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if condition() { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return condition()
+    }
+
     func testANewFileRecordsTheLocalDayZerosAndExcludesItselfFromBackup() throws {
         let zone = TimeZone(secondsFromGMT: 0)!
         let store = self.store(timeZone: zone)
