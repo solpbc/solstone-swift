@@ -220,6 +220,7 @@ struct DayHomeView: View {
     @Environment(CalendarSourceHandle.self) private var calendarSourceHandle: CalendarSourceHandle?
     @Environment(ObsidianTransferHolder.self) private var obsidianTransferHolder: ObsidianTransferHolder?
     @Environment(ObsidianSourceHandle.self) private var obsidianSourceHandle: ObsidianSourceHandle?
+    @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -449,6 +450,17 @@ private extension DayHomeView {
                     )
                 }
             }
+            if let handle = self.screenshotsSourceHandle {
+                let screenshots = makeScreenshotsSource(handle.source)
+                if self.isOnHome(screenshots.id) {
+                    HomeSourceTile(
+                        source: screenshots,
+                        route: .screenshots,
+                        control: screenshotsTileControl(handle.source.snapshot.view),
+                        isOn: self.screenshotsIsOn(handle.source)
+                    )
+                }
+            }
             if let safari = self.safariSource {
                 let source = safariSourceModel(snapshot: safari.snapshot, extensionOn: safari.extensionOn,
                                                isJournalPaired: self.appConfig.isPaired)
@@ -481,6 +493,18 @@ private extension DayHomeView {
             set: { isOn in
                 Task { @MainActor in
                     await setCalendarTile(source, on: isOn)
+                }
+            }
+        )
+    }
+
+    /// The screenshots tile's switch only pauses and resumes. Off and setup have no switch.
+    func screenshotsIsOn(_ source: ScreenshotsSourceEngine) -> Binding<Bool> {
+        Binding(
+            get: { source.snapshot.view.sourceState == .active },
+            set: { isOn in
+                Task { @MainActor in
+                    await setScreenshotsTile(source, on: isOn)
                 }
             }
         )

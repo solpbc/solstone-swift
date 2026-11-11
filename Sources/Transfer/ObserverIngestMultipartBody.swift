@@ -35,6 +35,7 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
     var parts: [ObserverIngestMultipartPart]
     var tz: String?
     var utcOffsetSeconds: Int?
+    var screenshot: TransferScreenshotMeta?
 
     init(
         boundary: String,
@@ -55,7 +56,8 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
         powerSampledAt: Date? = nil,
         parts: [ObserverIngestMultipartPart],
         tz: String? = nil,
-        utcOffsetSeconds: Int? = nil
+        utcOffsetSeconds: Int? = nil,
+        screenshot: TransferScreenshotMeta? = nil
     ) {
         self.boundary = boundary
         self.day = day
@@ -76,6 +78,7 @@ nonisolated struct ObserverIngestMultipartPayload: Equatable, Sendable {
         self.parts = parts
         self.tz = tz
         self.utcOffsetSeconds = utcOffsetSeconds
+        self.screenshot = screenshot
     }
 }
 
@@ -125,6 +128,13 @@ nonisolated enum ObserverIngestMultipartBody {
         }
         if let utcOffsetSeconds = payload.utcOffsetSeconds {
             metaObject["utc_offset_seconds"] = utcOffsetSeconds
+        }
+        if let screenshot = payload.screenshot {
+            metaObject["screenshot"] = [
+                "captured_at": screenshot.capturedAt,
+                "taken_from": screenshot.takenFrom,
+                "v": screenshot.v,
+            ]
         }
         let envelope: [String: Any] = [
             "day": payload.day,

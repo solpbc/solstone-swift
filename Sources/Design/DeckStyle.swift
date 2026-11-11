@@ -293,6 +293,7 @@ nonisolated extension SourceKind {
         case .calendar: "calendar"
         case .safari: "safari"
         case .obsidian: "doc.text"
+        case .screenshots: "camera.viewfinder"
         }
     }
 }

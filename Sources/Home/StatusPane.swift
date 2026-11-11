@@ -5,7 +5,7 @@ import SwiftUI
 import UIKit
 
 nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
-    case audio, location, screencast, watch, calendar, obsidian, safari, `import`
+    case audio, location, screencast, watch, calendar, obsidian, screenshots, safari, `import`
 
     var route: SourceRoute? {
         switch self {
@@ -15,6 +15,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .watch: .watch
         case .calendar: .calendar
         case .obsidian: .obsidian
+        case .screenshots: .screenshots
         case .safari: .safari
         case .import: nil
         }
@@ -28,6 +29,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .watch: .watch
         case .calendar: .calendar
         case .obsidian: .obsidian
+        case .screenshots: .screenshots
         case .safari: .safari
         case .import: nil
         }
@@ -41,6 +43,7 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
         case .watch: "watch"
         case .calendar: CalendarVocabulary.label
         case .obsidian: ObsidianVocabulary.TITLE
+        case .screenshots: ScreenshotsVocabulary.label
         case .safari: SafariVocabulary.label
         case .import: SourceVocabulary.importTitle
         }
@@ -71,6 +74,7 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
         watchCount: Int,
         calendarCount: Int = 0,
         obsidianCount: Int = 0,
+        screenshotsCount: Int = 0,
         safariCount: Int = 0,
         importCount: Int = 0
     ) -> Self {
@@ -81,11 +85,12 @@ nonisolated struct StatusPaneWaitingPresentation: Equatable, Sendable {
             StatusPaneWaitingRow(source: .watch, count: watchCount),
             StatusPaneWaitingRow(source: .calendar, count: calendarCount),
             StatusPaneWaitingRow(source: .obsidian, count: obsidianCount),
+            StatusPaneWaitingRow(source: .screenshots, count: screenshotsCount),
             StatusPaneWaitingRow(source: .safari, count: safariCount),
             StatusPaneWaitingRow(source: .import, count: importCount),
         ]
         return Self(
-            total: mobileAggregateCount + watchCount + calendarCount + obsidianCount + safariCount + importCount,
+            total: mobileAggregateCount + watchCount + calendarCount + obsidianCount + screenshotsCount + safariCount + importCount,
             rows: candidates.filter { $0.count > 0 }
         )
     }
@@ -325,6 +330,7 @@ struct StatusPane: View {
     @Environment(WatchUploaderHolder.self) private var watchUploaderHolder
     @Environment(CalendarTransferHolder.self) private var calendarTransferHolder: CalendarTransferHolder?
     @Environment(ObsidianTransferHolder.self) private var obsidianTransferHolder: ObsidianTransferHolder?
+    @Environment(ScreenshotsSourceEngine.self) private var screenshotsSource: ScreenshotsSourceEngine?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(LocationManager.self) private var locationManager
@@ -635,6 +641,7 @@ struct StatusPane: View {
             watchCount: self.watchUploaderHolder.pendingCount + self.watchUploaderHolder.failedCount,
             calendarCount: (self.calendarTransferHolder?.pendingCount ?? 0) + (self.calendarTransferHolder?.failedCount ?? 0),
             obsidianCount: (self.obsidianTransferHolder?.pendingCount ?? 0) + (self.obsidianTransferHolder?.failedCount ?? 0),
+            screenshotsCount: self.screenshotsSource?.waitingCount ?? 0,
             safariCount: self.safariSource?.waitingCount ?? 0,
             importCount: self.shareTransferHolder.pendingCount + self.shareTransferHolder.failedCount
         )

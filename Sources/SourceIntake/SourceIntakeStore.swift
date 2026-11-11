@@ -52,6 +52,7 @@ nonisolated struct SourceIntakeSnapshot: Equatable, Sendable {
     var safari: SourceIntakeLane
     var watch: SourceIntakeLane
     var obsidian: SourceIntakeLane
+    var screenshots: SourceIntakeLane = SourceIntakeLane(total: 0, last: nil)
     var imports: SourceIntakeLane
 
     static let empty = SourceIntakeSnapshot(
@@ -208,6 +209,20 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
             file.imports.seen.append(itemID)
             file.imports.items += 1
             file.imports.last = self.stamp(now)
+            return true
+        }
+    }
+
+    /// One kept screenshot, counted once per hash. A duplicate or a replay does not add again.
+    @discardableResult
+    func recordScreenshot(hash: String, now: Date) -> SourceIntakeResult {
+        self.mutate(now: now, create: true) { file in
+            var lane = file.screenshots ?? CountLane()
+            guard !lane.seen.contains(hash) else { return false }
+            lane.seen.append(hash)
+            lane.items += 1
+            lane.last = self.stamp(now)
+            file.screenshots = lane
             return true
         }
     }
@@ -588,7 +603,8 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     private func stampsReadable(_ file: File) -> Bool {
         let stamps = [
             file.audio.last, file.screen.last, file.location.last, file.calendar.last,
-            file.safari.last, file.watch.last, file.imports.last, file.obsidian?.last, file.location.cursor?.t,
+            file.safari.last, file.watch.last, file.imports.last, file.obsidian?.last,
+            file.screenshots?.last, file.location.cursor?.t,
         ]
         for stamp in stamps {
             if let stamp, self.parseStamp(stamp) == nil { return false }
@@ -632,6 +648,7 @@ nonisolated private extension SourceIntakeStore {
         var watch: DurationLane
         var imports: CountLane
         var obsidian: ObsidianLane?
+        var screenshots: CountLane?
 
         nonisolated enum CodingKeys: String, CodingKey {
             case version
@@ -644,6 +661,7 @@ nonisolated private extension SourceIntakeStore {
             case watch
             case imports = "import"
             case obsidian
+            case screenshots
         }
 
         init(
@@ -656,7 +674,8 @@ nonisolated private extension SourceIntakeStore {
             safari: SafariLane,
             watch: DurationLane,
             imports: CountLane,
-            obsidian: ObsidianLane? = nil
+            obsidian: ObsidianLane? = nil,
+            screenshots: CountLane? = nil
         ) {
             self.version = version
             self.started = started
@@ -668,6 +687,7 @@ nonisolated private extension SourceIntakeStore {
             self.watch = watch
             self.imports = imports
             self.obsidian = obsidian
+            self.screenshots = screenshots
         }
 
         init(from decoder: Decoder) throws {
@@ -682,6 +702,7 @@ nonisolated private extension SourceIntakeStore {
             self.watch = try container.decode(DurationLane.self, forKey: .watch)
             self.imports = try container.decode(CountLane.self, forKey: .imports)
             self.obsidian = try container.decodeIfPresent(ObsidianLane.self, forKey: .obsidian)
+            self.screenshots = try container.decodeIfPresent(CountLane.self, forKey: .screenshots)
         }
 
         func encode(to encoder: Encoder) throws {
@@ -697,6 +718,9 @@ nonisolated private extension SourceIntakeStore {
             try container.encode(self.imports, forKey: .imports)
             if let obsidian {
                 try container.encode(obsidian, forKey: .obsidian)
+            }
+            if let screenshots {
+                try container.encode(screenshots, forKey: .screenshots)
             }
         }
 
@@ -724,6 +748,7 @@ nonisolated private extension SourceIntakeStore {
             self.imports.seen.sort()
             self.obsidian?.seen.sort()
             self.obsidian?.seededVaults.sort()
+            self.screenshots?.seen.sort()
         }
 
         func lane(_ source: SourceIntakeDurationSource) -> DurationLane {
@@ -750,6 +775,7 @@ nonisolated private extension SourceIntakeStore {
                 safari: SourceIntakeLane(total: self.safari.pages, last: self.safari.last.flatMap(parse)),
                 watch: self.watch.lane(parse: parse),
                 obsidian: SourceIntakeLane(total: self.obsidian?.notes ?? 0, last: self.obsidian?.last.flatMap(parse)),
+                screenshots: SourceIntakeLane(total: self.screenshots?.items ?? 0, last: self.screenshots?.last.flatMap(parse)),
                 imports: SourceIntakeLane(total: self.imports.items, last: self.imports.last.flatMap(parse))
             )
         }

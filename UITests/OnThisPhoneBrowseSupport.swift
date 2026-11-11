@@ -6,17 +6,38 @@ import XCTest
 @MainActor
 extension XCTestCase {
     func openStandaloneOnThisPhoneBrowse(in app: XCUIApplication) {
-        let importEntry = app.buttons["dayHome.importEntry"]
-        XCTAssertTrue(importEntry.waitForExistence(timeout: 10))
-        if !importEntry.isHittable {
-            app.swipeUp()
-        }
-        importEntry.tap()
+        self.tapDayHomeImportEntry(in: app)
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 5))
         let onThisDevice = app.buttons["import.onThisDeviceEntry"]
         XCTAssertTrue(onThisDevice.waitForExistence(timeout: 5))
         onThisDevice.tap()
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
+    }
+
+    /// The screenshots tile lengthens the deck, so the import tile can sit under the journal bar
+    /// while still reporting itself hittable. Scroll until its frame is in the content area.
+    func tapDayHomeImportEntry(in app: XCUIApplication) {
+        let entry = app.buttons["dayHome.importEntry"]
+        let surface = app.scrollViews["dayHome.surface"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 10))
+        // The deck is a lazy grid. A tile below the fold is not in the tree until
+        // it scrolls near the viewport, and one that has just appeared can still
+        // report itself hittable while its center is under the journal bar.
+        for _ in 0..<12 {
+            if entry.exists {
+                let footer = app.buttons["dayHome.journalSetup"].exists
+                    ? app.buttons["dayHome.journalSetup"] : app.buttons["dayHome.openInJournal"]
+                let bottom = footer.exists ? footer.frame.minY : app.frame.maxY - 34
+                let nav = app.navigationBars.firstMatch
+                let top = nav.exists ? nav.frame.maxY : app.frame.minY
+                if entry.isHittable, entry.frame.minY >= top, entry.frame.maxY <= bottom {
+                    entry.tap()
+                    return
+                }
+            }
+            surface.swipeUp()
+        }
+        XCTFail("import tile never became visible above the journal bar")
     }
 
     func tapDayHomeSourcesEntry(in app: XCUIApplication) {

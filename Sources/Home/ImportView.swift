@@ -11,9 +11,9 @@ struct ImportView: View {
     @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(ShareImportStore.self) private var shareImportStore
     @Environment(ForegroundDrainGate.self) private var foregroundDrainGate
+    @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-    @State private var isPickingPhotos = false
     @State private var isPickingFiles = false
     @State private var isDropTargeted = false
     @State private var intake: Intake = .idle
@@ -33,30 +33,7 @@ struct ImportView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
 
-                        // The pickers are the way in; a drop onto this pane is the shortcut, never the only path.
-                        self.pickRow(
-                            title: SourceVocabulary.importPhotosRow,
-                            systemImage: "photo.on.rectangle",
-                            hint: SourceVocabulary.importPhotosHint,
-                            identifier: "import.pickPhotos"
-                        ) {
-                            self.isPickingPhotos = true
-                        }
-                        NavigationLink {
-                            PhotoLibraryImportView()
-                        } label: {
-                            HStack {
-                                Label(PhotoLibraryVocabulary.importRow, systemImage: "photo.stack")
-                                Spacer(minLength: 8)
-                                Image(systemName: "chevron.right")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .accessibilityHint(PhotoLibraryVocabulary.importRowHint)
-                        .accessibilityIdentifier("import.photoLibrary")
+                        // The picker is the way in; a drop onto this pane is the shortcut, never the only path.
                         self.pickRow(
                             title: SourceVocabulary.importFilesRow,
                             systemImage: "folder",
@@ -65,6 +42,7 @@ struct ImportView: View {
                         ) {
                             self.isPickingFiles = true
                         }
+                        self.screenshotsLine
                         self.intakeLine
                     }
                 }
@@ -138,16 +116,6 @@ struct ImportView: View {
             }
             return true
         }
-        .sheet(isPresented: self.$isPickingPhotos) {
-            SystemPhotoPicker { providers in
-                self.isPickingPhotos = false
-                guard !providers.isEmpty else { return }
-                self.take { queue in
-                    await InAppImport.accept(itemProviders: providers, queue: queue, originApp: ShareImportOrigin.photos)
-                }
-            }
-            .ignoresSafeArea()
-        }
         .fileImporter(
             isPresented: self.$isPickingFiles,
             allowedContentTypes: InAppImport.acceptedContentTypes,
@@ -167,6 +135,34 @@ struct ImportView: View {
         .navigationTitle(SourceVocabulary.importTitle)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("shell.pane.import")
+    }
+
+    /// Open once the source has been on, including when photo access later needs attention.
+    /// Off, and never set up, both say set up.
+    private var screenshotsOpens: Bool {
+        guard let snapshot = self.screenshotsSourceHandle?.source.snapshot else { return false }
+        let needsAttention = snapshot.view.sourceState == .needsAttention
+        return snapshot.everOn && (snapshot.enabled || needsAttention)
+    }
+
+    private var screenshotsLine: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(ScreenshotsVocabulary.importLine)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            NavigationLink(value: ShellDestination.source(.screenshots)) {
+                HStack {
+                    Text(ScreenshotsVocabulary.importAction(isOn: self.screenshotsOpens))
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .accessibilityIdentifier("import.screenshots")
+        }
     }
 
     private func pickRow(

@@ -121,7 +121,8 @@ nonisolated enum DefaultTransferBodyBuilder {
                 powerSampledAt: ingest.powerSampledAt,
                 parts: parts,
                 tz: ingest.tz,
-                utcOffsetSeconds: ingest.utcOffsetSeconds
+                utcOffsetSeconds: ingest.utcOffsetSeconds,
+                screenshot: ingest.screenshot
             )))
         case .saveThenStart:
             if item.manifest.saveThenStart?.phase == .startPending {
@@ -1407,14 +1408,19 @@ actor TransferEngine {
         }
 
         var outcome = TransferHTTPClassifier.classify(result: result, endpointPhase: phase)
-        if item.manifest.sourceKey == "obsidian" {
+        if item.manifest.sourceKey == "obsidian" || item.manifest.sourceKey == ScreenshotsWire.sourceKey {
             let refusal = 400..<500 ~= (result.statusCode ?? 0) ? (try? JSONSerialization.jsonObject(with: result.data) as? [String: Any]) : nil
             let reasonCode = refusal?["reason_code"] as? String
 
-            if result.statusCode == 409 || reasonCode == "obsidian_note_ahead" {
+            if item.manifest.sourceKey == "obsidian" {
+                if result.statusCode == 409 || reasonCode == "obsidian_note_ahead" {
+                    outcome = .transientRetry(.httpServerError(statusCode: 409))
+                } else if reasonCode == "obsidian_note_invalid" {
+                    // Stays attention
+                }
+            } else if result.statusCode == 409 || reasonCode == "screenshot_ahead" {
+                // The journal's day has not reached the screenshot yet. Hold it and send again.
                 outcome = .transientRetry(.httpServerError(statusCode: 409))
-            } else if reasonCode == "obsidian_note_invalid" {
-                // Stays attention
             }
         }
         switch outcome {
@@ -1645,6 +1651,18 @@ actor TransferEngine {
                 return nil
             }
             return "receipt_status_\(response.status)"
+        }
+
+        // A screenshot the journal already kept answers with an empty descriptor list.
+        // A first write still carries descriptors, and those are checked below.
+        if item.manifest.sourceKey == ScreenshotsWire.sourceKey {
+            let accepted = response.status == "ok" || response.status == "duplicate" || response.status == "collision"
+            if !accepted {
+                return "receipt_status_\(response.status)"
+            }
+            if response.fileDescriptors?.isEmpty != false {
+                return nil
+            }
         }
 
         guard let descriptors = response.fileDescriptors else {

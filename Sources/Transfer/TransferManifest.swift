@@ -140,6 +140,20 @@ nonisolated struct TransferManifest: Codable, Equatable, Sendable {
     }
 }
 
+/// `meta.screenshot` on one observer ingest. Absent for every other source, and then the key
+/// is not on the wire.
+nonisolated struct TransferScreenshotMeta: Codable, Equatable, Sendable {
+    var v: Int
+    var capturedAt: String
+    var takenFrom: String
+
+    enum CodingKeys: String, CodingKey {
+        case v
+        case capturedAt = "captured_at"
+        case takenFrom = "taken_from"
+    }
+}
+
 nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable {
     var platform: String
     var segment: String
@@ -160,6 +174,7 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
     var ingestProtocolVersion: Int?
     var tz: String?
     var utcOffsetSeconds: Int?
+    var screenshot: TransferScreenshotMeta?
     /// The segment name this item was stored under before the spool rewrote it into the form the
     /// wire takes (a 12-hour clock written by an older build). Phone only: the request body
     /// builder copies the wire fields one by one and never reads this. `nil` for every item that
@@ -184,6 +199,7 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         ingestProtocolVersion: Int? = nil,
         tz: String? = nil,
         utcOffsetSeconds: Int? = nil,
+        screenshot: TransferScreenshotMeta? = nil,
         segmentRepairedFrom: String? = nil
     ) {
         self.platform = platform
@@ -203,6 +219,7 @@ nonisolated struct TransferObserverIngestMetadata: Codable, Equatable, Sendable 
         self.ingestProtocolVersion = ingestProtocolVersion
         self.tz = tz
         self.utcOffsetSeconds = utcOffsetSeconds
+        self.screenshot = screenshot
         self.segmentRepairedFrom = segmentRepairedFrom
     }
 }

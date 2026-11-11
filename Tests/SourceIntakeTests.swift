@@ -330,18 +330,19 @@ final class SourceIntakeTests: XCTestCase {
         let rows = SourceIntakeRows.statusRows(
             snapshot: snapshot, includeSafari: false, includeWatch: false, now: now, locale: locale, calendar: calendar
         )
-        XCTAssertEqual(rows.map(\.id), ["audio", "location", "screen", "calendar", "obsidian", "imports"])
+        XCTAssertEqual(rows.map(\.id), ["audio", "location", "screen", "calendar", "screenshots", "obsidian", "imports"])
         XCTAssertEqual(rows[0].soFar, "1 hour")
         XCTAssertFalse(rows[0].soFar.contains("since"))
         XCTAssertEqual(rows[0].last, "10 min ago")
         XCTAssertEqual(rows[0].name, "audio")
         XCTAssertEqual(rows[2].name, "screen")
-        XCTAssertEqual(rows[4].destination, .source(.obsidian))
-        XCTAssertEqual(rows[5].destination, ShellDestination.import)
+        XCTAssertEqual(rows[4].destination, .source(.screenshots))
+        XCTAssertEqual(rows[5].destination, .source(.obsidian))
+        XCTAssertEqual(rows[6].destination, ShellDestination.import)
         let empty = SourceIntakeRows.statusRows(
             snapshot: .empty, includeSafari: true, includeWatch: true, now: now, locale: locale, calendar: calendar
         )
-        XCTAssertEqual(empty.map(\.id), ["audio", "location", "screen", "calendar", "safari", "watch", "obsidian", "imports"])
+        XCTAssertEqual(empty.map(\.id), ["audio", "location", "screen", "calendar", "safari", "watch", "screenshots", "obsidian", "imports"])
         XCTAssertTrue(empty.allSatisfy { $0.soFar == "nothing yet" && $0.last == "nothing yet" })
         let page = SourceIntakeFormat.page(lane: snapshot.audio, kind: .duration, started: snapshot.started, now: now, locale: locale, calendar: calendar)
         XCTAssertEqual(page.soFar, "1 hour, since march 3")

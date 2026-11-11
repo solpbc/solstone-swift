@@ -8,10 +8,16 @@ import os
 actor SafariBrowserSourceGate: TransferSourceGate {
     let calendar: CalendarCapabilityGate
     let obsidian: (any TransferSourceGate)?
+    let screenshots: (any TransferSourceGate)?
 
-    init(calendar: CalendarCapabilityGate, obsidian: (any TransferSourceGate)? = nil) {
+    init(
+        calendar: CalendarCapabilityGate,
+        obsidian: (any TransferSourceGate)? = nil,
+        screenshots: (any TransferSourceGate)? = nil
+    ) {
         self.calendar = calendar
         self.obsidian = obsidian
+        self.screenshots = screenshots
     }
 
     func admits(manifest: TransferManifest, endpoint: TransferResolvedEndpoint) async -> Bool {
@@ -21,6 +27,10 @@ actor SafariBrowserSourceGate: TransferSourceGate {
         }
         if let obsidian, manifest.sourceKey == "obsidian" {
             return await obsidian.admits(manifest: manifest, endpoint: endpoint)
+        }
+        // Before the calendar gate: that gate admits every source it does not know.
+        if let screenshots, manifest.sourceKey == ScreenshotsWire.sourceKey {
+            return await screenshots.admits(manifest: manifest, endpoint: endpoint)
         }
         return await self.calendar.admits(manifest: manifest, endpoint: endpoint)
     }

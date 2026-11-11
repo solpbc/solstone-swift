@@ -37,6 +37,8 @@ struct SolstoneSwiftApp: App {
     @State private var obsidianSource: ObsidianSourceEngine
     @State private var obsidianSourceHandle: ObsidianSourceHandle
     @State private var obsidianTransferHolder: ObsidianTransferHolder
+    @State private var screenshotsSource: ScreenshotsSourceEngine
+    @State private var screenshotsSourceHandle: ScreenshotsSourceHandle
     @State private var safariSource: SafariSourceModel?
     @State private var calendarTransferHolder: CalendarTransferHolder
     @State private var calendarBackgroundRefresh: CalendarBackgroundRefresh
@@ -124,7 +126,9 @@ struct SolstoneSwiftApp: App {
         watchLink: WatchLink,
         transferEngine: TransferEngine,
         calendarGate: CalendarCapabilityGate? = nil,
-        obsidianGate: ObsidianCapabilityGate? = nil
+        obsidianGate: ObsidianCapabilityGate? = nil,
+        screenshotsGate: ScreenshotsCapabilityGate? = nil,
+        screenshotsEngine: ScreenshotsSourceEngine? = nil
     ) {
         watchLink.journalVersionProvider = { [metadata] in
             (
@@ -147,6 +151,10 @@ struct SolstoneSwiftApp: App {
                 // Whether a journal takes calendar notes is read again for a new pairing or version.
                 await calendarGate?.journalChanged(identity: identity, version: version)
                 await obsidianGate?.journalChanged(identity: identity, version: version)
+                await screenshotsGate?.journalChanged(identity: identity, version: version)
+                await MainActor.run {
+                    screenshotsEngine?.noteJournal(identity)
+                }
             }
         }
     }
@@ -351,6 +359,15 @@ struct SolstoneSwiftApp: App {
                 await transferEndpointResolver.isCurrent(endpoint)
             }
         )
+        let screenshotsGate = ScreenshotsCapabilityGate(
+            read: { endpoint in
+                guard let port = endpoint.port else { return .failed }
+                return await AuthenticatedHomeClient().fetchStatusReport(localPort: port)
+            },
+            isCurrent: { endpoint in
+                await transferEndpointResolver.isCurrent(endpoint)
+            }
+        )
         let transferStatusMirror = TransferStatusMirror()
         let transferConditionsSource = TransferConditionsSource()
         let transferSpool: TransferSpool
@@ -387,7 +404,11 @@ struct SolstoneSwiftApp: App {
                 return try DefaultTransferBodyBuilder.build(item: item, spool: spool)
             },
             heardReporter: connectionHeardReporter,
-            sourceGate: SafariBrowserSourceGate(calendar: calendarGate, obsidian: obsidianGate),
+            sourceGate: SafariBrowserSourceGate(
+                calendar: calendarGate,
+                obsidian: obsidianGate,
+                screenshots: screenshotsGate
+            ),
             appBuild: Self.refusalAppBuild,
             journalVersion: appConfig.journalVersion.version
         )
@@ -516,6 +537,42 @@ struct SolstoneSwiftApp: App {
         }
         calendarBackgroundRefresh.obsidianEngine = obsidianSource
         let obsidianSourceHandle = ObsidianSourceHandle(source: obsidianSource)
+        let screenshotsLibrary = ScreenshotsPhotoKit()
+        let screenshotsStore = ScreenshotsStore(fileURL: ScreenshotsStore.defaultFileURL())
+        let screenshotsSource = ScreenshotsSourceEngine(
+            library: screenshotsLibrary,
+            store: screenshotsStore,
+            sender: ScreenshotsTransferDelivery(
+                engine: transferEngine,
+                stagingURL: screenshotsStore.fileURL
+                    .deletingLastPathComponent()
+                    .appendingPathComponent("staging", isDirectory: true)
+            ),
+            intake: sourceIntakeStore
+        )
+        screenshotsSource.journalIdentity = { [weak appConfig] in
+            guard let appConfig, appConfig.isPaired else { return nil }
+            _ = appConfig.journalIdentityEpoch
+            guard let pairing = appConfig.store.snapshot().pairing else { return nil }
+            return journalGapIdentity(for: pairing)
+        }
+        screenshotsLibrary.setOnChange { [weak screenshotsSource] in
+            Task { @MainActor in
+                await screenshotsSource?.libraryChanged()
+            }
+        }
+        Task {
+            await screenshotsGate.connect(
+                wake: { await transferEngine.kick() },
+                publish: { capability in
+                    Task { @MainActor in
+                        screenshotsSource.noteCapability(capability)
+                    }
+                }
+            )
+        }
+        calendarBackgroundRefresh.screenshotsEngine = screenshotsSource
+        let screenshotsSourceHandle = ScreenshotsSourceHandle(source: screenshotsSource)
 #if DEBUG
         let safariSource = SafariUITestSource.seeded() ?? (SafariSourceModel.isBundled ? SafariSourceModel() : nil)
 #else
@@ -563,7 +620,9 @@ struct SolstoneSwiftApp: App {
             watchLink: watchLink,
             transferEngine: transferEngine,
             calendarGate: calendarGate,
-            obsidianGate: obsidianGate
+            obsidianGate: obsidianGate,
+            screenshotsGate: screenshotsGate,
+            screenshotsEngine: screenshotsSource
         )
         let shareImportStore = ShareImportStore(
             ledgerDropSink: { droppedCount in
@@ -652,7 +711,8 @@ struct SolstoneSwiftApp: App {
                 share: shareTransferHolder,
                 calendar: calendarTransferHolder,
                 safari: safariSource,
-                obsidian: obsidianTransferHolder
+                obsidian: obsidianTransferHolder,
+                screenshotsPending: screenshotsSource.waitingCount
             )
             return ConnectionSyncInputs(
                 tunnelState: tunnel.state,
@@ -706,7 +766,9 @@ struct SolstoneSwiftApp: App {
                     watch: watchUploaderHolder,
                     share: shareTransferHolder,
                     calendar: calendarTransferHolder,
-                    obsidian: obsidianTransferHolder
+                    obsidian: obsidianTransferHolder,
+                    screenshotsPending: screenshotsSource.waitingCount,
+                    screenshotsUnsendable: screenshotsSource.unsendableCount
                 )
             },
             heldTotals: {
@@ -715,7 +777,8 @@ struct SolstoneSwiftApp: App {
                     watch: watchUploaderHolder,
                     share: shareTransferHolder,
                     calendar: calendarTransferHolder,
-                    obsidian: obsidianTransferHolder
+                    obsidian: obsidianTransferHolder,
+                    screenshotsPending: screenshotsSource.waitingCount
                 )
             },
             inFlight: {
@@ -868,6 +931,8 @@ struct SolstoneSwiftApp: App {
         self._obsidianSource = State(initialValue: obsidianSource)
         self._obsidianSourceHandle = State(initialValue: obsidianSourceHandle)
         self._obsidianTransferHolder = State(initialValue: obsidianTransferHolder)
+        self._screenshotsSource = State(initialValue: screenshotsSource)
+        self._screenshotsSourceHandle = State(initialValue: screenshotsSourceHandle)
         self._safariSource = State(initialValue: safariSource)
         self._calendarTransferHolder = State(initialValue: calendarTransferHolder)
         self._calendarBackgroundRefresh = State(initialValue: calendarBackgroundRefresh)
@@ -943,6 +1008,8 @@ struct SolstoneSwiftApp: App {
                 .environment(self.obsidianSource)
                 .environment(self.obsidianSourceHandle)
                 .environment(self.obsidianTransferHolder)
+                .environment(self.screenshotsSource)
+                .environment(self.screenshotsSourceHandle)
                 .environment(self.safariSource)
                 .environment(self.calendarTransferHolder)
                 .environment(self.mobileSegmentUploader)
@@ -1084,8 +1151,8 @@ struct SolstoneSwiftApp: App {
                 Task {
                     await self.screencastManager.reconcileScreencast(reason: .foreground)
                 }
-                self.photoLibraryImporter.refreshAccess()
                 self.calendarSource.foreground()
+                Task { await self.screenshotsSource.foreground() }
                 Task { await self.obsidianSource.checkNow() }
                 if Self.isIntegrationMode || Self.isUITest {
                     return
@@ -1294,6 +1361,19 @@ struct SolstoneSwiftApp: App {
         await self.transferEngine.registerAttentionHook(sourceKey: ObsidianTransfer.sourceKey) { [obsidianTransferHolder = self.obsidianTransferHolder] _ in
             await obsidianTransferHolder.refreshNoteCounts()
         }
+        await self.transferEngine.registerDeliveredHook(sourceKey: ScreenshotsWire.sourceKey) { [screenshotsSource = self.screenshotsSource] manifest, _ in
+            guard let localIdentifier = ScreenshotsTransfer.localIdentifier(manifest),
+                  let hash = ScreenshotsTransfer.hash(manifest) else { return }
+            await MainActor.run {
+                screenshotsSource.noteDelivered(localIdentifier: localIdentifier, hash: hash)
+            }
+        }
+        await self.transferEngine.registerAttentionHook(sourceKey: ScreenshotsWire.sourceKey) { [screenshotsSource = self.screenshotsSource] manifest in
+            guard let localIdentifier = ScreenshotsTransfer.localIdentifier(manifest) else { return }
+            await MainActor.run {
+                screenshotsSource.noteRefused(localIdentifier: localIdentifier)
+            }
+        }
 
         let cachesRoot = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
         await Self.bootstrapTransfer(
@@ -1331,8 +1411,7 @@ struct SolstoneSwiftApp: App {
             reconcile: {
                 await self.mobileSegmentUploader.resumeFromDisk()
                 self.shareImportStore.refreshFromDisk()
-                // A library import the owner started carries on where it was when the app last closed.
-                self.photoLibraryImporter.resumeIfRunning()
+                // The photo-library import is retired. An album import that was in progress does not continue.
                 // The calendar source finishes a step a kill interrupted before anything is sent.
                 // It reads nothing unless the owner has set it up.
                 await self.calendarSource.launch()
@@ -1340,6 +1419,7 @@ struct SolstoneSwiftApp: App {
                 self.obsidianSource.setAppActive(self.scenePhase == .active)
                 await self.obsidianSource.launch()
                 await self.obsidianTransferHolder.refreshNoteCounts()
+                await self.screenshotsSource.launch()
             },
             enableDispatch: {
                 await self.transferEngine.enableDispatch()

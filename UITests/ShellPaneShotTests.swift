@@ -271,7 +271,7 @@ private extension ShellPaneShotTests {
             capturedWatch = true
         }
 
-        self.tapHittable(app.buttons["dayHome.importEntry"], in: app, missing: "import tile missing")
+        self.tapDayHomeImportEntry(in: app)
         XCTAssertTrue(
             app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 10),
             "import pane missing"

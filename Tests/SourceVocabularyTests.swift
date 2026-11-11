@@ -78,7 +78,7 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
         XCTAssertEqual(SourceVocabulary.openSettings, "open ios settings")
         XCTAssertEqual(
             SourceVocabulary.importerWhatItAdds,
-            "adds PDFs, audio, images, and text you choose here or send from the share sheet."
+            "adds PDFs, audio and text you choose here, and the photos and files you send from the share sheet."
         )
         XCTAssertEqual(SourceVocabulary.onThisPhoneSourceName(for: .share), "import")
         XCTAssertEqual(SourceVocabulary.sendStateCompactSaved, "waiting to sync")
@@ -999,8 +999,6 @@ nonisolated final class SourceVocabularyTests: XCTestCase {
             SourceVocabulary.whatItAdds,
             SourceVocabulary.pendingSeam,
             SourceVocabulary.importerWhatItAdds,
-            SourceVocabulary.importPhotosRow,
-            SourceVocabulary.importPhotosHint,
             SourceVocabulary.importFilesRow,
             SourceVocabulary.importFilesHint,
             SourceVocabulary.onThisPhone,

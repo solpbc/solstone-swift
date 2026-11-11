@@ -10,12 +10,13 @@ func uploadTotals(
     share: ShareTransferHolder,
     calendar: CalendarTransferHolder? = nil,
     safari: SafariSourceModel? = nil,
-    obsidian: ObsidianTransferHolder? = nil
+    obsidian: ObsidianTransferHolder? = nil,
+    screenshotsPending: Int = 0
 ) -> (failed: Int, pending: Int) {
     (
         failed: mobileSegment.failedCount + watch.failedCount + share.failedCount + (calendar?.failedCount ?? 0) + (obsidian?.failedCount ?? 0),
         pending: mobileSegment.pendingCount + watch.pendingCount + share.pendingCount + (calendar?.pendingCount ?? 0)
-            + (safari?.waitingCount ?? 0) + (obsidian?.pendingCount ?? 0)
+            + (safari?.waitingCount ?? 0) + (obsidian?.pendingCount ?? 0) + screenshotsPending
     )
 }
 
@@ -29,12 +30,21 @@ func sendableUploadTotals(
     watch: WatchUploaderHolder,
     share: ShareTransferHolder,
     calendar: CalendarTransferHolder? = nil,
-    obsidian: ObsidianTransferHolder? = nil
+    obsidian: ObsidianTransferHolder? = nil,
+    screenshotsPending: Int = 0,
+    screenshotsUnsendable: Int = 0
 ) -> (failed: Int, pending: Int) {
-    let totals = uploadTotals(mobileSegment: mobileSegment, watch: watch, share: share, calendar: calendar, obsidian: obsidian)
+    let totals = uploadTotals(
+        mobileSegment: mobileSegment,
+        watch: watch,
+        share: share,
+        calendar: calendar,
+        obsidian: obsidian,
+        screenshotsPending: screenshotsPending
+    )
     let paced = mobileSegment.refusalPacedCount + watch.refusalPacedCount + share.refusalPacedCount
         + (calendar?.refusalPacedCount ?? 0) + (obsidian?.refusalPacedCount ?? 0)
-    let held = (calendar?.unsendableCount ?? 0) + (obsidian?.unsendableCount ?? 0)
+    let held = (calendar?.unsendableCount ?? 0) + (obsidian?.unsendableCount ?? 0) + screenshotsUnsendable
     return (failed: max(0, totals.failed - paced), pending: max(0, totals.pending - held))
 }
 

@@ -19,6 +19,7 @@ final class CalendarBackgroundRefresh {
 
     private let engine: CalendarSourceEngine
     var obsidianEngine: ObsidianSourceEngine? = nil
+    var screenshotsEngine: ScreenshotsSourceEngine? = nil
     /// Tests stand in for iOS's answer to registration; nil registers with iOS.
     private let registrationStandIn: (() -> Bool)?
     private let submitter: Submitter
@@ -54,7 +55,10 @@ final class CalendarBackgroundRefresh {
     }
 
     func schedule() {
-        guard self.isRegistered, (self.engine.wantsBackgroundRefresh || self.obsidianEngine?.wantsBackgroundRefresh == true) else { return }
+        let wants = self.engine.wantsBackgroundRefresh
+            || self.obsidianEngine?.wantsBackgroundRefresh == true
+            || self.screenshotsEngine?.wantsBackgroundRefresh == true
+        guard self.isRegistered, wants else { return }
         let request = BGAppRefreshTaskRequest(identifier: Self.identifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: Self.interval)
         do {
@@ -68,10 +72,12 @@ final class CalendarBackgroundRefresh {
         self.schedule()
         let engine = self.engine
         let obsidianEngine = self.obsidianEngine
+        let screenshotsEngine = self.screenshotsEngine
         let work = Task { @MainActor in
             let calChecked = await engine.backgroundRefresh()
             let obsChecked = await obsidianEngine?.backgroundRefresh() ?? true
-            let checked = calChecked && obsChecked
+            let shotChecked = await screenshotsEngine?.backgroundRefresh() ?? true
+            let checked = calChecked && obsChecked && shotChecked
             handle.complete(success: checked && !Task.isCancelled)
         }
         handle.setExpirationHandler {

@@ -12,6 +12,7 @@ struct AddMoreView: View {
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(CalendarSourceHandle.self) private var calendarSourceHandle: CalendarSourceHandle?
     @Environment(ObsidianSourceHandle.self) private var obsidianSourceHandle: ObsidianSourceHandle?
+    @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @WatchPipelineInputReader private var watchPipelineInputs
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -94,6 +95,7 @@ struct AddMoreView: View {
             calendar: self.calendarSourceHandle.map { makeCalendarSource($0.source, isJournalPaired: self.appConfig.isPaired) },
             safari: self.safariSource.map { safariSourceModel(snapshot: $0.snapshot, extensionOn: $0.extensionOn, isJournalPaired: self.appConfig.isPaired) },
             obsidian: self.obsidianSourceHandle.map { makeObsidianSource($0.source, isJournalPaired: self.appConfig.isPaired) },
+            screenshots: self.screenshotsSourceHandle.map { makeScreenshotsSource($0.source) },
             hiddenIDs: UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)
         )
     }

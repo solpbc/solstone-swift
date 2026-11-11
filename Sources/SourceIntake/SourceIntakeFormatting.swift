@@ -11,6 +11,7 @@ nonisolated enum SourceIntakeSource: String, Equatable, Sendable, CaseIterable {
     case safari
     case watch
     case obsidian
+    case screenshots
     case imports
 }
 
@@ -21,6 +22,7 @@ nonisolated enum SourceIntakeKind: Equatable, Sendable {
     case pages
     case items
     case notes
+    case screenshots
 }
 
 nonisolated enum SourceIntakePhrases {
@@ -57,6 +59,8 @@ nonisolated enum SourceIntakeFormat {
             return self.count(lane.total, singular: "item", plural: "items", locale: locale)
         case .notes:
             return self.count(lane.total, singular: "note", plural: "notes", locale: locale)
+        case .screenshots:
+            return self.count(lane.total, singular: "screenshot", plural: "screenshots", locale: locale)
         }
     }
 
@@ -162,6 +166,7 @@ nonisolated extension SourceIntakeSource {
         case .calendar: .events
         case .safari: .pages
         case .obsidian: .notes
+        case .screenshots: .screenshots
         case .imports: .items
         }
     }
@@ -177,6 +182,7 @@ nonisolated extension SourceIntakeSnapshot {
         case .safari: self.safari
         case .watch: self.watch
         case .obsidian: self.obsidian
+        case .screenshots: self.screenshots
         case .imports: self.imports
         }
     }
