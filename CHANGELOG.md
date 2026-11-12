@@ -6,6 +6,21 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.11 (156)] - 2026-11-11
+
+### Added
+
+- on iphone and ipad, Obsidian is now a source. choose your vault inside the Obsidian folder in On My iPhone (On My iPad on ipad) and turn it on, and its notes go into your journal, then each one as it changes. the app checks your vault while it's open, and ios may also allow a check in the background. your vault stays as it is. vaults in iCloud or another file provider aren't supported yet.
+- on iphone and ipad, screenshots is now a source. turn it on and choose how far back to start; you'll see how many screenshots there are before any come in. after that, the screenshots you take go into your journal. the app looks for new ones while it's open, and ios may also allow a check in the background, so a screenshot can take a while to arrive. a screenshot saved as HEIC goes in as a PNG. the screenshots source needs full access to your photos.
+
+### Changed
+
+- import no longer brings in photos from your library or the photo picker. screenshots come in through their own source, and you can still send any photo to the solstone app from Photos with the share button.
+
+### Fixed
+
+- the "so far" and "last taken in" rows on the status screen, and each source's page, now update while you're looking at them, instead of only when you come back to them.
+
 ## [2.0.11 (155)] - 2026-11-09
 
 ### Added
