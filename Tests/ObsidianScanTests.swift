@@ -1357,7 +1357,7 @@ final class ObsidianScanTests: XCTestCase {
         let store = ObsidianStore(rootURL: self.storeURL)
         let intake = SourceIntakeStore(directoryURL: self.intakeURL)
         let engine = ObsidianSourceEngine(store: store, intakeStore: intake)
-        engine.journalIdentityProvider = { "journal-test" }
+        engine.isPairedProvider = { true }
 
         let vaultURL = try self.createTestVault(name: "ProgressVault")
         let note1 = vaultURL.appendingPathComponent("note1.md")
@@ -1406,7 +1406,7 @@ final class ObsidianScanTests: XCTestCase {
         // A failed acknowledgement save publishes nothing and preserves replayable state.
         let beforeAcknowledgement = store.document
         store.testFailNextSave = true
-        await engine.recordDelivered(manifest: manifest1, successKind: .delivered(serverPath: nil, serverTimestamp: nil), journalIdentity: "journal-test")
+        await engine.recordDelivered(manifest: manifest1, successKind: .delivered(serverPath: nil, serverTimestamp: nil))
         XCTAssertEqual(store.document, beforeAcknowledgement)
         XCTAssertEqual(engine.status.deliveredNotesCount, 0)
         XCTAssertEqual(engine.status.totalFoundNotes, 3)
@@ -1414,12 +1414,12 @@ final class ObsidianScanTests: XCTestCase {
         XCTAssertEqual(afterFailedSave.document, beforeAcknowledgement)
 
         // Retrying the same acknowledged file commits its unique notes once.
-        await engine.recordDelivered(manifest: manifest1, successKind: .delivered(serverPath: nil, serverTimestamp: nil), journalIdentity: "journal-test")
+        await engine.recordDelivered(manifest: manifest1, successKind: .delivered(serverPath: nil, serverTimestamp: nil))
         XCTAssertEqual(engine.status.deliveredNotesCount, 2)
         XCTAssertEqual(engine.status.totalFoundNotes, 3)
 
         // Duplicate delivery of the same manifest or same path does not add again
-        await engine.recordDelivered(manifest: manifest1, successKind: .alreadyStartedOrComplete(serverPath: nil, serverTimestamp: nil), journalIdentity: "journal-test")
+        await engine.recordDelivered(manifest: manifest1, successKind: .alreadyStartedOrComplete(serverPath: nil, serverTimestamp: nil))
         XCTAssertEqual(engine.status.deliveredNotesCount, 2)
 
         // segment_removed does not add notes
@@ -1438,26 +1438,128 @@ final class ObsidianScanTests: XCTestCase {
             noteIdentityHashes: [hash3]
         )
         let manifest2 = ObsidianTransfer.manifest(for: outboxItem2)
-        await engine.recordDelivered(manifest: manifest2, successKind: .removedInJournal, journalIdentity: "journal-test")
+        await engine.recordDelivered(manifest: manifest2, successKind: .removedInJournal)
         XCTAssertEqual(engine.status.deliveredNotesCount, 2)
 
         // 3. Every note acknowledged -> delivered equals found
-        await engine.recordDelivered(manifest: manifest2, successKind: .delivered(serverPath: nil, serverTimestamp: nil), journalIdentity: "journal-test")
+        await engine.recordDelivered(manifest: manifest2, successKind: .delivered(serverPath: nil, serverTimestamp: nil))
         XCTAssertEqual(engine.status.deliveredNotesCount, 3)
         XCTAssertEqual(engine.status.deliveredNotesCount, engine.status.totalFoundNotes)
 
         // 4. A new store on the same directory keeps both numbers across relaunch
         let store2 = ObsidianStore(rootURL: self.storeURL)
         let engine2 = ObsidianSourceEngine(store: store2, intakeStore: intake)
-        engine2.journalIdentityProvider = { "journal-test" }
+        engine2.isPairedProvider = { true }
         XCTAssertEqual(engine2.status.totalFoundNotes, 3)
         XCTAssertEqual(engine2.status.deliveredNotesCount, 3)
-        engine2.journalIdentityProvider = { "different-empty-journal" }
+        // With no journal paired there is no journal's progress to show.
+        engine2.isPairedProvider = { false }
         XCTAssertEqual(engine2.status.deliveredNotesCount, 0)
-        engine2.journalIdentityProvider = { nil }
-        XCTAssertEqual(engine2.status.deliveredNotesCount, 0)
-        engine2.journalIdentityProvider = { "journal-test" }
-        XCTAssertEqual(engine2.status.deliveredNotesCount, 3)
+    }
+
+    // MARK: - A new pairing: the vault's first setup again
+
+    func testANewPairingSendsTheCurrentNotesOnceAndProgressReachesThemAll() async throws {
+        let store = ObsidianStore(rootURL: self.storeURL)
+        let intake = SourceIntakeStore(directoryURL: self.intakeURL)
+        let engine = ObsidianSourceEngine(store: store, intakeStore: intake)
+        engine.isPairedProvider = { true }
+        let vaultURL = try self.createTestVault(name: "RepairVault")
+        for index in 1...3 {
+            try "Note \(index)".write(to: vaultURL.appendingPathComponent("note\(index).md"), atomically: true, encoding: .utf8)
+        }
+        let res = ObsidianLocationResources(isDirectory: true, isUbiquitousItem: false, volumeIsLocal: true,
+            canonicalPath: "/var/mobile/Containers/Data/Application/UUID/Documents/RepairVault", isSymbolicLink: false)
+        _ = await engine.chooseVault(url: vaultURL, resources: res)
+        let vaultID = try XCTUnwrap(store.document.selectedVaultID)
+        await engine.turnOn()
+        let notes = Self.notes(store, vaultID)
+        XCTAssertEqual(notes.count, 3)
+        XCTAssertEqual(Self.linesToSend(store, vaultID), notes)
+        XCTAssertTrue(engine.markSameNameAccepted(vaultID: vaultID))
+
+        // The first journal takes all three; a later check and a relaunch send nothing more.
+        try await Self.deliverEverything(store, vaultID, to: engine)
+        XCTAssertEqual(engine.status.deliveredNotesCount, 3)
+        await engine.checkNow()
+        let relaunched = ObsidianSourceEngine(store: ObsidianStore(rootURL: self.storeURL), intakeStore: intake)
+        relaunched.isPairedProvider = { true }
+        await relaunched.launch()
+        XCTAssertTrue(Self.linesToSend(relaunched.store, vaultID).isEmpty)
+        XCTAssertTrue(relaunched.isAcceptedForSameName(vaultID: vaultID))
+        XCTAssertEqual(relaunched.status.deliveredNotesCount, 3)
+
+        // A window still waiting when the owner pairs again goes to the new journal as it is.
+        let held = ObsidianOutboxItem(itemID: UUID(), filename: "held.jsonl",
+            window: ObsidianWindow(day: "20261108", segment: "094000_300"), createdAt: Date(), lineCount: 1,
+            byteCount: 10, sha256Hex: "held", timeZoneIdentifier: "America/Denver", offsetSeconds: -25200,
+            vaultID: vaultID, folderName: "RepairVault")
+        relaunched.store.document.vaults[vaultID]?.outboxItems = [held]
+        try relaunched.store.save()
+
+        relaunched.restartFirstSetup()
+        XCTAssertEqual(relaunched.status.deliveredNotesCount, 0)
+        XCTAssertEqual(relaunched.status.totalFoundNotes, 3)
+        XCTAssertFalse(relaunched.isAcceptedForSameName(vaultID: vaultID))
+        XCTAssertEqual(relaunched.store.document.vaults[vaultID]?.outboxItems, [held])
+        // Saved before it returns.
+        let reopened = ObsidianStore(rootURL: self.storeURL)
+        XCTAssertFalse(reopened.document.vaults[vaultID]?.sameNameChecked ?? true)
+        XCTAssertTrue(reopened.document.vaults[vaultID]?.table.values.allSatisfy { $0.representedPath == nil } ?? false)
+
+        for _ in 0..<200 where Self.linesToSend(relaunched.store, vaultID).count < 3 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTAssertEqual(Self.linesToSend(relaunched.store, vaultID), notes)
+        XCTAssertTrue(relaunched.store.document.vaults[vaultID]?.outboxItems.contains { $0.itemID == held.itemID } ?? false)
+        await relaunched.checkNow()
+        XCTAssertEqual(Self.linesToSend(relaunched.store, vaultID), notes)
+        try await Self.deliverEverything(relaunched.store, vaultID, to: relaunched)
+        XCTAssertEqual(relaunched.status.deliveredNotesCount, 3)
+        XCTAssertEqual(relaunched.status.totalFoundNotes, 3)
+    }
+
+    func testAStoreFromAnEarlierBuildKeepsItsProgressAndSameNameCheck() throws {
+        let earlier = #"""
+        {"generation":1,"enabled":true,"paused":false,"selectedVaultID":"v","version":1,"vaults":{"v":{
+        "id":"v","folderName":"Notes","table":{},"pendingChanges":[],"outboxItems":[],"frozenBaselineHashes":[],
+        "unappliedIntakeOps":[],"acceptedSameNameEndpoints":["token"],"unavailableCount":0,"tooLargeCount":0,
+        "acknowledgedNotesByJournal":{"a":["n1","n2"],"b":["n2","n3"]},"foundNotesCount":3,
+        "foundNoteIdentities":["n1","n2","n3"],"baselineCompleted":true,"intakeSequence":4}}}
+        """#
+        try Data(earlier.utf8).write(to: self.storeURL.appendingPathComponent("store.json"))
+        let store = ObsidianStore(rootURL: self.storeURL)
+        XCTAssertFalse(store.hasFault)
+        let vault = try XCTUnwrap(store.document.vaults["v"])
+        XCTAssertTrue(vault.sameNameChecked)
+        // Which earlier journal is paired is unknown: only what both have counts.
+        XCTAssertEqual(vault.deliveredNotes, ["n2"])
+        XCTAssertEqual(vault.intakeSequence, 4)
+    }
+
+    /// The notes an open window or the outbox holds for the journal, one entry per line.
+    private static func linesToSend(_ store: ObsidianStore, _ vaultID: String) -> [String] {
+        guard let vault = store.document.vaults[vaultID] else { return [] }
+        return (vault.pendingChanges.map(\.logicalKey) + vault.outboxItems.flatMap(\.noteIdentityHashes)).sorted()
+    }
+
+    private static func notes(_ store: ObsidianStore, _ vaultID: String) -> [String] {
+        store.document.vaults[vaultID]?.table.values.map(\.logicalID).sorted() ?? []
+    }
+
+    /// The journal takes what is waiting: the lines leave and every note is acknowledged.
+    private static func deliverEverything(_ store: ObsidianStore, _ vaultID: String, to engine: ObsidianSourceEngine) async throws {
+        let lines = Self.linesToSend(store, vaultID)
+        let item = ObsidianOutboxItem(itemID: UUID(), filename: "sent.jsonl",
+            window: ObsidianWindow(day: "20261108", segment: "094000_300"), createdAt: Date(),
+            lineCount: lines.count, byteCount: 10, sha256Hex: "sent",
+            timeZoneIdentifier: "America/Denver", offsetSeconds: -25200, vaultID: vaultID, folderName: "vault",
+            noteIdentityHashes: lines)
+        store.document.vaults[vaultID]?.pendingChanges.removeAll()
+        store.document.vaults[vaultID]?.outboxItems.removeAll()
+        try store.save()
+        await engine.recordDelivered(manifest: ObsidianTransfer.manifest(for: item),
+            successKind: .delivered(serverPath: nil, serverTimestamp: nil))
     }
 }
 

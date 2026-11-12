@@ -1358,6 +1358,57 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
         XCTAssertEqual(CalendarSourceEngine.believable(CalendarFixtures.instant("2001-01-01T00:00:01.400Z"), now: Date()), 978_307_201)
     }
 
+    // MARK: a new pairing
+
+    @MainActor
+    func testANewPairingAsksHowFarBackAgainAndSendsNothingUntilTheOwnerConfirms() async {
+        let harness = Self.harness()
+        harness.provider.addCalendar("cal-home", title: "Home")
+        harness.provider.events = (0..<3).map { index in
+            Self.meeting("NP-\(index)", title: "item \(index)", CalendarFixtures.at(2026, 10, 22 + index, 9, 0), lastModified: "2026-10-1\(index)T10:00:00-06:00")
+        }
+        await harness.setUpAndConfirm(calendarIDs: ["cal-work"])
+        XCTAssertEqual(harness.delivery.lines.count, 3)
+        // A relaunch and a later check restart nothing.
+        await harness.relaunch()
+        await harness.check()
+        XCTAssertEqual(harness.engine.setupStep, .on)
+        XCTAssertEqual(harness.delivery.lines.count, 3)
+        harness.engine.pause()
+
+        harness.engine.restartFirstSetup()
+        await harness.engine.waitUntilIdle()
+        XCTAssertEqual(harness.engine.setupStep, .notSetUp)
+        XCTAssertNil(harness.engine.pendingSetup)
+        XCTAssertTrue(harness.engine.state.paused)
+        XCTAssertEqual(harness.engine.calendars.filter(\.followed).map(\.id), ["cal-work"])
+        XCTAssertFalse(harness.engine.wantsBackgroundRefresh)
+        // Saved: a relaunch still asks.
+        await harness.relaunch()
+        XCTAssertEqual(harness.engine.setupStep, .notSetUp)
+
+        // Nothing goes on any trigger before the owner confirms.
+        harness.provider.events[0].title = "renamed"
+        harness.provider.events[0].lastModified = harness.now
+        harness.advance(minutes: 5)
+        await harness.check()
+        harness.engine.storeChanged()
+        _ = await harness.engine.backgroundRefresh()
+        await harness.engine.resume()
+        XCTAssertEqual(harness.delivery.lines.count, 3)
+
+        await harness.engine.setUp(span: .last30Days)
+        XCTAssertEqual(harness.engine.setupStep, .readyToConfirm(count: 3))
+        XCTAssertEqual(harness.delivery.lines.count, 3)
+        await harness.engine.confirm()
+        await harness.engine.waitUntilIdle()
+        XCTAssertEqual(harness.delivery.lines.count, 6)
+        XCTAssertEqual(harness.engine.setupStep, .on)
+        for index in 0..<3 {
+            XCTAssertEqual(harness.delivery.lines(event: "NP-\(index)").map { $0["change"] as? String }, ["added", "added"])
+        }
+    }
+
     @MainActor
     func testLaunchClearsStagingBeforeTheStepReplays() async {
         let harness = Self.harness()

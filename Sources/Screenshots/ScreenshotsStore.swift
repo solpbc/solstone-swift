@@ -11,7 +11,6 @@ nonisolated struct ScreenshotsItem: Codable, Equatable, Sendable, Identifiable {
     var created: Date
     var phase: ScreenshotsPhase
     var hash: String?
-    var deliveredTo: String?
     var inFrozen: Bool
     var countedInProgress: Bool
     var exportAttempts: Int
@@ -26,16 +25,14 @@ nonisolated struct ScreenshotsDocument: Codable, Equatable, Sendable {
     var paused = false
     var needsSpan = false
     var fullAccessWasHeld = false
-    var journalIdentity: String?
     var pauseWindows: [ScreenshotsPauseWindow] = []
     var changeToken: Data?
     /// The start of what the owner chose at the last confirm. A screenshot the source has
     /// not seen and that was taken before it stays out when Photos reports a change to it.
     var liveFloor: Date?
     var lastChecked: Date?
+    /// What the journal paired now has is the items in `.delivered`. A new pairing drops them.
     var items: [ScreenshotsItem] = []
-    var receivedHashes: [String: [String]] = [:]
-    var receivedLocalIDs: [String: [String]] = [:]
     var progressDone = 0
     var progressTotal = 0
     var selectedSpan: ScreenshotsSpan = .last30Days
@@ -44,21 +41,12 @@ nonisolated struct ScreenshotsDocument: Codable, Equatable, Sendable {
     var countFailed = false
     var isCounting = false
 
-    func receivedHashSet(_ journal: String) -> Set<String> {
-        Set(self.receivedHashes[journal] ?? [])
+    var deliveredLocalIDs: Set<String> {
+        Set(self.items.filter { $0.phase == .delivered }.map(\.localIdentifier))
     }
 
-    func receivedLocalSet(_ journal: String) -> Set<String> {
-        Set(self.receivedLocalIDs[journal] ?? [])
-    }
-
-    mutating func remember(hash: String, localIdentifier: String, journal: String) {
-        var hashes = self.receivedHashes[journal] ?? []
-        if !hashes.contains(hash) { hashes.append(hash) }
-        self.receivedHashes[journal] = hashes
-        var locals = self.receivedLocalIDs[journal] ?? []
-        if !locals.contains(localIdentifier) { locals.append(localIdentifier) }
-        self.receivedLocalIDs[journal] = locals
+    func hasDelivered(hash: String) -> Bool {
+        self.items.contains { $0.phase == .delivered && $0.hash == hash }
     }
 }
 

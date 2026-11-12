@@ -49,7 +49,7 @@ final class ScreenshotsSourceEngine {
     private let sender: any ScreenshotsSending
     private let intake: SourceIntakeStore?
     private let timeZone: TimeZone
-    var journalIdentity: () -> String? = { nil }
+    var isPaired: () -> Bool = { false }
     private(set) var snapshot = ScreenshotsSnapshot()
     private var pumping = false
 
@@ -83,7 +83,6 @@ final class ScreenshotsSourceEngine {
 
     func launch() async {
         self.refreshAccess()
-        self.noteJournal()
         await self.catchUp()
         if self.snapshot.view.showChooser { await self.count() }
         await self.pump()
@@ -133,29 +132,21 @@ final class ScreenshotsSourceEngine {
         let document = self.store.document
         guard case .ready(let span, _) = self.snapshot.confirm, span == document.selectedSpan else { return }
         let ids = document.countedIDs
-        let journal = self.journalIdentity()
         self.store.document.everOn = true
         self.store.document.enabled = true
         self.store.document.needsSpan = false
-        self.store.document.paused = false
-        self.store.document.journalIdentity = journal
         self.store.document.liveFloor = span.start(now: Date(), timeZone: self.timeZone)
         self.store.document.progressDone = 0
         self.store.document.progressTotal = ids.count
-        let receivedLocals = journal.map { self.store.document.receivedLocalSet($0) } ?? []
-        for id in ids where !receivedLocals.contains(id) {
+        let delivered = self.store.document.deliveredLocalIDs
+        for id in ids where !delivered.contains(id) {
             if let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == id }) {
                 self.store.document.items[index].inFrozen = true
-                if self.store.document.items[index].phase == .delivered,
-                   self.store.document.items[index].deliveredTo != journal {
-                    self.store.document.items[index].phase = .pending
-                    self.store.document.items[index].countedInProgress = false
-                }
             } else if let asset = await self.library.asset(localIdentifier: id) {
                 self.store.document.items.append(self.item(asset, frozen: true))
             } else {
                 self.store.document.items.append(ScreenshotsItem(
-                    localIdentifier: id, created: Date(), phase: .deleted, hash: nil, deliveredTo: nil,
+                    localIdentifier: id, created: Date(), phase: .deleted, hash: nil,
                     inFrozen: true, countedInProgress: true, exportAttempts: 0
                 ))
                 self.store.document.progressDone += 1
@@ -163,13 +154,6 @@ final class ScreenshotsSourceEngine {
         }
         for index in self.store.document.items.indices where !ids.contains(self.store.document.items[index].localIdentifier) {
             self.store.document.items[index].inFrozen = false
-            // Set to go again for another journal, and this journal already has it: it is in.
-            // Left waiting, one taken during a pause would never go and never stop waiting.
-            if let journal, self.store.document.items[index].phase == .pending,
-               receivedLocals.contains(self.store.document.items[index].localIdentifier) {
-                self.store.document.items[index].phase = .delivered
-                self.store.document.items[index].deliveredTo = journal
-            }
         }
         self.recountFrozen()
         if self.store.document.changeToken == nil {
@@ -234,27 +218,24 @@ final class ScreenshotsSourceEngine {
         await self.pump()
     }
 
-    /// Asks how far back again only when the paired journal is a different one. It reads this
-    /// engine's own journal identity, the one it stores, so another identity scheme for the same
-    /// journal never looks like a new journal.
-    func noteJournal() {
-        guard let identity = self.journalIdentity() else {
-            self.publish()
-            return
-        }
-        let previous = self.store.document.journalIdentity
-        guard let previous, previous != identity, self.store.document.everOn else {
-            self.publish()
-            return
-        }
-        self.closePause(at: Date())
-        self.store.document.paused = false
-        self.store.document.needsSpan = true
-        // The last count was made against the other journal: it is not this one's consent.
+    /// A new pairing: an on source asks how far back again, with a fresh count, and sends
+    /// nothing new until the owner confirms. An off source stays off and asks when turned on.
+    /// Photos access and a pause stay. A screenshot already waiting still goes, to the journal
+    /// paired now. Saved before it returns.
+    func restartFirstSetup() {
+        // What the earlier journal had is no record of what this one has.
+        self.store.document.items.removeAll { $0.phase == .delivered }
+        self.store.document.progressDone = 0
+        self.store.document.progressTotal = 0
+        // The last count was the earlier journal's: it is not this one's consent.
         self.store.document.countedSpan = nil
         self.store.document.countedIDs = []
+        if self.store.document.everOn && self.store.document.enabled {
+            self.store.document.needsSpan = true
+        }
         self.store.save()
         self.publish()
+        guard self.snapshot.view.showChooser else { return }
         Task { await self.count() }
     }
 
@@ -268,13 +249,8 @@ final class ScreenshotsSourceEngine {
 
     func noteDelivered(localIdentifier: String, hash: String) {
         guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == localIdentifier }) else { return }
-        let journal = self.journalIdentity() ?? self.store.document.journalIdentity
         self.store.document.items[index].phase = .delivered
         self.store.document.items[index].hash = hash
-        self.store.document.items[index].deliveredTo = journal
-        if let journal {
-            self.store.document.remember(hash: hash, localIdentifier: localIdentifier, journal: journal)
-        }
         self.markProgress(at: index)
         self.intake?.recordScreenshot(hash: hash, now: Date())
         self.store.save()
@@ -303,9 +279,8 @@ final class ScreenshotsSourceEngine {
         let start = span.start(now: Date(), timeZone: self.timeZone)
         do {
             let assets = try await self.library.screenshots(onOrAfter: start)
-            let journal = self.journalIdentity() ?? self.store.document.journalIdentity
-            let received = journal.map { self.store.document.receivedLocalSet($0) } ?? []
-            let ids = assets.map(\.localIdentifier).filter { !received.contains($0) }
+            let delivered = self.store.document.deliveredLocalIDs
+            let ids = assets.map(\.localIdentifier).filter { !delivered.contains($0) }
             guard self.store.document.selectedSpan == span else { return }
             self.store.document.countedSpan = span
             self.store.document.countedIDs = ids
@@ -346,10 +321,7 @@ final class ScreenshotsSourceEngine {
         let start = self.store.document.liveFloor
             ?? self.store.document.selectedSpan.start(now: Date(), timeZone: self.timeZone)
         guard let assets = try? await self.library.screenshots(onOrAfter: start) else { return }
-        let journal = self.journalIdentity() ?? self.store.document.journalIdentity
-        let received = journal.map { self.store.document.receivedLocalSet($0) } ?? []
         for asset in assets {
-            if received.contains(asset.localIdentifier) { continue }
             if self.store.document.items.contains(where: { $0.localIdentifier == asset.localIdentifier && $0.phase != .pending }) {
                 continue
             }
@@ -363,8 +335,6 @@ final class ScreenshotsSourceEngine {
     }
 
     private func considerLive(_ asset: ScreenshotsAsset, ignorePause: Bool = false) {
-        let journal = self.journalIdentity() ?? self.store.document.journalIdentity
-        if let journal, self.store.document.receivedLocalSet(journal).contains(asset.localIdentifier) { return }
         if let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) {
             let item = self.store.document.items[index]
             if item.phase.isTerminal || item.phase == .queued { return }
@@ -385,7 +355,6 @@ final class ScreenshotsSourceEngine {
             created: asset.created,
             phase: .pending,
             hash: nil,
-            deliveredTo: nil,
             inFrozen: false,
             countedInProgress: false,
             exportAttempts: 0
@@ -464,12 +433,10 @@ final class ScreenshotsSourceEngine {
             return
         }
         let hash = ScreenshotsWire.sha256Hex(prepared.data)
-        let journal = self.journalIdentity() ?? self.store.document.journalIdentity
-        if let journal, self.store.document.receivedHashSet(journal).contains(hash) {
+        // The same bytes under another screenshot are already in this journal.
+        if self.store.document.hasDelivered(hash: hash) {
             self.store.document.items[index].hash = hash
             self.store.document.items[index].phase = .delivered
-            self.store.document.items[index].deliveredTo = journal
-            self.store.document.remember(hash: hash, localIdentifier: asset.localIdentifier, journal: journal)
             self.markProgress(at: index)
             self.store.save()
             self.publish()
@@ -536,7 +503,6 @@ final class ScreenshotsSourceEngine {
             created: asset.created,
             phase: .pending,
             hash: nil,
-            deliveredTo: nil,
             inFrozen: frozen,
             countedInProgress: false,
             exportAttempts: 0
@@ -551,7 +517,7 @@ final class ScreenshotsSourceEngine {
     private func publish() {
         let document = self.store.document
         let access = self.library.access()
-        let paired = self.journalIdentity() != nil
+        let paired = self.isPaired()
         let backfillOpen = document.progressTotal > 0 && document.progressDone < document.progressTotal
         let input = ScreenshotsViewInput(
             everOn: document.everOn,

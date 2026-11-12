@@ -21,8 +21,8 @@ protocol ObsidianEngineControlling: AnyObject {
     func chooseVault(url: URL) async -> Result<Void, ObsidianLocationRefusal>
     func backgroundRefresh() async -> Bool
     func launch() async
-    func isAcceptedForSameName(vaultID: String, endpointID: String) -> Bool
-    func markSameNameAccepted(vaultID: String, endpointID: String) -> Bool
+    func isAcceptedForSameName(vaultID: String) -> Bool
+    func markSameNameAccepted(vaultID: String) -> Bool
 }
 
 nonisolated struct ObsidianSourceStatus: Equatable, Sendable {
@@ -78,12 +78,12 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
     var delivery: (any ObsidianNoteDelivering)?
 
     private var statusValue = ObsidianSourceStatus()
-    private var progressByJournal: [String: Int] = [:]
-    var journalIdentityProvider: (@MainActor () -> String?)?
+    private var deliveredCount = 0
+    /// Progress is the journal paired now's. With none paired there is nothing to count.
+    var isPairedProvider: (@MainActor () -> Bool)?
     var status: ObsidianSourceStatus {
         var presentation = self.statusValue
-        presentation.deliveredNotesCount = 0
-        if let journal = self.journalIdentityProvider?() { presentation.deliveredNotesCount = self.progressByJournal[journal, default: 0] }
+        presentation.deliveredNotesCount = self.isPairedProvider?() == true ? self.deliveredCount : 0
         return presentation
     }
     private var isScanning = false
@@ -268,6 +268,22 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
         }
     }
 
+    /// A new pairing: the next scan sends every vault's current notes once, after the same-name
+    /// check, with nothing chosen again. On, off and paused stay as the owner left them, and the
+    /// outbox and open windows still go, to the journal paired now. Saved before it returns.
+    func restartFirstSetup() {
+        guard self.store.isLoaded else { return }
+        for vaultID in self.store.document.vaults.keys {
+            self.store.document.vaults[vaultID]?.restartFirstSetup()
+        }
+        // Fences any walk, packing or checkpoint that started against the earlier record.
+        self.store.document.generation &+= 1
+        self.saveControlState()
+        self.refreshStatus()
+        guard self.store.document.enabled else { return }
+        Task { await self.scanIfPossible() }
+    }
+
     private func saveControlState() {
         do { try self.store.save(); self.persistenceFailed = false }
         catch {
@@ -324,16 +340,15 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
         }
     }
 
-    func isAcceptedForSameName(vaultID: String, endpointID: String) -> Bool {
-        guard let vault = self.store.document.vaults[vaultID] else { return false }
-        return vault.acceptedSameNameEndpoints.contains(endpointID)
+    func isAcceptedForSameName(vaultID: String) -> Bool {
+        self.store.document.vaults[vaultID]?.sameNameChecked == true
     }
 
-    func markSameNameAccepted(vaultID: String, endpointID: String) -> Bool {
+    func markSameNameAccepted(vaultID: String) -> Bool {
         guard self.store.isLoaded, var vault = self.store.document.vaults[vaultID] else { return false }
-        if vault.acceptedSameNameEndpoints.contains(endpointID) { return true }
+        if vault.sameNameChecked { return true }
         let previous = vault
-        vault.acceptedSameNameEndpoints.append(endpointID)
+        vault.sameNameChecked = true
         self.store.document.vaults[vaultID] = vault
         do { try self.store.save(); return true }
         catch {
@@ -436,8 +451,8 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
             let revision = self.store.revision
             var candidate = self.store.document
             var merged = plan
-            merged.acknowledgedNotesByJournal = current.acknowledgedNotesByJournal
-            merged.acceptedSameNameEndpoints = current.acceptedSameNameEndpoints
+            merged.deliveredNotes = current.deliveredNotes
+            merged.sameNameChecked = current.sameNameChecked
             candidate.vaults[vaultID] = merged
             let prepared: ObsidianPreparedCheckpoint
             do {
@@ -483,12 +498,12 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
         }
     }
 
-    func recordDelivered(manifest: TransferManifest, successKind: TransferSuccessKind, journalIdentity: String) async {
-        do { try await self.commitDelivered(manifest: manifest, successKind: successKind, journalIdentity: journalIdentity) }
+    func recordDelivered(manifest: TransferManifest, successKind: TransferSuccessKind) async {
+        do { try await self.commitDelivered(manifest: manifest, successKind: successKind) }
         catch { self.persistenceFailed = true; self.refreshStatus() }
     }
 
-    func commitDelivered(manifest: TransferManifest, successKind: TransferSuccessKind, journalIdentity: String) async throws {
+    func commitDelivered(manifest: TransferManifest, successKind: TransferSuccessKind) async throws {
         if successKind == .removedInJournal { return }
         guard manifest.sourceKey == ObsidianTransfer.sourceKey,
               let vaultID = ObsidianTransfer.vaultID(from: manifest) else { throw CocoaError(.fileWriteUnknown) }
@@ -496,9 +511,8 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
         guard !identities.isEmpty else { return }
         while !Task.isCancelled {
             guard self.store.isLoaded, var vault = self.store.document.vaults[vaultID] else { throw CocoaError(.fileWriteUnknown) }
-            let before = vault.acknowledgedNotesByJournal[journalIdentity, default: []]
-            vault.acknowledgedNotesByJournal[journalIdentity, default: []].formUnion(identities)
-            if before == vault.acknowledgedNotesByJournal[journalIdentity] { return }
+            guard !vault.deliveredNotes.isSuperset(of: identities) else { return }
+            vault.deliveredNotes.formUnion(identities)
             let revision = self.store.revision
             var candidate = self.store.document
             candidate.vaults[vaultID] = vault
@@ -593,7 +607,7 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
 
     func refreshStatus() {
         var status = ObsidianSourceStatus()
-        self.progressByJournal = [:]
+        self.deliveredCount = 0
         status.selectedVaultID = self.store.document.selectedVaultID
         status.isEnabled = self.store.document.enabled
         status.isPaused = self.store.document.paused
@@ -618,7 +632,7 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
             status.unavailableCount = vault.unavailableCount
             status.tooLargeCount = vault.tooLargeCount
             status.totalFoundNotes = vault.foundNotesCount
-            self.progressByJournal = vault.acknowledgedNotesByJournal.mapValues { $0.intersection(vault.foundNoteIdentities).count }
+            self.deliveredCount = vault.deliveredNotes.intersection(vault.foundNoteIdentities).count
             let activeTransfers = self.transferSnapshots.filter { ObsidianTransfer.vaultID(from: $0.manifest) == vaultID }
             let adoptedIDs = Set(activeTransfers.map(\.itemID))
             status.pendingAndQueuedNotes = vault.pendingChanges.count

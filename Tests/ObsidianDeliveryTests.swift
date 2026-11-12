@@ -283,7 +283,7 @@ final class ObsidianDeliveryRig {
             isSourceEnabled: { [weak holder] in await holder?.isEnabled ?? true },
             isSourcePaused: { [weak holder] in await holder?.isPaused ?? false },
             activeVaultID: { [weak holder] in await holder?.activeVaultID },
-            isAcceptedForSameName: { _, _ in true },
+            isAcceptedForSameName: { _ in true },
             wake: { await engine.kick() },
             publishCapability: { [weak holder] cap in Task { @MainActor in holder?.capability = cap } },
             publishAdvisory: { [weak holder] adv in Task { @MainActor in holder?.sameNameAdvisory = adv } }
@@ -431,28 +431,37 @@ final class ObsidianDeliveryTests: XCTestCase {
         throw CancellationError()
     }
 
-    func testSameNameApprovalSurvivesReconnectAndColdGateButNotAnotherPairing() async throws {
-        let accepted = OSAllocatedUnfairLock(initialState: Set<String>())
+    func testSameNameCheckSurvivesReconnectRelaunchAndAVersionUpdateButNotANewPairing() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("obsidian-same-name-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = ObsidianStore(rootURL: root)
+        store.document.vaults["vault"] = ObsidianVaultState(id: "vault", folderName: "Notes")
+        store.document.selectedVaultID = "vault"
+        try store.save()
+        let source = ObsidianSourceEngine(store: store)
         let advisory = ObsidianSameNameAdvisory(vault: "Notes", device: "studio", lastSyncedAt: nil)
-        func makeGate(identity: String = "journal-a", version: String = "2.0.73", statusVersion: String? = nil) async -> ObsidianCapabilityGate {
-            let reportedVersion = statusVersion ?? version
+        func makeGate(version: String = "2.0.73") async -> ObsidianCapabilityGate {
             let gate = ObsidianCapabilityGate(
-                readStatus: { _ in .read(version: reportedVersion, capabilities: ["obsidian_notes"]) },
+                readStatus: { _ in .read(version: version, capabilities: ["obsidian_notes"]) },
                 fetchVaults: { _ in [advisory] })
             await gate.configure(isSourceEnabled: { true }, isSourcePaused: { false },
                 activeVaultID: { "vault" },
-                isAcceptedForSameName: { vault, key in accepted.withLock { $0.contains(vault + key) } },
-                recordAcceptance: { vault, key in accepted.withLock { $0.insert(vault + key); return true } },
+                isAcceptedForSameName: { vault in await MainActor.run { source.isAcceptedForSameName(vaultID: vault) } },
+                recordAcceptance: { vault, _ in await MainActor.run { source.markSameNameAccepted(vaultID: vault) } },
                 wake: {}, publishCapability: { _ in }, publishAdvisory: { _ in })
-            await gate.journalChanged(identity: identity, version: version)
+            await gate.journalChanged(identity: "journal-a", version: version)
             return gate
+        }
+        func admitted(_ gate: ObsidianCapabilityGate, _ endpoint: TransferResolvedEndpoint) async throws -> Bool {
+            _ = await gate.admits(manifest: manifest, endpoint: endpoint)
+            try await self.waitUntil { await gate.currentCapability == .listed }
+            return await gate.admits(manifest: manifest, endpoint: endpoint)
         }
         let manifest = Self.makeManifest(vaultID: "vault", folderName: "Notes")
         let first = ObsidianDeliveryRig.endpoint()
         let gate = await makeGate()
-        _ = await gate.admits(manifest: manifest, endpoint: first)
-        try await self.waitUntil { await gate.currentCapability == .listed }
-        _ = await gate.admits(manifest: manifest, endpoint: first)
+        let beforeCheck = try await admitted(gate, first)
+        XCTAssertFalse(beforeCheck)
         try await self.waitUntil { await gate.currentAdvisory != nil }
         await gate.continueSameName()
         let approved = await gate.admits(manifest: manifest, endpoint: first)
@@ -460,43 +469,21 @@ final class ObsidianDeliveryTests: XCTestCase {
 
         var reconnect = ObsidianDeliveryRig.endpoint(port: 8082)
         reconnect.dispatchOwner?.admissionGeneration = 42
-        _ = await gate.admits(manifest: manifest, endpoint: reconnect)
-        try await self.waitUntil { await gate.currentCapability == .listed }
-        let reconnected = await gate.admits(manifest: manifest, endpoint: reconnect)
+        let reconnected = try await admitted(gate, reconnect)
         XCTAssertTrue(reconnected)
-        let cold = await makeGate()
-        reconnect.dispatchOwner = TransferDispatchOwner(pairingGeneration: 0,
-            ownerID: first.dispatchOwner!.ownerID, credentialCID: first.dispatchOwner!.credentialCID)
-        _ = await cold.admits(manifest: manifest, endpoint: reconnect)
-        try await self.waitUntil { await cold.currentCapability == .listed }
-        let restored = await cold.admits(manifest: manifest, endpoint: reconnect)
-        XCTAssertTrue(restored)
+        let relaunched = try await admitted(await makeGate(), reconnect)
+        XCTAssertTrue(relaunched)
+        let updated = await makeGate()
+        await updated.journalChanged(identity: "journal-a", version: "2.0.74")
+        let afterUpdate = try await admitted(updated, reconnect)
+        XCTAssertTrue(afterUpdate)
 
-        // A fresh status read wins even while the metadata callback still has
-        // the previously approved version.
-        let upgraded = await makeGate(statusVersion: "2.0.74")
-        _ = await upgraded.admits(manifest: manifest, endpoint: reconnect)
-        try await self.waitUntil { await upgraded.currentCapability == .listed }
-        let staleVersionApproval = await upgraded.admits(manifest: manifest, endpoint: reconnect)
-        XCTAssertFalse(staleVersionApproval)
-        try await self.waitUntil { await upgraded.currentAdvisory != nil }
-
-        var otherOwner = reconnect
-        otherOwner.dispatchOwner = TransferDispatchOwner(pairingGeneration: 0,
-            ownerID: UUID(), credentialCID: first.dispatchOwner!.credentialCID)
-        for (identity, version, endpoint) in [
-            ("journal-a", "2.0.73", ObsidianDeliveryRig.endpoint(credential: "journal-b", port: 8082)),
-            ("journal-a", "2.0.73", otherOwner),
-            ("journal-b", "2.0.73", reconnect),
-            ("journal-a", "2.0.74", reconnect)
-        ] {
-            let replacement = await makeGate(identity: identity, version: version)
-            _ = await replacement.admits(manifest: manifest, endpoint: endpoint)
-            try await self.waitUntil { await replacement.currentCapability == .listed }
-            let admitted = await replacement.admits(manifest: manifest, endpoint: endpoint)
-            XCTAssertFalse(admitted)
-            try await self.waitUntil { await replacement.currentAdvisory != nil }
-        }
+        // A new pairing, the same journal included, asks again before the first send.
+        source.restartFirstSetup()
+        let newPairing = ObsidianDeliveryRig.endpoint(port: 8083)
+        let afterNewPairing = try await admitted(gate, newPairing)
+        XCTAssertFalse(afterNewPairing)
+        try await self.waitUntil { await gate.currentAdvisory != nil }
     }
 
     func testSwitchingOpaqueVaultsWithTheSameNameInvalidatesFetchAndWarning() async throws {
@@ -508,8 +495,8 @@ final class ObsidianDeliveryTests: XCTestCase {
                 fetchVaults: { _ in await reads.read() })
             await gate.configure(isSourceEnabled: { true }, isSourcePaused: { false },
                 activeVaultID: { selected.withLock { $0 } },
-                isAcceptedForSameName: { vault, token in accepted.withLock { $0.contains(vault + token) } },
-                recordAcceptance: { vault, token in accepted.withLock { $0.insert(vault + token).inserted } },
+                isAcceptedForSameName: { vault in accepted.withLock { $0.contains(vault) } },
+                recordAcceptance: { vault, _ in accepted.withLock { $0.insert(vault).inserted } },
                 wake: {}, publishCapability: { _ in }, publishAdvisory: { _ in })
             let endpoint = ObsidianDeliveryRig.endpoint()
             let first = Self.makeManifest(vaultID: "A", folderName: "Notes")
@@ -598,9 +585,9 @@ final class ObsidianDeliveryTests: XCTestCase {
         store.document.selectedVaultID = "durable"
         try store.save()
         let source = ObsidianSourceEngine(store: store)
-        source.journalIdentityProvider = { "journal-test" }
+        source.isPairedProvider = { true }
         await rig.engine.registerObsidianAcknowledgementCommit { manifest, kind, _ in
-            try await source.commitDelivered(manifest: manifest, successKind: kind, journalIdentity: "journal-test")
+            try await source.commitDelivered(manifest: manifest, successKind: kind)
         }
         store.testFailNextSave = true
         ObsidianIngestURLProtocol.setDefaultIngestResponse(statusCode: 200, data: Data(#"{"status":"ok"}"#.utf8))
@@ -612,19 +599,19 @@ final class ObsidianDeliveryTests: XCTestCase {
         let payload = rig.root.appendingPathComponent("Transfers/\(TransferSpool.queuedDirectoryName)/\(item.itemID.uuidString)/\(item.filename)")
         XCTAssertTrue(FileManager.default.fileExists(atPath: payload.path))
         XCTAssertEqual(source.status.deliveredNotesCount, 0)
-        XCTAssertTrue(ObsidianStore(rootURL: sourceRoot).document.vaults["durable"]?.acknowledgedNotesByJournal.isEmpty ?? false)
+        XCTAssertTrue(ObsidianStore(rootURL: sourceRoot).document.vaults["durable"]?.deliveredNotes.isEmpty ?? false)
         await rig.engine.pause()
 
         clock.advanceWall(by: 61)
         let reopened = ObsidianSourceEngine(store: ObsidianStore(rootURL: sourceRoot))
-        reopened.journalIdentityProvider = { "journal-test" }
+        reopened.isPairedProvider = { true }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ObsidianIngestURLProtocol.self]
         let reloaded = TransferEngine(spool: TransferSpool(rootURL: rig.root.appendingPathComponent("Transfers")),
             transport: TransferTransport(sessionConfiguration: configuration), endpointResolver: rig.resolver,
             clock: clock, sourceGate: rig.gate)
         await reloaded.registerObsidianAcknowledgementCommit { manifest, kind, _ in
-            try await reopened.commitDelivered(manifest: manifest, successKind: kind, journalIdentity: "journal-test")
+            try await reopened.commitDelivered(manifest: manifest, successKind: kind)
         }
         ObsidianIngestURLProtocol.setDefaultIngestResponse(statusCode: 200, data: Data(#"{"status":"duplicate","file_descriptors":[]}"#.utf8))
         try await reloaded.start()
@@ -634,7 +621,7 @@ final class ObsidianDeliveryTests: XCTestCase {
             return snapshots.isEmpty && reopened.status.deliveredNotesCount == 1
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: payload.path))
-        XCTAssertEqual(ObsidianStore(rootURL: sourceRoot).document.vaults["durable"]?.acknowledgedNotesByJournal["journal-test"], ["logical-note"])
+        XCTAssertEqual(ObsidianStore(rootURL: sourceRoot).document.vaults["durable"]?.deliveredNotes, ["logical-note"])
         await reloaded.pause()
         clock.resumeSleeps()
         await rig.tearDown()
@@ -946,7 +933,7 @@ final class ObsidianDeliveryTests: XCTestCase {
             isSourceEnabled: { true },
             isSourcePaused: { false },
             activeVaultID: { activeIDBox.value },
-            isAcceptedForSameName: { id, _ in acceptedBox.value.contains(id) },
+            isAcceptedForSameName: { id in acceptedBox.value.contains(id) },
             recordAcceptance: { id, _ in acceptedBox.value.insert(id).inserted },
             wake: {},
             publishCapability: { _ in },
@@ -1025,7 +1012,7 @@ final class ObsidianDeliveryTests: XCTestCase {
         )
 
         await gate.configure(isSourceEnabled: { true }, isSourcePaused: { false },
-            activeVaultID: { "vault-1" }, isAcceptedForSameName: { _, _ in true },
+            activeVaultID: { "vault-1" }, isAcceptedForSameName: { _ in true },
             wake: {}, publishCapability: { _ in }, publishAdvisory: { _ in })
 
         let endpointA = ObsidianDeliveryRig.endpoint(credential: "journal-a")
@@ -1152,7 +1139,7 @@ final class ObsidianDeliveryTests: XCTestCase {
             isSourceEnabled: { isEnabled.value },
             isSourcePaused: { isPaused.value },
             activeVaultID: { "vault-1" },
-            isAcceptedForSameName: { _, _ in true },
+            isAcceptedForSameName: { _ in true },
             wake: {},
             publishCapability: { _ in },
             publishAdvisory: { _ in }

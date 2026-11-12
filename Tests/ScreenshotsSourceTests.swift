@@ -426,27 +426,7 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
     }
 
     @MainActor
-    func testSameJournalKeepsTheSourceOnAndANewJournalAsksAgain() async throws {
-        let rig = self.rig(assets: [Self.asset("first", age: -3_600, uti: "public.png")], exports: [
-            "first": .bytes(Data("first-png".utf8), uniformTypeIdentifier: "public.png"),
-        ])
-        var journal = "journal-a"
-        rig.engine.journalIdentity = { journal }
-        await rig.engine.turnOn()
-        await rig.engine.confirm()
-        rig.engine.pause()
-        rig.engine.noteJournal()
-        XCTAssertTrue(rig.engine.snapshot.paused)
-        XCTAssertFalse(rig.engine.snapshot.needsSpan)
-        await rig.engine.resume()
-
-        journal = "journal-b"
-        rig.engine.noteJournal()
-        XCTAssertTrue(rig.engine.snapshot.needsSpan)
-    }
-
-    @MainActor
-    func testANewJournalIsAskedWithItsOwnCount() async throws {
+    func testANewPairingAsksHowFarBackAgainAndSendsNothingUntilConfirm() async throws {
         let rig = self.rig(assets: [
             Self.asset("one", age: -3_600, uti: "public.png"),
             Self.asset("two", age: -7_200, uti: "public.png"),
@@ -454,30 +434,87 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
             "one": .bytes(Data("one-png".utf8), uniformTypeIdentifier: "public.png"),
             "two": .bytes(Data("two-png".utf8), uniformTypeIdentifier: "public.png"),
         ])
-        var journal = "journal-a"
-        rig.engine.journalIdentity = { journal }
         await rig.engine.turnOn()
         await rig.engine.confirm()
         for upload in rig.sender.sent {
             rig.engine.noteDelivered(localIdentifier: upload.localIdentifier, hash: upload.hash)
         }
-        // Off and on again against the same journal: nothing is left to bring in.
+        XCTAssertEqual(rig.sender.sent.count, 2)
+        // Off and on again with the same pairing: nothing is left to bring in.
         rig.engine.turnOff()
         await rig.engine.turnOn()
-        guard case .ready(_, let sameJournal) = rig.engine.snapshot.confirm else { return XCTFail("recount") }
-        XCTAssertEqual(sameJournal, 0)
+        guard case .ready(_, let samePairing) = rig.engine.snapshot.confirm else { return XCTFail("recount") }
+        XCTAssertEqual(samePairing, 0)
+        await rig.engine.confirm()
+        rig.engine.pause()
 
-        // Another journal: the last count was that journal's, so it never shows as this one's.
-        journal = "journal-b"
-        rig.engine.noteJournal()
-        XCTAssertTrue(rig.engine.snapshot.needsSpan)
-        XCTAssertEqual(rig.engine.snapshot.confirm, .checking)
-        for _ in 0..<200 {
-            if case .ready = rig.engine.snapshot.confirm { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        guard case .ready(_, let newJournal) = rig.engine.snapshot.confirm else { return XCTFail("count for b") }
-        XCTAssertEqual(newJournal, 2)
+        rig.engine.restartFirstSetup()
+        XCTAssertEqual(rig.engine.snapshot.view.sourceState, .readyToSetUp)
+        XCTAssertTrue(rig.engine.snapshot.view.showChooser)
+        XCTAssertTrue(rig.engine.snapshot.paused)
+        XCTAssertEqual(rig.engine.snapshot.access, .full)
+        try await self.waitForCount(rig.engine)
+        guard case .ready(_, let newPairing) = rig.engine.snapshot.confirm else { return XCTFail("fresh count") }
+        XCTAssertEqual(newPairing, 2)
+
+        // Nothing goes before the owner confirms.
+        rig.library.changeResult = .delta(inserted: [], updated: ["one"], deleted: [], token: Data("next".utf8))
+        await rig.engine.libraryChanged()
+        await rig.engine.foreground()
+        XCTAssertEqual(rig.sender.sent.count, 2)
+
+        await rig.engine.confirm()
+        XCTAssertEqual(rig.sender.sent.map(\.localIdentifier).sorted(), ["one", "one", "two", "two"])
+        XCTAssertTrue(rig.engine.snapshot.paused)
+    }
+
+    @MainActor
+    func testANewPairingLeavesAnOffSourceOffAndItsTurnOnBringsEverythingAgain() async throws {
+        let rig = self.rig(assets: [Self.asset("one", age: -3_600, uti: "public.png")], exports: [
+            "one": .bytes(Data("one-png".utf8), uniformTypeIdentifier: "public.png"),
+        ])
+        await rig.engine.turnOn()
+        await rig.engine.confirm()
+        rig.engine.noteDelivered(localIdentifier: "one", hash: rig.sender.sent[0].hash)
+        rig.engine.turnOff()
+
+        rig.engine.restartFirstSetup()
+        XCTAssertEqual(rig.engine.snapshot.view.sourceState, .off)
+        XCTAssertFalse(rig.engine.snapshot.needsSpan)
+
+        await rig.engine.turnOn()
+        guard case .ready(_, let count) = rig.engine.snapshot.confirm else { return XCTFail("count") }
+        XCTAssertEqual(count, 1)
+        await rig.engine.confirm()
+        XCTAssertEqual(rig.sender.sent.map(\.localIdentifier), ["one", "one"])
+    }
+
+    @MainActor
+    func testARelaunchRestartsNothing() async throws {
+        let url = self.makeRoot().appendingPathComponent("state.json")
+        let library = FakeScreenshotsLibrary()
+        library.status = .full
+        library.assets = [Self.asset("one", age: -3_600, uti: "public.png")]
+        library.exports = ["one": .bytes(Data("one-png".utf8), uniformTypeIdentifier: "public.png")]
+        let sender = FakeScreenshotsSender()
+        let engine = ScreenshotsSourceEngine(
+            library: library, store: ScreenshotsStore(fileURL: url), sender: sender,
+            timeZone: TimeZone(identifier: "America/Denver")!
+        )
+        engine.isPaired = { true }
+        await engine.turnOn()
+        await engine.confirm()
+        engine.noteDelivered(localIdentifier: "one", hash: sender.sent[0].hash)
+
+        let relaunched = ScreenshotsSourceEngine(
+            library: library, store: ScreenshotsStore(fileURL: url), sender: sender,
+            timeZone: TimeZone(identifier: "America/Denver")!
+        )
+        relaunched.isPaired = { true }
+        library.changeResult = .expired
+        await relaunched.launch()
+        XCTAssertEqual(relaunched.snapshot.view.sourceState, .active)
+        XCTAssertEqual(sender.sent.count, 1)
     }
 
     func testStatusRowsKeepTheWidestNameWholeAndStackAboveTheDefaultSize() {
@@ -490,45 +527,6 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         XCTAssertFalse(StatusPaneIntakeColumns.stacks(.small))
         XCTAssertTrue(StatusPaneIntakeColumns.stacks(.xLarge))
         XCTAssertTrue(StatusPaneIntakeColumns.stacks(.accessibility5))
-    }
-
-    @MainActor
-    func testBackOnAJournalThatHasItNothingIsLeftWaiting() async throws {
-        // A screenshot this journal has, set to go again for another journal and still waiting
-        // when the owner came back, taken while the source was paused.
-        let start = Date().addingTimeInterval(-600)
-        let taken = start.addingTimeInterval(60)
-        var document = ScreenshotsDocument()
-        document.everOn = true
-        document.enabled = true
-        document.needsSpan = true
-        document.fullAccessWasHeld = true
-        document.journalIdentity = "journal-c"
-        document.pauseWindows = [ScreenshotsPauseWindow(start: start, end: start.addingTimeInterval(120))]
-        document.items = [ScreenshotsItem(
-            localIdentifier: "paused", created: taken, phase: .pending, hash: "h", deliveredTo: nil,
-            inFrozen: true, countedInProgress: false, exportAttempts: 0
-        )]
-        document.remember(hash: "h", localIdentifier: "paused", journal: "journal-a")
-        let url = self.makeRoot().appendingPathComponent("state.json")
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONEncoder().encode(document).write(to: url)
-
-        let library = FakeScreenshotsLibrary()
-        library.status = .full
-        library.assets = [Self.asset("paused", created: taken, uti: "public.png")]
-        let sender = FakeScreenshotsSender()
-        let engine = ScreenshotsSourceEngine(
-            library: library, store: ScreenshotsStore(fileURL: url), sender: sender,
-            timeZone: TimeZone(identifier: "America/Denver")!
-        )
-        engine.journalIdentity = { "journal-a" }
-        await engine.chooseSpan(.fromToday)
-        guard case .ready(_, let count) = engine.snapshot.confirm else { return XCTFail("count") }
-        XCTAssertEqual(count, 0)
-        await engine.confirm()
-        XCTAssertEqual(engine.snapshot.waiting, 0)
-        XCTAssertTrue(sender.sent.isEmpty)
     }
 
     @MainActor
@@ -610,6 +608,14 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         )
     }
 
+    @MainActor
+    private func waitForCount(_ engine: ScreenshotsSourceEngine) async throws {
+        for _ in 0..<200 {
+            if case .ready = engine.snapshot.confirm { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
     private func makeRoot() -> URL {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("screenshots-tests-\(UUID().uuidString)", isDirectory: true)
         self.roots.withLock { $0.append(root) }
@@ -630,7 +636,7 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         let engine = ScreenshotsSourceEngine(
             library: library, store: store, sender: sender, timeZone: TimeZone(identifier: "America/Denver")!
         )
-        engine.journalIdentity = { "journal-a" }
+        engine.isPaired = { true }
         return (library, sender, engine)
     }
 

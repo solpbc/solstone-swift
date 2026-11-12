@@ -65,15 +65,68 @@ nonisolated struct ObsidianVaultState: Codable, Equatable, Sendable {
     var outboxItems: [ObsidianOutboxItem] = []
     var frozenBaselineHashes: [String] = []
     var unappliedIntakeOps: [ObsidianUnappliedIntakeOp] = []
-    var acceptedSameNameEndpoints: [String] = []
+    /// The same-name vault check passed for the journal paired now. A new pairing clears it.
+    var sameNameChecked: Bool = false
     var lastChecked: Date?
     var unavailableCount: Int = 0
     var tooLargeCount: Int = 0
-    var acknowledgedNotesByJournal: [String: Set<String>] = [:]
+    /// Notes the journal paired now acknowledged. A new pairing clears it.
+    var deliveredNotes: Set<String> = []
     var foundNotesCount: Int = 0
     var foundNoteIdentities: Set<String> = []
     var baselineCompleted: Bool = false
     var intakeSequence: UInt64 = 0
+
+    /// A new journal gets the vault's first setup again: every note is sent once more, after
+    /// the same-name check, while held windows and the outbox stay as they are.
+    mutating func restartFirstSetup() {
+        for path in self.table.keys {
+            self.table[path]?.representedPath = nil
+            self.table[path]?.lastReportedTime = nil
+            self.table[path]?.lastReportedWindowKey = nil
+            self.table[path]?.lastImmutableWindowStart = nil
+        }
+        self.sameNameChecked = false
+        self.deliveredNotes = []
+    }
+}
+
+nonisolated extension ObsidianVaultState {
+    /// Fields absent from an older store decode to their defaults. A store written before the
+    /// delivered set and the same-name flag carries both under earlier keys, read once here.
+    private enum EarlierKeys: String, CodingKey {
+        case acceptedSameNameEndpoints
+        case acknowledgedNotesByJournal
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let earlier = try decoder.container(keyedBy: EarlierKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.folderName = try container.decode(String.self, forKey: .folderName)
+        self.bookmarkData = try container.decodeIfPresent(Data.self, forKey: .bookmarkData)
+        self.rootDocumentIdentifier = try container.decodeIfPresent(Int.self, forKey: .rootDocumentIdentifier)
+        self.table = try container.decodeIfPresent([String: ObsidianNoteRecord].self, forKey: .table) ?? [:]
+        self.pendingChanges = try container.decodeIfPresent([ObsidianPendingChange].self, forKey: .pendingChanges) ?? []
+        self.outboxItems = try container.decodeIfPresent([ObsidianOutboxItem].self, forKey: .outboxItems) ?? []
+        self.frozenBaselineHashes = try container.decodeIfPresent([String].self, forKey: .frozenBaselineHashes) ?? []
+        self.unappliedIntakeOps = try container.decodeIfPresent([ObsidianUnappliedIntakeOp].self, forKey: .unappliedIntakeOps) ?? []
+        self.sameNameChecked = try container.decodeIfPresent(Bool.self, forKey: .sameNameChecked)
+            ?? !((try earlier.decodeIfPresent([String].self, forKey: .acceptedSameNameEndpoints)) ?? []).isEmpty
+        self.lastChecked = try container.decodeIfPresent(Date.self, forKey: .lastChecked)
+        self.unavailableCount = try container.decodeIfPresent(Int.self, forKey: .unavailableCount) ?? 0
+        self.tooLargeCount = try container.decodeIfPresent(Int.self, forKey: .tooLargeCount) ?? 0
+        // Which earlier journal is paired now is not known here, so a note counts only if every
+        // one of them acknowledged it: progress never reads higher than the truth.
+        let earlierDelivered = try earlier.decodeIfPresent([String: Set<String>].self, forKey: .acknowledgedNotesByJournal)
+        self.deliveredNotes = try container.decodeIfPresent(Set<String>.self, forKey: .deliveredNotes)
+            ?? earlierDelivered.flatMap { sets in sets.values.dropFirst().reduce(sets.values.first ?? []) { $0.intersection($1) } }
+            ?? []
+        self.foundNotesCount = try container.decodeIfPresent(Int.self, forKey: .foundNotesCount) ?? 0
+        self.foundNoteIdentities = try container.decodeIfPresent(Set<String>.self, forKey: .foundNoteIdentities) ?? []
+        self.baselineCompleted = try container.decodeIfPresent(Bool.self, forKey: .baselineCompleted) ?? false
+        self.intakeSequence = try container.decodeIfPresent(UInt64.self, forKey: .intakeSequence) ?? 0
+    }
 }
 
 nonisolated struct ObsidianStoreDocument: Codable, Equatable, Sendable {

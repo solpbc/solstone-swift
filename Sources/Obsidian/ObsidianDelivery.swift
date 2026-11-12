@@ -170,9 +170,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
 
     private var endpoint: TransferResolvedEndpoint?
     private var capability: Capability = .unknown
-    private var statusVersion: String?
     private var generation: UInt64 = 0
-    private var admissionIdentity = UUID().uuidString
     private var readingStatus = false
     private var fetchingSameName = false
     private var retryScheduled = false
@@ -182,8 +180,10 @@ actor ObsidianCapabilityGate: TransferSourceGate {
     private var isSourceEnabled: (@Sendable () async -> Bool)?
     private var isSourcePaused: (@Sendable () async -> Bool)?
     private var activeVaultID: (@Sendable () async -> String?)?
-    private var isAcceptedForSameName: (@Sendable (String, String) async -> Bool)?
-    private var recordAcceptance: (@Sendable (String, String) async -> Bool)?
+    private var isAcceptedForSameName: (@Sendable (String) async -> Bool)?
+    /// Records the check for a vault, only while the endpoint is still the pairing it was made
+    /// against, so a check started before a new pairing never stands for the new one.
+    private var recordAcceptance: (@Sendable (String, TransferResolvedEndpoint) async -> Bool)?
     private var turnSourceOff: (@Sendable () async -> Void)?
 
     private var pendingAdvisory: ObsidianSameNameAdvisory?
@@ -206,8 +206,8 @@ actor ObsidianCapabilityGate: TransferSourceGate {
         isSourceEnabled: @escaping @Sendable () async -> Bool,
         isSourcePaused: @escaping @Sendable () async -> Bool,
         activeVaultID: @escaping @Sendable () async -> String?,
-        isAcceptedForSameName: @escaping @Sendable (String, String) async -> Bool,
-        recordAcceptance: @escaping @Sendable (String, String) async -> Bool = { _, _ in false },
+        isAcceptedForSameName: @escaping @Sendable (String) async -> Bool,
+        recordAcceptance: @escaping @Sendable (String, TransferResolvedEndpoint) async -> Bool = { _, _ in false },
         turnSourceOff: @escaping @Sendable () async -> Void = {},
         wake: @escaping @Sendable () async -> Void,
         publishCapability: @escaping @Sendable (Capability) -> Void,
@@ -224,33 +224,17 @@ actor ObsidianCapabilityGate: TransferSourceGate {
         self.publishAdvisory = publishAdvisory
     }
 
-    private func endpointID(for endpoint: TransferResolvedEndpoint) -> String {
-        guard let owner = endpoint.dispatchOwner else { return self.admissionIdentity }
-        // A reconnect changes the local port and dispatch admission generation,
-        // but not the owner-approved pairing. Persist that approval across normal
-        // reconnects and process launches without authorizing another credential.
-        let fields = [
-            "obsidian-same-name-v1", owner.ownerID.uuidString, owner.credentialCID,
-            self.journal.identity ?? "", self.statusVersion ?? ""
-        ]
-        let encoded = fields.map { "\($0.utf8.count):\($0)" }.joined()
-        return ObsidianWire.sha256Hex(Data(encoded.utf8))
-    }
-
     func continueSameName() async {
         guard self.pendingAdvisory != nil,
               let endpoint = self.endpoint,
               let vaultID = self.pendingAdvisoryVaultID
         else { return }
         let generation = self.generation
-        let acceptance = self.endpointID(for: endpoint)
         guard await self.isCurrent(endpoint),
               self.generation == generation, self.endpoint == endpoint,
               await self.activeVaultID?() == vaultID
         else { return }
-        // Store the captured generation's token. A concurrent reset cannot make
-        // this acceptance authorize the replacement journal.
-        guard await self.recordAcceptance?(vaultID, acceptance) == true,
+        guard await self.recordAcceptance?(vaultID, endpoint) == true,
               self.generation == generation else { return }
         self.pendingAdvisory = nil
         self.pendingAdvisoryVaultID = nil
@@ -323,8 +307,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
         }
 
         // Check same-name acceptance
-        let endpointID = self.endpointID(for: endpoint)
-        if let isAccepted = await self.isAcceptedForSameName?(vaultID, endpointID), !isAccepted {
+        if let isAccepted = await self.isAcceptedForSameName?(vaultID), !isAccepted {
             if let pending = self.pendingAdvisory, pending.vault == folderName, self.pendingAdvisoryVaultID == vaultID {
                 return false
             }
@@ -345,9 +328,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
 
     private func reset() {
         self.generation &+= 1
-        self.admissionIdentity = UUID().uuidString
         self.readingStatus = false
-        self.statusVersion = nil
         self.fetchingSameName = false
         self.retryScheduled = false
         self.pendingAdvisory = nil
@@ -379,8 +360,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
         guard self.generation == generation else { return }
         self.readingStatus = false
         switch report {
-        case .read(let version, let capabilities):
-            self.statusVersion = version
+        case .read(_, let capabilities):
             let takesNotes = capabilities?.contains(ObsidianTransfer.capability) == true
             self.setCapability(takesNotes ? .listed : .notListed)
             if takesNotes {
@@ -431,8 +411,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
             self.pendingAdvisory = nil
             self.pendingAdvisoryVaultID = nil
             self.publishAdvisory?(nil)
-            let endpointID = self.endpointID(for: endpoint)
-            guard await self.recordAcceptance?(vaultID, endpointID) == true,
+            guard await self.recordAcceptance?(vaultID, endpoint) == true,
                   self.generation == generation else { return }
             await self.wake?()
         }

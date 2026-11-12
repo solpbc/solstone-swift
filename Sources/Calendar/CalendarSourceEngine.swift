@@ -320,6 +320,22 @@ final class CalendarSourceEngine {
         await self.waitUntilIdle()
     }
 
+    /// A new pairing: the source goes back to its turn-on chooser, `ready to set up`, and sends
+    /// nothing until the owner confirms a fresh count. The calendars switched on and a pause
+    /// stay. Files already in the transfer queue still go, to the journal paired now.
+    func restartFirstSetup() {
+        self.latestSpanRequest = nil
+        guard self.launched else {
+            // Like an owner operation, it waits for the launch to finish an interrupted step.
+            Task { @MainActor in
+                _ = await self.untilLaunched()
+                await self.perform { await self.restartSetup() }
+            }
+            return
+        }
+        self.enqueue { await self.restartSetup() }
+    }
+
     // MARK: when the source checks
 
     /// At launch: clears what a kill left half-staged, finishes a step a kill interrupted, then
@@ -673,6 +689,32 @@ final class CalendarSourceEngine {
         } catch {
             calendarEngineLog.error("calendar setup confirm failed: \(String(describing: type(of: error)), privacy: .public)")
         }
+    }
+
+    private func restartSetup() async {
+        guard await self.finishPendingStep() else {
+            calendarEngineLog.error("calendar setup could not restart for the new pairing")
+            return
+        }
+        var document = self.document
+        document.everOn = false
+        document.span = nil
+        document.spanStart = nil
+        document.setupAt = nil
+        document.imports = []
+        document.lastCompletedCheck = nil
+        document.recent = []
+        do {
+            // Settings first: a kill before the record is cleared leaves the chooser, never a
+            // source that sends without the owner's count.
+            try self.store.writeDocument(document)
+            self.document = document
+            try self.store.clearRecord()
+        } catch {
+            calendarEngineLog.error("calendar setup restart failed: \(String(describing: type(of: error)), privacy: .public)")
+        }
+        await self.worker.removeFrozen(except: [])
+        calendarEngineLog.notice("calendar setup restarted for a new pairing")
     }
 
     // MARK: calendars on and off

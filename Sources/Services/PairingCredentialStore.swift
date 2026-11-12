@@ -110,6 +110,7 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     private var onApplyPairingHook: (@MainActor @Sendable () -> Void)?
     private var onCredentialInvalidationHook: (@MainActor @Sendable () -> Void)?
     private var onCredentialReplacementHooks: [@MainActor @Sendable () -> Void] = []
+    private var onNewPairingHooks: [@MainActor @Sendable () -> Void] = []
 
     func registerOnApplyPairing(_ hook: (@MainActor @Sendable () -> Void)?) {
         self.lock.withLock {
@@ -126,6 +127,17 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     func registerOnCredentialReplacement(_ hook: (@MainActor @Sendable () -> Void)?) {
         self.lock.withLock {
             if let hook { self.onCredentialReplacementHooks.append(hook) }
+        }
+    }
+
+    /// Runs once for each pairing the owner commits through the pair flow: a first pairing, a
+    /// pairing after an unpair (the same journal included) and a replacement. A relaunch, a
+    /// reconnect, a migration, a recovery and a test seed commit no new pairing and never run it.
+    /// It runs before the credential-replacement hooks, so what it saves lands before the tunnel
+    /// is asked to reconnect.
+    func registerOnNewPairing(_ hook: @escaping @MainActor @Sendable () -> Void) {
+        self.lock.withLock {
+            self.onNewPairingHooks.append(hook)
         }
     }
 
@@ -414,6 +426,10 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
             }
         }
         } catch {
+            if lease != nil && pairingWasSaved {
+                let hooks = self.lock.withLock { self.onNewPairingHooks }
+                hooks.forEach(self.runOnMain)
+            }
             if pairingCredentialChanged && pairingWasSaved {
                 let hooks = self.lock.withLock { self.onCredentialReplacementHooks }
                 hooks.forEach(self.runOnMain)
@@ -421,6 +437,10 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
             throw error
         }
 
+        if lease != nil {
+            let hooks = self.lock.withLock { self.onNewPairingHooks }
+            hooks.forEach(self.runOnMain)
+        }
         if pairingCredentialChanged {
             let hooks = self.lock.withLock { self.onCredentialReplacementHooks }
             hooks.forEach(self.runOnMain)

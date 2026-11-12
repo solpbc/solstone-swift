@@ -420,6 +420,13 @@ final class CalendarSourceStore {
         self.journalEntries = 0
     }
 
+    /// Forgets everything sent. A new pairing does this, so its setup brings every event in
+    /// again.
+    func clearRecord() throws {
+        guard self.isLoaded else { throw CalendarStoreError.notLoaded }
+        try self.replaceRecord([:])
+    }
+
     /// Replaces the whole record. For tests that start from a large record.
     func replaceRecord(_ record: [String: CalendarSentEntry]) throws {
         self.recordCache = record

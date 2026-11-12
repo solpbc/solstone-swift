@@ -271,6 +271,53 @@ nonisolated final class PairFlowCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testOnlyAPairingCommittedThroughThePairFlowStartsTheSourcesAgain() async throws {
+        let store = Self.makeStore()
+        try store.clearPairing()
+        defer { try? store.clearPairing() }
+        let restarts = OSAllocatedUnfairLock(initialState: 0)
+        store.registerOnNewPairing { restarts.withLock { $0 += 1 } }
+        let fingerprint: (Character) -> String = { "sha256:\(String(repeating: $0, count: 64))" }
+        let returned = OSAllocatedUnfairLock(initialState: Self.pairing(instanceID: "instance-123", fingerprint: fingerprint("1")))
+        let coordinator = PairFlowCoordinator(
+            store: store,
+            endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            networkReader: CoordinatorStubNetworkReader(value: []),
+            pairOperation: { _, _, _, _ in returned.withLock { $0 } }
+        )
+        let link = try PairURL.parse(Self.canonicalDirectURL())
+
+        try await coordinator.handlePairURL(link)
+        XCTAssertEqual(coordinator.state, .connected)
+        XCTAssertEqual(restarts.withLock { $0 }, 1)
+
+        // The same journal and certificate again commits nothing.
+        try await coordinator.handlePairURL(link)
+        XCTAssertEqual(coordinator.state, .alreadyConnected)
+        // A relaunch reads the pairing back.
+        _ = try store.reloadPairingFromKeychain()
+        XCTAssertEqual(restarts.withLock { $0 }, 1)
+
+        // Pair a new journal, here the same journal with a new certificate: only the owner's yes commits.
+        returned.withLock { $0 = Self.pairing(instanceID: "instance-123", fingerprint: fingerprint("2")) }
+        try await coordinator.handlePairURL(link)
+        XCTAssertEqual(coordinator.state, .heldForAnswer)
+        XCTAssertEqual(restarts.withLock { $0 }, 1)
+        _ = try await coordinator.commitHeldReplacement()
+        XCTAssertEqual(restarts.withLock { $0 }, 2)
+
+        // Unpair, then pair the same journal again.
+        await coordinator.unpair()
+        try await coordinator.handlePairURL(link)
+        XCTAssertEqual(coordinator.state, .connected)
+        XCTAssertEqual(restarts.withLock { $0 }, 3)
+
+        // A pairing applied outside the pair flow, as a migration or a test seed does, is not one.
+        try store.applyPairing(Self.pairing(instanceID: "instance-123", fingerprint: fingerprint("3")))
+        XCTAssertEqual(restarts.withLock { $0 }, 3)
+    }
+
+    @MainActor
     func testRelayAlreadyConnectedRunsPairingAndPreservesSameFingerprintPairing() async throws {
         let store = Self.makeStore()
         try store.clearPairing()

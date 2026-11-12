@@ -127,8 +127,7 @@ struct SolstoneSwiftApp: App {
         transferEngine: TransferEngine,
         calendarGate: CalendarCapabilityGate? = nil,
         obsidianGate: ObsidianCapabilityGate? = nil,
-        screenshotsGate: ScreenshotsCapabilityGate? = nil,
-        screenshotsEngine: ScreenshotsSourceEngine? = nil
+        screenshotsGate: ScreenshotsCapabilityGate? = nil
     ) {
         watchLink.journalVersionProvider = { [metadata] in
             (
@@ -152,11 +151,14 @@ struct SolstoneSwiftApp: App {
                 await calendarGate?.journalChanged(identity: identity, version: version)
                 await obsidianGate?.journalChanged(identity: identity, version: version)
                 await screenshotsGate?.journalChanged(identity: identity, version: version)
-                await MainActor.run {
-                    screenshotsEngine?.noteJournal()
-                }
             }
         }
+    }
+
+    /// The endpoint was resolved under the pairing committed now, not an earlier one.
+    nonisolated static func isCurrentPairing(_ endpoint: TransferResolvedEndpoint, snapshot: PairingCredentialSnapshot) -> Bool {
+        guard let owner = endpoint.dispatchOwner, let pairing = snapshot.pairing else { return false }
+        return owner.pairingGeneration == snapshot.pairingGeneration && owner.credentialCID == pairing.fingerprint
     }
 
     static func shouldRunLaunchMaintenance(scenePhase: ScenePhase) -> Bool {
@@ -467,11 +469,8 @@ struct SolstoneSwiftApp: App {
             intakeStore: sourceIntakeStore,
             delivery: ObsidianTransferDelivery(engine: transferEngine)
         )
-        obsidianSource.journalIdentityProvider = { [weak appConfig] in
-            guard let appConfig, appConfig.isPaired else { return nil }
-            _ = appConfig.journalIdentityEpoch
-            guard let pairing = appConfig.store.snapshot().pairing else { return nil }
-            return journalGapIdentity(for: pairing)
+        obsidianSource.isPairedProvider = { [weak appConfig] in
+            appConfig?.isPaired ?? false
         }
         obsidianTransferHolder.activeVaultIDProvider = { [weak obsidianSource] in
             obsidianSource?.status.selectedVaultID
@@ -494,13 +493,13 @@ struct SolstoneSwiftApp: App {
         }
         Task { [weak obsidianSource] in
             await transferEngine.registerObsidianAcknowledgementCommit { [weak obsidianSource, weak appConfig] manifest, successKind, endpoint in
-                let journalIdentity = await MainActor.run { () -> String? in
-                    guard let pairing = appConfig?.store.snapshot().pairing,
-                          pairing.fingerprint == endpoint.dispatchOwner?.credentialCID else { return nil }
-                    return journalGapIdentity(for: pairing)
+                // An acknowledgement from before a new pairing is not the new journal's progress:
+                // the item is held and goes again, to the journal paired now.
+                let current = await MainActor.run {
+                    appConfig.map { Self.isCurrentPairing(endpoint, snapshot: $0.store.snapshot()) } ?? false
                 }
-                guard let obsidianSource, let journalIdentity else { throw CocoaError(.fileWriteUnknown) }
-                try await obsidianSource.commitDelivered(manifest: manifest, successKind: successKind, journalIdentity: journalIdentity)
+                guard let obsidianSource, current else { throw CocoaError(.fileWriteUnknown) }
+                try await obsidianSource.commitDelivered(manifest: manifest, successKind: successKind)
             }
             await obsidianGate.configure(
                 isSourceEnabled: {
@@ -512,11 +511,14 @@ struct SolstoneSwiftApp: App {
                 activeVaultID: {
                     await MainActor.run { obsidianSource?.status.selectedVaultID }
                 },
-                isAcceptedForSameName: { vaultID, endpointID in
-                    await MainActor.run { obsidianSource?.isAcceptedForSameName(vaultID: vaultID, endpointID: endpointID) ?? false }
+                isAcceptedForSameName: { vaultID in
+                    await MainActor.run { obsidianSource?.isAcceptedForSameName(vaultID: vaultID) ?? false }
                 },
-                recordAcceptance: { vaultID, endpointID in
-                    await MainActor.run { obsidianSource?.markSameNameAccepted(vaultID: vaultID, endpointID: endpointID) ?? false }
+                recordAcceptance: { [weak appConfig] vaultID, endpoint in
+                    await MainActor.run {
+                        guard let appConfig, Self.isCurrentPairing(endpoint, snapshot: appConfig.store.snapshot()) else { return false }
+                        return obsidianSource?.markSameNameAccepted(vaultID: vaultID) ?? false
+                    }
                 },
                 turnSourceOff: {
                     await MainActor.run { obsidianSource?.turnOff() }
@@ -550,11 +552,8 @@ struct SolstoneSwiftApp: App {
             ),
             intake: sourceIntakeStore
         )
-        screenshotsSource.journalIdentity = { [weak appConfig] in
-            guard let appConfig, appConfig.isPaired else { return nil }
-            _ = appConfig.journalIdentityEpoch
-            guard let pairing = appConfig.store.snapshot().pairing else { return nil }
-            return journalGapIdentity(for: pairing)
+        screenshotsSource.isPaired = { [weak appConfig] in
+            appConfig?.isPaired ?? false
         }
         screenshotsLibrary.setOnChange { [weak screenshotsSource] in
             Task { @MainActor in
@@ -621,9 +620,15 @@ struct SolstoneSwiftApp: App {
             transferEngine: transferEngine,
             calendarGate: calendarGate,
             obsidianGate: obsidianGate,
-            screenshotsGate: screenshotsGate,
-            screenshotsEngine: screenshotsSource
+            screenshotsGate: screenshotsGate
         )
+        // A new pairing gives the journal each source's first setup again. What is held still
+        // goes, to the journal paired now.
+        appConfig.store.registerOnNewPairing { [weak obsidianSource, weak calendarSource, weak screenshotsSource] in
+            obsidianSource?.restartFirstSetup()
+            calendarSource?.restartFirstSetup()
+            screenshotsSource?.restartFirstSetup()
+        }
         let shareImportStore = ShareImportStore(
             ledgerDropSink: { droppedCount in
                 log.append(
