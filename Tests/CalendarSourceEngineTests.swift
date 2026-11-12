@@ -1399,13 +1399,18 @@ nonisolated final class CalendarSourceEngineTests: XCTestCase {
 
         await harness.engine.setUp(span: .last30Days)
         XCTAssertEqual(harness.engine.setupStep, .readyToConfirm(count: 3))
+        let offeredBefore = harness.delivery.offered.count
         XCTAssertEqual(harness.delivery.lines.count, 3)
         await harness.engine.confirm()
         await harness.engine.waitUntilIdle()
-        XCTAssertEqual(harness.delivery.lines.count, 6)
         XCTAssertEqual(harness.engine.setupStep, .on)
+        // Every event goes again as added, the unchanged ones byte for byte as before.
+        let resent = harness.delivery.offered.dropFirst(offeredBefore).flatMap { pending in
+            String(decoding: pending.file.bytes, as: UTF8.self).split(separator: "\n").map(String.init)
+        }
+        XCTAssertEqual(resent.count, 3)
         for index in 0..<3 {
-            XCTAssertEqual(harness.delivery.lines(event: "NP-\(index)").map { $0["change"] as? String }, ["added", "added"])
+            XCTAssertEqual(resent.filter { $0.contains("\"NP-\(index)\"") && $0.contains(#""change":"added""#) }.count, 1)
         }
     }
 

@@ -355,8 +355,12 @@ final class FakeCalendarDelivery: CalendarNoteDelivering {
     /// When true, each file is in the journal as soon as it is queued.
     var settlesAtOnce = true
     private(set) var mostWaiting = 0
+    /// Every file the source asked to queue, a byte-identical one already queued before
+    /// included. The transfer queue holds one copy; the journal answers a second as held.
+    private(set) var offered: [CalendarPendingFile] = []
 
     func deliver(_ file: CalendarPendingFile) async throws {
+        self.offered.append(file)
         guard !self.files.contains(where: { $0.file.name == file.file.name }) else { return }
         self.files.append(file)
         if !self.settlesAtOnce {
