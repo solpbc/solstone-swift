@@ -394,7 +394,10 @@ final class ScreenshotsSourceEngine {
         guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == localIdentifier }),
               self.store.document.items[index].phase == .pending
         else { return }
-        guard let asset = await self.library.asset(localIdentifier: localIdentifier) else {
+        let found = await self.library.asset(localIdentifier: localIdentifier)
+        // A new pairing may have dropped items while Photos was asked.
+        guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == localIdentifier }) else { return }
+        guard let asset = found else {
             self.finish(index, .deleted)
             return
         }
@@ -467,6 +470,8 @@ final class ScreenshotsSourceEngine {
             self.store.save()
             self.publish()
         } catch {
+            // A new pairing may have dropped items while the send was awaited.
+            guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
             self.store.document.items[index].exportAttempts += 1
             if self.store.document.items[index].exportAttempts >= ScreenshotsWire.exportAttempts {
                 self.finish(index, .unreadable)
