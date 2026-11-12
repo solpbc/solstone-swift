@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- on iphone and ipad, when you pair a new journal, or your journal again after unpairing, your Obsidian notes go into it and calendar and screenshots ask again how far back to start, as when you first turned each one on. before, only notes you changed afterwards reached it, and calendar brought in nothing from before you paired.
+
 ## [2.0.11 (156)] - 2026-11-11
 
 ### Added
