@@ -6,9 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.11 (157)] - 2026-11-12
+
 ### Changed
 
-- on iphone and ipad, the "before ios asks" note for screen now shows just once. after that, the screen switch and the start screen button open the system's screen sharing sheet straight away.
+- on iphone and ipad, the "before ios asks" note for screen now shows just once. after that, the screen switch and the "start screen" button open the system's screen sharing sheet straight away.
 
 ### Fixed
 
