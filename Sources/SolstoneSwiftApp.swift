@@ -31,7 +31,6 @@ struct SolstoneSwiftApp: App {
     @State private var shareImportStore: ShareImportStore
     @State private var sourceIntakeModel: SourceIntakeModel
     @State private var shareTransferHolder: ShareTransferHolder
-    @State private var photoLibraryImporter: PhotoLibraryImporter
     @State private var calendarSource: CalendarSourceEngine
     @State private var calendarSourceHandle: CalendarSourceHandle
     @State private var obsidianSource: ObsidianSourceEngine
@@ -894,22 +893,6 @@ struct SolstoneSwiftApp: App {
             homeJobs: homeJobs
         )
         let pairFlowPresence = PairFlowPresence()
-        let photoLibraryImporter = PhotoLibraryImporter(
-            library: PhotoKitLibrary(),
-            store: PhotoLibraryImportStore(fileURL: PhotoLibraryImportStore.defaultFileURL()),
-            queue: shareImportStore,
-            dependencies: PhotoLibraryImporter.Dependencies(
-                unsettledItemIDs: {
-                    guard case .loaded(let items) = await shareTransferHolder.onThisPhoneSourceSnapshot() else {
-                        return []
-                    }
-                    return Set(items.filter { $0.sendState == .savedOnThisPhone || $0.sendState == .sending }.map(\.id))
-                },
-                drain: {
-                    await foregroundDrainGate.requestDrain()
-                }
-            )
-        )
         self._appConfig = State(initialValue: appConfig)
         self._appGroupMirror = State(initialValue: appGroupMirror)
         self._watchBacklogSnapshotWriter = State(initialValue: watchBacklogSnapshotWriter)
@@ -930,7 +913,6 @@ struct SolstoneSwiftApp: App {
         self._shareImportStore = State(initialValue: shareImportStore)
         self._sourceIntakeModel = State(initialValue: SourceIntakeModel(store: sourceIntakeStore))
         self._shareTransferHolder = State(initialValue: shareTransferHolder)
-        self._photoLibraryImporter = State(initialValue: photoLibraryImporter)
         self._calendarSource = State(initialValue: calendarSource)
         self._calendarSourceHandle = State(initialValue: calendarSourceHandle)
         self._obsidianSource = State(initialValue: obsidianSource)
@@ -1007,7 +989,6 @@ struct SolstoneSwiftApp: App {
                 .environment(self.shareImportStore)
                 .environment(self.sourceIntakeModel)
                 .environment(self.shareTransferHolder)
-                .environment(self.photoLibraryImporter)
                 .environment(self.calendarSource)
                 .environment(self.calendarSourceHandle)
                 .environment(self.obsidianSource)

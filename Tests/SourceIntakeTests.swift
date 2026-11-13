@@ -621,14 +621,13 @@ final class SourceIntakeTests: XCTestCase {
         XCTAssertEqual(try self.ready(intake).safari.total, 1)
     }
 
-    func testTheClearPathsAndTheImporterDoNotReferenceTheCounter() throws {
+    func testTheClearPathsDoNotReferenceTheCounter() throws {
         let root = StringLiteralGrepSupport.worktreeRoot()
         let files = [
             "Sources/Services/AppConfig.swift",
             "Sources/Services/AppGroupMirror.swift",
             "Sources/Pairing/JournalMarkStore.swift",
             "Sources/Home/DayHomeView.swift",
-            "Sources/PhotoLibrary/PhotoLibraryImporter.swift",
         ]
         for relative in files {
             let text = try String(contentsOf: root.appendingPathComponent(relative), encoding: .utf8)
@@ -645,8 +644,6 @@ final class SourceIntakeTests: XCTestCase {
         }
         let collector = try String(contentsOf: root.appendingPathComponent("Sources/WatchCapture/WatchRelayDiagnosticsCollector.swift"), encoding: .utf8)
         XCTAssertFalse(collector.contains("SourceIntake"))
-        let importer = try String(contentsOf: root.appendingPathComponent("Sources/PhotoLibrary/PhotoLibraryImporter.swift"), encoding: .utf8)
-        XCTAssertEqual(importer.components(separatedBy: "coordinator.accept(").count - 1, 1)
         let pane = try String(contentsOf: root.appendingPathComponent("Sources/Home/StatusPane.swift"), encoding: .utf8)
         let content = pane.split(separator: "private var paneContent", maxSplits: 1).last.map(String.init) ?? ""
         let waiting = try XCTUnwrap(content.range(of: "self.whatIsWaitingSection"))
