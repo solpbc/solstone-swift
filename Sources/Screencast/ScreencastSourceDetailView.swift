@@ -9,7 +9,7 @@ struct ScreencastSourceDetailView: View {
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
     @Environment(TunnelManager.self) private var tunnelManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @State private var showingScreencastPrimer = false
+    @State private var screencastStartRequest = 0
     @State private var recentResult: ObserverManifestResult?
     @State private var recentPort: Int?
 
@@ -34,9 +34,6 @@ struct ScreencastSourceDetailView: View {
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding()
             .frame(maxWidth: .infinity)
-        }
-        .sheet(isPresented: self.$showingScreencastPrimer) {
-            ScreencastPrimerSheet()
         }
         .navigationTitle(SourceVocabulary.screencastDetailTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -65,10 +62,11 @@ private extension ScreencastSourceDetailView {
                 .foregroundStyle(.secondary)
 
             Button(buttonTitle) {
-                self.showingScreencastPrimer = true
+                self.screencastStartRequest += 1
             }
             .buttonStyle(BrandQuietButtonStyle())
             .frame(minHeight: 44)
+            .screencastStartFlow(request: self.screencastStartRequest)
             .accessibilityIdentifier("source.screencast.start")
         }
     }

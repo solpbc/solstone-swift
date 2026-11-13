@@ -230,7 +230,7 @@ struct DayHomeView: View {
     /// side of `.padding()` the geometry read sits.
     @State private var deckColumnWidth: CGFloat = 0
     @State private var now = Date()
-    @State private var showingScreencastPrimer = false
+    @State private var screencastStartRequest = 0
 
     var body: some View {
         ScrollView {
@@ -247,9 +247,9 @@ struct DayHomeView: View {
             // renders as a hard-cornered rectangle, which is what shipped.
             .containerShape(.rect(cornerRadius: ShellMetrics.containerRadius))
         }
-        .sheet(isPresented: self.$showingScreencastPrimer) {
-            ScreencastPrimerSheet()
-        }
+        // On the page, not the tile: a tile in the lazy grid can leave the screen
+        // (a pushed source page) and take a sheet presented from it along.
+        .screencastStartFlow(request: self.screencastStartRequest)
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { self.deckColumnWidth = $0 }
@@ -583,14 +583,14 @@ private extension DayHomeView {
     }
 
     /// ReplayKit owns the actual start/stop decision. The switch mirrors the
-    /// confirmed broadcast state; asking to change it opens the existing primer
-    /// and system sheet instead of optimistically claiming the change happened.
+    /// confirmed broadcast state; asking to change it opens Apple's sheet (with the
+    /// primer the first time only) instead of optimistically claiming the change happened.
     var screencastIsOn: Binding<Bool> {
         Binding(
             get: { self.screencastIsActive },
             set: { requestedOn in
                 guard requestedOn != self.screencastIsActive else { return }
-                self.showingScreencastPrimer = true
+                self.screencastStartRequest += 1
             }
         )
     }

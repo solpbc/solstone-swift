@@ -22,6 +22,7 @@ enum OnThisPhoneUITestSeeder {
     private static let mixedBacklogSeedPrefix = "--ui-test-seed-mixed-backlog="
     private static let resetAudioL5Flag = "--ui-test-reset-audio-l5"
     private static let resetNudgeDismissalFlag = "--ui-test-reset-nudge-dismissal"
+    private static let resetScreencastPrimerFlag = "--ui-test-reset-screencast-primer"
     private static let resetOnThisPhoneFlag = "--ui-test-reset-on-this-phone"
     private static let journalLossSeedFlag = "--ui-test-seed-journal-loss"
     private static let largeBacklogDefaultCount = 800
@@ -38,6 +39,9 @@ enum OnThisPhoneUITestSeeder {
         }
         if arguments.contains(Self.resetAudioL5Flag) {
             Self.resetAudioL5State()
+        }
+        if arguments.contains(Self.resetScreencastPrimerFlag) {
+            UserDefaults.standard.removeObject(forKey: UserSettings.screencastPrimerSeenKey)
         }
 
         let seedDefault = arguments.contains(Self.defaultSeedFlag)

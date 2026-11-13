@@ -6,6 +6,9 @@ import SwiftUI
 struct ScreencastPrimerSheet: View {
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(UserSettings.screencastPrimerSeenKey) private var primerSeen = false
+    @State private var contentHeight: CGFloat = 0
+    @State private var chromeHeight: CGFloat = 0
 
     var body: some View {
         let primerBody = SourceVocabulary.screencastPrimerBody(state: self.screencastManager.state)
@@ -17,6 +20,7 @@ struct ScreencastPrimerSheet: View {
                         .frame(maxWidth: .infinity)
 
                     Text(primerBody)
+                        .accessibilityIdentifier("screencast.primer.body")
                         .font(.body)
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
@@ -25,7 +29,13 @@ struct ScreencastPrimerSheet: View {
                     self.actionRow
                 }
                 .padding(ShellMetrics.screenMargin)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { self.contentHeight = $0 }
             }
+            .scrollBounceBehavior(.basedOnSize)
+            // The title bar above and the home indicator below.
+            .onGeometryChange(for: CGFloat.self) {
+                $0.safeAreaInsets.top + $0.safeAreaInsets.bottom
+            } action: { self.chromeHeight = $0 }
             .background(Color.deckGround.ignoresSafeArea())
             .navigationTitle(SourceVocabulary.screencastPrimerTitle)
             .navigationBarTitleDisplayMode(.inline)
@@ -38,9 +48,18 @@ struct ScreencastPrimerSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents(self.detents)
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("screencast.primer.sheet")
+        .onAppear { self.primerSeen = true }
+    }
+
+    /// One detent the height of what the sheet holds, so its action is never cut off
+    /// on iPad and nothing is left empty on iPhone. The system caps it at the screen,
+    /// and past that the content scrolls.
+    private var detents: Set<PresentationDetent> {
+        guard self.contentHeight > 0 else { return [.medium] }
+        return [.height((self.chromeHeight + self.contentHeight).rounded(.up))]
     }
 
     private var actionRow: some View {

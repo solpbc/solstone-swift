@@ -157,6 +157,62 @@ final class ShellPaneShotTests: XCTestCase {
         )
     }
 
+    /// The primer teaches Apple's sheet once. The next turn-on opens Apple's sheet
+    /// directly, with no primer in between. Runs on both shells. The toggle's frame is
+    /// the whole tile, so it taps the switch's own corner; where that opens the source
+    /// instead, it uses the screen page's start button, which takes the same path.
+    @MainActor
+    func testScreencastPrimerShowsOnceThenOpensTheSystemSheetDirectly() throws {
+        let app = self.launchOwned(style: "Light", ax5: false)
+        let screencastToggle = app.switches["dayHome.tile.screencast.toggle"].firstMatch
+        let primerSheet = app.descendants(matching: .any)["screencast.primer.sheet"]
+        let detailStart = app.descendants(matching: .any)["source.screencast.start"].firstMatch
+        XCTAssertTrue(screencastToggle.waitForExistence(timeout: 10), "screencast toggle missing")
+        for _ in 0..<2 where !screencastToggle.isHittable {
+            app.swipeUp()
+        }
+
+        screencastToggle.coordinate(withNormalizedOffset: CGVector(dx: 0.77, dy: 0.25)).tap()
+        var turnOn: () -> Void = {
+            screencastToggle.coordinate(withNormalizedOffset: CGVector(dx: 0.77, dy: 0.25)).tap()
+        }
+        if !primerSheet.waitForExistence(timeout: 3) {
+            XCTAssertTrue(detailStart.waitForExistence(timeout: 10), "screencast detail start missing")
+            detailStart.tap()
+            turnOn = { detailStart.tap() }
+        }
+        XCTAssertTrue(primerSheet.waitForExistence(timeout: 10), "first turn-on did not show the primer")
+        let action = app.descendants(matching: .any)["screencast.primer.action"]
+        XCTAssertTrue(action.waitForExistence(timeout: 5), "primer action missing")
+        Thread.sleep(forTimeInterval: 1)
+        // The sheet is sized to what it holds: the explanation and the action both
+        // sit inside it, unscrolled. (The action's own hit point belongs to Apple's
+        // picker laid over it, so `isHittable` is not the test of reach.)
+        let body = app.staticTexts["screencast.primer.body"]
+        XCTAssertTrue(body.waitForExistence(timeout: 5), "primer body missing")
+        let sheetFrame = primerSheet.frame
+        XCTAssertTrue(sheetFrame.contains(body.frame), "primer body is cut off: \(body.frame) in \(sheetFrame)")
+        XCTAssertTrue(sheetFrame.contains(action.frame), "primer action is cut off: \(action.frame) in \(sheetFrame)")
+        XCTAssertLessThanOrEqual(body.frame.maxY, action.frame.minY, "primer body runs under the action")
+        XCTAssertLessThan(action.frame.height, 120, "primer action grew to fill the sheet: \(action.frame)")
+        XCTAssertTrue(
+            app.windows.firstMatch.frame.contains(action.frame),
+            "primer action is off screen: \(action.frame)"
+        )
+        self.attach(app, "22b-screencast-primer-first")
+        app.buttons["dismiss"].firstMatch.tap()
+        XCTAssertTrue(primerSheet.waitForNonExistence(timeout: 5), "primer did not dismiss")
+
+        turnOn()
+        XCTAssertTrue(
+            app.descendants(matching: .any)["waiting for the system sheet"].waitForExistence(timeout: 10),
+            "second turn-on did not open the system sheet"
+        )
+        XCTAssertFalse(primerSheet.exists, "second turn-on showed the primer again")
+        Thread.sleep(forTimeInterval: 1)
+        self.attach(app, "22c-screencast-second-turn-on")
+    }
+
     /// Generic mark (nil identity): light/dark × default/AX5.
     @MainActor
     func testCaptureGenericJournalMark() {
@@ -187,6 +243,7 @@ private extension ShellPaneShotTests {
             "--ui-test",
             "--ui-test-no-journal",
             "--ui-test-seed-on-this-phone",
+            "--ui-test-reset-screencast-primer",
             "-AppleInterfaceStyle",
             style,
         ]

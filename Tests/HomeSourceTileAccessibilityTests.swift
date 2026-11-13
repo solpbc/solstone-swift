@@ -125,7 +125,8 @@ nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
         XCTAssertTrue(dayHomeText.contains("var screencastIsOn: Binding<Bool>"))
         XCTAssertTrue(dayHomeText.contains("guard requestedOn != self.screencastIsActive else { return }"))
         XCTAssertFalse(dayHomeText.contains("control: .button"))
-        XCTAssertTrue(dayHomeText.contains("showingScreencastPrimer = true"))
+        XCTAssertTrue(dayHomeText.contains("self.screencastStartRequest += 1"))
+        XCTAssertTrue(dayHomeText.contains(".screencastStartFlow(request: self.screencastStartRequest)"))
     }
 
     func testScreencastPrimerSheetIdentifiersAndVocabulary() throws {

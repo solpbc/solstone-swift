@@ -37,6 +37,10 @@ enum UserSettings: Sendable {
         }
     }
 
+    /// The screen primer teaches Apple's broadcast sheet once. After it has been seen,
+    /// turning screen on or off opens Apple's sheet directly.
+    nonisolated static let screencastPrimerSeenKey = "screencastPrimerSeen"
+
     nonisolated static var problemReportsEnabled: Bool {
         get {
             UserDefaults.standard.bool(forKey: "problemReportsEnabled")
