@@ -70,8 +70,6 @@ nonisolated struct ObsidianVaultState: Codable, Equatable, Sendable {
     var lastChecked: Date?
     var unavailableCount: Int = 0
     var tooLargeCount: Int = 0
-    /// Notes the journal paired now acknowledged. A new pairing clears it.
-    var deliveredNotes: Set<String> = []
     var foundNotesCount: Int = 0
     var foundNoteIdentities: Set<String> = []
     var baselineCompleted: Bool = false
@@ -87,16 +85,14 @@ nonisolated struct ObsidianVaultState: Codable, Equatable, Sendable {
             self.table[path]?.lastImmutableWindowStart = nil
         }
         self.sameNameChecked = false
-        self.deliveredNotes = []
     }
 }
 
 nonisolated extension ObsidianVaultState {
     /// Fields absent from an older store decode to their defaults. A store written before the
-    /// delivered set and the same-name flag carries both under earlier keys, read once here.
+    /// same-name flag carries it under an earlier key, read once here.
     private enum EarlierKeys: String, CodingKey {
         case acceptedSameNameEndpoints
-        case acknowledgedNotesByJournal
     }
 
     init(from decoder: any Decoder) throws {
@@ -116,12 +112,6 @@ nonisolated extension ObsidianVaultState {
         self.lastChecked = try container.decodeIfPresent(Date.self, forKey: .lastChecked)
         self.unavailableCount = try container.decodeIfPresent(Int.self, forKey: .unavailableCount) ?? 0
         self.tooLargeCount = try container.decodeIfPresent(Int.self, forKey: .tooLargeCount) ?? 0
-        // Which earlier journal is paired now is not known here, so a note counts only if every
-        // one of them acknowledged it: progress never reads higher than the truth.
-        let earlierDelivered = try earlier.decodeIfPresent([String: Set<String>].self, forKey: .acknowledgedNotesByJournal)
-        self.deliveredNotes = try container.decodeIfPresent(Set<String>.self, forKey: .deliveredNotes)
-            ?? earlierDelivered.flatMap { sets in sets.values.dropFirst().reduce(sets.values.first ?? []) { $0.intersection($1) } }
-            ?? []
         self.foundNotesCount = try container.decodeIfPresent(Int.self, forKey: .foundNotesCount) ?? 0
         self.foundNoteIdentities = try container.decodeIfPresent(Set<String>.self, forKey: .foundNoteIdentities) ?? []
         self.baselineCompleted = try container.decodeIfPresent(Bool.self, forKey: .baselineCompleted) ?? false
@@ -136,6 +126,32 @@ nonisolated struct ObsidianStoreDocument: Codable, Equatable, Sendable {
     var paused: Bool = false
     var generation: UInt64 = 0
     var vaults: [String: ObsidianVaultState] = [:]
+}
+
+/// Notes the journal paired now acknowledged, by vault, in a small file beside store.json, so an
+/// acknowledgement does not rewrite every note's text.
+nonisolated struct ObsidianDeliveredDocument: Codable, Equatable, Sendable {
+    var version: Int = 1
+    var vaults: [String: Set<String>] = [:]
+}
+
+/// Where a store written before the delivered file kept that progress: inside each vault, or
+/// earlier still, one set per journal.
+nonisolated private struct ObsidianStoreDeliveredLegacy: Decodable {
+    struct Vault: Decodable {
+        var deliveredNotes: Set<String>?
+        var acknowledgedNotesByJournal: [String: Set<String>]?
+
+        var delivered: Set<String>? {
+            if let deliveredNotes { return deliveredNotes }
+            // Which earlier journal is paired now is not known here, so a note counts only if
+            // every one of them acknowledged it.
+            return self.acknowledgedNotesByJournal.map { sets in
+                sets.values.dropFirst().reduce(sets.values.first ?? []) { $0.intersection($1) }
+            }
+        }
+    }
+    var vaults: [String: Vault]?
 }
 
 nonisolated struct ObsidianPreparedCheckpoint: Sendable {
@@ -154,9 +170,16 @@ final class ObsidianStore {
     private(set) var isLoaded: Bool = false
     private(set) var hasFault: Bool = false
     private(set) var revision: UInt64 = 0
+    /// Notes the journal paired now acknowledged, by vault. A new pairing clears it.
+    private(set) var deliveredNotes: [String: Set<String>] = [:]
+    /// The delivered file is behind `deliveredNotes`. It is written before store.json is, so
+    /// after a crash between the two, progress can read low (a resend, which the journal
+    /// answers as already held) but never high.
+    private var deliveredUnsaved = false
 
     /// Test hook to simulate private write failures.
     var testFailNextSave: Bool = false
+    var testFailNextDeliveredSave: Bool = false
 
     init(rootURL: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -176,6 +199,10 @@ final class ObsidianStore {
 
     var outboxDirectoryURL: URL {
         self.rootURL.appendingPathComponent("outbox", isDirectory: true)
+    }
+
+    var deliveredFileURL: URL {
+        self.rootURL.appendingPathComponent("delivered.json")
     }
 
     func load() {
@@ -199,6 +226,7 @@ final class ObsidianStore {
             let doc = try JSONDecoder().decode(ObsidianStoreDocument.self, from: data)
             guard doc.version == 1 else { throw CocoaError(.fileReadCorruptFile) }
             self.document = doc
+            self.loadDelivered(storeData: data)
             self.isLoaded = true
             self.hasFault = false
         } catch {
@@ -209,10 +237,84 @@ final class ObsidianStore {
         }
     }
 
+    /// A store from before the delivered file carries the progress in store.json. Where both
+    /// hold a vault's progress (an earlier build wrote store.json since), a note counts only if
+    /// both say so: progress never reads higher than the truth.
+    private func loadDelivered(storeData: Data) {
+        var legacy: [String: Set<String>] = [:]
+        let carriesProgress = ["\"deliveredNotes\":", "\"acknowledgedNotesByJournal\":"].contains {
+            storeData.range(of: Data($0.utf8)) != nil
+        }
+        if carriesProgress, let earlier = try? JSONDecoder().decode(ObsidianStoreDeliveredLegacy.self, from: storeData) {
+            for (vaultID, vault) in earlier.vaults ?? [:] {
+                if let delivered = vault.delivered { legacy[vaultID] = delivered }
+            }
+        }
+        var delivered = legacy
+        if let data = try? Data(contentsOf: self.deliveredFileURL) {
+            if let file = try? JSONDecoder().decode(ObsidianDeliveredDocument.self, from: data), file.version == 1 {
+                delivered = file.vaults
+                for (vaultID, earlier) in legacy {
+                    delivered[vaultID] = (delivered[vaultID] ?? []).intersection(earlier)
+                }
+            } else {
+                // Only a count rests on it, and reading none is never higher than the truth.
+                obsidianStoreLog.error("delivered.json decode failed")
+                delivered = [:]
+            }
+        }
+        self.deliveredNotes = delivered
+        // store.json stops carrying the progress at its next save, so the file goes first.
+        self.deliveredUnsaved = !legacy.isEmpty
+    }
+
+    /// Adds acknowledged notes. Durable before it returns; a failure changes nothing.
+    @discardableResult
+    func recordDelivered(_ identities: Set<String>, vaultID: String) throws -> Bool {
+        guard self.isLoaded, !self.hasFault else { throw CocoaError(.fileWriteUnknown) }
+        var next = self.deliveredNotes
+        guard !(next[vaultID] ?? []).isSuperset(of: identities) else { return false }
+        next[vaultID, default: []].formUnion(identities)
+        try self.writeDelivered(next)
+        self.deliveredNotes = next
+        self.deliveredUnsaved = false
+        return true
+    }
+
+    /// A new pairing: no note counts as delivered to the journal paired now. Written by the next
+    /// save, ahead of store.json.
+    func clearDelivered() {
+        self.deliveredNotes = [:]
+        self.deliveredUnsaved = true
+    }
+
+    private func flushDeliveredIfNeeded() throws {
+        guard self.deliveredUnsaved else { return }
+        try self.writeDelivered(self.deliveredNotes)
+        self.deliveredUnsaved = false
+    }
+
+    private func writeDelivered(_ vaults: [String: Set<String>]) throws {
+        if self.testFailNextDeliveredSave {
+            self.testFailNextDeliveredSave = false
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try self.ensureDirectories()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(ObsidianDeliveredDocument(vaults: vaults))
+        try data.write(to: self.deliveredFileURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        var fileURL = self.deliveredFileURL
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? fileURL.setResourceValues(values)
+    }
+
     func save() throws {
         guard self.isLoaded, !self.hasFault else {
             throw CocoaError(.fileWriteUnknown)
         }
+        try self.flushDeliveredIfNeeded()
         if self.testFailNextSave {
             self.testFailNextSave = false
             throw CocoaError(.fileWriteUnknown)
@@ -262,6 +364,7 @@ final class ObsidianStore {
     /// caller checks the source revision immediately before this atomic move.
     func commitPrepared(_ prepared: ObsidianPreparedCheckpoint) throws {
         guard self.isLoaded, !self.hasFault else { throw CocoaError(.fileWriteUnknown) }
+        try self.flushDeliveredIfNeeded()
         if self.testFailNextSave {
             self.testFailNextSave = false
             throw CocoaError(.fileWriteUnknown)

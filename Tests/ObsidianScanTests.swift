@@ -1474,13 +1474,15 @@ final class ObsidianScanTests: XCTestCase {
 
         // A failed acknowledgement save publishes nothing and preserves replayable state.
         let beforeAcknowledgement = store.document
-        store.testFailNextSave = true
+        store.testFailNextDeliveredSave = true
         await engine.recordDelivered(manifest: manifest1, successKind: .delivered(serverPath: nil, serverTimestamp: nil))
         XCTAssertEqual(store.document, beforeAcknowledgement)
+        XCTAssertTrue(store.deliveredNotes.isEmpty)
         XCTAssertEqual(engine.status.deliveredNotesCount, 0)
         XCTAssertEqual(engine.status.totalFoundNotes, 3)
         let afterFailedSave = ObsidianStore(rootURL: self.storeURL)
         XCTAssertEqual(afterFailedSave.document, beforeAcknowledgement)
+        XCTAssertTrue(afterFailedSave.deliveredNotes.isEmpty)
 
         // Retrying the same acknowledged file commits its unique notes once.
         await engine.recordDelivered(manifest: manifest1, successKind: .delivered(serverPath: nil, serverTimestamp: nil))
@@ -1602,7 +1604,7 @@ final class ObsidianScanTests: XCTestCase {
         let vault = try XCTUnwrap(store.document.vaults["v"])
         XCTAssertTrue(vault.sameNameChecked)
         // Which earlier journal is paired is unknown: only what both have counts.
-        XCTAssertEqual(vault.deliveredNotes, ["n2"])
+        XCTAssertEqual(store.deliveredNotes["v"], ["n2"])
         XCTAssertEqual(vault.intakeSequence, 4)
     }
 

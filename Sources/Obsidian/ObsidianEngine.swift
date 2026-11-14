@@ -273,6 +273,8 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
     /// outbox and open windows still go, to the journal paired now. Saved before it returns.
     func restartFirstSetup() {
         guard self.store.isLoaded else { return }
+        // Saved ahead of store.json: after a crash between the two, progress reads low.
+        self.store.clearDelivered()
         for vaultID in self.store.document.vaults.keys {
             self.store.document.vaults[vaultID]?.restartFirstSetup()
         }
@@ -451,7 +453,6 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
             let revision = self.store.revision
             var candidate = self.store.document
             var merged = plan
-            merged.deliveredNotes = current.deliveredNotes
             merged.sameNameChecked = current.sameNameChecked
             // A check that found nothing new differs only in its check time. The store holds
             // every note's text, so keep that time in memory rather than rewriting the file.
@@ -477,7 +478,7 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
                   self.store.document.generation == generation,
                   self.store.document.selectedVaultID == vaultID,
                   self.store.document.enabled else { return false }
-            // An acknowledgement or admission committed while encoding. Merge
+            // An admission or control change committed while encoding. Merge
             // its fresh fields and prepare again rather than overwriting it.
             guard self.store.revision == revision else { continue }
             do { try self.store.commitPrepared(prepared); return true }
@@ -512,26 +513,12 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
               let vaultID = ObsidianTransfer.vaultID(from: manifest) else { throw CocoaError(.fileWriteUnknown) }
         let identities = ObsidianTransfer.noteIdentities(from: manifest)
         guard !identities.isEmpty else { return }
-        while !Task.isCancelled {
-            guard self.store.isLoaded, var vault = self.store.document.vaults[vaultID] else { throw CocoaError(.fileWriteUnknown) }
-            guard !vault.deliveredNotes.isSuperset(of: identities) else { return }
-            vault.deliveredNotes.formUnion(identities)
-            let revision = self.store.revision
-            var candidate = self.store.document
-            candidate.vaults[vaultID] = vault
-            try self.store.ensureDirectories()
-            let root = self.store.rootURL
-            let writer = Task.detached(priority: .utility) { try ObsidianStore.prepare(candidate, rootURL: root) }
-            let prepared = try await withTaskCancellationHandler { try await writer.value } onCancel: { writer.cancel() }
-            defer { try? FileManager.default.removeItem(at: prepared.temporaryURL) }
-            try Task.checkCancellation()
-            guard self.store.revision == revision else { continue }
-            try self.store.commitPrepared(prepared)
-            self.persistenceFailed = false
-            self.refreshStatus()
-            return
-        }
-        throw CancellationError()
+        try Task.checkCancellation()
+        guard self.store.isLoaded, self.store.document.vaults[vaultID] != nil else { throw CocoaError(.fileWriteUnknown) }
+        // The delivered file only: an acknowledgement does not rewrite every note's text.
+        guard try self.store.recordDelivered(Set(identities), vaultID: vaultID) else { return }
+        self.persistenceFailed = false
+        self.refreshStatus()
     }
 
     // MARK: - Window Closing & Outbox Delivery
@@ -635,7 +622,7 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
             status.unavailableCount = vault.unavailableCount
             status.tooLargeCount = vault.tooLargeCount
             status.totalFoundNotes = vault.foundNotesCount
-            self.deliveredCount = vault.deliveredNotes.intersection(vault.foundNoteIdentities).count
+            self.deliveredCount = (self.store.deliveredNotes[vaultID] ?? []).intersection(vault.foundNoteIdentities).count
             let activeTransfers = self.transferSnapshots.filter { ObsidianTransfer.vaultID(from: $0.manifest) == vaultID }
             let adoptedIDs = Set(activeTransfers.map(\.itemID))
             status.pendingAndQueuedNotes = vault.pendingChanges.count

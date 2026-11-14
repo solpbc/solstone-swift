@@ -589,7 +589,7 @@ final class ObsidianDeliveryTests: XCTestCase {
         await rig.engine.registerObsidianAcknowledgementCommit { manifest, kind, _ in
             try await source.commitDelivered(manifest: manifest, successKind: kind)
         }
-        store.testFailNextSave = true
+        store.testFailNextDeliveredSave = true
         ObsidianIngestURLProtocol.setDefaultIngestResponse(statusCode: 200, data: Data(#"{"status":"ok"}"#.utf8))
         let (item, _) = try await rig.enqueueObsidianItem(vaultID: "durable", noteIdentities: ["logical-note"])
         try await rig.waitFor("source commit failure retained the acknowledged payload") {
@@ -599,7 +599,7 @@ final class ObsidianDeliveryTests: XCTestCase {
         let payload = rig.root.appendingPathComponent("Transfers/\(TransferSpool.queuedDirectoryName)/\(item.itemID.uuidString)/\(item.filename)")
         XCTAssertTrue(FileManager.default.fileExists(atPath: payload.path))
         XCTAssertEqual(source.status.deliveredNotesCount, 0)
-        XCTAssertTrue(ObsidianStore(rootURL: sourceRoot).document.vaults["durable"]?.deliveredNotes.isEmpty ?? false)
+        XCTAssertNil(ObsidianStore(rootURL: sourceRoot).deliveredNotes["durable"])
         await rig.engine.pause()
 
         clock.advanceWall(by: 61)
@@ -621,7 +621,7 @@ final class ObsidianDeliveryTests: XCTestCase {
             return snapshots.isEmpty && reopened.status.deliveredNotesCount == 1
         }
         XCTAssertFalse(FileManager.default.fileExists(atPath: payload.path))
-        XCTAssertEqual(ObsidianStore(rootURL: sourceRoot).document.vaults["durable"]?.deliveredNotes, ["logical-note"])
+        XCTAssertEqual(ObsidianStore(rootURL: sourceRoot).deliveredNotes["durable"], ["logical-note"])
         await reloaded.pause()
         clock.resumeSleeps()
         await rig.tearDown()
