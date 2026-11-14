@@ -206,7 +206,6 @@ struct DayHomeView: View {
 
     @Environment(AppConfig.self) private var appConfig
     @Environment(AppGroupMirror.self) private var appGroupMirror
-    @Environment(WatchBacklogSnapshotWriter.self) private var watchBacklogSnapshotWriter
     @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(ConnectionSyncModel.self) private var connectionSyncModel
     @Environment(ObserverManager.self) private var observerManager
@@ -282,10 +281,6 @@ struct DayHomeView: View {
                 awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
                 journalGap: widgetJournalGap(self.mobileSegmentTransferHolder),
                 backlogKnown: self.safariSource?.waitingIsKnown != false
-            )
-            self.watchBacklogSnapshotWriter.write(
-                backlog: self.backlogCount,
-                watchStatusAsOf: self.watchPipelineAssembly.input.watchStatus?.asOf
             )
         }
     }

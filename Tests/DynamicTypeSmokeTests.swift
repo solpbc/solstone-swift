@@ -130,9 +130,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
         try FileManager.default.createDirectory(at: appGroupMirrorRoot, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: appGroupMirrorRoot) }
         let appGroupMirror = AppGroupMirror(rootURLProvider: { appGroupMirrorRoot })
-        let watchBacklogSnapshotWriter = WatchBacklogSnapshotWriter(
-            rootURLProvider: { appGroupMirrorRoot }
-        )
         let finishSyncingCoordinator = FinishSyncingCoordinator(
             totals: { (0, 0) },
             inFlight: { 0 },
@@ -202,7 +199,6 @@ nonisolated final class DynamicTypeSmokeTests: XCTestCase {
             .environment(appConfig)
             .environment(connectionStallMonitor)
             .environment(appGroupMirror)
-            .environment(watchBacklogSnapshotWriter)
             .environment(observerManager)
             .environment(ObserverSourcePauseState())
             .environment(locationManager)

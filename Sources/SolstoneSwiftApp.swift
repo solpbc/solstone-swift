@@ -13,7 +13,6 @@ struct SolstoneSwiftApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appConfig: AppConfig
     @State private var appGroupMirror: AppGroupMirror
-    @State private var watchBacklogSnapshotWriter: WatchBacklogSnapshotWriter
     @State private var safariPassGate = SafariPassGate()
     @State private var onboardingFlow: OnboardingFlow
     @State private var tunnelManager: TunnelManager
@@ -277,7 +276,6 @@ struct SolstoneSwiftApp: App {
 #endif
         let log = DiagnosticLog(defaults: .standard)
         let appGroupMirror = AppGroupMirror()
-        let watchBacklogSnapshotWriter = WatchBacklogSnapshotWriter()
         let appConfig = AppConfig(store: SPLRuntime.pairingStore, appGroupMirror: appGroupMirror)
         // Only a build that carries the Safari extension keeps its store.
         if SafariSourceModel.isBundled {
@@ -896,7 +894,6 @@ struct SolstoneSwiftApp: App {
         let pairFlowPresence = PairFlowPresence()
         self._appConfig = State(initialValue: appConfig)
         self._appGroupMirror = State(initialValue: appGroupMirror)
-        self._watchBacklogSnapshotWriter = State(initialValue: watchBacklogSnapshotWriter)
         self._onboardingFlow = State(initialValue: onboardingFlow)
         self._diagnosticLog = State(initialValue: log)
         self._problemReportsManager = State(initialValue: problemReports)
@@ -972,7 +969,6 @@ struct SolstoneSwiftApp: App {
             ContentView()
                 .environment(self.appConfig)
                 .environment(self.appGroupMirror)
-                .environment(self.watchBacklogSnapshotWriter)
                 .environment(self.onboardingFlow)
                 .environment(self.shellNav)
                 .environment(self.tunnelManager)
