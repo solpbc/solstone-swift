@@ -1027,6 +1027,7 @@ struct SolstoneSwiftApp: App {
                     }
                 }
                 .task {
+                    self.connectionSyncModel.setInBackground(self.scenePhase == .background)
                     await self.connectionSyncModel.run()
                 }
 #if DEBUG && targetEnvironment(simulator)
@@ -1123,6 +1124,7 @@ struct SolstoneSwiftApp: App {
                !Self.isIntegrationMode, !Self.isUITest, self.appConfig.isPaired {
                 self.connectionSyncModel.noteForeground()
             }
+            self.connectionSyncModel.setInBackground(newPhase == .background)
             switch newPhase {
             case .active:
                 self.mobileSegmentTransferHolder.refreshJournalGap()

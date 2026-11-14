@@ -44,6 +44,43 @@ final class ConnectionSyncModelTests: XCTestCase {
         await Self.cancel(task, advancing: clock)
     }
 
+    /// Nothing reads the status while the app is in the background, so the once-a-second
+    /// timer stops there and starts again on the way back.
+    func testTheTimerStopsInTheBackgroundAndResumesOnReturn() async {
+        let clock = MockObserverClock()
+        let box = ObservableInputBox(Self.connected(heard: clock.now()))
+        let model = ConnectionSyncModel(clock: clock) { box.inputs }
+        let task = Task { await model.run() }
+        await Self.drainUntilPendingSleeperCount(1, in: clock)
+
+        model.setInBackground(true)
+        // The sleep in progress ends; no other starts.
+        clock.advance(by: 1)
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(clock.pendingSleeperCount, 0)
+
+        // An input change is still seen at once.
+        box.inputs = Self.inputs(tunnelState: .error(.muxTeardown), reconnectCountdown: 1)
+        await Self.drain { model.status == .reconnecting }
+        XCTAssertEqual(model.status, .reconnecting)
+
+        model.setInBackground(false)
+        await Self.drainUntilPendingSleeperCount(1, in: clock)
+        XCTAssertEqual(clock.pendingSleeperCount, 1)
+        await Self.cancel(task, advancing: clock)
+    }
+
+    func testCancellingInTheBackgroundEndsTheRun() async {
+        let clock = MockObserverClock()
+        let model = ConnectionSyncModel(clock: clock) { Self.connected(heard: clock.now()) }
+        let task = Task { await model.run() }
+        await Self.drainUntilPendingSleeperCount(1, in: clock)
+        model.setInBackground(true)
+        clock.advance(by: 1)
+        await Self.drain { clock.pendingSleeperCount == 0 }
+        await Self.cancel(task, advancing: clock)
+    }
+
     func testForegroundHoldsTheLastStateWhileAFreshProbeAnswers() {
         let clock = MockObserverClock()
         let box = InputBox(Self.connected(heard: clock.now()))

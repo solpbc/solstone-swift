@@ -21,6 +21,8 @@ final class ConnectionSyncModel {
     @ObservationIgnored private let sample: @MainActor () -> ConnectionSyncInputs
     @ObservationIgnored private var presenter: ConnectionPresenter
     @ObservationIgnored private var isRunning = false
+    @ObservationIgnored private var inBackground = false
+    @ObservationIgnored private var foregroundWaiter: CheckedContinuation<Void, Never>?
 
     init(
         clock: any ObserverClock,
@@ -67,6 +69,33 @@ final class ConnectionSyncModel {
         self.step()
     }
 
+    /// Nothing shows the status while the app is in the background, so the timer stops there;
+    /// input changes are still taken as they come. Leaving the background starts it again.
+    func setInBackground(_ inBackground: Bool) {
+        self.inBackground = inBackground
+        if !inBackground { self.resumeTimer() }
+    }
+
+    private func resumeTimer() {
+        let waiter = self.foregroundWaiter
+        self.foregroundWaiter = nil
+        waiter?.resume()
+    }
+
+    private func waitForForeground() async {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if self.inBackground, !Task.isCancelled {
+                    self.foregroundWaiter = continuation
+                } else {
+                    continuation.resume()
+                }
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.resumeTimer() }
+        }
+    }
+
     private func step() {
         guard self.presenter.step(self.sample(), now: self.clock.now()) else { return }
         self.publish(verb: "changed")
@@ -74,6 +103,10 @@ final class ConnectionSyncModel {
 
     private func runTimers() async {
         while !Task.isCancelled {
+            if self.inBackground {
+                await self.waitForForeground()
+                continue
+            }
             var wait = self.pollCadence
             let now = self.clock.now()
             if let deadline = self.presenter.nextDeadline(after: now) {
