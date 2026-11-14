@@ -14,6 +14,7 @@ struct SolstoneSwiftApp: App {
     @State private var appConfig: AppConfig
     @State private var appGroupMirror: AppGroupMirror
     @State private var watchBacklogSnapshotWriter: WatchBacklogSnapshotWriter
+    @State private var safariPassGate = SafariPassGate()
     @State private var onboardingFlow: OnboardingFlow
     @State private var tunnelManager: TunnelManager
     @State private var connectionStallMonitor: ConnectionStallMonitor
@@ -1044,9 +1045,15 @@ struct SolstoneSwiftApp: App {
                 .task {
                     while !Task.isCancelled {
                         if self.safariTransferReady {
-                            self.appConfig.syncSafariAuthority()
-                            await SafariBrowserDelivery.drain(engine: self.transferEngine)
-                            self.safariSource?.refresh()
+                            let queued = await SafariBrowserDelivery.queuedBytes(engine: self.transferEngine)
+                            if self.safariPassGate.shouldRun(confirmed: self.appConfig.journalSendConfirmed, queued: queued) {
+                                let published = self.appConfig.syncSafariAuthority()
+                                let drained = await SafariBrowserDelivery.drain(engine: self.transferEngine)
+                                self.safariSource?.refresh()
+                                if !(published && drained) { self.safariPassGate.forget() }
+                            } else {
+                                await self.transferEngine.kick()
+                            }
                         }
                         do { try await Task.sleep(for: .seconds(5)) }
                         catch { break }

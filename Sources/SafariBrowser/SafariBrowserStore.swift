@@ -58,9 +58,15 @@ nonisolated final class SafariBrowserStore {
     /// Set by the extension's convenience init. Tests that use `init(root:)` leave it nil.
     var intake: SourceIntakeStore? = nil
 
+    static let databaseFilename = "inbox.sqlite"
+
+    static func root(inContainer container: URL) -> URL {
+        container.appendingPathComponent("SafariBrowser", isDirectory: true)
+    }
+
     convenience init() throws {
         let container = try AppGroupContainer.rootURL()
-        try self.init(root: container.appendingPathComponent("SafariBrowser", isDirectory: true))
+        try self.init(root: Self.root(inContainer: container))
         self.intake = SourceIntakeStore(containerRoot: container)
     }
 
@@ -73,7 +79,7 @@ nonisolated final class SafariBrowserStore {
         values.isExcludedFromBackup = true
         var protectedRoot = root
         try protectedRoot.setResourceValues(values)
-        guard sqlite3_open_v2(root.appendingPathComponent("inbox.sqlite").path, &self.db,
+        guard sqlite3_open_v2(root.appendingPathComponent(Self.databaseFilename).path, &self.db,
             SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK else {
             sqlite3_close(self.db); self.db = nil; throw SafariBrowserError.storage
         }

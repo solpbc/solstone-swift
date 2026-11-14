@@ -36,6 +36,9 @@ nonisolated struct WatchBacklogSnapshotPayload: Codable, Equatable, Sendable {
 @Observable
 final class WatchBacklogSnapshotWriter {
     @ObservationIgnored private let rootURLProvider: @Sendable () throws -> URL
+    /// The home screen asks for a write on every change to what it shows, so an
+    /// unchanged snapshot is skipped rather than rewritten.
+    @ObservationIgnored private var lastWritten: WatchBacklogSnapshotPayload?
 
     init(rootURLProvider: @escaping @Sendable () throws -> URL = { try AppGroupContainer.rootURL() }) {
         self.rootURLProvider = rootURLProvider
@@ -48,10 +51,12 @@ final class WatchBacklogSnapshotWriter {
                 backlog: backlog,
                 watchStatusAsOf: watchStatusAsOf
             )
+            if payload == self.lastWritten { return true }
             let data = try Self.makeEncoder().encode(payload)
             let url = try self.rootURLProvider()
                 .appendingPathComponent(WatchBacklogSnapshotPayload.fileName, isDirectory: false)
             try data.write(to: url, options: .atomic)
+            self.lastWritten = payload
             return true
         } catch {
             watchBacklogSnapshotLog.error(

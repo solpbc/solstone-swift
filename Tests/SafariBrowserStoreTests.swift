@@ -222,6 +222,47 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
         XCTAssertEqual(try self.state(store.exchange(connection: "test", frame: nil, projection: projection))["delivery"] as? String, "idle")
     }
 
+    /// The app's pass runs every few seconds, and opening the store writes to disk.
+    /// It opens the store only when something has moved since the last pass that ran.
+    @MainActor func testThePassOpensTheStoreOnlyWhenSomethingMoved() throws {
+        let (root, projection) = try self.rig()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let gate = SafariPassGate(rootURL: { root })
+        func pass(queued: Int) throws {
+            var store: SafariBrowserStore? = try SafariBrowserStore(root: root)
+            try store?.setConfirmed(true)
+            XCTAssertTrue(try XCTUnwrap(store).prepareHandoffs().isEmpty)
+            try store?.setQueuedBytes(queued)
+            _ = try store?.snapshot()
+            store = nil
+        }
+        XCTAssertTrue(gate.shouldRun(confirmed: true, queued: 0))
+        try pass(queued: 0)
+        // The first pass created the store and wrote the confirmation, so the next one runs once more.
+        XCTAssertTrue(gate.shouldRun(confirmed: true, queued: 0))
+        try pass(queued: 0)
+        XCTAssertFalse(gate.shouldRun(confirmed: true, queued: 0))
+        XCTAssertFalse(gate.shouldRun(confirmed: true, queued: 0))
+
+        // Safari says hello.
+        do {
+            let store = try SafariBrowserStore(root: root)
+            _ = try self.hello(store, projection)
+        }
+        XCTAssertTrue(gate.shouldRun(confirmed: true, queued: 0))
+        try pass(queued: 0)
+        XCTAssertFalse(gate.shouldRun(confirmed: true, queued: 0))
+
+        // The app's own inputs move.
+        XCTAssertTrue(gate.shouldRun(confirmed: true, queued: 9))
+        XCTAssertTrue(gate.shouldRun(confirmed: false, queued: 9))
+        XCTAssertFalse(gate.shouldRun(confirmed: false, queued: 9))
+
+        // A pass that failed runs again.
+        gate.forget()
+        XCTAssertTrue(gate.shouldRun(confirmed: false, queued: 9))
+    }
+
     func testAFullStoreRefusesNewPagesSaysSoAndReopensAfterTheAppTakesThem() throws {
         let (root, projection) = try self.rig()
         defer { try? FileManager.default.removeItem(at: root) }

@@ -36,10 +36,68 @@ actor SafariBrowserSourceGate: TransferSourceGate {
     }
 }
 
+/// Decides whether the app's Safari pass has anything to do. The app runs the pass every
+/// few seconds for as long as it runs, and opening the store writes to disk even when
+/// nothing has changed. So the pass opens the store only when the store's files, the
+/// confirmation the app publishes, or what the send queue holds for Safari have moved
+/// since the last pass that ran.
+@MainActor
+final class SafariPassGate {
+    private struct FileState: Equatable {
+        let size: Int
+        let modified: Date
+    }
+
+    private struct Key: Equatable {
+        let files: [FileState?]
+        let confirmed: Bool
+        let queued: Int
+    }
+
+    private let rootURL: () throws -> URL
+    private var last: Key?
+
+    init(rootURL: @escaping () throws -> URL = { SafariBrowserStore.root(inContainer: try AppGroupContainer.rootURL()) }) {
+        self.rootURL = rootURL
+    }
+
+    /// When it answers yes, this pass becomes the one the next call compares against.
+    func shouldRun(confirmed: Bool, queued: Int) -> Bool {
+        guard let root = try? self.rootURL() else {
+            self.last = nil
+            return true
+        }
+        let name = SafariBrowserStore.databaseFilename
+        let files = [name, name + "-wal"].map { file -> FileState? in
+            guard let attributes = try? FileManager.default.attributesOfItem(atPath: root.appendingPathComponent(file).path),
+                  let size = (attributes[.size] as? NSNumber)?.intValue,
+                  let modified = attributes[.modificationDate] as? Date else { return nil }
+            return FileState(size: size, modified: modified)
+        }
+        let key = Key(files: files, confirmed: confirmed, queued: queued)
+        guard key != self.last else { return false }
+        self.last = key
+        return true
+    }
+
+    /// A pass that failed runs again at the next call.
+    func forget() {
+        self.last = nil
+    }
+}
+
 @MainActor
 enum SafariBrowserDelivery {
+    /// What the send queue still holds for Safari.
+    static func queuedBytes(engine: TransferEngine) async -> Int {
+        await engine.itemSnapshots(sourceKey: "browser")
+            .reduce(0) { $0 + $1.manifest.payloadParts.reduce(0) { $0 + ($1.byteCount ?? 0) } }
+    }
+
+    /// Returns false when the store could not be read or written, so the caller tries again.
+    @discardableResult
     static func drain(engine: TransferEngine, store suppliedStore: SafariBrowserStore? = nil,
-                      beforeAdoption: (() throws -> Void)? = nil) async {
+                      beforeAdoption: (() throws -> Void)? = nil) async -> Bool {
         do {
             let store = try suppliedStore ?? SafariBrowserStore()
             for period in try store.prepareHandoffs() {
@@ -75,11 +133,11 @@ enum SafariBrowserDelivery {
             }
             await engine.kick()
             // Status only: what the send queue still holds for this source.
-            let queued = await engine.itemSnapshots(sourceKey: "browser")
-                .reduce(0) { $0 + $1.manifest.payloadParts.reduce(0) { $0 + ($1.byteCount ?? 0) } }
-            try store.setQueuedBytes(queued)
+            try store.setQueuedBytes(await self.queuedBytes(engine: engine))
+            return true
         } catch {
             Logger(subsystem: "app.solstone.swift", category: "safari").error("Safari handoff waits for storage recovery")
+            return false
         }
     }
 }

@@ -34,15 +34,22 @@ final class AppConfig {
         }
     }
 
-    func syncSafariAuthority() {
+    @discardableResult
+    func syncSafariAuthority() -> Bool {
         self.publishSafariAuthority(self.journalSendConfirmed)
     }
 
     /// Closes Safari's intake before a pairing changes, so no page is taken in
     /// under a confirmation that is about to end.
-    private func publishSafariAuthority(_ confirmed: Bool) {
-        do { try self.safariAuthority?(confirmed) }
-        catch { appConfigLog.error("Safari authority write failed; retried on next sync") }
+    @discardableResult
+    private func publishSafariAuthority(_ confirmed: Bool) -> Bool {
+        do {
+            try self.safariAuthority?(confirmed)
+            return true
+        } catch {
+            appConfigLog.error("Safari authority write failed; retried on next sync")
+            return false
+        }
     }
     let journalVersion: JournalVersionMetadata
 

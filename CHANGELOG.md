@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- on iphone and ipad, the app no longer writes to storage every few seconds when nothing has changed, which could bring up an "app wrote too much to storage" problem report.
+
 ## [2.0.11 (157)] - 2026-11-12
 
 ### Changed
