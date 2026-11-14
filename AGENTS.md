@@ -1,6 +1,6 @@
 # solstone-swift
 
-Native iOS app for solstone, the personal memory platform from sol pbc. Native SwiftUI observer, importer and control center that syncs to the owner's journal over a private loopback tunnel. Universal iphone + ipad. Bundle ID: `app.solstone.swift`.
+Native iOS app for solstone, the personal journal platform from sol pbc. Native SwiftUI observer, importer and control center that syncs to the owner's journal over a private loopback tunnel. Universal iphone + ipad. Bundle ID: `app.solstone.swift`.
 
 ## Principles
 
