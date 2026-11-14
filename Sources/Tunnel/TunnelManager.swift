@@ -327,6 +327,10 @@ final class TunnelManager {
     @ObservationIgnored private var probeWatchdog: ProbeWatchdog
     @ObservationIgnored private var reconnectBackoff: ReconnectBackoff
     @ObservationIgnored private let healthyProbeInterval: Duration
+    @ObservationIgnored private let backgroundProbeInterval: Duration
+    @ObservationIgnored private var livenessProbeEpoch: UInt64?
+    /// The last probe's answer, so an unchanged healthy answer is not logged every few seconds.
+    @ObservationIgnored private var lastProbeAlive: Bool?
     @ObservationIgnored private var consecutiveNotEntitled = 0
     @ObservationIgnored private(set) var lastScheduledReconnectDelay: Duration?
     var reconnectCountdown: Int?
@@ -399,6 +403,9 @@ final class TunnelManager {
             silentFailureLimit: 2,
             activeInboundFailureLimit: 6
         ),
+        // why: in the background nothing shows the connection, so a healthy line is probed
+        // about every 30 s instead of every 3 s; a failed probe keeps the watchdog's cadence.
+        backgroundProbeInterval: Duration = .seconds(30),
         random: @escaping @Sendable (ClosedRange<Double>) -> Double = { Double.random(in: $0) },
         activeLocalTransferCountProvider: @escaping @Sendable @MainActor () -> Int = { 0 },
         diagnosticLog: DiagnosticLog? = nil,
@@ -431,6 +438,7 @@ final class TunnelManager {
         self.connectDeadline = connectDeadline
         self.clock = clock
         self.healthyProbeInterval = probeWatchdogPolicy.healthyInterval
+        self.backgroundProbeInterval = backgroundProbeInterval
         self.probeWatchdog = ProbeWatchdog(policy: probeWatchdogPolicy, random: random)
         // why: spl-swift prescribes the reconnect table; the app only schedules the chosen step.
         self.reconnectBackoff = ReconnectBackoff(schedule: .default, random: random)
@@ -511,6 +519,9 @@ final class TunnelManager {
     func receiveScenePhase(_ phase: TunnelScenePhase) {
         let prior = self.scenePhase
         self.scenePhase = phase
+        if prior == .background, phase != .background {
+            self.resumeForegroundProbe()
+        }
         guard self.brokerWaitEpisode != nil else { return }
         switch phase {
         case .active:
@@ -1540,11 +1551,13 @@ final class TunnelManager {
         self.brokerWaitEpisode?.nextCadenceDeadline = nil
     }
 
-    private func startLivenessProbe(epoch: UInt64) {
+    private func startLivenessProbe(epoch: UInt64, firstProbeAfter: Duration? = nil) {
         self.stopLivenessProbe()
+        self.livenessProbeEpoch = epoch
+        self.lastProbeAlive = nil
         let healthyProbeInterval = self.healthyProbeInterval
         self.livenessProbeTask = Task { @MainActor [weak self] in
-            var nextProbeInterval = healthyProbeInterval
+            var nextProbeInterval = firstProbeAfter ?? healthyProbeInterval
             while !Task.isCancelled {
                 guard let self else {
                     return
@@ -1579,7 +1592,9 @@ final class TunnelManager {
                     inboundAdvanced: inboundAdvanced,
                     activeLocalTransfers: activeLocalTransfers
                 )
-                nextProbeInterval = verdict.nextInterval
+                nextProbeInterval = self.scenePhase == .background && verdict.health == .healthy
+                    ? self.backgroundProbeInterval
+                    : verdict.nextInterval
 
                 if verdict.action == .reconnect {
                     if !result.alive, !inboundAdvanced, activeLocalTransfers > 0 {
@@ -1601,6 +1616,15 @@ final class TunnelManager {
     private func stopLivenessProbe() {
         self.livenessProbeTask?.cancel()
         self.livenessProbeTask = nil
+        self.livenessProbeEpoch = nil
+    }
+
+    /// Back from the background, the probe may be most of a background interval from its next
+    /// run. Probe now, then at the usual cadence.
+    private func resumeForegroundProbe() {
+        guard self.livenessProbeTask != nil, let epoch = self.livenessProbeEpoch,
+              self.isCurrentAttempt(epoch), case .connected = self.state else { return }
+        self.startLivenessProbe(epoch: epoch, firstProbeAfter: .zero)
     }
 
     private func forceReconnect(reason: ReconnectReason, epoch: UInt64? = nil, detailSuffix: String? = nil) async {
@@ -1773,11 +1797,16 @@ final class TunnelManager {
                 observedAt: self.clock.monotonicNow()
             )
         }
-        self.diagnosticLog?.append(
-            category: .tunnel,
-            message: alive ? "probe available" : "probe not reachable",
-            detail: "latency: \(elapsed); \(detail); \(self.connectionIdentityDetail(port: active?.port ?? localPort, epoch: active?.epoch))"
-        )
+        // A healthy line answers every few seconds; log a change, and every failure.
+        let unchangedHealthy = alive && self.lastProbeAlive == true
+        self.lastProbeAlive = alive
+        if !unchangedHealthy {
+            self.diagnosticLog?.append(
+                category: .tunnel,
+                message: alive ? "probe available" : "probe not reachable",
+                detail: "latency: \(elapsed); \(detail); \(self.connectionIdentityDetail(port: active?.port ?? localPort, epoch: active?.epoch))"
+            )
+        }
         return (alive, elapsed)
     }
 

@@ -137,6 +137,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             URL(string: "http://127.0.0.1:\(localPort)/app/network/api/status")
         },
         probeInterval: Duration = .seconds(15),
+        backgroundProbeInterval: Duration = .seconds(30),
         probeFailureThreshold: Int = 2,
         degradedInterval: Duration? = nil,
         activeInboundFailureLimit: Int? = nil,
@@ -168,6 +169,7 @@ nonisolated final class TunnelManagerTests: XCTestCase {
             probeSession: probeSession,
             probeURLBuilder: probeURLBuilder,
             probeWatchdogPolicy: probeWatchdogPolicy,
+            backgroundProbeInterval: backgroundProbeInterval,
             random: jitterRandom,
             activeLocalTransferCountProvider: activeLocalTransferCountProvider,
             diagnosticLog: diagnosticLog,
@@ -4038,6 +4040,47 @@ nonisolated final class TunnelManagerTests: XCTestCase {
 
         XCTAssertEqual(first?.alive, false)
         XCTAssertNil(manager.lastHeardAt)
+    }
+
+    /// In the background a healthy line is probed at the slower background cadence; back in
+    /// the foreground it is probed at once and then at the usual cadence.
+    @MainActor
+    func testLivenessProbeSlowsInTheBackgroundAndResumesOnReturn() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data("ok".utf8))
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let log = DiagnosticLog()
+        let manager = makeManager(
+            transport: MockCFTunnelTransport(),
+            probeSession: session,
+            probeInterval: .milliseconds(20),
+            backgroundProbeInterval: .seconds(5),
+            jitterRandom: { _ in 1.0 },
+            diagnosticLog: log
+        )
+        manager.receiveScenePhase(.active)
+        await manager.connect()
+        let foreground = await Self.waitUntil({ TunnelProbeURLProtocol.capturedRequests.count >= 5 }, timeout: .seconds(2))
+        XCTAssertTrue(foreground)
+        XCTAssertEqual(log.events.filter { $0.message == "probe available" }.count, 1, "an unchanged answer is logged once")
+
+        manager.receiveScenePhase(.background)
+        // The probe already sleeping finishes; after it the next is a background interval away.
+        try? await Task.sleep(for: .milliseconds(100))
+        let backgroundCount = TunnelProbeURLProtocol.capturedRequests.count
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(TunnelProbeURLProtocol.capturedRequests.count, backgroundCount)
+
+        manager.receiveScenePhase(.active)
+        let resumed = await Self.waitUntil({ TunnelProbeURLProtocol.capturedRequests.count >= backgroundCount + 3 }, timeout: .seconds(1))
+        XCTAssertTrue(resumed)
+        await manager.disconnect()
     }
 
     @MainActor
