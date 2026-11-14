@@ -89,10 +89,24 @@ private actor ConnectWindowTerminalSignal {
     }
 }
 
+/// A session whose keepalive cadence can change while it is connected. `TunnelSession` has it and
+/// `TunnelSessioning` doesn't ask for it, so the transport reaches it with a cast.
+nonisolated protocol KeepaliveCadenceAdjusting: Sendable {
+    func setKeepaliveInterval(_ interval: Duration) async
+}
+
+extension TunnelSession: KeepaliveCadenceAdjusting {}
+
 @MainActor
 @Observable
 final class CFTunnelTransport: Transporting {
     private static let defaultAttemptUpdatesDrainDeadline = Duration.seconds(2)
+    /// The LAN keepalive pings this often in the foreground, so a path that goes dark is found
+    /// within about a second and a half.
+    nonisolated static let foregroundKeepaliveInterval: Duration = .milliseconds(500)
+    /// In the background nothing shows the connection, and the liveness probe there runs about
+    /// every 30 s too, so the keepalive pings about twice a minute instead of twice a second.
+    nonisolated static let backgroundKeepaliveInterval: Duration = .seconds(30)
 
     public private(set) var connectionMode: ConnectionMode?
     public private(set) var generationSnapshot = TransportGenerationSnapshot(
@@ -125,6 +139,8 @@ final class CFTunnelTransport: Transporting {
     private let attemptUpdatesDrainDeadline: Duration
     @ObservationIgnored
     private let origins: JournalWebOriginStore
+    @ObservationIgnored
+    private var inBackground = false
 
     init(
         appConfig: AppConfig? = nil,
@@ -167,6 +183,7 @@ final class CFTunnelTransport: Transporting {
         observeConnectionModeUpdates(session.connectionModeUpdates)
         observeAttemptUpdates(session, onStageChange: onStageChange)
         observeUnknownJournalSightings(session, onStageChange: onStageChange)
+        await applyKeepaliveInterval(to: session)
 
         do {
             let port = try await raceStartupAgainstConnectWindow(
@@ -184,6 +201,29 @@ final class CFTunnelTransport: Transporting {
             await connectWindow.close()
             await session.disconnect()
             throw error
+        }
+    }
+
+    func setInBackground(_ inBackground: Bool) async {
+        guard inBackground != self.inBackground else { return }
+        self.inBackground = inBackground
+        guard let session else { return }
+        await applyKeepaliveInterval(to: session)
+    }
+
+    private var keepaliveInterval: Duration {
+        inBackground ? Self.backgroundKeepaliveInterval : Self.foregroundKeepaliveInterval
+    }
+
+    /// Returns only once the session holds the interval for the current scene, even if the scene
+    /// changed while the session was being told.
+    private func applyKeepaliveInterval(to session: any TunnelSessioning) async {
+        guard let adjusting = session as? any KeepaliveCadenceAdjusting else { return }
+        var applied: Duration?
+        while applied != keepaliveInterval {
+            let interval = keepaliveInterval
+            applied = interval
+            await adjusting.setKeepaliveInterval(interval)
         }
     }
 
@@ -474,7 +514,7 @@ final class CFTunnelTransport: Transporting {
             clientInfo: SPLRuntime.clientInfo,
             policy: SessionPolicy(
                 keepalive: KeepalivePolicy(
-                    interval: .milliseconds(500),
+                    interval: foregroundKeepaliveInterval,
                     missedLimit: 3,
                     // why: false is KeepalivePolicy's default; macOS is the deviator. iOS runs no mux work while
                     // suspended, so relay keepalive would not have caught the reported case. Foreground validation

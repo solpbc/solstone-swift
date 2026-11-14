@@ -17,6 +17,9 @@ public protocol Transporting: Sendable {
 
     func disconnect() async
     func inboundActivitySnapshot() async -> UInt64
+    /// Whether the app is in the background, where nothing shows the connection and its
+    /// keepalive can ping far less often. Holds for the current connection and later ones.
+    func setInBackground(_ inBackground: Bool) async
 }
 
 public struct TransportGenerationSnapshot: Sendable, Equatable {

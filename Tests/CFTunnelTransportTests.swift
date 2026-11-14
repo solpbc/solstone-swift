@@ -8,6 +8,7 @@ import XCTest
 import os
 
 extension FakeTunnelSession: UnknownJournalObserving {}
+extension FakeTunnelSession: KeepaliveCadenceAdjusting {}
 
 nonisolated final class CFTunnelTransportTests: XCTestCase {
     @MainActor
@@ -293,6 +294,33 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
             events.withLock { $0.contains(.failure(.transportFailed("pump ended"))) }
         }
         XCTAssertTrue(didReceiveFailure)
+        await transport.disconnect()
+    }
+
+    /// The LAN keepalive pings about twice a minute in the background and twice a second in the
+    /// foreground, on the live connection and on one made while the app is already in the background.
+    @MainActor
+    func testKeepalivePingsLessOftenInTheBackgroundAndAtTheUsualCadenceInTheForeground() async throws {
+        let fakeSession = FakeTunnelSession()
+        let transport = CFTunnelTransport(
+            loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in fakeSession }
+        )
+
+        await transport.setInBackground(true)
+        _ = try await transport.connect(
+            candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+            onDisconnect: { _ in },
+            onStageChange: { _ in }
+        )
+        let connectedInBackground = await fakeSession.keepaliveIntervals
+        XCTAssertEqual(connectedInBackground, [.seconds(30)])
+
+        await transport.setInBackground(false)
+        await transport.setInBackground(true)
+        let afterRoundTrip = await fakeSession.keepaliveIntervals
+        XCTAssertEqual(afterRoundTrip, [.seconds(30), .milliseconds(500), .seconds(30)])
+
         await transport.disconnect()
     }
 

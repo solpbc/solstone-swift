@@ -38,6 +38,7 @@ final class MockCFTunnelTransport: Transporting {
     var onConnectInvoked: (@Sendable () async -> Void)?
     var inboundActivitySnapshotValue: UInt64 = 0
     var inboundActivitySnapshots: [UInt64] = []
+    var inBackgroundCalls: [Bool] = []
     private var suspendedConnects: [Int: CheckedContinuation<Int, Error>] = [:]
     private var disconnectCallbacks: [Int: @Sendable (Error?) -> Void] = [:]
     private var stageCallbacks: [Int: @Sendable (TransportStage) -> Void] = [:]
@@ -144,6 +145,10 @@ final class MockCFTunnelTransport: Transporting {
         }
         inboundActivitySnapshotValue = inboundActivitySnapshots.removeFirst()
         return inboundActivitySnapshotValue
+    }
+
+    func setInBackground(_ inBackground: Bool) async {
+        inBackgroundCalls.append(inBackground)
     }
 
     func simulateDisconnect(error: Error? = nil) {

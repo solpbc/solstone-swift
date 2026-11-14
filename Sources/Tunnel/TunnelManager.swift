@@ -522,6 +522,13 @@ final class TunnelManager {
         if prior == .background, phase != .background {
             self.resumeForegroundProbe()
         }
+        if (prior == .background) != (phase == .background) {
+            // Read the phase when this runs, so a quick round trip cannot leave a stale cadence.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.transport.setInBackground(self.scenePhase == .background)
+            }
+        }
         guard self.brokerWaitEpisode != nil else { return }
         switch phase {
         case .active:

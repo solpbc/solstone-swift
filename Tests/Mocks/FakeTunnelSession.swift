@@ -29,6 +29,8 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
     private var disconnectContinuation: CheckedContinuation<Void, Never>?
     private(set) var connectCallCount = 0
     private(set) var disconnectCallCount = 0
+    /// Every keepalive interval the transport set, in order.
+    private(set) var keepaliveIntervals: [Duration] = []
 
     init(
         connectedVia: ConnectedVia = .lanDirect(host: "127.0.0.1", port: 8676),
@@ -154,5 +156,9 @@ actor FakeTunnelSession: TunnelSessioning, MuxStreamOpening, TunnelAttemptObserv
 
     func pushAttemptOnDisconnect(_ event: TunnelAttemptEvent) {
         attemptsOnDisconnect.append(event)
+    }
+
+    func setKeepaliveInterval(_ interval: Duration) {
+        keepaliveIntervals.append(interval)
     }
 }

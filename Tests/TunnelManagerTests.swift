@@ -4083,6 +4083,25 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await manager.disconnect()
     }
 
+    /// Going to the background slows the transport's keepalive and coming back restores it;
+    /// moving between active and inactive in the foreground changes nothing.
+    @MainActor
+    func testBackgroundSlowsTheTransportKeepaliveAndReturningRestoresIt() async throws {
+        let transport = MockCFTunnelTransport()
+        let manager = makeManager(transport: transport)
+
+        manager.receiveScenePhase(.active)
+        manager.receiveScenePhase(.inactive)
+        manager.receiveScenePhase(.background)
+        let slowed = await Self.waitUntil { transport.inBackgroundCalls == [true] }
+        XCTAssertTrue(slowed, "calls: \(transport.inBackgroundCalls)")
+
+        manager.receiveScenePhase(.inactive)
+        manager.receiveScenePhase(.active)
+        let restored = await Self.waitUntil { transport.inBackgroundCalls == [true, false] }
+        XCTAssertTrue(restored, "calls: \(transport.inBackgroundCalls)")
+    }
+
     @MainActor
     func testLivenessProbeReconnectsAfterSustainedFailuresAndStops() async throws {
         TunnelProbeURLProtocol.reset()
