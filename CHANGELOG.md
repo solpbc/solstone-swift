@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.12 (159)] - 2026-11-14
+
 ### Fixed
 
 - on iphone and ipad, when a call or another app has the microphone, audio now reads "paused" the whole time. before, it could stop partway through and read "needs attention" until you tapped retry.
