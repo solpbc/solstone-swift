@@ -895,17 +895,21 @@ nonisolated struct DeviceMigrationStore: Sendable {
     }
 
     func owns(ownerID: UUID) throws -> Bool {
-        let record = try self.ownershipRecord()
-        return record.active?.id == ownerID
+        Self.owns(ownerID: ownerID, in: try self.ownershipRecord())
+    }
+
+    private static func owns(ownerID: UUID, in record: DeviceMigrationOwnershipRecord) -> Bool {
+        record.active?.id == ownerID
             && record.pendingReplacement?.fromOwnerID != ownerID
             && record.invalidationID == nil
             && !record.invalidatedOwnerIDs.contains(ownerID)
     }
 
+    /// One read of the ownership record answers both halves of the check.
     func owns(ownerID: UUID, pairing: StoredPairing) throws -> Bool {
         let identity = try DevicePairingIdentity.make(for: pairing)
-        guard try self.owns(ownerID: ownerID),
-              let owner = try self.ownershipRecord().active else { return false }
+        let record = try self.ownershipRecord()
+        guard Self.owns(ownerID: ownerID, in: record), let owner = record.active else { return false }
         return owner.id == ownerID
             && owner.identity == identity
             && owner.credentialCID == pairing.fingerprint

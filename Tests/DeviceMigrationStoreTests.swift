@@ -28,6 +28,7 @@ final class MigrationTestPersistence: DeviceMigrationPersistence, @unchecked Sen
     private var mutationCount = 0
     private var failedMutation: Int?
     private var failReads = false
+    private(set) var deviceReadCount = 0
     private let portableBacking: MigrationPortableBacking
 
     init(portableBacking: MigrationPortableBacking = MigrationPortableBacking()) {
@@ -37,6 +38,7 @@ final class MigrationTestPersistence: DeviceMigrationPersistence, @unchecked Sen
     func readDeviceRecord(account: String) throws -> Data? {
         try self.lock.withLock {
             if self.failReads { throw MigrationPersistenceTestError.read }
+            self.deviceReadCount += 1
             return self.device[account]
         }
     }
@@ -157,6 +159,27 @@ final class DeviceMigrationStoreTests: XCTestCase {
 
         persistence.replaceDevice(account: DeviceMigrationStore.deviceMarkerAccount, with: nil)
         XCTAssertEqual(try migration.classify(pairing: pairing), .movedDevice)
+    }
+
+    /// The ownership check runs every few seconds; it reads the ownership record once.
+    func testOwnershipCheckReadsTheRecordOnce() throws {
+        let persistence = MigrationTestPersistence()
+        let migration = DeviceMigrationStore(persistence: persistence)
+        let pairing = Self.pairing(cidByte: "a")
+        let owner = DeviceMigrationCredentialOwner(
+            id: UUID(), identity: try DevicePairingIdentity.make(for: pairing), credentialCID: pairing.fingerprint
+        )
+        var record = DeviceMigrationOwnershipRecord.empty
+        record.active = owner
+        try migration.saveOwnershipRecord(record)
+        let before = persistence.deviceReadCount
+        XCTAssertTrue(try migration.owns(ownerID: owner.id, pairing: pairing))
+        XCTAssertEqual(persistence.deviceReadCount - before, 1)
+        XCTAssertFalse(try migration.owns(ownerID: UUID(), pairing: pairing))
+        XCTAssertFalse(try migration.owns(ownerID: owner.id, pairing: Self.pairing(cidByte: "b")))
+        record.invalidatedOwnerIDs.insert(owner.id)
+        try migration.saveOwnershipRecord(record)
+        XCTAssertFalse(try migration.owns(ownerID: owner.id, pairing: pairing))
     }
 
     func testMissingUnavailableAndCorruptRecordsStayDistinctAndFailClosed() throws {
