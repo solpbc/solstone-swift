@@ -179,6 +179,7 @@ final class WatchSegmentLedger {
     }
 
     func recordReceived(id: UUID) {
+        let before = self.store
         let key = id.uuidString
         var entry = self.store.entries[key] ?? WatchSegmentLedgerStore.Entry()
         if self.store.entries[key] == nil || (entry.receivedAt == nil && !entry.isTerminal) {
@@ -186,10 +187,11 @@ final class WatchSegmentLedger {
             self.store.lifetimeReceived += 1
         }
         self.store.entries[key] = entry
-        self.pruneAndPersist()
+        self.pruneAndPersist(from: before)
     }
 
     func recordHanded(id: UUID) {
+        let before = self.store
         let key = id.uuidString
         let now = self.clock()
         var entry = self.store.entries[key] ?? WatchSegmentLedgerStore.Entry()
@@ -197,7 +199,7 @@ final class WatchSegmentLedger {
         if entry.droppedAt != nil && entry.handedAt == nil {
             self.logConflict("watch ledger hand-after-drop id=\(id.uuidString)")
             self.store.entries[key] = entry
-            self.pruneAndPersist()
+            self.pruneAndPersist(from: before)
             return
         }
 
@@ -211,10 +213,11 @@ final class WatchSegmentLedger {
         }
 
         self.store.entries[key] = entry
-        self.pruneAndPersist()
+        self.pruneAndPersist(from: before)
     }
 
     func recordDropped(id: UUID) {
+        let before = self.store
         let key = id.uuidString
         let now = self.clock()
         var entry = self.store.entries[key] ?? WatchSegmentLedgerStore.Entry()
@@ -223,7 +226,7 @@ final class WatchSegmentLedger {
         if entry.handedAt != nil {
             self.logConflict("watch ledger drop-after-hand id=\(id.uuidString)")
             self.store.entries[key] = entry
-            self.pruneAndPersist()
+            self.pruneAndPersist(from: before)
             return
         }
 
@@ -235,7 +238,7 @@ final class WatchSegmentLedger {
         }
 
         self.store.entries[key] = entry
-        self.pruneAndPersist()
+        self.pruneAndPersist(from: before)
     }
 
     func isTerminal(id: UUID) -> Bool {
@@ -329,8 +332,11 @@ private extension WatchSegmentLedger {
         }
     }
 
-    func pruneAndPersist() {
+    /// Writes only when the event or the prune changed the ledger, or an earlier write failed.
+    /// The relay reports the same segment many times, and most reports change nothing.
+    func pruneAndPersist(from before: WatchSegmentLedgerStore) {
         self.pruneTerminalEntries()
+        guard self.store != before || self.lastLedgerError != nil else { return }
         do {
             try self.persist()
             self.lastLedgerError = nil

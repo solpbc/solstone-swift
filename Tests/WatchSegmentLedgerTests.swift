@@ -38,6 +38,28 @@ final class WatchSegmentLedgerTests: XCTestCase {
         XCTAssertFalse(ledger.isTerminal(id: id))
     }
 
+    /// The relay reports a segment again and again; a report that changes nothing does not rewrite the ledger.
+    func testRepeatedReportsThatChangeNothingDoNotRewriteTheLedger() throws {
+        let id = UUID()
+        let fileURL = self.ledgerFileURL("unchanged-reports")
+        let ledger = WatchSegmentLedger(fileURL: fileURL)
+        func identity() throws -> Int {
+            try XCTUnwrap(FileManager.default.attributesOfItem(atPath: fileURL.path)[.systemFileNumber] as? Int)
+        }
+        ledger.recordReceived(id: id)
+        ledger.recordHanded(id: id)
+        let written = try identity()
+        for _ in 0..<100 {
+            ledger.recordReceived(id: id)
+            ledger.recordHanded(id: id)
+            ledger.recordDropped(id: id)
+        }
+        XCTAssertEqual(try identity(), written)
+        ledger.recordReceived(id: UUID())
+        XCTAssertNotEqual(try identity(), written)
+        XCTAssertEqual(WatchSegmentLedger(fileURL: fileURL).lifetimeReceived, 2)
+    }
+
     func testRecordReceivedIsIdempotentUntilPruned() {
         let id = UUID()
         let ledger = WatchSegmentLedger(fileURL: self.ledgerFileURL("received-idempotent"))
