@@ -1113,6 +1113,31 @@ final class JournalWebNavigationSessionTests: XCTestCase {
         gate.fireAll()
     }
 
+    func testJournalLinkRetryKeepsTargetAndErrorsNeverExportIt() throws {
+        let gate = CoalescerSleepGate()
+        let recorder = SessionRecorder()
+        let log = DiagnosticLog()
+        let session = recorder.makeSession(gate: gate, diagnosticLog: log)
+        defer { session.teardown(); gate.fireAll() }
+        let target = "JournalLinkPrivacyCanary-_~123456"
+        let url = try self.url("http://127.0.0.1:8080/app/open/" + target)
+        let navigation = NavigationToken()
+        recorder.enqueueLoadNavigation(navigation)
+        session.requestLoad(url: url, reloadToken: 0)
+        session.didStart(navigation: navigation)
+        session.didFail(navigation: navigation, error: NSError(
+            domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost,
+            userInfo: [NSURLErrorFailingURLErrorKey: url, NSLocalizedDescriptionKey: url.absoluteString]
+        ))
+        session.requestLoad(url: url, reloadToken: 1)
+        XCTAssertEqual(recorder.loads.map(\.url), [url, url])
+        let exported = log.snapshot(tunnel: TunnelManager())
+        XCTAssertTrue(exported.contains("failure"))
+        XCTAssertTrue(exported.contains("retry"))
+        XCTAssertFalse(exported.contains(target))
+        XCTAssertFalse(exported.contains("/app/open/"))
+    }
+
     func testWebContentProcessTerminationBecomesActionableFailure() {
         let gate = CoalescerSleepGate()
         let recorder = SessionRecorder()

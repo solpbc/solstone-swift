@@ -108,6 +108,7 @@ struct ShellDestinationView: View {
     let destination: ShellDestination
     var journalMark: JournalMark? = nil
     var journalPath: String = "/"
+    var journalOpenID: UUID? = nil
     var onOpenJournal: (() -> Void)? = nil
 
     @Environment(ShellNavModel.self) private var nav
@@ -141,6 +142,7 @@ struct ShellDestinationView: View {
             StatusPane(presentation: .detail, journalMark: self.journalMark)
         case .journal:
             InAppJournalView(mark: self.journalMark, presentation: .detail, path: self.journalPath)
+                .id(self.journalOpenID)
         case .journalSetup:
             JournalLivesPane()
         case .addMore:

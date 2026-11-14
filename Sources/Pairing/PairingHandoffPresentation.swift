@@ -48,6 +48,15 @@ extension ExternalPairLinkIntake {
         pendingObserverCommand: PendingObserverCommandState = PendingObserverCommandState(),
         pendingJournalOpen: PendingJournalOpenState = PendingJournalOpenState()
     ) {
+        // Journal links remain available while pairing is presented; the shell
+        // delivers the pending target once that presentation has ended.
+        if let route = JournalLink.route(url) {
+            switch route {
+            case .open(let path): pendingJournalOpen.open(path: path)
+            case .invalid: pendingJournalOpen.showsInvalidLinkNotice = true
+            }
+            return
+        }
         if pairingHandoff.stageExternalLink(url, awaitingMarkConfirmation: appConfig.awaitingMarkConfirmation) {
             return
         }
@@ -55,7 +64,7 @@ extension ExternalPairLinkIntake {
         case .observerStop:
             pendingObserverCommand.command = .stopRequested
         case .journal:
-            pendingJournalOpen.isOpenRequested = true
+            pendingJournalOpen.open()
         case nil:
             break
         }

@@ -374,6 +374,11 @@ struct ContentView: View {
             self.startTunnelIfPaired()
             self.presentHeldJournalReAskIfNeeded()
         }
+        .alert("this journal link isn't valid.", isPresented: Bindable(self.pendingJournalOpen).showsInvalidLinkNotice) {
+            Button("close", role: .cancel) {}
+        } message: {
+            Text("copy the full link from your chat and open it again.")
+        }
         .alert(SourceVocabulary.reinstallNoticeTitle, isPresented: self.$showingReinstallNotice) {
             Button(SourceVocabulary.reinstallNoticeKeep, role: .cancel) {}
             Button(SourceVocabulary.reinstallNoticeForget, role: .destructive) {

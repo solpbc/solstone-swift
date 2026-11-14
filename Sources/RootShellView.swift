@@ -51,6 +51,8 @@ struct RootShellView: View {
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(PendingNotificationRouteState.self) private var pendingRoute
     @Environment(PendingJournalOpenState.self) private var pendingJournalOpen
+    @Environment(PairFlowPresence.self) private var pairFlowPresence
+    @Environment(PairFlowRouter.self) private var pairFlowRouter
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
@@ -64,6 +66,7 @@ struct RootShellView: View {
     @State private var showingJournalLives = false
     @State private var presentedPane: PresentedShellPane?
     @State private var journalInitialPath: String = "/"
+    @State private var journalOpenID = UUID()
     /// Seeded from the store so the owner's own mark is on screen in the **first frame**,
     /// before any tunnel exists. See `JournalMarkStore` for why this is an absolute.
     @State private var journalMark: JournalMark? = RootShellView.storedJournalMark()
@@ -165,6 +168,7 @@ struct RootShellView: View {
         self.shellLayers
         .sheet(isPresented: self.isJournalPresented) {
             InAppJournalView(mark: self.journalMark, presentation: .phoneModal, path: self.journalInitialPath)
+                .id(self.journalOpenID)
                 // Full height — the largest system detent, so the pane's top reaches
                 // the top of the screen instead of leaving the deck readable above it.
                 .presentationDetents([.large])
@@ -259,7 +263,10 @@ struct RootShellView: View {
                 self.apply(route)
             }
         }
-        .onChange(of: self.pendingJournalOpen.isOpenRequested) { _, _ in
+        .onChange(of: self.pendingJournalOpen.request) { _, _ in
+            self.applyPendingJournalOpenIfNeeded()
+        }
+        .onChange(of: self.journalOpenBlockedByPairing) { _, _ in
             self.applyPendingJournalOpenIfNeeded()
         }
         .onChange(of: self.statusPath.count) { _, count in
@@ -400,7 +407,8 @@ struct RootShellView: View {
                     ShellDestinationView(
                         destination: destination,
                         journalMark: self.journalMark,
-                        journalPath: self.journalInitialPath
+                        journalPath: self.journalInitialPath,
+                        journalOpenID: self.journalOpenID
                     )
                 }
         }
@@ -512,13 +520,15 @@ struct RootShellView: View {
             ShellDestinationView(
                 destination: self.paneRootDestination,
                 journalMark: self.journalMark,
-                journalPath: self.journalInitialPath
+                journalPath: self.journalInitialPath,
+                journalOpenID: self.journalOpenID
             )
                 .navigationDestination(for: ShellDestination.self) { destination in
                     ShellDestinationView(
                         destination: destination,
                         journalMark: self.journalMark,
-                        journalPath: self.journalInitialPath
+                        journalPath: self.journalInitialPath,
+                        journalOpenID: self.journalOpenID
                     )
                 }
         }
@@ -545,6 +555,8 @@ struct RootShellView: View {
     /// seed and the real opener cannot drift.
     private func openJournal(path: String = "/") {
         self.journalInitialPath = path
+        // An explicit open is a new navigation even when its target is unchanged.
+        self.journalOpenID = UUID()
         if self.isPhoneShell {
             self.presentedPane = .journal
         } else {
@@ -553,9 +565,12 @@ struct RootShellView: View {
     }
 
     private func applyPendingJournalOpenIfNeeded() {
-        guard self.pendingJournalOpen.isOpenRequested else { return }
-        self.pendingJournalOpen.isOpenRequested = false
-        self.openJournal()
+        guard let request = self.pendingJournalOpen.consume(pairingPresented: self.journalOpenBlockedByPairing) else { return }
+        self.openJournal(path: request.path)
+    }
+
+    private var journalOpenBlockedByPairing: Bool {
+        self.pairFlowRouter.request != nil || self.pairFlowPresence.isPresent
     }
 
     private func openJournalSetup() {
@@ -827,7 +842,8 @@ struct RootShellView: View {
                 ShellDestinationView(
                     destination: destination,
                     journalMark: self.journalMark,
-                    journalPath: self.journalInitialPath
+                    journalPath: self.journalInitialPath,
+                    journalOpenID: self.journalOpenID
                 )
             }
         }

@@ -5,6 +5,42 @@ import XCTest
 
 nonisolated final class JournalDeepLinkUITests: XCTestCase {
     @MainActor
+    func testMalformedJournalLinkShowsNoticeWarmAndCold() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--ui-test-no-journal"]
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
+        for cold in [false, true] {
+            if cold { app.terminate() }
+            let link = URL(string: "solstone://open#bad=target")!
+            if cold { app.open(link) } else { XCUIDevice.shared.system.open(link) }
+            let notice = app.alerts.firstMatch
+            XCTAssertTrue(notice.waitForExistence(timeout: 10))
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = cold ? "journal-link-invalid-cold" : "journal-link-invalid-warm"
+            shot.lifetime = .keepAlways
+            self.add(shot)
+            notice.buttons.firstMatch.tap()
+            XCTAssertFalse(notice.exists)
+        }
+    }
+
+    @MainActor
+    func testJournalLinkOpensUnpairedSetupWarmAndCold() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--ui-test-no-journal"]
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 10))
+        for cold in [false, true] {
+            if cold { app.terminate() }
+            let link = URL(string: "solstone://open#AbC-_~173012")!
+            if cold { app.open(link) } else { XCUIDevice.shared.system.open(link) }
+            XCTAssertTrue(app.buttons["journal.alreadyHaveOne"].waitForExistence(timeout: 10))
+            XCTAssertFalse(app.alerts.firstMatch.exists)
+        }
+    }
+
+    @MainActor
     func testJournalDeepLinkOpensPhoneSheet() throws {
         let app = self.launchApp()
         try XCTSkipIf(self.isPadShapedWindow(app), "the journal sheet is the phone shell's presentation")

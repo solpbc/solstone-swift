@@ -26,6 +26,36 @@ final class ExternalPairLinkStagingTests: XCTestCase {
         return (onboarding, appConfig, defaults, suiteName)
     }
 
+    func testJournalLinkColdAndWarmIntakeDuringPairingKeepsItsOwnTarget() throws {
+        let (_, appConfig, defaults, suiteName) = self.makeIsolatedEnvironment()
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let pending = PendingJournalOpenState()
+        let handoff = PairingHandoffState()
+        handoff.pairingInProgress = true
+        _ = ExternalPairLinkQueue.shared.drain()
+        let url = try XCTUnwrap(URL(string: "https://go.solstone.app/j#AbC-_~173012"))
+        ExternalPairLinkQueue.shared.enqueue(ExternalPairLinkIntake.collect(urlContextURLs: [], browsingWebURLs: [url]))
+        for coldURL in ExternalPairLinkQueue.shared.drain() {
+            ExternalPairLinkIntake.handle(url: coldURL, pairingHandoff: handoff, appConfig: appConfig, pendingJournalOpen: pending)
+        }
+        let first = try XCTUnwrap(pending.request)
+        XCTAssertEqual(first.path, "/app/open/AbC-_~173012")
+        XCTAssertNil(pending.consume(pairingPresented: true))
+        XCTAssertNil(handoff.stagedDraft)
+        XCTAssertNil(handoff.pairURLError)
+        XCTAssertFalse(appConfig.isPaired)
+        ExternalPairLinkIntake.handle(url: url, pairingHandoff: handoff, appConfig: appConfig, pendingJournalOpen: pending)
+        XCTAssertNotEqual(pending.request?.id, first.id)
+        XCTAssertEqual(pending.consume(pairingPresented: false)?.path, first.path)
+        ExternalPairLinkIntake.handle(
+            url: try XCTUnwrap(URL(string: "solstone://open#abc=bad")),
+            pairingHandoff: handoff, appConfig: appConfig, pendingJournalOpen: pending
+        )
+        XCTAssertTrue(pending.showsInvalidLinkNotice)
+        XCTAssertNil(pending.request)
+        XCTAssertNil(handoff.pairURLError)
+    }
+
     func testStageExternalLinkWithAliasAndCanonicalHTTPS() {
         let (onboarding, appConfig, defaults, suiteName) = self.makeIsolatedEnvironment()
         defer { defaults.removePersistentDomain(forName: suiteName) }
