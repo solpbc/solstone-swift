@@ -176,6 +176,8 @@ final class ObsidianStore {
     /// after a crash between the two, progress can read low (a resend, which the journal
     /// answers as already held) but never high.
     private var deliveredUnsaved = false
+    /// store.json still holds progress from before the delivered file.
+    private var legacyProgressInStore = false
 
     /// Test hook to simulate private write failures.
     var testFailNextSave: Bool = false
@@ -229,6 +231,7 @@ final class ObsidianStore {
             self.loadDelivered(storeData: data)
             self.isLoaded = true
             self.hasFault = false
+            if self.legacyProgressInStore { self.finishLegacyProgressMove() }
         } catch {
             // A present file that does not decode is a fault: isLoaded stays false, bytes stay, private-store sentence.
             self.isLoaded = false
@@ -266,6 +269,20 @@ final class ObsidianStore {
         self.deliveredNotes = delivered
         // store.json stops carrying the progress at its next save, so the file goes first.
         self.deliveredUnsaved = !legacy.isEmpty
+        self.legacyProgressInStore = !legacy.isEmpty
+    }
+
+    /// While store.json still carries the old progress, a relaunch counts only what both files
+    /// agree on, which would forget an ack recorded since. So the move finishes at once: the
+    /// delivered file first, then store.json without the progress. A failure is retried at the
+    /// next ack.
+    private func finishLegacyProgressMove() {
+        do {
+            try self.save()
+            self.legacyProgressInStore = false
+        } catch {
+            obsidianStoreLog.error("moving delivered progress out of store.json failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// Adds acknowledged notes. Durable before it returns; a failure changes nothing.
@@ -278,6 +295,7 @@ final class ObsidianStore {
         try self.writeDelivered(next)
         self.deliveredNotes = next
         self.deliveredUnsaved = false
+        if self.legacyProgressInStore { self.finishLegacyProgressMove() }
         return true
     }
 

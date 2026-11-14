@@ -182,6 +182,26 @@ final class ObsidianStoreWritesTests: XCTestCase {
         XCTAssertEqual(reopened.status.deliveredNotesCount, 0)
     }
 
+    /// An ack recorded right after the upgrade, before anything else saves the store, survives a
+    /// relaunch: the move out of store.json finishes at load.
+    func testAnAckRightAfterTheUpgradeSurvivesARelaunch() throws {
+        let earlier = #"""
+        {"generation":1,"enabled":false,"paused":false,"selectedVaultID":"v","version":1,"vaults":{"v":{
+        "id":"v","folderName":"Notes","table":{},"pendingChanges":[],"outboxItems":[],"frozenBaselineHashes":[],
+        "unappliedIntakeOps":[],"sameNameChecked":true,"unavailableCount":0,"tooLargeCount":0,
+        "deliveredNotes":["n1","n2"],"foundNotesCount":3,
+        "foundNoteIdentities":["n1","n2","n3"],"baselineCompleted":true,"intakeSequence":4}}}
+        """#
+        try Data(earlier.utf8).write(to: self.root.appendingPathComponent("store.json"))
+        let store = ObsidianStore(rootURL: self.root)
+        XCTAssertFalse(store.hasFault)
+        XCTAssertTrue(try store.recordDelivered(["n3"], vaultID: "v"))
+
+        let reopened = ObsidianSourceEngine(store: ObsidianStore(rootURL: self.root))
+        reopened.isPairedProvider = { true }
+        XCTAssertEqual(reopened.status.deliveredNotesCount, 3)
+    }
+
     /// A store from an earlier build keeps its progress through the move to its own file.
     func testProgressInAnEarlierStoreMovesOutOfStoreJSON() async throws {
         let earlier = #"""
