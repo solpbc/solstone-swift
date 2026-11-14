@@ -105,11 +105,16 @@ final class WatchRelayReceiver {
         try? await self.fileWriter.removeItem(at: scratchURL)
     }
 
+    /// Acknowledgements are queued by the system and survive a relaunch, so the replay covers
+    /// only what a process death could have cut off: the last day. A recording the watch still
+    /// holds after that is resent, and the resend is acknowledged as a duplicate.
     func replayACKsForCommittedSegments() {
-        for id in self.ledger.committedOrTerminalSegmentIDs {
+        for id in self.ledger.committedOrTerminalSegmentIDs(within: Self.ackReplayWindow) {
             self.sendACK(id: id)
         }
     }
+
+    static let ackReplayWindow: TimeInterval = 24 * 60 * 60
 }
 
 private extension WatchRelayReceiver {

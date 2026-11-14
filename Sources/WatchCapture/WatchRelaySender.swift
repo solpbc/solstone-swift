@@ -54,6 +54,7 @@ final class WatchRelaySender {
     private var persistedWindowState: WatchRelayWindowState?
     private var activeLivenessCancels: Set<UUID> = []
     private var activeMissingMetadataCancels: Set<UUID> = []
+    private var recentlyAcknowledgedIDs: [UUID] = []
 
     init(
         paths: WatchCaptureStoragePaths,
@@ -457,8 +458,13 @@ private extension WatchRelaySender {
             return
         }
 
+        // The phone sends each acknowledgement twice, and replays recent ones at launch. Only
+        // one that acknowledges a recording held here has anything to drain after.
+        guard !self.recentlyAcknowledgedIDs.contains(id) else { return }
         do {
-            try await self.acknowledge(id: id)
+            guard try await self.acknowledge(id: id) else { return }
+            self.recentlyAcknowledgedIDs.append(id)
+            if self.recentlyAcknowledgedIDs.count > 32 { self.recentlyAcknowledgedIDs.removeFirst() }
             await self.requestDrain(trigger: .durableACK)
         } catch {
             watchRelaySenderLog.error("watch relay ack failed: \(String(describing: error), privacy: .public)")
@@ -524,7 +530,9 @@ private extension WatchRelaySender {
         }
     }
 
-    func acknowledge(id: UUID) async throws {
+    /// False when no recording with this id is held here.
+    @discardableResult
+    func acknowledge(id: UUID) async throws -> Bool {
         let catalog = await self.storageActor.scanCatalog(transactionClass: .maintenance)
         guard let entry = catalog.entries.first(where: { $0.manifest.id == id }) else {
             if catalog.canInferUUIDAbsence {
@@ -533,7 +541,7 @@ private extension WatchRelaySender {
                     transactionClass: .maintenance
                 )
             }
-            return
+            return false
         }
 
         let acknowledged = try await self.storageActor.acknowledgeRelaySegment(entry)
@@ -551,6 +559,7 @@ private extension WatchRelaySender {
             throw error
         }
         self.notifyStateChanged()
+        return true
     }
 
     func deleteIfSafe(_ entry: WatchCaptureCatalogEntry) async throws {

@@ -520,6 +520,36 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertTrue(try self.stagedEntryIDs(at: stagingRoot).isEmpty)
     }
 
+    /// A watch resends a recording it holds without an acknowledgement, and the phone
+    /// acknowledges that resend, so the launch replay covers only the last day.
+    func testReplayACKsCoversOnlyTheLastDay() async throws {
+        let stagingRoot = self.tempDirectory.appendingPathComponent("replay-ack-window-staging", isDirectory: true)
+        let phoneSession = MockWatchConnectivitySession()
+        let start = Date()
+        var now = start.addingTimeInterval(-2 * 24 * 60 * 60)
+        let ledger = WatchSegmentLedger(
+            fileURL: self.tempDirectory
+                .appendingPathComponent("replay-ack-window-ledger", isDirectory: true)
+                .appendingPathComponent("ledger.json", isDirectory: false),
+            clock: { now }
+        )
+        let oldID = UUID()
+        ledger.recordHanded(id: oldID)
+        now = start.addingTimeInterval(-60)
+        let recentID = UUID()
+        ledger.recordHanded(id: recentID)
+        now = start
+        let receiver = try self.makeReceiver(session: phoneSession, stagingRoot: stagingRoot, ledger: ledger)
+        defer { withExtendedLifetime(receiver) {} }
+
+        receiver.replayACKsForCommittedSegments()
+
+        XCTAssertEqual(
+            phoneSession.transferredUserInfos.compactMap { $0[WatchRelayACK.idKey] as? String },
+            [recentID.uuidString]
+        )
+    }
+
     func testAC8CorruptLedgerStillStagesAndACKs() async throws {
         let storage = try self.makeStorage("ac8-corrupt-ledger")
         let stagingRoot = self.tempDirectory.appendingPathComponent("ac8-corrupt-staging", isDirectory: true)
@@ -1291,6 +1321,37 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertTrue(sink.events.contains {
             $0.kind == .end && $0.boundary == .relayDrain && $0.fields.trigger == .durableACK
         })
+        _ = sender
+    }
+
+    /// The phone sends each acknowledgement twice, and replays recent ones at launch. Only the
+    /// one that acknowledges something starts a drain.
+    func testADuplicateACKDoesNotStartAnotherDrain() async throws {
+        let storage = try self.makeStorage("duplicate-ack")
+        let id = UUID()
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0, state: .delivered)
+        let session = MockWatchConnectivitySession()
+        let sink = WatchSignpostTestSink()
+        let sender = WatchRelaySender(
+            paths: storage.paths,
+            storageActor: self.storageActor(for: storage),
+            session: session,
+            signposter: WatchSignposter(sink: sink)
+        )
+        func ackDrains() -> Int {
+            sink.events.filter { $0.kind == .end && $0.boundary == .relayDrain && $0.fields.trigger == .durableACK }.count
+        }
+
+        session.deliverUserInfo(WatchRelayACK.userInfo(id: id))
+        await self.settleConnectivityCallback()
+        await self.drain(until: { ackDrains() == 1 })
+        session.deliverUserInfo(WatchRelayACK.userInfo(id: id))
+        session.deliverUserInfo(WatchRelayACK.userInfo(id: UUID()))
+        await self.settleConnectivityCallback()
+        try? await Task.sleep(for: .milliseconds(200))
+        await self.settleConnectivityCallback()
+
+        XCTAssertEqual(ackDrains(), 1)
         _ = sender
     }
 

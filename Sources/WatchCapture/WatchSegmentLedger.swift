@@ -178,6 +178,18 @@ final class WatchSegmentLedger {
         .sorted { $0.uuidString < $1.uuidString }
     }
 
+    /// The committed or terminal segments whose latest event falls within `interval` of now.
+    func committedOrTerminalSegmentIDs(within interval: TimeInterval) -> [UUID] {
+        let cutoff = self.clock().addingTimeInterval(-interval)
+        return self.store.entries.compactMap { key, entry in
+            guard entry.isTerminal || entry.receivedAt != nil else { return nil }
+            let latest = [entry.receivedAt, entry.terminalAt].compactMap { $0 }.max()
+            guard let latest, latest >= cutoff else { return nil }
+            return UUID(uuidString: key)
+        }
+        .sorted { $0.uuidString < $1.uuidString }
+    }
+
     func recordReceived(id: UUID) {
         let before = self.store
         let key = id.uuidString
