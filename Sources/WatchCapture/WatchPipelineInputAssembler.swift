@@ -81,7 +81,7 @@ struct WatchPipelineInputReader: DynamicProperty {
             isWatchAppInstalled: self.watchLink.isWatchAppInstalled,
             activationState: self.watchLink.activationState,
             isReachable: self.watchLink.isReachable,
-            isJournalReachable: isJournalReachable(self.connectionSyncModel.status),
+            isJournalReachable: self.connectionSyncModel.isJournalReachableNow,
             watchDiagnostics: self.watchLink.watchDiagnosticsEnvelopeResult,
             iphoneAppMarketingVersion: iphoneEnvironment.appMarketingVersion,
             iphoneAppBuild: iphoneEnvironment.appBuild,

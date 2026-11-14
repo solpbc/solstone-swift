@@ -59,6 +59,7 @@ final class ConnectionSyncModel {
     /// Show exactly what the current facts support, skipping every hold. For seeded states.
     func refreshNow() {
         self.presenter.reset(self.sample(), now: self.clock.now())
+        self.noteStepped()
         self.publish(verb: "refreshed")
     }
 
@@ -69,11 +70,30 @@ final class ConnectionSyncModel {
         self.step()
     }
 
+    /// Whether the journal reads as reachable now, for anything that acts on it. False while the
+    /// status may be out of date, until the first step back in the foreground.
+    var isJournalReachableNow: Bool {
+        self.statusIsCurrent && isJournalReachable(self.status)
+    }
+
+    /// False from the moment the timer parks in the background until the first step back in
+    /// the foreground: a status that changes with time alone, such as the journal going quiet,
+    /// is not re-derived while parked.
+    private(set) var statusIsCurrent = true
+
     /// Nothing shows the status while the app is in the background, so the timer stops there;
     /// input changes are still taken as they come. Leaving the background starts it again.
     func setInBackground(_ inBackground: Bool) {
         self.inBackground = inBackground
-        if !inBackground { self.resumeTimer() }
+        if inBackground {
+            if self.statusIsCurrent { self.statusIsCurrent = false }
+        } else {
+            self.resumeTimer()
+        }
+    }
+
+    private func noteStepped() {
+        if !self.inBackground, !self.statusIsCurrent { self.statusIsCurrent = true }
     }
 
     private func resumeTimer() {
@@ -97,7 +117,9 @@ final class ConnectionSyncModel {
     }
 
     private func step() {
-        guard self.presenter.step(self.sample(), now: self.clock.now()) else { return }
+        let changed = self.presenter.step(self.sample(), now: self.clock.now())
+        self.noteStepped()
+        guard changed else { return }
         self.publish(verb: "changed")
     }
 

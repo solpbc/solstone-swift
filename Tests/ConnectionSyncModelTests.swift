@@ -70,6 +70,35 @@ final class ConnectionSyncModelTests: XCTestCase {
         await Self.cancel(task, advancing: clock)
     }
 
+    /// Parked in the background, the shown status can outlive the journal going quiet. Nothing
+    /// that acts on reachability may read that status as reachable until a foreground step.
+    func testAParkedStatusIsNotReadAsReachable() async {
+        let clock = MockObserverClock()
+        let heard = clock.now()
+        let box = ObservableInputBox(Self.connected(heard: heard))
+        let model = ConnectionSyncModel(clock: clock) { box.inputs }
+        let task = Task { await model.run() }
+        await Self.drainUntilPendingSleeperCount(1, in: clock)
+        XCTAssertTrue(model.isJournalReachableNow)
+
+        model.setInBackground(true)
+        // The sleep in progress ends while the journal is still fresh; then the timer parks.
+        clock.advance(by: 1)
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(clock.pendingSleeperCount, 0)
+        clock.advance(by: 60)
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(model.status, .connectedIdle, "parked: the shown status is not re-derived")
+        XCTAssertFalse(model.isJournalReachableNow)
+
+        model.setInBackground(false)
+        XCTAssertFalse(model.isJournalReachableNow, "not current again until a foreground step")
+        box.inputs = Self.connected(heard: clock.now())
+        await Self.drain { model.isJournalReachableNow }
+        XCTAssertTrue(model.isJournalReachableNow)
+        await Self.cancel(task, advancing: clock)
+    }
+
     func testCancellingInTheBackgroundEndsTheRun() async {
         let clock = MockObserverClock()
         let model = ConnectionSyncModel(clock: clock) { Self.connected(heard: clock.now()) }
