@@ -1143,6 +1143,27 @@ nonisolated final class ObserverManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testRotationFailureRecordsTheStepThatFailed() async throws {
+        await self.manager.startSession(mode: .meeting)
+        try? await Task.sleep(for: .milliseconds(20))
+        self.recorder.rotateError = PhoneAudioRotationHandoffFailure(priorChunk: nil, stage: .engineRestart)
+        self.clock.advance(by: 300)
+        try? await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertEqual(self.manager.state, .error(.unavailable(reason: "audio input unavailable")))
+        let id = JournalEventStore.diagnosticID(
+            segmentID: nil,
+            source: .audio,
+            reason: "observer_rotation_failed_engine_restart",
+            writerFault: false
+        )
+        let record = self.mobileSegmentUploader.journalEvents.rootURL
+            .appendingPathComponent("diagnostics", isDirectory: true)
+            .appendingPathComponent("\(JournalEventStore.fileName(for: id)).json")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: record.path))
+    }
+
+    @MainActor
     func testInsufficientPriorityStartEntersPauseAndReleasesTheSegment() async throws {
         self.recorder.nextChunkDuration = 0
         self.recorder.startError = self.microphoneRefusal(.insufficientPriority, domain: NSOSStatusErrorDomain)

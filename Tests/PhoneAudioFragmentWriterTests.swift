@@ -283,6 +283,27 @@ import os
         XCTAssertEqual(chunk.duration, 0.1, accuracy: 1.0 / 16000)
     }
 
+    // A stop before any audio arrives is an empty segment, not a writer fault.
+    func testStopBeforeAnyAudioCompletesWithoutAFault() async throws {
+        let faults = OSAllocatedUnfairLock(initialState: 0)
+        let (writer, audioURL, _, _) = try self.makeWriter(sampleRate: 48_000, channels: 1) { _ in
+            faults.withLock { $0 += 1 }
+        }
+        try await writer.start()
+
+        let chunk = try await writer.stop()
+
+        XCTAssertEqual(chunk.duration, 0)
+        let phase = await writer.phase
+        let reason = await writer.faultReason
+        XCTAssertEqual(phase, .completed)
+        XCTAssertNil(reason)
+        XCTAssertEqual(faults.withLock { $0 }, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
+        let stopped = await writer.hasStoppedWriting
+        XCTAssertTrue(stopped)
+    }
+
     // 9. Sample-counted duration excludes pause
     func testSampleCountedDuration() async throws {
         let (writer, _, _, _) = try self.makeWriter(sampleRate: 16_000, channels: 1)
@@ -334,6 +355,8 @@ import os
         let (writer, _, _, _) = try self.makeWriter(sampleRate: 16_000, channels: 1, clock: mockClock)
         try await writer.start()
 
+        let format = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
+        XCTAssertEqual(writer.queue.push(buffer: self.makeSineBuffer(format: format, frames: 1600)), .success)
         await writer.setTestFinishWritingNeverSignals(true)
 
         let stopTask = Task {

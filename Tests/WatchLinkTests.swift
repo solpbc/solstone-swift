@@ -568,6 +568,18 @@ nonisolated final class WatchLinkTests: XCTestCase {
         XCTAssertEqual(log.events.last?.detail, "kind=relay")
         XCTAssertEqual(log.events.last?.message, "needs attention")
         XCTAssertFalse(log.events.contains { $0.message == "waiting" })
+
+        // A screen whose clock lags reads the same watch as not yet stuck. It must not
+        // re-arm the edge for the screen whose clock is current.
+        let lagging = Self.pipelineInput(
+            now: now.addingTimeInterval(-30),
+            watchStatus: Self.status(seq: 1, queuedCount: 1, asOf: now.addingTimeInterval(-30)),
+            lastReceivedAt: now.addingTimeInterval(-600)
+        )
+        XCTAssertFalse(WatchPipelineReducer.isRelayStuck(lagging))
+        watchLink.noteStuck(lagging)
+        watchLink.noteStuck(relayOnly)
+        XCTAssertEqual(log.events.count, 3)
     }
 
     @MainActor

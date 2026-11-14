@@ -298,6 +298,43 @@ nonisolated final class ObserverRecorderTests: XCTestCase {
         XCTAssertEqual(spy.setActiveCalls, [true])
     }
 
+    // An interruption pauses the engine. A segment rotation inside it hands the segment
+    // over and leaves the engine for the end of the interruption to start.
+    @MainActor
+    func testRotationLeavesAPausedEngineForResume() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ObserverRecorderRotation-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let engine = AVAudioEngine()
+        let recorder = LiveObserverRecorder(
+            engine: engine,
+            captureNode: engine.mainMixerNode,
+            session: SpyAudioSession(category: .record),
+            journalEventsDirectory: directory.appendingPathComponent("events", isDirectory: true)
+        )
+        let sessionID = UUID()
+        func audioURL(_ name: String) -> URL {
+            directory.appendingPathComponent(name, isDirectory: true).appendingPathComponent("audio.m4a")
+        }
+
+        _ = try await recorder.start(url: audioURL("a"), segmentID: UUID(), sessionID: sessionID, mode: .meeting)
+        XCTAssertTrue(engine.isRunning)
+
+        _ = try await recorder.rotate(to: audioURL("b"), segmentID: UUID(), sessionID: sessionID)
+        XCTAssertTrue(engine.isRunning, "a running engine keeps running across a rotation")
+
+        await recorder.pause()
+        _ = try await recorder.rotate(to: audioURL("c"), segmentID: UUID(), sessionID: sessionID)
+        XCTAssertFalse(engine.isRunning, "a rotation must not start a paused engine")
+
+        try await recorder.resume()
+        XCTAssertTrue(engine.isRunning)
+
+        await recorder.pause()
+        let empty = try await recorder.stop()
+        XCTAssertEqual(empty?.duration ?? -1, 0, accuracy: 0.5)
+    }
+
     @MainActor
     func testStopDoesNotDeactivateSessionItDidNotActivate() async {
         let spy = SpyAudioSession(category: .playAndRecord)

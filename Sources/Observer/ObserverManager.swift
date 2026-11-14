@@ -129,6 +129,8 @@ final class ObserverManager {
             do {
                 return try await recorder.rotate(to: url, segmentID: nextSegmentID, sessionID: sessionID)
             } catch {
+                let stage = (error as? PhoneAudioRotationHandoffFailure)?.stage.rawValue ?? "unknown"
+                self.noteObserverDiagnostic(reason: "observer_rotation_failed_\(stage)")
                 self.resetRuntime()
                 self.state = .error(.unavailable(reason: "audio input unavailable"))
                 await self.liveActivity.end(sessionID: sessionID, reason: .system)

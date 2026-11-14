@@ -31,6 +31,7 @@ final class WatchLink {
     @ObservationIgnored private var lastRelayStuck = false
     @ObservationIgnored private var lastHandoffStuck = false
     @ObservationIgnored private var lastOrphanStuck = false
+    @ObservationIgnored private var lastStuckInputNow: Date?
     @ObservationIgnored var journalVersionProvider: (@MainActor () -> (
         identity: String?, version: String?, current: Bool, versionObservedAt: TimeInterval?,
         journalOS: String?, journalOSVersion: String?, journalArch: String?, journalBuild: String?
@@ -148,6 +149,12 @@ final class WatchLink {
     }
 
     func noteStuck(_ input: WatchPipelineInput) {
+        // Several screens assemble this input, each with its own clock, and some lag by
+        // up to 30 s. Only the newest clock moves the edges, or two screens that disagree
+        // around a threshold log the same onset again on every redraw.
+        if let newest = self.lastStuckInputNow, input.now < newest { return }
+        self.lastStuckInputNow = input.now
+
         let relayStuck = WatchPipelineReducer.isRelayStuck(input)
         let handoffStuck = WatchPipelineReducer.isHandoffStuck(input)
         let orphanStuck = WatchPipelineReducer.isOrphanStuck(input)

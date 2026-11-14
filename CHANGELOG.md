@@ -6,6 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- on iphone and ipad, when a call or another app has the microphone, audio now reads "paused" the whole time. before, it could stop partway through and read "needs attention" until you tapped retry.
+- on iphone, diagnostics now lists "needs attention" for your apple watch once when the watch falls behind. before, the same line could repeat every few seconds for up to half a minute.
+
 ## [2.0.12 (158)] - 2026-11-13
 
 ### Added

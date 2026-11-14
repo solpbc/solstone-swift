@@ -144,6 +144,9 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
     private var writer: PhoneAudioFragmentWriter?
     private var workerTask: Task<Void, Never>?
     private var currentSegmentID: UUID?
+    /// True between pause() and the next resume, restart, start or stop. An interruption
+    /// pauses the engine, and only the end of that interruption may start it again.
+    private var isPaused = false
     private var didActivateSession = false
     private var interruptionObserver: NSObjectProtocol?
     private var configurationChangeObserver: NSObjectProtocol?
@@ -221,6 +224,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
 
         self.writer = writer
         self.currentSegmentID = segmentID
+        self.isPaused = false
         self.workerTask = Task { await writer.runWorkerLoop() }
         self.tapState.setQueue(writer.queue)
 
@@ -256,8 +260,9 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         do {
             priorChunk = try await priorWriter?.stop()
         } catch {
+            observerLog.error("observer: rotation could not finish the prior segment: \(String(describing: error), privacy: .public)")
             _ = try? await self.stop()
-            throw PhoneAudioRotationHandoffFailure(priorChunk: nil)
+            throw PhoneAudioRotationHandoffFailure(priorChunk: nil, stage: .priorFinish)
         }
 
         if let priorSegmentID {
@@ -279,9 +284,10 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
             )
             try await nextWriter.start()
         } catch {
+            observerLog.error("observer: rotation could not start the next writer: \(String(describing: error), privacy: .public)")
             PhoneAudioWriterLease.release(segmentID)
             _ = try? await self.stop()
-            throw PhoneAudioRotationHandoffFailure(priorChunk: priorChunk)
+            throw PhoneAudioRotationHandoffFailure(priorChunk: priorChunk, stage: .writerStart)
         }
 
         self.writer = nextWriter
@@ -290,12 +296,18 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         self.tapState.setQueue(nextWriter.queue)
 
         do {
-            self.engine.prepare()
-            try self.engine.start()
+            // While an interruption holds the engine paused, the next segment waits for
+            // resume() or restart(). Starting the engine here is refused by the system
+            // and would end a capture that the end of the interruption can continue.
+            if !self.isPaused {
+                self.engine.prepare()
+                try self.engine.start()
+            }
             try await nextWriter.checkStartup()
         } catch {
+            observerLog.error("observer: rotation could not restart the engine: \(String(describing: error), privacy: .public)")
             _ = try? await self.stop()
-            throw PhoneAudioRotationHandoffFailure(priorChunk: priorChunk)
+            throw PhoneAudioRotationHandoffFailure(priorChunk: priorChunk, stage: .engineRestart)
         }
 
         return priorChunk
@@ -308,6 +320,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         self.removeEngineFaultObservers()
 
         self.tapState.setQueue(nil)
+        self.isPaused = false
         let writer = self.writer
         let segmentID = self.currentSegmentID
 
@@ -350,6 +363,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
     }
 
     func pause() async {
+        self.isPaused = true
         self.engine.pause()
     }
 
@@ -358,6 +372,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
             self.engine.prepare()
             try self.engine.start()
         }
+        self.isPaused = false
     }
 
     func restart() async throws {
@@ -372,6 +387,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: self.tapState.makeTapBlock())
         self.engine.prepare()
         try self.engine.start()
+        self.isPaused = false
     }
 
     nonisolated static func validatedTapFormat(_ format: AVAudioFormat?) -> AVAudioFormat? {

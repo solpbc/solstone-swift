@@ -15,7 +15,15 @@ nonisolated struct PhoneAudioWriterFault: Sendable, Equatable {
 }
 
 nonisolated struct PhoneAudioRotationHandoffFailure: Error {
+    /// The step of the handoff that failed. Its raw value ends the diagnostic reason.
+    enum Stage: String, Sendable {
+        case priorFinish = "prior_finish"
+        case writerStart = "writer_start"
+        case engineRestart = "engine_restart"
+    }
+
     let priorChunk: ObserverRecordedChunk?
+    let stage: Stage
 }
 
 nonisolated enum PhoneAudioQueuePushResult: Sendable, Equatable {
@@ -400,6 +408,16 @@ actor PhoneAudioFragmentWriter {
                 }
             }
             try await self.convertAndAppend(terminal: true)
+            if self.acceptedFrames == 0, self.faultReason == nil {
+                // No audio arrived, so there is nothing to finish or verify. An empty
+                // container still reports a priming duration and would fail the
+                // frame-exact check, turning an empty stop into a writer fault.
+                self.writer?.cancelWriting()
+                try self.checkDeadline()
+                try self.writeReceipt(phase: .completed)
+                self.phase = .completed
+                return ObserverRecordedChunk(url: self.url, duration: 0)
+            }
             try await self.finishWriter()
             if self.faultReason != nil {
                 throw self.evidenceFailure ?? ObserverError.unavailable(reason: "audio input unavailable")
