@@ -38,6 +38,29 @@ final class PadSplitShellUITests: XCTestCase {
         element.tap()
     }
 
+    @MainActor
+    private func tapStatusRow(_ identifier: String, in app: XCUIApplication) {
+        let row = app.buttons[identifier]
+        let surface = app.descendants(matching: .any)["shell.pane.status"]
+        XCTAssertTrue(surface.waitForExistence(timeout: 10))
+        for direction in [true, false] {
+            for _ in 0..<8 {
+                if row.exists, row.isHittable {
+                    row.tap()
+                    return
+                }
+                if direction {
+                    surface.swipeUp()
+                } else {
+                    surface.swipeDown()
+                }
+            }
+        }
+        XCTAssertTrue(row.waitForExistence(timeout: 2), "\(identifier) missing")
+        XCTAssertTrue(row.isHittable, "\(identifier) not hittable")
+        row.tap()
+    }
+
     private func assertMenuKeyChannelLive(
         _ app: XCUIApplication,
         file: StaticString = #filePath,
@@ -229,15 +252,11 @@ final class PadSplitShellUITests: XCTestCase {
         let app = try self.launchPad(["--ui-test-open-pane=status"])
         XCTAssertTrue(app.descendants(matching: .any)["shell.pane.status.heading"].waitForExistence(timeout: 10))
 
-        let diagnostics = app.buttons["shell.pane.status.diagnostics"]
-        XCTAssertTrue(diagnostics.waitForExistence(timeout: 10))
-        diagnostics.tap()
+        self.tapStatusRow("shell.pane.status.diagnostics", in: app)
         XCTAssertTrue(app.navigationBars["diagnostics"].waitForExistence(timeout: 10))
         self.popPane(in: app)
 
-        let reports = app.buttons["shell.pane.status.problemReports"]
-        XCTAssertTrue(reports.waitForExistence(timeout: 10))
-        reports.tap()
+        self.tapStatusRow("shell.pane.status.problemReports", in: app)
         XCTAssertTrue(app.navigationBars["problem reports"].waitForExistence(timeout: 10))
     }
 
@@ -283,11 +302,11 @@ final class PadSplitShellUITests: XCTestCase {
         let status = try self.launchPad(["--ui-test-open-pane=status"])
         XCTAssertTrue(status.descendants(matching: .any)["shell.pane.status.heading"].waitForExistence(timeout: 10))
         self.attach(status, "l33-ipad-status-root")
-        status.buttons["shell.pane.status.diagnostics"].tap()
+        self.tapStatusRow("shell.pane.status.diagnostics", in: status)
         XCTAssertTrue(status.navigationBars["diagnostics"].waitForExistence(timeout: 10))
         self.attach(status, "l33-ipad-status-diagnostics")
         self.popPane(in: status)
-        status.buttons["shell.pane.status.problemReports"].tap()
+        self.tapStatusRow("shell.pane.status.problemReports", in: status)
         XCTAssertTrue(status.navigationBars["problem reports"].waitForExistence(timeout: 10))
         self.attach(status, "l33-ipad-status-problem-reports")
         status.terminate()

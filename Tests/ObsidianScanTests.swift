@@ -125,8 +125,6 @@ final class ObsidianScanTests: XCTestCase {
             canonicalPath: "/var/mobile/Library/File Provider Storage/MyVault",
             isSymbolicLink: false
         )
-        let thirdPartyResult = ObsidianLocationValidator.validate(url: url, resources: thirdPartyRes)
-        XCTAssertEqual(thirdPartyResult.failureError, .unsupportedLocation(sentence: ObsidianVocabulary.REFUSED_UNSUPPORTED_LOCATION_IPHONE))
 
         // Ubiquitous (iCloud)
         let ubiquitousRes = ObsidianLocationResources(
@@ -136,7 +134,6 @@ final class ObsidianScanTests: XCTestCase {
             canonicalPath: "/var/mobile/Containers/Data/Application/UUID/Documents/MyVault",
             isSymbolicLink: false
         )
-        XCTAssertEqual(ObsidianLocationValidator.validate(url: url, resources: ubiquitousRes).failureError, .unsupportedLocation(sentence: ObsidianVocabulary.REFUSED_UNSUPPORTED_LOCATION_IPHONE))
 
         // Non-local volume
         let nonLocalRes = ObsidianLocationResources(
@@ -146,7 +143,6 @@ final class ObsidianScanTests: XCTestCase {
             canonicalPath: "/var/mobile/Containers/Data/Application/UUID/Documents/MyVault",
             isSymbolicLink: false
         )
-        XCTAssertEqual(ObsidianLocationValidator.validate(url: url, resources: nonLocalRes).failureError, .unsupportedLocation(sentence: ObsidianVocabulary.REFUSED_UNSUPPORTED_LOCATION_IPHONE))
 
         // Nil canonicalPath (unclassifiable)
         let unclassifiableRes = ObsidianLocationResources(
@@ -156,7 +152,15 @@ final class ObsidianScanTests: XCTestCase {
             canonicalPath: nil,
             isSymbolicLink: false
         )
-        XCTAssertEqual(ObsidianLocationValidator.validate(url: url, resources: unclassifiableRes).failureError, .unsupportedLocation(sentence: ObsidianVocabulary.REFUSED_UNSUPPORTED_LOCATION_IPHONE))
+        for isPad in [false, true] {
+            let sentence = isPad
+                ? ObsidianVocabulary.REFUSED_UNSUPPORTED_LOCATION_IPAD
+                : ObsidianVocabulary.REFUSED_UNSUPPORTED_LOCATION_IPHONE
+            for resources in [thirdPartyRes, ubiquitousRes, nonLocalRes, unclassifiableRes] {
+                let result = ObsidianLocationValidator.validate(url: url, resources: resources, isPad: isPad)
+                XCTAssertEqual(result.failureError, .unsupportedLocation(sentence: sentence))
+            }
+        }
 
         // Symlink root
         let symlinkRootRes = ObsidianLocationResources(

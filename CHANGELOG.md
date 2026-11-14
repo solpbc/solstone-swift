@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.12 (158)] - 2026-11-13
+
 ### Added
 
 - on iphone and ipad, journal links open in the solstone app. opening the same link again reloads it, and try again keeps the link if your journal couldn't be reached.

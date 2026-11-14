@@ -1590,6 +1590,10 @@ final class JournalWebNavigationSessionTests: XCTestCase {
             (isMainFrame: true, status: 403, header: nil),
             (isMainFrame: true, status: 200, header: "missing"),
             (isMainFrame: true, status: 431, header: nil),
+            // A journal's refusal or error page is still a page to show.
+            (isMainFrame: true, status: 404, header: nil),
+            (isMainFrame: true, status: 500, header: nil),
+            (isMainFrame: true, status: 503, header: nil),
             (isMainFrame: true, status: nil, header: nil),
         ]
 
