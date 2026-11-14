@@ -114,6 +114,28 @@ nonisolated final class EndpointCacheTests: XCTestCase {
         XCTAssertEqual(try identity(), written)
     }
 
+    /// Forgetting a journal whose address file could not be removed must not leave those
+    /// addresses for the next launch: the next read that can write replaces the file.
+    func testAWipeThatCouldNotRemoveTheFileIsRepairedByALaterRead() async throws {
+        let fileURL = Self.tempFileURL()
+        let directory = fileURL.deletingLastPathComponent()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.pairing(endpoints: [
+            LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")
+        ]))
+        defer { chmod(directory.path, 0o755) }
+
+        chmod(directory.path, 0o555)
+        await cache.wipe()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: fileURL.path), "the remove must fail for this test")
+        _ = await cache.endpoints()
+        chmod(directory.path, 0o755)
+        _ = await cache.endpoints()
+
+        let relaunched = await EndpointCache(fileURL: fileURL).endpoints()
+        XCTAssertEqual(relaunched, [])
+    }
+
     func testAReadThatPrunesPersistsThePrune() async throws {
         let fileURL = Self.tempFileURL()
         try Self.writeEntries(fileURL: fileURL, lastSeen: Date(timeIntervalSince1970: 0))

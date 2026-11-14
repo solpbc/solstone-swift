@@ -48,6 +48,8 @@ public actor EndpointCache {
     private let session: URLSession
     private var entries: [Entry] = []
     private var loaded = false
+    /// The file does not hold what is in memory: a save or a wipe failed.
+    private var needsSave = false
     /// Bumped whenever the cache is reset for a pairing (bootstrap or wipe). A refresh awaits the
     /// network inside the actor, so another call can run meanwhile; a refresh that started under
     /// an older generation belongs to a journal this device may no longer be paired with.
@@ -66,7 +68,7 @@ public actor EndpointCache {
             Entry(host: $0.host, port: $0.port, scope: $0.scope, lastSeen: now)
         }
         loaded = true
-        try? persist()
+        save()
     }
 
     /// Reads the journal's current direct addresses over the tunnel. The caller saves them on the
@@ -97,9 +99,11 @@ public actor EndpointCache {
     public func endpoints() async -> [TransportEndpoint] {
         try? loadIfNeeded()
         // Every dial reads here; only a read that pruned something has anything to save.
+        // A save or a wipe that failed is retried here, so the file never keeps a forgotten
+        // journal's addresses for the next launch to dial.
         let count = entries.count
         pruneExpired()
-        if entries.count != count { try? persist() }
+        if entries.count != count || needsSave { save() }
         return entries
             .sorted { $0.lastSeen > $1.lastSeen }
             .map(\.transportEndpoint)
@@ -109,7 +113,14 @@ public actor EndpointCache {
         generation += 1
         entries = []
         loaded = true
-        try? FileManager.default.removeItem(at: fileURL)
+        do {
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                try FileManager.default.removeItem(at: fileURL)
+            }
+            needsSave = false
+        } catch {
+            needsSave = true
+        }
     }
 
     private func pruneExpired() {
@@ -133,7 +144,7 @@ public actor EndpointCache {
         guard hadMatch else { return }
         entries.removeAll { key(for: $0.localEndpoint) == targetKey }
         pruneExpired()
-        try? persist()
+        save()
         log.info("evicted cached LAN endpoint after direct connection failure")
     }
 
@@ -150,6 +161,16 @@ public actor EndpointCache {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         entries = try decoder.decode([Entry].self, from: data)
+    }
+
+    /// Writes what is in memory; a failure is remembered and retried on the next read.
+    private func save() {
+        do {
+            try persist()
+            needsSave = false
+        } catch {
+            needsSave = true
+        }
     }
 
     private func persist() throws {
