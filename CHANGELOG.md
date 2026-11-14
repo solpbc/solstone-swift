@@ -8,6 +8,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
+- on iphone, a journal link opened before you connect now opens in your journal after you confirm its mark.
+
 - on iphone and ipad, the app uses less battery while it isn't on screen, and writes to storage less often as your Obsidian notes, screenshots, location and watch recordings come in. the apple watch app also does less work each time a recording reaches your phone.
 
 ## [2.0.12 (159)] - 2026-11-14

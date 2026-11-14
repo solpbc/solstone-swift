@@ -6,6 +6,7 @@ import SwiftUI
 /// The initial question belongs to the admitted app shell. The settings pane
 /// remains the durable way to reopen an unanswered choice.
 struct DeviceMigrationInitialPrompt: ViewModifier {
+    let presentationBlocked: Bool
     @Environment(DeviceMigrationOwnerModel.self) private var owner
     @Environment(ShellNavModel.self) private var navigation
     @Environment(\.scenePhase) private var scenePhase
@@ -15,6 +16,7 @@ struct DeviceMigrationInitialPrompt: ViewModifier {
     func body(content: Content) -> some View {
         content
             .task { self.presentIfNeeded() }
+            .onChange(of: self.presentationBlocked) { _, _ in self.presentIfNeeded() }
             .onChange(of: self.owner.ownerSurfaceRevision) { _, _ in self.presentIfNeeded() }
             .onChange(of: self.scenePhase) { _, phase in
                 if phase == .active { self.presentIfNeeded() }
@@ -57,7 +59,9 @@ struct DeviceMigrationInitialPrompt: ViewModifier {
     }
 
     private func presentIfNeeded() {
-        guard self.scenePhase == .active, self.presentation == nil else { return }
+        // A journal link queued through pairing owns the first presentation.
+        // Keep the offer unshown until that journal sheet has been dismissed.
+        guard !self.presentationBlocked, self.scenePhase == .active, self.presentation == nil else { return }
         if self.owner.shouldPresentMigrationChoice,
            let context = self.owner.migrationChoicePresentation(),
            self.owner.markMigrationChoicePresented(context) {
