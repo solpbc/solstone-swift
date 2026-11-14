@@ -96,8 +96,10 @@ public actor EndpointCache {
 
     public func endpoints() async -> [TransportEndpoint] {
         try? loadIfNeeded()
+        // Every dial reads here; only a read that pruned something has anything to save.
+        let count = entries.count
         pruneExpired()
-        try? persist()
+        if entries.count != count { try? persist() }
         return entries
             .sorted { $0.lastSeen > $1.lastSeen }
             .map(\.transportEndpoint)

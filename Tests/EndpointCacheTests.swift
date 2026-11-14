@@ -96,6 +96,32 @@ nonisolated final class EndpointCacheTests: XCTestCase {
         XCTAssertEqual(endpoints, [])
     }
 
+    /// Every dial reads the cache; a read that prunes nothing leaves the file alone.
+    func testReadingFreshEndpointsDoesNotRewriteTheFile() async throws {
+        let fileURL = Self.tempFileURL()
+        let cache = EndpointCache(fileURL: fileURL)
+        await cache.bootstrap(from: Self.pairing(endpoints: [
+            LocalEndpoint(host: "10.0.0.2", port: 9443, scope: "wifi")
+        ]))
+        func identity() throws -> Int {
+            try XCTUnwrap(FileManager.default.attributesOfItem(atPath: fileURL.path)[.systemFileNumber] as? Int)
+        }
+        let written = try identity()
+        for _ in 0..<10 {
+            let endpoints = await cache.endpoints()
+            XCTAssertEqual(endpoints, [.lan(host: "10.0.0.2", port: 9443, scope: "wifi")])
+        }
+        XCTAssertEqual(try identity(), written)
+    }
+
+    func testAReadThatPrunesPersistsThePrune() async throws {
+        let fileURL = Self.tempFileURL()
+        try Self.writeEntries(fileURL: fileURL, lastSeen: Date(timeIntervalSince1970: 0))
+        _ = await EndpointCache(fileURL: fileURL, ttl: 1).endpoints()
+        let data = try Data(contentsOf: fileURL)
+        XCTAssertEqual(String(data: data, encoding: .utf8), "[]")
+    }
+
     func testRefreshReturnsTheJournalsListAndLeavesTheCacheToThePairing() async throws {
         let fileURL = Self.tempFileURL()
         let config = URLSessionConfiguration.ephemeral
