@@ -969,6 +969,11 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
         journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
+        let metadataAccepted = self.expectation(description: "unchanged client description's journal version accepted")
+        journalVersion.onChange = { [weak journalVersion] in
+            if journalVersion?.version == "2.0.0" { metadataAccepted.fulfill() }
+        }
+        defer { journalVersion.onChange = nil }
 
         let putAttempted = ValueBox<Bool>(false)
         let (getDone, getContinuation) = AsyncStream<Void>.makeStream()
@@ -1021,11 +1026,13 @@ final class HomeConnectionLifecycleTests: XCTestCase {
             client: client,
             snapshotProvider: { snapshot }
         )
+        defer { jobs.disconnected() }
 
         jobs.connected(localPort: 7071)
 
         var iter = getDone.makeAsyncIterator()
         _ = await iter.next()
+        await self.fulfillment(of: [metadataAccepted], timeout: 2)
         try await Task.sleep(nanoseconds: 50_000_000)
 
         XCTAssertFalse(putAttempted.value)
@@ -1423,12 +1430,20 @@ final class HomeConnectionLifecycleTests: XCTestCase {
 
         let journalVersion = JournalVersionMetadata(defaults: defaults) { _ in nil }
         journalVersion.setIdentity(journalVersionMetadataIdentity(for: pairing))
+        let metadataAccepted = self.expectation(description: "reconnected journal version accepted")
+        journalVersion.onChange = { [weak journalVersion] in
+            if journalVersion?.version == "1.0.0" { metadataAccepted.fulfill() }
+        }
+        defer { journalVersion.onChange = nil }
 
         let (firstCallStarted, firstCallStartedContinuation) = AsyncStream<Void>.makeStream()
         let (secondCallDone, secondCallDoneContinuation) = AsyncStream<Void>.makeStream()
+        let (releaseFirstCall, releaseFirstCallContinuation) = AsyncStream<Void>.makeStream()
+        defer { releaseFirstCallContinuation.finish() }
+        let lateResponseReturned = self.expectation(description: "cancelled request's late response returned")
 
         let clientsSelfCount = OSAllocatedUnfairLock(initialState: 0)
-        MockURLProtocol.requestHandler = { request in
+        MockURLProtocol.asyncRequestHandler = { request in
             if request.url?.path == "/app/network/api/relay/access" {
                 let json = """
                 {
@@ -1439,6 +1454,9 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
                 return (response, json)
             }
+            guard request.url?.path == "/app/network/api/clients/self", request.httpMethod == "GET" else {
+                return (HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!, Data())
+            }
 
             let count = clientsSelfCount.withLock { count -> Int in
                 let current = count
@@ -1447,7 +1465,10 @@ final class HomeConnectionLifecycleTests: XCTestCase {
             }
             if count == 0 {
                 firstCallStartedContinuation.yield(())
-                Thread.sleep(forTimeInterval: 0.4)
+                // stopLoading deliberately does not cancel the mock's delivery task.
+                // Hold this response without blocking URLProtocol's work queue.
+                var release = releaseFirstCall.makeAsyncIterator()
+                _ = await release.next()
                 let json = """
                 {
                     "protocol_version": 1,
@@ -1466,6 +1487,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
                 }
                 """.data(using: .utf8)!
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+                lateResponseReturned.fulfill()
                 return (response, json)
             } else {
                 let json = """
@@ -1506,6 +1528,7 @@ final class HomeConnectionLifecycleTests: XCTestCase {
             deadline: .milliseconds(200),
             snapshotProvider: { snapshot }
         )
+        defer { jobs.disconnected() }
 
         var firstIter = firstCallStarted.makeAsyncIterator()
         var secondIter = secondCallDone.makeAsyncIterator()
@@ -1518,6 +1541,9 @@ final class HomeConnectionLifecycleTests: XCTestCase {
         jobs.disconnected()
         jobs.connected(localPort: 7071)
         _ = await secondIter.next()
+        await self.fulfillment(of: [metadataAccepted], timeout: 2)
+        releaseFirstCallContinuation.yield(())
+        await self.fulfillment(of: [lateResponseReturned], timeout: 2)
         try await Task.sleep(nanoseconds: 100_000_000)
 
         XCTAssertEqual(journalVersion.version, "1.0.0")
