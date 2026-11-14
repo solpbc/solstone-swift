@@ -5,6 +5,36 @@ import XCTest
 
 nonisolated final class JournalDeepLinkUITests: XCTestCase {
     @MainActor
+    func testJournalLinkSurvivesFirstPairingCompletion() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--ui-test-mark-confirm", "--ui-test-onboarding-step=welcome"]
+        app.launch()
+        let connect = app.buttons["welcome.alreadyHaveOne"]
+        XCTAssertTrue(connect.waitForExistence(timeout: 10))
+        XCUIDevice.shared.system.open(URL(string: "solstone://open#AbC-_~173012")!)
+        connect.tap()
+        let confirm = app.buttons["pairFlow.answer.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.descendants(matching: .any)["shell.pane.journal"].exists)
+        confirm.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.journal"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testJournalLinkSurvivesWelcomeUntilShellAppears() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--ui-test", "--ui-test-no-journal", "--ui-test-onboarding-step=welcome"]
+        app.launch()
+        let notNow = app.buttons["welcome.notNow"]
+        XCTAssertTrue(notNow.waitForExistence(timeout: 10))
+        XCUIDevice.shared.system.open(URL(string: "solstone://open#AbC-_~173012")!)
+        XCTAssertFalse(app.buttons["journal.alreadyHaveOne"].exists)
+        if !notNow.isHittable { app.swipeUp() }
+        notNow.tap()
+        XCTAssertTrue(app.buttons["journal.alreadyHaveOne"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
     func testMalformedJournalLinkShowsNoticeWarmAndCold() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--ui-test", "--ui-test-no-journal"]

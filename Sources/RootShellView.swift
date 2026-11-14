@@ -67,6 +67,7 @@ struct RootShellView: View {
     @State private var presentedPane: PresentedShellPane?
     @State private var journalInitialPath: String = "/"
     @State private var journalOpenID = UUID()
+    @State private var journalLinkShellReady = false
     /// Seeded from the store so the owner's own mark is on screen in the **first frame**,
     /// before any tunnel exists. See `JournalMarkStore` for why this is an absolute.
     @State private var journalMark: JournalMark? = RootShellView.storedJournalMark()
@@ -215,6 +216,15 @@ struct RootShellView: View {
         // the status sheet's audio screen could not find it and the app stopped.
         .environment(self.observerSourcePauseState)
         .environment(self.journalGapVisit)
+        .background {
+            JournalLinkShellAppearance {
+                self.journalLinkShellReady = true
+                self.applyPendingJournalOpenIfNeeded()
+            }
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
         .task(id: self.appConfig.deviceID) {
             await self.refreshJournalMark()
         }
@@ -565,6 +575,9 @@ struct RootShellView: View {
     }
 
     private func applyPendingJournalOpenIfNeeded() {
+        // First pairing replaces the onboarding navigation stack. Its disappearance
+        // and SwiftUI's onAppear can run before this shell can present a sheet.
+        guard self.journalLinkShellReady else { return }
         guard let request = self.pendingJournalOpen.consume(pairingPresented: self.journalOpenBlockedByPairing) else { return }
         self.openJournal(path: request.path)
     }
@@ -1031,6 +1044,29 @@ private struct ShelfHitStrip: View {
             )
             .accessibilityHidden(true)
             .accessibilityIdentifier("shell.hitStrip")
+    }
+}
+
+private struct JournalLinkShellAppearance: UIViewControllerRepresentable {
+    let onAppear: @MainActor () -> Void
+
+    func makeUIViewController(context: Context) -> Controller {
+        let controller = Controller()
+        controller.onAppear = self.onAppear
+        return controller
+    }
+
+    func updateUIViewController(_ controller: Controller, context: Context) {
+        controller.onAppear = self.onAppear
+    }
+
+    final class Controller: UIViewController {
+        var onAppear: (@MainActor () -> Void)?
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            self.onAppear?()
+        }
     }
 }
 

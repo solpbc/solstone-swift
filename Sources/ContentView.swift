@@ -286,7 +286,9 @@ struct ContentView: View {
                         deviceID: deviceID,
                         sessionKey: sessionKey
                     )
-                    self.onboardingFlow.markCompletedForUITest()
+                    if onboardingStep == nil {
+                        self.onboardingFlow.markCompletedForUITest()
+                    }
                     self.tunnelManager.forceConnected(port: port, via: .lan)
                     self.tunnelManager.forceNetworkStatus(
                         isSatisfied: !arguments.contains("--ui-test-network-unsatisfied"),
@@ -294,7 +296,9 @@ struct ContentView: View {
                     )
                     self.lastPort = port
                     self.shellStatusContext.via = .lan
-                    self.pairFlowRouter.present(.ceremony)
+                    if onboardingStep == nil {
+                        self.pairFlowRouter.present(.ceremony)
+                    }
                     self.connectionSyncModel.refreshNow()
                     return
                 }
