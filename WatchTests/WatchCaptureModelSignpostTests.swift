@@ -754,6 +754,66 @@ final class WatchCaptureModelSignpostTests: XCTestCase {
         XCTAssertTrue(didPublishFreshDiagnostics)
     }
 
+    /// Relay changes come dozens of times an hour. Their status reaches the phone at once, but
+    /// the diagnostics envelope is collected at most once a minute; an explicit request still
+    /// collects at once.
+    func testRelayChangesDoNotRecollectDiagnosticsMoreThanOnceAMinute() async throws {
+        let sink = WatchModelSignpostSink()
+        let storage = try WatchModelTestStorage(
+            rootURL: self.temporaryDirectory.appendingPathComponent("diagnostics-cadence-storage")
+        )
+        let storageActor = WatchCaptureStorageActor(paths: storage.paths, fileWriter: FoundationWatchFileWriter())
+        try await storageActor.prepareRoot()
+        try await storageActor.writeManifest(
+            self.queuedManifest(storage: storage, id: UUID(), index: 0),
+            transactionClass: .captureSafety
+        )
+        let complicationRoot = self.temporaryDirectory.appendingPathComponent("diagnostics-cadence-complication", isDirectory: true)
+        try FileManager.default.createDirectory(at: complicationRoot, withIntermediateDirectories: true)
+        let session = WatchModelConnectivitySession()
+        let relaySender = WatchRelaySender(paths: storage.paths, storageActor: storageActor, session: session)
+        let collector = WatchRelayDiagnosticsCollector(
+            paths: storage.paths,
+            storageActor: storageActor,
+            session: session,
+            environmentProvider: WatchModelEnvironmentProvider()
+        )
+        let model = WatchCaptureModel(
+            paths: storage.paths,
+            storageActor: storageActor,
+            relaySender: relaySender,
+            session: session,
+            diagnosticsCollector: collector,
+            environmentProvider: WatchModelEnvironmentProvider(),
+            signposter: WatchSignposter(sink: sink),
+            complicationRootURL: { complicationRoot },
+            reloadComplicationTimelines: {}
+        )
+        let didSettleLaunch = await self.waitUntilSettled { model.presentation.queuedCount == 1 }
+        XCTAssertTrue(didSettleLaunch)
+        await model.requestDiagnosticsRefresh()
+        await model.settled()
+        sink.reset()
+        func collections() -> Int {
+            sink.events.filter { $0.kind == .begin && $0.boundary == .diagnosticsCollection }.count
+        }
+
+        try await storageActor.writeManifest(
+            self.queuedManifest(storage: storage, id: UUID(), index: 1),
+            transactionClass: .captureSafety
+        )
+        for _ in 0..<5 {
+            relaySender.onStateChanged?()
+            await model.settled()
+        }
+        let didPublishNewerCounts = await self.waitUntilSettled { session.publishedQueuedCounts.last == 2 }
+        XCTAssertTrue(didPublishNewerCounts, "published queued counts: \(session.publishedQueuedCounts)")
+        XCTAssertEqual(collections(), 0)
+
+        await model.requestDiagnosticsRefresh()
+        XCTAssertEqual(collections(), 1)
+    }
+
     func testStatusPublicationFailureReportsFailedParent() async throws {
         let (model, sink, session) = try self.makeStatusPublicationFixtureIncludingSession(name: "status-fail")
         await model.settled()

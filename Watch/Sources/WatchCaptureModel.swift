@@ -68,6 +68,12 @@ final class WatchCaptureModel {
     @ObservationIgnored private var diagnosticsRefreshPassActive = false
     @ObservationIgnored private var diagnosticsRefreshGeneration: UInt64 = 0
     @ObservationIgnored private var completedDiagnosticsRefreshGeneration: UInt64 = 0
+    /// An owner action, an activation or an explicit request collects at once; the refreshes
+    /// that follow relay and capture changes collect at most once a minute.
+    @ObservationIgnored private var diagnosticsRefreshForced = false
+    @ObservationIgnored private var lastDiagnosticsCollectionAt: Date?
+    @ObservationIgnored private var deferredDiagnosticsRefreshTask: Task<Void, Never>?
+    private static let diagnosticsCollectionInterval: TimeInterval = 60
     @ObservationIgnored private var recoveryReloadOwed = true
     @ObservationIgnored private var complicationRewriteOwed = false
     @ObservationIgnored private var lastPublishedComplicationSnapshot: WatchComplicationSnapshot?
@@ -235,7 +241,7 @@ final class WatchCaptureModel {
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.engine?.resumeInterruptedAudioIfNeeded()
-            self.enqueueDiagnosticsRefresh()
+            self.enqueueDiagnosticsRefresh(force: true)
             await self.engine?.republishCurrentStatus(envelopeAttachment: .attach)
         }
     }
@@ -243,13 +249,13 @@ final class WatchCaptureModel {
     func handleOwnerVisibleRaise() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.enqueueDiagnosticsRefresh()
+            self.enqueueDiagnosticsRefresh(force: true)
             await self.engine?.republishCurrentStatus(envelopeAttachment: .attach)
         }
     }
 
     func requestDiagnosticsRefresh() async {
-        let generation = self.admitDiagnosticsRefresh()
+        let generation = self.admitDiagnosticsRefresh(force: true)
         while self.completedDiagnosticsRefreshGeneration < generation {
             guard let refreshCoordinatorTask = self.refreshCoordinatorTask else {
                 self.ensureRefreshCoordinatorRunning()
@@ -272,7 +278,8 @@ final class WatchCaptureModel {
         }
     }
 
-    private func admitDiagnosticsRefresh() -> UInt64 {
+    private func admitDiagnosticsRefresh(force: Bool = false) -> UInt64 {
+        if force { self.diagnosticsRefreshForced = true }
         let request = self.signposter.begin(.diagnosticsRefreshRequest)
         let result: RelayResult
         if self.diagnosticsRefreshRequested {
@@ -322,8 +329,26 @@ final class WatchCaptureModel {
         self.ensureRefreshCoordinatorRunning()
     }
 
-    private func enqueueDiagnosticsRefresh() {
-        _ = self.admitDiagnosticsRefresh()
+    private func enqueueDiagnosticsRefresh(force: Bool = false) {
+        _ = self.admitDiagnosticsRefresh(force: force)
+    }
+
+    /// How long until an unforced refresh may collect again; nil when it may now.
+    private func diagnosticsCollectionWait(now: Date) -> TimeInterval? {
+        guard let last = self.lastDiagnosticsCollectionAt else { return nil }
+        let wait = Self.diagnosticsCollectionInterval - now.timeIntervalSince(last)
+        return wait > 0 ? wait : nil
+    }
+
+    private func deferDiagnosticsRefresh(after wait: TimeInterval) {
+        guard self.deferredDiagnosticsRefreshTask == nil else { return }
+        let clock = self.clock
+        self.deferredDiagnosticsRefreshTask = Task { @MainActor [weak self] in
+            try? await clock.sleep(for: .milliseconds(Int64((wait * 1_000).rounded(.up))))
+            guard !Task.isCancelled, let self else { return }
+            self.deferredDiagnosticsRefreshTask = nil
+            self.enqueueDiagnosticsRefresh()
+        }
     }
 
     private func ensureRefreshCoordinatorRunning() {
@@ -351,6 +376,19 @@ final class WatchCaptureModel {
             if self.diagnosticsRefreshRequested {
                 let generation = self.diagnosticsRefreshGeneration
                 self.diagnosticsRefreshRequested = false
+                let forced = self.diagnosticsRefreshForced
+                self.diagnosticsRefreshForced = false
+                if !forced, let wait = self.diagnosticsCollectionWait(now: self.clock.now()) {
+                    // The status still goes now, with the newest counts; the phone keeps the
+                    // envelope it has until the deferred collection replaces it.
+                    await self.engine?.republishCurrentStatus(envelopeAttachment: .omit)
+                    self.deferDiagnosticsRefresh(after: wait)
+                    self.completedDiagnosticsRefreshGeneration = generation
+                    continue
+                }
+                self.deferredDiagnosticsRefreshTask?.cancel()
+                self.deferredDiagnosticsRefreshTask = nil
+                self.lastDiagnosticsCollectionAt = self.clock.now()
                 self.diagnosticsRefreshPassActive = true
                 await self.runDiagnosticsRefreshPass()
                 self.diagnosticsRefreshPassActive = false
