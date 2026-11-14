@@ -151,11 +151,16 @@ final class ObsidianComparisonTests: XCTestCase {
             ObsidianUnappliedIntakeOp(hash: "B", intakeTime: time, sequence: 2, kind: .move, previousHash: "A"),
             ObsidianUnappliedIntakeOp(hash: "A", intakeTime: time, sequence: 3, kind: .keep)
         ]
-        for operation in operations { XCTAssertEqual(intake.applyObsidianOperation(vaultID: "vault", operation: operation), .recorded) }
-        for operation in operations { XCTAssertEqual(intake.applyObsidianOperation(vaultID: "vault", operation: operation), .unchanged) }
+        for operation in operations { XCTAssertEqual(intake.applyObsidianOperations(vaultID: "vault", operations: [operation]), 1) }
+        let writes = intake.writeCount
+        XCTAssertEqual(intake.applyObsidianOperations(vaultID: "vault", operations: operations), 3)
+        XCTAssertEqual(intake.writeCount, writes, "a replay of applied operations does not write")
         guard case .ready(let snapshot) = intake.load() else { return XCTFail("intake unavailable") }
         XCTAssertEqual(snapshot.obsidian.total, 1)
         XCTAssertEqual(snapshot.obsidian.last, time)
-        XCTAssertEqual(intake.applyObsidianOperation(vaultID: "vault", operation: ObsidianUnappliedIntakeOp(hash: "missing", intakeTime: time, sequence: 5)), .failed)
+        XCTAssertEqual(intake.applyObsidianOperations(vaultID: "vault", operations: [
+            ObsidianUnappliedIntakeOp(hash: "C", intakeTime: time, sequence: 4, kind: .keep),
+            ObsidianUnappliedIntakeOp(hash: "missing", intakeTime: time, sequence: 6),
+        ]), 1, "an operation out of sequence stops the run after the ones before it")
     }
 }

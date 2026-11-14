@@ -125,6 +125,8 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     let timeZone: TimeZone
     var testFailNextReplace = false
     var testLockTimeout = false
+    /// Replacements of the file by this instance, for tests of how often it is rewritten.
+    private(set) var writeCount = 0
 
     private let fileManager: FileManager
 
@@ -262,39 +264,49 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
 
     /// Ordered replay is part of the same locked replacement as the count.
     /// A replayed rename must never remove the seen mark of a later new note
-    /// that reused its old path.
-    @discardableResult
-    func applyObsidianOperation(vaultID: String, operation: ObsidianUnappliedIntakeOp) -> SourceIntakeResult {
-        var outOfOrder = false
-        let result = self.mutate(now: operation.intakeTime, create: true) { file in
+    /// that reused its old path. Operations apply in order in one write, and the
+    /// result is how many of them, from the first, are now applied: an operation
+    /// out of sequence stops the run, and a failed write applies none.
+    func applyObsidianOperations(vaultID: String, operations: [ObsidianUnappliedIntakeOp]) -> Int {
+        guard let first = operations.first else { return 0 }
+        var accepted = 0
+        let result = self.mutate(now: first.intakeTime, create: true) { file in
+            accepted = 0
             var lane = file.obsidian ?? ObsidianLane()
             var sequences = lane.appliedSequences ?? [:]
-            guard operation.sequence > sequences[vaultID, default: 0] else { return false }
-            guard operation.sequence == sequences[vaultID, default: 0] + 1 else { outOfOrder = true; return false }
             var seen = Set(lane.seen)
-            switch operation.kind {
-            case .seed:
-                seen.formUnion(operation.baselineHashes)
-                if !lane.seededVaults.contains(vaultID) { lane.seededVaults.append(vaultID) }
-            case .keep:
-                if seen.insert(operation.hash).inserted {
-                    lane.notes += 1
-                    let stamp = self.stamp(operation.intakeTime)
-                    if lane.last.flatMap(self.parseStamp).map({ operation.intakeTime > $0 }) ?? true { lane.last = stamp }
+            var changed = false
+            for operation in operations {
+                let applied = sequences[vaultID, default: 0]
+                if operation.sequence <= applied { accepted += 1; continue }
+                guard operation.sequence == applied + 1 else { break }
+                switch operation.kind {
+                case .seed:
+                    seen.formUnion(operation.baselineHashes)
+                    if !lane.seededVaults.contains(vaultID) { lane.seededVaults.append(vaultID) }
+                case .keep:
+                    if seen.insert(operation.hash).inserted {
+                        lane.notes += 1
+                        let stamp = self.stamp(operation.intakeTime)
+                        if lane.last.flatMap(self.parseStamp).map({ operation.intakeTime > $0 }) ?? true { lane.last = stamp }
+                    }
+                case .move:
+                    if let previous = operation.previousHash { seen.remove(previous) }
+                    seen.insert(operation.hash)
+                case .remove:
+                    seen.remove(operation.hash)
                 }
-            case .move:
-                if let previous = operation.previousHash { seen.remove(previous) }
-                seen.insert(operation.hash)
-            case .remove:
-                seen.remove(operation.hash)
+                sequences[vaultID] = operation.sequence
+                accepted += 1
+                changed = true
             }
-            sequences[vaultID] = operation.sequence
+            guard changed else { return false }
             lane.appliedSequences = sequences
             lane.seen = seen.sorted()
             file.obsidian = lane
             return true
         }
-        return outOfOrder ? .failed : result
+        return result == .recorded || result == .unchanged ? accepted : 0
     }
 
     @discardableResult
@@ -577,6 +589,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
             try? self.fileManager.removeItem(at: temp)
             throw error
         }
+        self.writeCount += 1
         try? self.fileManager.setAttributes(
             [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
             ofItemAtPath: self.intakeFileURL.path

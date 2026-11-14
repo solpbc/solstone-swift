@@ -139,6 +139,30 @@ final class ObsidianScanTests: XCTestCase {
         XCTAssertEqual(ObsidianStore(rootURL: self.storeURL).document.vaults[vaultID]?.table["two.md"]?.text, "two, edited")
     }
 
+    /// Notes found in one check are counted in the intake totals in one write, not one per note.
+    func testNewNotesFromOneCheckAreCountedInOneIntakeWrite() async throws {
+        let store = ObsidianStore(rootURL: self.storeURL)
+        let intake = SourceIntakeStore(directoryURL: self.intakeURL)
+        let engine = ObsidianSourceEngine(store: store, intakeStore: intake)
+        let vaultURL = try self.createTestVault(name: "NewNotes")
+        try "first".write(to: vaultURL.appendingPathComponent("first.md"), atomically: true, encoding: .utf8)
+        let resources = ObsidianLocationResources(isDirectory: true, isUbiquitousItem: false,
+            volumeIsLocal: true, canonicalPath: "/var/mobile/Containers/Data/Application/UUID/Documents/NewNotes", isSymbolicLink: false)
+        _ = await engine.chooseVault(url: vaultURL, resources: resources)
+        await engine.turnOn()
+        engine.pause()
+        let vaultID = try XCTUnwrap(store.document.selectedVaultID)
+        for index in 0..<20 {
+            try "note \(index)".write(to: vaultURL.appendingPathComponent("note-\(index).md"), atomically: true, encoding: .utf8)
+        }
+        let writesBefore = intake.writeCount
+        await engine.checkNow()
+        XCTAssertEqual(store.document.vaults[vaultID]?.unappliedIntakeOps, [])
+        XCTAssertEqual(intake.writeCount - writesBefore, 1)
+        guard case .ready(let snapshot) = intake.load() else { return XCTFail("intake unavailable") }
+        XCTAssertEqual(snapshot.obsidian.total, 20)
+    }
+
     func testLocationValidatorDocumentsClassAcceptedWithArbitraryUUID() {
         let url = URL(fileURLWithPath: "/private/var/mobile/Containers/Data/Application/12345678-ABCD-EF01-2345-6789ABCDEF01/Documents/MyVault")
         let resources = ObsidianLocationResources(

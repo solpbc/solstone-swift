@@ -492,12 +492,7 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
         for vaultID in self.store.document.vaults.keys.sorted() {
             guard var vault = self.store.document.vaults[vaultID] else { continue }
             let previous = vault
-            var applied = 0
-            for operation in vault.unappliedIntakeOps {
-                let result = intakeStore.applyObsidianOperation(vaultID: vaultID, operation: operation)
-                guard result == .recorded || result == .unchanged else { break }
-                applied += 1
-            }
+            let applied = intakeStore.applyObsidianOperations(vaultID: vaultID, operations: vault.unappliedIntakeOps)
             guard applied > 0 else { continue }
             vault.unappliedIntakeOps.removeFirst(applied)
             self.store.document.vaults[vaultID] = vault
