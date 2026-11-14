@@ -453,6 +453,14 @@ final class ObsidianSourceEngine: ObsidianEngineControlling {
             var merged = plan
             merged.deliveredNotes = current.deliveredNotes
             merged.sameNameChecked = current.sameNameChecked
+            // A check that found nothing new differs only in its check time. The store holds
+            // every note's text, so keep that time in memory rather than rewriting the file.
+            var unchanged = merged
+            unchanged.lastChecked = current.lastChecked
+            if unchanged == current {
+                self.store.document.vaults[vaultID]?.lastChecked = merged.lastChecked
+                return true
+            }
             candidate.vaults[vaultID] = merged
             let prepared: ObsidianPreparedCheckpoint
             do {

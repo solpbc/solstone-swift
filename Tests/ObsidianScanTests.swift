@@ -98,6 +98,47 @@ final class ObsidianScanTests: XCTestCase {
         XCTAssertEqual(disk.document.vaults[vaultID]?.pendingChanges, pending)
     }
 
+    /// A check that finds nothing new must not rewrite the store, which holds every note's text.
+    func testUnchangedVaultChecksDoNotRewriteTheStore() async throws {
+        let store = ObsidianStore(rootURL: self.storeURL)
+        let engine = ObsidianSourceEngine(store: store)
+        let vaultURL = try self.createTestVault(name: "Unchanged")
+        try "one".write(to: vaultURL.appendingPathComponent("one.md"), atomically: true, encoding: .utf8)
+        try "two".write(to: vaultURL.appendingPathComponent("two.md"), atomically: true, encoding: .utf8)
+        let resources = ObsidianLocationResources(isDirectory: true, isUbiquitousItem: false,
+            volumeIsLocal: true, canonicalPath: "/var/mobile/Containers/Data/Application/UUID/Documents/Unchanged", isSymbolicLink: false)
+        _ = await engine.chooseVault(url: vaultURL, resources: resources)
+        await engine.turnOn()
+        // Paused, so no window closes during the test and only the checks can write.
+        engine.pause()
+        let vaultID = try XCTUnwrap(store.document.selectedVaultID)
+        let fileURL = store.storeFileURL
+        func identity() throws -> Int {
+            try XCTUnwrap(FileManager.default.attributesOfItem(atPath: fileURL.path)[.systemFileNumber] as? Int)
+        }
+        let before = try identity()
+        let bytesBefore = try Data(contentsOf: fileURL)
+        let checkedBefore = try XCTUnwrap(store.document.vaults[vaultID]?.lastChecked)
+        let start = Date()
+        engine.clock = { start.addingTimeInterval(1) }
+        await engine.checkNow()
+        engine.clock = { start.addingTimeInterval(2) }
+        await engine.checkNow()
+        XCTAssertEqual(try identity(), before)
+        XCTAssertEqual(try Data(contentsOf: fileURL), bytesBefore)
+        // The check time still moves for what the owner sees.
+        let checkedAfter = try XCTUnwrap(store.document.vaults[vaultID]?.lastChecked)
+        XCTAssertGreaterThan(checkedAfter, checkedBefore)
+        XCTAssertEqual(engine.status.lastChecked, checkedAfter)
+
+        // A real change still commits.
+        try "two, edited".write(to: vaultURL.appendingPathComponent("two.md"), atomically: true, encoding: .utf8)
+        engine.clock = { start.addingTimeInterval(3) }
+        await engine.checkNow()
+        XCTAssertNotEqual(try identity(), before)
+        XCTAssertEqual(ObsidianStore(rootURL: self.storeURL).document.vaults[vaultID]?.table["two.md"]?.text, "two, edited")
+    }
+
     func testLocationValidatorDocumentsClassAcceptedWithArbitraryUUID() {
         let url = URL(fileURLWithPath: "/private/var/mobile/Containers/Data/Application/12345678-ABCD-EF01-2345-6789ABCDEF01/Documents/MyVault")
         let resources = ObsidianLocationResources(
