@@ -55,6 +55,8 @@ final class ScreenshotsStore {
     let fileURL: URL
     private let fileManager: FileManager
     var document = ScreenshotsDocument()
+    /// What the file holds now, as last loaded or written.
+    private var persisted: ScreenshotsDocument?
 
     init(fileURL: URL, fileManager: FileManager = .default) {
         self.fileURL = fileURL
@@ -75,9 +77,19 @@ final class ScreenshotsStore {
               document.schema == 1
         else { return }
         self.document = document
+        self.persisted = document
     }
 
+    /// Photos reports a change for every edit, sync and new photo, and each one moves the
+    /// check time and the change token. Neither needs the file rewritten: the check time is
+    /// shown from memory, and a relaunch that reads an older token replays changes this
+    /// source already handled, which changes nothing. Both are written with the next real change.
     func save() {
+        if var unchanged = self.persisted {
+            unchanged.lastChecked = self.document.lastChecked
+            unchanged.changeToken = self.document.changeToken
+            if unchanged == self.document { return }
+        }
         do {
             try self.fileManager.createDirectory(
                 at: self.fileURL.deletingLastPathComponent(),
@@ -85,6 +97,7 @@ final class ScreenshotsStore {
             )
             let data = try JSONEncoder().encode(self.document)
             try data.write(to: self.fileURL, options: .atomic)
+            self.persisted = self.document
             try? self.fileManager.setAttributes(
                 [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
                 ofItemAtPath: self.fileURL.path

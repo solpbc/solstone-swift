@@ -517,6 +517,45 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         XCTAssertEqual(sender.sent.count, 1)
     }
 
+    /// Photos reports a change for every edit, sync and new photo. A change that brings in no
+    /// screenshot does not rewrite the source's record.
+    @MainActor
+    func testLibraryChangesWithNoNewScreenshotDoNotRewriteTheRecord() async throws {
+        let url = self.makeRoot().appendingPathComponent("state.json")
+        let library = FakeScreenshotsLibrary()
+        library.status = .full
+        library.assets = [Self.asset("one", age: -3_600, uti: "public.png")]
+        library.exports = ["one": .bytes(Data("one-png".utf8), uniformTypeIdentifier: "public.png")]
+        let sender = FakeScreenshotsSender()
+        let engine = ScreenshotsSourceEngine(
+            library: library, store: ScreenshotsStore(fileURL: url), sender: sender,
+            timeZone: TimeZone(identifier: "America/Denver")!
+        )
+        engine.isPaired = { true }
+        await engine.turnOn()
+        await engine.confirm()
+        engine.noteDelivered(localIdentifier: "one", hash: sender.sent[0].hash)
+        func identity() throws -> Int {
+            try XCTUnwrap(FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? Int)
+        }
+        let written = try identity()
+        let checkedBefore = try XCTUnwrap(engine.snapshot.lastChecked)
+        for index in 0..<20 {
+            library.changeResult = .delta(inserted: ["photo-\(index)"], updated: ["one"], deleted: [],
+                                          token: Data("token-\(index)".utf8))
+            await engine.libraryChanged()
+        }
+        XCTAssertEqual(try identity(), written)
+        XCTAssertGreaterThanOrEqual(try XCTUnwrap(engine.snapshot.lastChecked), checkedBefore)
+
+        library.assets.append(Self.asset("two", age: -60, uti: "public.png"))
+        library.exports["two"] = .bytes(Data("two-png".utf8), uniformTypeIdentifier: "public.png")
+        library.changeResult = .delta(inserted: ["two"], updated: [], deleted: [], token: Data("token-two".utf8))
+        await engine.libraryChanged()
+        XCTAssertNotEqual(try identity(), written)
+        XCTAssertEqual(sender.sent.map(\.localIdentifier), ["one", "two"])
+    }
+
     func testStatusRowsKeepTheWidestNameWholeAndStackAboveTheDefaultSize() {
         XCTAssertEqual(
             StatusPaneIntakeColumns.widestName(["audio", "location", ScreenshotsVocabulary.label, "import"]),
