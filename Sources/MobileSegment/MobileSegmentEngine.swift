@@ -1105,15 +1105,14 @@ final class MobileSegmentEngine {
     }
 
     func appendLocationLiveFix(_ fix: LocationFix, now: Date) {
-        guard let target = self.locationLiveTarget,
-              let buffer = self.locationBuffer
-        else {
+        guard let target = self.locationLiveTarget, self.locationBuffer != nil else {
             self.syncLocationLivenessTask()
             return
         }
+        // Fixes arrive about once a second while moving. The liveness record is kept by its
+        // own refresh, and recovery takes its end from the later of that and the last fix.
         do {
             try self.segmentUploader.appendLocationLiveFix(segmentID: target.segmentID, fix: fix)
-            try self.writeLocationLiveness(target: target, buffer: buffer, now: now)
         } catch {
             mobileSegmentEngineLog.error("location live fix write failed segment=\(target.segmentID.uuidString, privacy: .public): \(String(describing: error), privacy: .public)")
         }

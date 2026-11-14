@@ -241,6 +241,31 @@ final class MobileSegmentEngineTests: XCTestCase {
         XCTAssertTrue(liveness.gap)
     }
 
+    /// Fixes arrive about once a second while moving. Each is appended to the live log; the
+    /// liveness record is left to its own refresh rather than rewritten per fix.
+    func testLocationFixesDoNotRewriteTheLivenessRecord() async throws {
+        let harness = self.makeHarness()
+        try await harness.engine.startLocation(tier: .balanced, accuracy: .full)
+        let activeDirectory = try XCTUnwrap(try harness.store.list(.active).first)
+        let segmentID = try XCTUnwrap(UUID(uuidString: activeDirectory.lastPathComponent))
+        let livenessURL = harness.store.locationLivenessURL(in: activeDirectory)
+        func identity() throws -> Int {
+            try XCTUnwrap(FileManager.default.attributesOfItem(atPath: livenessURL.path)[.systemFileNumber] as? Int)
+        }
+        let written = try identity()
+        var fixes: [LocationFix] = []
+        for _ in 0..<20 {
+            self.clock.advance(by: 1)
+            let fix = Self.fix(at: self.clock.now())
+            fixes.append(fix)
+            harness.engine.recordLocationFix(fix)
+        }
+        XCTAssertEqual(try identity(), written)
+        let liveData = try harness.store.readData(at: harness.store.locationPartURL(in: activeDirectory))
+        let recovered = try MobileSegmentLocationWriter.recoverLiveLocation(segmentID: segmentID, from: liveData)
+        XCTAssertEqual(recovered.fixes, fixes)
+    }
+
     func testAudioFinalizerFailureCreatesFailedMarkerAndNoUploadRequest() async throws {
         let harness = self.makeHarness()
         harness.engine.rotateAudio = { _, _ in

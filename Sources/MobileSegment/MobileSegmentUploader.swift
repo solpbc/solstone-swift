@@ -2005,7 +2005,7 @@ private extension MobileSegmentUploader {
         }
 
         let liveness = self.readLocationLiveness(segmentID: segmentID, directory: directory)
-        let endedAt = liveness?.lastSeenAt ?? recovered.latestRecordAt
+        let endedAt = liveness.map { max($0.lastSeenAt, recovered.latestRecordAt) } ?? recovered.latestRecordAt
         let batch = recovered.batch(endedAt: endedAt)
         let reason = recovered.droppedLineCount == 0 ? nil : "location_live_partial_salvage"
         if recovered.droppedLineCount > 0 {
