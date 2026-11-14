@@ -13,6 +13,21 @@ private nonisolated func sourceIntakeFlock(_ fd: Int32, _ operation: Int32) -> I
 
 nonisolated enum SourceIntakeError: Error, Equatable {
     case lockTimeout
+    case seenLogUnreadable
+}
+
+/// A lane whose counted keys are only ever added. Older keys live in the lane's own file, one per
+/// line, which is only appended to; `intake.json` keeps the newest few beside the totals.
+nonisolated enum SourceIntakeSeenLog: String, CaseIterable, Sendable {
+    case audio
+    case screen
+    case location
+    case watch
+    case imports = "import"
+    case screenshots
+    case calendar
+
+    var fileName: String { "seen-\(self.rawValue).log" }
 }
 
 nonisolated enum SourceIntakeResult: Equatable, Sendable {
@@ -90,6 +105,13 @@ nonisolated struct SourceIntakeSafariVisit: Equatable, Sendable {
 nonisolated enum SourceIntakeDurationSource: Equatable, Sendable {
     case audio
     case screen
+
+    var seenLog: SourceIntakeSeenLog {
+        switch self {
+        case .audio: .audio
+        case .screen: .screen
+        }
+    }
 }
 
 nonisolated enum SourceIntakeCalendarGate: Equatable, Sendable {
@@ -113,10 +135,17 @@ nonisolated struct SourceIntakeCalendarLedger: Equatable, Sendable {
 
 /// One install's private intake totals. The file lives in the app group, is excluded from
 /// backup, and is never cleared. Callers in other processes share it through the lock file.
+///
+/// A counted key is never forgotten, so a replay never counts twice. Keys stay in `intake.json`
+/// beside the total they were counted with, which commits both in one replace. Once a lane holds
+/// `seenTailLimit` of them, the next write first appends them to the lane's seen log and syncs it,
+/// then drops them from `intake.json`, so the file a record rewrites stays small.
 nonisolated final class SourceIntakeStore: @unchecked Sendable {
     static let directoryName = "SourceIntake"
     static let fileName = "intake.json"
     static let lockName = "intake.lock"
+    static let fileVersion = 2
+    static let seenTailLimit = 32
     /// Posted after every write, from any process that shares the file, so a pane or page on
     /// screen reads the totals again. It carries nothing: readers load the file.
     static let changedNotificationName = "app.solstone.swift.source-intake.changed"
@@ -174,9 +203,9 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         guard duration > 0 else { return .unchanged }
         let key = segmentID.uuidString.lowercased()
         let seconds = Int(duration.rounded(.down))
-        return self.mutate(now: now, create: true) { file in
+        return self.mutate(now: now, create: true) { file, seen in
             var lane = file.lane(source)
-            guard !lane.seen.contains(key) else { return false }
+            guard try !seen.contains(key, in: source.seenLog, tail: lane.seen) else { return false }
             lane.seen.append(key)
             lane.seconds += max(0, seconds)
             lane.last = self.stamp(now)
@@ -188,8 +217,8 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     @discardableResult
     func recordLocation(segmentID: UUID, readings: [SourceIntakeReading], now: Date) -> SourceIntakeResult {
         let key = segmentID.uuidString.lowercased()
-        return self.mutate(now: now, create: true) { file in
-            guard !file.location.seen.contains(key) else { return false }
+        return self.mutate(now: now, create: true) { file, seen in
+            guard try !seen.contains(key, in: .location, tail: file.location.seen) else { return false }
             guard self.foldLocation(readings, into: &file.location) else { return false }
             file.location.seen.append(key)
             return true
@@ -198,7 +227,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
 
     @discardableResult
     func recordSafariVisits(_ visits: [SourceIntakeSafariVisit], now: Date) throws -> SourceIntakeResult {
-        let result = self.mutate(now: now, create: true) { file in
+        let result = self.mutate(now: now, create: true) { file, _ in
             self.foldSafari(visits, now: now, into: &file)
         }
         if result == .lockTimeout {
@@ -209,8 +238,8 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
 
     @discardableResult
     func recordImport(itemID: String, now: Date) -> SourceIntakeResult {
-        self.mutate(now: now, create: true) { file in
-            guard !file.imports.seen.contains(itemID) else { return false }
+        self.mutate(now: now, create: true) { file, seen in
+            guard try !seen.contains(itemID, in: .imports, tail: file.imports.seen) else { return false }
             file.imports.seen.append(itemID)
             file.imports.items += 1
             file.imports.last = self.stamp(now)
@@ -221,9 +250,9 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     /// One kept screenshot, counted once per hash. A duplicate or a replay does not add again.
     @discardableResult
     func recordScreenshot(hash: String, now: Date) -> SourceIntakeResult {
-        self.mutate(now: now, create: true) { file in
+        self.mutate(now: now, create: true) { file, seen in
             var lane = file.screenshots ?? CountLane()
-            guard !lane.seen.contains(hash) else { return false }
+            guard try !seen.contains(hash, in: .screenshots, tail: lane.seen) else { return false }
             lane.seen.append(hash)
             lane.items += 1
             lane.last = self.stamp(now)
@@ -235,7 +264,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     @discardableResult
     func seedObsidianVault(vaultID: String, seenHashes: [String]) -> SourceIntakeResult {
         let now = Date()
-        return self.mutate(now: now, create: true) { file in
+        return self.mutate(now: now, create: true) { file, _ in
             var lane = file.obsidian ?? ObsidianLane()
             guard !lane.seededVaults.contains(vaultID) else { return false }
             lane.seededVaults.append(vaultID)
@@ -251,7 +280,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
 
     @discardableResult
     func recordObsidianNew(vaultID: String, seenHash: String, now: Date) -> SourceIntakeResult {
-        self.mutate(now: now, create: true) { file in
+        self.mutate(now: now, create: true) { file, _ in
             var lane = file.obsidian ?? ObsidianLane()
             guard !lane.seen.contains(seenHash) else { return false }
             lane.seen.append(seenHash)
@@ -270,7 +299,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     func applyObsidianOperations(vaultID: String, operations: [ObsidianUnappliedIntakeOp]) -> Int {
         guard let first = operations.first else { return 0 }
         var accepted = 0
-        let result = self.mutate(now: first.intakeTime, create: true) { file in
+        let result = self.mutate(now: first.intakeTime, create: true) { file, _ in
             accepted = 0
             var lane = file.obsidian ?? ObsidianLane()
             var sequences = lane.appliedSequences ?? [:]
@@ -312,8 +341,8 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     @discardableResult
     func recordWatch(id: UUID, duration: TimeInterval, lost: Bool, now: Date) -> SourceIntakeResult {
         let key = id.uuidString.lowercased()
-        return self.mutate(now: now, create: true) { file in
-            guard !file.watch.seen.contains(key) else { return false }
+        return self.mutate(now: now, create: true) { file, seen in
+            guard try !seen.contains(key, in: .watch, tail: file.watch.seen) else { return false }
             file.watch.seen.append(key)
             if lost || duration <= 0 {
                 return true
@@ -331,7 +360,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
                 case .absent, .unreadable:
                     return .flagOnly(seen: [])
                 case .ready(let file):
-                    let seen = Set(file.calendar.seen)
+                    let seen = try SeenKeys(store: self, file: file).all(.calendar, tail: file.calendar.seen)
                     if file.calendar.seeded {
                         return .increment(seen: seen)
                     }
@@ -344,12 +373,15 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         }
     }
 
+    /// Read without the lock. The file is read before the log: a write appends to the log before
+    /// it drops keys from the file, so this order never misses a key.
     func calendarLedger() -> SourceIntakeCalendarLedger? {
         guard case .ready(let file) = self.loadFile() else { return nil }
+        guard let seen = try? SeenKeys(store: self, file: file).all(.calendar, tail: file.calendar.seen) else { return nil }
         return SourceIntakeCalendarLedger(
             events: file.calendar.events,
             seeded: file.calendar.seeded,
-            seen: file.calendar.seen,
+            seen: seen.sorted(),
             last: file.calendar.last.flatMap(self.parseStamp)
         )
     }
@@ -361,10 +393,11 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
 
     @discardableResult
     func seedCalendar(history: [String], pending: [String], now: Date) -> SourceIntakeResult {
-        self.mutate(now: now, create: true) { file in
+        self.mutate(now: now, create: true) { file, seenKeys in
             guard !file.calendar.seeded else { return false }
             let pendingSet = Set(pending)
-            let fresh = pendingSet.subtracting(file.calendar.seen).subtracting(Set(history))
+            let counted = try seenKeys.all(.calendar, tail: file.calendar.seen)
+            let fresh = pendingSet.subtracting(counted).subtracting(Set(history))
             if file.calendar.events > 0 {
                 file.calendar.events += fresh.count
             } else {
@@ -391,7 +424,9 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
                     return .flagOnly
                 case .ready(var file):
                     guard file.calendar.seeded else { return .flagOnly }
-                    let fresh = Set(keys).subtracting(file.calendar.seen)
+                    let seen = SeenKeys(store: self, file: file)
+                    seen.moveFullTails(&file)
+                    let fresh = Set(keys).subtracting(try seen.all(.calendar, tail: file.calendar.seen))
                     guard !fresh.isEmpty else { return .unchanged }
                     if self.consumeReplaceFailure() { return .failed }
                     file.calendar.events += fresh.count
@@ -404,6 +439,9 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         } catch SourceIntakeError.lockTimeout {
             sourceIntakeLog.error("intake calendar increment skipped result=lock")
             return .lockTimeout
+        } catch SourceIntakeError.seenLogUnreadable {
+            sourceIntakeLog.error("intake calendar increment skipped result=unreadable")
+            return .skipped
         } catch {
             sourceIntakeLog.error("intake calendar increment skipped result=write")
             return .failed
@@ -495,7 +533,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         return radius * c
     }
 
-    private func mutate(now: Date, create: Bool, _ body: (inout File) -> Bool) -> SourceIntakeResult {
+    private func mutate(now: Date, create: Bool, _ body: (inout File, SeenKeys) throws -> Bool) -> SourceIntakeResult {
         do {
             return try self.withLock {
                 switch self.loadFile() {
@@ -505,12 +543,16 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
                 case .absent:
                     guard create else { return .flagOnly }
                     var file = File.empty(started: self.localDay(now))
-                    guard body(&file) else { return .unchanged }
+                    let seen = SeenKeys(store: self, file: file)
+                    guard try body(&file, seen) else { return .unchanged }
                     if self.consumeReplaceFailure() { return .failed }
                     try self.write(file)
                     return .recorded
                 case .ready(var file):
-                    guard body(&file) else { return .unchanged }
+                    let seen = SeenKeys(store: self, file: file)
+                    // Only keys an earlier write committed move, before this one adds its own.
+                    seen.moveFullTails(&file)
+                    guard try body(&file, seen) else { return .unchanged }
                     if self.consumeReplaceFailure() { return .failed }
                     try self.write(file)
                     return .recorded
@@ -519,10 +561,110 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         } catch SourceIntakeError.lockTimeout {
             sourceIntakeLog.error("intake count skipped result=lock")
             return .lockTimeout
+        } catch SourceIntakeError.seenLogUnreadable {
+            sourceIntakeLog.error("intake count skipped result=unreadable")
+            return .skipped
         } catch {
             sourceIntakeLog.error("intake count skipped result=write")
             return .failed
         }
+    }
+
+    func seenLogURL(_ log: SourceIntakeSeenLog) -> URL {
+        self.directoryURL.appendingPathComponent(log.fileName, isDirectory: false)
+    }
+
+    /// The keys on the log's complete lines, and the length of those lines. A last line without
+    /// its newline is an append that did not finish; its keys are still in `intake.json`. A log
+    /// shorter than `intake.json` says it committed has lost keys, so it is unreadable.
+    fileprivate func readSeenLog(_ log: SourceIntakeSeenLog, committed: Int) throws -> (keys: Set<String>, length: Int) {
+        let url = self.seenLogURL(log)
+        guard self.fileManager.fileExists(atPath: url.path) else {
+            guard committed == 0 else { throw SourceIntakeError.seenLogUnreadable }
+            return ([], 0)
+        }
+        guard let data = try? Data(contentsOf: url) else { throw SourceIntakeError.seenLogUnreadable }
+        let bytes = [UInt8](data)
+        let length = bytes.lastIndex(of: 0x0A).map { $0 + 1 } ?? 0
+        guard length >= committed else { throw SourceIntakeError.seenLogUnreadable }
+        guard length > 0 else { return ([], 0) }
+        var keys = Set<String>()
+        // Every line ends in a newline, so an empty line is an empty key, not a gap.
+        for line in bytes[..<(length - 1)].split(separator: 0x0A, omittingEmptySubsequences: false) {
+            keys.insert(Self.unescapeSeenKey(String(decoding: line, as: UTF8.self)))
+        }
+        return (keys, length)
+    }
+
+    /// Appends whole lines after the last complete one and syncs them to storage, so they are
+    /// durable before a later replace of `intake.json` drops the same keys.
+    @discardableResult
+    fileprivate func appendSeenLog(_ log: SourceIntakeSeenLog, keys: [String], after length: Int) throws -> Int {
+        let url = self.seenLogURL(log)
+        let fd = Darwin.open(url.path, Darwin.O_WRONLY | Darwin.O_CREAT, 0o644)
+        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        defer { Darwin.close(fd) }
+        guard Darwin.ftruncate(fd, off_t(length)) == 0, Darwin.lseek(fd, off_t(length), Darwin.SEEK_SET) >= 0 else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        let bytes = Array(keys.map { Self.escapeSeenKey($0) + "\n" }.joined().utf8)
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes[offset...].withUnsafeBytes { Darwin.write(fd, $0.baseAddress, $0.count) }
+            if written < 0 {
+                if errno == EINTR { continue }
+                throw CocoaError(.fileWriteUnknown)
+            }
+            offset += written
+        }
+        if Darwin.fcntl(fd, F_FULLFSYNC) != 0, Darwin.fsync(fd) != 0 {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        try? self.fileManager.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: url.path
+        )
+        var logURL = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? logURL.setResourceValues(values)
+        return length + bytes.count
+    }
+
+    /// A line holds one key, so a backslash, newline or carriage return in a key is escaped.
+    static func escapeSeenKey(_ key: String) -> String {
+        guard key.unicodeScalars.contains(where: { $0 == "\\" || $0 == "\n" || $0 == "\r" }) else { return key }
+        var out = String.UnicodeScalarView()
+        for scalar in key.unicodeScalars {
+            switch scalar {
+            case "\\": out.append(contentsOf: "\\\\".unicodeScalars)
+            case "\n": out.append(contentsOf: "\\n".unicodeScalars)
+            case "\r": out.append(contentsOf: "\\r".unicodeScalars)
+            default: out.append(scalar)
+            }
+        }
+        return String(out)
+    }
+
+    static func unescapeSeenKey(_ line: String) -> String {
+        guard line.unicodeScalars.contains("\\") else { return line }
+        var out = String.UnicodeScalarView()
+        var escaped = false
+        for scalar in line.unicodeScalars {
+            if escaped {
+                switch scalar {
+                case "n": out.append("\n")
+                case "r": out.append("\r")
+                default: out.append(scalar)
+                }
+                escaped = false
+            } else if scalar == "\\" {
+                escaped = true
+            } else {
+                out.append(scalar)
+            }
+        }
+        return String(out)
     }
 
     private func consumeReplaceFailure() -> Bool {
@@ -575,6 +717,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         var file = file
+        file.version = Self.fileVersion
         file.sortSeen()
         let data = try encoder.encode(file)
         let temp = self.directoryURL.appendingPathComponent(".intake-write-\(UUID().uuidString).tmp")
@@ -617,7 +760,10 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         let url = self.intakeFileURL
         guard self.fileManager.fileExists(atPath: url.path) else { return .absent }
         guard let data = try? Data(contentsOf: url), !data.isEmpty else { return .unreadable }
-        guard let file = try? JSONDecoder().decode(File.self, from: data), file.version == 1 else { return .unreadable }
+        // Version 1 kept every key inline; it reads the same, and its keys move to the logs as it fills.
+        guard let file = try? JSONDecoder().decode(File.self, from: data), (1...Self.fileVersion).contains(file.version) else {
+            return .unreadable
+        }
         guard self.stampsReadable(file) else { return .unreadable }
         return .ready(file)
     }
@@ -672,6 +818,8 @@ nonisolated private extension SourceIntakeStore {
         var imports: CountLane
         var obsidian: ObsidianLane?
         var screenshots: CountLane?
+        /// Bytes of each lane's seen log this file's keys were moved into, by lane.
+        var seenLogs: [String: Int]?
 
         nonisolated enum CodingKeys: String, CodingKey {
             case version
@@ -685,6 +833,7 @@ nonisolated private extension SourceIntakeStore {
             case imports = "import"
             case obsidian
             case screenshots
+            case seenLogs = "seen_logs"
         }
 
         init(
@@ -726,6 +875,7 @@ nonisolated private extension SourceIntakeStore {
             self.imports = try container.decode(CountLane.self, forKey: .imports)
             self.obsidian = try container.decodeIfPresent(ObsidianLane.self, forKey: .obsidian)
             self.screenshots = try container.decodeIfPresent(CountLane.self, forKey: .screenshots)
+            self.seenLogs = try container.decodeIfPresent([String: Int].self, forKey: .seenLogs)
         }
 
         func encode(to encoder: Encoder) throws {
@@ -745,11 +895,14 @@ nonisolated private extension SourceIntakeStore {
             if let screenshots {
                 try container.encode(screenshots, forKey: .screenshots)
             }
+            if let seenLogs {
+                try container.encode(seenLogs, forKey: .seenLogs)
+            }
         }
 
         static func empty(started: String) -> File {
             File(
-                version: 1,
+                version: SourceIntakeStore.fileVersion,
                 started: started,
                 audio: DurationLane(),
                 screen: DurationLane(),
@@ -772,6 +925,31 @@ nonisolated private extension SourceIntakeStore {
             self.obsidian?.seen.sort()
             self.obsidian?.seededVaults.sort()
             self.screenshots?.seen.sort()
+        }
+
+        /// The keys of a lane still held in this file rather than its log.
+        func tail(_ log: SourceIntakeSeenLog) -> [String] {
+            switch log {
+            case .audio: self.audio.seen
+            case .screen: self.screen.seen
+            case .location: self.location.seen
+            case .watch: self.watch.seen
+            case .imports: self.imports.seen
+            case .screenshots: self.screenshots?.seen ?? []
+            case .calendar: self.calendar.seen
+            }
+        }
+
+        mutating func setTail(_ log: SourceIntakeSeenLog, _ keys: [String]) {
+            switch log {
+            case .audio: self.audio.seen = keys
+            case .screen: self.screen.seen = keys
+            case .location: self.location.seen = keys
+            case .watch: self.watch.seen = keys
+            case .imports: self.imports.seen = keys
+            case .screenshots: self.screenshots?.seen = keys
+            case .calendar: self.calendar.seen = keys
+            }
         }
 
         func lane(_ source: SourceIntakeDurationSource) -> DurationLane {
@@ -801,6 +979,65 @@ nonisolated private extension SourceIntakeStore {
                 screenshots: SourceIntakeLane(total: self.screenshots?.items ?? 0, last: self.screenshots?.last.flatMap(parse)),
                 imports: SourceIntakeLane(total: self.imports.items, last: self.imports.last.flatMap(parse))
             )
+        }
+    }
+
+    /// Membership in a lane's counted keys, for one locked pass: the tail in `intake.json` and the
+    /// lane's log together. Each log is read at most once per pass, and only when asked about.
+    nonisolated final class SeenKeys {
+        private let store: SourceIntakeStore
+        private let committed: [String: Int]
+        private var logged: [SourceIntakeSeenLog: (keys: Set<String>, length: Int)] = [:]
+
+        init(store: SourceIntakeStore, file: File) {
+            self.store = store
+            self.committed = file.seenLogs ?? [:]
+        }
+
+        func contains(_ key: String, in log: SourceIntakeSeenLog, tail: [String]) throws -> Bool {
+            if tail.contains(key) { return true }
+            return try self.read(log).keys.contains(key)
+        }
+
+        func all(_ log: SourceIntakeSeenLog, tail: [String]) throws -> Set<String> {
+            try self.read(log).keys.union(tail)
+        }
+
+        /// Appends every lane tail that reached the limit to its log, then empties it in `file`.
+        /// Every key here was committed with its count by an earlier write. If the replace that
+        /// follows never lands, the keys are in both places, which counts nothing twice. A lane
+        /// whose log cannot take them keeps them in `file` and blocks no other lane.
+        func moveFullTails(_ file: inout File) {
+            for log in SourceIntakeSeenLog.allCases {
+                let tail = file.tail(log)
+                guard tail.count >= SourceIntakeStore.seenTailLimit else { continue }
+                do {
+                    let current = try self.read(log)
+                    var fresh: [String] = []
+                    var adding = Set<String>()
+                    for key in tail where !current.keys.contains(key) && adding.insert(key).inserted {
+                        fresh.append(key)
+                    }
+                    var length = current.length
+                    if !fresh.isEmpty {
+                        self.logged[log] = nil
+                        length = try self.store.appendSeenLog(log, keys: fresh, after: current.length)
+                    }
+                    self.logged[log] = (current.keys.union(adding), length)
+                    file.setTail(log, [])
+                    // Committed with the replace that drops the tail, never ahead of the log.
+                    file.seenLogs = (file.seenLogs ?? [:]).merging([log.rawValue: length]) { _, new in new }
+                } catch {
+                    sourceIntakeLog.error("intake seen log move skipped lane=\(log.rawValue, privacy: .public)")
+                }
+            }
+        }
+
+        private func read(_ log: SourceIntakeSeenLog) throws -> (keys: Set<String>, length: Int) {
+            if let cached = self.logged[log] { return cached }
+            let loaded = try self.store.readSeenLog(log, committed: self.committed[log.rawValue] ?? 0)
+            self.logged[log] = loaded
+            return loaded
         }
     }
 

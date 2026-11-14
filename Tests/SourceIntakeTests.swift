@@ -654,6 +654,219 @@ final class SourceIntakeTests: XCTestCase {
         XCTAssertTrue(pane.contains("A row carries no number"))
     }
 
+    /// The file a record rewrites stays the same size however many recordings come in, and every
+    /// key counted earlier still counts nothing when it comes in again.
+    func testOlderKeysMoveToEachLanesLogAndAReplayStillCountsNothing() throws {
+        let store = self.store()
+        let limit = SourceIntakeStore.seenTailLimit
+        let count = limit * 4 + 3
+        let t0 = Date(timeIntervalSince1970: 1_700_001_000)
+        var audio: [UUID] = []
+        var screen: [UUID] = []
+        var watch: [UUID] = []
+        var location: [UUID] = []
+        for index in 0..<count {
+            let now = t0.addingTimeInterval(Double(index))
+            audio.append(UUID())
+            screen.append(UUID())
+            watch.append(UUID())
+            location.append(UUID())
+            XCTAssertEqual(store.recordDuration(source: .audio, segmentID: audio[index], duration: 60, now: now), .recorded)
+            XCTAssertEqual(store.recordDuration(source: .screen, segmentID: screen[index], duration: 30, now: now), .recorded)
+            XCTAssertEqual(store.recordWatch(id: watch[index], duration: 10, lost: false, now: now), .recorded)
+            XCTAssertEqual(store.recordImport(itemID: "item-\(index)", now: now), .recorded)
+            XCTAssertEqual(store.recordScreenshot(hash: "hash-\(index)", now: now), .recorded)
+            let reading = self.reading(now, lat: 0, lon: Double(index) * 0.001, hAcc: 5, fix: true)
+            XCTAssertEqual(store.recordLocation(segmentID: location[index], readings: [reading], now: now), .recorded)
+        }
+        XCTAssertEqual(store.writeCount, count * 6)
+
+        let size = try XCTUnwrap(FileManager.default.attributesOfItem(atPath: store.intakeFileURL.path)[.size] as? NSNumber)
+        XCTAssertLessThan(size.intValue, 6 * limit * 40 + 1_024)
+        let text = try String(contentsOf: store.intakeFileURL, encoding: .utf8)
+        XCTAssertFalse(text.contains(audio[0].uuidString.lowercased()))
+        let log = try String(contentsOf: store.seenLogURL(.audio), encoding: .utf8)
+        XCTAssertTrue(log.contains(audio[0].uuidString.lowercased() + "\n"))
+        XCTAssertEqual(log.split(separator: "\n").count, limit * 4)
+
+        let before = try self.ready(store)
+        XCTAssertEqual(before.audio.total, count * 60)
+        XCTAssertEqual(before.screen.total, count * 30)
+        XCTAssertEqual(before.watch.total, count * 10)
+        XCTAssertEqual(before.imports.total, count)
+        XCTAssertEqual(before.screenshots.total, count)
+        let late = t0.addingTimeInterval(Double(count))
+        for index in 0..<count {
+            XCTAssertEqual(store.recordDuration(source: .audio, segmentID: audio[index], duration: 60, now: late), .unchanged)
+            XCTAssertEqual(store.recordDuration(source: .screen, segmentID: screen[index], duration: 30, now: late), .unchanged)
+            XCTAssertEqual(store.recordWatch(id: watch[index], duration: 10, lost: false, now: late), .unchanged)
+            XCTAssertEqual(store.recordImport(itemID: "item-\(index)", now: late), .unchanged)
+            XCTAssertEqual(store.recordScreenshot(hash: "hash-\(index)", now: late), .unchanged)
+            let reading = self.reading(late, lat: 1, lon: 1, hAcc: 5, fix: true)
+            XCTAssertEqual(store.recordLocation(segmentID: location[index], readings: [reading], now: late), .unchanged)
+        }
+        XCTAssertEqual(try self.ready(store), before)
+    }
+
+    /// A file from before the logs, with every key inline, keeps its totals and counts none of
+    /// its keys again.
+    func testAFileWithEveryKeyInlineKeepsItsTotalsAndCountsNoKeyAgain() throws {
+        let store = self.store()
+        let old = (0..<100).map { _ in UUID() }
+        let file: [String: Any] = [
+            "version": 1,
+            "started": "2026-01-01",
+            "audio": ["seconds": 6_000, "seen": old.map { $0.uuidString.lowercased() }],
+            "screen": ["seconds": 0, "seen": [String]()],
+            "location": ["metres": 0, "seen": [String]()],
+            "calendar": ["events": 0, "seen": [String](), "seeded": false],
+            "safari": ["pages": 0, "tabs": [String: Any]()],
+            "watch": ["seconds": 0, "seen": [String]()],
+            "import": ["items": 0, "seen": [String]()],
+        ]
+        try FileManager.default.createDirectory(at: store.directoryURL, withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: file).write(to: store.intakeFileURL)
+        let now = Date(timeIntervalSince1970: 1_700_002_000)
+
+        XCTAssertEqual(store.recordDuration(source: .audio, segmentID: old[0], duration: 60, now: now), .unchanged)
+        XCTAssertEqual(store.recordDuration(source: .audio, segmentID: UUID(), duration: 60, now: now), .recorded)
+        let text = try String(contentsOf: store.intakeFileURL, encoding: .utf8)
+        XCTAssertFalse(text.contains(old[50].uuidString.lowercased()))
+        for id in old {
+            XCTAssertEqual(store.recordDuration(source: .audio, segmentID: id, duration: 60, now: now), .unchanged)
+        }
+        XCTAssertEqual(try self.ready(store).audio.total, 6_060)
+    }
+
+    /// Keys reach the log before the replace that drops them from the file. When that replace
+    /// does not land, the next record still counts once and the log gains no second copy.
+    func testAReplaceThatDoesNotLandAfterTheMoveCountsTheNextRecordOnce() throws {
+        let store = self.store()
+        let limit = SourceIntakeStore.seenTailLimit
+        let now = Date(timeIntervalSince1970: 1_700_003_000)
+        let earlier = (0..<limit).map { _ in UUID() }
+        for id in earlier {
+            XCTAssertEqual(store.recordDuration(source: .audio, segmentID: id, duration: 10, now: now), .recorded)
+        }
+        let next = UUID()
+        store.testFailNextReplace = true
+        XCTAssertEqual(store.recordDuration(source: .audio, segmentID: next, duration: 10, now: now), .failed)
+        XCTAssertEqual(store.recordDuration(source: .audio, segmentID: next, duration: 10, now: now), .recorded)
+        for id in earlier + [next] {
+            XCTAssertEqual(store.recordDuration(source: .audio, segmentID: id, duration: 10, now: now), .unchanged)
+        }
+        XCTAssertEqual(try self.ready(store).audio.total, (limit + 1) * 10)
+        let log = try String(contentsOf: store.seenLogURL(.audio), encoding: .utf8)
+        XCTAssertEqual(log.split(separator: "\n").count, limit)
+    }
+
+    /// An append cut off before its newline is not a key, and the next append replaces it.
+    func testATornLastLogLineIsNotAKeyAndTheNextAppendReplacesIt() throws {
+        let store = self.store()
+        let limit = SourceIntakeStore.seenTailLimit
+        let now = Date(timeIntervalSince1970: 1_700_004_000)
+        for index in 0...limit {
+            XCTAssertEqual(store.recordImport(itemID: "item-\(index)", now: now), .recorded)
+        }
+        let handle = try FileHandle(forWritingTo: store.seenLogURL(.imports))
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("item-torn".utf8))
+        try handle.close()
+
+        XCTAssertEqual(store.recordImport(itemID: "item-9", now: now), .unchanged)
+        XCTAssertEqual(store.recordImport(itemID: "item-torn", now: now), .recorded)
+        for index in (limit + 1)..<(limit * 3) {
+            store.recordImport(itemID: "extra-\(index)", now: now)
+        }
+        let log = try String(contentsOf: store.seenLogURL(.imports), encoding: .utf8)
+        XCTAssertTrue(log.hasSuffix("\n"))
+        let lines = log.split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines.count, Set(lines).count)
+        XCTAssertEqual(lines.filter { $0 == "item-torn" }.count, 1)
+        XCTAssertFalse(lines.contains { $0.hasPrefix("item-torn") && $0 != "item-torn" })
+        XCTAssertEqual(store.recordImport(itemID: "item-torn", now: now), .unchanged)
+    }
+
+    /// A line holds one key, including a calendar key with a line break or backslash in it.
+    func testACalendarKeyWithALineBreakSurvivesItsLog() throws {
+        let store = self.store()
+        let odd = ["line\nbreak", "back\\slash", "cr\rkey", "crlf\r\nkey", "\\n"]
+        let keys = odd + (0..<SourceIntakeStore.seenTailLimit).map { "event-\($0)" }
+        let now = Date(timeIntervalSince1970: 1_700_005_000)
+        XCTAssertEqual(store.seedCalendar(history: keys, pending: [], now: now), .recorded)
+        XCTAssertEqual(store.recordImport(itemID: "moves-the-tail", now: now), .recorded)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.seenLogURL(.calendar).path))
+        XCTAssertEqual(store.calendarSeen(), Set(keys))
+        XCTAssertEqual(store.recordCalendarNew(keys: odd, now: now), .unchanged)
+        XCTAssertEqual(store.recordCalendarNew(keys: ["line\nnew"], now: now), .recorded)
+        XCTAssertEqual(self.calendarEvents(store), 1)
+    }
+
+    /// When a lane's log cannot be read, nothing is counted, so nothing can be counted twice.
+    func testAnUnreadableSeenLogCountsNothing() throws {
+        let store = self.store()
+        let now = Date(timeIntervalSince1970: 1_700_006_000)
+        for _ in 0...SourceIntakeStore.seenTailLimit {
+            XCTAssertEqual(store.recordDuration(source: .audio, segmentID: UUID(), duration: 10, now: now), .recorded)
+        }
+        try FileManager.default.removeItem(at: store.seenLogURL(.audio))
+        try FileManager.default.createDirectory(at: store.seenLogURL(.audio), withIntermediateDirectories: false)
+        let before = try Data(contentsOf: store.intakeFileURL)
+        XCTAssertEqual(store.recordDuration(source: .audio, segmentID: UUID(), duration: 10, now: now), .skipped)
+        XCTAssertEqual(try Data(contentsOf: store.intakeFileURL), before)
+    }
+
+    /// A log that is gone or shorter than the file says it was holds keys that could count again,
+    /// so its lane counts nothing until it is whole.
+    func testALostOrShortenedLogCountsNothing() throws {
+        let now = Date(timeIntervalSince1970: 1_700_007_000)
+        for damage in ["lost", "shortened"] {
+            let store = self.store()
+            var ids: [UUID] = []
+            for _ in 0...SourceIntakeStore.seenTailLimit {
+                ids.append(UUID())
+                XCTAssertEqual(store.recordDuration(source: .audio, segmentID: ids.last!, duration: 10, now: now), .recorded)
+            }
+            let url = store.seenLogURL(.audio)
+            if damage == "lost" {
+                try FileManager.default.removeItem(at: url)
+            } else {
+                let data = try Data(contentsOf: url)
+                try data.prefix(data.count / 2).write(to: url)
+            }
+            let before = try Data(contentsOf: store.intakeFileURL)
+            XCTAssertEqual(store.recordDuration(source: .audio, segmentID: ids[0], duration: 10, now: now), .skipped, damage)
+            XCTAssertEqual(store.recordDuration(source: .audio, segmentID: UUID(), duration: 10, now: now), .skipped, damage)
+            XCTAssertEqual(try Data(contentsOf: store.intakeFileURL), before, damage)
+            XCTAssertEqual(store.recordImport(itemID: "other-lane", now: now), .recorded, damage)
+        }
+    }
+
+    func testAnEmptyKeyCountsOnceAfterItMoves() throws {
+        let store = self.store()
+        let now = Date(timeIntervalSince1970: 1_700_008_000)
+        XCTAssertEqual(store.recordImport(itemID: "", now: now), .recorded)
+        for index in 0..<SourceIntakeStore.seenTailLimit {
+            XCTAssertEqual(store.recordImport(itemID: "item-\(index)", now: now), .recorded)
+        }
+        XCTAssertEqual(store.recordImport(itemID: "", now: now), .unchanged)
+        XCTAssertEqual(try self.ready(store).imports.total, SourceIntakeStore.seenTailLimit + 1)
+    }
+
+    /// A lane whose log cannot take its keys keeps them in the file and stops no other lane.
+    func testALaneWhoseLogCannotTakeAMoveBlocksNoOtherLane() throws {
+        let store = self.store()
+        let now = Date(timeIntervalSince1970: 1_700_009_000)
+        for index in 0..<SourceIntakeStore.seenTailLimit {
+            XCTAssertEqual(store.recordImport(itemID: "item-\(index)", now: now), .recorded)
+        }
+        try FileManager.default.createDirectory(at: store.seenLogURL(.imports), withIntermediateDirectories: true)
+        XCTAssertEqual(store.recordDuration(source: .audio, segmentID: UUID(), duration: 10, now: now), .recorded)
+        XCTAssertEqual(store.recordImport(itemID: "item-0", now: now), .unchanged)
+        XCTAssertEqual(try self.ready(store).imports.total, SourceIntakeStore.seenTailLimit)
+        XCTAssertEqual(try self.ready(store).audio.total, 10)
+    }
+
     private var utc: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
