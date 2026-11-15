@@ -303,6 +303,64 @@ final class JournalWKWebViewRuntimeTests: XCTestCase {
         XCTAssertEqual(recorder.openedURLs.count, 3)
     }
 
+    func testConfirmAndPromptDrawAPanelAndAnswerWhatTheOwnerChose() async throws {
+        let fixture = try LoopbackJournalFixture()
+        let port = try await fixture.start()
+        defer { fixture.stop() }
+        let journal = try await self.makeJournal(port: port, recorder: RuntimeJournalRecorder())
+        defer { journal.teardown() }
+        let panels = journal.coordinator.panels
+
+        let confirmed = Task { try await journal.webView.evaluateJavaScript("confirm('unpair this device?')") as? Bool }
+        let confirmPanel = try await self.waitForOpenPanel(panels)
+        XCTAssertEqual(confirmPanel.message, "unpair this device?")
+        XCTAssertNotNil(confirmPanel.presentingViewController)
+        XCTAssertEqual(confirmPanel.actions.map(\.title), ["cancel", "ok"])
+        panels.answer(accepted: false)
+        let declined = try await confirmed.value
+        XCTAssertEqual(declined, false)
+
+        let accepted = Task { try await journal.webView.evaluateJavaScript("confirm('unpair this device?')") as? Bool }
+        _ = try await self.waitForOpenPanel(panels)
+        panels.answer(accepted: true)
+        let acceptedValue = try await accepted.value
+        XCTAssertEqual(acceptedValue, true)
+
+        let renamed = Task { try await journal.webView.evaluateJavaScript("prompt('rename this key', 'old name')") as? String }
+        let promptPanel = try await self.waitForOpenPanel(panels)
+        XCTAssertEqual(promptPanel.message, "rename this key")
+        XCTAssertEqual(promptPanel.textFields?.first?.text, "old name")
+        promptPanel.textFields?.first?.text = "laptop"
+        panels.answer(accepted: true)
+        let newName = try await renamed.value
+        XCTAssertEqual(newName, "laptop")
+    }
+
+    func testAPanelOpenWhenThePaneClosesAnswersCancel() async throws {
+        let fixture = try LoopbackJournalFixture()
+        let port = try await fixture.start()
+        defer { fixture.stop() }
+        let journal = try await self.makeJournal(port: port, recorder: RuntimeJournalRecorder())
+        defer { journal.teardown() }
+
+        let confirmed = Task { try await journal.webView.evaluateJavaScript("confirm('unpair this device?')") as? Bool }
+        _ = try await self.waitForOpenPanel(journal.coordinator.panels)
+        journal.coordinator.teardown()
+        let answer = try await confirmed.value
+        XCTAssertEqual(answer, false)
+        XCTAssertNil(journal.coordinator.panels.openAlert)
+    }
+
+    private func waitForOpenPanel(_ panels: JournalWebPanels) async throws -> UIAlertController {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(5))
+        while clock.now < deadline {
+            if let alert = panels.openAlert { return alert }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return try XCTUnwrap(panels.openAlert, "no panel opened")
+    }
+
     private func makeJournal(
         port: UInt16,
         recorder: RuntimeJournalRecorder,
@@ -325,8 +383,10 @@ final class JournalWKWebViewRuntimeTests: XCTestCase {
         webView.navigationDelegate = coordinator
         webView.uiDelegate = coordinator
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let root = UIViewController()
+        window.rootViewController = root
         webView.frame = window.bounds
-        window.addSubview(webView)
+        root.view.addSubview(webView)
         window.makeKeyAndVisible()
         coordinator.observeForeground(of: webView)
         coordinator.requestLoad(

@@ -69,6 +69,7 @@ struct JournalWebView: UIViewRepresentable {
         }
 
         private let opener: JournalWebActivationRouter.Opener
+        let panels = JournalWebPanels()
 
         /// Every programmatic load first sets the loopback capability cookie in
         /// this web view's store and waits for it, so the load and every request
@@ -121,6 +122,7 @@ struct JournalWebView: UIViewRepresentable {
                 self.foregroundObserver = nil
             }
             self.isTornDown = true
+            self.panels.teardown()
             self.activationRouter?.teardown()
             self.activationRouter = nil
             self.session?.teardown()
@@ -226,6 +228,36 @@ struct JournalWebView: UIViewRepresentable {
             MainActor.assumeIsolated {
                 guard !self.isTornDown, let router = self.activationRouter else { return nil }
                 return router.handleNewWindow(request: navigationAction.request)
+            }
+        }
+
+        nonisolated func webView(
+            _ webView: WKWebView,
+            runJavaScriptAlertPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo
+        ) async {
+            _ = await self.panels.present(.alert, message: message, over: webView)
+        }
+
+        nonisolated func webView(
+            _ webView: WKWebView,
+            runJavaScriptConfirmPanelWithMessage message: String,
+            initiatedByFrame frame: WKFrameInfo
+        ) async -> Bool {
+            await self.panels.present(.confirm, message: message, over: webView) != .cancelled
+        }
+
+        nonisolated func webView(
+            _ webView: WKWebView,
+            runJavaScriptTextInputPanelWithPrompt prompt: String,
+            defaultText: String?,
+            initiatedByFrame frame: WKFrameInfo
+        ) async -> String? {
+            switch await self.panels.present(.prompt(defaultText: defaultText), message: prompt, over: webView) {
+            case .accepted(let text):
+                text ?? ""
+            case .cancelled:
+                nil
             }
         }
 
