@@ -601,7 +601,7 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
     @discardableResult
     fileprivate func appendSeenLog(_ log: SourceIntakeSeenLog, keys: [String], after length: Int) throws -> Int {
         let url = self.seenLogURL(log)
-        let fd = Darwin.open(url.path, Darwin.O_WRONLY | Darwin.O_CREAT, 0o644)
+        let fd = Darwin.open(url.path, Darwin.O_WRONLY | Darwin.O_CREAT | Darwin.O_NOFOLLOW, 0o644)
         guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
         defer { Darwin.close(fd) }
         guard Darwin.ftruncate(fd, off_t(length)) == 0, Darwin.lseek(fd, off_t(length), Darwin.SEEK_SET) >= 0 else {
@@ -629,6 +629,15 @@ nonisolated final class SourceIntakeStore: @unchecked Sendable {
         values.isExcludedFromBackup = true
         try? logURL.setResourceValues(values)
         return length + bytes.count
+    }
+
+    fileprivate func syncSeenLog(_ log: SourceIntakeSeenLog) throws {
+        let fd = Darwin.open(self.seenLogURL(log).path, Darwin.O_RDONLY | Darwin.O_NOFOLLOW)
+        guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+        defer { Darwin.close(fd) }
+        if Darwin.fcntl(fd, F_FULLFSYNC) != 0, Darwin.fsync(fd) != 0 {
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
 
     /// A line holds one key, so a backslash, newline or carriage return in a key is escaped.
@@ -1022,6 +1031,10 @@ nonisolated private extension SourceIntakeStore {
                     if !fresh.isEmpty {
                         self.logged[log] = nil
                         length = try self.store.appendSeenLog(log, keys: fresh, after: current.length)
+                    } else if length > 0 {
+                        // Lines an earlier pass wrote may never have reached storage if its
+                        // sync failed, so sync them before the file stops holding these keys.
+                        try self.store.syncSeenLog(log)
                     }
                     self.logged[log] = (current.keys.union(adding), length)
                     file.setTail(log, [])
