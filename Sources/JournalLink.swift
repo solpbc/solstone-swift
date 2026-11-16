@@ -15,9 +15,12 @@ nonisolated enum JournalLink {
             && url.host?.lowercased() == "go.solstone.app" && url.path == "/j"
         let isAppLink = url.scheme?.lowercased() == "solstone" && url.host?.lowercased() == "open"
         guard isWebLink || isAppLink else { return nil }
+        // A query on the web link carries nothing of ours (chat apps append their own),
+        // so it is ignored. Some browsers hand the app link over as `solstone://open/#…`.
         guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              parts.user == nil, parts.password == nil, parts.port == nil, parts.query == nil,
-              parts.percentEncodedPath == (isWebLink ? "/j" : ""),
+              parts.user == nil, parts.password == nil, parts.port == nil,
+              isWebLink || parts.query == nil,
+              isWebLink ? parts.percentEncodedPath == "/j" : ["", "/"].contains(parts.percentEncodedPath),
               let target = parts.percentEncodedFragment,
               self.isValidTarget(target)
         else { return .invalid }
