@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.13 (161)] - 2026-11-15
+
 ### Fixed
 
 - on iphone and ipad, when your journal asks you to confirm something, like unpairing a device or redoing a day from scratch, the solstone app now shows you the question. before, it answered every one as if you'd pressed cancel, so nothing happened.
