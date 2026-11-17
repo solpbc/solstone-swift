@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.13 (162)] - 2026-11-16
+
 ### Fixed
 
 - on iphone and ipad, a journal link you open from ChatGPT or Microsoft Edge now takes you to that place in your journal. before, the app opened but stayed where it was.
