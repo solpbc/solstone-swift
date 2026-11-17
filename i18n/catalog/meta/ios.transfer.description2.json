@@ -1,0 +1,16 @@
+{
+  "description": "transfer engine unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "f18ad0278070c08971fa5857214be822e12e5e724dd8d75e8bb5bba14963b0b4",
+  "risk": "routine",
+  "auto_merge": true
+}

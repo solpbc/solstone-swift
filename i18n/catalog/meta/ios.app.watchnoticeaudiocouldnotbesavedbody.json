@@ -1,0 +1,16 @@
+{
+  "description": "open the solstone app on your watch before your next moment.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 60,
+  "source_revision": "b74619b35bcb9e6c5dc17311bab5e8250274de8d43aefd655ab07f37dad3f855",
+  "risk": "routine",
+  "auto_merge": true
+}

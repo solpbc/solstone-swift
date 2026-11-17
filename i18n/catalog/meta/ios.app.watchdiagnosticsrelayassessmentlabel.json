@@ -1,0 +1,16 @@
+{
+  "description": "relay assessment",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "ea987a9cc47d209aeea664a9c03aebcbb753040730181da5771dcb058ffa8ab9",
+  "risk": "routine",
+  "auto_merge": true
+}

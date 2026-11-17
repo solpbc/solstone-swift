@@ -1,0 +1,21 @@
+{
+  "description": "source={path} reason=ensure-root failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "c875ee4a4167a83b3f5f5136e98347d72108f7ddf8dc5d1f9b65d702eb9a0883",
+  "risk": "routine",
+  "auto_merge": true
+}

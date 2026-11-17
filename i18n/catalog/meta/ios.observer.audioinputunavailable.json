@@ -1,0 +1,16 @@
+{
+  "description": "audio input unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "f8d5abc24a6c418d1e3d6ae5772e9b4f030095d72abc6b600b724127003faf5e",
+  "risk": "routine",
+  "auto_merge": true
+}

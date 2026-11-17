@@ -1,0 +1,16 @@
+{
+  "description": "open the solstone app on your watch and keep it near this device so they can come over again.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 93,
+  "source_revision": "fcc267b0608c39e9bd032ee43c36e40c3987f2c61ecf0f252837e6b3739654b3",
+  "risk": "routine",
+  "auto_merge": true
+}

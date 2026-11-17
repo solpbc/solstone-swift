@@ -1,0 +1,21 @@
+{
+  "description": "ledger {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "fce4979b29b956e008c0b12bce11b0a93d992249cbef2b047d10b89eb1dab65b",
+  "risk": "routine",
+  "auto_merge": true
+}

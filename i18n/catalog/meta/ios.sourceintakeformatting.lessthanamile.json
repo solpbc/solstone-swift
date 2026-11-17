@@ -1,0 +1,16 @@
+{
+  "description": "less than a mile",
+  "context": "Shown by Sources/SourceIntake/SourceIntakeFormatting.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "dd91957a92dd8faa586b50ccb2a4843ce9a3bff213534d7fc8609ec131b2f6b8",
+  "risk": "routine",
+  "auto_merge": true
+}

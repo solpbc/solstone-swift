@@ -41,7 +41,7 @@ enum PhoneAboutBlock {
         let arch = ""
         #endif
         return AboutBlock.line(
-            name: "ios app",
+            name: AppStrings.ios_services_iosappline(),
             version: AppVersion.shortVersion,
             build: AppVersion.build,
             os: idiom.platform,
@@ -52,10 +52,10 @@ enum PhoneAboutBlock {
 
     static func watchLine(facts: WatchAboutFacts) -> String {
         AboutBlock.line(
-            name: "watch app",
+            name: AppStrings.ios_services_watchapp(),
             version: facts.marketingVersion ?? "",
             build: facts.build ?? "",
-            os: "watchos",
+            os: AppStrings.ios_services_watchline(),
             osVersion: facts.osVersion ?? ""
         )
     }
@@ -63,7 +63,7 @@ enum PhoneAboutBlock {
     static func journalLine(metadata: JournalVersionMetadata, now: Date = Date()) -> String {
         let hasHostFacts = metadata.hostFactsAcceptedAt != nil
         return AboutBlock.line(
-            name: "journal",
+            name: AppStrings.ios_services_journalline(), isJournal: true,
             version: metadata.version ?? "",
             build: hasHostFacts ? metadata.journalBuild ?? "" : "",
             os: hasHostFacts ? metadata.journalOS ?? "" : "",

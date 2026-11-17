@@ -1,0 +1,16 @@
+{
+  "description": "tap to keep it going. otherwise it wraps up on its own.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 55,
+  "source_revision": "96247f72c52efc4dc2229011d307faf5971ba5a6d479950ebf5a5603973107f5",
+  "risk": "routine",
+  "auto_merge": true
+}

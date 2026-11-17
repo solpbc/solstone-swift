@@ -213,9 +213,7 @@ private extension WatchSteadyVerdictReducer {
         presenceLine: String?,
         todayLine: String?
     ) -> String {
-        [headline, sentence, nextStep, presenceLine, todayLine]
-            .compactMap { $0 }
-            .joined(separator: ", ")
+        AppStrings.joinedComma([headline, sentence, nextStep, presenceLine, todayLine].compactMap { $0 })
     }
 
     nonisolated static func elapsedMinutes(startedAt: Date?, now: Date) -> Int? {

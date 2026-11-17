@@ -1,0 +1,16 @@
+{
+  "description": "queue reconciliation",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "ed28c7a7ea1c0d85b86d617452480cd774a07b5eb3aa9bc41767040c3544143f",
+  "risk": "routine",
+  "auto_merge": true
+}

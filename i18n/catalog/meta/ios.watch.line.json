@@ -1,0 +1,16 @@
+{
+  "description": "journal unknown",
+  "context": "the solstone app, speaking to the owner. the words stay. the code stops matching them. branch on the enum or the row id. Android counterpart: android.about.journal.unknown. Keep translations consistent. Mac counterpart: macos.version.journalunknown. Keep translations consistent.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "caaa00b4547d0856d52aa3735107d7f3ff6fef60404cd3b854f94e014fc2cb30",
+  "risk": "routine",
+  "auto_merge": true
+}

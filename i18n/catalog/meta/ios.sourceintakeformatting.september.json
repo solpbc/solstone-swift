@@ -1,0 +1,16 @@
+{
+  "description": "september",
+  "context": "Shown by Sources/SourceIntake/SourceIntakeFormatting.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "4ccdaaf7442e18911a372e33d38bdfd551ecda55bb3e9f0ebe4cbf7e5419522e",
+  "risk": "routine",
+  "auto_merge": true
+}

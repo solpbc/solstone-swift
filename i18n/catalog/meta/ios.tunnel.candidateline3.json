@@ -1,0 +1,37 @@
+{
+  "description": "candidate {ordinal}: {route} {phase} {milliseconds}ms{address}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "ordinal",
+      "type": "string"
+    },
+    {
+      "name": "route",
+      "type": "string"
+    },
+    {
+      "name": "phase",
+      "type": "string"
+    },
+    {
+      "name": "milliseconds",
+      "type": "string"
+    },
+    {
+      "name": "address",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 62,
+  "source_revision": "1a4e97170b9573945314fed58ba8e900ad0eda34efce92a9b237dde4a0faf52e",
+  "risk": "routine",
+  "auto_merge": true
+}

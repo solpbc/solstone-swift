@@ -1,0 +1,31 @@
+{
+  "description": "1 hour ago",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered. Mac counterpart: macos.browser.hoursago, macos.desktopshellmodel.hoursago.plural. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    },
+    {
+      "name": "value0",
+      "type": "string"
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 1000,
+  "source_revision": "b398a5ba5549f0371bd49a9ce8c43180dcb5ca50e8a227ae8bd7bd0c11968630",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

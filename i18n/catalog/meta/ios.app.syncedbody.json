@@ -1,0 +1,16 @@
+{
+  "description": "everything is in your journal",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.status.everything.journal. Keep translations consistent. Mac counterpart: macos.desktopstatuspane.everythingisinyour. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "7547fa32749a1ca8abaed25e12fa669821212adf3542037d65dee0488c4d86fc",
+  "risk": "routine",
+  "auto_merge": true
+}

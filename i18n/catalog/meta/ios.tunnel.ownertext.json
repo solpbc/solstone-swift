@@ -1,0 +1,16 @@
+{
+  "description": "answered, but couldn't prove it's your journal",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "c8a60e2fa183971a573c2ab219af82defc6171dcbcb974e37f1fcc4f12af8928",
+  "risk": "routine",
+  "auto_merge": true
+}

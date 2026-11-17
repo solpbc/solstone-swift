@@ -1,0 +1,16 @@
+{
+  "description": "on.",
+  "context": "Shown by Sources/SourceVocabulary.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "8083d7aacac8245e8cba0ff98fc9c2fd5fc5841f6c413973f40b4d5631aeae98",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "pending journal handoff",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "a082ee01dd2418204554f6cd004ebaf1a6efecb43779980c006db3f9e96713a1",
+  "risk": "routine",
+  "auto_merge": true
+}

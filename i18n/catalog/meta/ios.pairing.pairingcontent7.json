@@ -1,0 +1,16 @@
+{
+  "description": "scan",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 4,
+  "source_revision": "49cfd92e13e9be8a82ac16c22d211e2b7b0533f86c87acc323f0e363674e6ec1",
+  "risk": "routine",
+  "auto_merge": true
+}

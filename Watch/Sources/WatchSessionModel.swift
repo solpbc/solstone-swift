@@ -85,7 +85,7 @@ private extension WatchSessionModel {
 
     func handleReachabilityChanged(_ isReachable: Bool) {
         self.isReachable = isReachable
-        let detail = isReachable ? "reachable" : "not reachable"
+        let detail = isReachable ? "reachable" : AppStrings.ios_app_notreachable()
         watchAppLog.info("watch app: reachability \(detail, privacy: .public)")
         if isReachable {
             requestJournalVersion()

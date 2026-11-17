@@ -1,0 +1,16 @@
+{
+  "description": "toggle deck",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "a52562b42977d8fb239ef8bbdc06dcab8341c5f3bccfd2daaae077e5326b1f59",
+  "risk": "routine",
+  "auto_merge": true
+}

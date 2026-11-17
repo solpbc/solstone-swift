@@ -81,11 +81,11 @@ struct LicensesPane: View {
             }
         }
         .accessibilityIdentifier("shell.pane.licenses.text")
-        .navigationTitle(Text("about.licenses"))
+        .navigationTitle(Text(AppStrings.ios_licensespane_aboutlicenses()))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("about.licenses")
+                Text(AppStrings.ios_licensespane_aboutlicenses())
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("shell.pane.licenses.heading")
                     .accessibilityFocused(self.$headingFocused)

@@ -1,0 +1,16 @@
+{
+  "description": "gap before discovery",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "7ca1daa857c7c854f63b431b882359b7b845e93f17aca843aacb214e7c8537c7",
+  "risk": "routine",
+  "auto_merge": true
+}

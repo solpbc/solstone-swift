@@ -1,0 +1,16 @@
+{
+  "description": "less than a kilometer",
+  "context": "Shown by Sources/SourceIntake/SourceIntakeFormatting.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "804655854cb4add0e3dee6846042c2195db129ebf421ffbe2919dc47cf99558b",
+  "risk": "routine",
+  "auto_merge": true
+}

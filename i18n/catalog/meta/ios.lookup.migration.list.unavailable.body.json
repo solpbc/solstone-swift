@@ -1,0 +1,16 @@
+{
+  "description": "couldn't load the devices in your journal. try again when your journal is reachable.",
+  "context": "Existing native lookup migration.list_unavailable.body. Mac counterpart: macos.desktop.shared.copy.listunavailablebody. Keep translations consistent. Android counterpart: android.migration.couldn.t.load.devices.journal. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "2a3800fb50f60a0db4b2afe5b63ce682c6c9ee78e38d5d84eecb123ebae12da6",
+  "risk": "routine",
+  "auto_merge": true
+}

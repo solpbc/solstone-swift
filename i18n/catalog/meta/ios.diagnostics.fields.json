@@ -1,0 +1,21 @@
+{
+  "description": "refused {hole1} ago",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "38742f334d785ac717182a5158c1f7938ca1548c90427c3e648d02fbeba19965",
+  "risk": "routine",
+  "auto_merge": true
+}

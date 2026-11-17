@@ -1,0 +1,16 @@
+{
+  "description": "audio source did not finalize",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "c0166d745d042ef480506efba2d3f942d9817d4e380c78fc38d3eef5d240a8c5",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,23 @@
+{
+  "description": "  segment name repairs:",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 36,
+  "source_revision": "c8c78b3d007946b364f93cda87dfb5d1399976661eb7c3a3ffcd7f44cedbf3df",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "whitespace1",
+      "kind": "whitespace",
+      "value": "  "
+    }
+  ]
+}

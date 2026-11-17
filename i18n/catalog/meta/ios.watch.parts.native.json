@@ -1,0 +1,28 @@
+{
+  "description": "count {fact.count}",
+  "context": "Shown by Sources/WatchCapture/WatchPipelineReducer.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "072bbd0e00be8f68b1b8ef8676cc658f54e3c8d8bc8c4b004bb27c2bf3c5a43a",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

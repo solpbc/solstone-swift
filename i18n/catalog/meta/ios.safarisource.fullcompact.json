@@ -1,0 +1,16 @@
+{
+  "description": "out of storage.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "c35a79821bd0c722daf4f54fb29b9ebb52ea876b5077395c9d12f055f602eefe",
+  "risk": "routine",
+  "auto_merge": true
+}

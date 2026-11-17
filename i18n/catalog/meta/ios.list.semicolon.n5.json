@@ -1,0 +1,37 @@
+{
+  "description": "{ $value0 }; { $value1 }; { $value2 }; { $value3 }; { $value4 }",
+  "context": "Complete ordered list frame used by accessibility and diagnostics. Each named value is a complete localized clause or a raw diagnostic value. Keep every argument; the translator owns separators and argument order.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    },
+    {
+      "name": "value2",
+      "type": "string"
+    },
+    {
+      "name": "value3",
+      "type": "string"
+    },
+    {
+      "name": "value4",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "313689b5004378ac96ff6285a13a3447ae2c639bb784d1423555eac5beceecb9",
+  "risk": "routine",
+  "auto_merge": true
+}

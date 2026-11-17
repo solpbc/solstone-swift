@@ -1,0 +1,16 @@
+{
+  "description": "segments are on this device and waiting to reach your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 62,
+  "source_revision": "732ed1704cf3acb23ad2d608e28de1d0a9802adf4419768d352e0d5ee0dfb8a0",
+  "risk": "routine",
+  "auto_merge": true
+}

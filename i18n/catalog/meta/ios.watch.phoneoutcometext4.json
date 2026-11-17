@@ -1,0 +1,16 @@
+{
+  "description": "terminal-dropped / Watch retention-cleanup lag",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "567dba62bae495988b4d7b5a9899d04fca6cb56bc3162e35277bec32c409658d",
+  "risk": "routine",
+  "auto_merge": true
+}

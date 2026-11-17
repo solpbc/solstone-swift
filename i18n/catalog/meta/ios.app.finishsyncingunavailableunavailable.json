@@ -1,0 +1,16 @@
+{
+  "description": "background syncing isn't available right now.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 45,
+  "source_revision": "30888480e77d612a7173b26ba8b02b95475b91eabbbe7ea2b55e20a567ed6424",
+  "risk": "routine",
+  "auto_merge": true
+}

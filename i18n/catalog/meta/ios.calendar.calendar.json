@@ -1,0 +1,16 @@
+{
+  "description": "calendar",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.phone.calendar. Keep translations consistent.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 8,
+  "source_revision": "46279d07211cdbfd7e59a85995475e727014d52d4e072b2d5a20b2e75aa21665",
+  "risk": "routine",
+  "auto_merge": true
+}

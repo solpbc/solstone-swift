@@ -1,0 +1,21 @@
+{
+  "description": "id {rawValue}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "rawValue",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "9926fbdc24ae8cde4dc6a9206fbf44bbafec8b2c398a384dbe815db3e26e5f1f",
+  "risk": "routine",
+  "auto_merge": true
+}

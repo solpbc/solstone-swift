@@ -1,0 +1,16 @@
+{
+  "description": "matched",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "37cd8b7367b77d1c603359ccdefd748e967b209ed95bbc9a50cbca7a2743c7c5",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -78,7 +78,7 @@ extension ShareImportStore {
         do {
             try self.ensureRootDirectories()
         } catch {
-            Self.emit(diagnosticLog, detail: "source=\(self.cacheRootURL.path) reason=ensure-root failed")
+            Self.emit(diagnosticLog, detail: AppStrings.ios_transfer_sourcereasonensurerootfailed("\(self.cacheRootURL.path)"))
             return 1
         }
 
@@ -86,7 +86,7 @@ extension ShareImportStore {
         do {
             ledger = try self.loadLedger()
         } catch {
-            let detail = "source=\(self.ledgerURL().path) reason=ledger unreadable error=\(String(describing: error))"
+            let detail = AppStrings.ios_share_detail2("\(self.ledgerURL().path)", "\(String(describing: error))")
             Self.emit(diagnosticLog, detail: detail)
             shareImportTransferLog.error("share import adoption aborted ledger unreadable source=\(self.ledgerURL().path, privacy: .public): \(String(describing: error), privacy: .public)")
             return 1
@@ -126,7 +126,7 @@ extension ShareImportStore {
         do {
             directories = try self.itemDirectories(status: status)
         } catch {
-            Self.emit(diagnosticLog, detail: "source=\(self.directoryURL(status: status).path) reason=list failed")
+            Self.emit(diagnosticLog, detail: AppStrings.ios_transfer_sourcereasonlistfailed("\(self.directoryURL(status: status).path)"))
             return 1
         }
 
@@ -145,7 +145,7 @@ extension ShareImportStore {
                     directory,
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
-                    reason: "invalid item id",
+                    reason: AppStrings.ios_share_adopt(),
                     fileManager: self.fileManager
                 )
                 if quarantined == 0 {
@@ -190,7 +190,7 @@ extension ShareImportStore {
                 try self.fileManager.removeItem(at: directory)
             } catch {
                 unresolved += 1
-                Self.emit(diagnosticLog, detail: "source=\(directory.path) reason=adoption failed")
+                Self.emit(diagnosticLog, detail: AppStrings.ios_share_adopt2("\(directory.path)"))
                 shareImportTransferLog.error("share import adoption failed source=\(directory.path, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         }
@@ -325,17 +325,17 @@ extension ShareImportStore {
             let destination = quarantineRootURL
                 .appendingPathComponent("\(UUID().uuidString)-\(sourceURL.lastPathComponent)", isDirectory: true)
             try fileManager.moveItem(at: sourceURL, to: destination)
-            self.emit(diagnosticLog, detail: "source=\(sourceURL.path) quarantine=\(destination.path) reason=\(reason)")
+            self.emit(diagnosticLog, detail: AppStrings.ios_transfer_sourcequarantinereason_native("\(sourceURL.path)", "\(destination.path)", "\(reason)"))
             return 1
         } catch {
-            self.emit(diagnosticLog, detail: "source=\(sourceURL.path) reason=quarantine failed")
+            self.emit(diagnosticLog, detail: AppStrings.ios_transfer_sourcereasonquarantinefailed("\(sourceURL.path)"))
             shareImportTransferLog.error("share import quarantine failed source=\(sourceURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
             return 0
         }
     }
 
     static func emit(_ diagnosticLog: DiagnosticLog?, detail: String) {
-        diagnosticLog?.append(category: .upload, severity: .warning, message: "needs attention", detail: detail)
+        diagnosticLog?.append(category: .upload, severity: .warning, message: AppStrings.ios_presentation_shareimporttransferadoption_n48(), detail: detail)
     }
 }
 

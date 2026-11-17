@@ -1,0 +1,16 @@
+{
+  "description": "screen video could not be stored",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "bc649fc3f2d7f2cb92b8eb57b6c3ae95dee6efdabf8fb5cb87a9fc46be2d20c0",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Resumes location updates to your journal.",
+  "context": "Shown by Sources/Location/LocationSourceDetailView.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "4307fcc606957fffc1d3fa8ae7e0b5effb38b8cb7164f664698ceb4721badc93",
+  "risk": "routine",
+  "auto_merge": true
+}

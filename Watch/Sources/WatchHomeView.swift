@@ -151,14 +151,14 @@ private extension WatchHomeView {
                     self.smallLine(trustLine)
                 }
                 self.smallLine(AboutBlock.line(
-                    name: "watch app",
+                    name: AppStrings.ios_services_watchapp(),
                     version: AppVersion.shortVersion,
                     build: AppVersion.build,
-                    os: "watchos",
+                    os: AppStrings.ios_services_watchline(),
                     osVersion: WKInterfaceDevice.current().systemVersion
                 ))
                 self.smallLine(AboutBlock.line(
-                    name: "journal",
+                    name: AppStrings.ios_services_journalline(), isJournal: true,
                     version: self.model.journalVersion.version ?? "",
                     build: self.model.journalVersion.journalBuild ?? "",
                     os: self.model.journalVersion.journalOS ?? "",
@@ -212,7 +212,7 @@ private extension WatchHomeView {
     func headerAccessibilityLabel(hero: WatchHomeHero, face: WatchFaceModel) -> String {
         if hero.elapsedDisplay != nil, let start = self.captureModel.presentation.sessionStartedAt {
             let elapsed = max(0, Int(Date().timeIntervalSince(start)))
-            return "\(SourceVocabulary.watchPanelRunning), \(watchElapsedSpoken(seconds: elapsed))"
+            return AppStrings.ios_presentation_watchhomeview_n8("\(SourceVocabulary.watchPanelRunning)", "\(watchElapsedSpoken(seconds: elapsed))")
         }
         return hero.title
     }
@@ -234,7 +234,7 @@ private extension WatchHomeView {
     }
 
     var controlHint: String {
-        self.captureModel.isRunning ? "turns the solstone app off" : "turns the solstone app on"
+        self.captureModel.isRunning ? AppStrings.ios_watch_controlhint_native() : AppStrings.ios_watchhomeview_turnsthesolstoneappon()
     }
 
     /// The one control, in the bottom bar: prominent glass tinted orange to start, plain glass to stop.

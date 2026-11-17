@@ -1,0 +1,25 @@
+{
+  "description": "source={self_ledgerURL_path} reason=ledger unreadable error={String_describing_error}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "self_ledgerURL_path",
+      "type": "string"
+    },
+    {
+      "name": "String_describing_error",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 85,
+  "source_revision": "c76fa23b874fa4a2e3f979b7f08f08443378e315f26e2024261850e4693251c5",
+  "risk": "routine",
+  "auto_merge": true
+}

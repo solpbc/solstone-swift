@@ -1,0 +1,16 @@
+{
+  "description": "filter and actions",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "42d0257754e79d3b95656cb7ba0c67097d30f8b258335673ecd3af6c698c9e90",
+  "risk": "routine",
+  "auto_merge": true
+}

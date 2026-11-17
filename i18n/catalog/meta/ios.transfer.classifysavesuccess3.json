@@ -1,0 +1,16 @@
+{
+  "description": "unknown recommended action",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 26,
+  "source_revision": "b89760a30dfbc42384010e254a85e3241da9b95d7a9b83674e0fd1ebbf39fa27",
+  "risk": "routine",
+  "auto_merge": true
+}

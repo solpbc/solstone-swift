@@ -1,0 +1,16 @@
+{
+  "description": "unknown attempt persistence failure",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "4f901c385598b52124824561d1755c03373316d1a827acbbebc776d3140c67dc",
+  "risk": "routine",
+  "auto_merge": true
+}

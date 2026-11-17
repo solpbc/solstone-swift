@@ -1,0 +1,16 @@
+{
+  "description": "ios lets the solstone app check your calendar only while it runs, so a change can take a while to reach your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 117,
+  "source_revision": "9d4e0ab5b9ef75fce194cf0de7119ae9943059ff9432f59c5c4d527d57e23835",
+  "risk": "routine",
+  "auto_merge": true
+}

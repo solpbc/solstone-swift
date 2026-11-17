@@ -1,0 +1,16 @@
+{
+  "description": "pick a source and see its state.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "109fc8ce389f3308566ee29a18812b72f9a1e1c24d7faec750c2a5adf8a12515",
+  "risk": "routine",
+  "auto_merge": true
+}

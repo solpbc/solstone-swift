@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app takes in only your screenshots and adds them to your journal. other photos stay where they are.",
+  "context": "Bundle metadata for solstone-swift: NSPhotoLibraryUsageDescription. Permission wording requires review before translation. Wording requires review before translation.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "f376c4b8df17852e06f8bb63eecab00d992bfba55956fa35e1c11438265a3626",
+  "risk": "consent",
+  "auto_merge": false
+}

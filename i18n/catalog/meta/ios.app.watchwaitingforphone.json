@@ -1,0 +1,16 @@
+{
+  "description": "waiting for your iphone",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "58d4908bcb0fc8283f21d624700b17d07e8ab4b43aa11f0f5f2579bc4372618a",
+  "risk": "routine",
+  "auto_merge": true
+}

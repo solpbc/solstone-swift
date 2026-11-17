@@ -1,0 +1,16 @@
+{
+  "description": "some of what you shared didn't reach it.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.gap.some.what.shared.didn.t. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 40,
+  "source_revision": "167784df66cb21ead102fedae98f03921c8d1385549dcd9e2cc6b414c1f7c659",
+  "risk": "routine",
+  "auto_merge": true
+}

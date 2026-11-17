@@ -3010,7 +3010,7 @@ nonisolated final class TransferTests: XCTestCase {
         )
         XCTAssertEqual(
             omitted,
-            "  watch stuck: http_client_error, reason_code=envelope_invalid (42s ago, 1 item(s))"
+            "  watch stuck: http_client_error, reason_code=envelope_invalid (42s ago, 1 item)"
         )
         XCTAssertFalse(omitted.contains("retried"))
 
@@ -3024,7 +3024,7 @@ nonisolated final class TransferTests: XCTestCase {
         )
         XCTAssertEqual(
             included,
-            "  watch stuck: http_client_error, reason_code=envelope_invalid (42s ago, 2 item(s)), retried 2x, last retry 10s ago"
+            "  watch stuck: http_client_error, reason_code=envelope_invalid (42s ago, 2 items), retried 2x, last retry 10s ago"
         )
     }
 

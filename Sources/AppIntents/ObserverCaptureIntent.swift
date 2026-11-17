@@ -30,13 +30,13 @@ enum ObserverCaptureControlStatus: Equatable, Sendable {
     var text: String {
         switch self {
         case .unknownState:
-            "open the solstone app"
+            AppStrings.ios_intents_text3()
         case .journalRequired:
-            "connect a journal"
+            AppStrings.ios_intents_connectajournal()
         case .permissionUndetermined:
-            "allow microphone access"
+            AppStrings.ios_intents_text()
         case .permissionDenied:
-            "allow microphone in ios settings"
+            AppStrings.ios_intents_text2()
         }
     }
 }
@@ -113,10 +113,10 @@ enum ObserverCaptureControlMirrorWriter {
 private let observerCaptureIntentLog = Logger(subsystem: "app.solstone.swift", category: "app-intents")
 
 struct ObserverCaptureIntent: AppIntent, SetValueIntent, AudioRecordingIntent, LiveActivityIntent {
-    static var title: LocalizedStringResource { "audio" }
+    static var title: LocalizedStringResource { LocalizedStringResource("m696f732e6170702e617564696f", table: "Localizable") }
     static var supportedModes: IntentModes { [.background, .foreground(.dynamic)] }
 
-    @Parameter(title: "on", default: false)
+    @Parameter(title: LocalizedStringResource("m696f732e6170702e6f6e", table: "Localizable"), default: false)
     var value: Bool
 
     @Dependency private var observerManager: any ObserverSessionControlling

@@ -1,0 +1,16 @@
+{
+  "description": "add more",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.setup.add.more. Keep translations consistent. Mac counterpart: macos.desktopshellviews.addmore. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 8,
+  "source_revision": "5efd614940b6e1be58e6e3fcee9bf6305a4f6b4f6b15d219f5c8d22edacd65d4",
+  "risk": "routine",
+  "auto_merge": true
+}

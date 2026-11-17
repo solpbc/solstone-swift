@@ -60,7 +60,7 @@ struct SourceRowView: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(self.source.displayName). \(self.source.voiceOverText)")
+        .accessibilityLabel(AppStrings.ios_frame_sourcerowview_n63("\(self.source.displayName)", "\(self.source.voiceOverText)"))
         .accessibilityIdentifier("source.row.\(self.source.id)")
         .accessibilityAction {
             self.onTap()

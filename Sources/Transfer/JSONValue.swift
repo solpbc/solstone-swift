@@ -31,7 +31,7 @@ nonisolated enum JSONValue: Codable, Equatable, Sendable {
             self = .int(value)
         } else if let value = try? container.decode(Double.self) {
             guard value.isFinite else {
-                throw DecodingError.dataCorruptedError(in: container, debugDescription: "non-finite double")
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: AppStrings.ios_transfer_init())
             }
             self = .double(value)
         } else if let value = try? container.decode(String.self) {
@@ -58,7 +58,7 @@ nonisolated enum JSONValue: Codable, Equatable, Sendable {
             guard value.isFinite else {
                 throw EncodingError.invalidValue(value, EncodingError.Context(
                     codingPath: encoder.codingPath,
-                    debugDescription: "non-finite double"
+                    debugDescription: AppStrings.ios_transfer_init()
                 ))
             }
             try container.encode(value)

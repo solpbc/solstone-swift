@@ -1,0 +1,16 @@
+{
+  "description": "enter a valid pairing link.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "a666bc1e53dcc924580aa630d7684a9522fd01f4a077fdfbe70eb4eb52ed4974",
+  "risk": "routine",
+  "auto_merge": true
+}

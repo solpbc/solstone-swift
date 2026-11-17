@@ -1,0 +1,16 @@
+{
+  "description": "journal addresses updated",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "cbdcf2cca29af80970534a5e42782348a18c25eaa42c1f666c6d7ffa902abc54",
+  "risk": "routine",
+  "auto_merge": true
+}

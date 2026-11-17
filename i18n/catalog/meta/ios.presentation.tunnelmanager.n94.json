@@ -1,0 +1,16 @@
+{
+  "description": "relay candidate waiting for home",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "f5ab90205c83e5763081c3bbfd142151c607c93a7171cc6e53f80dbffccffbbf",
+  "risk": "routine",
+  "auto_merge": true
+}

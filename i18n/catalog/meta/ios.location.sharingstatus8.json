@@ -1,0 +1,16 @@
+{
+  "description": "sharing location: while the solstone app is open · reduced precision",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 68,
+  "source_revision": "41e22122cd0cd5aaf31a72f7312679a70eb0ed19c827149cb011dc1afe047daf",
+  "risk": "routine",
+  "auto_merge": true
+}

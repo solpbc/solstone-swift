@@ -1,0 +1,21 @@
+{
+  "description": "couldn't save this — {plainReason}. nothing was added.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "plainReason",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 54,
+  "source_revision": "dcf8bc31f3f9103bb3b5fc9421062dcf420fd9bfded4dc5f0e88c2ee76a2f434",
+  "risk": "routine",
+  "auto_merge": true
+}

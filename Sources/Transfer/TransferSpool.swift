@@ -296,7 +296,7 @@ nonisolated struct TransferSpool: Sendable {
                 previousState: .held,
                 nextState: .held,
                 outcome: .needsAttention,
-                detail: "reason=owner conflict"
+                detail: AppStrings.ios_transfer_initialize()
             )
         })
         recoveryDiagnostics.append(contentsOf: stagedRecovery.diagnostics)
@@ -895,7 +895,7 @@ nonisolated struct TransferSpool: Sendable {
             do {
                 normalized = try self.normalizeObserverIngestManifest(manifest, in: url)
             } catch {
-                let detail = "v3 normalization failed: \(String(describing: error))"
+                let detail = AppStrings.ios_transfer_detail3("\(String(describing: error))")
                 transferSpoolLog.error(
                     "transfer staged normalization failed \(manifest.itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)"
                 )
@@ -1021,7 +1021,7 @@ nonisolated struct TransferSpool: Sendable {
             do {
                 _ = try self.normalizeObserverIngestManifest(manifest, in: url)
             } catch {
-                let detail = "v3 normalization failed: \(String(describing: error))"
+                let detail = AppStrings.ios_transfer_detail3("\(String(describing: error))")
                 if state == .queued {
                     _ = try self.moveQueuedItemToAttention(
                         item,

@@ -1,0 +1,29 @@
+{
+  "description": "schemeClass={schemeClass} port={port} generation={generation}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "portal"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "schemeClass",
+      "type": "string"
+    },
+    {
+      "name": "port",
+      "type": "string"
+    },
+    {
+      "name": "generation",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 61,
+  "source_revision": "5fa5f4805919a0b9db6948f1e1f15e8a14ab2a94d94d7bb8f91d28e39bb43f26",
+  "risk": "routine",
+  "auto_merge": true
+}

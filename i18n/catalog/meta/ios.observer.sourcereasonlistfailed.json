@@ -1,0 +1,21 @@
+{
+  "description": "source={path} reason=list failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "8a86fc6322438df818814d9290a30f9457d8f4fbc286ff88772dbe322d9053e4",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "reconnecting…",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "connection"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "4cf757de3e7a4d6f64f75da5c2c2f62f05bb64dbbbb99f308c2ce6edb626b99a",
+  "risk": "routine",
+  "auto_merge": true
+}

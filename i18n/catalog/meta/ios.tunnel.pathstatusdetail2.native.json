@@ -1,0 +1,16 @@
+{
+  "description": "satisfied",
+  "context": "Shown by Sources/Tunnel/TunnelManager.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "b0b8f4614a593636512d6e8c799e30f8a76beec298e062c416bcdcd9295ea8f6",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "from before today",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.screenshots.beforetoday. Keep translations consistent. Mac counterpart: macos.screenshot.frombeforetoday. Keep translations consistent.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "76c6b4ec1145483d287ac6ebbb6152bc87840fe035bd96719e14583b818cc958",
+  "risk": "routine",
+  "auto_merge": true
+}

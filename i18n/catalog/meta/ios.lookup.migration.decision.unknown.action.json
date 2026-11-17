@@ -1,0 +1,16 @@
+{
+  "description": "check again",
+  "context": "Existing native lookup migration.decision_unknown.action. Mac counterpart: macos.desktop.shared.copy.checkagain. Keep translations consistent. Android counterpart: android.migration.check.again. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "cc48a30e7622ebf74eeeb965c49777bb6f38856c9b0dc4b23387e672453db1d3",
+  "risk": "routine",
+  "auto_merge": true
+}

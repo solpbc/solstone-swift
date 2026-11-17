@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app syncs to your journal while it's open, and keeps going in the background for as long as ios allows. with location on, that lasts longer.",
+  "context": "Shown by Sources/SourceVocabulary+FinishSyncing.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "c470a30d4c1a1d2be27fdeede482afd1e26172c7f7c3b5a7c0b11b33bbfe58e0",
+  "risk": "routine",
+  "auto_merge": true
+}

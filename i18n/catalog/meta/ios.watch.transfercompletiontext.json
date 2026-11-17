@@ -1,0 +1,37 @@
+{
+  "description": "{hole1}; segment {uuidString}; succeeded {hole3}; success count {successCount}; failure count {failureCount}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    },
+    {
+      "name": "uuidString",
+      "type": "string"
+    },
+    {
+      "name": "hole3",
+      "type": "string"
+    },
+    {
+      "name": "successCount",
+      "type": "string"
+    },
+    {
+      "name": "failureCount",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 108,
+  "source_revision": "dc4ded6f68b7d3f8f7fbbacf64ae34bd66f1515c5ded407e96671b598508f77c",
+  "risk": "routine",
+  "auto_merge": true
+}

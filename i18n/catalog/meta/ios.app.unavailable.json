@@ -1,0 +1,16 @@
+{
+  "description": "unavailable",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.fallbackunavailable. Keep translations consistent. Mac counterpart: macos.diagnostics.unavailable, macos.journalmarkgeneric.unavailable. Keep translations consistent.",
+  "surfaces": [
+    "safaribrowser"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "d7d6eca0ae3dc604cbe3adf1139a4860a3314a82068e6f82289272ebbf93af1e",
+  "risk": "routine",
+  "auto_merge": true
+}

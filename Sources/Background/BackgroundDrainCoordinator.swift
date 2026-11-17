@@ -65,7 +65,7 @@ func resumeShareImports(
         diagnosticLog?.append(
             category: .upload,
             severity: .warning,
-            message: "needs attention",
+            message: AppStrings.ios_transfer_needsattention(),
             detail: "source=share reason=app-group unavailable"
         )
         return

@@ -21,7 +21,7 @@ nonisolated enum SourceIntakeRows {
         calendar: Calendar
     ) -> [SourceIntakeStatusRow] {
         var sources: [(SourceIntakeSource, String, ShellDestination)] = [
-            (.audio, "audio", .source(.audio)),
+            (.audio, AppStrings.ios_app_audio(), .source(.audio)),
             (.location, LocationVocabulary.sourceDisplayName, .source(.location)),
             (.screen, SourceVocabulary.screencastDisplayName, .source(.screencast)),
             (.calendar, SourceVocabulary.calendarTitle, .source(.calendar)),

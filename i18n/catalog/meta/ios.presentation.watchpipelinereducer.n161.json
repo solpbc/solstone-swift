@@ -1,0 +1,16 @@
+{
+  "description": "unparseable",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "d92ad9cd28247046865dbfc18fdcf6d3c5bed560cf077e83a7f379e48e12f732",
+  "risk": "routine",
+  "auto_merge": true
+}

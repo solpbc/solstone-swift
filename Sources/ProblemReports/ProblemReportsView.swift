@@ -167,7 +167,7 @@ struct ProblemReportsView: View {
         if let report = self.manager.reports.first {
             return report.kind.filenameSlug
         }
-        return self.manager.isEnabled ? "no recent problem report" : "on-device reports off"
+        return self.manager.isEnabled ? AppStrings.ios_problemreports_supportstate_native() : AppStrings.ios_problemreportsview_ondevicereportsoff()
     }
 }
 

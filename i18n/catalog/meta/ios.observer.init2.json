@@ -1,0 +1,16 @@
+{
+  "description": "missing files",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "32d21164ed8464bba095ecfa0d3533d8690a0302a96f3ed3df7708d97feeae36",
+  "risk": "routine",
+  "auto_merge": true
+}

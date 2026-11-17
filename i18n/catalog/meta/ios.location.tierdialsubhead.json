@@ -1,0 +1,16 @@
+{
+  "description": "your day, your call. you can change this any time.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 50,
+  "source_revision": "2ed2be91842744512d5881fb896bcd7d69c8cbe45d5e0a5ed99c28e21f3d5fa8",
+  "risk": "routine",
+  "auto_merge": true
+}

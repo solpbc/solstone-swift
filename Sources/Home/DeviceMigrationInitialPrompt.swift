@@ -22,7 +22,7 @@ struct DeviceMigrationInitialPrompt: ViewModifier {
                 if phase == .active { self.presentIfNeeded() }
             }
             .confirmationDialog(
-                self.isMigration ? Text("migration.choice.title") : Text("migration.replace_offer.title"),
+                self.isMigration ? Text(AppStrings.ios_home_migrationchoicetitle()) : Text(AppStrings.ios_home_migrationreplaceoffertitle()),
                 isPresented: Binding(
                     get: { self.presentation != nil },
                     set: { if !$0 { self.presentation = nil } }
@@ -30,30 +30,30 @@ struct DeviceMigrationInitialPrompt: ViewModifier {
                 titleVisibility: .visible
             ) {
                 if let context = self.presentation, self.isMigration {
-                    Button("migration.choice.same", role: .destructive) {
+                    Button(AppStrings.ios_home_migrationchoicesame(), role: .destructive) {
                         Task { await self.owner.submitMigrationChoice(.sameDevice, presentedContext: context) }
                     }
                     .accessibilityIdentifier("device.migration.initial.same")
-                    Button("migration.choice.new") {
+                    Button(AppStrings.ios_home_migrationchoicenew()) {
                         Task { await self.owner.submitMigrationChoice(.newDevice, presentedContext: context) }
                     }
                     .accessibilityIdentifier("device.migration.initial.new")
-                    Button("migration.choice.defer", role: .cancel) {}
+                    Button(AppStrings.ios_home_showingsamedeviceconfirmation(), role: .cancel) {}
                 } else if let context = self.presentation {
-                    Button("migration.replace_offer.pick") {
+                    Button(AppStrings.ios_home_migrationreplaceofferpick()) {
                         guard self.owner.freshPairOfferPresentation() == context else { return }
                         self.navigation.selectFromDeck(.shelfThisDevice)
                     }
-                    Button("migration.replace_offer.keep") {
+                    Button(AppStrings.ios_home_showingfreshpairoffer()) {
                         self.owner.keepBothFromFreshPairOffer(presentedContext: context)
                     }
-                    Button("migration.replace_offer.defer", role: .cancel) {}
+                    Button(AppStrings.ios_home_migrationreplaceofferdefer(), role: .cancel) {}
                 }
             } message: {
                 if self.isMigration {
-                    Text("migration.choice.body_fallback")
+                    Text(AppStrings.ios_home_migrationchoicebodyfallback())
                 } else {
-                    Text("migration.replace_offer.body")
+                    Text(AppStrings.ios_home_migrationreplaceofferbody())
                 }
             }
     }

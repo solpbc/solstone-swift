@@ -1,0 +1,16 @@
+{
+  "description": "Changes the detail level to what ios allows.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 44,
+  "source_revision": "4ee8e2a59f3cc2ef40d6e95cbdaabafee9832162de63d89b17be4aaf188c0175",
+  "risk": "routine",
+  "auto_merge": true
+}

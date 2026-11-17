@@ -1,0 +1,16 @@
+{
+  "description": "Shows what you've sent to your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "351817206df1a6c03540676d67326610ffbe819b795c3cc184d3120e8141aa1b",
+  "risk": "routine",
+  "auto_merge": true
+}

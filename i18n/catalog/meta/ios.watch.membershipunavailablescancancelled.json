@@ -1,0 +1,16 @@
+{
+  "description": "scan cancelled",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "a1901b2ec27197e7fb39b94cf4b75ea0665863f8f5e23bfb004afc79684e93d8",
+  "risk": "routine",
+  "auto_merge": true
+}

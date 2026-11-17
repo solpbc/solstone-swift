@@ -1,0 +1,29 @@
+{
+  "description": "schemeClass={schemeClass} hostPortMatch={hostPortMatch} generation={generation}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "portal"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "schemeClass",
+      "type": "string"
+    },
+    {
+      "name": "hostPortMatch",
+      "type": "string"
+    },
+    {
+      "name": "generation",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 79,
+  "source_revision": "2a6676d56cec2183c3048052494a9172dea173d6ed9241f3adfd66ed311afffa",
+  "risk": "routine",
+  "auto_merge": true
+}

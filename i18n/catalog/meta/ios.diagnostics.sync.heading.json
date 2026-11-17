@@ -1,0 +1,16 @@
+{
+  "description": "--- sync state by source ---",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "22c32fa7cae9867f8225b21cb376079e8ac01a283c12ca4ae2a71a6d2b2cd1ce",
+  "risk": "routine",
+  "auto_merge": true
+}

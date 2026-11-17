@@ -1,0 +1,21 @@
+{
+  "description": "attempt started {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "a70b97928d37d7356ad0e9fdef6e619081d0cf26c0df209d03ee852d919f3733",
+  "risk": "routine",
+  "auto_merge": true
+}

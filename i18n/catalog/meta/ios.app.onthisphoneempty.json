@@ -1,0 +1,16 @@
+{
+  "description": "nothing here yet. turn on a source and the solstone app takes in what you share with it, and it goes into your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 119,
+  "source_revision": "f87252c96a0869dda3f46e0abfbbe5c42ea2d38d5811aa8996c58353bfacfaf7",
+  "risk": "routine",
+  "auto_merge": true
+}

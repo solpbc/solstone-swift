@@ -1,0 +1,21 @@
+{
+  "description": "you chose { $tier }, but ios hasn't authorized that. your journal will show the gaps.",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "tier",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "cc48d29bb4f3527558d8dae1b17471979aac1504ef898fc6126141f885a4b309",
+  "risk": "routine",
+  "auto_merge": true
+}

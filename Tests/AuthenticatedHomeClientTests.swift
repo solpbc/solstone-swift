@@ -77,6 +77,26 @@ final class AuthenticatedHomeClientTests: XCTestCase {
         super.tearDown()
     }
 
+    func testEmptyAboutVersionKeepsFixedWireValue() async throws {
+        for version in ["", "v"] {
+            let data = try JSONSerialization.data(withJSONObject: [
+                "protocol_version": 1, "version": version, "os": "linux",
+                "os_version": "6.0", "arch": "x86_64", "about": "journal unknown",
+            ])
+            MockURLProtocol.requestHandler = { request in
+                XCTAssertEqual(request.url?.path, "/api/system/about")
+                return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+            }
+            let result = await self.makeTestClient().fetchAbout(localPort: 7071)
+            guard case .success(let facts) = result else {
+                XCTFail("empty About version lost its fixed wire value")
+                continue
+            }
+            XCTAssertEqual(facts.version, "")
+            XCTAssertEqual(facts.os, "linux")
+        }
+    }
+
     private static func extractBody(from request: URLRequest) -> Data? {
         if let data = request.httpBody { return data }
         guard let stream = request.httpBodyStream else { return nil }

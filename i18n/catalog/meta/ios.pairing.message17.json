@@ -1,0 +1,16 @@
+{
+  "description": "your journal isn't reachable from here. you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. ev",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 266,
+  "source_revision": "ae11fb0f6b5529d5a4ddaae412039983ed90e44351a21d820258b126325df647",
+  "risk": "routine",
+  "auto_merge": true
+}

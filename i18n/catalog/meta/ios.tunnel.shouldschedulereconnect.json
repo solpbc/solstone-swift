@@ -1,0 +1,25 @@
+{
+  "description": "consecutiveNotEntitled={consecutiveNotEntitled} limit={notEntitledAutoReconnectLimit}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "consecutiveNotEntitled",
+      "type": "string"
+    },
+    {
+      "name": "notEntitledAutoReconnectLimit",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 85,
+  "source_revision": "8bdc34022a4f54890f8bc9e55612d38889c0c7a05a18941ff0d2af086208252c",
+  "risk": "routine",
+  "auto_merge": true
+}

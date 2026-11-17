@@ -1,0 +1,21 @@
+{
+  "description": "source={path} reason=quarantine failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 38,
+  "source_revision": "d17dcfce8c9091d6abf5f772b30905b3f86eb0c3f04ec754a4ce3c58f4bdc3ef",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "invalid endpoint",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "6106615882d825b5cd3bcbe854daa3172d0fdd64a748689326ca81fb0613f584",
+  "risk": "routine",
+  "auto_merge": true
+}

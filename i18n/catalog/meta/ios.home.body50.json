@@ -1,0 +1,16 @@
+{
+  "description": "off until you turn it on. your journal encrypts each notification to this device's own key.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 91,
+  "source_revision": "2e7ce519770b1fdb8b2b5c1d68b9baeee1813a85d32c8350bd1ef514c47fb310",
+  "risk": "routine",
+  "auto_merge": true
+}

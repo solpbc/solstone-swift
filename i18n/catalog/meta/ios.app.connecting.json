@@ -1,0 +1,16 @@
+{
+  "description": "connecting…",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.connecting. Keep translations consistent. Mac counterpart: macos.desktopstatuspane.connecting. Keep translations consistent.",
+  "surfaces": [
+    "connection"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "33171e5be120a0e923e8bac91e88bd2c567f94d7fc08bac62050dfe6836c23a9",
+  "risk": "routine",
+  "auto_merge": true
+}

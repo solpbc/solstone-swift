@@ -1,0 +1,21 @@
+{
+  "description": "date-prefixed {legacy}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "legacy",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "80bb7f0c3d5a8fa6820b1fae5ed62fc1bfab523d04450ae6d8c6386baf7f3dcc",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "newly queued in the app but not yet in Apple's queue",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 52,
+  "source_revision": "cf94e3eb9578c1f5d80b52ea1f83357d358f025d8876c17eb263a50e624aded3",
+  "risk": "routine",
+  "auto_merge": true
+}

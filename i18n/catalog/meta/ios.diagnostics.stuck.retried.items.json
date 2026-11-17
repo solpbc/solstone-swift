@@ -1,0 +1,68 @@
+{
+  "description": "  { $name } stuck: { $reason }, { $detail } ({ $age } ago, { $count } item), retried { $retries }x, last retry { $retryAge } ago",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    },
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "reason",
+      "type": "string"
+    },
+    {
+      "name": "detail",
+      "type": "string"
+    },
+    {
+      "name": "age",
+      "type": "string"
+    },
+    {
+      "name": "retries",
+      "type": "string"
+    },
+    {
+      "name": "retryAge",
+      "type": "string"
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 1000,
+  "source_revision": "8861975f710480d0dec08f48f780fce5af4fc57db4a05ecd109365567c78ffb2",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "space0",
+      "kind": "whitespace",
+      "value": "  "
+    },
+    {
+      "name": "space1",
+      "kind": "whitespace",
+      "value": "  "
+    },
+    {
+      "name": "space2",
+      "kind": "whitespace",
+      "value": "  "
+    }
+  ],
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

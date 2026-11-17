@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.couldntsaveanswer. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 37,
+  "source_revision": "d2eece5f80a003f9b79635eadf2afbee4748e318653f3f6fe2d57f92fb64c7c7",
+  "risk": "routine",
+  "auto_merge": true
+}

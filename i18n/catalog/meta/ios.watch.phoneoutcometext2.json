@@ -1,0 +1,16 @@
+{
+  "description": "phone ledger unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "1bf47a50d18043d7a4e5d38a28e117f26854842e5a74f6b996b5b6c4242f70b0",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "your journal was busy with other requests",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "040c4163ea3b28ba65dab68648e465865c51e1ddd86bb813c33b7e5df71592f8",
+  "risk": "routine",
+  "auto_merge": true
+}

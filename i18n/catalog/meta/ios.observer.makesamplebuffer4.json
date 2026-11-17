@@ -1,0 +1,16 @@
+{
+  "description": "no channel data",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "a3ce7a8170c79c35a4a952c5a017eae3eac0d68f9c1f270f881c5b9e84e0d04b",
+  "risk": "routine",
+  "auto_merge": true
+}

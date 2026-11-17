@@ -1,0 +1,16 @@
+{
+  "description": "status could not be read",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "9ec99a4cc9bfca10430c12524cbaf3426fa8b58d67288629fc22ae2e62833eea",
+  "risk": "routine",
+  "auto_merge": true
+}

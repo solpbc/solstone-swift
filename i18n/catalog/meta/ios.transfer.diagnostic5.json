@@ -1,0 +1,21 @@
+{
+  "description": "mobile segment finalize-failure deferred segment={uuidString} stage=schedule",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "uuidString",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 76,
+  "source_revision": "ca8c7721746429de950766836f40911be01311e005772b8a6d202b216f997a05",
+  "risk": "routine",
+  "auto_merge": true
+}

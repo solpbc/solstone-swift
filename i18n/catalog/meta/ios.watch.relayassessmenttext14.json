@@ -1,0 +1,16 @@
+{
+  "description": "point-in-time app/Apple queue disagreement",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 42,
+  "source_revision": "e898d755c2b4e9623d9eed424a9f4370b29ff75fef3838ad03aaf647db6778e6",
+  "risk": "routine",
+  "auto_merge": true
+}

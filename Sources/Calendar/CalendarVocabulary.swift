@@ -8,41 +8,41 @@ import Foundation
 /// its way`, the quiet delivery line and the checking word), it uses location's.
 nonisolated enum CalendarVocabulary {
     static let label = SourceVocabulary.calendarTitle
-    static let valueLinePaired = "the events on your calendar, kept in your journal, yours alone."
-    static let valueLineUnpaired = "the events on your calendar. they stay on this device until you connect a journal."
-    static let spanHeader = "from before today"
-    static let spanFootnote = "you'll see how many events there are before any come in."
-    static let turnOn = "turn on calendar"
-    static let calendarsHeader = "which calendars"
-    static let startFromToday = "start from today"
-    static let readyToSetUpSubline = "switch on the calendars you want, then bring them in."
-    static let activeSubtextPaired = "adds what's on your calendar to your journal while this is on."
-    static let activeSubtextUnpaired = "what's on your calendar waits on this device until you connect a journal."
-    static let honestyLine = "ios lets the solstone app check your calendar only while it runs, so a change can take a while to reach your journal."
-    static let accessRevoked = "calendar access is off in ios settings, so nothing new comes in. what's already in your journal stays."
-    static let writeOnly = "calendar access is set to adding events only, so the solstone app can't read it. allow full access in ios settings to keep your journal up to date."
-    static let restricted = "calendar is turned off for the solstone app by a restriction on this device."
-    static let waitingForJournalUpdate = "your journal needs an update before calendar events can go to it. they wait on this device until then."
-    static let countFailed = "couldn't count your calendar events."
-    static let tryAgain = "try again"
-    static let calendarsBlockTitle = "calendars"
+    static let valueLinePaired = AppStrings.ios_calendar_valuelinepaired()
+    static let valueLineUnpaired = AppStrings.ios_calendar_valuelineunpaired()
+    static let spanHeader = AppStrings.ios_calendar_spanheader()
+    static let spanFootnote = AppStrings.ios_calendar_spanfootnote()
+    static let turnOn = AppStrings.ios_calendar_turnon()
+    static let calendarsHeader = AppStrings.ios_calendar_calendarsheader()
+    static let startFromToday = AppStrings.ios_calendar_startfromtoday()
+    static let readyToSetUpSubline = AppStrings.ios_calendar_readytosetupsubline()
+    static let activeSubtextPaired = AppStrings.ios_calendar_activesubtextpaired()
+    static let activeSubtextUnpaired = AppStrings.ios_calendar_activesubtextunpaired()
+    static let honestyLine = AppStrings.ios_calendar_honestyline()
+    static let accessRevoked = AppStrings.ios_calendar_accessrevoked()
+    static let writeOnly = AppStrings.ios_calendar_writeonly()
+    static let restricted = AppStrings.ios_calendar_restricted()
+    static let waitingForJournalUpdate = AppStrings.ios_calendar_waitingforjournalupdate()
+    static let countFailed = AppStrings.ios_calendar_countfailed()
+    static let tryAgain = AppStrings.ios_migration_offline_action()
+    static let calendarsBlockTitle = AppStrings.ios_calendar_calendarsblocktitle()
     /// Pausing or switching a calendar off removes nothing that already came in.
-    static let keepsWhatsIn = "what's already in your journal stays when you pause or switch a calendar off."
-    static let cannotRead = "the solstone app can't read your calendar. allow full access in ios settings to turn this on."
-    static let notNow = "not now"
-    static let turnOnHint = "asks ios for access to your calendars."
-    static let confirmHint = "starts adding calendar events to your journal."
-    static let calendarSwitchHint = "includes this calendar's events in your journal."
-    static let pauseHint = "pauses calendar updates to your journal."
-    static let resumeHint = "resumes calendar updates to your journal."
+    static let keepsWhatsIn = AppStrings.ios_calendar_keepswhatsin()
+    static let cannotRead = AppStrings.ios_calendar_cannotread()
+    static let notNow = AppStrings.ios_migration_choice_defer()
+    static let turnOnHint = AppStrings.ios_calendar_turnonhint()
+    static let confirmHint = AppStrings.ios_calendar_confirmhint()
+    static let calendarSwitchHint = AppStrings.ios_calendar_calendarswitchhint()
+    static let pauseHint = AppStrings.ios_calendar_pausehint()
+    static let resumeHint = AppStrings.ios_calendar_resumehint()
 
     static func spanLabel(_ span: CalendarSpanChoice) -> String {
         switch span {
-        case .last30Days: "the last 30 days"
-        case .last6Months: "the last 6 months"
-        case .lastYear: "the last year"
-        case .everything: "all of it"
-        case .fromToday: "nothing from before today"
+        case .last30Days: AppStrings.ios_calendar_span_native()
+        case .last6Months: AppStrings.ios_calendarvocabulary_thelast6months()
+        case .lastYear: AppStrings.ios_calendarvocabulary_thelastyear()
+        case .everything: AppStrings.ios_calendarvocabulary_allofit()
+        case .fromToday: AppStrings.ios_calendarvocabulary_nothingfrombeforetoday()
         }
     }
 
@@ -59,11 +59,11 @@ nonisolated enum CalendarVocabulary {
 
     /// `bring in {N} events`, singular `bring in 1 event`.
     static func bringIn(count: Int) -> String {
-        count == 1 ? "bring in 1 event" : "bring in \(count) events"
+        AppStrings.ios_plural_calendarvocabulary_n62(count, "\(count)")
     }
 
     static func lastChecked(_ time: String) -> String {
-        "last checked \(time)"
+        AppStrings.ios_calendar_lastchecked("\(time)")
     }
 
     /// The time of the last check, with its date when that was not today.
@@ -75,19 +75,26 @@ nonisolated enum CalendarVocabulary {
 
     /// An event with no title shows the change word alone.
     static func recent(_ kind: CalendarRecentKind, title: String?) -> String {
-        guard let title, !title.isEmpty else { return kind.rawValue }
-        return "\(kind.rawValue) · \(title)"
-    }
+        let word: String
+        switch kind {
+        case .added: word = AppStrings.ios_calendar_recent_added()
+        case .moved: word = AppStrings.ios_calendar_recent_moved()
+        case .changed: word = AppStrings.ios_calendar_recent_changed()
+        case .removed: word = AppStrings.ios_calendar_recent_removed()
+        }
+        guard let title, !title.isEmpty else { return word }
+        return AppStrings.ios_calendar_recent_title(word, title)
+}
 
     static func deliverySending(count: Int) -> String {
-        count == 1 ? "1 calendar change on the way to your journal." : "\(count) calendar changes on the way to your journal."
+        AppStrings.ios_plural_calendarvocabulary_n83(count, "\(count)")
     }
 
     static func deliveryNeedsAttention(count: Int) -> String {
-        count == 1 ? "1 calendar change needs attention." : "\(count) calendar changes need attention."
+        AppStrings.ios_plural_calendarvocabulary_n87(count, "\(count)")
     }
 
     static func followed(_ followed: Int, of total: Int) -> String {
-        total == 1 ? "\(followed) of 1 calendar on" : "\(followed) of \(total) calendars on"
+        AppStrings.ios_plural_calendarvocabulary_n91(total, "\(followed)", "\(total)")
     }
 }

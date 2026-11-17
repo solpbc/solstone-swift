@@ -1,0 +1,16 @@
+{
+  "description": "save requires one payload",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "3af8c984fce6b4651a28c6a1494c968f8a7a8242bdfc3222f1c4144d08cec6f1",
+  "risk": "routine",
+  "auto_merge": true
+}

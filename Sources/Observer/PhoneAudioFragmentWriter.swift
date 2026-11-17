@@ -309,7 +309,7 @@ actor PhoneAudioFragmentWriter {
         let channels = sourceFormat.channelCount
         guard sourceFormat.commonFormat == .pcmFormatFloat32, rate.isFinite,
               rate >= 8000, rate <= 192000, channels >= 1, channels <= 8 else {
-            throw ObserverError.unavailable(reason: "audio input unavailable")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
         }
         self.url = url
         self.segmentID = segmentID
@@ -325,7 +325,7 @@ actor PhoneAudioFragmentWriter {
         self.targetProcessingFormat = target
         guard let raw = AVAudioPCMBuffer(pcmFormat: sourceFormat, frameCapacity: AVAudioFrameCount(self.queue.callbackCap)),
               let converted = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 4096) else {
-            throw ObserverError.unavailable(reason: "audio input unavailable")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
         }
         self.rawPCM = raw
         self.convertedPCM = converted
@@ -341,7 +341,7 @@ actor PhoneAudioFragmentWriter {
     }
 
     func start() throws {
-        guard self.writer == nil else { throw ObserverError.unavailable(reason: "audio input unavailable") }
+        guard self.writer == nil else { throw ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()) }
         let directory = self.url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try self.writeReceipt(phase: .writing)
@@ -355,10 +355,10 @@ actor PhoneAudioFragmentWriter {
         input.expectsMediaDataInRealTime = true
         guard writer.canAdd(input),
               let converter = AVAudioConverter(from: self.sourceFormat, to: self.targetProcessingFormat) else {
-            throw ObserverError.unavailable(reason: "audio input unavailable")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
         }
         writer.add(input)
-        guard writer.startWriting() else { throw writer.error ?? ObserverError.unavailable(reason: "audio input unavailable") }
+        guard writer.startWriting() else { throw writer.error ?? ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()) }
         writer.startSession(atSourceTime: .zero)
         self.writer = writer
         self.audioInput = input
@@ -375,12 +375,12 @@ actor PhoneAudioFragmentWriter {
 
     func checkStartup() throws {
         guard self.faultReason == nil, self.queue.faultSnapshot == nil else {
-            throw ObserverError.unavailable(reason: "audio input unavailable")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
         }
     }
 
     func stop() async throws -> ObserverRecordedChunk {
-        guard let resultTask else { throw ObserverError.unavailable(reason: "audio input unavailable") }
+        guard let resultTask else { throw ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()) }
         if self.terminalFinished && !self.hasStoppedWriting {
             try self.preserveAndCancel()
         }
@@ -420,7 +420,7 @@ actor PhoneAudioFragmentWriter {
             }
             try await self.finishWriter()
             if self.faultReason != nil {
-                throw self.evidenceFailure ?? ObserverError.unavailable(reason: "audio input unavailable")
+                throw self.evidenceFailure ?? ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
             }
             try await self.verifyCleanMedia()
             try self.checkDeadline()
@@ -477,7 +477,7 @@ actor PhoneAudioFragmentWriter {
             guard let underlying = cause.userInfo[NSUnderlyingErrorKey] as? NSError else { break }
             cause = underlying
         }
-        return .unavailable(reason: "audio input unavailable")
+        return .unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
     }
 
     private func convertAndAppend(terminal: Bool) async throws {
@@ -520,7 +520,7 @@ actor PhoneAudioFragmentWriter {
         self.retainedCoreMediaBytes = count * MemoryLayout<Float>.size
         defer { self.retainedCoreMediaBytes = 0 }
         guard self.testAppendOverride?(sample) ?? input.append(sample) else {
-            throw self.writer?.error ?? ObserverError.unavailable(reason: "audio input unavailable")
+            throw self.writer?.error ?? ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
         }
         self.acceptedFrames += Int64(count)
     }
@@ -530,7 +530,7 @@ actor PhoneAudioFragmentWriter {
             if let (fault, _) = self.queue.faultSnapshot { await self.latchFault(reason: fault.reason) }
             try self.checkDeadline()
             guard self.writer?.status == .writing else {
-                throw self.writer?.error ?? ObserverError.unavailable(reason: "audio input unavailable")
+                throw self.writer?.error ?? ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
             }
             if self.testReadinessCheck?() ?? input.isReadyForMoreMediaData { return }
             try await self.clock.sleep(for: .milliseconds(10))
@@ -622,7 +622,7 @@ actor PhoneAudioFragmentWriter {
         }
         try self.checkDeadline()
         guard writer.status == .completed else {
-            throw writer.error ?? ObserverError.unavailable(reason: "audio input unavailable")
+            throw writer.error ?? ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
         }
     }
 
@@ -682,12 +682,12 @@ actor PhoneAudioFragmentWriter {
             formatDescriptionOut: &formatDescription
         )
         guard descStatus == noErr, let formatDesc = formatDescription else {
-            throw ObserverError.unavailable(reason: "format description create failed")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_makesamplebuffer3())
         }
 
         let byteCount = frameCount * 4
         guard let channelData = pcm.floatChannelData?[0] else {
-            throw ObserverError.unavailable(reason: "no channel data")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_makesamplebuffer4())
         }
 
         var blockBuffer: CMBlockBuffer?
@@ -703,7 +703,7 @@ actor PhoneAudioFragmentWriter {
             blockBufferOut: &blockBuffer
         )
         guard bbStatus == noErr, let bb = blockBuffer else {
-            throw ObserverError.unavailable(reason: "block buffer create failed")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_makesamplebuffer())
         }
 
         let srcPtr = channelData.advanced(by: offset)
@@ -714,7 +714,7 @@ actor PhoneAudioFragmentWriter {
             dataLength: byteCount
         )
         guard fillStatus == noErr else {
-            throw ObserverError.unavailable(reason: "block buffer fill failed")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_makesamplebuffer2())
         }
 
         var sampleBuffer: CMSampleBuffer?
@@ -739,7 +739,7 @@ actor PhoneAudioFragmentWriter {
             sampleBufferOut: &sampleBuffer
         )
         guard sbStatus == noErr, let sb = sampleBuffer else {
-            throw ObserverError.unavailable(reason: "sample buffer create failed")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_makesamplebuffer5())
         }
 
         return sb

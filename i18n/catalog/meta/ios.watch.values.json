@@ -1,0 +1,21 @@
+{
+  "description": "{retentionDays} days",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "retentionDays",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "c5ceb6ac0ddd680a8babb5f8706fd502466295552f47754825e16efffb8085e0",
+  "risk": "routine",
+  "auto_merge": true
+}

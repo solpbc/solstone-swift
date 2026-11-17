@@ -1,0 +1,16 @@
+{
+  "description": "file",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.phone.file. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 4,
+  "source_revision": "99365b79c66b90e7c4e3d87801a67928c22e881c96b73f315b419d6fcee7eff3",
+  "risk": "routine",
+  "auto_merge": true
+}

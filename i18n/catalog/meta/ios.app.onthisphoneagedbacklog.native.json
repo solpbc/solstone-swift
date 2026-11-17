@@ -1,0 +1,16 @@
+{
+  "description": "1 memory is on this device. connect a journal whenever you're ready.",
+  "context": "Shown by Sources/SourceVocabulary.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "9f2f8b23017e02cb9438c006a46ef6d7dcef552d53b4d81a28f2355b8434e47a",
+  "risk": "routine",
+  "auto_merge": true
+}

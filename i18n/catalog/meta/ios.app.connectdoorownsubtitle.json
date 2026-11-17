@@ -1,0 +1,16 @@
+{
+  "description": "pair this device to your journal running on your computer.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 58,
+  "source_revision": "45d41805fe9f876b7f99f29eeebf1107e44de9b97bb3dc2d1928fa01d9ea953b",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Apple outstanding file transfers",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "6b2fb8bf002e96d422e080d815979660189979d2c2d9703f1878adc0de15f999",
+  "risk": "routine",
+  "auto_merge": true
+}

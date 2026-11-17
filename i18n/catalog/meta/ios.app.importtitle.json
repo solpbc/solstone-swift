@@ -1,0 +1,16 @@
+{
+  "description": "import",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.setup.import. Keep translations consistent. Mac counterpart: macos.desktopimportpage.import. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 6,
+  "source_revision": "108227e44552117a92d828981cbd635ddd25dd90680552baf9b2855002ae70fa",
+  "risk": "routine",
+  "auto_merge": true
+}

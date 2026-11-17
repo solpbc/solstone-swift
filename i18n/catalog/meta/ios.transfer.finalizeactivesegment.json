@@ -1,0 +1,21 @@
+{
+  "description": "missing outcome marker for {rawValue}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "rawValue",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 37,
+  "source_revision": "9f8fc4455158c96f7c8c53bee453bec8b0e1a493ca70d8c14cfc02adda53ef06",
+  "risk": "routine",
+  "auto_merge": true
+}

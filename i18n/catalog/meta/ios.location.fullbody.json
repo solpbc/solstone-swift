@@ -1,0 +1,16 @@
+{
+  "description": "the full, detailed picture of where your day happened. uses more battery.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 73,
+  "source_revision": "44ca12daa5598c8aa60ee15a560047e1e2e5785b9cd5a70f0fd4c37e6491fa2c",
+  "risk": "routine",
+  "auto_merge": true
+}

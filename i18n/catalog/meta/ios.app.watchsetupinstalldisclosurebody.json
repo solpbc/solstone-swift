@@ -1,0 +1,16 @@
+{
+  "description": "your watch may need watchOS 26 or newer. check Software Update in the Watch app. everything else in solstone works without a watch.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 131,
+  "source_revision": "baae9e5c0da5e77cf526fa7618eebea30f7aba5382dc0e285fce0c9ec84bc27f",
+  "risk": "routine",
+  "auto_merge": true
+}

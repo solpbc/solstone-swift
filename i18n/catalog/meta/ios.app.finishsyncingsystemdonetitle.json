@@ -1,0 +1,16 @@
+{
+  "description": "sync finished",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "a9d518a5e250cf298d4833e3641232d8c894685512b0bd559b17e1d98970a25b",
+  "risk": "routine",
+  "auto_merge": true
+}

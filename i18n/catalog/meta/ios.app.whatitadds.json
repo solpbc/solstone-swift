@@ -1,0 +1,16 @@
+{
+  "description": "adds what you say and nearby sound while this is on.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 52,
+  "source_revision": "61dc9592fc2fb1ff2f4553a464f7213902cee396db45cb92a3fadcce1863a71e",
+  "risk": "routine",
+  "auto_merge": true
+}

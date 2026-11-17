@@ -1,0 +1,16 @@
+{
+  "description": "activation",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 10,
+  "source_revision": "591424493f97fdebaa524add7e06e67ae021439902df5559bca4a4ccc46c178e",
+  "risk": "routine",
+  "auto_merge": true
+}

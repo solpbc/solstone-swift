@@ -1,0 +1,16 @@
+{
+  "description": "pair to your journal on your computer. everything you've shared so far flows in.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 80,
+  "source_revision": "b27b8f134f003f917f98b62a7486d61a5208df4edec83ec8bc4a66fca29de760",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "if your journal's computer is on and this keeps happening, your journal may have new addresses. pairing again gives this phone the current ones.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 144,
+  "source_revision": "a954a44b038509e1eb1268f50b1919dfb1da3c54b98cc62eab7241312f887f0d",
+  "risk": "routine",
+  "auto_merge": true
+}

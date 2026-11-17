@@ -1,0 +1,16 @@
+{
+  "description": "cancel pairing and discard this attempt",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.cancel.pairing.discard.attempt. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "886615f68cd7253724ee7b7f5b6d84e7f0cb925447e7372e654bbe6660040d98",
+  "risk": "routine",
+  "auto_merge": true
+}

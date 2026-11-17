@@ -1,0 +1,16 @@
+{
+  "description": "nothing more from this device goes into your journal, and this takes you back to setup. what already reached it stays there, and anything still waiting goes to the journal you pair",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 186,
+  "source_revision": "16687749844fffd055a3d6f5f96f0e4308eba30aeef8c5fb0374dc87a2ada06e",
+  "risk": "routine",
+  "auto_merge": true
+}

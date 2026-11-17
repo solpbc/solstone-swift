@@ -1,0 +1,16 @@
+{
+  "description": "probe available",
+  "context": "Shown by Sources/Tunnel/TunnelManager.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "c4c7bbe01926f44660dea6ce2bf7284189d39b9547b908dab0e067cb345907f6",
+  "risk": "routine",
+  "auto_merge": true
+}

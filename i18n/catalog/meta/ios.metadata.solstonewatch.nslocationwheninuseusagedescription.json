@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app takes in where you are, as part of what you share with it during a moment you start on your watch. what you share stays on the watch until it can go to your iphone, and from there into your journal.",
+  "context": "Bundle metadata for SolstoneWatch: NSLocationWhenInUseUsageDescription. Permission wording requires review before translation. Wording requires review before translation. Legal source wording stays English until an approved legal translation exists.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "795a510e61cbb919843fb9a80c2621746151a5a0863671e7a1553994d7908050",
+  "risk": "legal",
+  "auto_merge": false
+}

@@ -1,0 +1,21 @@
+{
+  "description": "from {origin}",
+  "context": "the solstone app, speaking to the owner. a string argument records no gender, case, noun class, or classifier. show the name beside the sentence when the language must agree.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "origin",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "70a3a0152508379078d98ced34562850958aa3bbac8d59a20972b0e13d475f91",
+  "risk": "routine",
+  "auto_merge": true
+}

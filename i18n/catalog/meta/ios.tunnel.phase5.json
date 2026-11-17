@@ -1,0 +1,16 @@
+{
+  "description": "transport ready",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "3db1c88ebba9b2719da28407acfb4ae9d4897a37aace1a022499166721bc5c81",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "syncs while the solstone app is open, and keeps going in the background while location is on.",
+  "context": "Shown by Sources/SourceVocabulary+FinishSyncing.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "39c6b11dc9a4354ca09a90860ecbfa33a91c479b7a7c5c0d5afd3dfb6e5452ea",
+  "risk": "routine",
+  "auto_merge": true
+}

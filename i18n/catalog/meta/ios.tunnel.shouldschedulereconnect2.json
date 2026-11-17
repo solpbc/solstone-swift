@@ -1,0 +1,16 @@
+{
+  "description": "relay not entitled repeated",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "e55366885c6589889c333e2d87b7d33a20ca087e5e705fec095c5eaf9ae41f72",
+  "risk": "routine",
+  "auto_merge": true
+}

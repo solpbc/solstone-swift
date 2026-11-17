@@ -1,0 +1,21 @@
+{
+  "description": "source={path} reason=enqueue failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "d4662d3de79db2fa9221e246fd6dc65fb889070fafca7e4dff2e9807229810e4",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,31 @@
+{
+  "description": "1 note",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered. Mac counterpart: macos.desktopshellmodel.notes.plural. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    },
+    {
+      "name": "display",
+      "type": "string"
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 1000,
+  "source_revision": "dc2b59fafd2a5a54f400bd996b36baffaaae6d1e4d49745cced63c9145f403f1",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "description": "go straight to your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "d8bfa76f3fb2277dc72fa6f9cbe9c4576edd4fd0f5d64096994e9eada4bbe3c7",
+  "risk": "routine",
+  "auto_merge": true
+}

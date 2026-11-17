@@ -1,0 +1,16 @@
+{
+  "description": "don't see the solstone app in the list?",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "416c0aaa03fa0988f1857331234219ff3ac30cd95b48ca648e2cc23f1254b15a",
+  "risk": "routine",
+  "auto_merge": true
+}

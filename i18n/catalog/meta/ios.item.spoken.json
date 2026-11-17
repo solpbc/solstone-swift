@@ -1,0 +1,29 @@
+{
+  "description": "{ $source }. { $payload }. { $state }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "source",
+      "type": "string"
+    },
+    {
+      "name": "payload",
+      "type": "string"
+    },
+    {
+      "name": "state",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ebcf367ce180c7888169a399ef8d41136744bd211340b0ba2230402f7e74ac61",
+  "risk": "routine",
+  "auto_merge": true
+}

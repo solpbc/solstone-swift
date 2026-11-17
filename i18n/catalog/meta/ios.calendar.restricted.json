@@ -1,0 +1,16 @@
+{
+  "description": "calendar is turned off for the solstone app by a restriction on this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 76,
+  "source_revision": "4d0585f79b5af5ceeb5625989f67552896dde3fec64be7c7bf471c4d69df72c1",
+  "risk": "routine",
+  "auto_merge": true
+}

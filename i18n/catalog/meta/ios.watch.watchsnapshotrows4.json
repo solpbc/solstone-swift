@@ -1,0 +1,16 @@
+{
+  "description": "receiver has content pending",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "090e6fcd401606e9c0d8f42393181f2ffe00c480d4976648b93989877810eedb",
+  "risk": "routine",
+  "auto_merge": true
+}

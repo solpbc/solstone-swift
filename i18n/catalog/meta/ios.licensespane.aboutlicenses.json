@@ -1,0 +1,16 @@
+{
+  "description": "about.licenses",
+  "context": "Shown by Sources/Home/LicensesPane.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "688f370676602f7da1fa6fa238008a426da907b5e56732abceb8cc4c36e95c65",
+  "risk": "routine",
+  "auto_merge": true
+}

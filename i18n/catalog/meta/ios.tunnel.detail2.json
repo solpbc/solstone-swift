@@ -1,0 +1,21 @@
+{
+  "description": "endpoint: /app/network/api/status; error: {String_describing_error}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "String_describing_error",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 67,
+  "source_revision": "09369809017882efb6bbcc83d8ef0fa22d5fed56146cad3aa53952e0755cd0a3",
+  "risk": "routine",
+  "auto_merge": true
+}

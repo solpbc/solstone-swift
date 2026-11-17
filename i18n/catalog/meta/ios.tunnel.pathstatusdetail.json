@@ -1,0 +1,33 @@
+{
+  "description": "{interface} · {satisfied} · expensive={isExpensive} · constrained={isConstrained}",
+  "context": "the solstone app, speaking to the owner. these pieces are one message. join them before extraction.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "interface",
+      "type": "string"
+    },
+    {
+      "name": "satisfied",
+      "type": "string"
+    },
+    {
+      "name": "isExpensive",
+      "type": "string"
+    },
+    {
+      "name": "isConstrained",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 81,
+  "source_revision": "a98ef47239f5f945663d025c52b688bf4cd4d46e85a985d0ccae9603a5c8ed49",
+  "risk": "routine",
+  "auto_merge": true
+}

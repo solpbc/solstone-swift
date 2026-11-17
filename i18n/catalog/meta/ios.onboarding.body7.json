@@ -1,0 +1,16 @@
+{
+  "description": "welcome to solstone.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.setup.welcome.solstone. Keep translations consistent. Mac counterpart: macos.copy.setupwelcomeheadline. Keep translations consistent.",
+  "surfaces": [
+    "onboarding"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "9440e207abcb47ba2c5dced0ecfc2705c9f8f368fd0fc8dfaf39492befee73de",
+  "risk": "routine",
+  "auto_merge": true
+}

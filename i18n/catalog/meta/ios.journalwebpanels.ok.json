@@ -1,0 +1,16 @@
+{
+  "description": "ok",
+  "context": "Shown by Sources/Portal/JournalWebPanels.swift. Arguments preserve the existing presentation values. Mac counterpart: macos.desktop.shared.settings.severity. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "7215fe69aa21a2b073c5e6c8c18daaa73b91c9d619b7e8fb38d01d84f8d53a3f",
+  "risk": "routine",
+  "auto_merge": true
+}

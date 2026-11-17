@@ -1,0 +1,16 @@
+{
+  "description": "when you stop, it will be on this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "a4e76c7702ed768a4ec90684bb3b23a9dc8fc77ece857ddf9c337e10289fb180",
+  "risk": "routine",
+  "auto_merge": true
+}

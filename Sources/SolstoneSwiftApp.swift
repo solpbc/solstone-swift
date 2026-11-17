@@ -200,28 +200,28 @@ struct SolstoneSwiftApp: App {
         do {
             try await initialize()
         } catch {
-            reportFailure("start failed", error)
+            reportFailure(AppStrings.ios_app_bootstraptransfer5(), error)
             return
         }
         let rootURL: URL
         do {
             rootURL = try appGroupRoot()
         } catch {
-            reportFailure("app-group unavailable", error)
+            reportFailure(AppStrings.ios_app_bootstraptransfer(), error)
             await enableDispatch()
             return
         }
         do {
             try await migrate(rootURL, cachesRootURL)
         } catch {
-            reportFailure("migration failed", error)
+            reportFailure(AppStrings.ios_app_bootstraptransfer2(), error)
             await enableDispatch()
             return
         }
         do {
             try await reconcile()
         } catch {
-            reportFailure("reconciliation failed", error)
+            reportFailure(AppStrings.ios_app_bootstraptransfer3(), error)
             await enableDispatch()
             return
         }
@@ -323,7 +323,7 @@ struct SolstoneSwiftApp: App {
             )
         } catch {
             sourceIntakeStore = nil
-            let diagnostic = "mobile segment storage unavailable source=app-group"
+            let diagnostic = AppStrings.ios_app_diagnostic()
             Logger(subsystem: "app.solstone.swift", category: "mobile-segment")
                 .error("\(diagnostic, privacy: .public)")
             mobileSegmentStore = MobileSegmentStore(
@@ -374,10 +374,10 @@ struct SolstoneSwiftApp: App {
         do {
             transferSpool = try TransferSpool()
         } catch {
-            let diagnostic = "transfer spool unavailable source=app-group"
+            let diagnostic = AppStrings.ios_app_diagnostic2()
             Logger(subsystem: "app.solstone.swift", category: "transfer")
                 .error("\(diagnostic, privacy: .public)")
-            log.append(category: .upload, severity: .warning, message: "needs attention", detail: diagnostic)
+            log.append(category: .upload, severity: .warning, message: AppStrings.ios_presentation_solstoneswiftapp_n20(), detail: diagnostic)
             transferSpool = TransferSpool(
                 rootURL: FileManager.default.temporaryDirectory
                     .appendingPathComponent("transfer-unavailable", isDirectory: true)
@@ -632,7 +632,7 @@ struct SolstoneSwiftApp: App {
                 log.append(
                     category: .upload,
                     severity: .info,
-                    message: "share history rotated",
+                    message: AppStrings.ios_app_init(),
                     detail: "dropped_rows=\(droppedCount)"
                 )
             }
@@ -1419,8 +1419,8 @@ struct SolstoneSwiftApp: App {
                 self.diagnosticLog.append(
                     category: .upload,
                     severity: .warning,
-                    message: "needs attention",
-                    detail: "source=transfer reason=\(reason)"
+                    message: AppStrings.ios_transfer_needsattention(),
+                    detail: AppStrings.ios_app_bootstraptransfer4("\(reason)")
                 )
                 if let error {
                     Logger(subsystem: "app.solstone.swift", category: "transfer")

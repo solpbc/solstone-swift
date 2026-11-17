@@ -1,0 +1,21 @@
+{
+  "description": "mobile segment screencast redaction failed segment={uuidString} source=screencast",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "uuidString",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 81,
+  "source_revision": "5e0675b1519db135ee62b603dcb9003747c10333e345baf700b78a6506283bcb",
+  "risk": "routine",
+  "auto_merge": true
+}

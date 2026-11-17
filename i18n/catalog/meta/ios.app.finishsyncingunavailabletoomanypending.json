@@ -1,0 +1,16 @@
+{
+  "description": "ios already has too many background tasks waiting.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 50,
+  "source_revision": "aadda66a798ca26c7574cf5bb7a9b8491a7b9f4fec267cc37b01929dcca495c1",
+  "risk": "routine",
+  "auto_merge": true
+}

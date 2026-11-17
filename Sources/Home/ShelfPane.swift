@@ -82,7 +82,7 @@ struct ShelfPane: View {
             .toolbar {
                 if self.presentation.isPhoneModal, self.isCompactHeight {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("done") {
+                        Button(AppStrings.ios_home_done()) {
                             self.onDismiss?()
                         }
                     }
@@ -99,14 +99,14 @@ struct ShelfPane: View {
                 if self.isCompactHeight, self.appConfig.isPaired {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
-                            Button("unpair this device", role: .destructive) {
+                            Button(AppStrings.ios_home_unpairthisdevice(), role: .destructive) {
                                 self.showingUnpairConfirm = true
                             }
                         } label: {
                             Image(systemName: "ellipsis.circle")
                         }
                         .frame(minWidth: 44, minHeight: 44)
-                        .accessibilityHint("Clears this device pairing and returns to onboarding")
+                        .accessibilityHint(AppStrings.ios_home_showingunpairconfirm())
                     }
                 }
             }
@@ -315,7 +315,7 @@ struct JournalSettingsPane: View {
                 .disabled(self.conveyURL == nil)
                 .hoverEffect(.highlight)
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
-                .accessibilityHint("opens your journal inside the solstone app.")
+                .accessibilityHint(AppStrings.ios_home_opensyourjournalinsidethesolstoneapp())
 
                 if self.conveyURL == nil {
                     Text(SourceVocabulary.notConnectedRowAffordance(isJournalPaired: self.appConfig.isPaired))
@@ -325,33 +325,33 @@ struct JournalSettingsPane: View {
             }
 
             Section {
-                LabeledContent("paired", value: self.pairedAtText)
+                LabeledContent(AppStrings.ios_home_body54(), value: self.pairedAtText)
 
-                DisclosureGroup("technical details") {
+                DisclosureGroup(AppStrings.ios_migration_storageunavailable_action()) {
                     LabeledContent(SourceVocabulary.journalShelfDeviceCertificateLabel, value: self.shortFingerprint)
                     if self.appConfig.isPaired {
                         let paired = self.tunnelManager.pairedJournalAddresses()
                         if !paired.endpoints.isEmpty {
-                            LabeledContent("addresses") {
+                            LabeledContent(AppStrings.ios_home_body4()) {
                                 Text(verbatim: paired.endpoints
                                     .map { JournalAddress.display(host: $0.host, port: $0.port) }
                                     .joined(separator: "\n"))
                                     .multilineTextAlignment(.trailing)
                             }
                         }
-                        LabeledContent("relay", value: paired.relayHost.map { "on · \($0)" } ?? "off")
+                        LabeledContent(AppStrings.ios_home_route(), value: paired.relayHost.map { AppStrings.ios_home_body51("\($0)") } ?? AppStrings.ios_app_off())
                         if self.tunnelManager.state.isConnected, let connectedAddress = self.tunnelManager.connectedAddress {
-                            LabeledContent("connected through", value: connectedAddress)
+                            LabeledContent(AppStrings.ios_home_body6(), value: connectedAddress)
                         }
                     }
                 }
 
-                Button("forget this journal", role: .destructive) {
+                Button(AppStrings.ios_home_reinstallnoticeforget(), role: .destructive) {
                     self.showingForgetConfirm = true
                 }
                 .disabled(!self.appConfig.isPaired)
 
-                Button("pair a new journal") {
+                Button(AppStrings.ios_home_body52()) {
                     if self.appConfig.isPaired {
                         self.showingPairNewConfirm = true
                     } else {
@@ -371,9 +371,9 @@ struct JournalSettingsPane: View {
             }
         }
         .onAppear { self.headingFocused = true }
-        .alert("forget this journal?", isPresented: self.$showingForgetConfirm) {
-            Button("cancel", role: .cancel) {}
-            Button("forget", role: .destructive) {
+        .alert(AppStrings.ios_home_headingfocused(), isPresented: self.$showingForgetConfirm) {
+            Button(AppStrings.ios_migration_picker_cancel(), role: .cancel) {}
+            Button(AppStrings.ios_home_body12(), role: .destructive) {
                 Task {
                     await self.clearPairingAndReturnToOnboarding()
                 }
@@ -381,15 +381,15 @@ struct JournalSettingsPane: View {
         } message: {
             Text(SourceVocabulary.waitingGoesToNextJournal)
         }
-        .alert("pair a new journal?", isPresented: self.$showingPairNewConfirm) {
-            Button("cancel", role: .cancel) {}
-            Button("continue", role: .destructive) {
+        .alert(AppStrings.ios_home_body53(), isPresented: self.$showingPairNewConfirm) {
+            Button(AppStrings.ios_migration_picker_cancel(), role: .cancel) {}
+            Button(AppStrings.ios_home_alwaysprimercontinue(), role: .destructive) {
                 Task {
                     await self.clearPairingForNewPair()
                 }
             }
         } message: {
-            Text("this forgets the current journal first. anything still waiting goes to the journal you pair next.")
+            Text(AppStrings.ios_home_body60())
         }
         .sheet(isPresented: self.$showingJournalLives) {
             JournalLivesSheet(isPresented: self.$showingJournalLives)
@@ -406,7 +406,7 @@ struct JournalSettingsPane: View {
                 )
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("cancel") {
+                        Button(AppStrings.ios_migration_picker_cancel()) {
                             self.showingPairFlow = false
                         }
                     }
@@ -417,14 +417,14 @@ struct JournalSettingsPane: View {
 
     private var shortFingerprint: String {
         guard !self.appConfig.clientCertFingerprintHex.isEmpty else {
-            return "unpaired"
+            return AppStrings.ios_shelfpane_unpaired()
         }
         return String(self.appConfig.clientCertFingerprintHex.prefix(8))
     }
 
     private var pairedAtText: String {
         guard let pairedAt = self.appConfig.pairedAt else {
-            return "unpaired"
+            return AppStrings.ios_shelfpane_unpaired()
         }
         return pairedAt.formatted(date: .abbreviated, time: .shortened)
     }
@@ -463,19 +463,19 @@ struct ThisDevicePane: View {
     var body: some View {
         List {
             Section {
-                LabeledContent("device name", value: DeviceRegistrationDescriptor.currentDisplayName())
+                LabeledContent(AppStrings.ios_home_body10(), value: DeviceRegistrationDescriptor.currentDisplayName())
             }
 
-            Section("preferences") {
-                Toggle("haptics", isOn: Binding(
+            Section(AppStrings.ios_home_body56()) {
+                Toggle(AppStrings.ios_home_body13(), isOn: Binding(
                     get: { UserSettings.haptics },
                     set: { UserSettings.haptics = $0 }
                 ))
-                .accessibilityHint("Turns interface haptics on or off")
+                .accessibilityHint(AppStrings.ios_home_haptics())
             }
 
-            Section("diagnostics") {
-                Toggle("show technical details", isOn: Binding(
+            Section(AppStrings.ios_home_watchdiagnosticsblocktitle()) {
+                Toggle(AppStrings.ios_home_body58(), isOn: Binding(
                     get: { UserSettings.verboseErrors },
                     set: { UserSettings.verboseErrors = $0 }
                 ))
@@ -486,30 +486,30 @@ struct ThisDevicePane: View {
                     Section {
                         switch recovery {
                         case .preparing:
-                            Text("migration.preparing.title").font(.headline)
-                            Text("migration.preparing.body")
+                            Text(AppStrings.ios_home_body39()).font(.headline)
+                            Text(AppStrings.ios_home_body38())
                         case .offline:
-                            Text("migration.offline.title").font(.headline)
-                            Text("migration.offline.body")
-                            Button("migration.offline.action") {
+                            Text(AppStrings.ios_home_body32()).font(.headline)
+                            Text(AppStrings.ios_home_body31())
+                            Button(AppStrings.ios_home_body30()) {
                                 Task { await self.tunnelManager.connect() }
                             }
                         case .unsupported:
-                            Text("migration.unsupported.title").font(.headline)
-                            Text("migration.unsupported.body")
-                            Button("migration.unsupported.action") {
+                            Text(AppStrings.ios_home_body48()).font(.headline)
+                            Text(AppStrings.ios_home_body47())
+                            Button(AppStrings.ios_home_body46()) {
                                 Task { await self.tunnelManager.connect() }
                             }
                         case .storageUnavailable:
-                            Text("migration.storage_unavailable.title").font(.headline)
-                            Text("migration.storage_unavailable.body")
-                            Button("migration.storage_unavailable.action") {
+                            Text(AppStrings.ios_home_body43()).font(.headline)
+                            Text(AppStrings.ios_home_body42())
+                            Button(AppStrings.ios_home_body41()) {
                                 UserSettings.verboseErrors = true
                             }
                         case .keyRefused:
-                            Text("migration.key_refused.title").font(.headline)
-                            Text("migration.key_refused.body")
-                            Button("migration.key_refused.action") {
+                            Text(AppStrings.ios_home_body26()).font(.headline)
+                            Text(AppStrings.ios_home_body25())
+                            Button(AppStrings.ios_home_body24()) {
                                 self.showingPairFlow = true
                             }
                         }
@@ -518,39 +518,39 @@ struct ThisDevicePane: View {
 
                 if self.deviceMigrationOwner.migrationChoicePending {
                     Section {
-                        LabeledContent { Text("migration.pending.value") } label: { Text("migration.pending.row") }
-                        Text("migration.choice.title").font(.headline)
-                        Text("migration.choice.body_fallback")
+                        LabeledContent { Text(AppStrings.ios_home_body34()) } label: { Text(AppStrings.ios_home_body33()) }
+                        Text(AppStrings.ios_home_migrationchoicetitle()).font(.headline)
+                        Text(AppStrings.ios_home_migrationchoicebodyfallback())
                         if self.deviceMigrationOwner.migrationDecisionState == .submitting {
-                            Text("migration.deciding.title").font(.headline)
+                            Text(AppStrings.ios_home_body17()).font(.headline)
                         } else if self.deviceMigrationOwner.migrationDecisionState == .unknown {
-                            Text("migration.decision_unknown.title").font(.headline)
-                            Text("migration.decision_unknown.body")
-                            Button("migration.decision_unknown.action") {
+                            Text(AppStrings.ios_home_body23()).font(.headline)
+                            Text(AppStrings.ios_home_body22())
+                            Button(AppStrings.ios_home_body21()) {
                                 Task { await self.deviceMigrationOwner.refresh() }
                             }
                         } else if self.deviceMigrationOwner.serverState == nil {
-                            Text("migration.offline.title").font(.headline)
-                            Text("migration.offline.body")
-                            Button("migration.offline.action") {
+                            Text(AppStrings.ios_home_body32()).font(.headline)
+                            Text(AppStrings.ios_home_body31())
+                            Button(AppStrings.ios_home_body30()) {
                                 Task { await self.deviceMigrationOwner.refresh() }
                             }
                         } else if self.deviceMigrationOwner.migrationDecisionState == .refused {
-                            Text("migration.decision_refused.title").font(.headline)
-                            Text("migration.decision_refused.body")
-                            Button("migration.decision_refused.action") {
+                            Text(AppStrings.ios_home_body20()).font(.headline)
+                            Text(AppStrings.ios_home_body19())
+                            Button(AppStrings.ios_home_body18()) {
                                 UserSettings.verboseErrors = true
                             }
                         } else if self.deviceMigrationOwner.canChooseMigration {
-                            Button("migration.choice.new") {
+                            Button(AppStrings.ios_home_migrationchoicenew()) {
                                 guard let context = self.deviceMigrationOwner.migrationChoicePresentation() else { return }
                                 Task { await self.deviceMigrationOwner.submitMigrationChoice(.newDevice, presentedContext: context) }
                             }
-                            Button("migration.choice.same") {
+                            Button(AppStrings.ios_home_migrationchoicesame()) {
                                 self.sameDevicePresentation = self.deviceMigrationOwner.migrationChoicePresentation()
                                 self.showingSameDeviceConfirmation = true
                             }
-                            Button("migration.choice.defer", role: .cancel) {
+                            Button(AppStrings.ios_home_showingsamedeviceconfirmation(), role: .cancel) {
                                 self.deviceMigrationOwner.deferMigrationChoice()
                             }
                         }
@@ -561,39 +561,39 @@ struct ThisDevicePane: View {
                    self.deviceMigrationOwner.isFreshPairPendingVisible,
                    let offer = self.deviceMigrationOwner.freshPairOffer {
                     Section {
-                        LabeledContent { Text("migration.pending.value") } label: { Text("migration.pending.row") }
-                        Text("migration.replace_offer.title").font(.headline)
-                        Text("migration.replace_offer.body")
+                        LabeledContent { Text(AppStrings.ios_home_body34()) } label: { Text(AppStrings.ios_home_body33()) }
+                        Text(AppStrings.ios_home_migrationreplaceoffertitle()).font(.headline)
+                        Text(AppStrings.ios_home_migrationreplaceofferbody())
                         if offer.state == .submitting {
-                            Text("migration.deciding.title").font(.headline)
+                            Text(AppStrings.ios_home_body17()).font(.headline)
                         } else if offer.state == .unknown {
-                            Text("migration.decision_unknown.title").font(.headline)
-                            Text("migration.decision_unknown.body")
-                            Button("migration.decision_unknown.action") {
+                            Text(AppStrings.ios_home_body23()).font(.headline)
+                            Text(AppStrings.ios_home_body22())
+                            Button(AppStrings.ios_home_body21()) {
                                 Task { await self.deviceMigrationOwner.refresh() }
                             }
                         } else {
                             if offer.state == .targetRemoved {
-                                Text("migration.target_missing.title").font(.headline)
-                                Text("migration.target_missing.body")
+                                Text(AppStrings.ios_home_body45()).font(.headline)
+                                Text(AppStrings.ios_home_body44())
                             } else if offer.state == .refused {
-                                Text("migration.decision_refused.title").font(.headline)
-                                Text("migration.decision_refused.body")
-                                Button("migration.decision_refused.action") {
+                                Text(AppStrings.ios_home_body20()).font(.headline)
+                                Text(AppStrings.ios_home_body19())
+                                Button(AppStrings.ios_home_body18()) {
                                     UserSettings.verboseErrors = true
                                 }
                             }
-                            Button("migration.replace_offer.pick") {
+                            Button(AppStrings.ios_home_migrationreplaceofferpick()) {
                                 self.deviceMigrationOwner.prepareReplacementSelection()
                                 Task {
                                     await self.deviceMigrationOwner.loadReplacementClients()
                                     self.showingFreshPairOffer = true
                                 }
                             }
-                            Button("migration.replace_offer.keep") {
+                            Button(AppStrings.ios_home_showingfreshpairoffer()) {
                                 self.deviceMigrationOwner.keepBothFromFreshPairOffer()
                             }
-                            Button("migration.replace_offer.defer") {
+                            Button(AppStrings.ios_home_migrationreplaceofferdefer()) {
                                 self.deviceMigrationOwner.dismissReplacementOffer()
                             }
                         }
@@ -601,10 +601,10 @@ struct ThisDevicePane: View {
                 }
 
                 Section {
-                    Button("unpair this device", role: .destructive) {
+                    Button(AppStrings.ios_home_unpairthisdevice(), role: .destructive) {
                         self.showingUnpairConfirm = true
                     }
-                    .accessibilityHint("Clears this device pairing and returns to onboarding")
+                    .accessibilityHint(AppStrings.ios_home_showingunpairconfirm())
                 }
             }
         }
@@ -634,12 +634,12 @@ struct ThisDevicePane: View {
             NavigationStack {
                 List {
                     if self.deviceMigrationOwner.replacementListState == .empty {
-                        Text("migration.picker.empty")
+                        Text(AppStrings.ios_home_body36())
                     } else if self.deviceMigrationOwner.replacementListState == .unavailable {
                         Section {
-                            Text("migration.list_unavailable.title").font(.headline)
-                            Text("migration.list_unavailable.body")
-                            Button("migration.list_unavailable.action") {
+                            Text(AppStrings.ios_home_body29()).font(.headline)
+                            Text(AppStrings.ios_home_body28())
+                            Button(AppStrings.ios_home_body27()) {
                                 Task { await self.deviceMigrationOwner.loadReplacementClients() }
                             }
                         }
@@ -657,11 +657,11 @@ struct ThisDevicePane: View {
                         }
                     }
                 }
-                .navigationTitle("migration.picker.title")
+                .navigationTitle(AppStrings.ios_home_body37())
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("migration.picker.cancel") { self.showingFreshPairOffer = false }
+                        Button(AppStrings.ios_home_body35()) { self.showingFreshPairOffer = false }
                     }
                 }
             }
@@ -683,7 +683,7 @@ struct ThisDevicePane: View {
                 titleVisibility: .visible
             ) {
                 if let presentation = self.replacementPresentation {
-                    Button("migration.replace_confirm.replace", role: .destructive) {
+                    Button(AppStrings.ios_home_presentation(), role: .destructive) {
                         self.pendingReplacementCID = nil
                         self.pendingReplacementLabel = ""
                         self.replacementPresentation = nil
@@ -691,7 +691,7 @@ struct ThisDevicePane: View {
                         Task { await self.deviceMigrationOwner.confirmFreshPairReplacement(presentedContext: presentation) }
                     }
                 }
-                Button("migration.replace_confirm.cancel", role: .cancel) {
+                Button(AppStrings.ios_home_body40(), role: .cancel) {
                     self.pendingReplacementCID = nil
                     self.pendingReplacementLabel = ""
                     self.replacementPresentation = nil
@@ -711,39 +711,38 @@ struct ThisDevicePane: View {
                 )
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("cancel") { self.showingPairFlow = false }
+                        Button(AppStrings.ios_migration_picker_cancel()) { self.showingPairFlow = false }
                     }
                 }
             }
         }
         .confirmationDialog(
-            Text("migration.choice.title"),
+            Text(AppStrings.ios_home_migrationchoicetitle()),
             isPresented: self.$showingSameDeviceConfirmation,
             titleVisibility: .visible
         ) {
-            Button("migration.choice.same", role: .destructive) {
+            Button(AppStrings.ios_home_migrationchoicesame(), role: .destructive) {
                 guard let context = self.sameDevicePresentation else { return }
                 Task { await self.deviceMigrationOwner.submitMigrationChoice(.sameDevice, presentedContext: context) }
             }
-            Button("migration.choice.new") {
+            Button(AppStrings.ios_home_migrationchoicenew()) {
                 guard let context = self.sameDevicePresentation else { return }
                 Task { await self.deviceMigrationOwner.submitMigrationChoice(.newDevice, presentedContext: context) }
             }
-            Button("migration.choice.defer", role: .cancel) {
+            Button(AppStrings.ios_home_showingsamedeviceconfirmation(), role: .cancel) {
                 self.deviceMigrationOwner.deferMigrationChoice()
             }
         } message: {
-            Text("migration.choice.body_fallback")
+            Text(AppStrings.ios_home_migrationchoicebodyfallback())
         }
 
     }
 
     private func localizedMigrationCopy(_ key: String, selectedDeviceLabel: String) -> String {
         if key == "migration.replace_confirm.title", selectedDeviceLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return String(localized: "migration.replace_confirm.title_fallback")
+            return AppStrings.legacy("migration.replace_confirm.title_fallback")
         }
-        return String(localized: String.LocalizationValue(key))
-            .replacingOccurrences(of: "{selected_device_label}", with: selectedDeviceLabel)
+        return AppStrings.legacy(key, values: ["selected_device_label": selectedDeviceLabel])
     }
 
 
@@ -762,9 +761,9 @@ private struct UnpairThisDeviceAlert: ViewModifier {
     @Environment(TunnelManager.self) private var tunnelManager
 
     func body(content: Content) -> some View {
-        content.alert("unpair this device?", isPresented: self.$isPresented) {
-            Button("cancel", role: .cancel) {}
-            Button("unpair", role: .destructive) {
+        content.alert(AppStrings.ios_home_body62(), isPresented: self.$isPresented) {
+            Button(AppStrings.ios_migration_picker_cancel(), role: .cancel) {}
+            Button(AppStrings.ios_home_body61(), role: .destructive) {
                 Task {
                     await self.unpair()
                 }
@@ -823,7 +822,7 @@ struct AboutPane: View {
     }
 
     private var journalRoot: String {
-        self.appConfig.journalRoot.isEmpty ? "unpaired" : self.appConfig.journalRoot
+        self.appConfig.journalRoot.isEmpty ? AppStrings.ios_shelfpane_unpaired() : self.appConfig.journalRoot
     }
 
     var body: some View {
@@ -840,7 +839,7 @@ struct AboutPane: View {
                             .scaledToFit()
                             .frame(width: 120)
 
-                        Text("sol pbc · agpl-3.0")
+                        Text(AppStrings.ios_home_body59())
                             .font(.custom("Comfortaa-Bold", size: 16))
                             .foregroundStyle(.secondary)
                     }
@@ -850,29 +849,29 @@ struct AboutPane: View {
                 .listRowBackground(Color.clear)
 
                 Section {
-                    LabeledContent("version", value: self.version)
-                    LabeledContent("build", value: self.build)
-                    LabeledContent("journal version", value: self.server)
-                    LabeledContent("device", value: self.device)
-                    LabeledContent("journal root", value: self.journalRoot)
+                    LabeledContent(AppStrings.ios_home_body63(), value: self.version)
+                    LabeledContent(AppStrings.ios_home_body5(), value: self.build)
+                    LabeledContent(AppStrings.ios_home_body16(), value: self.server)
+                    LabeledContent(AppStrings.ios_home_body9(), value: self.device)
+                    LabeledContent(AppStrings.ios_home_body15(), value: self.journalRoot)
                 }
 
                 Section {
                     NavigationLink(value: ShellDestination.licenses) {
-                        Text("about.licenses")
+                        Text(AppStrings.ios_shelfpane_aboutlicenses())
                     }
                     .accessibilityIdentifier("shell.pane.shelfAbout.licenses")
                     .hoverEffect(.highlight)
                 }
 
-                Section("about") {
+                Section(AppStrings.ios_home_body3()) {
                     Text(aboutBlock)
                         .textSelection(.enabled)
-                    Button("copy") {
+                    Button(AppStrings.ios_home_body7()) {
                         UIPasteboard.general.string = aboutBlock
                         self.copyResult = UIPasteboard.general.string == aboutBlock
-                            ? "copied"
-                            : "couldn't copy. select the text and copy it."
+                            ? AppStrings.ios_diagnostics_copied()
+                            : AppStrings.ios_home_body8()
                     }
                     if let copyResult = self.copyResult {
                         Text(copyResult)

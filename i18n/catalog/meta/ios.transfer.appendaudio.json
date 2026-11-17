@@ -1,0 +1,16 @@
+{
+  "description": "audio append failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "6016a6ad3b8b3d98d69ba60f62a07310a0dbf1a8cd806bf1e2507628a4b79f74",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "resume",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.screenshots.resume. Keep translations consistent. Mac counterpart: macos.desktop.shared.setup.wizardpausefailure2. Keep translations consistent.",
+  "surfaces": [
+    "photolibrary"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 6,
+  "source_revision": "75aeda114072ab7e6ab458709e2365efcbd8a73062209a37861074f51a5ad149",
+  "risk": "routine",
+  "auto_merge": true
+}

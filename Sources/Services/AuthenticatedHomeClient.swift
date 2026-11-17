@@ -362,7 +362,8 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
                 return .failed
             }
             let version = AboutBlock.trimLeadingV(resource.version)
-            let rendered = AboutBlock.line(
+            // The wire's empty-version sentinel is fixed; display copy localizes separately.
+            let rendered = version.isEmpty ? "journal unknown" : AboutBlock.line(
                 name: "journal",
                 version: version,
                 build: resource.build ?? "",

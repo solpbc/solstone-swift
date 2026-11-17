@@ -1,0 +1,16 @@
+{
+  "description": "this was added to your journal. you can open your journal from here when it reconnects.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 87,
+  "source_revision": "13e8ffc7dfb6bf2c36563d758047e8b96da8902572d8265b64fd5a6926b70f7d",
+  "risk": "routine",
+  "auto_merge": true
+}

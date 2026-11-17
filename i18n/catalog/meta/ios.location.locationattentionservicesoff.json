@@ -1,0 +1,16 @@
+{
+  "description": "location services are off.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 26,
+  "source_revision": "07e570658c3bebb2245ccbb65a81f923e27f0b7f3c80daf8ed6f647d8e6d743c",
+  "risk": "routine",
+  "auto_merge": true
+}

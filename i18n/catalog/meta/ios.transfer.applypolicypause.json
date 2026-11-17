@@ -1,0 +1,16 @@
+{
+  "description": "policy resumed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "a15a141bc451ebec59ad2dc1b628209d192514d038c45bcadd655813203d79b2",
+  "risk": "routine",
+  "auto_merge": true
+}

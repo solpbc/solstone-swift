@@ -14,18 +14,18 @@ enum TunnelError: Error, Sendable, Equatable {
     var userMessage: String {
         switch self {
         case .revoked, .refusalsExhausted:
-            return "your journal asked this device to reconnect."
+            return AppStrings.ios_app_repairline()
         case .tlsHandshakeFailed:
-            return "couldn't verify this journal."
+            return AppStrings.ios_tunnel_usermessage4()
         case .muxTeardown:
-            return "connection lost."
+            return AppStrings.ios_tunnel_usermessage3()
         case .unreachable:
-            return "can't reach this journal right now."
+            return AppStrings.ios_tunnel_usermessage()
         case .unknown(let detail):
             if UserSettings.verboseErrors {
-                return "connection failed — \(detail)"
+                return AppStrings.ios_tunnel_usermessage2("\(detail)")
             }
-            return "connection failed"
+            return AppStrings.ios_tunnel_connectionfailed()
         }
     }
 
@@ -56,7 +56,7 @@ enum TunnelError: Error, Sendable, Equatable {
     var diagnosticLabel: String {
         switch self {
         case .revoked:
-            return "revoked"
+            return AppStrings.ios_tunnel_diagnosticlabel()
         case .refusalsExhausted:
             return "refusalsExhausted"
         case .tlsHandshakeFailed:
@@ -64,9 +64,9 @@ enum TunnelError: Error, Sendable, Equatable {
         case .muxTeardown:
             return "muxTeardown"
         case .unreachable:
-            return "unreachable"
+            return AppStrings.ios_integrationgate_unreachable()
         case .unknown:
-            return "unknown"
+            return AppStrings.ios_tunnel_diagnosticlabel2()
         }
     }
 }

@@ -1,0 +1,16 @@
+{
+  "description": "pair a new journal",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.shelf.pair.new.journal. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "2be44b263eb7f4f8c0f5ff7730999f264887237c8779a4e35eae5d1618a09237",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "getting ready…",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.source.getting.ready. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "bd14b6e4a7384f68f15a6ba92f47b68e931bcda799d44478d301e66603842c26",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,57 @@
+{
+  "description": "this device and your journal are on different networks.\nthis device: {phoneAddress}\nyour journal: {targetAddress}\nconnect both to the same wi-fi, then try again.\nturning on private network on your journal lets your devices reach it from anywhere.\n",
+  "context": "Shown by Sources/Pairing/PairFailureReason.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "786c6a78b1957a8256be5c1a2cc1d7a2e32f5ea32f5f6ce09c44bc5280387aa4",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": "\n"
+    },
+    {
+      "name": "slot1",
+      "kind": "whitespace",
+      "value": " "
+    },
+    {
+      "name": "slot2",
+      "kind": "whitespace",
+      "value": "\n"
+    },
+    {
+      "name": "slot3",
+      "kind": "whitespace",
+      "value": " "
+    },
+    {
+      "name": "slot4",
+      "kind": "whitespace",
+      "value": "\n"
+    },
+    {
+      "name": "slot5",
+      "kind": "whitespace",
+      "value": "\n"
+    }
+  ]
+}

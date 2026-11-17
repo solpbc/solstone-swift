@@ -1,0 +1,16 @@
+{
+  "description": "this journal's identity doesn't match the pairing code. double-check which journal you're pairing, then try again with a new code.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 130,
+  "source_revision": "fa190d1d34fb751ae39888dc23c9469391e0aa4b71a6d3536357c820932f5c98",
+  "risk": "routine",
+  "auto_merge": true
+}

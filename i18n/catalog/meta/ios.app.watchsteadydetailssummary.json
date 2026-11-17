@@ -1,0 +1,25 @@
+{
+  "description": "details · watch {watchWaiting} · iphone {phoneWaiting} waiting",
+  "context": "the solstone app, speaking to the owner. these pieces are one message. join them before extraction.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "watchWaiting",
+      "type": "string"
+    },
+    {
+      "name": "phoneWaiting",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 62,
+  "source_revision": "8b44ba0640a66eb9c8d7f8c63377da589d81b707116cea49cbf7ec81a93b7664",
+  "risk": "routine",
+  "auto_merge": true
+}

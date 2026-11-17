@@ -1,0 +1,16 @@
+{
+  "description": "turns the solstone app on",
+  "context": "Shown by Watch/Sources/WatchHomeView.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "517ba344851af789351cf1dcb8ea75d3f98bb7ee09e297eda64a61d54a5bd3f7",
+  "risk": "routine",
+  "auto_merge": true
+}

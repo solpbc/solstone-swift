@@ -1,0 +1,16 @@
+{
+  "description": "give this a tile on home",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.source.give.tile.home. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "e7a6f4539619a6aaa1ed35bc8ceff7fe3fe0d6987a945efd09fba1c9c0149f1c",
+  "risk": "routine",
+  "auto_merge": true
+}

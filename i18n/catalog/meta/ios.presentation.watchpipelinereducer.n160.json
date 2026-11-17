@@ -1,0 +1,16 @@
+{
+  "description": "orphaned",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "dd6fad2dc2c71d681e9e8a2a3bed6e10d69433776f71b417bdc83699ef82f6c8",
+  "risk": "routine",
+  "auto_merge": true
+}

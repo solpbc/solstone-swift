@@ -1226,7 +1226,7 @@ actor WatchCaptureStorageActor {
     ) async {
         _ = await self.withTransaction(transactionClass: .maintenance) {
             await self.performDiagnosticsWrite(
-                "transfer completion",
+                AppStrings.ios_watch_recordrelaytransfercompletion(),
                 segmentID: manifest.id,
                 boundary: .relayDiagnosticsPersistence
             ) {
@@ -1269,7 +1269,7 @@ actor WatchCaptureStorageActor {
     ) async {
         _ = await self.withTransaction(transactionClass: .maintenance) {
             await self.performDiagnosticsWrite(
-                "durable ack",
+                AppStrings.ios_watch_recordrelaydurableack(),
                 segmentID: manifest.id,
                 boundary: .relayDiagnosticsPersistence
             ) {
@@ -1301,7 +1301,7 @@ actor WatchCaptureStorageActor {
     ) async -> Bool {
         await self.withTransaction(transactionClass: .maintenance) {
             await self.performDiagnosticsWrite(
-                "queue reconciliation",
+                AppStrings.ios_watch_recordrelayqueuereconciliation(),
                 segmentID: nil,
                 boundary: .relayDiagnosticsPersistence
             ) {
@@ -1329,7 +1329,7 @@ actor WatchCaptureStorageActor {
     ) async {
         _ = await self.withTransaction(transactionClass: .maintenance) {
             await self.performDiagnosticsWrite(
-                "background wake",
+                AppStrings.ios_watch_recordrelaybackgroundwake(),
                 segmentID: nil,
                 boundary: .relayDiagnosticsPersistence
             ) {

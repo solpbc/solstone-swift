@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 sol pbc
 import argparse
+import copy
 import json
 import signal
 import sys
@@ -38,12 +39,26 @@ window.addEventListener('hashchange', postRoute);
 JSON_ROUTES = {
     "/api/today": {"title": "Today", "items": []},
     "/api/ask": {"questions": []},
+    "/api/system/about": {
+        "protocol_version": 1, "version": "2.0.13", "os": "linux",
+        "os_version": "6.0", "arch": "x86_64",
+        "about": "journal 2.0.13 · linux 6.0 · x86_64",
+    },
+    "/api/system/status": {"version": {"current": "2.0.13"}, "capabilities": []},
+    "/app/network/api/relay/access": {"protocol_version": 2, "status": "not_configured"},
 }
 STOP = threading.Event()
 SERVER = None
 
 
 class Handler(BaseHTTPRequestHandler):
+    description_lock = threading.Lock()
+    description = {
+        "protocol_version": 1, "revision": 0, "reported": None,
+        "owner_label": None, "display_label": "Integration iPhone", "updated_at": None,
+        "journal": {"name": "Integration Journal", "version": "2.0.13"},
+    }
+
     def log_message(self, format, *args):
         print(format % args, flush=True)
 
@@ -58,6 +73,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send_bytes(status, json.dumps(payload).encode(), "application/json")
 
     def do_GET(self):
+        if self.path == "/app/network/api/clients/self":
+            with Handler.description_lock:
+                resource = copy.deepcopy(Handler.description)
+            self._send_json(200, resource)
+            return
         if self.path == "/" or self.path == "/dev/mock-portal":
             self._send_bytes(200, HTML.encode(), "text/html; charset=utf-8")
             return
@@ -79,6 +99,36 @@ class Handler(BaseHTTPRequestHandler):
                 return
             return
         self._send_json(404, {"error": "not found"})
+
+    def do_PUT(self):
+        if self.path != "/app/network/api/clients/self":
+            self._send_json(404, {"error": "not found"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length))
+            reported = payload["reported"]
+            required = {"name", "platform", "device_type", "app_id", "app_version"}
+            valid = (
+                type(payload.get("protocol_version")) is int and payload["protocol_version"] == 1
+                and type(payload.get("expected_revision")) is int
+                and isinstance(reported, dict) and required.issubset(reported)
+                and all(value is None or isinstance(value, str) for value in reported.values())
+            )
+        except (ValueError, KeyError, TypeError):
+            valid = False
+        if not valid:
+            self._send_json(400, {"error": "invalid client description"})
+            return
+        with Handler.description_lock:
+            if payload["expected_revision"] != Handler.description["revision"]:
+                self._send_json(409, {"revision": Handler.description["revision"]})
+                return
+            Handler.description["reported"] = reported
+            Handler.description["revision"] += 1
+            resource = copy.deepcopy(Handler.description)
+        self._send_json(200, resource)
+        print("CLIENT_DESCRIPTION_UPDATED", flush=True)
 
 
 def handle_signal(_signum, _frame):

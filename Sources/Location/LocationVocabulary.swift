@@ -4,41 +4,41 @@
 import Foundation
 
 nonisolated enum LocationVocabulary {
-    static let sourceDisplayName = "location"
-    private static let activeSubtextUnpaired = "adds where your day happens, on this device while this is on."
-    private static let activeSubtextPaired = "adds where your day happens to your journal while this is on."
-    private static let preEnrollmentValueUnpaired = "where your day happens. on this device and not processed until you connect a journal. as light or complete as you want."
-    private static let preEnrollmentValuePaired = "where your day happens — kept in your journal, yours alone. as light or complete as you want."
-    static let tierDialHeader = "how much of your day to keep"
-    static let tierDialSubhead = "your day, your call. you can change this any time."
-    static let lightLabel = "places only"
-    static let lightBody = "the places you stop — home, work, an event."
-    static let balancedLabel = "places + comings and goings"
-    static let balancedBody = "your stops, plus the shape of how you move between them."
-    static let balancedDefaultBadge = "recommended"
-    static let fullLabel = "the complete picture"
-    static let fullBody = "the full, detailed picture of where your day happened. uses more battery."
-    static let batteryHonesty = "fuller settings run in the background and use more battery. ios shows its location arrow whenever location is on."
-    static let turnOnLocation = "turn on location"
-    static let stateBlockTitle = "state"
-    static let tierBlockTitle = "detail level"
-    static let recentBlockTitle = "recent"
-    static let deliveryBlockTitle = "on its way"
-    static let tierChangeFraming = "changes apply from now on — nothing already in your journal is altered."
-    static let deliveryNeedsAttentionTemplate = "{N} location {update} {needs} attention."
-    static let deliverySendingTemplate = "{N} location {update} on the way to your journal."
-    static let deliveryQuietLine = "nothing waiting right now."
-    static let downgradeBodyTemplate = "you chose {tier}, but ios hasn't authorized that. your journal will show the gaps."
-    static let openSettingsAction = "open ios settings"
-    static let matchToAllowedAction = "match it to what's allowed"
-    static let locationAttentionRestricted = "a restriction on this device blocks location."
-    static let locationAttentionDenied = "location access is off."
-    static let locationAttentionServicesOff = "location services are off."
-    static let locationAttentionNotAllowedYet = "location hasn't been allowed yet."
-    static let locationAttentionBelowChosen = "ios allows less than you chose."
-    static let locationAttentionNotRunning = "location isn't running."
-    static let restrictedBody = "location is turned off for the solstone app by a restriction on this device. the solstone app can't take in location until that's lifted."
-    static let honestGap = "gap here — location wasn't available."
+    static let sourceDisplayName = AppStrings.ios_location_sourcedisplayname()
+    private static let activeSubtextUnpaired = AppStrings.ios_location_activesubtextunpaired()
+    private static let activeSubtextPaired = AppStrings.ios_location_activesubtextpaired()
+    private static let preEnrollmentValueUnpaired = AppStrings.ios_location_preenrollmentvalueunpaired()
+    private static let preEnrollmentValuePaired = AppStrings.ios_location_preenrollmentvaluepaired()
+    static let tierDialHeader = AppStrings.ios_location_tierdialheader()
+    static let tierDialSubhead = AppStrings.ios_location_tierdialsubhead()
+    static let lightLabel = AppStrings.ios_location_lightlabel()
+    static let lightBody = AppStrings.ios_location_lightbody()
+    static let balancedLabel = AppStrings.ios_location_balancedlabel()
+    static let balancedBody = AppStrings.ios_location_balancedbody()
+    static let balancedDefaultBadge = AppStrings.ios_location_balanceddefaultbadge()
+    static let fullLabel = AppStrings.ios_location_fulllabel()
+    static let fullBody = AppStrings.ios_location_fullbody()
+    static let batteryHonesty = AppStrings.ios_location_batteryhonesty()
+    static let turnOnLocation = AppStrings.ios_location_turnonlocation()
+    static let stateBlockTitle = AppStrings.ios_app_state()
+    static let tierBlockTitle = AppStrings.ios_location_tierblocktitle()
+    static let recentBlockTitle = AppStrings.ios_app_recent()
+    static let deliveryBlockTitle = AppStrings.ios_location_onitsway()
+    static let tierChangeFraming = AppStrings.ios_location_tierchangeframing()
+    static let deliveryNeedsAttentionTemplate = AppStrings.ios_location_deliveryneedsattentiontemplate_native()
+    static let deliverySendingTemplate = AppStrings.ios_location_deliverysendingtemplate_native()
+    static let deliveryQuietLine = AppStrings.ios_location_deliveryquietline()
+    static let downgradeBodyTemplate = AppStrings.ios_location_downgradebodytemplate_native()
+    static let openSettingsAction = AppStrings.ios_location_openiossettings()
+    static let matchToAllowedAction = AppStrings.ios_location_matchtoallowedaction()
+    static let locationAttentionRestricted = AppStrings.ios_location_locationattentionrestricted()
+    static let locationAttentionDenied = AppStrings.ios_location_locationattentiondenied()
+    static let locationAttentionServicesOff = AppStrings.ios_location_locationattentionservicesoff()
+    static let locationAttentionNotAllowedYet = AppStrings.ios_location_locationattentionnotallowedyet()
+    static let locationAttentionBelowChosen = AppStrings.ios_location_locationattentionbelowchosen()
+    static let locationAttentionNotRunning = AppStrings.ios_location_locationattentionnotrunning()
+    static let restrictedBody = AppStrings.ios_location_restrictedbody()
+    static let honestGap = AppStrings.ios_location_honestgap()
 
     static func activeSubtext(isJournalPaired: Bool) -> String {
         isJournalPaired ? Self.activeSubtextPaired : Self.activeSubtextUnpaired
@@ -51,42 +51,37 @@ nonisolated enum LocationVocabulary {
     static func sharingStatus(for capability: LocationCapability) -> String {
         switch capability {
         case .always(accuracy: .full):
-            "sharing location: always · precise"
+            AppStrings.ios_location_sharingstatus()
         case .always(accuracy: .reduced):
-            "sharing location: always · reduced precision"
+            AppStrings.ios_location_sharingstatus2()
         case .whenInUse(accuracy: .full):
-            "sharing location: while the solstone app is open · precise"
+            AppStrings.ios_location_sharingstatus7()
         case .whenInUse(accuracy: .reduced):
-            "sharing location: while the solstone app is open · reduced precision"
+            AppStrings.ios_location_sharingstatus8()
         case .notDetermined:
-            "sharing location: not yet decided"
+            AppStrings.ios_location_sharingstatus3()
         case .servicesDisabled:
-            "sharing location: off · location services disabled"
+            AppStrings.ios_location_sharingstatus5()
         case .denied:
-            "sharing location: off"
+            AppStrings.ios_location_sharingstatus4()
         case .restricted:
-            "sharing location: restricted"
+            AppStrings.ios_location_sharingstatus6()
         }
     }
 
     static func downgradeBody(tierLabel: String) -> String {
-        self.downgradeBodyTemplate.replacingOccurrences(of: "{tier}", with: tierLabel)
-    }
+        AppStrings.ios_location_downgrade_complete(tierLabel)
+}
 
     static func deliveryNeedsAttention(count: Int) -> String {
-        self.deliveryNeedsAttentionTemplate
-            .replacingOccurrences(of: "{N}", with: String(count))
-            .replacingOccurrences(of: "{update}", with: self.updateNoun(count: count))
-            .replacingOccurrences(of: "{needs}", with: count == 1 ? "needs" : "need")
-    }
+        AppStrings.ios_location_delivery_attention(count)
+}
 
     static func deliverySending(count: Int) -> String {
-        self.deliverySendingTemplate
-            .replacingOccurrences(of: "{N}", with: String(count))
-            .replacingOccurrences(of: "{update}", with: self.updateNoun(count: count))
-    }
+        AppStrings.ios_location_delivery_sending(count)
+}
 
     private static func updateNoun(count: Int) -> String {
-        count == 1 ? "update" : "updates"
+        AppStrings.ios_plural_locationvocabulary_n90(count)
     }
 }

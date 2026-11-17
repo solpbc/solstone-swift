@@ -1,0 +1,16 @@
+{
+  "description": "allow microphone access on your watch, then start again.",
+  "context": "the solstone app, speaking to the owner. Wording requires review before translation.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 56,
+  "source_revision": "7f383e28f84e87b5846f541ad1f9f9a729a9f1fc1f6fe24e34eda17898cff963",
+  "risk": "consent",
+  "auto_merge": false
+}

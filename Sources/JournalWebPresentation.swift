@@ -40,6 +40,6 @@ nonisolated enum JournalWebPresentation {
     /// Tunnel/connection dropped while the view is open.
     static let connectionLostState: LoadState = .error(message: Self.connectionLostMessage)
 
-    static let loadFailureMessage = "couldn't reach your journal. keep the solstone app open and try again."
-    static let connectionLostMessage = "lost the connection to your journal. keep the solstone app open and try again."
+    static let loadFailureMessage = AppStrings.ios_app_loadfailuremessage()
+    static let connectionLostMessage = AppStrings.ios_app_connectionlostmessage()
 }

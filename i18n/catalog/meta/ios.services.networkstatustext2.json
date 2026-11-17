@@ -1,0 +1,16 @@
+{
+  "description": "wifi · offline",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "services"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "f895f0fab2de3586e0dbd607fd76899fd18c9ba56509b574884364812694b57a",
+  "risk": "routine",
+  "auto_merge": true
+}

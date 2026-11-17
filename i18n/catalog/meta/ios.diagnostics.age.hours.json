@@ -1,0 +1,25 @@
+{
+  "description": "{ $hours }h{ $minutes }m",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hours",
+      "type": "string"
+    },
+    {
+      "name": "minutes",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "fb0bc8a1dcef2dfd46c428864260c980ea2c2a0d60644073d43089cbabe8e473",
+  "risk": "routine",
+  "auto_merge": true
+}

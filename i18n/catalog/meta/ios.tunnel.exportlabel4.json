@@ -1,0 +1,16 @@
+{
+  "description": "watchdog timeout",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "895653f2ff34867ca0ccc8a1af0b2f7cee1e1d99903adf51181b05cb5ee97c67",
+  "risk": "routine",
+  "auto_merge": true
+}

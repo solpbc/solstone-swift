@@ -1,0 +1,16 @@
+{
+  "description": "ios allows less than you chose.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "a1f9a0fbc396563f2aeea04698d6fe0ede4adf3bf8629ae87df2356ecf7e24ca",
+  "risk": "routine",
+  "auto_merge": true
+}

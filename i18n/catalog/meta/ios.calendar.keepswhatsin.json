@@ -1,0 +1,16 @@
+{
+  "description": "what's already in your journal stays when you pause or switch a calendar off.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.calendar.what.s.already.journal.stays. Keep translations consistent.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 77,
+  "source_revision": "4a190881c83f7613bee5d90328bcdcf4a87d83e2d68f7d36019d2cd0648665f9",
+  "risk": "routine",
+  "auto_merge": true
+}

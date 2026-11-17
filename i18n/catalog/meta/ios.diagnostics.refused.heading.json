@@ -1,0 +1,52 @@
+{
+  "description": "  { $source } refused items ({ $listed } most recently refused of { $count } refusal):",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    },
+    {
+      "name": "source",
+      "type": "string"
+    },
+    {
+      "name": "listed",
+      "type": "string"
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 1000,
+  "source_revision": "14ce0582e7487f7f6168ced78fcff44150d31042ed8fe10aadc7ffb6aed4226d",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "space0",
+      "kind": "whitespace",
+      "value": "  "
+    },
+    {
+      "name": "space1",
+      "kind": "whitespace",
+      "value": "  "
+    },
+    {
+      "name": "space2",
+      "kind": "whitespace",
+      "value": "  "
+    }
+  ],
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

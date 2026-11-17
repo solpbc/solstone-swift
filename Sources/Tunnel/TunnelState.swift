@@ -17,10 +17,10 @@ enum TunnelState: Sendable, Equatable, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .disconnected: "disconnected"
-        case .connecting: "connecting"
+        case .disconnected: AppStrings.ios_tunnel_disconnected()
+        case .connecting: AppStrings.ios_tunnel_connecting()
         case .waitingForHome: "waitingForHome"
-        case .connected(let port, let ep): "connected(port:\(port), \(ep))"
+        case .connected(let port, let ep): AppStrings.ios_tunnel_description("\(port)", "\(ep)")
         case .error(let err): "error(\(err))"
         }
     }

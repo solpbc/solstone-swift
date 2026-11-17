@@ -1,0 +1,16 @@
+{
+  "description": "the connection was still open. sending retries automatically. if a page did not load, try opening it again.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 107,
+  "source_revision": "bc7e33eff75e4bb35446537eda3323c0179f99b02a1b7756a9cb5e4eacf71ec7",
+  "risk": "routine",
+  "auto_merge": true
+}

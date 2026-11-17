@@ -1,0 +1,25 @@
+{
+  "description": "{ $month } { $day }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "month",
+      "type": "string"
+    },
+    {
+      "name": "day",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "350ced691ef1e92291a8f533f6cb307e135fa7814e5cc167f13165c4417d391f",
+  "risk": "routine",
+  "auto_merge": true
+}

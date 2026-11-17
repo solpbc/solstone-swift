@@ -1,0 +1,16 @@
+{
+  "description": "source artifact failed to finalize",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "6894b33589a33bbb7fb7805a25615cac7042e2fac69b3850c9463814fe02fcee",
+  "risk": "routine",
+  "auto_merge": true
+}

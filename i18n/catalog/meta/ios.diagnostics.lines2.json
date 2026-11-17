@@ -1,0 +1,28 @@
+{
+  "description": "    {failures} × repair failures across launches",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "failures",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 59,
+  "source_revision": "34a6d53845333809d222e9bd5e0946c0af0da9202d9fbf68fdeb0c1c2730761f",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "whitespace1",
+      "kind": "whitespace",
+      "value": "    "
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "description": "connection: {state}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "state",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "816770c95410ad59a6e5f1daf8bc3dd773ed8bf1b48cdbf862e3468fb40ef56f",
+  "risk": "routine",
+  "auto_merge": true
+}

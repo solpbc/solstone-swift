@@ -1,0 +1,16 @@
+{
+  "description": "what you say and the sound around you, kept in your journal. turn it on only when you want to share audio.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 106,
+  "source_revision": "614a3482a093ce96e15290380009675845e3941663fd6080e2de4137de921ade",
+  "risk": "routine",
+  "auto_merge": true
+}

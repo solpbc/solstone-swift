@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app on your watch takes in what you share from your wrist, hands it to this device, and it all syncs into your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 132,
+  "source_revision": "cd9e994bd2aa26e3c72b76fe32e128786f60218b528a2eb9ead695831ad3937b",
+  "risk": "routine",
+  "auto_merge": true
+}

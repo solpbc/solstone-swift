@@ -221,11 +221,11 @@ private struct ScreenshotsPage: View {
             Text(ScreenshotsVocabulary.staysIfDeletedFromPhotos)
             Text(ScreenshotsVocabulary.keepsWhatsIn)
             if let checked = snapshot.lastChecked {
-                Text("\(ScreenshotsVocabulary.lastCheckedLabel) · \(SourceIntakeFormat.relative(checked, now: Date(), calendar: .current))")
+                Text(AppStrings.ios_frame_screenshotssourcedetailview_n224("\(ScreenshotsVocabulary.lastCheckedLabel)", "\(SourceIntakeFormat.relative(checked, now: Date(), calendar: .current))"))
                     .accessibilityIdentifier("screenshots.page.lastChecked")
             }
             if snapshot.waiting > 0 {
-                Text("\(ScreenshotsVocabulary.waitingLabel) · \(snapshot.waiting)")
+                Text(AppStrings.ios_frame_screenshotssourcedetailview_n228("\(ScreenshotsVocabulary.waitingLabel)", "\(snapshot.waiting)"))
                     .accessibilityIdentifier("screenshots.page.waiting")
             }
         }

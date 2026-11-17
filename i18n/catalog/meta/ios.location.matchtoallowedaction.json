@@ -1,0 +1,16 @@
+{
+  "description": "match it to what's allowed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 26,
+  "source_revision": "9619120f84bbb1aede5fb9941a3e3e3e0fe3534d2c50204cd0e8fc0631bfb461",
+  "risk": "routine",
+  "auto_merge": true
+}

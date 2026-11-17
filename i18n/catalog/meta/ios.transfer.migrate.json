@@ -1,0 +1,21 @@
+{
+  "description": "source={path} reason=remove-root failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "e6a9a47a300a65cf97c3fd93d017ec169f341db051daf4f8e1ef91e02cb9f337",
+  "risk": "routine",
+  "auto_merge": true
+}

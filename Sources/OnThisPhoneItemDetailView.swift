@@ -146,7 +146,7 @@ private extension OnThisPhoneItemDetailView {
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .disabled(!availability.enabled)
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
-                .accessibilityHint("opens your journal inside the solstone app.")
+                .accessibilityHint(AppStrings.ios_home_opensyourjournalinsidethesolstoneapp())
                 .sheet(isPresented: self.$showingJournal) {
                     InAppJournalView(mark: RootShellView.storedJournalMark())
                 }
@@ -209,7 +209,7 @@ private extension OnThisPhoneItemDetailView {
                 }
             }
         } label: {
-            Text(self.isRetrying ? "trying…" : SourceVocabulary.tryNow)
+            Text(self.isRetrying ? AppStrings.ios_app_stalltryinglabel() : SourceVocabulary.tryNow)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
         .buttonStyle(BrandProminentButtonStyle())
@@ -224,7 +224,7 @@ private extension OnThisPhoneItemDetailView {
         }
         .buttonStyle(BrandQuietButtonStyle())
         .frame(minHeight: 44)
-        .accessibilityHint("removes this from this device.")
+        .accessibilityHint(AppStrings.ios_app_dropbutton())
         .accessibilityIdentifier("onThisPhone.drop.button")
         .confirmationDialog(
             SourceVocabulary.onThisPhoneDropConfirmTitle,

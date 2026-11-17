@@ -1,0 +1,16 @@
+{
+  "description": "location access is off.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "38f696f59e0f51d760e27b6d95b85c08ae6af8eb61b8224ad32350234a1e4d6a",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "this was added to your journal automatically.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 45,
+  "source_revision": "6d2fd035655df1c2f8532351e2ac2e04c3570878392a18e97446803134719043",
+  "risk": "routine",
+  "auto_merge": true
+}

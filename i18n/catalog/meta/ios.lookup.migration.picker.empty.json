@@ -1,0 +1,16 @@
+{
+  "description": "no other paired devices",
+  "context": "Existing native lookup migration.picker.empty. Mac counterpart: macos.desktop.shared.copy.pickerempty. Keep translations consistent. Android counterpart: android.migration.no.other.paired.devices. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "3663e0c4aeabddc784f88ce007e3c0902e8e26b076b2fb7c09ef8eb5390ce821",
+  "risk": "routine",
+  "auto_merge": true
+}

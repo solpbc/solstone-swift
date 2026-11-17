@@ -1,0 +1,16 @@
+{
+  "description": "they'll appear as things happen.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "3aecb773b5e5c4b7b347e34c23ca207330892b04ce6d67f949c8f837e6352f53",
+  "risk": "routine",
+  "auto_merge": true
+}

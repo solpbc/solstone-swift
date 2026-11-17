@@ -1,0 +1,16 @@
+{
+  "description": "some pages are waiting on this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 38,
+  "source_revision": "36d90db82f42f629ce1f9a05b6974fca3560113eae2b81926089cd075677a24c",
+  "risk": "routine",
+  "auto_merge": true
+}

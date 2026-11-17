@@ -1,0 +1,16 @@
+{
+  "description": "app wrote too much to storage",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "854a401441883c68691389118f0c83a9f5e35c6300458d1f858de9bb4411bde6",
+  "risk": "routine",
+  "auto_merge": true
+}

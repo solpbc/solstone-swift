@@ -1,0 +1,16 @@
+{
+  "description": "current pipeline notice",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "97d827110fe34346f262197be526b315c1bbef24a0760138d3c68733c791861a",
+  "risk": "routine",
+  "auto_merge": true
+}

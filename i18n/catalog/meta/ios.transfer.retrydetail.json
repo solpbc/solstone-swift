@@ -1,0 +1,16 @@
+{
+  "description": "retry persistence failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "1b706a3708c0c3593da458ad2773d80da34bd28adb19a179f05c9a0f112240d3",
+  "risk": "routine",
+  "auto_merge": true
+}

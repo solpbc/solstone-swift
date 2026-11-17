@@ -1,0 +1,16 @@
+{
+  "description": "not available off watch",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "501937f895be144c5acde90bc9594f3d94d5d4381f38e7755b5bccf02a1ba35d",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "paired",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.pairing.paired. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 6,
+  "source_revision": "f2de9a5ddb2bb22d1ed851ac46170b573b947565243adff677844c7cd1c8c2ac",
+  "risk": "routine",
+  "auto_merge": true
+}

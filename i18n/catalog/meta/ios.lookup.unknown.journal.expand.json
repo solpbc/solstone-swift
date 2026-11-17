@@ -1,0 +1,16 @@
+{
+  "description": "view details",
+  "context": "Existing native lookup unknown_journal.expand. Mac counterpart: macos.ui.viewdetails. Keep translations consistent. Android counterpart: android.unknownjournal.viewdetails. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "be7afc21274527bfee987d63deefe0a61b610927ca5e56abc658d7382ef92982",
+  "risk": "routine",
+  "auto_merge": true
+}

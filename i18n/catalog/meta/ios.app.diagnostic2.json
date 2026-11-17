@@ -1,0 +1,16 @@
+{
+  "description": "transfer spool unavailable source=app-group",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneswiftappswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "437e801e0d1f306abb248ea3432ed21f7e20fd3c0a0b576fc4070db4dc4874b5",
+  "risk": "routine",
+  "auto_merge": true
+}

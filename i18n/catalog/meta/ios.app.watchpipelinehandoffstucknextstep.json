@@ -1,0 +1,16 @@
+{
+  "description": "keep the solstone app open here while your journal catches up.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 62,
+  "source_revision": "a41ad45baf5e35c08b826676347139744e2a5d379fe46a5739ee0762ae4691bc",
+  "risk": "routine",
+  "auto_merge": true
+}

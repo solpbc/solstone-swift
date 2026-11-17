@@ -1,0 +1,16 @@
+{
+  "description": "mobile segment finalize-failure scan failed stage=finalize-failure",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 66,
+  "source_revision": "fb062f609ec2801af5a9f2f5d1a6de4840248ed12c263898cf6c8ffd70be2372",
+  "risk": "routine",
+  "auto_merge": true
+}

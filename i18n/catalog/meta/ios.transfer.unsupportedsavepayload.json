@@ -1,0 +1,16 @@
+{
+  "description": "unsupported save payload",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "86d992d9e9de805aabcb08397869e7dc38eda8ad2857b501f27198115fdf7ce5",
+  "risk": "routine",
+  "auto_merge": true
+}

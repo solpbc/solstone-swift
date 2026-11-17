@@ -1,0 +1,16 @@
+{
+  "description": "journal events could not be read",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "journalevents"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "97ddbd7d56cdf62b9870014b907b700d385985eb210dafd10c736f9b3e1a1dce",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "the places you stop — home, work, an event.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "e6b2ce6ac8bdca867c73a45c877159b898b75ce6d0c91e3c57da36fb5ca73470",
+  "risk": "routine",
+  "auto_merge": true
+}

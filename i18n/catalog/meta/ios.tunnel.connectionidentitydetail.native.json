@@ -1,0 +1,32 @@
+{
+  "description": "port={port.map(String.init) ?? \"none\"} epoch={epoch.map(String.init) ?? \"none\"}",
+  "context": "Shown by Sources/Tunnel/TunnelManager.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "7d81dfea6750664ce64a455ad374bd3f716e8c2613db704351dcce799f6c5716",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

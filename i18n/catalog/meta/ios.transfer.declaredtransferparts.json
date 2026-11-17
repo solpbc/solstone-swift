@@ -1,0 +1,21 @@
+{
+  "description": "finalized artifact missing source={rawValue}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "rawValue",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 44,
+  "source_revision": "702cce141077d51300aa0572c761b778c51a5c23e323acc0ec7b0a09ad907ab6",
+  "risk": "routine",
+  "auto_merge": true
+}

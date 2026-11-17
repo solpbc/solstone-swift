@@ -1,0 +1,16 @@
+{
+  "description": "couldn't turn on. try again in a moment.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 40,
+  "source_revision": "9d48dafd02300d15bf9fb95ef3ecbb086ce8fad5303f754487e388a846dc502e",
+  "risk": "routine",
+  "auto_merge": true
+}

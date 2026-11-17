@@ -1,0 +1,16 @@
+{
+  "description": "the pairing window closed. show a new pairing code on your journal, then try again.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.pairing.pairing.window.closed.show.new. Keep translations consistent.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 83,
+  "source_revision": "b403a6d071791180836ef0af592a82bddfb7229e6602509f44f7740e5b379b41",
+  "risk": "routine",
+  "auto_merge": true
+}

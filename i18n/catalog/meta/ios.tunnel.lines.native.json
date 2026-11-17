@@ -1,0 +1,28 @@
+{
+  "description": "journal fingerprint: {self.journalFingerprint ?? \"unavailable\"}",
+  "context": "Shown by Sources/Tunnel/TunnelManager.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "6b70666188ca14b9985fe3df1b1e16bc4460c1f9f34778c5f385d4486987b46d",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

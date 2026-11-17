@@ -1,0 +1,16 @@
+{
+  "description": "can't reach your journal",
+  "context": "Existing native lookup migration.offline.title. Mac counterpart: macos.desktop.shared.app.offlinetitle. Keep translations consistent. Android counterpart: android.migration.can.t.reach.journal. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "e1d247ea71783fbcef28a3ee242ad1c0d69bba1febd8a4aae9fb1a2173f49336",
+  "risk": "routine",
+  "auto_merge": true
+}

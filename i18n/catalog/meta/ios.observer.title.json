@@ -1,0 +1,16 @@
+{
+  "description": "your live session ends soon",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "0a803fb005bd35565bbe2cec561110156b65625627159ff1324fb1b64d636f09",
+  "risk": "routine",
+  "auto_merge": true
+}

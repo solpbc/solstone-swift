@@ -1,0 +1,16 @@
+{
+  "description": "opens ios settings for microphone access.",
+  "context": "names the iOS Settings screen.",
+  "surfaces": [
+    "sourcedetailviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "4c8060de838d45830ca98509c5f0a156a4afd30a7ad1a3978ed574e4121b457f",
+  "risk": "routine",
+  "auto_merge": true
+}

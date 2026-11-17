@@ -172,18 +172,18 @@ struct PairFlowView: View {
     /// reuses that string rather than the paste path's "enter a valid pairing link.", which tells
     /// the owner to enter something right after they scanned. A rejected scan shows "this doesn't
     /// look like a pairing link.", not a prompt to enter one.
-    static let scannedLinkNotRecognizedMessage = "this doesn't look like a pairing link."
+    static let scannedLinkNotRecognizedMessage = AppStrings.ios_pairing_scannedlinknotrecognizedmessage()
 
     /// Why the scanner can't run. A denial is the owner's own setting, so it says where to change
     /// it; only a device that truly can't scan is told the camera is unavailable.
     nonisolated static func cameraUnavailableMessage(for status: AVAuthorizationStatus) -> String {
         switch status {
         case .denied:
-            "camera access is off for solstone. turn it on in settings, or paste a pairing link instead."
+            AppStrings.ios_pairing_cameraunavailablemessage()
         case .restricted:
-            "camera access isn't allowed on this device. paste a pairing link instead."
+            AppStrings.ios_pairing_cameraunavailablemessage2()
         default:
-            "the camera isn't available on this device. paste a pairing link instead."
+            AppStrings.ios_pairing_cameraunavailablemessage3()
         }
     }
 
@@ -404,14 +404,14 @@ struct PairFlowView: View {
     private var pairingContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             Picker(
-                "pairing method",
+                AppStrings.ios_pairing_pairingcontent4(),
                 selection: Binding(
                     get: { self.entryMode },
                     set: { self.selectMode($0) }
                 )
             ) {
-                Text("scan").tag(EntryMode.scan)
-                Text("paste").tag(EntryMode.paste)
+                Text(AppStrings.ios_pairing_pairingcontent7()).tag(EntryMode.scan)
+                Text(AppStrings.ios_pairing_pairingcontent5()).tag(EntryMode.paste)
             }
             .pickerStyle(.segmented)
 
@@ -438,13 +438,13 @@ struct PairFlowView: View {
                     .padding(12)
                     .background(Color.deckSurface, in: ShellMetrics.cardShape)
                     .accessibilityIdentifier("pairFlow.pasteField")
-                Button("pair this device") {
+                Button(AppStrings.ios_pairing_pairingcontent3()) {
                     self.startPastedURL()
                 }
                 .buttonStyle(BrandProminentButtonStyle())
                 .disabled(self.pastedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .frame(maxWidth: .infinity, minHeight: 44)
-                Button("scan a code instead") {
+                Button(AppStrings.ios_pairing_pairingcontent8()) {
                     self.selectMode(.scan)
                 }
                 .buttonStyle(BrandQuietButtonStyle())
@@ -452,7 +452,7 @@ struct PairFlowView: View {
             }
 
             if self.fallbackTimer.shouldShowPasteFallback, self.mode != .paste {
-                Button("paste a link instead") {
+                Button(AppStrings.ios_pairing_pairingcontent6()) {
                     self.fallbackTimer.cancel()
                     self.selectMode(.paste)
                 }
@@ -464,18 +464,18 @@ struct PairFlowView: View {
                 Text(errorMessage)
                     .font(.body)
                     .foregroundStyle(.red)
-                    .accessibilityLabel("Pairing error: \(errorMessage)")
+                    .accessibilityLabel(AppStrings.ios_pairing_pairingcontent("\(errorMessage)"))
             }
 
             if self.cameraDenied {
-                Button("open settings") {
+                Button(AppStrings.ios_home_opensettings()) {
                     UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
                 }
                 .buttonStyle(BrandQuietButtonStyle())
                 .frame(maxWidth: .infinity, minHeight: 44)
             }
 
-            Button("back") {
+            Button(AppStrings.ios_pairing_back()) {
                 self.cancelFlowTask()
                 self.fallbackTimer.cancel()
                 self.goBack()
@@ -488,7 +488,7 @@ struct PairFlowView: View {
     private var connectingContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             ProgressView()
-            Button("back") {
+            Button(AppStrings.ios_pairing_back()) {
                 self.cancelFlowTask()
                 self.fallbackTimer.cancel()
                 self.goBack()
@@ -596,7 +596,7 @@ struct PairFlowView: View {
     private var notChangedContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             self.mismatchContent
-            Button("back") {
+            Button(AppStrings.ios_pairing_back()) {
                 self.goBack()
             }
             .frame(minWidth: 44, minHeight: 44)
@@ -616,9 +616,9 @@ struct PairFlowView: View {
     static func pairingTitle(for mode: EntryMode) -> String {
         switch mode {
         case .scan:
-            return "scan your pairing code"
+            return AppStrings.ios_pairing_pairingtitle2()
         case .paste:
-            return "paste your pairing link"
+            return AppStrings.ios_pairing_pairingtitle()
         }
     }
 
@@ -838,7 +838,7 @@ struct PairFlowView: View {
         case .loopback:
             self.errorMessage = PairFailureReason.loopbackAddress.message
         case .invalid:
-            self.errorMessage = "enter a valid pairing link."
+            self.errorMessage = AppStrings.ios_pairing_errormessage()
         case .pair(let pairURL):
             await self.handle(pairURL)
         case .routeFailure(let error):
@@ -849,9 +849,9 @@ struct PairFlowView: View {
     private var subtitleForMode: String {
         switch self.entryMode {
         case .scan:
-            return "on your computer, open your journal's dashboard, go to the network app, and choose \"pair a device\"."
+            return AppStrings.ios_pairing_subtitleformode()
         case .paste:
-            return "on your computer, open your journal's dashboard, go to the network app, choose \"pair a device\", then copy the link."
+            return AppStrings.ios_pairing_subtitleformode2()
         }
     }
 

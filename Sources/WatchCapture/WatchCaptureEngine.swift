@@ -1549,14 +1549,14 @@ extension WatchCaptureEngine {
         )
         if prepared.manifest.lost {
             var lostManifest = prepared.manifest
-            lostManifest.failureReason = "audio unavailable after restart"
+            lostManifest.failureReason = AppStrings.ios_watch_failurereason()
             prepared = PreparedFinalization(
                 segment: prepared.segment,
                 manifest: lostManifest,
                 verifiedAudioAt: prepared.verifiedAudioAt,
                 disposition: prepared.disposition
             )
-            self.status = .needsAttention(.unavailable(reason: "audio unavailable after restart"))
+            self.status = .needsAttention(.unavailable(reason: AppStrings.ios_watch_failurereason()))
         }
         await self.persistFinalization(
             prepared,

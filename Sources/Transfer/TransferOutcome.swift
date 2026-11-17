@@ -99,11 +99,11 @@ nonisolated extension TransferTransientReason {
     var retryDetail: String {
         switch self {
         case .httpServerError(let statusCode):
-            "retrying: http \(statusCode)"
+            AppStrings.ios_transfer_retrydetail3("\(statusCode)")
         case .timeout:
-            "retrying: timeout"
+            AppStrings.ios_transfer_retrydetail4()
         case .cancelled:
-            "retrying: cancelled"
+            AppStrings.ios_transfer_retrydetail2()
         case .transport(let detail):
             Self.networkDetail(detail)
         }
@@ -111,8 +111,8 @@ nonisolated extension TransferTransientReason {
 
     private static func networkDetail(_ detail: String) -> String {
         let bounded = WatchTransferFailureFormatter.redactedDescription(detail)
-        guard !bounded.isEmpty else { return "retrying: network" }
-        return "retrying: network (\(bounded))"
+        guard !bounded.isEmpty else { return AppStrings.ios_transfer_networkdetail() }
+        return AppStrings.ios_transfer_networkdetail2("\(bounded)")
     }
 }
 
@@ -138,7 +138,7 @@ nonisolated extension TransferAttentionReason {
         case .decodeFailed(let detail):
             detail
         case .missingPayload(let detail):
-            Self.boundedRuntimeDetail(detail, fallback: "missing source details")
+            Self.boundedRuntimeDetail(detail, fallback: AppStrings.ios_transfer_missingsourcedetails())
         case .malformedManifest(let detail):
             detail
         }
@@ -237,7 +237,7 @@ nonisolated enum TransferHTTPClassifier {
         }
 
         guard let statusCode = result.statusCode else {
-            return .transientRetry(.transport("missing http response"))
+            return .transientRetry(.transport(AppStrings.ios_transfer_classify()))
         }
 
         if 200..<300 ~= statusCode {
@@ -306,14 +306,14 @@ nonisolated enum TransferHTTPClassifier {
             return .transientRetry(.httpServerError(statusCode: statusCode))
         }
 
-        return .transientRetry(.transport("unexpected http \(statusCode)"))
+        return .transientRetry(.transport(AppStrings.ios_transfer_classify2("\(statusCode)")))
     }
 
     private static func classifyObserverIngestSuccess(statusCode: Int, data: Data) -> TransferOutcome {
         guard !data.isEmpty,
               let response = try? JSONDecoder().decode(ObserverIngestResponse.self, from: data)
         else {
-            return .terminalAttention(.decodeFailed("invalid ingest response"))
+            return .terminalAttention(.decodeFailed(AppStrings.ios_transfer_classifyobserveringestsuccess()))
         }
 
         switch response.status {
@@ -324,7 +324,7 @@ nonisolated enum TransferHTTPClassifier {
             if let reasonCode = response.reasonCode, !reasonCode.isEmpty {
                 detail = "reason_code=\(reasonCode)"
             } else {
-                detail = "ingest status \(response.status) without reason_code"
+                detail = AppStrings.ios_transfer_detail("\(response.status)")
             }
             return .terminalAttention(.httpClientError(
                 statusCode: statusCode,
@@ -332,20 +332,20 @@ nonisolated enum TransferHTTPClassifier {
                 journalReasonCode: Self.storedJournalReasonCode(response.reasonCode)
             ))
         default:
-            return .terminalAttention(.decodeFailed("unknown ingest status \(response.status)"))
+            return .terminalAttention(.decodeFailed(AppStrings.ios_transfer_classifyobserveringestsuccess2("\(response.status)")))
         }
     }
 
     private static func classifySaveSuccess(data: Data) -> TransferOutcome {
         guard let response = try? JSONDecoder().decode(SaveResponse.self, from: data) else {
-            return .terminalAttention(.decodeFailed("invalid save response"))
+            return .terminalAttention(.decodeFailed(AppStrings.ios_transfer_classifysavesuccess()))
         }
 
         // The old background-session path guarded against a `client_item_id` echo mismatch in the SAVE response and failed the item terminally (ImportQueue.swift:1101-1105). That guard is intentionally not carried over: `client_item_id` is the server's idempotency key, so a mismatched echo cannot cause a duplicate import, and the local re-check only ever converted a benign server quirk into owner-visible failure.
         switch response.recommendedAction {
         case TransferRecommendedAction.start.rawValue:
             guard let path = response.path, let timestamp = response.timestamp else {
-                return .terminalAttention(.decodeFailed("missing path or timestamp"))
+                return .terminalAttention(.decodeFailed(AppStrings.ios_transfer_classifysavesuccess2()))
             }
             return .continueWithStart(TransferSaveThenStartState(
                 phase: .startPending,
@@ -357,7 +357,7 @@ nonisolated enum TransferHTTPClassifier {
         case TransferRecommendedAction.doNotStart.rawValue:
             return .terminalSuccess(.delivered(serverPath: response.path, serverTimestamp: response.timestamp))
         default:
-            return .terminalAttention(.decodeFailed("unknown recommended action"))
+            return .terminalAttention(.decodeFailed(AppStrings.ios_transfer_classifysavesuccess3()))
         }
     }
 
@@ -370,7 +370,7 @@ nonisolated enum TransferHTTPClassifier {
               let taskID = response.taskID,
               !taskID.isEmpty
         else {
-            return .terminalAttention(.decodeFailed("invalid start response"))
+            return .terminalAttention(.decodeFailed(AppStrings.ios_transfer_classifystartsuccess()))
         }
         return .terminalSuccess(.delivered(
             serverPath: saveResult?.savedPath,

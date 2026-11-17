@@ -1,0 +1,16 @@
+{
+  "description": "not in your journal yet. it's waiting to go in.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 47,
+  "source_revision": "13def6510558d89ca12358a4490d5eaf9191b18ef0269f0ad8c5e015743b1565",
+  "risk": "routine",
+  "auto_merge": true
+}

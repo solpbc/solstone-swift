@@ -1,0 +1,16 @@
+{
+  "description": "start from today",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.screenshots.startfromtoday. Keep translations consistent. Mac counterpart: macos.screenshot.startfromtoday. Keep translations consistent.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "89d58b75caf7e9f4d93c058e9123e653eaf5e544d0f8f94a36ea403e7bda7bd2",
+  "risk": "routine",
+  "auto_merge": true
+}

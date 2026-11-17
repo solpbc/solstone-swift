@@ -1,0 +1,16 @@
+{
+  "description": "not changed",
+  "context": "Existing native lookup pair_flow.not_changed.title. Mac counterpart: macos.ui.notchanged. Keep translations consistent. Android counterpart: android.journalmark.notchanged. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "fae3f976771e878c0653b969207ca7d0f31afae8204ea729e8d4e74b2a982635",
+  "risk": "routine",
+  "auto_merge": true
+}

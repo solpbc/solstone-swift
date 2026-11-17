@@ -1,0 +1,16 @@
+{
+  "description": "duration invalid",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "fcb1deb6d4b828335691e461bf999d70a419b70dc1d63b9168c0cd6c79133207",
+  "risk": "routine",
+  "auto_merge": true
+}

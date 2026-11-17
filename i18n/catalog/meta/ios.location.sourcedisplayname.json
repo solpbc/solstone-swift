@@ -1,0 +1,16 @@
+{
+  "description": "location",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.gap.location. Keep translations consistent.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 8,
+  "source_revision": "25cf10f2c3e02071b3b420b2eb1f8cdfad716c2b2ca1ec3e18d82d9124992374",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "ingest status {status} without reason_code",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "status",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 42,
+  "source_revision": "778c2490c832508bef2d77de3f6e0f8167d26c7b9054380212c8ac510ef9ef6d",
+  "risk": "routine",
+  "auto_merge": true
+}

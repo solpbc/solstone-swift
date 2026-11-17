@@ -1,0 +1,16 @@
+{
+  "description": "deletes all problem reports.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "b4ae2d20e68d70ba5396bfe025a67f6a4814e2c2948efd3e7f11d4a55311c341",
+  "risk": "routine",
+  "auto_merge": true
+}

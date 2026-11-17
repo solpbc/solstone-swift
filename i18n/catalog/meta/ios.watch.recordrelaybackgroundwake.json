@@ -1,0 +1,16 @@
+{
+  "description": "background wake",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "317f6aa23374dbd4f8d82e33e6a85e4cc9da8315f3c708838edbc0d546d86bab",
+  "risk": "routine",
+  "auto_merge": true
+}

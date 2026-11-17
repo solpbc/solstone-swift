@@ -1,0 +1,16 @@
+{
+  "description": "diagnostic evidence stale",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "b1d548739ff10b5a88aee52562097c1009e0a0b9394d4a434b5e39e1c11240c6",
+  "risk": "routine",
+  "auto_merge": true
+}

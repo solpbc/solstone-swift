@@ -1,0 +1,16 @@
+{
+  "description": "sharing location: restricted",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "7451ec695f6f6fd91d8ad919740124299e40e2e58e243dcd58fe099018e3060a",
+  "risk": "routine",
+  "auto_merge": true
+}

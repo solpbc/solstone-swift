@@ -1,0 +1,16 @@
+{
+  "description": "screen sharing ended",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "22bec69ad7728154a11ef2f88fcc80f675e56d5674f117d7e7ac2bcbb64ba108",
+  "risk": "routine",
+  "auto_merge": true
+}

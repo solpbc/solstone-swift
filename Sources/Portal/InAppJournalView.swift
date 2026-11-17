@@ -414,7 +414,7 @@ struct InAppJournalView: View {
             .toolbar {
                 if self.presentation.isPhoneModal {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("done") {
+                        Button(AppStrings.ios_home_done()) {
                             self.dismiss()
                         }
                     }
@@ -532,9 +532,9 @@ struct InAppJournalView: View {
                 .accessibilityIdentifier("shell.pane.journal.waiting")
 
             if !attemptInFlight {
-                Button("try again", action: self.retry)
+                Button(AppStrings.ios_migration_offline_action(), action: self.retry)
                     .buttonStyle(BrandProminentButtonStyle())
-                    .accessibilityHint("attempts to reconnect to your journal")
+                    .accessibilityHint(AppStrings.ios_portal_attemptstoreconnecttoyourjournal())
             }
         }
         .padding()
@@ -563,9 +563,9 @@ struct InAppJournalView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            Button("try again", action: self.retry)
+            Button(AppStrings.ios_migration_offline_action(), action: self.retry)
                 .buttonStyle(BrandProminentButtonStyle())
-                .accessibilityHint("attempts to reconnect to your journal")
+                .accessibilityHint(AppStrings.ios_portal_attemptstoreconnecttoyourjournal())
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)

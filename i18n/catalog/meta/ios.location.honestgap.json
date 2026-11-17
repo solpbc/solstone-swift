@@ -1,0 +1,16 @@
+{
+  "description": "gap here — location wasn't available.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 37,
+  "source_revision": "0c92ea94dab1a45b8a20dfdb7a8143e8e07776702894520341a6e9c1c59b25a6",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "while this is on, the solstone extension keeps taking in pages from the sites you allow, even when this app is closed. pages wait on this device and go into your journal the next t",
+  "context": "custody or processing claim. not rewritten. Legal source wording stays English until an approved legal translation exists.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 202,
+  "source_revision": "e2a36ccc5799cf0fedb100a04c0f1a3f51aa8c40ea211414f2cdba26d360f7b3",
+  "risk": "legal",
+  "auto_merge": false
+}

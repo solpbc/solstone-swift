@@ -1,0 +1,33 @@
+{
+  "description": "{ $first }, then { $second }, then { $third }, then { $fourth }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "first",
+      "type": "string"
+    },
+    {
+      "name": "second",
+      "type": "string"
+    },
+    {
+      "name": "third",
+      "type": "string"
+    },
+    {
+      "name": "fourth",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "bee34519070a488eb2f87804338f9b105a3cf89c59ad4e6b0ba277a4d9c544d0",
+  "risk": "routine",
+  "auto_merge": true
+}

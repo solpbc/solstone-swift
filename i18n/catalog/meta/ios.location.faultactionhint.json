@@ -1,0 +1,16 @@
+{
+  "description": "Asks ios for location access.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "36074430dcf37f8c0a5ad271894756ba7ac644051aa93495f1cd8c5feaecdadb",
+  "risk": "routine",
+  "auto_merge": true
+}

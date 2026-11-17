@@ -1,0 +1,21 @@
+{
+  "description": "some of what you shared since {earliest} didn't reach it.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.gap.some.what.shared.since.weekdayname. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "earliest",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 57,
+  "source_revision": "90eae7ae0a3786de0490d2ade2dac157511f7593c54a0a45a798fa38cd0c04be",
+  "risk": "routine",
+  "auto_merge": true
+}

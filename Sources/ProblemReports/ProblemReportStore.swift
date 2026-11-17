@@ -46,7 +46,7 @@ final class ProblemReportStore {
             }
 
             guard let rawJSON = String(data: input.jsonData, encoding: .utf8) else {
-                self.appendFailure(stage: "decode", severity: .warning, kind: .unknown(input.source.rawValue), count: 1, message: "problem report could not be read")
+                self.appendFailure(stage: "decode", severity: .warning, kind: .unknown(input.source.rawValue), count: 1, message: AppStrings.ios_problemreports_problemreportcouldnotberead())
                 continue
             }
 
@@ -54,7 +54,7 @@ final class ProblemReportStore {
             do {
                 kinds = try Self.kinds(in: input.jsonData, source: input.source)
             } catch {
-                self.appendFailure(stage: "decode", severity: .warning, kind: .unknown(input.source.rawValue), count: 1, message: "problem report could not be read")
+                self.appendFailure(stage: "decode", severity: .warning, kind: .unknown(input.source.rawValue), count: 1, message: AppStrings.ios_problemreports_problemreportcouldnotberead())
                 continue
             }
 
@@ -76,7 +76,7 @@ final class ProblemReportStore {
                 try self.persist(report)
             } catch {
                 problemReportStoreLog.error("problem report persist failed: \(String(describing: error), privacy: .public)")
-                self.appendFailure(stage: "persist", severity: .error, kind: kind, count: 1, message: "problem report could not be saved")
+                self.appendFailure(stage: "persist", severity: .error, kind: kind, count: 1, message: AppStrings.ios_problemreports_ingest())
             }
         }
 
@@ -114,7 +114,7 @@ final class ProblemReportStore {
             return url
         } catch {
             problemReportStoreLog.error("problem report share failed: \(String(describing: error), privacy: .public)")
-            self.appendFailure(stage: "share", severity: .warning, kind: report.kind, count: 1, message: "problem report could not be shared")
+            self.appendFailure(stage: "share", severity: .warning, kind: report.kind, count: 1, message: AppStrings.ios_problemreports_problemreportcouldnotbeshared())
             return nil
         }
     }
@@ -141,7 +141,7 @@ final class ProblemReportStore {
             return url
         } catch {
             problemReportStoreLog.error("problem report share-all failed: \(String(describing: error), privacy: .public)")
-            self.appendFailure(stage: "share", severity: .warning, kind: .unknown("all"), count: reports.count, message: "problem report could not be shared")
+            self.appendFailure(stage: "share", severity: .warning, kind: .unknown("all"), count: reports.count, message: AppStrings.ios_problemreports_problemreportcouldnotbeshared())
             return nil
         }
     }
@@ -248,7 +248,7 @@ private extension ProblemReportStore {
                 severity: .warning,
                 kind: .unknown("stored"),
                 count: failedDecodeCount,
-                message: "problem report could not be read"
+                message: AppStrings.ios_problemreports_problemreportcouldnotberead()
             )
         }
         return self.sorted(reports)
@@ -306,7 +306,7 @@ private extension ProblemReportStore {
             category: .diagnostics,
             severity: severity,
             message: message,
-            detail: "kind=\(kind.filenameSlug) count=\(count) stage=\(stage)"
+            detail: AppStrings.ios_problemreports_appendfailure_native("\(kind.filenameSlug)", "\(count)", "\(stage)")
         )
     }
 

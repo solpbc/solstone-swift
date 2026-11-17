@@ -1,0 +1,16 @@
+{
+  "description": "haven't heard from your watch yet",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "38027794f2391d3da939a96029cdaee62d7a6fe43c26da9e250d02c17a31ed8f",
+  "risk": "routine",
+  "auto_merge": true
+}

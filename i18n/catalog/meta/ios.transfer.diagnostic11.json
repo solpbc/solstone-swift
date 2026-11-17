@@ -1,0 +1,21 @@
+{
+  "description": "mobile segment root migration collision {label}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "label",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 47,
+  "source_revision": "7033a2ac6da0c7444572896e291fc26fe9e572587ae82ea4df7f896a80d8fb71",
+  "risk": "routine",
+  "auto_merge": true
+}

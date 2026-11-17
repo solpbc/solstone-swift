@@ -1,0 +1,37 @@
+{
+  "description": "{hole1}; reason {reason}; held {heldTaskCount}; completed {completedTaskCount}; deadlines {deadlineCount}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    },
+    {
+      "name": "reason",
+      "type": "string"
+    },
+    {
+      "name": "heldTaskCount",
+      "type": "string"
+    },
+    {
+      "name": "completedTaskCount",
+      "type": "string"
+    },
+    {
+      "name": "deadlineCount",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 105,
+  "source_revision": "1abc700fb65c01353c474a5b1d1083730ddcfc64a40ce191a83db5a1a7593614",
+  "risk": "routine",
+  "auto_merge": true
+}

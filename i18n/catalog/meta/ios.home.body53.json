@@ -1,0 +1,16 @@
+{
+  "description": "pair a new journal?",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "5d13fbae4eecdf5f8638c8d2d3cdcf08d7df6f95a6605399108560a6f7ae7474",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "that address points back at this device. paste the pairing link shown on your journal instead.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 94,
+  "source_revision": "0664595dcf54e746b7804f05847272aa5f1c2af0ca6e73b21900057f8e6d6bdb",
+  "risk": "routine",
+  "auto_merge": true
+}

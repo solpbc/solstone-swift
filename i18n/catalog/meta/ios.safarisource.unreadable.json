@@ -1,0 +1,16 @@
+{
+  "description": "this app can't check for Safari pages on this device right now.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 63,
+  "source_revision": "779af5b29c944f0c59a19ef22c3119e28883110cbb93200ec86e394d7cf4c3f0",
+  "risk": "routine",
+  "auto_merge": true
+}

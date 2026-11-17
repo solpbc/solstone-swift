@@ -1,0 +1,16 @@
+{
+  "description": "open any source to change what it does, and to add or remove its tile.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.phone.open.any.source.change.what. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 70,
+  "source_revision": "b9bd28a31c9198ca14f39657dc7e880e6b27c75f4371ce92da82eb9cd1d47973",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,33 @@
+{
+  "description": "{hole1}; {hole2}; in Apple's queue {observedFileTransferCount}; active {activeManifestCount}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    },
+    {
+      "name": "hole2",
+      "type": "string"
+    },
+    {
+      "name": "observedFileTransferCount",
+      "type": "string"
+    },
+    {
+      "name": "activeManifestCount",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 92,
+  "source_revision": "6b60af287d0dc0cd43d40ec1afb6bb863a61ca83eb82e3b255bad687505b48b9",
+  "risk": "routine",
+  "auto_merge": true
+}

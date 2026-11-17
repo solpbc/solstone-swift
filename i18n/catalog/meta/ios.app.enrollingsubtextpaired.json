@@ -1,0 +1,16 @@
+{
+  "description": "getting ready. connecting to your journal.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.source.getting.ready.connecting.journal. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 42,
+  "source_revision": "38fc6c5503e47dd1214913a826e507273ba21b61e5fefbc855ea3b0a37711be7",
+  "risk": "routine",
+  "auto_merge": true
+}

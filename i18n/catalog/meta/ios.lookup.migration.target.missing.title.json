@@ -1,0 +1,16 @@
+{
+  "description": "device no longer available",
+  "context": "Existing native lookup migration.target_missing.title. Mac counterpart: macos.desktop.shared.copy.targetmissingtitle. Keep translations consistent. Android counterpart: android.migration.device.no.longer.available. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "025f10aedddbbe9378d68786ef7158e3e9623f04f795397dfa6da1dc6204d752",
+  "risk": "routine",
+  "auto_merge": true
+}

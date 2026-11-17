@@ -1,0 +1,25 @@
+{
+  "description": "tunnel reconnects: {reconnectCount} ({reconnectBreakdown})",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "reconnectCount",
+      "type": "string"
+    },
+    {
+      "name": "reconnectBreakdown",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 58,
+  "source_revision": "243eb283f034288fc55a3a902bea04d897f4105102b3e1b9da65a53ab92c4d8a",
+  "risk": "routine",
+  "auto_merge": true
+}

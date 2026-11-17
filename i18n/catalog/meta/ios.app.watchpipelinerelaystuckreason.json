@@ -1,0 +1,16 @@
+{
+  "description": "your watch has segments saved, but this device has not received anything for a while.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 85,
+  "source_revision": "1f9d547e3c33ef3125fafb0c0cacd17800cec6700c1ea5a2ef3d1e7fbbd214d6",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "couldn't reach your journal at {targetAddress}. make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. turning on priva",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "targetAddress",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 248,
+  "source_revision": "9e782d129da4d1c2b657dfd4731aee957978a65ef1dc29c7a0fd5327b2bf822e",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "watch build match",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "b683b67fc1cb9e766ede65fee2bde165f220e2f6ac326eb950cfc02854dbbb8c",
+  "risk": "routine",
+  "auto_merge": true
+}

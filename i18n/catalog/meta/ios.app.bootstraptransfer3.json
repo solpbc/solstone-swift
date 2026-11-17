@@ -1,0 +1,16 @@
+{
+  "description": "reconciliation failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneswiftappswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "2146563a5271ead4d70b2a16c6f32500c0c4bedc44cf58de74e96aad2ef42a45",
+  "risk": "routine",
+  "auto_merge": true
+}

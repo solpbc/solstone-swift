@@ -1,0 +1,16 @@
+{
+  "description": "missing terminal outcome marker",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "ba7d79ef492d0d8903570c92c017f403272778c8ded9ac074a653d1d75a1e767",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "sync needs attention",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "7fa1edb02eec72030856412b5fe298a9426f7a71992eeadc5fb9b03373c786f0",
+  "risk": "routine",
+  "auto_merge": true
+}

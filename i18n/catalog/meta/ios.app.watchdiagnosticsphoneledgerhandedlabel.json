@@ -1,0 +1,16 @@
+{
+  "description": "phone ledger handed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "3bee97f641457f3b6d3b9637ed6c6906621a3d2d2835867334e6048094b1d5c7",
+  "risk": "routine",
+  "auto_merge": true
+}

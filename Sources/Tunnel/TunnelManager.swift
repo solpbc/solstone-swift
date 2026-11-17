@@ -68,13 +68,13 @@ enum RedriveTrigger: Sendable, Equatable {
     var label: String {
         switch self {
         case .networkChanged:
-            return "network changed"
+            return AppStrings.ios_tunnel_label4()
         case .foreground:
-            return "foreground"
+            return AppStrings.ios_tunnel_label2()
         case .cadence:
-            return "cadence"
+            return AppStrings.ios_tunnel_label()
         case .manual:
-            return "manual"
+            return AppStrings.ios_tunnel_label3()
         }
     }
 }
@@ -92,21 +92,21 @@ enum ReconnectReasonBucket: String, CaseIterable, Sendable {
     var exportLabel: String {
         switch self {
         case .transportClosed:
-            return "transport closed"
+            return AppStrings.ios_tunnel_transportclosed()
         case .pathChanged:
-            return "path changed"
+            return AppStrings.ios_tunnel_pathchanged()
         case .probeFailed:
-            return "probe failed"
+            return AppStrings.ios_tunnel_probefailed()
         case .keepaliveMissed:
-            return "keepalive missed"
+            return AppStrings.ios_tunnel_keepalivemissed()
         case .connectFailed:
-            return "connect failed"
+            return AppStrings.ios_tunnel_exportlabel()
         case .watchdogTimeout:
-            return "watchdog timeout"
+            return AppStrings.ios_tunnel_exportlabel4()
         case .pathRestore:
-            return "path restore"
+            return AppStrings.ios_tunnel_exportlabel3()
         case .other:
-            return "other"
+            return AppStrings.ios_tunnel_exportlabel2()
         }
     }
 }
@@ -142,13 +142,13 @@ private enum ReconnectReason: Sendable, Equatable {
     var logLabel: String {
         switch self {
         case .transportClosed:
-            return "transport closed"
+            return AppStrings.ios_tunnel_transportclosed()
         case .pathChanged:
-            return "path changed"
+            return AppStrings.ios_tunnel_pathchanged()
         case .probeFailed:
-            return "probe failed"
+            return AppStrings.ios_tunnel_probefailed()
         case .keepaliveMissed:
-            return "keepalive missed"
+            return AppStrings.ios_tunnel_keepalivemissed()
         }
     }
 }
@@ -221,11 +221,11 @@ nonisolated enum TriedAddressOutcome: Equatable, Sendable {
     var ownerText: String {
         switch self {
         case .noAnswer:
-            return "no answer"
+            return AppStrings.ios_tunnel_ownertext3()
         case .couldNotProveJournal:
-            return "answered, but couldn't prove it's your journal"
+            return AppStrings.ios_tunnel_ownertext()
         case .couldNotConnect:
-            return "couldn't connect"
+            return AppStrings.ios_tunnel_ownertext2()
         }
     }
 }
@@ -244,9 +244,9 @@ nonisolated struct TriedAddresses: Equatable, Sendable {
     /// The lines the status screen lists under "addresses tried": one per
     /// address, then "and N more" when some outcomes were omitted.
     var ownerLines: [String] {
-        var lines = self.entries.map { "\($0.address) · \($0.outcome.ownerText)" }
+        var lines = self.entries.map { AppStrings.ios_frame_tunnelmanager_n247("\($0.address)", "\($0.outcome.ownerText)") }
         if self.omittedCount > 0 {
-            lines.append("and \(self.omittedCount) more")
+            lines.append(AppStrings.ios_tunnel_ownerlines("\(self.omittedCount)"))
         }
         return lines
     }
@@ -288,7 +288,7 @@ final class TunnelManager {
     @ObservationIgnored private var connectedDirectEndpoint: LocalEndpoint?
     private var ordinaryAdmissionClosed = false
     private(set) var migrationRecoveryState: DeviceMigrationRecoveryState?
-    static let connectedThroughRelay = "the relay"
+    static let connectedThroughRelay = AppStrings.ios_tunnel_connectedthroughrelay()
     /// The winning direct address; nil when the relay won or the winner is unknown.
     var connectedDirectAddress: String? {
         self.connectedAddress == Self.connectedThroughRelay ? nil : self.connectedAddress
@@ -592,7 +592,7 @@ final class TunnelManager {
     private func appendStage(_ kind: ConnectionStageKind, detail: String? = nil) {
         let stage = ConnectionStage(id: kind, status: .active, startTime: .now)
         self.connectionStages.append(stage)
-        self.diagnosticLog?.append(category: .tunnel, message: "stage: \(kind.rawValue) started\(detail.map { " (\($0))" } ?? "")")
+        self.diagnosticLog?.append(category: .tunnel, message: AppStrings.ios_presentation_tunnelmanager_n10("\(kind.rawValue)", "\(detail.map { " (\($0))" } ?? "")"))
     }
 
     private func completeStage(_ kind: ConnectionStageKind, detail: String? = nil) {
@@ -604,7 +604,7 @@ final class TunnelManager {
         let durationSegment = self.connectionStages[index].duration.map { String(format: " (%.1fs)", $0) } ?? ""
         self.diagnosticLog?.append(
             category: .tunnel,
-            message: "stage: \(kind.rawValue) done\(durationSegment)\(detail.map { " (\($0))" } ?? "")"
+            message: AppStrings.ios_tunnel_completestage("\(kind.rawValue)", "\(durationSegment)", "\(detail.map { " (\($0))" } ?? "")")
         )
     }
 
@@ -614,7 +614,7 @@ final class TunnelManager {
         if let start = self.connectionStages[index].startTime {
             self.connectionStages[index].duration = Double((ContinuousClock.now - start) / .seconds(1))
         }
-        self.diagnosticLog?.append(category: .tunnel, message: "stage: \(kind.rawValue) cancelled")
+        self.diagnosticLog?.append(category: .tunnel, message: AppStrings.ios_presentation_tunnelmanager_n16("\(kind.rawValue)"))
     }
 
     @discardableResult
@@ -643,24 +643,24 @@ final class TunnelManager {
     }
 
     private func candidateLine(for ordinal: Int, elapsed: Int? = nil) -> String {
-        guard let candidate = self.candidateTelemetry[ordinal] else { return "candidate \(ordinal): unavailable" }
+        guard let candidate = self.candidateTelemetry[ordinal] else { return AppStrings.ios_tunnel_candidateline2("\(ordinal)") }
         let route: String
         switch candidate.route {
-        case .directPinned: route = "direct pinned"
-        case .directUnpinned: route = "direct unpinned"
+        case .directPinned: route = AppStrings.ios_tunnel_route()
+        case .directUnpinned: route = AppStrings.ios_tunnel_route2()
         case .relay: route = "relay"
         }
         let phase: String
         if let unfinishedReason = candidate.unfinishedReason {
-            phase = "unfinished (\(unfinishedReason.rawValue))"
+            phase = AppStrings.ios_tunnel_phase6("\(unfinishedReason.rawValue)")
         } else {
             switch candidate.phase {
-            case .started: phase = "started"
-            case .waitingForBroker: phase = "waiting for broker"
-            case .transportReady: phase = "transport ready"
-            case .selected: phase = "selected"
-            case .failed(let failure, _): phase = "failed \(String(describing: failure))"
-            case .cancelled: phase = "cancelled"
+            case .started: phase = AppStrings.ios_tunnel_phase4()
+            case .waitingForBroker: phase = AppStrings.ios_tunnel_phase7()
+            case .transportReady: phase = AppStrings.ios_tunnel_phase5()
+            case .selected: phase = AppStrings.ios_tunnel_phase3()
+            case .failed(let failure, _): phase = AppStrings.ios_tunnel_phase2("\(String(describing: failure))")
+            case .cancelled: phase = AppStrings.ios_tunnel_phase()
             }
         }
         let milliseconds: Int
@@ -672,7 +672,7 @@ final class TunnelManager {
             }
         }
         let address = self.candidateAddress(ordinal: ordinal, route: candidate.route).map { " → \($0)" } ?? ""
-        return "candidate \(ordinal): \(route) \(phase) \(milliseconds)ms\(address)"
+        return AppStrings.ios_tunnel_candidateline3("\(ordinal)", "\(route)", "\(phase)", "\(milliseconds)", "\(address)")
     }
 
     /// The dialed endpoint behind an attempt ordinal, only when its kind matches the event's route.
@@ -903,13 +903,13 @@ final class TunnelManager {
         self.telemetryCompleteness = hadUnfinishedCandidate || hadOmittedCandidate ? .unavailable : .complete
         self.diagnosticLog?.append(
             category: .tunnel,
-            message: "candidate telemetry: \(self.telemetryCompleteness.rawValue)"
+            message: AppStrings.ios_tunnel_candidatetelemetry("\(self.telemetryCompleteness.rawValue)")
         )
         self.publishTriedAddressesIfUnselected()
     }
 
     nonisolated static func candidateCountDetail(_ count: Int) -> String {
-        "\(count) candidate\(count == 1 ? "" : "s")"
+        AppStrings.ios_tunnel_candidate_count(count)
     }
 
     private func failActiveStage() {
@@ -921,7 +921,7 @@ final class TunnelManager {
         self.diagnosticLog?.append(
             category: .tunnel,
             severity: .warning,
-            message: "stage: \(self.connectionStages[index].kind.rawValue) failed"
+            message: AppStrings.ios_tunnel_failactivestage("\(self.connectionStages[index].kind.rawValue)")
         )
     }
 
@@ -953,7 +953,7 @@ final class TunnelManager {
             self.pendingReconnectReason = nil
         }
         self.state = .connecting
-        self.diagnosticLog?.append(category: .tunnel, message: "connecting")
+        self.diagnosticLog?.append(category: .tunnel, message: AppStrings.ios_presentation_tunnelmanager_n36())
         self.connectionStages = []
         let epoch = self.beginAttempt()
 
@@ -1050,13 +1050,13 @@ final class TunnelManager {
                 self.diagnosticLog?.append(
                     category: .tunnel,
                     message: endpoint == .lan
-                        ? "connected via local network on port \(localPort)"
-                        : "connected through the relay on port \(localPort)",
+                        ? AppStrings.ios_tunnel_connect2_native("\(localPort)")
+                        : AppStrings.ios_tunnel_connectedthroughtherelayon("\(localPort)"),
                     detail: self.connectionIdentityDetail(port: localPort, epoch: connectionEpoch)
                 )
                 if self.ownerConnectSuccessBannerArmed {
                     self.ownerConnectSuccessBannerArmed = false
-                    self.diagnosticLog?.append(category: .tunnel, message: "journal connected")
+                    self.diagnosticLog?.append(category: .tunnel, message: AppStrings.ios_presentation_tunnelmanager_n40())
                 }
                 self.reconnectBackoff.reset()
                 self.cancelReconnect()
@@ -1120,7 +1120,7 @@ final class TunnelManager {
                 self.diagnosticLog?.append(
                     category: .tunnel,
                     severity: .error,
-                    message: "connection failed",
+                    message: AppStrings.ios_tunnel_connectionfailed(),
                     detail: tunnelError.userMessage
                 )
                 guard !Task.isCancelled, self.isCurrentAttempt(epoch) else { return }
@@ -1145,7 +1145,7 @@ final class TunnelManager {
             guard self.isCurrentAttempt(epoch), case .connecting = self.state else { return }
             self.failActiveStage()
             self.state = .error(.unreachable)
-            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "connection timed out", detail: nil)
+            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: AppStrings.ios_presentation_tunnelmanager_n43(), detail: nil)
             self.pendingReconnectReason = .watchdogTimeout
             self.scheduleReconnect(for: .unreachable, epoch: epoch)
         }
@@ -1381,7 +1381,7 @@ final class TunnelManager {
         await self.transport.disconnect()
         self.diagnosticLog?.append(
             category: .tunnel,
-            message: "disconnected",
+            message: AppStrings.ios_tunnel_disconnected(),
             detail: self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch)
         )
     }
@@ -1465,7 +1465,7 @@ final class TunnelManager {
         await self.transport.disconnect()
         await stalled?.value
         guard case .waitingForHome = self.state, self.scenePhase == .active else { return }
-        self.diagnosticLog?.append(category: .tunnel, message: "re-dialing", detail: reason.label)
+        self.diagnosticLog?.append(category: .tunnel, message: AppStrings.ios_presentation_tunnelmanager_n49(), detail: reason.label)
         self.consecutiveNotEntitled = 0
         await self.connect()
     }
@@ -1609,8 +1609,8 @@ final class TunnelManager {
                         self.diagnosticLog?.append(
                             category: .tunnel,
                             severity: .warning,
-                            message: "probe not reachable during active uploads",
-                            detail: "activeUploads=\(activeLocalTransfers) \(self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch))"
+                            message: AppStrings.ios_tunnel_startlivenessprobe2(),
+                            detail: AppStrings.ios_tunnel_startlivenessprobe("\(activeLocalTransfers)", "\(self.connectionIdentityDetail(port: active?.port, epoch: active?.epoch))")
                         )
                     }
                     await self.forceReconnect(reason: .probeFailed, epoch: epoch)
@@ -1653,7 +1653,7 @@ final class TunnelManager {
         self.diagnosticLog?.append(
             category: .tunnel,
             severity: .warning,
-            message: "forcing reconnect",
+            message: AppStrings.ios_tunnel_forcereconnect(),
             detail: detail
         )
         self.cancelConnectWatchdog()
@@ -1684,7 +1684,7 @@ final class TunnelManager {
                     self.lastEmittedPathSignature = signature
                     self.diagnosticLog?.append(
                         category: .tunnel,
-                        message: "path changed",
+                        message: AppStrings.ios_tunnel_pathchanged(),
                         detail: detail
                     )
                 }
@@ -1767,7 +1767,7 @@ final class TunnelManager {
                 let (data, response) = try await self.probeSession.data(for: request)
                 if let http = response as? HTTPURLResponse {
                     alive = 200..<300 ~= http.statusCode
-                    detail = "endpoint: /app/network/api/status; status: \(http.statusCode)"
+                    detail = AppStrings.ios_tunnel_detail4("\(http.statusCode)")
                     if alive,
                        let payload = try? JSONDecoder().decode(NetworkStatusPayload.self, from: data),
                        let generation = payload.relayListenGeneration,
@@ -1776,15 +1776,15 @@ final class TunnelManager {
                     }
                 } else {
                     alive = false
-                    detail = "endpoint: /app/network/api/status; non-http response"
+                    detail = AppStrings.ios_tunnel_detail3()
                 }
             } catch {
                 alive = false
-                detail = "endpoint: /app/network/api/status; error: \(String(describing: error))"
+                detail = AppStrings.ios_tunnel_detail2("\(String(describing: error))")
             }
         } else {
             alive = false
-            detail = "endpoint unavailable"
+            detail = AppStrings.ios_tunnel_detail()
         }
         let elapsed = clock.now - start
         guard self.isCurrentAttempt(attemptEpoch), self.journalFingerprint == fingerprint else { return nil }
@@ -1810,59 +1810,59 @@ final class TunnelManager {
         if !unchangedHealthy {
             self.diagnosticLog?.append(
                 category: .tunnel,
-                message: alive ? "probe available" : "probe not reachable",
-                detail: "latency: \(elapsed); \(detail); \(self.connectionIdentityDetail(port: active?.port ?? localPort, epoch: active?.epoch))"
+                message: alive ? AppStrings.ios_tunnel_probeconnection2_native() : AppStrings.ios_tunnel_probenotreachable(),
+                detail: AppStrings.ios_tunnel_probeconnection("\(elapsed)", "\(detail)", "\(self.connectionIdentityDetail(port: active?.port ?? localPort, epoch: active?.epoch))")
             )
         }
         return (alive, elapsed)
     }
 
     private func connectionIdentityDetail(port: Int?, epoch: UInt64?) -> String {
-        "port=\(port.map(String.init) ?? "none") epoch=\(epoch.map(String.init) ?? "none")"
+        AppStrings.ios_tunnel_connectionidentitydetail_native(AppStrings.ios_presentation_tunnelmanager_n66("\(port.map(String.init) ?? "none")"), AppStrings.ios_presentation_tunnelmanager_n67("\(epoch.map(String.init) ?? "none")"))
     }
 
     func diagnosticSnapshotLines() -> [String] {
         let now = self.clock.monotonicNow()
-        var lines = ["journal fingerprint: \(self.journalFingerprint ?? "unavailable")"]
-        lines.append("scene phase: \(self.scenePhase.rawValue)")
+        var lines = [AppStrings.ios_tunnel_lines_native(AppStrings.ios_presentation_tunnelmanager_n68("\(self.journalFingerprint ?? "unavailable")"))]
+        lines.append(AppStrings.ios_tunnel_diagnosticsnapshotlines8("\(self.scenePhase.rawValue)"))
         if let episode = self.brokerWaitEpisode {
             let age = max(episode.startedAt.duration(to: now).components.seconds, 0)
             let next: String
             if let deadline = episode.nextCadenceDeadline {
-                next = "\(max(now.duration(to: deadline).components.seconds, 0))s"
+                next = AppStrings.ios_presentation_tunnelmanager_n70("\(max(now.duration(to: deadline).components.seconds, 0))")
             } else {
-                next = "unavailable"
+                next = AppStrings.ios_presentation_tunnelmanager_n71()
             }
-            lines.append("broker wait: active \(age)s, reraces \(episode.reraceCount), next in \(next)")
+            lines.append(AppStrings.ios_tunnel_next("\(age)", "\(episode.reraceCount)", "\(next)"))
         } else {
-            lines.append("broker wait: inactive")
+            lines.append(AppStrings.ios_tunnel_diagnosticsnapshotlines())
         }
         if let observation = self.latestListenerObservation,
            observation.journalFingerprint == self.journalFingerprint,
            observation.connectionEpoch == self.connectionEpoch {
             let age = max(observation.observedAt.duration(to: now).components.seconds, 0)
-            lines.append("last known journal listener: \(observation.generation) seen \(age)s ago")
+            lines.append(AppStrings.ios_tunnel_diagnosticsnapshotlines6("\(observation.generation)", "\(age)"))
         } else {
-            lines.append("last known journal listener: unavailable")
+            lines.append(AppStrings.ios_tunnel_diagnosticsnapshotlines5())
         }
-        lines.append("candidate telemetry: \(self.telemetryCompleteness.rawValue)")
+        lines.append(AppStrings.ios_tunnel_candidatetelemetry("\(self.telemetryCompleteness.rawValue)"))
         let candidates = self.candidateTelemetry.values.sorted { $0.ordinal < $1.ordinal }
         for candidate in candidates.prefix(maximumSnapshotCandidateLines) {
             lines.append(self.candidateLine(for: candidate.ordinal))
         }
         let omitted = self.candidateTelemetryTotal - candidates.count
         if omitted > 0 {
-            lines.append("candidate outcomes omitted: \(omitted)")
+            lines.append(AppStrings.ios_tunnel_diagnosticsnapshotlines2("\(omitted)"))
         }
         let paired = self.pairedJournalAddresses()
-        lines.append("journal addresses:")
+        lines.append(AppStrings.ios_tunnel_diagnosticsnapshotlines4())
         for endpoint in paired.endpoints {
             let scope = endpoint.scope.isEmpty ? "" : " (\(endpoint.scope))"
             lines.append("  \(JournalAddress.display(host: endpoint.host, port: endpoint.port))\(scope)")
         }
-        lines.append("relay: \(paired.relayHost ?? "off")")
+        lines.append(AppStrings.ios_tunnel_diagnosticsnapshotlines7_native(AppStrings.ios_presentation_tunnelmanager_n82("\(paired.relayHost ?? "off")")))
         if self.state.isConnected, let connectedAddress = self.connectedAddress {
-            lines.append("connected through: \(connectedAddress)")
+            lines.append(AppStrings.ios_tunnel_diagnosticsnapshotlines3("\(connectedAddress)"))
         }
         return lines
     }
@@ -1883,7 +1883,7 @@ final class TunnelManager {
         await self.endpointCache.bootstrap(from: updated)
         self.diagnosticLog?.append(
             category: .tunnel,
-            message: "journal addresses updated",
+            message: AppStrings.ios_tunnel_adoptjournaladdresses(),
             detail: addresses.map { JournalAddress.display(host: $0.host, port: $0.port) }.joined(separator: ", ")
         )
     }
@@ -1944,8 +1944,8 @@ final class TunnelManager {
         log.info("[solstone-swift] scheduling reconnect in \(String(describing: delay), privacy: .public) for \(String(describing: error), privacy: .public)")
         self.diagnosticLog?.append(
             category: .tunnel,
-            message: "scheduling reconnect",
-            detail: "delayMs=\(Self.milliseconds(for: delay)) error=\(error.diagnosticLabel)"
+            message: AppStrings.ios_tunnel_schedulereconnect2(),
+            detail: AppStrings.ios_tunnel_schedulereconnect("\(Self.milliseconds(for: delay))", "\(error.diagnosticLabel)")
         )
         self.reconnectCountdown = displaySeconds
         self.retryTask = Task { [weak self] in
@@ -1986,8 +1986,8 @@ final class TunnelManager {
 
     private func pathStatusDetail(_ status: NetworkPathStatus) -> String {
         let interface = self.pathInterfaceBucket(status).rawValue
-        let satisfied = status.isSatisfied ? "satisfied" : "unsatisfied"
-        return "\(interface) · \(satisfied) · expensive=\(status.isExpensive) · constrained=\(status.isConstrained)"
+        let satisfied = status.isSatisfied ? AppStrings.ios_tunnel_pathstatusdetail2_native() : "unsatisfied"
+        return AppStrings.ios_tunnel_pathstatusdetail("\(interface)", "\(satisfied)", "\(status.isExpensive)", "\(status.isConstrained)")
     }
 
     private func pathMeaningfulSignature(_ status: NetworkPathStatus) -> PathMeaningfulSignature {
@@ -2137,7 +2137,7 @@ final class TunnelManager {
             self.startBrokerWaitEpisodeIfNeeded()
             self.waitingRedriveTask = nil
             self.waitingRedriveID = nil
-            self.diagnosticLog?.append(category: .tunnel, message: "relay candidate waiting for home")
+            self.diagnosticLog?.append(category: .tunnel, message: AppStrings.ios_presentation_tunnelmanager_n94())
         case .tlsHandshaking:
             if self.telemetryCompleteness == .complete || self.telemetryCompleteness == .unavailable {
                 self.completeStage(.raceCandidates)
@@ -2148,10 +2148,10 @@ final class TunnelManager {
             self.appendStage(.muxReady)
             self.completeStage(.muxReady)
         case .loopbackReady(let port):
-            self.appendStage(.loopback, detail: "port \(port)")
+            self.appendStage(.loopback, detail: AppStrings.ios_tunnel_handlestagechange2("\(port)"))
         case .failed(let message):
             _ = message
-            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: "couldn't reach your journal")
+            self.diagnosticLog?.append(category: .tunnel, severity: .warning, message: AppStrings.ios_presentation_tunnelmanager_n96())
         case .attemptEvent(let event):
             guard dialGeneration == self.currentDialGeneration else { return }
             self.handleAttemptEvent(event, epoch: epoch)
@@ -2220,8 +2220,8 @@ final class TunnelManager {
             self.diagnosticLog?.append(
                 category: .tunnel,
                 severity: .warning,
-                message: "relay not entitled repeated",
-                detail: "consecutiveNotEntitled=\(self.consecutiveNotEntitled) limit=\(notEntitledAutoReconnectLimit)"
+                message: AppStrings.ios_tunnel_shouldschedulereconnect2(),
+                detail: AppStrings.ios_tunnel_shouldschedulereconnect("\(self.consecutiveNotEntitled)", "\(notEntitledAutoReconnectLimit)")
             )
             return false
         }

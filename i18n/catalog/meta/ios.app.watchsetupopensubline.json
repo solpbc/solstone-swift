@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app checks in with this device the first time it opens.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 68,
+  "source_revision": "7be1a963e3632462c360c7437e5936567f577f44e39be0dfa908562cd7ec25c9",
+  "risk": "routine",
+  "auto_merge": true
+}

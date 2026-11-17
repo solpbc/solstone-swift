@@ -1,0 +1,16 @@
+{
+  "description": "retry",
+  "context": "the solstone app, speaking to the owner. Mac counterpart: macos.desktop.shared.settings.textcontent. Keep translations consistent.",
+  "surfaces": [
+    "sourcedetailviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 5,
+  "source_revision": "c5d68dbb6fc144551ddb124066eb837eabe9d1b3f6b0e371d4b45a563b47a759",
+  "risk": "routine",
+  "auto_merge": true
+}

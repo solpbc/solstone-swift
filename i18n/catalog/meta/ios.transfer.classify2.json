@@ -1,0 +1,21 @@
+{
+  "description": "unexpected http {statusCode}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "statusCode",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "6cdafd71f083ded6162013df5ee93609ca6f2e76a5f8530982aee46e825e7966",
+  "risk": "routine",
+  "auto_merge": true
+}

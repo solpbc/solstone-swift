@@ -1,0 +1,16 @@
+{
+  "description": "how much is waiting to sync.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "b0940eeab5791c400ad1e5cc02366430df64cf6c7ac843ff8d71b7fa6d2769dc",
+  "risk": "routine",
+  "auto_merge": true
+}

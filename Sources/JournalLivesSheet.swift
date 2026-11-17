@@ -31,7 +31,7 @@ struct JournalLivesSheet: View {
                 }
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("done") {
+                        Button(AppStrings.ios_home_done()) {
                             self.isPresented = false
                         }
                     }
@@ -123,7 +123,7 @@ struct JournalLivesPane: View {
                     if current {
                         Text(Image(systemName: "checkmark.circle.fill"))
                             .foregroundStyle(Color.solOrange)
-                            .accessibilityLabel("current")
+                            .accessibilityLabel(AppStrings.ios_app_positionrow())
                             .accessibilityIdentifier("\(rowID).current")
                     }
                     trailing()

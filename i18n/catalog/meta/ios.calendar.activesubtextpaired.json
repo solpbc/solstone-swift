@@ -1,0 +1,16 @@
+{
+  "description": "adds what's on your calendar to your journal while this is on.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 62,
+  "source_revision": "4725ad50afc257c45ccd8a715ff1e6411666d4cf9104ee2258bda50c8a827380",
+  "risk": "routine",
+  "auto_merge": true
+}

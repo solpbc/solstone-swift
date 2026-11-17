@@ -1,0 +1,16 @@
+{
+  "description": "waiting for your journal…",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "connection"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "2a6715ad69e1177edf34d2f96a602c47a53238fa9ad7275d8dfde23f7aa5ae0d",
+  "risk": "routine",
+  "auto_merge": true
+}

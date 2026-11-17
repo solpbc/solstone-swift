@@ -1,0 +1,21 @@
+{
+  "description": "received age {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "40873fcc45152deb04f9f93715b99e24e106e0c38c17706f1950b06b84ad443c",
+  "risk": "routine",
+  "auto_merge": true
+}

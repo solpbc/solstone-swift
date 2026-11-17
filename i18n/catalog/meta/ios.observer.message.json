@@ -1,0 +1,16 @@
+{
+  "description": "audio session changed while taking in audio",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "1261518603eee3f8b0fdd76684c43ea95c026725297bf8ce1395c2bcdcdcff0a",
+  "risk": "routine",
+  "auto_merge": true
+}

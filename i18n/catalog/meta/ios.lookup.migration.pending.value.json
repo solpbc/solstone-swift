@@ -1,0 +1,16 @@
+{
+  "description": "not answered",
+  "context": "Existing native lookup migration.pending.value. Android counterpart: android.shelf.not.answered. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "a63b4585a4819e1961f1dbd363dc81503c597ad14f558dc4e27e3c9a0d8214ff",
+  "risk": "routine",
+  "auto_merge": true
+}

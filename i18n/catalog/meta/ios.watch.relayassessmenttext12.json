@@ -1,0 +1,16 @@
+{
+  "description": "no active backlog",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "c417ea34d4e66249c1bb3bc4849b23a852612ca8b81c989c17bd66a7fc089543",
+  "risk": "routine",
+  "auto_merge": true
+}

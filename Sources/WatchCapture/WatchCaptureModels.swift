@@ -608,7 +608,7 @@ nonisolated struct WatchCaptureOwnerPresentation: Equatable, Sendable {
             parts.append(SourceVocabulary.watchHandedToPhoneCount(self.handedOffCount))
         }
         guard !parts.isEmpty else { return nil }
-        return parts.joined(separator: " · ")
+        return AppStrings.joinedMiddleDot(parts)
     }
 
     var attentionLine: String? {

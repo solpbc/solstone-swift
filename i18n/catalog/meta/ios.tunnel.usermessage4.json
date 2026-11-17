@@ -1,0 +1,16 @@
+{
+  "description": "couldn't verify this journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "0462a1ebb25afc5dc9e70703584ef04d687ec46ae8b9ee67c5bcc648052dc7d2",
+  "risk": "routine",
+  "auto_merge": true
+}

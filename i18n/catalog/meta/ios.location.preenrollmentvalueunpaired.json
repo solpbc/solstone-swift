@@ -1,0 +1,16 @@
+{
+  "description": "where your day happens. on this device and not processed until you connect a journal. as light or complete as you want.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 119,
+  "source_revision": "69d3ecce987c9ebd816aec71121a2ce4a5b37f1d5b2432a928284ddcb4da3a60",
+  "risk": "routine",
+  "auto_merge": true
+}

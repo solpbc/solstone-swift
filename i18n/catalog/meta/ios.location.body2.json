@@ -1,0 +1,16 @@
+{
+  "description": "Starts adding location updates to your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 47,
+  "source_revision": "e2e15df34f615c8c892d5397fdb2eba7d4617cc8907b7dfbc10fa935dc196df7",
+  "risk": "routine",
+  "auto_merge": true
+}

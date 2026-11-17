@@ -1,0 +1,16 @@
+{
+  "description": "iPhone → Watch non-ACK user info",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "f1797dd8ed5700427921e88a7fd21ab424e5c876c0054dbd746fb92d1550a0e3",
+  "risk": "routine",
+  "auto_merge": true
+}

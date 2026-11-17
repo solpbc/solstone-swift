@@ -1,0 +1,16 @@
+{
+  "description": "no watch paired with this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "520cdab43667949bb5259118299a8ff44d1ca8ea951406620e13276c4b862352",
+  "risk": "routine",
+  "auto_merge": true
+}

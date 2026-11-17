@@ -1,0 +1,16 @@
+{
+  "description": "manifest diagnostics",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "04f2ecc39d3a3a1558bef311f089d20325741b4e732e0a5273a6111c37f387f6",
+  "risk": "routine",
+  "auto_merge": true
+}

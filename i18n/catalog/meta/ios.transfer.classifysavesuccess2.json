@@ -1,0 +1,16 @@
+{
+  "description": "missing path or timestamp",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "8a974e73cc81f6e2aaea1033287cc12636d2ce83453523cb1bc5ce394cc0e7d4",
+  "risk": "routine",
+  "auto_merge": true
+}

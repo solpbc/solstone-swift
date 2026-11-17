@@ -181,7 +181,7 @@ private struct WatchDiagnosticsIPhoneEnvironment {
         device.isBatteryMonitoringEnabled = true
         let batteryLevel = device.batteryLevel >= 0
             ? DiagnosticAvailability<Double>.available(Double(device.batteryLevel))
-            : DiagnosticAvailability<Double>.unavailable(reason: "not provided")
+            : DiagnosticAvailability<Double>.unavailable(reason: AppStrings.ios_watch_notprovided())
         let batteryState = DiagnosticAvailability<String>.available(Self.batteryStateString(device.batteryState))
         device.isBatteryMonitoringEnabled = previousBatteryMonitoring
 
@@ -200,7 +200,7 @@ private struct WatchDiagnosticsIPhoneEnvironment {
         guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
               !value.isEmpty
         else {
-            return .unavailable(reason: "not provided")
+            return .unavailable(reason: AppStrings.ios_watch_notprovided())
         }
         return .available(value)
     }

@@ -1,0 +1,16 @@
+{
+  "description": "diagnostic detail",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "79b1211a5fe83047ebe2c430620451d6ce9008f49a9cab1f1b448043bbe703a1",
+  "risk": "routine",
+  "auto_merge": true
+}

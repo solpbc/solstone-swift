@@ -1,0 +1,16 @@
+{
+  "description": "your journal's mark, unavailable right now",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.journal.s.mark.unavailable.right. Keep translations consistent. Mac counterpart: macos.journalmarkgeneric.yourjournalsmarkunavailablerightnow. Keep translations consistent.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 42,
+  "source_revision": "f277612f15576d37a909d39911c49c05a9ce8a40b9901ab12ac6d8d9d450c07a",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "all of it",
+  "context": "Shown by Sources/Calendar/CalendarVocabulary.swift. Arguments preserve the existing presentation values. Mac counterpart: macos.screenshot.allofit. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "01a1a1ba15574a69cb9c8193cbc8f50faf189faae94ed5c28064d7bbe0d4fd3f",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "and {omittedCount} more",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "omittedCount",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "7a151cc3362123865ffeb8bbf780006212bed1c1797f93ab5a080a77913125af",
+  "risk": "routine",
+  "auto_merge": true
+}

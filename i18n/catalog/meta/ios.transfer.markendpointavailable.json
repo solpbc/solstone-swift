@@ -1,0 +1,16 @@
+{
+  "description": "resumed: endpoint available",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "9fc6b7e66f9aa4eb8141b8d324ae83230685704689644f54c0e5d1f91bd4d16f",
+  "risk": "routine",
+  "auto_merge": true
+}

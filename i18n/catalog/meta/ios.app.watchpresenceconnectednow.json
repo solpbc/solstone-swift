@@ -1,0 +1,16 @@
+{
+  "description": "your watch is connected right now",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "4f707b5d733daac078c9f8138e4c7accc7ba44666adb35b6fcb9b29bec4bd1bd",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "mobile segment root migration failed stage=ensure-root",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 54,
+  "source_revision": "34b65e00a08c2de445ea2664e86c33e58a0ca2207b08e3ecc5f17622b9df614c",
+  "risk": "routine",
+  "auto_merge": true
+}

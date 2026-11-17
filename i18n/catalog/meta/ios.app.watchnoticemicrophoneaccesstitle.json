@@ -1,0 +1,16 @@
+{
+  "description": "microphone access needed",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.wear.microphone.access.needed. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "4a9b5c3d3f41e910b9399a766ab87bd84b1da73aa7f4a09a43ebc678936199b2",
+  "risk": "routine",
+  "auto_merge": true
+}

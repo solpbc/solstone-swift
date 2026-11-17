@@ -14,7 +14,7 @@ nonisolated final class AboutBlockTests: XCTestCase {
         for fixture in contract.fixtures {
             XCTAssertEqual(
                 AboutBlock.line(
-                    name: "journal",
+                    name: "journal", isJournal: true,
                     version: fixture.version,
                     build: fixture.build ?? "",
                     os: fixture.os,
@@ -27,7 +27,7 @@ nonisolated final class AboutBlockTests: XCTestCase {
 
         let resources = try Self.decode(ResourcesFixture.self, named: "resources")
         XCTAssertEqual(
-            AboutBlock.line(name: "journal", version: ""),
+            AboutBlock.line(name: "journal", isJournal: true, version: ""),
             resources.behavior.unknownVersion
         )
     }
@@ -57,10 +57,10 @@ nonisolated final class AboutBlockTests: XCTestCase {
         let observedAt: TimeInterval = 1_700_000_000
         let now = Date(timeIntervalSince1970: observedAt + 172_800)
         XCTAssertFalse(AboutBlock.line(
-            name: "journal", version: "1", isCurrent: true, observedAt: observedAt, now: now
+            name: "journal", isJournal: true, version: "1", isCurrent: true, observedAt: observedAt, now: now
         ).contains("last seen"))
         XCTAssertFalse(AboutBlock.line(
-            name: "journal", version: "1", isCurrent: false, observedAt: nil, now: now
+            name: "journal", isJournal: true, version: "1", isCurrent: false, observedAt: nil, now: now
         ).contains("last seen"))
     }
 
@@ -72,7 +72,7 @@ nonisolated final class AboutBlockTests: XCTestCase {
         let suffix = try XCTUnwrap(fixtureLine.components(separatedBy: " · last seen ").last)
         let observedAt: TimeInterval = 1_700_000_000
         let line = AboutBlock.line(
-            name: "journal",
+            name: "journal", isJournal: true,
             version: "2.0.29",
             isCurrent: false,
             observedAt: observedAt,
@@ -83,7 +83,7 @@ nonisolated final class AboutBlockTests: XCTestCase {
 
     func testBlockDropsEmptyLinesAndPreservesOrder() {
         let phone = AboutBlock.line(name: "ios app", version: "2")
-        let journal = AboutBlock.line(name: "journal", version: "1")
+        let journal = AboutBlock.line(name: "journal", isJournal: true, version: "1")
         XCTAssertEqual(AboutBlock.block([phone, "", journal]), "\(phone)\n\(journal)")
     }
 
@@ -124,7 +124,7 @@ nonisolated final class AboutBlockTests: XCTestCase {
         let fixture = try XCTUnwrap(contract.fixtures.first)
         XCTAssertEqual(
             AboutBlock.line(
-                name: "journal",
+                name: "journal", isJournal: true,
                 version: fixture.version,
                 build: fixture.build ?? "",
                 os: fixture.os,

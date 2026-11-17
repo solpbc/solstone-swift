@@ -1,0 +1,21 @@
+{
+  "description": "source={path} reason=adoption failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 36,
+  "source_revision": "dfcd1d7432ed25ef098e828a43483f242475308c97c9e579c697cc8306945e29",
+  "risk": "routine",
+  "auto_merge": true
+}

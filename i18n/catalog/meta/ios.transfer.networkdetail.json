@@ -1,0 +1,16 @@
+{
+  "description": "retrying: network",
+  "context": "the solstone app, speaking to the owner. the words stay. the code stops matching them. branch on the enum or the row id.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "e896bc41957c9aa0ce6a3da1ddb7b802d728480cc74d8316836af57001d71d83",
+  "risk": "routine",
+  "auto_merge": true
+}

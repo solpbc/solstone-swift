@@ -1,0 +1,16 @@
+{
+  "description": "continue anyway",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.continue.anyway. Keep translations consistent. Mac counterpart: macos.desktop.shared.copy.journalmarkunverifiedcontinuebutton. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "4d7fc01c5b267830aaac9620b91dff8e45170e63af3b624cd03d614fe1587419",
+  "risk": "routine",
+  "auto_merge": true
+}

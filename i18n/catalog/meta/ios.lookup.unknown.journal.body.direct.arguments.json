@@ -1,0 +1,21 @@
+{
+  "description": "something answered this device at { $address }, and it isn't the journal this device is paired with. this could be another device now using that address, or your journal, if its identity was reset. if the mark under \"what answered\" matches the one your journal shows now, pair this device again.",
+  "context": "Existing native lookup unknown_journal.body.direct. Named placeholders are runtime arguments. Android counterpart: android.unknownjournal.bodyaddress. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "address",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "0ef2f2ae55e861fa14b0069c9b90ddee88d698f3307e448a33c05a5d55bd2da4",
+  "risk": "routine",
+  "auto_merge": true
+}

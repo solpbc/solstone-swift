@@ -1,0 +1,16 @@
+{
+  "description": "retrying: timeout",
+  "context": "the solstone app, speaking to the owner. the words stay. the code stops matching them. branch on the enum or the row id.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "424e1ac9467f50cca000f6b329bc3959ad9dcf1bf85670e246476bcf22e5c436",
+  "risk": "routine",
+  "auto_merge": true
+}

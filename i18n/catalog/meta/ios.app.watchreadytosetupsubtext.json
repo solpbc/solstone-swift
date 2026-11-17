@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app can be on your watch. tap to set it up.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 56,
+  "source_revision": "75d0112b2b949fe201e7492161fa522fe8390adcaa95dac607d548e0b6b98314",
+  "risk": "routine",
+  "auto_merge": true
+}

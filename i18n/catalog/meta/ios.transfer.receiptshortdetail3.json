@@ -1,0 +1,16 @@
+{
+  "description": "a file in this recording is a different size than what your journal has. it's still on your phone.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 98,
+  "source_revision": "fd6a60f4e6d05e02872052eeb2e31015b665ce21862d5fa155cf1835b3e25aeb",
+  "risk": "routine",
+  "auto_merge": true
+}

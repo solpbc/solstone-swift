@@ -99,7 +99,7 @@ build-metadata: build-metadata-bootstrap
 		printf 'SOLSTONE_SPL_SWIFT_REVISION = %s\n' "$$revision"; \
 	} > "$(BUILD_METADATA)"
 
-generate: check-versions build-metadata-bootstrap
+generate: check-versions build-metadata-bootstrap i18n-check
 	xcodegen generate
 
 install: deps
@@ -357,16 +357,19 @@ integration-test: sim
 	xcrun simctl install booted $(SIM_APP); \
 	SIMCTL_CHILD_MOCK_PORT=$(PORT) xcrun simctl launch --console-pty --terminate-running-process booted $(BUNDLE_ID) --integration-test >"$$APP_LOG" 2>&1 & \
 	LAUNCH_PID=$$!; \
-	pulse_seen=0; \
+	metadata_seen=0; \
 	for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do \
-		if grep -q '"GET /app/home/api/pulse HTTP/1.1"' "$$MOCK_LOG"; then \
-			pulse_seen=1; \
+		if grep -q '^CLIENT_DESCRIPTION_UPDATED$$' "$$MOCK_LOG" \
+			&& grep -q '"GET /app/network/api/clients/self HTTP/1.1" 200' "$$MOCK_LOG" \
+			&& grep -q '"PUT /app/network/api/clients/self HTTP/1.1" 200' "$$MOCK_LOG" \
+			&& grep -q '"GET /api/system/about HTTP/1.1" 200' "$$MOCK_LOG"; then \
+			metadata_seen=1; \
 			break; \
 		fi; \
 		sleep 1; \
 	done; \
-	if [ "$$pulse_seen" -ne 1 ]; then \
-		echo "integration-test failed: missing home pulse request"; \
+	if [ "$$metadata_seen" -ne 1 ]; then \
+		echo "integration-test failed: missing authenticated client description startup"; \
 		echo "--- subsystem log tail ---"; \
 		xcrun simctl spawn booted log show --info --last 30s --predicate 'subsystem == "$(LOG_SUB)"' 2>/dev/null | tail -n 80; \
 		echo "--- app log tail ---"; \
@@ -1070,3 +1073,11 @@ push-catalog:
 	cp "$$apple_dir/apple/PushMessages.xcstrings" Sources/Push/PushMessages.xcstrings; \
 	python3 scripts/embed-push-catalog.py; \
 	echo "push-catalog updated successfully"
+
+# Catalog source is canonical; normal builds consume committed generated resources.
+.PHONY: i18n-check i18n-generate
+i18n-check:
+	python3 scripts/i18n.py --check
+
+i18n-generate:
+	python3 scripts/i18n.py --compiler "$(I18N_COMPILER)"

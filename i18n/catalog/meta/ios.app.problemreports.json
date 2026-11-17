@@ -1,0 +1,16 @@
+{
+  "description": "problem reports",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.shelf.problem.reports. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "3ddb6a1938018b83317dc7e2aa2230c998c55cd013e8a4ac5c11734eaccf3d85",
+  "risk": "routine",
+  "auto_merge": true
+}

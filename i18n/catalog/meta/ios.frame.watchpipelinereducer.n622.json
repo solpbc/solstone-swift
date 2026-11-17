@@ -1,0 +1,25 @@
+{
+  "description": "{ $value0 }: { $value1 }",
+  "context": "Native presentation in Sources/WatchCapture/WatchPipelineReducer.swift. Complete frame; arguments carry already formatted display values. Preserve protocol mark words, addresses, identifiers and raw diagnostic values inside arguments. The translator may reorder the named values. Android counterpart: android.wear.row.spoken. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "bc0d51ef01c283876660750ee8762bb6f9951caa289faa359cc8fc05f253ab97",
+  "risk": "routine",
+  "auto_merge": true
+}

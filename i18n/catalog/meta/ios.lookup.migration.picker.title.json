@@ -1,0 +1,16 @@
+{
+  "description": "choose a device",
+  "context": "Existing native lookup migration.picker.title. Mac counterpart: macos.desktop.shared.copy.choosedevice. Keep translations consistent. Android counterpart: android.migration.choose.device. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "65029fdf60444f10375d8e0fded41896c5266addfad5b2a5dc9af0bb3d352b5b",
+  "risk": "routine",
+  "auto_merge": true
+}

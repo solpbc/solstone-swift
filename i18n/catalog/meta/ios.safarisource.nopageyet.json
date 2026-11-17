@@ -1,0 +1,16 @@
+{
+  "description": "no pages from Safari yet. on a site you want in your journal, open solstone from Safari's page menu and add it.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 111,
+  "source_revision": "6614a97848a4bc13c55f837663523ebb5d1a224f7e135de76a2b581c7c6cedd8",
+  "risk": "routine",
+  "auto_merge": true
+}

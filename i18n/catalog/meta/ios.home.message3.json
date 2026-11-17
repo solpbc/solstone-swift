@@ -1,0 +1,16 @@
+{
+  "description": "sent. it should show up on this device in a moment.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 51,
+  "source_revision": "107d92feca41c9b04abf7ff9a76ce4de2775ea5304390f6e9e2b080f1894bb89",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "everything you've shared, on this device until you connect a journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 69,
+  "source_revision": "a24ff19d28ed141cbe4c046df12644bedbe435a09cac6801df3734dc324caafe",
+  "risk": "routine",
+  "auto_merge": true
+}

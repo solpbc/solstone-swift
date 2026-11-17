@@ -1,0 +1,16 @@
+{
+  "description": "phone ledger retained entries",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "dae924429232cf24aa88e14c0d01dc7b598f1d744264567b331e33e67fb03ff4",
+  "risk": "routine",
+  "auto_merge": true
+}

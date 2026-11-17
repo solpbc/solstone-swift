@@ -1,0 +1,16 @@
+{
+  "description": "problems only",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "e85a09e46dd3d3dacd845720b504fae13d36bf08c22563d1f7ca415d2d4f6d2a",
+  "risk": "routine",
+  "auto_merge": true
+}

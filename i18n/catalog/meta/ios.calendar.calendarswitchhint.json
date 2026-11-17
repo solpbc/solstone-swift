@@ -1,0 +1,16 @@
+{
+  "description": "includes this calendar's events in your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "c8f07e6c1e0cc90523d9157538562274342753bc4546a9adeea386c128bd4b2c",
+  "risk": "routine",
+  "auto_merge": true
+}

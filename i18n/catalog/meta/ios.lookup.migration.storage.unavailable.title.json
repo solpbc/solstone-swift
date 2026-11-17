@@ -1,0 +1,16 @@
+{
+  "description": "saved connection unavailable",
+  "context": "Existing native lookup migration.storage_unavailable.title. Mac counterpart: macos.desktop.shared.copy.storageunavailabletitle. Keep translations consistent. Android counterpart: android.migration.saved.connection.unavailable. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "a916ed6cb31a842983fb8b2b0564cfc8888b00e37fe8c324a76cfbe8b9d83895",
+  "risk": "routine",
+  "auto_merge": true
+}

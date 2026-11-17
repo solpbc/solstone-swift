@@ -1,0 +1,16 @@
+{
+  "description": "cellular",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "16ef3a4f4337df4696e6531f17b34ed0858fcb593e17842346f7f31fe372e361",
+  "risk": "routine",
+  "auto_merge": true
+}

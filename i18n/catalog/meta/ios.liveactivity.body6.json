@@ -1,0 +1,16 @@
+{
+  "description": "turn audio on and off.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "f584dcc00b73000e35363413dba2faf06fe808b742d1ac12f723176e88d10c86",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,28 @@
+{
+  "description": " · last seen {hole1}",
+  "context": "the solstone app, speaking to the owner. these pieces are one message. join them before extraction.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "7a3e82dd83d4294cd2421f17354122b350bb3a356066d035e8704c1a5dfa9616",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "whitespace1",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

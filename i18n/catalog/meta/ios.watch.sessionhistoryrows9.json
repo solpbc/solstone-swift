@@ -1,0 +1,16 @@
+{
+  "description": "persistence advisory",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "330e2198aae56908860168301fe84df02e2d7c2d599c6aeb4a9c75588e6a1b0a",
+  "risk": "routine",
+  "auto_merge": true
+}

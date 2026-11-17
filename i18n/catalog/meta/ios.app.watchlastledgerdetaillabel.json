@@ -1,0 +1,16 @@
+{
+  "description": "last ledger detail",
+  "context": "the solstone app, speaking to the owner. the words stay. the code stops matching them. branch on the enum or the row id.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "ba7ccd4bdf532642a673bccb34224b2866bc8fe7e2338ed9c783963e04b4d7fb",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "repaired from { $value }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "c682664141687a1015d80ba49c21febc89bc5e32e37f86a3887442697f6ceae1",
+  "risk": "routine",
+  "auto_merge": true
+}

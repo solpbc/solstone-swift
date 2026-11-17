@@ -1,0 +1,16 @@
+{
+  "description": "sol pbc · agpl-3.0",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "fcf786633fc0a2491fd314f14c201675523a7a92679093e9dbf2319c3c3b3426",
+  "risk": "routine",
+  "auto_merge": true
+}

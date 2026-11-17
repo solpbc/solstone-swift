@@ -1,0 +1,16 @@
+{
+  "description": "opens your day without connecting a journal",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "onboarding"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "fbda33f18efd743d6cf0dedc1746ac64c6dfd0966169adef76089baca35dab11",
+  "risk": "routine",
+  "auto_merge": true
+}

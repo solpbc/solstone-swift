@@ -1,0 +1,21 @@
+{
+  "description": "backlog summary inconsistent: {reason}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "reason",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 38,
+  "source_revision": "943ffc68ef3763c465641c423f9c2460fdc40759d548476b9deede7507aa4e29",
+  "risk": "routine",
+  "auto_merge": true
+}

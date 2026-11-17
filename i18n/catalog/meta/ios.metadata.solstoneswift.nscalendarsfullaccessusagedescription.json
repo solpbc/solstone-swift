@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app adds the events on your calendars to your journal. nothing goes anywhere else.",
+  "context": "Bundle metadata for solstone-swift: NSCalendarsFullAccessUsageDescription. Permission wording requires review before translation. Wording requires review before translation.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "24bdc8b8d9825c74131465ad233d2665c95723c2470f2b00131ae5611fde38f6",
+  "risk": "consent",
+  "auto_merge": false
+}

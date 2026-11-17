@@ -1,0 +1,21 @@
+{
+  "description": "solstone · {watchComplicationUnknownInline}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "watchComplicationUnknownInline",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "63d4fac6e7cb5772265c3dabcb7d9f57de368af30686f0ab65455f951929efa7",
+  "risk": "routine",
+  "auto_merge": true
+}

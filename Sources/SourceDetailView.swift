@@ -33,7 +33,7 @@ struct SourceDetailView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Color.deckGround.ignoresSafeArea())
-        .navigationTitle("audio")
+        .navigationTitle(AppStrings.ios_app_audio())
         .navigationBarTitleDisplayMode(.inline)
         .task(id: self.recentKey) {
             await self.loadManifest()
@@ -50,14 +50,14 @@ struct SourceDetailView: View {
 private extension SourceDetailView {
     @ViewBuilder
     var enrolledContent: some View {
-        SourceDetailBlock(title: "state") {
+        SourceDetailBlock(title: AppStrings.ios_app_state()) {
             VStack(alignment: .leading, spacing: 12) {
                 SourceDetailVerdictLine(state: self.currentSourceState)
                 SourceDetailReasonLine(message: self.errorMessage)
                 SourceFaultActionControl(
                     action: observerSourceFault(self.observerManager.state).map(sourceFaultAction) ?? .none,
                     title: SourceVocabulary.openSettings,
-                    hint: "opens ios settings for microphone access.",
+                    hint: AppStrings.ios_app_enrolledcontent(),
                     perform: {
                         UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
                     }
@@ -72,11 +72,11 @@ private extension SourceDetailView {
                 .foregroundStyle(.secondary)
         }
 
-        SourceDetailBlock(title: "recent") {
+        SourceDetailBlock(title: AppStrings.ios_app_recent()) {
             self.recentBlock
         }
 
-        SourceDetailBlock(title: "delivery") {
+        SourceDetailBlock(title: AppStrings.ios_app_screencastdeliverytitle()) {
             self.deliveryBlock
         }
 
@@ -234,16 +234,16 @@ private extension SourceDetailView {
     var buttonLabel: String {
         switch audioListenButtonKind(self.observerManager.state) {
         case .start:
-            "start"
+            AppStrings.ios_app_start()
         case .stop:
-            "stop"
+            AppStrings.ios_app_stop()
         case .retry:
-            "retry"
+            AppStrings.ios_app_buttonlabel()
         }
     }
 
     var pauseButtonLabel: String {
-        self.currentPresentation.pauseReadsResume ? "resume" : "pause"
+        self.currentPresentation.pauseReadsResume ? AppStrings.ios_photolibrary_resume() : AppStrings.ios_photolibrary_pause()
     }
 
     var pauseButtonDisabled: Bool {
@@ -351,7 +351,7 @@ private struct AudioEnrollmentContent: View {
             .buttonStyle(BrandProminentButtonStyle())
             .controlSize(.large)
             .disabled(self.isStarting)
-            .accessibilityHint("starts taking in audio on this device, and it goes into your journal.")
+            .accessibilityHint(AppStrings.ios_app_body3())
 
             if let errorMessage = self.errorMessage {
                 VStack(alignment: .leading, spacing: 8) {
@@ -360,7 +360,7 @@ private struct AudioEnrollmentContent: View {
                         .foregroundStyle(.secondary)
 
                     if self.observerManager.state == .error(.permissionDenied) {
-                        Button("open settings") {
+                        Button(AppStrings.ios_home_opensettings()) {
                             UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!)
                         }
                         .buttonStyle(BrandProminentButtonStyle())

@@ -63,9 +63,9 @@ nonisolated struct SourceSyncStateLine: Sendable {
 
 nonisolated func age(from: Date, to: Date) -> String {
     let seconds = max(0, Int(to.timeIntervalSince(from)))
-    if seconds < 60 { return "\(seconds)s" }
-    if seconds < 3600 { return "\(seconds / 60)m" }
-    return "\(seconds / 3600)h\((seconds % 3600) / 60)m"
+    if seconds < 60 { return AppStrings.ios_diagnostics_age_seconds(String(seconds)) }
+    if seconds < 3600 { return AppStrings.ios_diagnostics_age_minutes(String(seconds / 60)) }
+    return AppStrings.ios_diagnostics_age_hours(String(seconds / 3600), String((seconds % 3600) / 60))
 }
 
 @MainActor
@@ -78,19 +78,19 @@ func syncStateSummaryLines(
 ) async -> [String] {
     var rows: [SourceSyncStateLine] = await [
         SourceSyncStateLine(
-            name: "audio", pending: mobileSegment.pendingCount, inFlight: mobileSegment.inFlightCount,
+            name: AppStrings.ios_diagnostics_sync_source_audio(), pending: mobileSegment.pendingCount, inFlight: mobileSegment.inFlightCount,
             attention: mobileSegment.failedCount, delivered: mobileSegment.deliveredCount,
             lastUploadAt: mobileSegment.lastUploadAt, recentError: mobileSegment.recentError(now: now),
             detail: mobileSegment.syncStateDetail()
         ),
         SourceSyncStateLine(
-            name: "watch", pending: watch.pendingCount, inFlight: watch.inFlightCount,
+            name: AppStrings.ios_diagnostics_sync_source_watch(), pending: watch.pendingCount, inFlight: watch.inFlightCount,
             attention: watch.failedCount, delivered: watch.deliveredCount,
             lastUploadAt: watch.lastUploadAt, recentError: watch.recentError(now: now),
             detail: watch.syncStateDetail()
         ),
         SourceSyncStateLine(
-            name: "share", pending: share.pendingCount, inFlight: share.inFlightCount,
+            name: AppStrings.ios_diagnostics_sync_source_share(), pending: share.pendingCount, inFlight: share.inFlightCount,
             attention: share.failedCount, delivered: share.deliveredCount,
             lastUploadAt: share.lastUploadAt, recentError: share.recentError(now: now),
             detail: share.syncStateDetail()
@@ -98,7 +98,7 @@ func syncStateSummaryLines(
     ]
     if let calendar {
         rows.append(await SourceSyncStateLine(
-            name: "calendar", pending: calendar.pendingCount, inFlight: calendar.inFlightCount,
+            name: AppStrings.ios_diagnostics_sync_source_calendar(), pending: calendar.pendingCount, inFlight: calendar.inFlightCount,
             attention: calendar.failedCount, delivered: calendar.deliveredCount,
             lastUploadAt: calendar.lastUploadAt, recentError: calendar.recentError(now: now),
             detail: calendar.syncStateDetail()
@@ -109,15 +109,20 @@ func syncStateSummaryLines(
 
 /// The "sync state by source" block, one entry per source with anything to report.
 nonisolated func syncStateSummaryLines(rows: [SourceSyncStateLine], now: Date) -> [String] {
-    var lines: [String] = ["--- sync state by source ---"]
+    var lines: [String] = [AppStrings.ios_diagnostics_sync_heading()]
     var listedRefusedItems = false
     for row in rows where row.pending + row.inFlight + row.attention + row.delivered > 0 {
-        var line = "\(row.name): pending=\(row.pending) inFlight=\(row.inFlight)"
-            + " attention=\(row.attention) delivered=\(row.delivered)"
-        if let oldest = row.detail.oldestPendingItemCreatedAt {
-            line += " oldestWaiting=\(age(from: oldest, to: now))"
+        let line: String
+        switch (row.detail.oldestPendingItemCreatedAt, row.lastUploadAt) {
+        case (.some(let oldest), .some(let last)):
+            line = AppStrings.ios_diagnostics_sync_summary_oldest_delivered(row.name, String(row.pending), String(row.inFlight), String(row.attention), String(row.delivered), age(from: oldest, to: now), age(from: last, to: now))
+        case (.some(let oldest), .none):
+            line = AppStrings.ios_diagnostics_sync_summary_oldest_never(row.name, String(row.pending), String(row.inFlight), String(row.attention), String(row.delivered), age(from: oldest, to: now))
+        case (.none, .some(let last)):
+            line = AppStrings.ios_diagnostics_sync_summary_plain_delivered(row.name, String(row.pending), String(row.inFlight), String(row.attention), String(row.delivered), age(from: last, to: now))
+        case (.none, .none):
+            line = AppStrings.ios_diagnostics_sync_summary_plain_never(row.name, String(row.pending), String(row.inFlight), String(row.attention), String(row.delivered))
         }
-        line += row.lastUploadAt.map { " lastDelivered=\(age(from: $0, to: now))ago" } ?? " lastDelivered=never"
         lines.append(line)
 
         if let info = row.detail.mostRecentAttention {
@@ -133,8 +138,7 @@ nonisolated func syncStateSummaryLines(rows: [SourceSyncStateLine], now: Date) -
             )
         } else if let recentError = row.recentError {
             lines.append(
-                "  \(row.name) recent retry error: \(recentError.detail)"
-                    + " \(age(from: recentError.at, to: now))ago (\(recentError.count) recent)"
+                AppStrings.ios_diagnostics_sync_recent(row.name, recentError.detail, age(from: recentError.at, to: now), String(recentError.count))
             )
         }
 
@@ -142,7 +146,7 @@ nonisolated func syncStateSummaryLines(rows: [SourceSyncStateLine], now: Date) -
         listedRefusedItems = listedRefusedItems || !row.detail.refusedItems.listed.isEmpty
     }
     if lines.count == 1 {
-        lines.append("(nothing waiting on any source)")
+        lines.append(AppStrings.ios_diagnostics_syncstatesummarylines())
     }
     // The tally is the spool's and every source reads the same one; the unrepaired counts are
     // per source and add up. Not tied to which sources have anything waiting: the tally outlives
@@ -165,12 +169,11 @@ nonisolated func sourceSyncStuckLine(
     attentionItemCount: Int,
     now: Date
 ) -> String {
-    var line = "  \(name) stuck: \(info.reason), \(info.exportedDetail)"
-        + " (\(age(from: info.movedAt, to: now)) ago, \(attentionItemCount) item(s))"
+    let movedAge = age(from: info.movedAt, to: now)
     if retryCount > 0, let lastRetriedAt {
-        line += ", retried \(retryCount)x, last retry \(age(from: lastRetriedAt, to: now)) ago"
+        return AppStrings.ios_diagnostics_stuck_retried_items(attentionItemCount, name, info.reason, info.exportedDetail, movedAge, String(retryCount), age(from: lastRetriedAt, to: now))
     }
-    return line
+    return AppStrings.ios_diagnostics_stuck_items(attentionItemCount, name, info.reason, info.exportedDetail, movedAge)
 }
 
 /// Copy and share build the same report, sync block included, from state at the moment the owner acts.

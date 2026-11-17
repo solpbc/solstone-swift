@@ -1,0 +1,29 @@
+{
+  "description": "[{ $value0 }] [{ $value1 }] { $value2 }",
+  "context": "Native presentation in Sources/Diagnostics/DiagnosticLog.swift. Complete frame; arguments carry already formatted display values. Preserve protocol mark words, addresses, identifiers and raw diagnostic values inside arguments. The translator may reorder the named values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    },
+    {
+      "name": "value2",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "856df09852d9132a0e50943a0bc1c919cece873ec9eb058d4ecf6c6778b30688",
+  "risk": "routine",
+  "auto_merge": true
+}

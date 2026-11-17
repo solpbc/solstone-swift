@@ -36,7 +36,7 @@ struct SolstoneWatchComplication: Widget {
         ) { entry in
             SolstoneWatchComplicationView(entry: entry)
         }
-        .configurationDisplayName("solstone")
+        .configurationDisplayName(AppStrings.ios_push_test_title())
         .description(SourceVocabulary.watchSourceDisplayName)
         .supportedFamilies([.accessoryRectangular, .accessoryCircular, .accessoryInline])
     }

@@ -20,21 +20,21 @@ nonisolated enum ConnectionSyncStatus: Equatable, Sendable {
     nonisolated var statusLine: String {
         switch self {
         case .offline:
-            "offline"
+            AppStrings.ios_connection_statusofflinelabel()
         case .connecting:
-            "connecting…"
+            AppStrings.ios_app_connecting()
         case .waitingForHome:
-            "waiting for your journal…"
+            AppStrings.ios_connection_statusline4()
         case .reconnecting:
-            "reconnecting…"
+            AppStrings.ios_connection_statusline3()
         case .unreachable:
-            "can't reach your journal"
+            AppStrings.ios_migration_offline_title()
         case .connectedIdle:
-            "connected"
+            AppStrings.ios_connection_connectedlabel()
         case .connectedWaiting:
-            "connected · waiting to sync"
+            AppStrings.ios_connection_statusline2()
         case .connectedTransferring:
-            "connected · syncing"
+            AppStrings.ios_connection_statusline()
         }
     }
 

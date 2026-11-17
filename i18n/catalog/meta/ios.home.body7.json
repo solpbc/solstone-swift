@@ -1,0 +1,16 @@
+{
+  "description": "copy",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.about.copy. Keep translations consistent. Mac counterpart: macos.desktop.shared.about.textcontent. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 4,
+  "source_revision": "7080b571d8e9a243e0f5ee2d250e53b9578ef07310d7a048d070b490cf45621c",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "camera access isn't allowed on this device. paste a pairing link instead.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 73,
+  "source_revision": "7b301481dd6c10d3cae1891feccb072bb53143bf1fe5ba40ef8b2c5d10bff780",
+  "risk": "routine",
+  "auto_merge": true
+}

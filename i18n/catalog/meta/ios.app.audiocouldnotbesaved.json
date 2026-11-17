@@ -1,0 +1,16 @@
+{
+  "description": "audio could not be saved",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "2a0e253469e6e2911d128bd496291853c77afebc353505f7b84294e69a49c88c",
+  "risk": "routine",
+  "auto_merge": true
+}

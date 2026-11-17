@@ -1,0 +1,16 @@
+{
+  "description": "confirming with your iphone",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "8bc1b76ed58194522ef00066a76495ec69eeaab972b288b7886b80d0e8df71ab",
+  "risk": "routine",
+  "auto_merge": true
+}

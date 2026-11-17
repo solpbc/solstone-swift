@@ -1,0 +1,16 @@
+{
+  "description": "size unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "1f80c0a07cec05f42b25ff312500adaaa80b4d284eaed85d1d2322b12380fe64",
+  "risk": "routine",
+  "auto_merge": true
+}

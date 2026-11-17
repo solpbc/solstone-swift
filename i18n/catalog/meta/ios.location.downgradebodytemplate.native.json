@@ -1,0 +1,28 @@
+{
+  "description": "you chose {tier}, but ios hasn't authorized that. your journal will show the gaps.",
+  "context": "Shown by Sources/Location/LocationVocabulary.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "56a7f2e4238011376849681b6923a5415bc4b87d6ac32496da6f27cced31f88c",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "accepted-input",
+      "value": "{"
+    },
+    {
+      "name": "slot1",
+      "kind": "accepted-input",
+      "value": "}"
+    }
+  ]
+}

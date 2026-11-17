@@ -1,0 +1,16 @@
+{
+  "description": "nothing is taken in until you pair.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "c9ed107812eadd6857d81d67f77887b86060a32761f51b6bbdd8f16eda1d3a69",
+  "risk": "routine",
+  "auto_merge": true
+}

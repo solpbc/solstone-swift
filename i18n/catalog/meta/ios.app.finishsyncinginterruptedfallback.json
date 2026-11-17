@@ -1,0 +1,16 @@
+{
+  "description": "stopped before everything synced. what's left is on this device and keeps trying whenever the solstone app is open.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 115,
+  "source_revision": "3ce799dd3143f678c322e52b0f9e4623a81948a7b61cf3c07447f89d5f430419",
+  "risk": "routine",
+  "auto_merge": true
+}

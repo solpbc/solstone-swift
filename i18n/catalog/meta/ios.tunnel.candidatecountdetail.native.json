@@ -1,0 +1,32 @@
+{
+  "description": "{count} candidate{count == 1 ? \"\" : \"s\"}",
+  "context": "Shown by Sources/Tunnel/TunnelManager.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "3095f5a422426b015ab7c90288d6cb26e134d91001e7184841ec86c332e527b3",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

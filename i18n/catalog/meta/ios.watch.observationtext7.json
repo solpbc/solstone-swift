@@ -1,0 +1,21 @@
+{
+  "description": "original enqueue age {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "5e3061e1b499e2daaff98d1affca666e9762d6e20a8c5e23839bca11e19e640c",
+  "risk": "routine",
+  "auto_merge": true
+}

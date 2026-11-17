@@ -1,0 +1,16 @@
+{
+  "description": "journal legacy import failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "33d5ff793a1ecbcc67ba513229e1447ae3e1934844397e62cf74dd2248a78f1a",
+  "risk": "routine",
+  "auto_merge": true
+}

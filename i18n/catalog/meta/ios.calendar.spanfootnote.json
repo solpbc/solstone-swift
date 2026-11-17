@@ -1,0 +1,16 @@
+{
+  "description": "you'll see how many events there are before any come in.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 56,
+  "source_revision": "6156843ccd190eeb7875bed6f25dcd89e81e15a5c248375d46c6e7714072686d",
+  "risk": "routine",
+  "auto_merge": true
+}

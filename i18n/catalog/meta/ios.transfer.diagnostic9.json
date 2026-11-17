@@ -1,0 +1,21 @@
+{
+  "description": "mobile segment ownership verification failed segment={uuidString} stage=transfer-recovery",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "uuidString",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 89,
+  "source_revision": "f0a8255857e3e7fdefd04fb5320c4201dc57b27f06fd9890a45fb3355b9030bb",
+  "risk": "routine",
+  "auto_merge": true
+}

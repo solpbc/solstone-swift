@@ -1,0 +1,16 @@
+{
+  "description": "stop audio",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 10,
+  "source_revision": "94d1b54507c8c61f5c603fc45ab2428aa92e083f82a7c644c2b847e0ada8a03d",
+  "risk": "routine",
+  "auto_merge": true
+}

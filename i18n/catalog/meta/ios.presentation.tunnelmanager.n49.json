@@ -1,0 +1,16 @@
+{
+  "description": "re-dialing",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "8961709a5213dc3a4ef6d5f4feadc279fe99f61a8ffa128d6411c73016804f03",
+  "risk": "routine",
+  "auto_merge": true
+}

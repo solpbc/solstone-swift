@@ -1,0 +1,16 @@
+{
+  "description": "can't check right now.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "a014a620cf1ce2e039cd80435bb362dbae101490474cfa6c1d343a5baa715c0e",
+  "risk": "routine",
+  "auto_merge": true
+}

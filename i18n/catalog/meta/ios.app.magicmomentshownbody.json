@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app just took in your first memory. it's on this device until you connect a journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 97,
+  "source_revision": "a0d9cb4e58a1582cd713551e5b0bd396eeea621cdfc2de83cff70e064b870738",
+  "risk": "routine",
+  "auto_merge": true
+}

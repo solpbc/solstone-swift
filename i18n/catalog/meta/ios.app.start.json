@@ -1,0 +1,16 @@
+{
+  "description": "start",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.wear.start. Keep translations consistent. Mac counterpart: macos.desktop.shared.settings.alignitems. Keep translations consistent.",
+  "surfaces": [
+    "sourcedetailviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 5,
+  "source_revision": "47bdd3e1fd57d43740bb1cb835222ae44d90c2b3abea26c229541abf8ef224a9",
+  "risk": "routine",
+  "auto_merge": true
+}

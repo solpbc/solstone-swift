@@ -16,8 +16,8 @@ nonisolated struct WatchHomeControlStyle: Equatable, Sendable {
 /// active face; the wrist-down face shows the sun arc alone.
 nonisolated func watchHomeControlStyle(isRunning: Bool) -> WatchHomeControlStyle {
     if isRunning {
-        return WatchHomeControlStyle(label: "stop", labelHex: WatchHomePalette.cream, tintHex: nil)
+        return WatchHomeControlStyle(label: AppStrings.ios_app_stop(), labelHex: WatchHomePalette.cream, tintHex: nil)
     } else {
-        return WatchHomeControlStyle(label: "start", labelHex: SunArc.inkHex, tintHex: SunArc.orangeHex)
+        return WatchHomeControlStyle(label: AppStrings.ios_app_start(), labelHex: SunArc.inkHex, tintHex: SunArc.orangeHex)
     }
 }

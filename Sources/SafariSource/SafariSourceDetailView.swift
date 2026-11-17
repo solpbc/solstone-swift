@@ -382,7 +382,12 @@ struct SafariSourceDetailView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(taps.map(\.label).joined(separator: ", then "))
+        .accessibilityLabel(self.spokenTaps(taps))
+    }
+
+    private func spokenTaps(_ taps: [SafariTap]) -> String {
+        if taps.count == 2 { return AppStrings.ios_safari_steps_two(taps[0].label, taps[1].label) }
+        return AppStrings.ios_safari_steps_four(taps[0].label, taps[1].label, taps[2].label, taps[3].label)
     }
 
     private func stateBlock(_ status: SafariSourceStatus) -> some View {

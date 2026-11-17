@@ -1,0 +1,25 @@
+{
+  "description": "{ $value0 } · { $value1 }",
+  "context": "Native presentation in Sources/Services/DeviceMigrationOwnerModel.swift. Complete frame; arguments carry already formatted display values. Preserve protocol mark words, addresses, identifiers and raw diagnostic values inside arguments. The translator may reorder the named values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "001df669a9b1d5ff33779342a5e22a99cd0a9216a681616ed30a75848705d52c",
+  "risk": "routine",
+  "auto_merge": true
+}

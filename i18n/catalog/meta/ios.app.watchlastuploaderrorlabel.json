@@ -1,0 +1,16 @@
+{
+  "description": "last upload error",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "e42c08ad677f5a016533b4bb29e2a4ffa520627ae2f0f04bd590bb74e46d611a",
+  "risk": "routine",
+  "auto_merge": true
+}

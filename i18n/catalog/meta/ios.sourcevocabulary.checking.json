@@ -1,0 +1,16 @@
+{
+  "description": "checking.",
+  "context": "Shown by Sources/SourceVocabulary.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ffce8b9832526d827418abc97f6c345d17820f069563f255a1620a94a0af4a22",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "done",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.import.done. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 4,
+  "source_revision": "d73e995d8e06641547f0fc9d9da8046932e0d18d65854c93bcd7370fed8f7485",
+  "risk": "routine",
+  "auto_merge": true
+}

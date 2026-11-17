@@ -1,0 +1,21 @@
+{
+  "description": "port {port}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "port",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "e756284ec64d423552cd09671b4f2ee78bd519d5346c6f59d4fd420b96dd8e7c",
+  "risk": "routine",
+  "auto_merge": true
+}

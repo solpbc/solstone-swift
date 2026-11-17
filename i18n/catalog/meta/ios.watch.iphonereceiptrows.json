@@ -1,0 +1,16 @@
+{
+  "description": "oldest staged age",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "4fe17f7e2a0efc164d6ed856e2bfc72c151a238f8918a4fc81472d021b00fec4",
+  "risk": "routine",
+  "auto_merge": true
+}

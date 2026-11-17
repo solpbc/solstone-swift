@@ -1,0 +1,16 @@
+{
+  "description": "connection failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "170fdadf9db1e0d0b693072e7e90dc40106b87102cc5b4bd59dcfdd1f3bec665",
+  "risk": "routine",
+  "auto_merge": true
+}

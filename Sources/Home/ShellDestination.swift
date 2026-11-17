@@ -36,15 +36,15 @@ nonisolated enum ShellDestination: Hashable, Sendable {
     var shelfTitle: String {
         switch self {
         case .shelfJournal:
-            "your journal"
+            AppStrings.ios_liveactivity_yourjournalsection()
         case .shelfThisDevice:
-            "this device"
+            AppStrings.ios_home_shelftitle4()
         case .shelfNotifications:
-            "notifications"
+            AppStrings.ios_home_shelftitle3()
         case .shelfHelp:
-            "help"
+            AppStrings.ios_home_shelftitle2()
         case .shelfAbout:
-            "about solstone"
+            AppStrings.ios_home_shelftitle()
         case .status, .journal, .journalSetup, .source, .addMore, .import, .onThisDevice, .shelf,
              .licenses, .diagnostics, .problemReports, .pairFlow:
             preconditionFailure("shelfTitle is only available for shelf destinations")

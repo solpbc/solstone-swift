@@ -1,0 +1,16 @@
+{
+  "description": "on",
+  "context": "the solstone app, speaking to the owner. the words stay. the code stops matching them. branch on the enum or the row id. Android counterpart: android.push.on. Keep translations consistent. Mac counterpart: macos.desktop.shared.app.settingsdiagnosticson. Keep translations consistent.",
+  "surfaces": [
+    "appintents"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 2,
+  "source_revision": "40d611c1c8b58aebd4ae5eef8a0723365b0d1bcaa7cba752d40a13221a70bdca",
+  "risk": "routine",
+  "auto_merge": true
+}

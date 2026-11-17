@@ -1,0 +1,16 @@
+{
+  "description": "Clears this device pairing and returns to onboarding",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 52,
+  "source_revision": "bfb2bfe65ae603ce8f0325f5239452d36f3a51936ff5787b6d97c8b7c01bbcbe",
+  "risk": "routine",
+  "auto_merge": true
+}

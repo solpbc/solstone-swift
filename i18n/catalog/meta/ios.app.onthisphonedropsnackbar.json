@@ -1,0 +1,21 @@
+{
+  "description": "dropped “{descriptor}”.",
+  "context": "the solstone app, speaking to the owner. a string argument records no gender, case, noun class, or classifier. show the name beside the sentence when the language must agree.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "descriptor",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "f90982404a578a9f90afa1eebae24f96c6d9513ab4bee16fd577e1ed9904a1e8",
+  "risk": "routine",
+  "auto_merge": true
+}

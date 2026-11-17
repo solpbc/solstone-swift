@@ -1,0 +1,16 @@
+{
+  "description": "scheduling reconnect",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "18ab58829be276e57ca23687a90a8557666b5679dfa45ada42c6320ad559b579",
+  "risk": "routine",
+  "auto_merge": true
+}

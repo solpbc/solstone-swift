@@ -1,0 +1,21 @@
+{
+  "description": "already handed to journal / Watch retention-cleanup lag; ack queued {hole1}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 75,
+  "source_revision": "c8635656620821c387b5dee9b53c45a05024f80c9d9652d0b60d7f1e6e2835d0",
+  "risk": "routine",
+  "auto_merge": true
+}

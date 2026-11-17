@@ -9,14 +9,14 @@ enum ObserverWidgetSource: String, AppEnum {
     case screencast
     case watch
 
-    static var typeDisplayRepresentation: TypeDisplayRepresentation { "source" }
+    static var typeDisplayRepresentation: TypeDisplayRepresentation { TypeDisplayRepresentation(name: LocalizedStringResource("m696f732e696e74656e74732e6f6e7468697370686f6e65736f757263656c6162656c", table: "Localizable")) }
 
     static var caseDisplayRepresentations: [Self: DisplayRepresentation] {
         [
-            .observer: "audio",
-            .location: "location",
-            .screencast: "screencast",
-            .watch: "watch",
+            .observer: DisplayRepresentation(title: LocalizedStringResource("m696f732e6170702e617564696f", table: "Localizable")),
+            .location: DisplayRepresentation(title: LocalizedStringResource("m696f732e6c6f636174696f6e2e736f75726365646973706c61796e616d65", table: "Localizable")),
+            .screencast: DisplayRepresentation(title: LocalizedStringResource("m696f732e73637265656e636173742e626f6479", table: "Localizable")),
+            .watch: DisplayRepresentation(title: LocalizedStringResource("m696f732e6170702e7761746368736f75726365646973706c61796e616d65", table: "Localizable")),
         ]
     }
 
@@ -51,9 +51,9 @@ enum ObserverWidgetSource: String, AppEnum {
 }
 
 struct ObserverWidgetConfigurationIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource { "solstone" }
+    static var title: LocalizedStringResource { LocalizedStringResource("m696f732e707573682e746573742e7469746c65", table: "Localizable") }
 
-    @Parameter(title: "source", default: .observer)
+    @Parameter(title: LocalizedStringResource("m696f732e696e74656e74732e6f6e7468697370686f6e65736f757263656c6162656c", table: "Localizable"), default: .observer)
     var source: ObserverWidgetSource
 
     init() {

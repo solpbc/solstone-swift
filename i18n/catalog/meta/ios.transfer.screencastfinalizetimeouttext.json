@@ -1,0 +1,16 @@
+{
+  "description": "screen video timed out while saving",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "1193814c9864829324417cbd2871869f6bd3567fa57f0bfac080c8c8f4fea0c2",
+  "risk": "routine",
+  "auto_merge": true
+}

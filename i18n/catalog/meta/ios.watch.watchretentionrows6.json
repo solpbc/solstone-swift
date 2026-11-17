@@ -1,0 +1,16 @@
+{
+  "description": "manifest counts",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "ee8996b5386729e6ed45678eef061ae4ff6dfe3eaa0be455a4f624b3ebdf6aa5",
+  "risk": "routine",
+  "auto_merge": true
+}

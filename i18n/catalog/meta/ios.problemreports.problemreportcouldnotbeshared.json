@@ -1,0 +1,16 @@
+{
+  "description": "problem report could not be shared",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "problemreports"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "7dae46036fc34e9b817a75f8cd20ff0fbdca3979b2ea9261966ff8932d545b7c",
+  "risk": "routine",
+  "auto_merge": true
+}

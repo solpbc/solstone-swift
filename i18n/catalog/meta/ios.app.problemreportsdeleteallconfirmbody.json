@@ -1,0 +1,16 @@
+{
+  "description": "this removes the reports kept on this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 45,
+  "source_revision": "6543ea1a1558f49722da58c8d978fcdbdc072b37f522ad0b5311f43f861eaf21",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "paste",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 5,
+  "source_revision": "84dadc09d88b1d83561c8bc0f2d426bad55bd22b3703c1d727f1324c3aabcbb0",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.import.adds.pdfs.audio.images.text. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 98,
+  "source_revision": "dfedf914004c24fee4e66d70365c0fc5870175e9919c00a3876f6a658e77b00c",
+  "risk": "routine",
+  "auto_merge": true
+}

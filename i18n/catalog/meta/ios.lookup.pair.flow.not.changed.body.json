@@ -1,0 +1,16 @@
+{
+  "description": "your pairing stays as it was. nothing waiting on this device went to that journal through this link.",
+  "context": "Existing native lookup pair_flow.not_changed.body.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "d05255e0bffe18198f50d5bda00a2e534c26238ef7bfe36c3e880586e56448eb",
+  "risk": "routine",
+  "auto_merge": true
+}

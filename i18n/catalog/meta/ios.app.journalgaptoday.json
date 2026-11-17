@@ -1,0 +1,16 @@
+{
+  "description": "some of what you shared today didn't reach it.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.gap.some.what.shared.today.didn. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "56569110efc350621a7149d5bb7db49a29b81bb39ef37d654cc492ab25f44a5b",
+  "risk": "routine",
+  "auto_merge": true
+}

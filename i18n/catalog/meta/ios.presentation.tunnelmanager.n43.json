@@ -1,0 +1,16 @@
+{
+  "description": "connection timed out",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "21fdb0145ec69488680d62f3f6d94a052f7b42b6677087ca965241f7dc0dea53",
+  "risk": "routine",
+  "auto_merge": true
+}

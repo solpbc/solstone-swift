@@ -1,0 +1,16 @@
+{
+  "description": "low power at last check",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "54d1b2d779498ac080dc1438f3e552ad39137263227213dc7e5fb6b35b07e36a",
+  "risk": "routine",
+  "auto_merge": true
+}

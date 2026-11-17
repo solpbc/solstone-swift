@@ -1,0 +1,16 @@
+{
+  "description": "your journal's address",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "c20fe564e5fd622e566327d809aeb482e36f60ab6693da43968aa860ea662d0a",
+  "risk": "routine",
+  "auto_merge": true
+}

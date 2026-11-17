@@ -113,7 +113,7 @@ nonisolated enum PushPresentation {
         }
     }
 
-    private static func candidateLprojNames(for locale: Locale) -> [String] {
+    private static func candidateLprojNames(for locale: Locale, available: [String]) -> [String] {
         var names: [String] = []
         let bcp47 = locale.identifier(.bcp47)
         if !bcp47.isEmpty && !names.contains(bcp47) {
@@ -122,6 +122,9 @@ nonisolated enum PushPresentation {
         let ident = locale.identifier
         if !ident.isEmpty && !names.contains(ident) {
             names.append(ident)
+        }
+        for matched in Bundle.preferredLocalizations(from: available, forPreferences: [bcp47]) where !names.contains(matched) {
+            names.append(matched)
         }
         if let langCode = locale.language.languageCode?.identifier, !langCode.isEmpty, !names.contains(langCode) {
             names.append(langCode)
@@ -135,12 +138,12 @@ nonisolated enum PushPresentation {
     ) -> (candidateTables: [ResolvedTable], packagedTables: [ResolvedTable]) {
         var candidateTables: [ResolvedTable] = []
         var seenCandidatePaths = Set<String>()
-        for name in self.candidateLprojNames(for: locale) {
+        for name in self.candidateLprojNames(for: locale, available: bundle.localizations) {
             if let path = bundle.path(forResource: name, ofType: "lproj"),
                !seenCandidatePaths.contains(path),
                let b = Bundle(path: path) {
                 seenCandidatePaths.insert(path)
-                candidateTables.append(ResolvedTable(bundle: b, formatLocale: locale))
+                candidateTables.append(ResolvedTable(bundle: b, formatLocale: Locale(identifier: name)))
             }
         }
 
@@ -149,7 +152,7 @@ nonisolated enum PushPresentation {
             packagedFolderNames.append(devLoc)
         }
         if let sourceLoc = self.catalog.sourceLocale, !sourceLoc.isEmpty {
-            for name in self.candidateLprojNames(for: Locale(identifier: sourceLoc)) {
+            for name in self.candidateLprojNames(for: Locale(identifier: sourceLoc), available: bundle.localizations) {
                 if !packagedFolderNames.contains(name) {
                     packagedFolderNames.append(name)
                 }

@@ -1,0 +1,21 @@
+{
+  "description": "current attempt age {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "32ee7f00e47edeaa09fd83ee5517b32e30c6bae7acbc74955007764798a27c83",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "latest watch snapshot",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "9beb411b9f2ea86965a00a5ad60a9f590df502b2b83ac5524f7d57663efb7821",
+  "risk": "routine",
+  "auto_merge": true
+}

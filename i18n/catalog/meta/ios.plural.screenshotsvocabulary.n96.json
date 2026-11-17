@@ -1,0 +1,31 @@
+{
+  "description": "bring in 1 screenshot",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered. Mac counterpart: macos.screenshots.bringin. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    },
+    {
+      "name": "value0",
+      "type": "string"
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 1000,
+  "source_revision": "8723082f3392e2c1b7cb96b141f5c21596276a9fccad0fb775c2b231db621db4",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

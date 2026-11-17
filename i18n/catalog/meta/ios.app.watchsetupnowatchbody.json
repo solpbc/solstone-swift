@@ -1,0 +1,16 @@
+{
+  "description": "pair an apple watch to this device and the solstone app can come along on your wrist. everything else in solstone works without one.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 132,
+  "source_revision": "63c091139b56647233fd3e507190db7e010cc81bcc77966c911b268cb5a8fcec",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,25 @@
+{
+  "description": "{ $record } — { $detail }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "record",
+      "type": "string"
+    },
+    {
+      "name": "detail",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "74eb8d1ed9a85ff77ec72320ec85dfbecf57dc2c5529da7ca46fe24331a885f5",
+  "risk": "routine",
+  "auto_merge": true
+}

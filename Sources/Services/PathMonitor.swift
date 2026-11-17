@@ -27,7 +27,7 @@ public struct NetworkPathStatus: Equatable, Sendable {
 }
 
 nonisolated func networkStatusText(_ status: NetworkPathStatus?) -> String {
-    guard let status else { return "unknown" }
+    guard let status else { return AppStrings.ios_tunnel_diagnosticlabel2() }
     let iface: String
     if status.isWiFi {
         iface = "wifi"
@@ -40,12 +40,12 @@ nonisolated func networkStatusText(_ status: NetworkPathStatus?) -> String {
         return iface
     }
     if status.isWiFi {
-        return "wifi · offline"
+        return AppStrings.ios_services_networkstatustext2()
     }
     if status.isCellular {
-        return "cellular · offline"
+        return AppStrings.ios_services_networkstatustext()
     }
-    return "offline"
+    return AppStrings.ios_connection_statusofflinelabel()
 }
 
 private extension NetworkPathStatus {

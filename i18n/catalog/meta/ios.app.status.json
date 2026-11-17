@@ -1,0 +1,16 @@
+{
+  "description": "status",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.shelf.status. Keep translations consistent.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 6,
+  "source_revision": "c9b3aa7f82cce943e5304d5d48675306aeac0ac762c7c85783fa6584eedd123d",
+  "risk": "routine",
+  "auto_merge": true
+}

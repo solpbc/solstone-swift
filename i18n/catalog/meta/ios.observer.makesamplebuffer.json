@@ -1,0 +1,16 @@
+{
+  "description": "block buffer create failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 26,
+  "source_revision": "d91bd6820f557a88f1d4a73c4d703ce891d3e22f02c3788e47acf7eb6168a45b",
+  "risk": "routine",
+  "auto_merge": true
+}

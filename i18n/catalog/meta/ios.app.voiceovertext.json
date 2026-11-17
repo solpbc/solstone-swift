@@ -1,0 +1,21 @@
+{
+  "description": "off. {hole1}",
+  "context": "the solstone app, speaking to the owner, VoiceOver on a source tile. split. the state word is one enum message. the detail is a second message. do not append an ASCII full stop by scanning the English (EAL-146). do not decide whether the detail repeats the state by comparing the rendered words (EAL-147).",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 12,
+  "source_revision": "0923c61163210297ddeaa8b661c3ca38489f7c391d4ce4fd1b59d3c156e19537",
+  "risk": "routine",
+  "auto_merge": true
+}

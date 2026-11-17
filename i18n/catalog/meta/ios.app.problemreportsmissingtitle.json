@@ -1,0 +1,16 @@
+{
+  "description": "problem report unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 26,
+  "source_revision": "a6640514ad4bbc2b8916cc44eb5768f0ef760fd9f83f642bf453443d514f05e7",
+  "risk": "routine",
+  "auto_merge": true
+}

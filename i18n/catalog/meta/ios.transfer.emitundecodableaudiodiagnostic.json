@@ -1,0 +1,29 @@
+{
+  "description": "segment={uuidString} source=audio reason=audio_undecodable_container domain={domain} code={code}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "uuidString",
+      "type": "string"
+    },
+    {
+      "name": "domain",
+      "type": "string"
+    },
+    {
+      "name": "code",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 96,
+  "source_revision": "7fb02095fe6b50141189f35cd49bdf9af8e5c2758c47f05be9a03028da1ea02c",
+  "risk": "routine",
+  "auto_merge": true
+}

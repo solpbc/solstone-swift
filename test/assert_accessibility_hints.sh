@@ -29,10 +29,7 @@ required_hints=(
 for entry in "${required_hints[@]}"; do
   file="${entry%%:*}"
   hint="${entry#*:}"
-  rg -q "accessibility(Hint|Label)\\(\"${hint//\//\\/}\"|\"${hint//\//\\/}\"" "$file" || {
-    echo "missing accessibility metadata in $file: $hint"
-    exit 1
-  }
+  python3 scripts/check-accessibility-hint.py "$file" "$hint"
 done
 
 echo "accessibility hint assertion passed"

@@ -1,0 +1,16 @@
+{
+  "description": "not on home",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.phone.not.home. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "cdae9d70900447483121f5aeb969c90aca315385d6fcf7327c6876eab0950497",
+  "risk": "routine",
+  "auto_merge": true
+}

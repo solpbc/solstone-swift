@@ -1,0 +1,16 @@
+{
+  "description": "connected · waiting to sync",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "connection"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "85a21ca5927dd4ee764634b42377841a7ba8cf45533b775d8beeb97296b3e891",
+  "risk": "routine",
+  "auto_merge": true
+}

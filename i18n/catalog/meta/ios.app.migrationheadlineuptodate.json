@@ -1,0 +1,16 @@
+{
+  "description": "your journal is up to date",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 26,
+  "source_revision": "2cf4247215b752fecaf43a1db809e19054ba44e1e65d5de67a53b2916d2f0e2b",
+  "risk": "routine",
+  "auto_merge": true
+}

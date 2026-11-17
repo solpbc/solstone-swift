@@ -1,0 +1,16 @@
+{
+  "description": "haptics",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.shelf.haptics. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 7,
+  "source_revision": "8720280e7dad518415a2fd64aab9d056221344a596fed318797e528b0335499c",
+  "risk": "routine",
+  "auto_merge": true
+}

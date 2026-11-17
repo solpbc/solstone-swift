@@ -1,0 +1,21 @@
+{
+  "description": "{s}s",
+  "context": "Shown by Sources/WatchCapture/WatchElapsedDuration.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "5ba71ff1b0b8fa3853f29a197e627b7186aeb87c8490b3b613866ffc13dd2ad4",
+  "risk": "routine",
+  "auto_merge": true
+}

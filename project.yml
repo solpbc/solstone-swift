@@ -1,3 +1,5 @@
+include:
+  - i18n/generated/project.yml
 name: solstone-swift
 options:
   bundleIdPrefix: app.solstone
@@ -39,6 +41,13 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+      - path: Localization/AppShortcuts.xcstrings
+        buildPhase: resources
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
+      - path: Localization/Metadata/solstone-swift/InfoPlist.xcstrings
+        buildPhase: resources
       - path: THIRD_PARTY_NOTICES.md
         buildPhase: resources
       - path: vendor/browser-contract
@@ -62,17 +71,9 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: solstone
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_NSMicrophoneUsageDescription: "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in."
-        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "connect this iphone or ipad directly to your journal when they're on the same network."
-        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
-        INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it, including in the background. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
-        INFOPLIST_KEY_NSCameraUsageDescription: "used to scan your journal's pairing code"
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "the solstone app takes in only your screenshots and adds them to your journal. other photos stay where they are."
-        INFOPLIST_KEY_NSCalendarsFullAccessUsageDescription: "the solstone app adds the events on your calendars to your journal. nothing goes anywhere else."
         INFOPLIST_KEY_NSSupportsLiveActivities: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
@@ -136,6 +137,11 @@ targets:
     platform: iOS
     deploymentTarget: "26.0"
     sources:
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
+      - path: Localization/Metadata/SolstoneSafariExtension/InfoPlist.xcstrings
+        buildPhase: resources
       - path: SolstoneSafariExtension
       - path: Sources/SafariBrowser
         excludes:
@@ -168,7 +174,6 @@ targets:
     info:
       path: SolstoneSafariExtension/Info.plist
       properties:
-        CFBundleDisplayName: solstone
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -179,6 +184,11 @@ targets:
     platform: iOS
     deploymentTarget: "26.0"
     sources:
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
+      - path: Localization/Metadata/SolstoneNotificationService/InfoPlist.xcstrings
+        buildPhase: resources
       - SolstoneNotificationService
       - Sources/Push/PushEnvelope.swift
       - Sources/Push/PushKeyStore.swift
@@ -198,7 +208,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.service
-        INFOPLIST_KEY_CFBundleDisplayName: SolstoneNotificationService
         CODE_SIGN_ENTITLEMENTS: SolstoneNotificationService/SolstoneNotificationService.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
         GENERATE_INFOPLIST_FILE: YES
@@ -218,6 +227,11 @@ targets:
     platform: iOS
     deploymentTarget: "26.0"
     sources:
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
+      - path: Localization/Metadata/SolstoneShareExtension/InfoPlist.xcstrings
+        buildPhase: resources
       - SolstoneShareExtension
       - Sources/Background/MaintenanceCooperator.swift
       - Sources/ShareImport/ShareImportStore.swift
@@ -242,7 +256,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.share
-        INFOPLIST_KEY_CFBundleDisplayName: solstone
         CODE_SIGN_ENTITLEMENTS: SolstoneShareExtension/SolstoneShareExtension.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
         GENERATE_INFOPLIST_FILE: YES
@@ -263,6 +276,11 @@ targets:
     platform: iOS
     deploymentTarget: "26.0"
     sources:
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
+      - path: Localization/Metadata/SolstoneBroadcastExtension/InfoPlist.xcstrings
+        buildPhase: resources
       - path: SolstoneBroadcastExtension
       - path: Sources/Services/AppGroupContainer.swift
       - path: Sources/MobileSegment/MobileSegmentModels.swift
@@ -282,7 +300,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.broadcast
         PRODUCT_NAME: solstone-broadcast
-        INFOPLIST_KEY_CFBundleDisplayName: screen
         CODE_SIGN_ENTITLEMENTS: SolstoneBroadcastExtension/SolstoneBroadcastExtension.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
         SWIFT_STRICT_CONCURRENCY: complete
@@ -290,7 +307,6 @@ targets:
     info:
       path: SolstoneBroadcastExtension/Info.plist
       properties:
-        CFBundleDisplayName: screen
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -302,6 +318,11 @@ targets:
     platform: iOS
     deploymentTarget: "26.0"
     sources:
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
+      - path: Localization/Metadata/SolstoneLiveActivityWidget/InfoPlist.xcstrings
+        buildPhase: resources
       - SolstoneLiveActivityWidget
       - Sources/Observer/ObserverMode.swift
       - Sources/Observer/ObserverClock.swift
@@ -322,7 +343,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.liveactivity
-        INFOPLIST_KEY_CFBundleDisplayName: SolstoneLiveActivityWidget
         CODE_SIGN_ENTITLEMENTS: SolstoneLiveActivityWidget/SolstoneLiveActivityWidget.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
         GENERATE_INFOPLIST_FILE: YES
@@ -341,6 +361,11 @@ targets:
     platform: watchOS
     deploymentTarget: "26.0"
     sources:
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
+      - path: Localization/Metadata/SolstoneWatch/InfoPlist.xcstrings
+        buildPhase: resources
       - Watch/Sources
       - Watch/PrivacyInfo.xcprivacy
       - Watch/Assets.xcassets
@@ -375,7 +400,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: solstone
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_STRICT_CONCURRENCY: complete
         SWIFT_VERSION: "6.0"
@@ -389,8 +413,6 @@ targets:
         UIBackgroundModes:
           - audio
           - location
-        NSMicrophoneUsageDescription: "the solstone app takes in the audio from a moment you start on your watch. what you share stays on the watch until it can go to your iphone, and from there into your journal."
-        NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it during a moment you start on your watch. what you share stays on the watch until it can go to your iphone, and from there into your journal."
     dependencies:
       - target: SolstoneWatchComplication
         embed: true
@@ -399,6 +421,11 @@ targets:
     platform: watchOS
     deploymentTarget: "26.0"
     sources:
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
+      - path: Localization/Metadata/SolstoneWatchComplication/InfoPlist.xcstrings
+        buildPhase: resources
       - SolstoneWatchComplication
       - Sources/SourceVocabulary.swift
       - Sources/WatchCapture/WatchFacePresentation.swift
@@ -415,7 +442,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.solstone.swift.watch.widget
-        INFOPLIST_KEY_CFBundleDisplayName: solstone
         CODE_SIGN_ENTITLEMENTS: SolstoneWatchComplication/SolstoneWatchComplication.entitlements
         DEVELOPMENT_TEAM: 7QCG8V4M6H
         GENERATE_INFOPLIST_FILE: YES
@@ -433,6 +459,9 @@ targets:
     platform: watchOS
     deploymentTarget: "26.0"
     sources:
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
       - WatchTests
       - Tests/SunArcEngineTests.swift
       - Tests/WatchSunArcDrawingTests.swift
@@ -484,6 +513,9 @@ targets:
       - path: Tests
         excludes:
           - Fixtures/LinkedDeviceIngest
+      - path: Localization/AppStrings.generated.swift
+      - path: Localization/Localizable.xcstrings
+        buildPhase: resources
       - path: Tests/Fixtures/LinkedDeviceIngest
         type: folder
         buildPhase: resources

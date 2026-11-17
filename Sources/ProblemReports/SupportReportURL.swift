@@ -9,7 +9,7 @@ nonisolated enum SupportReportURL {
     static func make(version: String, build: String, osVersion: String, state: String, about: String, recent: String = "") -> URL {
         var fields = [
             ("report", "v1"),
-            ("app", "solstone for ios"),
+            ("app", AppStrings.ios_problemreports_make()),
         ]
         if !version.isEmpty {
             fields.append(("version", String(version.prefix(120))))

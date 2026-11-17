@@ -1,0 +1,21 @@
+{
+  "description": "your journal turned this away. it stays on this device and tries again about once a day, after the app or your journal updates, or when you tap {tryNow}.",
+  "context": "custody or processing claim. not rewritten. Legal source wording stays English until an approved legal translation exists.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "tryNow",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 153,
+  "source_revision": "87f508c0b53dc778392a44943ece160fa8618c6ef2be3e8a34ce1cfa8726a1f8",
+  "risk": "legal",
+  "auto_merge": false
+}

@@ -1,0 +1,16 @@
+{
+  "description": "what's on your screen goes into your journal. tap \"Start Broadcast\" in the sheet that comes up. the system ends screen sharing when this device locks.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 150,
+  "source_revision": "f1ea1667501ca278b29af04c13762a417cae21646d0b415ede124336415189e4",
+  "risk": "routine",
+  "auto_merge": true
+}

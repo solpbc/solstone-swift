@@ -1,0 +1,16 @@
+{
+  "description": "audio and stored durations disagree",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "41b8d8cd61dd76c1fad8501b3ef1cccad79a78f8ebe85a02bcefd74aa4df4555",
+  "risk": "routine",
+  "auto_merge": true
+}

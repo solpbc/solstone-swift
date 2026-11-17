@@ -1,0 +1,16 @@
+{
+  "description": "watch connectivity unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchconnectivity"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 30,
+  "source_revision": "3bf5a71ca96df786b6486a10342d1715c1429920e542b5fba72ae7f4a290af51",
+  "risk": "routine",
+  "auto_merge": true
+}

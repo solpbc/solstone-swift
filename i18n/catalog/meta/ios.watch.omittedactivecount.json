@@ -1,0 +1,16 @@
+{
+  "description": "active backlog less than visible active identities",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 50,
+  "source_revision": "9f9465c08cfabf5ff98971936500ac4767bab4151e5ebf8441adb0dd5be17b2d",
+  "risk": "routine",
+  "auto_merge": true
+}

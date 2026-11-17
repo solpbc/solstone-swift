@@ -21,13 +21,13 @@ struct ObserverCaptureControlWidget: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: observerCaptureControlKind, provider: ObserverCaptureControlValueProvider()) { value in
             ControlWidgetToggle(isOn: value.isOn, action: ObserverCaptureIntent()) {
-                Label("audio", systemImage: "waveform")
+                Label(AppStrings.ios_app_audio(), systemImage: "waveform")
                     .controlWidgetStatus(Text(value.status?.text ?? ""))
             }
             .privacySensitive()
             .disabled(value.isUnavailable)
         }
-        .displayName("audio")
-        .description("turn audio on and off.")
+        .displayName(AppStrings.ios_app_audio_resource())
+        .description(AppStrings.ios_liveactivity_body6_resource())
     }
 }

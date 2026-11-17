@@ -1,0 +1,16 @@
+{
+  "description": "some saved items need attention",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "73f64235a521f5d8f64f658e3e7487be6ed4e42cec3b62f130a174cb358103c4",
+  "risk": "routine",
+  "auto_merge": true
+}

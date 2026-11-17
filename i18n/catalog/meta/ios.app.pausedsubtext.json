@@ -1,0 +1,16 @@
+{
+  "description": "you paused this. resume to start intake again.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.source.paused.resume.start.intake.again. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "0dffa0dca3a3f3c2e431b076cbcc6d3070e1766109c40d88508ef8f2276230c7",
+  "risk": "routine",
+  "auto_merge": true
+}

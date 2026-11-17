@@ -136,7 +136,7 @@ private struct ShareExtensionView: View {
                     .multilineTextAlignment(.center)
                 Button(ShareImportCopy.dismiss, action: self.onCancel)
                     .buttonStyle(.bordered)
-                    .accessibilityHint("Closes this message.")
+                    .accessibilityHint(AppStrings.ios_app_body())
             }
         }
         .padding(24)

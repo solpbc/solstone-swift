@@ -464,7 +464,7 @@ final class MobileSegmentStore {
         do {
             try self.ensureRoot()
         } catch {
-            let diagnostic = "mobile segment root migration failed stage=ensure-root"
+            let diagnostic = AppStrings.ios_transfer_diagnostic12()
             diagnostics.append(diagnostic)
             mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
             return diagnostics
@@ -484,7 +484,7 @@ final class MobileSegmentStore {
                 diagnostics.append(contentsOf: self.migrateRootItem(
                     from: sourceURL,
                     to: destinationURL,
-                    label: "lifecycle=\(lifecycle.rawValue) segment=\(segmentID.uuidString)",
+                    label: AppStrings.ios_transfer_migrateroot("\(lifecycle.rawValue)", "\(segmentID.uuidString)"),
                     fileManager: fileManager
                 ))
             }
@@ -508,7 +508,7 @@ final class MobileSegmentStore {
                     diagnostics.append(contentsOf: self.migrateRootItem(
                         from: tombstoneURL,
                         to: destinationURL,
-                        label: "tombstone=\(kindDirectory.lastPathComponent) file=\(tombstoneURL.lastPathComponent)",
+                        label: AppStrings.ios_transfer_migrateroot2_native("\(kindDirectory.lastPathComponent)", "\(tombstoneURL.lastPathComponent)"),
                         fileManager: fileManager
                     ))
                 }
@@ -537,7 +537,7 @@ final class MobileSegmentStore {
                 if try self.contentsEqual(sourceURL, destinationURL, fileManager: fileManager) {
                     try fileManager.removeItem(at: sourceURL)
                 } else {
-                    let diagnostic = "mobile segment root migration collision \(label)"
+                    let diagnostic = AppStrings.ios_transfer_diagnostic11("\(label)")
                     diagnostics.append(diagnostic)
                     mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
                 }
@@ -552,21 +552,21 @@ final class MobileSegmentStore {
             }
             try fileManager.copyItem(at: sourceURL, to: stagingURL)
             guard try self.contentsEqual(sourceURL, stagingURL, fileManager: fileManager) else {
-                let diagnostic = "mobile segment root migration verify-failed \(label)"
+                let diagnostic = AppStrings.ios_transfer_diagnostic14("\(label)")
                 diagnostics.append(diagnostic)
                 mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
                 return diagnostics
             }
             try fileManager.moveItem(at: stagingURL, to: destinationURL)
             guard try self.contentsEqual(sourceURL, destinationURL, fileManager: fileManager) else {
-                let diagnostic = "mobile segment root migration verify-failed \(label)"
+                let diagnostic = AppStrings.ios_transfer_diagnostic14("\(label)")
                 diagnostics.append(diagnostic)
                 mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
                 return diagnostics
             }
             try fileManager.removeItem(at: sourceURL)
         } catch {
-            let diagnostic = "mobile segment root migration failed \(label)"
+            let diagnostic = AppStrings.ios_transfer_diagnostic13("\(label)")
             diagnostics.append(diagnostic)
             mobileSegmentStoreLog.error("\(diagnostic, privacy: .public)")
         }

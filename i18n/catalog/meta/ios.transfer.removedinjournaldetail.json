@@ -1,0 +1,16 @@
+{
+  "description": "removed in journal",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "a9d1e83ae1cec67113c24dbd4d0a1196bf5e887ccf013e3cee0763753c7e8ee4",
+  "risk": "routine",
+  "auto_merge": true
+}

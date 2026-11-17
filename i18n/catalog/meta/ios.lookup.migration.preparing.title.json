@@ -1,0 +1,16 @@
+{
+  "description": "getting this device ready",
+  "context": "Existing native lookup migration.preparing.title. Android counterpart: android.migration.getting.device.ready. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "b6e9ec58a531912ed4c93d004d3664536be0bce7232e0a6fcddbc5cc88696f56",
+  "risk": "routine",
+  "auto_merge": true
+}

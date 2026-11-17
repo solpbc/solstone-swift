@@ -1,0 +1,42 @@
+{
+  "description": "{delivered} of {found} notes in your journal",
+  "context": "Shown by Sources/Obsidian/ObsidianVocabulary.swift. Arguments preserve the existing presentation values. Mac counterpart: macos.ui.ofnotesinyour. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "f9d7384bfb4f200a2ad76664f6a8dc0b41071eb4d64bdcd5b3ea4c9266dd6f30",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": " "
+    },
+    {
+      "name": "slot1",
+      "kind": "whitespace",
+      "value": " "
+    },
+    {
+      "name": "slot2",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "description": "location hasn't been allowed yet.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "937dd9ecbbcb37700d124e05dc23d85173a128f186c794867d1018557ad7f4f7",
+  "risk": "routine",
+  "auto_merge": true
+}

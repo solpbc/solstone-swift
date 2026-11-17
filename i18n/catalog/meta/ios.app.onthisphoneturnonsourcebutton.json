@@ -1,0 +1,16 @@
+{
+  "description": "turn on a source",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "d6fd65b809b3ee848f349c4945890c99213c7bfe9759de8b0c3f1ae1563e223a",
+  "risk": "routine",
+  "auto_merge": true
+}

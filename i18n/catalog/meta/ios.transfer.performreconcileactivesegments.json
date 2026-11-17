@@ -1,0 +1,16 @@
+{
+  "description": "unclean relaunch unresolved source",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "df464dce6283f38b10fac73a939df27fdf3079bed417f1e9fcd450883809f4c5",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -24,8 +24,8 @@ final class JournalWebPanels {
     }
 
     private enum Copy {
-        static let ok = "ok"
-        static let cancel = "cancel"
+        static let ok = AppStrings.ios_journalwebpanels_ok()
+        static let cancel = AppStrings.ios_migration_picker_cancel()
     }
 
     private var open: (alert: UIAlertController, continuation: CheckedContinuation<Answer, Never>)?

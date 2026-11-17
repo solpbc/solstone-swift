@@ -1,0 +1,21 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "localPort",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 47,
+  "source_revision": "f3b67bd632ed3a6dcbb2d324f77b5265bc0c3ca35e08bdec8d682816f322afaa",
+  "risk": "routine",
+  "auto_merge": true
+}

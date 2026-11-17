@@ -1,0 +1,16 @@
+{
+  "description": "connecting",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "f505e9a5fc54ece6cdb109165eae762a27028df1bf6fc877671cb916441c006b",
+  "risk": "routine",
+  "auto_merge": true
+}

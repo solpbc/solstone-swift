@@ -1,0 +1,16 @@
+{
+  "description": "lost the connection to your journal before it answered. try again.",
+  "context": "the solstone app, speaking to the owner. Mac counterpart: macos.pairingcoordinator.losttheconnectiontoyourjournalbeforeitanswere. Keep translations consistent.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 66,
+  "source_revision": "123383142f400ca829eb07bd350dc6a022ad37620bcd436998ec5a13516777d3",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,33 @@
+{
+  "description": "{hole1}; domain {domain}; code {code}; {hole4}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    },
+    {
+      "name": "domain",
+      "type": "string"
+    },
+    {
+      "name": "code",
+      "type": "string"
+    },
+    {
+      "name": "hole4",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "afb5b942e561ad4774a08d3d64ef2705a0d7a76f2ffa23d884f91d0bbbabf59c",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -6,34 +6,34 @@ import Foundation
 nonisolated func watchElapsedDisplay(seconds: Int) -> String {
     let s = max(0, seconds)
     if s < 60 {
-        return "\(s)s"
+        return AppStrings.ios_watchelapsedduration_s("\(s)")
     }
     let totalMinutes = s / 60
     if totalMinutes < 60 {
-        return "\(totalMinutes)m"
+        return AppStrings.ios_watchelapsedduration_m("\(totalMinutes)")
     }
     let hours = totalMinutes / 60
     let minutes = totalMinutes % 60
-    return "\(hours)h \(minutes)m"
+    return AppStrings.ios_watch_minutes_native("\(hours)", "\(minutes)")
 }
 
 nonisolated func watchElapsedSpoken(seconds: Int) -> String {
     let s = max(0, seconds)
     if s < 60 {
-        return s == 1 ? "1 second" : "\(s) seconds"
+        return AppStrings.ios_plural_watchelapsedduration_n23(s, "\(s)")
     }
     let totalMinutes = s / 60
     if totalMinutes < 60 {
-        return totalMinutes == 1 ? "1 minute" : "\(totalMinutes) minutes"
+        return AppStrings.ios_plural_watchelapsedduration_n27(totalMinutes, "\(totalMinutes)")
     }
     let hours = totalMinutes / 60
     let minutes = totalMinutes % 60
-    let hourStr = hours == 1 ? "1 hour" : "\(hours) hours"
+    let hourStr = AppStrings.ios_plural_watchelapsedduration_n31(hours, "\(hours)")
     if minutes == 0 {
         return hourStr
     }
-    let minStr = minutes == 1 ? "1 minute" : "\(minutes) minutes"
-    return "\(hourStr), \(minStr)"
+    let minStr = AppStrings.ios_plural_watchelapsedduration_n35(minutes, "\(minutes)")
+    return AppStrings.ios_watch_duration_join(hourStr, minStr)
 }
 
 nonisolated func watchHomeElapsedNextFire(

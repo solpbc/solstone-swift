@@ -1,0 +1,16 @@
+{
+  "description": "original audio files",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "406217fadbfc61ff3a0239a3682c1e8c175950be083efc1b9214220e9558ad77",
+  "risk": "routine",
+  "auto_merge": true
+}

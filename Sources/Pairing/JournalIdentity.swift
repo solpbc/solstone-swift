@@ -11,8 +11,8 @@ nonisolated enum JournalIdentity: Equatable, Sendable {
     case awaitingConfirmation
     case unavailable
 
-    static let unavailableWords = ["mark", "unavailable"]
-    static let unavailableSpokenValue = "your journal's mark, unavailable right now"
+    static let unavailableWords = [AppStrings.ios_pairing_mark(), AppStrings.ios_app_unavailable()]
+    static let unavailableSpokenValue = AppStrings.ios_pairing_unavailablespokenvalue()
 
     static func select(isPaired: Bool, sendConfirmed: Bool, mark: JournalMark?) -> JournalIdentity {
         guard isPaired else { return .generic }

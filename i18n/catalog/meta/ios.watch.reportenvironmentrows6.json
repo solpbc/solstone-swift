@@ -1,0 +1,16 @@
+{
+  "description": "iphone battery state at report time",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "41eed0df6ff7d5892dbedf1371373210ec393471ac82fbb8b006b471e0bb1295",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,25 @@
+{
+  "description": "activeUploads={activeLocalTransfers} {hole2}",
+  "context": "the solstone app, speaking to the owner. the number is fixed in the English or chosen with a conditional. use one cardinal select, or one enum whose branches contain the fixed number.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "activeLocalTransfers",
+      "type": "string"
+    },
+    {
+      "name": "hole2",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 44,
+  "source_revision": "4f6ed5808a5033b3bb7eeca84e0c7fed0c3d20b1366d8e396bd55ccdde048578",
+  "risk": "routine",
+  "auto_merge": true
+}

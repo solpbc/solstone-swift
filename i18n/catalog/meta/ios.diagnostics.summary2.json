@@ -1,0 +1,16 @@
+{
+  "description": "your journal ended a request early",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "2b6f920f8d842def8c9b80337ffb8f705dc04db19bc517da1b0a4c9b54ea86d9",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "there's a gap in your journal",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.gap.there.s.gap.journal. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "544d30ebd5402ede1101e4c6b81110689901797a7b81d692c7ac883ed7ddaacd",
+  "risk": "routine",
+  "auto_merge": true
+}

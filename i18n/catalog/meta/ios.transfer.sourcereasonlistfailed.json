@@ -1,0 +1,21 @@
+{
+  "description": "source={hole1} reason=list failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "b08f14a093028323ef9ebae6b119d29ff4ea411173f15b86ad132b32da896955",
+  "risk": "routine",
+  "auto_merge": true
+}

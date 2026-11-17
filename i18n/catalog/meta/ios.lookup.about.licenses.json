@@ -1,0 +1,16 @@
+{
+  "description": "licenses",
+  "context": "Existing native lookup about.licenses. Android counterpart: android.source.licenses. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "a86aeb9991a9a5fe102baee738bfc2a68e2254109f536dbac73cdfe45b437f50",
+  "risk": "routine",
+  "auto_merge": true
+}

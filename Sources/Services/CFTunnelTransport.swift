@@ -53,7 +53,7 @@ private actor ConnectWindowTerminalSignal {
         case .openArmed:
             switch state {
             case .disconnected:
-                resolve(.transportFailed("session disconnected during connect"))
+                resolve(.transportFailed(AppStrings.ios_services_observe()))
                 return true
             case .failed(let error):
                 resolve(error)
@@ -167,7 +167,7 @@ final class CFTunnelTransport: Transporting {
         let epoch = self.sessionEpoch
         onStageChange(.preparingCandidates)
         guard let pairing = try loadPairing() else {
-            onStageChange(.failed("missing pairing"))
+            onStageChange(.failed(AppStrings.ios_services_connect()))
             throw CFTunnelTransportError.missingPairing
         }
 
@@ -355,7 +355,7 @@ final class CFTunnelTransport: Transporting {
         self.diagnosticLog?.append(
             category: .journal,
             severity: .info,
-            message: "journal page started fresh",
+            message: AppStrings.ios_services_journalpagestartedfresh(),
             detail: "reason=\(reason)"
         )
     }

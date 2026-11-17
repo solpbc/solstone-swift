@@ -1,0 +1,16 @@
+{
+  "description": "drop from this device",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "d1bf5a27f575172b37780302464037674fee4352695239b18f189f5d4cf22fcf",
+  "risk": "routine",
+  "auto_merge": true
+}

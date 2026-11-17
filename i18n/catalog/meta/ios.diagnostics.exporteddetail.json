@@ -1,0 +1,16 @@
+{
+  "description": "stored response not shown",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "91cb334f65eaa9a1b550df180ea3142b168b92bbd7a038b1b79f603f9811b698",
+  "risk": "routine",
+  "auto_merge": true
+}

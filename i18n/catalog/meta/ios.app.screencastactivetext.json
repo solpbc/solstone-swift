@@ -1,0 +1,16 @@
+{
+  "description": "screen is active",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "66d10bc33914d38d780e717021d7d7a6a8c03209f2bcf52eeeba276f4848e427",
+  "risk": "routine",
+  "auto_merge": true
+}

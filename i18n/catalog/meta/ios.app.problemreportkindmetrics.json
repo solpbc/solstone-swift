@@ -1,0 +1,16 @@
+{
+  "description": "daily app summary",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "0beab5ff317b5503af4ef1a2abec7077c7be5e271892ee2dfc17cf11a3f5c23b",
+  "risk": "routine",
+  "auto_merge": true
+}

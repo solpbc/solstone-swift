@@ -1,0 +1,16 @@
+{
+  "description": "re-pair",
+  "context": "Shown by Sources/SourceVocabulary.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "40f2f628e716026607064ab905465e213321af1a57b7d51d6a5609cae0e65ad5",
+  "risk": "routine",
+  "auto_merge": true
+}

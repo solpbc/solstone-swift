@@ -1,0 +1,16 @@
+{
+  "description": "retained source bytes",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "3edd6b2ecbda31d43fd7727cb868c474a0af45f83e2de2041e5dc68c32b5972a",
+  "risk": "routine",
+  "auto_merge": true
+}

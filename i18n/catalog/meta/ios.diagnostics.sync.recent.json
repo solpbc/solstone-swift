@@ -1,0 +1,40 @@
+{
+  "description": "  { $name } recent retry error: { $detail } { $age }ago ({ $count } recent)",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "detail",
+      "type": "string"
+    },
+    {
+      "name": "age",
+      "type": "string"
+    },
+    {
+      "name": "count",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "8d82b419041092603ec8286d655ab955b098ec2e158f1444eb7174a262714a5c",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "space0",
+      "kind": "whitespace",
+      "value": "  "
+    }
+  ]
+}

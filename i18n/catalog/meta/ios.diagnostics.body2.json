@@ -1,0 +1,16 @@
+{
+  "description": "export",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 6,
+  "source_revision": "e4077529e13bd29eaa130eca2b8338ed6029a3d8817c604784a7cd7d0dde2b67",
+  "risk": "routine",
+  "auto_merge": true
+}

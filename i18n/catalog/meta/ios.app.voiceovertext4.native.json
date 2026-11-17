@@ -1,0 +1,28 @@
+{
+  "description": "on. {Self.sentence(activeSubtext)}",
+  "context": "Shown by Sources/SourceVocabulary.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "da1570d902ea8f6d38311239a11ac6ba18baa3d338cbc3bfbca13bd934909a5c",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

@@ -117,7 +117,11 @@ private extension ScreencastProjectConfigTests {
         else {
             throw XCTSkip("SolstoneBroadcastExtension block missing")
         }
-        return String(projectYML[start.lowerBound..<end.lowerBound])
+        let rootBlock = String(projectYML[start.lowerBound..<end.lowerBound])
+        let generated = try String(contentsOf: self.projectYMLURL().deletingLastPathComponent().appendingPathComponent("i18n/generated/project.yml"), encoding: .utf8)
+        let generatedStart = try XCTUnwrap(generated.range(of: "  SolstoneBroadcastExtension:"))
+        let generatedEnd = try XCTUnwrap(generated[generatedStart.upperBound...].range(of: "  SolstoneLiveActivityWidget:"))
+        return rootBlock + String(generated[generatedStart.lowerBound..<generatedEnd.lowerBound])
     }
 
     static func baseSettingsBlock() throws -> String {

@@ -1,0 +1,16 @@
+{
+  "description": "forcing reconnect",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "f51d3ecbf0207b7d17d3eb206248dfcc369cea51d2cc5c5e5e63b979157929e2",
+  "risk": "routine",
+  "auto_merge": true
+}

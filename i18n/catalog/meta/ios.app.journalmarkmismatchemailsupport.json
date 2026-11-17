@@ -1,0 +1,23 @@
+{
+  "description": "email support@solstone.app",
+  "context": "contains an address or a command that has to stay byte-for-byte. Mac counterpart: macos.copy.journalmarkmismatchsupport. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "9c11a19e46f92cbec1aed0d6d4406a8205844cf2effa527bb1b78933de22118c",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "url1",
+      "kind": "url",
+      "value": "support@solstone.app"
+    }
+  ]
+}

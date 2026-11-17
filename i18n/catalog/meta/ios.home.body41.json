@@ -1,0 +1,16 @@
+{
+  "description": "migration.storage_unavailable.action",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 36,
+  "source_revision": "08f05c71a03d198decd001dc58573ea02edcc6e1dbf8ceb0fa9b81df8218dc40",
+  "risk": "routine",
+  "auto_merge": true
+}

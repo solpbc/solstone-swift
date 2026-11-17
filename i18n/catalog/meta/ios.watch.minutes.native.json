@@ -1,0 +1,32 @@
+{
+  "description": "{hours}h {minutes}m",
+  "context": "Shown by Sources/WatchCapture/WatchElapsedDuration.swift. Arguments preserve the existing presentation values. Android counterpart: android.wear.hours.minutes.short. Keep translations consistent. Android counterpart: android.wear.hours.minutes.short. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "f2f66bd50a42a668b0d8f77d9eddc1829b6d125ae82ed830681a817620471ca3",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

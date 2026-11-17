@@ -1,0 +1,21 @@
+{
+  "description": "this can't go to your journal. {reason}. you can remove it from this device.",
+  "context": "the solstone app, speaking to the owner. these pieces are one message. join them before extraction.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "reason",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 76,
+  "source_revision": "163ff7710dcbca16771848023ba15612e099bba4da1454f2bf7a5eb3b17ade76",
+  "risk": "routine",
+  "auto_merge": true
+}

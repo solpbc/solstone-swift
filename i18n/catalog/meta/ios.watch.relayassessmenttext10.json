@@ -1,0 +1,16 @@
+{
+  "description": "duplicate Apple queue entries",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "0ef42f61bcd05ff2730060d5adf82c8bf8d176e04315906db209138f0b5b2f6a",
+  "risk": "routine",
+  "auto_merge": true
+}

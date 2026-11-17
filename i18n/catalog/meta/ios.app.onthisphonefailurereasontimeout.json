@@ -1,0 +1,16 @@
+{
+  "description": "the connection took too long",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "0000b8d02dbc589fcc09ca29b55a74b63ca144859036e70dcbd09679411d127c",
+  "risk": "routine",
+  "auto_merge": true
+}

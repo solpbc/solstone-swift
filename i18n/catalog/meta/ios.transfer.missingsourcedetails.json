@@ -1,0 +1,16 @@
+{
+  "description": "missing source details",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "d98cd1728d85af9160746242e81701e7008a17396c80189b82ca9434d748e4c5",
+  "risk": "routine",
+  "auto_merge": true
+}

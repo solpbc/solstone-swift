@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 107,
+  "source_revision": "7535c3a0dedfa87c3dc35cf6a6c890c4dcceee11d0e4f816df727cce8183978a",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "replace the selected device?",
+  "context": "Existing native lookup migration.replace_confirm.title_fallback. Mac counterpart: macos.desktop.shared.copy.replaceconfirmtitlefallback. Keep translations consistent. Android counterpart: android.migration.replace.selected.device. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ffbcaf629f3b538d07a85bc3e1a97756752eb092ddf12297444b5f9f8879fc06",
+  "risk": "routine",
+  "auto_merge": true
+}

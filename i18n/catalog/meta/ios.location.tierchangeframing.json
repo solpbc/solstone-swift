@@ -1,0 +1,16 @@
+{
+  "description": "changes apply from now on — nothing already in your journal is altered.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 71,
+  "source_revision": "1e15f8e6ce49b4234cf98f13fae2b8f12b2aa9b5da3d239d143034d47bd60afa",
+  "risk": "routine",
+  "auto_merge": true
+}

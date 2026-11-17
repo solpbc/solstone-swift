@@ -1,0 +1,16 @@
+{
+  "description": "status could not be saved",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "c6cdf8ac7b0c2fc8507ef2c291cee93e8e4f44b5a6e4254a1d228b0887e84661",
+  "risk": "routine",
+  "auto_merge": true
+}

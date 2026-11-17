@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "obsidian"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "f9d3e16487913dfe52b6e74947770a60ef599e70461a7fb95db6742177f0b5ac",
+  "risk": "routine",
+  "auto_merge": true
+}

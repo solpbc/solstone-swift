@@ -1,0 +1,16 @@
+{
+  "description": "choice needs attention",
+  "context": "Existing native lookup migration.decision_refused.title. Mac counterpart: macos.desktop.shared.copy.decisionrefusedtitle. Keep translations consistent. Android counterpart: android.migration.choice.needs.attention. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "0286302de89ad4d115be7b70e7989b172bda2f95f31b2bc56a696fa1c8fb608b",
+  "risk": "routine",
+  "auto_merge": true
+}

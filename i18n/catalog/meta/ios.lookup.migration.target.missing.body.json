@@ -1,0 +1,16 @@
+{
+  "description": "that device is no longer listed in your journal. choose another device, or keep both.",
+  "context": "Existing native lookup migration.target_missing.body. Mac counterpart: macos.desktop.shared.copy.targetmissingbody. Keep translations consistent. Android counterpart: android.migration.that.device.no.longer.listed. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "5db3e79d359a4824feaffd5844aed87649bfb70ed54e02349e83f72b4c78a687",
+  "risk": "routine",
+  "auto_merge": true
+}

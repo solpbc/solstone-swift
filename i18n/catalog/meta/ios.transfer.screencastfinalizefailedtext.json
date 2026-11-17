@@ -1,0 +1,16 @@
+{
+  "description": "screen video could not be saved",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "bc11dbefc9afe511d7dcd66aad820cbe510df45079ee3ca768233a070c2e5406",
+  "risk": "routine",
+  "auto_merge": true
+}

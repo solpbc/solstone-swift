@@ -1,0 +1,16 @@
+{
+  "description": "this is in your journal. dropping just clears it from this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 66,
+  "source_revision": "528d2209917d037e781bbbaa1e38c4d46101c86e349f6ec340946c4925f9255d",
+  "risk": "routine",
+  "auto_merge": true
+}

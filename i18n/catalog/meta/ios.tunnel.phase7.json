@@ -1,0 +1,16 @@
+{
+  "description": "waiting for broker",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "23763155346c07e600fcee4a2ab7d920ea49c0a329b284961e0af01926f6e79e",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -10,7 +10,7 @@ nonisolated enum SourceDetailPresentation {
     }
 
     static func elapsedAccessibilityLabel(formatted: String) -> String {
-        "\(SourceVocabulary.observerActiveSubtext) for \(formatted)"
+        AppStrings.ios_app_elapsedaccessibilitylabel("\(SourceVocabulary.observerActiveSubtext)", "\(formatted)")
     }
 }
 
@@ -21,16 +21,8 @@ nonisolated struct AudioDeliverySummary: Equatable, Sendable {
 /// The audio pane's delivery line, in audio's own words.
 nonisolated enum AudioDetailPresentation {
     static func deliverySummary(pending: Int, failed: Int) -> AudioDeliverySummary {
-        if failed > 0 {
-            let phrase = failed == 1 ? "recording needs attention." : "recordings need attention."
-            return AudioDeliverySummary(line: "\(failed) \(phrase)")
-        }
-
-        if pending > 0 {
-            let phrase = pending == 1 ? "recording on the way to your journal." : "recordings on the way to your journal."
-            return AudioDeliverySummary(line: "\(pending) \(phrase)")
-        }
-
-        return AudioDeliverySummary(line: "nothing waiting right now.")
-    }
+        if failed > 0 { return AudioDeliverySummary(line: AppStrings.ios_delivery_audio_attention(failed)) }
+        if pending > 0 { return AudioDeliverySummary(line: AppStrings.ios_delivery_audio_sending(pending)) }
+        return AudioDeliverySummary(line: LocationVocabulary.deliveryQuietLine)
+}
 }

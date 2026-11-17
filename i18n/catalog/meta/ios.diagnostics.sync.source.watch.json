@@ -1,0 +1,16 @@
+{
+  "description": "watch",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "5f34e874814d3c26cbd92a557a9a3f32b31a1ab43dff07a702e3c347b9d902d7",
+  "risk": "routine",
+  "auto_merge": true
+}

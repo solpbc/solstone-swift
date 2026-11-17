@@ -1,0 +1,16 @@
+{
+  "description": "no identity presented",
+  "context": "Existing native lookup unknown_journal.slot.spoken. Mac counterpart: macos.ui.noidentitypresented. Keep translations consistent. Android counterpart: android.journalmark.noidentity. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "fefb5737680e565132678c5353c1054ed84759a22a4bf6e863960f84dcd7b6f5",
+  "risk": "routine",
+  "auto_merge": true
+}

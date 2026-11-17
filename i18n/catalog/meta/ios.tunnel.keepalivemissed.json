@@ -1,0 +1,16 @@
+{
+  "description": "keepalive missed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "682fea7c289dbd1ab0e7e6f930b8640c5a190ba4debde676a1e546afa839ebff",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "how to update it",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "2ee000aa98bcfc868a42f58c90017fc0230d01da235c3d9c2ce298e2485accc2",
+  "risk": "routine",
+  "auto_merge": true
+}

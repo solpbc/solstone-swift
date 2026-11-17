@@ -1,0 +1,16 @@
+{
+  "description": "couldn't reach your journal. make sure it's running and on the same wi-fi, then try again. turning on private network on your journal lets your devices reach it from anywhere.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 175,
+  "source_revision": "ca3036bc0b11109c599ae0f7cf90ff4a31bb88bc5a320a4706ab150f2e437290",
+  "risk": "routine",
+  "auto_merge": true
+}

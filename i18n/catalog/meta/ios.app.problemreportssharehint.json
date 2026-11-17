@@ -1,0 +1,16 @@
+{
+  "description": "shares this problem report.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "6c9cfe4aab78adcb1be9ab57071e3e5c479b4895190c22f69df2e78ad59e37c8",
+  "risk": "routine",
+  "auto_merge": true
+}

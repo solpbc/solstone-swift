@@ -1,0 +1,16 @@
+{
+  "description": "not available on iphone",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchconnectivity"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "6aca0d91f529a46dce0b220f737d5c3e32bcef907da79b2ccad24d4de5967711",
+  "risk": "routine",
+  "auto_merge": true
+}

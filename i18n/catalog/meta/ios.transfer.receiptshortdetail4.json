@@ -1,0 +1,16 @@
+{
+  "description": "this recording needs attention. it's still on your phone.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 57,
+  "source_revision": "9b35b2d83aad075bef005f4f86f6a1a836b81477b4c0660acfb6f798500de3e6",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "body length mismatch",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "4f48057f5918fb4d200bb6d57e977132c05bc3541c962a69cdc230a79e60e4e5",
+  "risk": "routine",
+  "auto_merge": true
+}

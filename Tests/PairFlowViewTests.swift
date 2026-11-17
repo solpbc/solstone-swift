@@ -309,6 +309,6 @@ private extension PairFlowViewTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent(relative)
-        return try String(contentsOf: url, encoding: .utf8)
+        return try StringCatalogTestSource.read(url)
     }
 }

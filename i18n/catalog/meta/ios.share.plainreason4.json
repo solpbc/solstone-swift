@@ -1,0 +1,16 @@
+{
+  "description": "protected file",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "a86683db8511b920c4789c6f43bb39cf13df7c1e8c1e8fc5db542e117f48a04d",
+  "risk": "routine",
+  "auto_merge": true
+}

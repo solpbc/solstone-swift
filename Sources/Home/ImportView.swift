@@ -49,7 +49,7 @@ struct ImportView: View {
 
                 SourceIntakeFacts(source: .imports)
 
-                SourceDetailBlock(title: "recent") {
+                SourceDetailBlock(title: AppStrings.ios_app_recent()) {
                     Text(ImportRecentPresentation.recentText(
                         pendingCount: self.shareTransferHolder.pendingCount,
                         lastDeliveredAt: self.shareTransferHolder.lastUploadAt,
@@ -93,7 +93,7 @@ struct ImportView: View {
                         }
                         .accessibilityLabel(SourceVocabulary.onThisPhoneOpenAction)
                         .accessibilityIdentifier("import.onThisDeviceEntry")
-                        .accessibilityHint("Shows what you've sent to your journal.")
+                        .accessibilityHint(AppStrings.ios_home_body())
                     }
                 }
             }

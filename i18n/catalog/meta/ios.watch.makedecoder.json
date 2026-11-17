@@ -1,0 +1,16 @@
+{
+  "description": "invalid modification-date bit pattern",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 37,
+  "source_revision": "24c3c0216451abe7c8b5edd9c4843459f034ab9f8ca13ee5f05218d494e69cd0",
+  "risk": "routine",
+  "auto_merge": true
+}

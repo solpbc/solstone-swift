@@ -1,0 +1,16 @@
+{
+  "description": "received/staged, journal handoff not proven",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "8ad3b524da089a2401436d984717fd65f8e63a0f5a0f2556cf9386c21042c432",
+  "risk": "routine",
+  "auto_merge": true
+}

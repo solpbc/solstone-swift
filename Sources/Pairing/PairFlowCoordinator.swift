@@ -257,22 +257,22 @@ final class PairFlowCoordinator {
              PairURLError.wrongPath,
              PairURLError.missingFragment,
              PairURLError.malformedOuterURL:
-            "this doesn't look like a pairing link."
+            AppStrings.ios_pairing_scannedlinknotrecognizedmessage()
 
         // Blob-level parse failures.
         case PairURLError.invalidBase32,
              PairURLError.truncated,
              PairURLError.lengthMismatch,
              PairURLError.invalidCandidateCount:
-            "this pairing link is damaged."
+            AppStrings.ios_pairing_message13()
         case PairURLError.invalidVersion:
-            "this pairing link is from a newer version of your journal."
+            AppStrings.ios_pairing_message14()
         case PairURLError.unsupportedAddrType:
-            "this pairing link uses an unsupported address format."
+            AppStrings.ios_pairing_message15()
         case PairURLError.unsupportedCAFingerprintTag:
-            "this pairing link uses an unsupported verification format."
+            AppStrings.ios_pairing_message16()
         case PairURLError.invalidRelayOrigin:
-            "this pairing link is damaged."
+            AppStrings.ios_pairing_message13()
 
         default:
             PairFailureReason.classify(error: error, targetAddress: targetAddress, interfaces: interfaces)

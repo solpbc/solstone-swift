@@ -1,0 +1,16 @@
+{
+  "description": "missing segment ID",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "f06b8568cfdc17ce9afa1d9845d161ac460d1b3ac89a62e189ed35cd422e13f5",
+  "risk": "routine",
+  "auto_merge": true
+}

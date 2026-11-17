@@ -6,9 +6,9 @@ import Foundation
 /// Visual and spoken contract for the generic mark (nil / absent / malformed / not-committed).
 /// Dash units and palette hexes live here, not in `MarkGeometry`.
 nonisolated enum JournalMarkGeneric {
-    static let words = ["your", "journal"]
-    static let spokenValue = "your journal, not set up yet"
-    static let awaitingConfirmationSpokenValue = "your journal, mark not confirmed yet"
+    static let words = [AppStrings.ios_pairing_generic_your(), AppStrings.ios_services_journalline()]
+    static let spokenValue = AppStrings.ios_pairing_generic_spoken()
+    static let awaitingConfirmationSpokenValue = AppStrings.ios_pairing_yourjournalmarknotconfirmed()
     /// The dashes are drawn on paper, so they need to clear 3:1 against paper, not against
     /// whatever ground the mark sits on (journal-mark.md section 4.3, amended 2026-11-06).
     static let orangeHex = "#B06A1A"
@@ -41,9 +41,9 @@ nonisolated enum JournalMarkAccessibility {
         let word2 = mark.words.count > 1 ? mark.words[1] : ""
 
         if !name1.isEmpty && !name2.isEmpty {
-            return "\(name1), \(name2), \(word1), \(word2)"
+            return AppStrings.ios_frame_journalmarkgeneric_n44("\(name1)", "\(name2)", "\(word1)", "\(word2)")
         }
-        return "\(word1), \(word2)"
+        return AppStrings.ios_frame_journalmarkgeneric_n46("\(word1)", "\(word2)")
     }
 }
 

@@ -1,0 +1,29 @@
+{
+  "description": "recent structured transfer failure: {domain} {code} {hole3}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "domain",
+      "type": "string"
+    },
+    {
+      "name": "code",
+      "type": "string"
+    },
+    {
+      "name": "hole3",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 59,
+  "source_revision": "bfe69b03f277361a8cc59a61d806a91f0b6aedd1a1fe3648fce6e1f7f8268a96",
+  "risk": "routine",
+  "auto_merge": true
+}

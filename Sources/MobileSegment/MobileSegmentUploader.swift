@@ -73,9 +73,9 @@ private enum MobileSegmentUploaderError: Error, CustomStringConvertible {
         case .storageUnavailable(let reason):
             reason
         case .transferEngineUnavailable:
-            "transfer engine unavailable"
+            AppStrings.ios_transfer_description2()
         case .copyVerificationFailed(let url):
-            "copy verification failed \(url.lastPathComponent)"
+            AppStrings.ios_transfer_description("\(url.lastPathComponent)")
         }
     }
 }
@@ -230,7 +230,7 @@ final class MobileSegmentUploader {
         guard let finalized else {
             let resolution = MobileSegmentSourceResolution(
                 state: .failedToFinalize,
-                reason: "audio source did not finalize",
+                reason: AppStrings.ios_transfer_recordaudiofinalized(),
                 stage: "source-finalize",
                 lastAttemptAt: endedAt,
                 mode: mode
@@ -457,7 +457,7 @@ final class MobileSegmentUploader {
         try self.requireStorageAvailable()
         let directory = self.activeDirectory(segmentID: segmentID)
         guard self.store.fileExists(directory) else {
-            throw MobileSegmentUploaderError.storageUnavailable("mobile segment active directory missing")
+            throw MobileSegmentUploaderError.storageUnavailable(AppStrings.ios_transfer_mobilesegmentactivedirectorymissing())
         }
         let data = try MobileSegmentLocationWriter.liveStateLine(
             segmentID: segmentID,
@@ -474,7 +474,7 @@ final class MobileSegmentUploader {
         try self.requireStorageAvailable()
         let directory = self.activeDirectory(segmentID: segmentID)
         guard self.store.fileExists(directory) else {
-            throw MobileSegmentUploaderError.storageUnavailable("mobile segment active directory missing")
+            throw MobileSegmentUploaderError.storageUnavailable(AppStrings.ios_transfer_mobilesegmentactivedirectorymissing())
         }
         let data = try MobileSegmentLocationWriter.liveFixLine(fix)
         try self.store.appendData(data, to: self.store.locationPartURL(in: directory))
@@ -484,7 +484,7 @@ final class MobileSegmentUploader {
         try self.requireStorageAvailable()
         let directory = self.activeDirectory(segmentID: segmentID)
         guard self.store.fileExists(directory) else {
-            throw MobileSegmentUploaderError.storageUnavailable("mobile segment active directory missing")
+            throw MobileSegmentUploaderError.storageUnavailable(AppStrings.ios_transfer_mobilesegmentactivedirectorymissing())
         }
         let data = try MobileSegmentLocationWriter.liveVisitLine(visit)
         try self.store.appendData(data, to: self.store.locationPartURL(in: directory))
@@ -501,7 +501,7 @@ final class MobileSegmentUploader {
         try self.requireStorageAvailable()
         let directory = self.activeDirectory(segmentID: segmentID)
         guard self.store.fileExists(directory) else {
-            throw MobileSegmentUploaderError.storageUnavailable("mobile segment active directory missing")
+            throw MobileSegmentUploaderError.storageUnavailable(AppStrings.ios_transfer_mobilesegmentactivedirectorymissing())
         }
         let liveness = MobileSegmentLocationSegmentLiveness(
             segmentID: segmentID,
@@ -733,7 +733,7 @@ final class MobileSegmentUploader {
                 }
                 let resolution = MobileSegmentSourceResolution(
                     state: .failedToFinalize,
-                    reason: "missing outcome marker for \(source.rawValue)",
+                    reason: AppStrings.ios_transfer_finalizeactivesegment("\(source.rawValue)"),
                     stage: "segment-finalize",
                     lastAttemptAt: endedAt
                 )
@@ -783,7 +783,7 @@ final class MobileSegmentUploader {
                 try self.store.writeManifest(manifest, in: directory)
                 try self.store.writeFailure(
                     MobileSegmentFailureSidecar(
-                        reason: "source artifact failed to finalize",
+                        reason: AppStrings.ios_transfer_finalizeactivesegment2(),
                         httpStatus: nil,
                         transportError: nil,
                         attemptCount: 0,
@@ -800,7 +800,7 @@ final class MobileSegmentUploader {
                 await self.enqueuePendingSegmentIntoTransfer(segmentID: segmentID)
             }
         } catch {
-            let diagnostic = "mobile segment finalize failed segment=\(segmentID.uuidString) stage=segment-finalize"
+            let diagnostic = AppStrings.ios_transfer_diagnostic3("\(segmentID.uuidString)")
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             self.noteError(diagnostic)
         }
@@ -844,7 +844,7 @@ final class MobileSegmentUploader {
                 await self.enqueuePendingSegmentIntoTransfer(segmentID: segmentID)
             }
         } catch {
-            let diagnostic = "mobile segment resume failed stage=resume"
+            let diagnostic = AppStrings.ios_transfer_diagnostic10()
             self.noteError(diagnostic)
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
         }
@@ -868,7 +868,7 @@ final class MobileSegmentUploader {
         do {
             failed = try self.store.list(.failed)
         } catch {
-            let diagnostic = "mobile segment finalize-failure scan failed stage=finalize-failure"
+            let diagnostic = AppStrings.ios_transfer_diagnostic6()
             self.noteError(diagnostic)
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             self.refreshCounts()
@@ -888,7 +888,7 @@ final class MobileSegmentUploader {
                     await self.enqueuePendingSegmentIntoTransfer(segmentID: segmentID)
                 }
             } catch {
-                let diagnostic = "mobile segment finalize-failure deferred segment=\(segmentID.uuidString) stage=finalize-failure"
+                let diagnostic = AppStrings.ios_transfer_diagnostic4("\(segmentID.uuidString)")
                 self.noteError(diagnostic)
                 mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             }
@@ -1395,11 +1395,11 @@ final class MobileSegmentUploader {
             return .finished
         } catch {
             mobileSegmentUploadLog.error("journal legacy import failed stage=resume")
-            try? self.journalEvents.writeImportFailed(reason: "import failed")
+            try? self.journalEvents.writeImportFailed(reason: AppStrings.ios_transfer_importlegacyjournalevents())
             self.diagnosticLog?.append(
                 category: .diagnostics,
                 severity: .error,
-                message: "journal legacy import failed"
+                message: AppStrings.ios_transfer_importlegacyjournalevents2()
             )
             return .finished
         }
@@ -1467,8 +1467,8 @@ final class MobileSegmentUploader {
         self.diagnosticLog?.append(
             category: .upload,
             severity: .warning,
-            message: "needs attention",
-            detail: "segment=\(segmentID.uuidString) source=audio reason=audio_undecodable_container domain=\(domain) code=\(code)"
+            message: AppStrings.ios_transfer_needsattention(),
+            detail: AppStrings.ios_transfer_emitundecodableaudiodiagnostic("\(segmentID.uuidString)", "\(domain)", "\(code)")
         )
     }
 
@@ -1652,7 +1652,7 @@ final class MobileSegmentUploader {
                 try self.store.removeForOwner(found.url)
                 self.recordOwnerRemoval(segmentID: segmentID, sources: Self.ownerRemovalSources(manifest), captureAt: manifest?.startedAt)
             } catch {
-                let diagnostic = "mobile segment owner removal failed segment=\(segmentID.uuidString)"
+                let diagnostic = AppStrings.ios_transfer_diagnostic7("\(segmentID.uuidString)")
                 self.noteError(diagnostic)
                 mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             }
@@ -1721,7 +1721,7 @@ final class MobileSegmentUploader {
                 }
             }
         } catch {
-            let diagnostic = "mobile segment screencast redaction failed segment=\(segmentID.uuidString) source=screencast"
+            let diagnostic = AppStrings.ios_transfer_diagnostic15("\(segmentID.uuidString)")
             self.noteError(diagnostic)
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
         }
@@ -2219,7 +2219,7 @@ private extension MobileSegmentUploader {
         do {
             manifest = try self.store.readManifest(in: directory)
         } catch {
-            self.quarantinePendingDirectory(directory, reason: "manifest unreadable")
+            self.quarantinePendingDirectory(directory, reason: AppStrings.ios_transfer_manifestunreadable())
             self.refreshCounts()
             return
         }
@@ -2230,7 +2230,7 @@ private extension MobileSegmentUploader {
                 for source in manifest.declaredSources where !manifest.resolution(for: source).state.isTerminal {
                     let resolution = MobileSegmentSourceResolution(
                         state: .failedToFinalize,
-                        reason: "missing terminal outcome marker",
+                        reason: AppStrings.ios_transfer_enqueuependingsegmentintotransfer(),
                         stage: "schedule-gate",
                         lastAttemptAt: now
                     )
@@ -2239,7 +2239,7 @@ private extension MobileSegmentUploader {
                 }
                 try self.failPendingSegment(
                     segmentID: segmentID,
-                    reason: "missing terminal outcome marker",
+                    reason: AppStrings.ios_transfer_enqueuependingsegmentintotransfer(),
                     stage: "schedule-gate"
                 )
                 return
@@ -2255,7 +2255,7 @@ private extension MobileSegmentUploader {
                         return
                     }
                 } catch {
-                    let diagnostic = "mobile segment finalize-failure deferred segment=\(segmentID.uuidString) stage=schedule"
+                    let diagnostic = AppStrings.ios_transfer_diagnostic5("\(segmentID.uuidString)")
                     self.noteError(diagnostic)
                     mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
                     return
@@ -2303,7 +2303,7 @@ private extension MobileSegmentUploader {
                 self.emitUndecodableAudioDiagnostic(segmentID: segmentID, manifest: manifest)
             }
         } catch {
-            let diagnostic = "mobile segment enqueue failed segment=\(segmentID.uuidString) stage=transfer-enqueue"
+            let diagnostic = AppStrings.ios_transfer_diagnostic2("\(segmentID.uuidString)")
             self.noteError(diagnostic)
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public): \(String(describing: error), privacy: .public)")
         }
@@ -2513,7 +2513,7 @@ private extension MobileSegmentUploader {
                     )
                     guard verdict == .ownedInQueued || verdict == .ownedInAttention else {
                         if case .conflict = verdict {
-                            let diagnostic = "mobile segment ownership conflict segment=\(segmentID.uuidString) stage=transfer-recovery"
+                            let diagnostic = AppStrings.ios_transfer_diagnostic8("\(segmentID.uuidString)")
                             self.noteError(diagnostic)
                             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
                         }
@@ -2524,7 +2524,7 @@ private extension MobileSegmentUploader {
                         "mobile segment retired verified transfer-owned residue segment=\(segmentID.uuidString, privacy: .public) lifecycle=\(lifecycle.rawValue, privacy: .public)"
                     )
                 } catch {
-                    let diagnostic = "mobile segment ownership verification failed segment=\(segmentID.uuidString) stage=transfer-recovery"
+                    let diagnostic = AppStrings.ios_transfer_diagnostic9("\(segmentID.uuidString)")
                     self.noteError(diagnostic)
                     mobileSegmentUploadLog.error(
                         "\(diagnostic, privacy: .public): \(String(describing: error), privacy: .public)"
@@ -2568,7 +2568,7 @@ private extension MobileSegmentUploader {
             guard self.store.fileExists(artifactURL) else {
                 try self.failPendingSegment(
                     segmentID: segmentID,
-                    reason: "finalized artifact missing source=\(source.rawValue)",
+                    reason: AppStrings.ios_transfer_declaredtransferparts("\(source.rawValue)"),
                     stage: "schedule-gate"
                 )
                 return []
@@ -2716,7 +2716,7 @@ private extension MobileSegmentUploader {
             if !manifest.openedWithSources.contains(.screencast),
                manifest.screencast.state == .notDeclared,
                self.store.fileExists(screenURL) {
-                let diagnostic = "ignored undeclared screencast artifact segment=\(segmentID.uuidString) source=screencast"
+                let diagnostic = AppStrings.ios_transfer_diagnostic("\(segmentID.uuidString)")
                 self.noteError(diagnostic)
                 mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
             }
@@ -2753,7 +2753,7 @@ private extension MobileSegmentUploader {
                         }
                         let failed = MobileSegmentSourceResolution(
                             state: .failedToFinalize,
-                            reason: "unclean relaunch unresolved source",
+                            reason: AppStrings.ios_transfer_performreconcileactivesegments(),
                             stage: "reconcile",
                             lastAttemptAt: now
                         )

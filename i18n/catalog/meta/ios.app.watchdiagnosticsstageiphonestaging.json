@@ -1,0 +1,16 @@
+{
+  "description": "iphone receipt + staging",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "0e596a0d4b500e2c18a5dfb0022a6999fff12429b96d90d23cd67bf7261d0111",
+  "risk": "payment",
+  "auto_merge": false
+}

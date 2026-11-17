@@ -227,7 +227,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
                 ?? self.filename
                 ?? SourceVocabulary.notProvided
             if self.sendState == .needsAttention, self.retryAvailable {
-                return "\(base) · \(SourceVocabulary.onThisPhoneFailureRowHint)"
+                return AppStrings.ios_frame_onthisphonemodel_n230("\(base)", "\(SourceVocabulary.onThisPhoneFailureRowHint)")
             }
             return base
         case .location:
@@ -290,11 +290,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
     var voiceOverText: String {
         let sourceLabel = self.audioSource?.sourceLabel
             ?? SourceVocabulary.onThisPhoneSourceName(for: self.sourceKind)
-        return [
-            sourceLabel,
-            self.rowPayloadText,
-            self.sendState.label,
-        ].joined(separator: ". ")
+        return AppStrings.ios_item_spoken(sourceLabel, self.rowPayloadText, self.sendState.label)
     }
 
     var audioSource: OnThisPhoneAudioSource? {
@@ -332,7 +328,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
                 SourceVocabulary.onThisPhoneLocationRowLabel(count: $0)
             } ?? SourceVocabulary.notProvided
             guard let itemTime else { return countText }
-            return "\(countText) · \(itemTime.formatted())"
+            return AppStrings.ios_frame_onthisphonemodel_n230("\(countText)", "\(itemTime.formatted())")
         case .screencast:
             return self.filename ?? SourceVocabulary.notProvided
         case .share, .calendar, .obsidian:
@@ -351,7 +347,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         let minutes = totalSeconds / 60
         let seconds = totalSeconds % 60
         if minutes > 0 {
-            return "\(minutes)m \(seconds)s"
+            return AppStrings.ios_app_formattedduration_native("\(minutes)", "\(seconds)")
         }
         return "\(seconds)s"
     }

@@ -39,7 +39,7 @@ final class WatchJournalVersionState {
 
     var displayValue: String {
         guard let version else { return "unknown" }
-        return isCurrent ? version : "\(version) (last known)"
+        return isCurrent ? version : AppStrings.ios_services_lastknown("\(version)")
     }
 
     init(defaults: UserDefaults = .standard) {

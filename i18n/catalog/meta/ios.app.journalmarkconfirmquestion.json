@@ -1,0 +1,16 @@
+{
+  "description": "does this match your journal?",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.does.match.journal. Keep translations consistent. Mac counterpart: macos.desktop.shared.copy.journalmarkconfirmquestion. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "afcf843a34fd8ce6872f26a4302495734c924013003572b0ed0ba8bc5946478f",
+  "risk": "routine",
+  "auto_merge": true
+}

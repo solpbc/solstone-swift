@@ -1,0 +1,21 @@
+{
+  "description": "original audio {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "3eeb8a5e6fd82dac40c45a1cda564c4822256315a29e6b4a87ff90d93a845634",
+  "risk": "routine",
+  "auto_merge": true
+}

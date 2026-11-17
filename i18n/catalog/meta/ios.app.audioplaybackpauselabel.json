@@ -1,0 +1,16 @@
+{
+  "description": "pause audio",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "107db62d8cb94ab9488d023e718d7d29f64596012a4fa2a858f289f98f6bfb71",
+  "risk": "routine",
+  "auto_merge": true
+}

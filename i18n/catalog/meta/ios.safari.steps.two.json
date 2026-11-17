@@ -1,0 +1,25 @@
+{
+  "description": "{ $first }, then { $second }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "first",
+      "type": "string"
+    },
+    {
+      "name": "second",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "d41cb3187c97f05f0307d7d9e23149b161d51a2d897108481067f2cec9cb8bdc",
+  "risk": "routine",
+  "auto_merge": true
+}

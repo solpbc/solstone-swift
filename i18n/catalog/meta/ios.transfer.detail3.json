@@ -1,0 +1,21 @@
+{
+  "description": "v3 normalization failed: {String_describing_error}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "String_describing_error",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 50,
+  "source_revision": "1721b81141c240b0a5f06b614f3b3d80532b48a8231441b9ab1de580d45cb077",
+  "risk": "routine",
+  "auto_merge": true
+}

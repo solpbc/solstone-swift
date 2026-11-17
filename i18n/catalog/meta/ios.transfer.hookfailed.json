@@ -1,0 +1,16 @@
+{
+  "description": "hook failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "d18c8d6217bb2a9c6ebcde0e858a74635776fbcd111651a9dfe471f711301216",
+  "risk": "routine",
+  "auto_merge": true
+}

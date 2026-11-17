@@ -1,0 +1,16 @@
+{
+  "description": "cadence",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 7,
+  "source_revision": "8e4f7cca7c177c020721d85cbaad0ac2bdeb981879acf930b5420b3b720150b7",
+  "risk": "routine",
+  "auto_merge": true
+}

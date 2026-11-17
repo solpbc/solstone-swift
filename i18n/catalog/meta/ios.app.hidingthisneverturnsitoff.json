@@ -1,0 +1,16 @@
+{
+  "description": "taking a tile off home does not turn the source off. it just keeps home to what you actually look at.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 101,
+  "source_revision": "eb03ac6b42f3c99311c3e22fdc8e68da5c764f37ebed2f5343df3a8f5791088d",
+  "risk": "routine",
+  "auto_merge": true
+}

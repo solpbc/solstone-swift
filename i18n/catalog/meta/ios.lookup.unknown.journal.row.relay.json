@@ -1,0 +1,16 @@
+{
+  "description": "unknown journal seen through the relay",
+  "context": "Existing native lookup unknown_journal.row.relay. Mac counterpart: macos.ui.unknownjournalseenthrough. Keep translations consistent. Android counterpart: android.unknownjournal.unknownjournalseenthrough. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "e5d29e355008f2eea76569c3dda7f4e8d41c0537eb25602838da5d0e6329db14",
+  "risk": "routine",
+  "auto_merge": true
+}

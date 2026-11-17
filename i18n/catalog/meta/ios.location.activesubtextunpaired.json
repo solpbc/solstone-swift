@@ -1,0 +1,16 @@
+{
+  "description": "adds where your day happens, on this device while this is on.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 61,
+  "source_revision": "9dd6c1cd12d53b10d1a07373bd1491e8c4782d0f8dde4ebc40b638f9620d6efe",
+  "risk": "routine",
+  "auto_merge": true
+}

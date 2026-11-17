@@ -1,0 +1,36 @@
+{
+  "sourceLanguage": "en-US",
+  "version": "1.0",
+  "strings": {
+    "turn on audio in ${applicationName}": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "turn on audio in ${applicationName}"
+          }
+        }
+      }
+    },
+    "start audio in ${applicationName}": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "start audio in ${applicationName}"
+          }
+        }
+      }
+    },
+    "${applicationName} audio on": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "${applicationName} audio on"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "description": "claimed, not verified",
+  "context": "Existing native lookup unknown_journal.caption.claimed. Mac counterpart: macos.ui.claimednotverified. Keep translations consistent. Android counterpart: android.unknownjournal.claimednotverified. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "8a20bfce626e15efa316031bf8f8e5a5d590431b5d135fc3d56385937d874bcc",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "probe failed",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "2858e02ebdddeac7e01ab9ce6ea6cb6733707662b1e3fd60913bb9ffd5b11f27",
+  "risk": "routine",
+  "auto_merge": true
+}

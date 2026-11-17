@@ -1,0 +1,28 @@
+{
+  "description": "  {sourceName} refused by reason:",
+  "context": "the solstone app, speaking to the owner. a string argument records no gender, case, noun class, or classifier. show the name beside the sentence when the language must agree.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "sourceName",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "6926f3d3074e6a34b8cc623cc8eeacd7d92e6f18d1a09eda056c488d4cb128b0",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "whitespace1",
+      "kind": "whitespace",
+      "value": "  "
+    }
+  ]
+}

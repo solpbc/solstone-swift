@@ -1,0 +1,16 @@
+{
+  "description": "turn on calendar",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "98321d9c2eebf64f44f0e7265949124577d8c28adfaf15d665807e5dca92e6da",
+  "risk": "routine",
+  "auto_merge": true
+}

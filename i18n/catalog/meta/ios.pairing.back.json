@@ -1,0 +1,16 @@
+{
+  "description": "back",
+  "context": "the solstone app, speaking to the owner. Mac counterpart: macos.desktop.shared.copy.setupback. Keep translations consistent.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 4,
+  "source_revision": "5d2259118c6fac7884fb6564d810192692bcfaaf767510446a9c4e8b4d9abbf7",
+  "risk": "routine",
+  "auto_merge": true
+}

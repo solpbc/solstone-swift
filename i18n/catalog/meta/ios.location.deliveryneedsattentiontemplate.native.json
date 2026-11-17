@@ -1,0 +1,53 @@
+{
+  "description": "{N} location {update} {needs} attention.",
+  "context": "Shown by Sources/Location/LocationVocabulary.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "73e9438d8023be28520812f588c5c709f644466b9556ae8c0ba1e001171183e6",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "accepted-input",
+      "value": "{"
+    },
+    {
+      "name": "slot1",
+      "kind": "accepted-input",
+      "value": "}"
+    },
+    {
+      "name": "slot2",
+      "kind": "accepted-input",
+      "value": "{"
+    },
+    {
+      "name": "slot3",
+      "kind": "accepted-input",
+      "value": "}"
+    },
+    {
+      "name": "slot4",
+      "kind": "whitespace",
+      "value": " "
+    },
+    {
+      "name": "slot5",
+      "kind": "accepted-input",
+      "value": "{"
+    },
+    {
+      "name": "slot6",
+      "kind": "accepted-input",
+      "value": "}"
+    }
+  ]
+}

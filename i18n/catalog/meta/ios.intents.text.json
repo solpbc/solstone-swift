@@ -1,0 +1,16 @@
+{
+  "description": "allow microphone access",
+  "context": "the solstone app, speaking to the owner. Wording requires review before translation.",
+  "surfaces": [
+    "appintents"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "5862435e8097ee8bdecb850bf927edc3a280021db56ad2c8bd0f83d93c64edcf",
+  "risk": "consent",
+  "auto_merge": false
+}

@@ -1,0 +1,16 @@
+{
+  "description": "ended",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "76b2fe7082a7c3f2d03fa5bed03bf205cfb0176dce8dfa062a38b79827572ef0",
+  "risk": "routine",
+  "auto_merge": true
+}

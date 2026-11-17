@@ -1,0 +1,21 @@
+{
+  "description": "mobile segment ownership conflict segment={uuidString} stage=transfer-recovery",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "uuidString",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 78,
+  "source_revision": "2889dfb52dca3641ebdce2123a69d84f2b169bf2cd0691d3134f286b28aec4b9",
+  "risk": "routine",
+  "auto_merge": true
+}

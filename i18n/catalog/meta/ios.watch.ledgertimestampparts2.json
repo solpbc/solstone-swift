@@ -1,0 +1,21 @@
+{
+  "description": "dropped at {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "7620aab35b024bc3627c63e2ae2088244a9dab783edb39befbe37d66398812ee",
+  "risk": "routine",
+  "auto_merge": true
+}

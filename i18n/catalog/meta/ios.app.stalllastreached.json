@@ -1,0 +1,21 @@
+{
+  "description": "last reached {relative}.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "relative",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "99a69c1800df8f34c75b0d3738946d7845e2caa9df011d735cf4c1c7397dc51a",
+  "risk": "routine",
+  "auto_merge": true
+}

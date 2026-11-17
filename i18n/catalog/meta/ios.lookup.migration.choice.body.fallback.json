@@ -1,0 +1,16 @@
+{
+  "description": "same device continues the old device with its name and history, and removes its access to your journal. new device keeps both.",
+  "context": "Existing native lookup migration.choice.body_fallback.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "c2c10af738960159362e529d6a96f4e4166f39f1c517915bee085f915eca23aa",
+  "risk": "routine",
+  "auto_merge": true
+}

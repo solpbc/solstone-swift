@@ -1,0 +1,16 @@
+{
+  "description": "ios has notifications turned off for solstone.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "a0faae30de5878f9196d4aca397c54c0d25fa22f163c92f1931240a60bca27f0",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "the events on your calendar. they stay on this device until you connect a journal.",
+  "context": "custody or processing claim. not rewritten. Legal source wording stays English until an approved legal translation exists.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 82,
+  "source_revision": "766cba5f9c6b88505adb859d4daa15c1c2c9b0d57c91a7d2219c76c03351e4f5",
+  "risk": "legal",
+  "auto_merge": false
+}

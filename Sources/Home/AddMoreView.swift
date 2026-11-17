@@ -145,7 +145,7 @@ private struct AddMoreSuggestionsCard: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(SourceVocabulary.addMoreSuggestionsTitle). \(SourceVocabulary.addMoreSuggestionsBody)")
+        .accessibilityLabel(AppStrings.ios_frame_addmoreview_n148("\(SourceVocabulary.addMoreSuggestionsTitle)", "\(SourceVocabulary.addMoreSuggestionsBody)"))
         .accessibilityIdentifier("addMore.suggestions")
     }
 }

@@ -1,0 +1,16 @@
+{
+  "description": "app-group unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneswiftappswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "e2189deea0298a96074fa0beacadf49a8030af31851f5a3345166b3acffee7eb",
+  "risk": "routine",
+  "auto_merge": true
+}

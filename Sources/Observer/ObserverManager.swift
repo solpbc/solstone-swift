@@ -132,7 +132,7 @@ final class ObserverManager {
                 let stage = (error as? PhoneAudioRotationHandoffFailure)?.stage.rawValue ?? "unknown"
                 self.noteObserverDiagnostic(reason: "observer_rotation_failed_\(stage)")
                 self.resetRuntime()
-                self.state = .error(.unavailable(reason: "audio input unavailable"))
+                self.state = .error(.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()))
                 await self.liveActivity.end(sessionID: sessionID, reason: .system)
                 throw error
             }
@@ -195,7 +195,7 @@ final class ObserverManager {
                 return .refused(.cancelled)
             }
             guard let segmentID = self.mobileSegmentEngine.currentSegmentID else {
-                throw ObserverError.unavailable(reason: "missing segment ID")
+                throw ObserverError.unavailable(reason: AppStrings.ios_observer_startsession2())
             }
             self.startingSegmentID = segmentID
 
@@ -268,7 +268,7 @@ final class ObserverManager {
             await self.releaseFailedAudioStart(didOpenAudioSegment)
             if (error as NSError).code == AVAudioSession.ErrorCode.insufficientPriority.rawValue {
                 self.state = .microphoneTaken
-                return .refused(.error(.unavailable(reason: "insufficient priority")))
+                return .refused(.error(.unavailable(reason: AppStrings.ios_observer_startsession())))
             }
             let observerError = Self.observerError(from: error)
             self.state = .error(observerError)
@@ -635,7 +635,7 @@ private extension ObserverManager {
             self.startingSessionID = nil
             self.startingSegmentID = nil
             await self.releaseFailedAudioStart(true)
-            self.state = .error(.unavailable(reason: "audio input unavailable"))
+            self.state = .error(.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()))
             return
         }
 
@@ -649,7 +649,7 @@ private extension ObserverManager {
         managerLog.error("observer: active writer faulted: \(fault.reason, privacy: .public)")
         self.diagnosticLog?.append(category: .diagnostics, message: fault.reason, detail: fault.reason)
         _ = await self.stopCapture(endReason: .system)
-        self.state = .error(.unavailable(reason: "audio input unavailable"))
+        self.state = .error(.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()))
     }
 
     func resetRuntime() {

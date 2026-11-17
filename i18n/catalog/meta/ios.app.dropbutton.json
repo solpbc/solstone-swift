@@ -1,0 +1,16 @@
+{
+  "description": "removes this from this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "onthisphoneitemdetailviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 30,
+  "source_revision": "a252062e3250bcc8295dd91aea62cc9a52bbf3f252203110468fea01bf455856",
+  "risk": "routine",
+  "auto_merge": true
+}

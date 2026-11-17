@@ -1,0 +1,16 @@
+{
+  "description": "last durable ACK",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "bc1c531acf6bcd572b0e3be3cc9a53dc846e3c5e2de8fed06b2b63211c7a9f55",
+  "risk": "routine",
+  "auto_merge": true
+}

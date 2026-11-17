@@ -1,0 +1,16 @@
+{
+  "description": "endpoint unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "d28d4cc8a267bba6867c75ecf2eeda312347333d66a950fcefe04f0018a13569",
+  "risk": "routine",
+  "auto_merge": true
+}

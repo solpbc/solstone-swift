@@ -1,0 +1,16 @@
+{
+  "description": "microphone access is required to take in audio",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "26f846db652b5077be835359263953d3978ec1fdae8072bce086b2f8ce7d96c7",
+  "risk": "routine",
+  "auto_merge": true
+}

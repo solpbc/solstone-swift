@@ -1,0 +1,21 @@
+{
+  "description": "on · {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 12,
+  "source_revision": "1d357721f1a1044697b4662f7436567f3add9642eef60ab3c452565060cf2629",
+  "risk": "routine",
+  "auto_merge": true
+}

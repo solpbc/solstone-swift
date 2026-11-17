@@ -1,0 +1,16 @@
+{
+  "description": "app quit unexpectedly",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "97d7a5929f608f587c69f6dc722f49212ebe475da5d6081738828e39e0f4c43a",
+  "risk": "routine",
+  "auto_merge": true
+}

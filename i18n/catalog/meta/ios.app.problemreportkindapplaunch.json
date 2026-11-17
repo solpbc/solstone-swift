@@ -1,0 +1,16 @@
+{
+  "description": "app took too long to open",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "2a6534315b9c8c8d36418bb127fcd6230d67c61aa8a80f5e0d9fce600552f67d",
+  "risk": "routine",
+  "auto_merge": true
+}

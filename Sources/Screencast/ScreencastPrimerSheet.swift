@@ -41,7 +41,7 @@ struct ScreencastPrimerSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("dismiss") {
+                    Button(AppStrings.ios_app_dismiss()) {
                         self.dismiss()
                     }
                     .tint(.solOrange)

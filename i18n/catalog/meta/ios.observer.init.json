@@ -1,0 +1,16 @@
+{
+  "description": "day manifest entries contain only files",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "31a7972759a33829ab3c264532f59f50a2544d4230951130ad323458a55f428d",
+  "risk": "routine",
+  "auto_merge": true
+}

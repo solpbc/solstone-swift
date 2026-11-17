@@ -632,7 +632,7 @@ private extension DayHomeView {
 
         if self.statusPillState == .stalled {
             let label = self.safariSource?.waitingIsKnown != false && self.backlogCount.knownCount > 0
-                ? "\(self.backlogCount.knownCount) \(SourceVocabulary.waitingToSync)"
+                ? AppStrings.ios_presentation_dayhomeview_n2("\(self.backlogCount.knownCount)", "\(SourceVocabulary.waitingToSync)")
                 : self.statusPillState.label(hasBacklog: false)
             button
                 .accessibilityElement(children: .ignore)
@@ -666,14 +666,14 @@ private extension DayHomeView {
         }
         switch self.backlogCount {
         case .known(let count) where count > 0:
-            return "\(self.statusPillState.label), \(count) \(SourceVocabulary.waitingToSync)"
+            return AppStrings.ios_presentation_dayhomeview_n4("\(self.statusPillState.label)", "\(count)", "\(SourceVocabulary.waitingToSync)")
         case .partiallyUnknown(let known, let asOf):
             let status = asOf.map {
                 SourceVocabulary.watchStatusAsOf(
                     WatchPipelineReducer.relativeText(secondsAgo: max(0, self.now.timeIntervalSince($0)))
                 )
             } ?? SourceVocabulary.watchStatusUnknownReason
-            return "\(self.statusPillState.label), \(known) \(SourceVocabulary.waitingToSync), \(status)"
+            return AppStrings.ios_presentation_dayhomeview_n5("\(self.statusPillState.label)", "\(known)", "\(SourceVocabulary.waitingToSync)", "\(status)")
         case .known:
             return self.statusPillState.label
         }

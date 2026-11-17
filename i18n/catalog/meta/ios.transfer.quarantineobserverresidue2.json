@@ -1,0 +1,21 @@
+{
+  "description": "source={path} reason=zero-byte discard failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 45,
+  "source_revision": "9f7caa7248f0b98a861a21072ab6b4467877880b05a3771d622cc8cacccc58cb",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "all quiet",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 9,
+  "source_revision": "0dc21dac0f28e7d39eab44be985c3af153b28a3e1fa118058a6b038db8c4d6fa",
+  "risk": "routine",
+  "auto_merge": true
+}

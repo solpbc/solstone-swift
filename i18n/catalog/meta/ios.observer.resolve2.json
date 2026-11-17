@@ -1,0 +1,16 @@
+{
+  "description": "unsupported endpoint",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "0bacc5de5356c143f5405aff5f44695354ebcfe0d6332581c9c522c3a066475c",
+  "risk": "routine",
+  "auto_merge": true
+}

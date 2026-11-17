@@ -11,7 +11,7 @@ nonisolated func makeAudioSource(
 ) -> Source {
     Source(
         id: "audio",
-        displayName: "audio",
+        displayName: AppStrings.ios_app_audio(),
         kind: .observer,
         state: state,
         isJournalPaired: isJournalPaired,

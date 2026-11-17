@@ -1,0 +1,16 @@
+{
+  "description": "off",
+  "context": "the solstone app, speaking to the owner. the words stay. the code stops matching them. branch on the enum or the row id. Android counterpart: android.push.off. Keep translations consistent. Mac counterpart: macos.desktop.shared.app.microphonemodeoff. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 3,
+  "source_revision": "586bf5ca34678fde5d5ee91f0d9afc705ee026707d1342de2557fe14bed025a4",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "iphone unlock after reboot needed for reachability",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 50,
+  "source_revision": "410802bc265cab75325efae84b4bc83e842e4081c240e20b62e46bee5460aa66",
+  "risk": "routine",
+  "auto_merge": true
+}

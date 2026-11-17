@@ -1,0 +1,16 @@
+{
+  "description": "migration.choice.title",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "6f151b6dcd8e1e64e0215209115aa4542aa3784224f756aad32db74ecd93bb85",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "photos and files",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.setup.photos.files. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "fd236d4a86f99de0618d988963c248ea709bd3f8a034633fe75a6e561197764b",
+  "risk": "routine",
+  "auto_merge": true
+}

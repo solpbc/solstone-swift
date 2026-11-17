@@ -1,0 +1,16 @@
+{
+  "description": "start refusal",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "7ee0184257b044e1e297da0914c0cd8e70a9fa16242db31b363380e1aec947ea",
+  "risk": "routine",
+  "auto_merge": true
+}

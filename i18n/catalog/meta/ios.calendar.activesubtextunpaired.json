@@ -1,0 +1,16 @@
+{
+  "description": "what's on your calendar waits on this device until you connect a journal.",
+  "context": "custody or processing claim. not rewritten. Legal source wording stays English until an approved legal translation exists.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 73,
+  "source_revision": "93124c107ae123bfb84d696611f9a5e3b0b35afc08fc95eb7961bb783fc7330a",
+  "risk": "legal",
+  "auto_merge": false
+}

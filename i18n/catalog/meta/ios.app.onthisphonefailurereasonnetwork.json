@@ -1,0 +1,16 @@
+{
+  "description": "the connection wasn't available",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "0bab90cfe1e54dd0ffab78a36a38f8302a858a38f4c6cb23873bb73816627870",
+  "risk": "routine",
+  "auto_merge": true
+}

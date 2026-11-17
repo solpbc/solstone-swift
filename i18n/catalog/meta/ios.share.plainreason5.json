@@ -1,0 +1,16 @@
+{
+  "description": "unsupported file type",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "be18abcc119e65871e071bdbcd899905605fb857c02d29b47db1b3bf6207e723",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -184,15 +184,15 @@ struct ContentView: View {
             }
             let message: String? = switch newState {
             case .connecting:
-                "connecting…"
+                AppStrings.ios_app_connecting()
             case .waitingForHome:
                 ConnectionSyncStatus.waitingForHome.statusLine
             case .connected(_, let via):
-                via == .lan ? "connected via local network" : "connected through the relay"
+                via == .lan ? AppStrings.ios_app_body5_native() : AppStrings.ios_contentview_connectedthroughtherelay()
             case .error(let error):
-                "connection error, \(error.userMessage)"
+                AppStrings.ios_app_body2("\(error.userMessage)")
             case .disconnected:
-                "disconnected"
+                AppStrings.ios_tunnel_disconnected()
             }
             if let message {
                 UIAccessibility.post(notification: .announcement, argument: message)
@@ -374,10 +374,10 @@ struct ContentView: View {
             self.startTunnelIfPaired()
             self.presentHeldJournalReAskIfNeeded()
         }
-        .alert("this journal link isn't valid.", isPresented: Bindable(self.pendingJournalOpen).showsInvalidLinkNotice) {
-            Button("close", role: .cancel) {}
+        .alert(AppStrings.ios_contentview_thisjournallinkisntvalid(), isPresented: Bindable(self.pendingJournalOpen).showsInvalidLinkNotice) {
+            Button(AppStrings.ios_contentview_close(), role: .cancel) {}
         } message: {
-            Text("copy the full link from your chat and open it again.")
+            Text(AppStrings.ios_contentview_copythefulllinkfromyourchatandopenitagain())
         }
         .alert(SourceVocabulary.reinstallNoticeTitle, isPresented: self.$showingReinstallNotice) {
             Button(SourceVocabulary.reinstallNoticeKeep, role: .cancel) {}

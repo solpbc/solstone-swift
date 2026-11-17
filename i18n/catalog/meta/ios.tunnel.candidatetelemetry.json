@@ -1,0 +1,21 @@
+{
+  "description": "candidate telemetry: {rawValue}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "rawValue",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "ab5502dc93f1d99580501315b2db82b247edbbe8eb74bb157245c5a4260121ae",
+  "risk": "routine",
+  "auto_merge": true
+}

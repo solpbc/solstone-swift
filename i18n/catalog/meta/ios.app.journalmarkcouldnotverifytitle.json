@@ -1,0 +1,16 @@
+{
+  "description": "couldn't verify",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.couldn.t.verify. Keep translations consistent. Mac counterpart: macos.desktop.shared.copy.journalmarkunverifiedtitle. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "aa6e7152a854a3961902434044a9def3936433e0aaf787a07211e11baf8e9990",
+  "risk": "routine",
+  "auto_merge": true
+}

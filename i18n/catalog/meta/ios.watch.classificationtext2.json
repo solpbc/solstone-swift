@@ -1,0 +1,21 @@
+{
+  "description": "collection {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "9a97190c5902550e505c1d08b3ba86622b9ae598b3c4a2fe8247831c5c3157f0",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "your journal couldn't apply this choice. your current connection still works.",
+  "context": "Existing native lookup migration.decision_refused.body. Mac counterpart: macos.desktop.shared.copy.decisionrefusedbody. Keep translations consistent. Android counterpart: android.migration.journal.couldn.t.apply.choice. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "97f27503a7c5b1e79e6f2ec9821352948b5e2bd53153c633512a2e0de8684dca",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "not reachable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "c007653db6347e991035e9184f1de5e1b8dc2e6903ecb4785e93242da5f36c87",
+  "risk": "routine",
+  "auto_merge": true
+}

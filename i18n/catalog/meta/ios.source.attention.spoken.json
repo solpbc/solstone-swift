@@ -1,0 +1,16 @@
+{
+  "description": "needs attention.",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "51d9bf0ccd1651cbb3ab03f9c36b2460ea8803b654adbcb2cd60e2d9bc7b1248",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "tap start for your first moment",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "ca5c489e046166e29fc3129d1bf8b18e97df9bc872fab56f1501f26176624097",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "iPhone → Watch malformed/missing ACK",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 36,
+  "source_revision": "aa260b3e2f6c4dd9b88fa42cdbb3bd4caabed7672ca1ee30466be0e949a46a37",
+  "risk": "routine",
+  "auto_merge": true
+}

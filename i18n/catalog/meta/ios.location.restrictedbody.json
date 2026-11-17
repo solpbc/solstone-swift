@@ -1,0 +1,16 @@
+{
+  "description": "location is turned off for the solstone app by a restriction on this device. the solstone app can't take in location until that's lifted.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 137,
+  "source_revision": "8d0808faab20d3730a48dedf90c7e18b902ebb4fffcd9feafcf746adc3af7b5d",
+  "risk": "routine",
+  "auto_merge": true
+}

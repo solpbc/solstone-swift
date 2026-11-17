@@ -1,0 +1,16 @@
+{
+  "description": "in-flight journal handoff",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "8d6b2e9447e32388204c9550be5e4465e320c6e82ed46ece0e1f43ea57a372bb",
+  "risk": "routine",
+  "auto_merge": true
+}

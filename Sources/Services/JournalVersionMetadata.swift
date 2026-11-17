@@ -54,8 +54,8 @@ final class JournalVersionMetadata {
     private(set) var versionObservedAt: TimeInterval?
     private(set) var hostFactsAcceptedAt: TimeInterval?
     var displayValue: String {
-        guard let version else { return "unknown" }
-        return isCurrent ? version : "\(version) (last known)"
+        guard let version else { return AppStrings.ios_tunnel_diagnosticlabel2() }
+        return isCurrent ? version : AppStrings.ios_services_lastknown("\(version)")
     }
 
     @ObservationIgnored private let defaults: UserDefaults

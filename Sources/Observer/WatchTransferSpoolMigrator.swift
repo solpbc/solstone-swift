@@ -36,7 +36,7 @@ enum WatchTransferSpoolMigrator {
         do {
             roots = try self.migrationRoots(legacyRootURL: legacyRootURL, fileManager: fileManager)
         } catch {
-            self.emit(diagnosticLog, detail: "source=\(legacyRootURL.path) reason=list failed")
+            self.emit(diagnosticLog, detail: AppStrings.ios_observer_sourcereasonlistfailed("\(legacyRootURL.path)"))
             return
         }
         for root in roots {
@@ -89,7 +89,7 @@ private extension WatchTransferSpoolMigrator {
                 options: [.skipsHiddenFiles]
             )
         } catch {
-            self.emit(diagnosticLog, detail: "source=\(directoryURL.path) reason=list failed")
+            self.emit(diagnosticLog, detail: AppStrings.ios_observer_sourcereasonlistfailed("\(directoryURL.path)"))
             return 1
         }
 
@@ -102,7 +102,7 @@ private extension WatchTransferSpoolMigrator {
                     audioURL,
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
-                    reason: "sidecar unavailable",
+                    reason: AppStrings.ios_observer_migratedirectory(),
                     fileManager: fileManager
                 )
                 if quarantined == 0 {
@@ -136,7 +136,7 @@ private extension WatchTransferSpoolMigrator {
                 try? fileManager.removeItem(at: directoryURL.appendingPathComponent("\(chunkID).failure", isDirectory: false))
             } catch {
                 unresolved += 1
-                self.emit(diagnosticLog, detail: "source=\(audioURL.path) reason=enqueue failed")
+                self.emit(diagnosticLog, detail: AppStrings.ios_observer_migratedirectory2("\(audioURL.path)"))
                 watchTransferMigrationLog.error("watch migration enqueue failed source=\(audioURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         }
@@ -187,17 +187,17 @@ private extension WatchTransferSpoolMigrator {
             try fileManager.moveItem(at: sourceURL, to: destination)
             self.emit(
                 diagnosticLog,
-                detail: "source=\(sourceURL.path) quarantine=\(destination.path) reason=\(reason)"
+                detail: AppStrings.ios_transfer_sourcequarantinereason_native("\(sourceURL.path)", "\(destination.path)", "\(reason)")
             )
             return 1
         } catch {
-            self.emit(diagnosticLog, detail: "source=\(sourceURL.path) reason=quarantine failed")
+            self.emit(diagnosticLog, detail: AppStrings.ios_transfer_sourcereasonquarantinefailed("\(sourceURL.path)"))
             return 0
         }
     }
 
     static func emit(_ diagnosticLog: DiagnosticLog?, detail: String) {
-        diagnosticLog?.append(category: .upload, severity: .warning, message: "needs attention", detail: detail)
+        diagnosticLog?.append(category: .upload, severity: .warning, message: AppStrings.ios_presentation_watchtransferspoolmigrator_n27(), detail: detail)
     }
 
     static func isDirectory(_ url: URL) -> Bool {

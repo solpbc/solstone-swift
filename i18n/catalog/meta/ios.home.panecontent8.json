@@ -1,0 +1,16 @@
+{
+  "description": "uptime",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 6,
+  "source_revision": "234851f7bb09f1714cfbfcc716955e0379a76004823a84484eab7b54e92efe69",
+  "risk": "routine",
+  "auto_merge": true
+}

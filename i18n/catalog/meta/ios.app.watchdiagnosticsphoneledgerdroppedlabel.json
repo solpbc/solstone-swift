@@ -1,0 +1,16 @@
+{
+  "description": "phone ledger dropped",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "3ad547a8eff87738e07e7647a2096b52ad55acdb4a882bbdd1db30aa4c17dc11",
+  "risk": "routine",
+  "auto_merge": true
+}

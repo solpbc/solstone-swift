@@ -1,0 +1,16 @@
+{
+  "description": "audio unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "16ce3387267b614541a0bd26fd79de50f3ebc69caee0ab4b65cc99e8b892a13b",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "copy snapshot",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "195979f32abdb146d1b446be7258d9c4f008d3ea69aadad23bc3f1cdb5a19c31",
+  "risk": "routine",
+  "auto_merge": true
+}

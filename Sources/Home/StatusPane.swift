@@ -51,10 +51,10 @@ nonisolated enum StatusPaneWaitingSource: Equatable, Sendable {
 
     var name: String {
         switch self {
-        case .audio: "audio"
-        case .location: "location"
+        case .audio: AppStrings.ios_app_audio()
+        case .location: AppStrings.ios_location_sourcedisplayname()
         case .screencast: SourceVocabulary.screencastDisplayName
-        case .watch: "watch"
+        case .watch: AppStrings.ios_app_watchsourcedisplayname()
         case .calendar: CalendarVocabulary.label
         case .obsidian: ObsidianVocabulary.TITLE
         case .screenshots: ScreenshotsVocabulary.label
@@ -562,7 +562,7 @@ struct StatusPane: View {
                         self.intakeRow(row, widest: widest)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(row.name)
-                            .accessibilityValue("\(row.soFar), \(row.last)")
+                            .accessibilityValue(AppStrings.ios_frame_statuspane_n565("\(row.soFar)", "\(row.last)"))
                     }
                     .accessibilityIdentifier("intake.status.\(row.id)")
                 }
@@ -692,7 +692,7 @@ struct StatusPane: View {
     @ViewBuilder
     private func renderTriedAddresses(_ tried: TriedAddresses) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("addresses tried")
+            Text(AppStrings.ios_home_rendertriedaddresses())
             ForEach(Array(tried.ownerLines.enumerated()), id: \.offset) { _, line in
                 Text(verbatim: line)
                     .font(.subheadline)
@@ -847,11 +847,11 @@ struct StatusPane: View {
                 if self.pillState != .stalled {
                     if self.showsConnectionDetails {
                         LabeledContent(
-                        "method",
-                            value: self.shellStatusContext.via == .lan ? "local network" : "through the relay"
+                        AppStrings.ios_home_panecontent3(),
+                            value: self.shellStatusContext.via == .lan ? AppStrings.ios_home_panecontent12_native() : AppStrings.ios_home_throughtherelay()
                         )
-                        LabeledContent("your journal's address", value: self.serverHost)
-                        LabeledContent("uptime") {
+                        LabeledContent(AppStrings.ios_home_panecontent9(), value: self.serverHost)
+                        LabeledContent(AppStrings.ios_home_panecontent8()) {
                             Text(self.shellStatusContext.connectedSince, style: .timer)
                         }
                         LabeledContent(SourceVocabulary.transferRateLabel) {
@@ -877,12 +877,12 @@ struct StatusPane: View {
                     UnknownJournalRow(notice: notice, yourJournal: self.yourJournalIdentity)
                 }
             } header: {
-                Text(self.justCopiedSnapshot ? "copied" : SourceVocabulary.yourJournalSection)
+                Text(self.justCopiedSnapshot ? AppStrings.ios_diagnostics_copied() : SourceVocabulary.yourJournalSection)
                     .foregroundStyle(Color(uiColor: .label))
                     .onLongPressGesture {
                         self.copySnapshot()
                     }
-                    .accessibilityHint("long press to copy diagnostic snapshot")
+                    .accessibilityHint(AppStrings.ios_home_panecontent2())
             }
 
             Section {
@@ -909,19 +909,19 @@ struct StatusPane: View {
                 .accessibilityHint(SourceVocabulary.problemReportsRowHint)
                 .hoverEffect(.highlight)
 
-                LabeledContent("tunnel reconnects", value: "\(self.tunnelManager.reconnectCount)")
-                    .accessibilityLabel("tunnel reconnect count: \(self.tunnelManager.reconnectCount)")
+                LabeledContent(AppStrings.ios_home_panecontent7(), value: "\(self.tunnelManager.reconnectCount)")
+                    .accessibilityLabel(AppStrings.ios_home_panecontent6("\(self.tunnelManager.reconnectCount)"))
 
-                LabeledContent("network") {
+                LabeledContent(AppStrings.ios_home_panecontent4()) {
                     Text(networkStatusText(self.tunnelManager.currentPathStatus))
                 }
-                .accessibilityLabel("network: \(networkStatusText(self.tunnelManager.currentPathStatus))")
+                .accessibilityLabel(AppStrings.ios_home_panecontent5("\(networkStatusText(self.tunnelManager.currentPathStatus))"))
 
                 LabeledContent(SourceVocabulary.journalTunnel) {
-                    Text(self.tunnelManager.state.isConnected ? "running" : "n/a")
+                    Text(self.tunnelManager.state.isConnected ? AppStrings.ios_app_watchpanelrunning() : AppStrings.ios_statuspane_na())
                         .foregroundStyle(self.tunnelManager.state.isConnected ? .primary : .secondary)
                 }
-                .accessibilityLabel("\(SourceVocabulary.journalTunnel): \(self.tunnelManager.state.isConnected ? "running" : "not available")")
+                .accessibilityLabel(self.tunnelManager.state.isConnected ? AppStrings.ios_status_tunnel_running_spoken() : AppStrings.ios_status_tunnel_unavailable_spoken())
 
                 if self.tunnelManager.state.isConnected {
                     Button {
@@ -944,18 +944,18 @@ struct StatusPane: View {
                     }
                     .disabled(self.isProbing || !self.tunnelManager.state.isConnected)
                     .accessibilityLabel(SourceVocabulary.checkConnection)
-                    .accessibilityHint(self.isProbing ? "probing in progress" : "tap to test connection health")
+                    .accessibilityHint(self.isProbing ? AppStrings.ios_home_panecontent13_native() : AppStrings.ios_home_taptotestconnectionhealth())
                     .accessibilityIdentifier("shell.pane.status.checkConnection")
                     .hoverEffect(.highlight)
                 }
 
                 NavigationLink(value: ShellDestination.diagnostics) {
-                    Text("event log")
+                    Text(AppStrings.ios_home_panecontent())
                 }
                 .accessibilityIdentifier("shell.pane.status.diagnostics")
                 .hoverEffect(.highlight)
             } header: {
-                Text("diagnostics")
+                Text(AppStrings.ios_home_watchdiagnosticsblocktitle())
                     .foregroundStyle(Color(uiColor: .label))
             }
         }
@@ -964,7 +964,7 @@ struct StatusPane: View {
         .toolbar {
             if self.presentation.isPhoneModal {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("done") {
+                    Button(AppStrings.ios_home_done()) {
                         self.dismiss()
                     }
                 }

@@ -1,0 +1,21 @@
+{
+  "description": "source=transfer reason={reason}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "solstoneswiftappswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "reason",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "50bdbb97aec08c7a71c3e0dbdcb213dd176ed64a397270ff800dcc1e42c9f547",
+  "risk": "routine",
+  "auto_merge": true
+}

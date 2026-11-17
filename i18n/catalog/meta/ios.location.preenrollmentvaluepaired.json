@@ -1,0 +1,16 @@
+{
+  "description": "where your day happens — kept in your journal, yours alone. as light or complete as you want.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 93,
+  "source_revision": "d1d6c56c2ca1d09f7645d14ff68f0a9f07f18164ca814301e0a763955fcb6daa",
+  "risk": "routine",
+  "auto_merge": true
+}

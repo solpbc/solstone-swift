@@ -1,0 +1,16 @@
+{
+  "description": "direct pinned",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "a9d518b937501b8d6c99b61401675311adebaac7c113bcd65f26d8441369547a",
+  "risk": "routine",
+  "auto_merge": true
+}

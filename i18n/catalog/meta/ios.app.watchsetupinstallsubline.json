@@ -1,0 +1,16 @@
+{
+  "description": "in My Watch, scroll to Available Apps and tap install next to the solstone app.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 79,
+  "source_revision": "d013d187498ca14854efb187f9f503b83792b06678664b6e29b9bd391f9e0659",
+  "risk": "routine",
+  "auto_merge": true
+}

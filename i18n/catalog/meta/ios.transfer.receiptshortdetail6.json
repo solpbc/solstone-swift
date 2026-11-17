@@ -1,0 +1,16 @@
+{
+  "description": "your journal has this recording but hasn't kept the file. it's still on your phone.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 83,
+  "source_revision": "5285e3876fae3fb3da28a7c403313c32ce15a0b30426144ff5a61e2539683145",
+  "risk": "routine",
+  "auto_merge": true
+}

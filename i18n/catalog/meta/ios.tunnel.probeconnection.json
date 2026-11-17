@@ -1,0 +1,29 @@
+{
+  "description": "latency: {elapsed}; {detail}; {hole3}",
+  "context": "the solstone app, speaking to the owner. the number is fixed in the English or chosen with a conditional. use one cardinal select, or one enum whose branches contain the fixed number.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "elapsed",
+      "type": "string"
+    },
+    {
+      "name": "detail",
+      "type": "string"
+    },
+    {
+      "name": "hole3",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 37,
+  "source_revision": "f653b660dc14b5c68115cb4382028f63b27c51eeb5550a3e0d9f32afbc24759b",
+  "risk": "routine",
+  "auto_merge": true
+}

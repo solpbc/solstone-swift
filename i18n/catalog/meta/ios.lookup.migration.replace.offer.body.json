@@ -1,0 +1,16 @@
+{
+  "description": "you can keep both, or choose a device for this one to replace.",
+  "context": "Existing native lookup migration.replace_offer.body. Mac counterpart: macos.desktop.shared.copy.replaceofferbody. Keep translations consistent. Android counterpart: android.migration.can.keep.both.or.choose. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "2879a37d2e554361c10e9def91329b5e322ad6c4ed184b1cead0501f1969d4b5",
+  "risk": "routine",
+  "auto_merge": true
+}

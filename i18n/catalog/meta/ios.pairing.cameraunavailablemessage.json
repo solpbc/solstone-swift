@@ -1,0 +1,16 @@
+{
+  "description": "camera access is off for solstone. turn it on in settings, or paste a pairing link instead.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 91,
+  "source_revision": "9b146dcbb3cd712aa1ab52ae8256fbfa00e2146db02ebd6a0d7611d92befce46",
+  "risk": "routine",
+  "auto_merge": true
+}

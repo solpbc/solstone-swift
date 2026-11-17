@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.setup.setupjournal. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "cb86952cc5421d1eed5b311c533bf8b004aeac96b84bb7d48bfee47f714e153e",
+  "risk": "routine",
+  "auto_merge": true
+}

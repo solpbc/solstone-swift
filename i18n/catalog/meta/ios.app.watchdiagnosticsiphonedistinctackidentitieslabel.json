@@ -1,0 +1,16 @@
+{
+  "description": "iPhone → Watch distinct ACK identities",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 38,
+  "source_revision": "729b53acb97ef2b8e5db9bdec35c40d68df20151ecbaaf84225c05b3c5e80f62",
+  "risk": "routine",
+  "auto_merge": true
+}

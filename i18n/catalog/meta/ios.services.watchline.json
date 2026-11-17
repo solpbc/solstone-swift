@@ -1,0 +1,16 @@
+{
+  "description": "watchos",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "services"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 7,
+  "source_revision": "5ee0a1b1a29e518bca5e9b51c343a8d85eb862fdfa60219096d0785d887a7c3b",
+  "risk": "routine",
+  "auto_merge": true
+}

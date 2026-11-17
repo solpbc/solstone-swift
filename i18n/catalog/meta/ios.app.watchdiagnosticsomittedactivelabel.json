@@ -1,0 +1,16 @@
+{
+  "description": "omitted active",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "a56f2eac9ffbfd1676571d7d24c94e0e684ca111e96c79a26b6d3341252dea52",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,32 @@
+{
+  "description": "generation={generation} currentGeneration={self.generation}",
+  "context": "Shown by Sources/Portal/JournalWebNavigationSession.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "bb24473b0ae1c735f546fc808a194a7edcaccfe0b1eac4e913aaf0b04ec85b1c",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

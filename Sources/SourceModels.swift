@@ -87,7 +87,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
         }
         let base: String
         if let subtextOverride {
-            base = "\(self.state.label). \(Self.sentence(subtextOverride))"
+            base = AppStrings.ios_frame_sourcemodels_n90("\(self.state.label)", "\(Self.sentence(subtextOverride))")
         } else {
             base = self.state.voiceOverText(
                 activeSubtext: self.activeSubtext,
@@ -98,7 +98,7 @@ nonisolated struct Source: Identifiable, Equatable, Sendable {
     }
 
     private static func sentence(_ text: String) -> String {
-        text.hasSuffix(".") ? text : "\(text)."
+        AppStrings.language == "en-US" ? (text.hasSuffix(".") ? text : "\(text).") : text
     }
 }
 

@@ -178,11 +178,11 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
     }
 
     var isCompanionAppInstalledForDiagnostics: DiagnosticAvailability<Bool> {
-        .unavailable(reason: "not available on iphone")
+        .unavailable(reason: AppStrings.ios_watchconnectivity_notavailableoniphone())
     }
 
     var iOSDeviceNeedsUnlockAfterRebootForDiagnostics: DiagnosticAvailability<Bool> {
-        .unavailable(reason: "not available on iphone")
+        .unavailable(reason: AppStrings.ios_watchconnectivity_notavailableoniphone())
     }
 #else
     var isPaired: Bool {
@@ -195,14 +195,14 @@ final class LiveWatchConnectivitySession: NSObject, WatchConnectivitySession, WC
 
     var isCompanionAppInstalledForDiagnostics: DiagnosticAvailability<Bool> {
         guard let session else {
-            return .unavailable(reason: "watch connectivity unavailable")
+            return .unavailable(reason: AppStrings.ios_watchconnectivity_watchconnectivityunavailable())
         }
         return .available(session.isCompanionAppInstalled)
     }
 
     var iOSDeviceNeedsUnlockAfterRebootForDiagnostics: DiagnosticAvailability<Bool> {
         guard let session else {
-            return .unavailable(reason: "watch connectivity unavailable")
+            return .unavailable(reason: AppStrings.ios_watchconnectivity_watchconnectivityunavailable())
         }
         return .available(session.iOSDeviceNeedsUnlockAfterRebootForReachability)
     }

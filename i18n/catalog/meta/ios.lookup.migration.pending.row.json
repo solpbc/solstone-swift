@@ -1,0 +1,16 @@
+{
+  "description": "device choice",
+  "context": "Existing native lookup migration.pending.row. Android counterpart: android.shelf.device.choice. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ecae51a8366a275a137e0b5492e65e23ef155c90b5fe76e84b8c74ee56d73cc5",
+  "risk": "routine",
+  "auto_merge": true
+}

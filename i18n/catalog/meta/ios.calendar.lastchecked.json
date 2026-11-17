@@ -1,0 +1,21 @@
+{
+  "description": "last checked {time}",
+  "context": "the solstone app, speaking to the owner. Mac counterpart: macos.updates.lastchecked. Keep translations consistent.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "time",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "3a53c64829bb16bf05c362f56ad449ae3ab167849ed70f988d930cb6673fe1d0",
+  "risk": "routine",
+  "auto_merge": true
+}

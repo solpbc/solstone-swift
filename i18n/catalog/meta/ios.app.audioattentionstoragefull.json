@@ -1,0 +1,16 @@
+{
+  "description": "storage is full.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "2447b3b572a9a9ac30a6ace0e61a7eee2e84e91f3287ddbec0f7a56ce1b5c092",
+  "risk": "routine",
+  "auto_merge": true
+}

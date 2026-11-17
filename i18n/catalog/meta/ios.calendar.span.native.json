@@ -1,0 +1,16 @@
+{
+  "description": "the last 30 days",
+  "context": "Shown by Sources/Calendar/CalendarVocabulary.swift. Arguments preserve the existing presentation values. Mac counterpart: macos.screenshot.thelast30days. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ce1d92fc852e12a7fde24e4485bbdaff2518589a6413fc9243f4852d63e262a8",
+  "risk": "routine",
+  "auto_merge": true
+}

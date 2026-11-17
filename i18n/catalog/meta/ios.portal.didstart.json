@@ -1,0 +1,25 @@
+{
+  "description": "generation={generation} previousGeneration={previousGeneration}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "portal"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "generation",
+      "type": "string"
+    },
+    {
+      "name": "previousGeneration",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 63,
+  "source_revision": "966406207500e85c9443240539a156f2457d54efd49d9630eade58d7ef608a2f",
+  "risk": "routine",
+  "auto_merge": true
+}

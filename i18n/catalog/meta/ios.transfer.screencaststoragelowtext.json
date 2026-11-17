@@ -1,0 +1,16 @@
+{
+  "description": "screen stopped. this device is low on storage.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "d81a6df150232f7354f7e05c70392f58ab02d417df04b208cb2df4eb10714c3d",
+  "risk": "routine",
+  "auto_merge": true
+}

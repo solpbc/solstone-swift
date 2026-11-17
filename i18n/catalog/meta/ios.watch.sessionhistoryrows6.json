@@ -1,0 +1,16 @@
+{
+  "description": "location advisory",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "cd38206e60d6432c7e80184bb5d42c1b0dcbe59b245f7afdde9e5b1576517f88",
+  "risk": "routine",
+  "auto_merge": true
+}

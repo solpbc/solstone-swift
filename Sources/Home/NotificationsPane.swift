@@ -19,9 +19,9 @@ struct NotificationsPane: View {
         var message: String? {
             switch self {
             case .idle: nil
-            case .sending: "sending…"
-            case .sent: "sent. it should show up on this device in a moment."
-            case .failed: "couldn't send a test notification. try again in a moment."
+            case .sending: AppStrings.ios_home_message2()
+            case .sent: AppStrings.ios_home_message3()
+            case .failed: AppStrings.ios_home_message()
             }
         }
     }
@@ -44,13 +44,13 @@ struct NotificationsPane: View {
     private var statusText: String {
         switch self.pushManager.registrationState {
         case .registered:
-            "on"
+            AppStrings.ios_app_on()
         case .registering:
-            "turning on…"
+            AppStrings.ios_home_statustext2()
         case .failed:
-            "couldn't turn on. try again in a moment."
+            AppStrings.ios_home_statustext()
         case .idle:
-            "waiting for your journal"
+            AppStrings.ios_home_statustext3()
         }
     }
 
@@ -62,14 +62,14 @@ struct NotificationsPane: View {
     var body: some View {
         List {
             Section {
-                Toggle("notifications from your journal", isOn: self.ownerSwitch)
+                Toggle(AppStrings.ios_home_body49(), isOn: self.ownerSwitch)
                     .accessibilityIdentifier("shell.notifications.journalToggle")
 
                 if self.pushManager.ownerEnabled {
                     if self.pushManager.permissionState == .denied {
-                        Text("ios has notifications turned off for solstone.")
+                        Text(AppStrings.ios_home_body14())
                             .foregroundStyle(.secondary)
-                        Button("open settings") {
+                        Button(AppStrings.ios_home_opensettings()) {
                             if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
                                 UIApplication.shared.open(url)
                             }
@@ -82,7 +82,7 @@ struct NotificationsPane: View {
                     }
 
                     if self.isRegistered {
-                        Button("send a test notification") {
+                        Button(AppStrings.ios_home_body57()) {
                             self.testSend = .sending
                             Task {
                                 let sent = await self.pushManager.sendTestNotification()
@@ -104,9 +104,9 @@ struct NotificationsPane: View {
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("when there's something worth a look")
-                    Text("a short heads-up, never the content")
-                    Text("off until you turn it on. your journal encrypts each notification to this device's own key.")
+                    Text(AppStrings.ios_home_body64())
+                    Text(AppStrings.ios_home_body2())
+                    Text(AppStrings.ios_home_body50())
                 }
                 .font(.footnote)
                 .foregroundStyle(.secondary)

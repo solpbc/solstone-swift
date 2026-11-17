@@ -1,0 +1,16 @@
+{
+  "description": "retention window",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "92497cace6b78f9e51200662f7727d5c42532d91a0214ce842000f16168701bd",
+  "risk": "routine",
+  "auto_merge": true
+}

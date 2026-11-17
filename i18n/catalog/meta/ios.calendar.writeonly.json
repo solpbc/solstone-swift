@@ -1,0 +1,16 @@
+{
+  "description": "calendar access is set to adding events only, so the solstone app can't read it. allow full access in ios settings to keep your journal up to date.",
+  "context": "names the iOS Settings screen. Wording requires review before translation.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 147,
+  "source_revision": "9e7a84fef4dfbf8b8a33dad631bab709175ea9e9721915517779c02591a594fa",
+  "risk": "consent",
+  "auto_merge": false
+}

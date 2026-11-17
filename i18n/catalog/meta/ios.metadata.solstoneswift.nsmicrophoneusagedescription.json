@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in.",
+  "context": "Bundle metadata for solstone-swift: NSMicrophoneUsageDescription. Permission wording requires review before translation. Wording requires review before translation. Legal source wording stays English until an approved legal translation exists.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "4ef83e2573b50af331c0e2f1fe7098172af049cbc715c6818efdd5666bc8797a",
+  "risk": "legal",
+  "auto_merge": false
+}

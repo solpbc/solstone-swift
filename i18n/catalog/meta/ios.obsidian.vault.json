@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.obsidian.vault. Keep translations consistent.",
+  "surfaces": [
+    "obsidian"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 5,
+  "source_revision": "33f9e7280c0ed1b4c71710ef28808779866fb931a9b7abe662468035cae82b09",
+  "risk": "routine",
+  "auto_merge": true
+}

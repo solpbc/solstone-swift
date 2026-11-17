@@ -1,0 +1,16 @@
+{
+  "description": "no app-active manifest",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "df16c895c3bd0251470a7c6d5056fbc26e270d96498a38ef38ed61086ba8c4ee",
+  "risk": "routine",
+  "auto_merge": true
+}

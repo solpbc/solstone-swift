@@ -1,0 +1,16 @@
+{
+  "description": "watch diagnostics",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "f5a54f512da9bea7db2bfb6adb61ee7897be7c39f83743e6a6b3ebe6ac2347fc",
+  "risk": "routine",
+  "auto_merge": true
+}

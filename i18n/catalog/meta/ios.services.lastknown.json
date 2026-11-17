@@ -1,0 +1,21 @@
+{
+  "description": "{version} (last known)",
+  "context": "the solstone app, speaking to the owner. Mac counterpart: macos.version.lastknown. Keep translations consistent.",
+  "surfaces": [
+    "services"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "version",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "438bf691380fac5a6b3f7f28f36d2568c9483fafc36131ec81490d80758e45f2",
+  "risk": "routine",
+  "auto_merge": true
+}

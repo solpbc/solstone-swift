@@ -1,0 +1,16 @@
+{
+  "description": "on-device reports off",
+  "context": "Shown by Sources/ProblemReports/ProblemReportsView.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "53003a472d1613c974e2ec999d40c95d07159d57c2ee4f7ddac54c12526d6dd8",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "unpair this device",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "b54afe5dd44cb339516496f47347aa83aa0d5078682dcdbf255a0756ad5b9e9f",
+  "risk": "routine",
+  "auto_merge": true
+}

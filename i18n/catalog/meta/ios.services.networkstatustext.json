@@ -1,0 +1,16 @@
+{
+  "description": "cellular · offline",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "services"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "1df1d4e214f4e875b49b2e65a4bf2ac083ce6557916c652d1995dd76e4999125",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "solstone will try to reconnect. if this keeps happening, check that your journal is running and your network is available.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 122,
+  "source_revision": "1f33b7c3a800492152fb65a73697bf6983d31fc0b42b1a9d08acb2d7cd9cf848",
+  "risk": "routine",
+  "auto_merge": true
+}

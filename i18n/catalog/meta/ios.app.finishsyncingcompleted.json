@@ -1,0 +1,16 @@
+{
+  "description": "done. everything is in your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 36,
+  "source_revision": "9a61e241c85d160584a6c1accb69b934b9fcc673ede794a1f54d5115b706ba07",
+  "risk": "routine",
+  "auto_merge": true
+}

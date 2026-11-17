@@ -1,0 +1,16 @@
+{
+  "description": "SolstoneLiveActivityWidget",
+  "context": "Bundle metadata for SolstoneLiveActivityWidget: CFBundleDisplayName.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ddd1b528de83235a10d7aeffdc4f5cb1776024cdc71869ce8d7a5717f0a41ed6",
+  "risk": "routine",
+  "auto_merge": true
+}

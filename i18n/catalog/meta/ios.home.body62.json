@@ -1,0 +1,16 @@
+{
+  "description": "unpair this device?",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.shelf.unpair.device. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "a926c2ef47f0e8bfa842a1ac080fb46a46f6dfe795bf0b5bc458b9a393dc98d4",
+  "risk": "routine",
+  "auto_merge": true
+}

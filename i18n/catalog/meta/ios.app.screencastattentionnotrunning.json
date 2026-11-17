@@ -1,0 +1,16 @@
+{
+  "description": "screen isn't running.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "9717edea598bc75a5b0cee82f724a69666864fcacc00a5dec2012e2d62ca37e7",
+  "risk": "routine",
+  "auto_merge": true
+}

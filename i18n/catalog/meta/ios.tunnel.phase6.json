@@ -1,0 +1,21 @@
+{
+  "description": "unfinished ({rawValue})",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "rawValue",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "4abb42a366cef0e44e4a9fc7b0817d6101b0bdb5bec03d5d225f357ec5ef3342",
+  "risk": "routine",
+  "auto_merge": true
+}

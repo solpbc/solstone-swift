@@ -86,7 +86,7 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
         self.terminalRetention.enroll(recorder: recorder, source: source, sink: self.eventSink)
         guard recorder.record() else {
             _ = self.terminalRetention.stopCurrent()
-            throw ObserverError.unavailable(reason: "audio unavailable")
+            throw ObserverError.unavailable(reason: AppStrings.ios_watch_start())
         }
     }
 

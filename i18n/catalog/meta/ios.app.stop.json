@@ -1,0 +1,16 @@
+{
+  "description": "stop",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.wear.stop. Keep translations consistent.",
+  "surfaces": [
+    "sourcedetailviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 4,
+  "source_revision": "6c180d33471ea7c00596419062765675f3e825b724d46ca69a92b2b15734f08f",
+  "risk": "routine",
+  "auto_merge": true
+}

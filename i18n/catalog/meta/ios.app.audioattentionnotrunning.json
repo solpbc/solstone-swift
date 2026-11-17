@@ -1,0 +1,16 @@
+{
+  "description": "audio isn't running.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "bd53931909a7ec707b77760490b7369204e3c40715f3848345abfb142a652997",
+  "risk": "routine",
+  "auto_merge": true
+}

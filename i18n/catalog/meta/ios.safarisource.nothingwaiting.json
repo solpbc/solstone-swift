@@ -1,0 +1,16 @@
+{
+  "description": "nothing from Safari is waiting on this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "c4d1db30768f28726a95015d236329486bd0f62f5ac6500cbdbc40170abce006",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,33 @@
+{
+  "description": "domain={domain} code={code} navigationGeneration={navigationGeneration} currentGeneration={generation}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "portal"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "domain",
+      "type": "string"
+    },
+    {
+      "name": "code",
+      "type": "string"
+    },
+    {
+      "name": "navigationGeneration",
+      "type": "string"
+    },
+    {
+      "name": "generation",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 102,
+  "source_revision": "6ce48220a0939e33757a6c4b019c1cb28593362cc64c814d5cdbbbab4961c95d",
+  "risk": "routine",
+  "auto_merge": true
+}

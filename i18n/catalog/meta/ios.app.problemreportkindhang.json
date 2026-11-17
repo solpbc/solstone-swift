@@ -1,0 +1,16 @@
+{
+  "description": "app got stuck",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "49abf0047d8e43ed0fb2418ca9a5e92f60e9c1971540e8d6ec14e3e67277e95b",
+  "risk": "routine",
+  "auto_merge": true
+}

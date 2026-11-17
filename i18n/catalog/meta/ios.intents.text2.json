@@ -1,0 +1,16 @@
+{
+  "description": "allow microphone in ios settings",
+  "context": "names the iOS Settings screen.",
+  "surfaces": [
+    "appintents"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "2e14dd6029761a02074d840683e045b840cf66b786712aa26e16072a6eac0d6a",
+  "risk": "routine",
+  "auto_merge": true
+}

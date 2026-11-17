@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.setup.what.share.stays.device.isn. Keep translations consistent. Legal source wording stays English until an approved legal translation exists.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 84,
+  "source_revision": "b69310e96a10f77139fe7da2d5f65b53b3705e97c574b0452b252d4d65e32065",
+  "risk": "legal",
+  "auto_merge": false
+}

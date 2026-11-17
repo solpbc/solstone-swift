@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app can't read your calendar. allow full access in ios settings to turn this on.",
+  "context": "names the iOS Settings screen. Wording requires review before translation.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 93,
+  "source_revision": "ccb5ea477ed5e86e3165e883a8a7f7ac2414b1ca7260b037f9c46e99940e2548",
+  "risk": "consent",
+  "auto_merge": false
+}

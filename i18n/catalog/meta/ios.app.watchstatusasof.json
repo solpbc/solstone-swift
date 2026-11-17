@@ -1,0 +1,21 @@
+{
+  "description": "watch status as of {relative}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "relative",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "3eb0e6eebdca514995ce0654e7f824a234b31ff2648937de80755c3333835fe5",
+  "risk": "routine",
+  "auto_merge": true
+}

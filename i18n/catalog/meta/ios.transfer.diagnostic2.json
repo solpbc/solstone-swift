@@ -1,0 +1,21 @@
+{
+  "description": "mobile segment enqueue failed segment={uuidString} stage=transfer-enqueue",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "uuidString",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 73,
+  "source_revision": "10e2ea93bbfb30c057298301a0bdcf09ccc6602930b20860b55f3612f0fbe015",
+  "risk": "routine",
+  "auto_merge": true
+}

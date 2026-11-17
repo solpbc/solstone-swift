@@ -1,0 +1,16 @@
+{
+  "description": "it may have already been deleted.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "e0cf70105a296e8b2bdfb1cf2cec1fe07f787fca9cce2be860abd73a9631a0d0",
+  "risk": "routine",
+  "auto_merge": true
+}

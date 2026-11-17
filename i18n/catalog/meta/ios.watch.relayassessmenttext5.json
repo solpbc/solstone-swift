@@ -1,0 +1,16 @@
+{
+  "description": "diagnostic evidence malformed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "21e4ad97edba300deac861f96e2c63c1e17f4de6beff4511f5f8e70d642fb7c6",
+  "risk": "routine",
+  "auto_merge": true
+}

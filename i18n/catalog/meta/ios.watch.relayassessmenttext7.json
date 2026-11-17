@@ -1,0 +1,21 @@
+{
+  "description": "diagnostic evidence unavailable: {reason}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "reason",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "13ae16a83120a260911425649f763fee795281e74773537b4d97c0b40ec64167",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,25 @@
+{
+  "description": "{relativeDay} at {shortTime}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "onthisphoneitemdetailpresentationswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "relativeDay",
+      "type": "string"
+    },
+    {
+      "name": "shortTime",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "27a0b30c7085e39f22b582c490d34776d83736561033fd5d127005fd20fccca8",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -417,7 +417,7 @@ private extension OnThisPhoneMomentsView {
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityIdentifier("onThisPhone.status")
-        .accessibilityHint("opens diagnostics")
+        .accessibilityHint(AppStrings.ios_app_statusblock())
     }
 
     func statusHero(count: Int) -> some View {
@@ -514,7 +514,7 @@ private extension OnThisPhoneMomentsView {
         }
         .buttonStyle(BrandQuietButtonStyle())
         .controlSize(.regular)
-        .accessibilityLabel("dismiss")
+        .accessibilityLabel(AppStrings.ios_app_dismiss())
         .accessibilityIdentifier("magicMoment.dismiss")
     }
 
@@ -532,7 +532,7 @@ private extension OnThisPhoneMomentsView {
 
             Spacer(minLength: 0)
 
-            Button("connect") {
+            Button(AppStrings.ios_app_journallivesconnectaction()) {
                 self.showingConnectJournal = true
             }
             .buttonStyle(BrandProminentButtonStyle())
@@ -655,7 +655,7 @@ private extension OnThisPhoneMomentsView {
         }
         .buttonStyle(BrandQuietButtonStyle())
         .controlSize(.regular)
-        .accessibilityLabel("dismiss")
+        .accessibilityLabel(AppStrings.ios_app_dismiss())
         .accessibilityIdentifier("onThisPhone.finishSyncing.dismiss")
     }
 
@@ -706,7 +706,7 @@ private extension OnThisPhoneMomentsView {
             }
             .buttonStyle(BrandQuietButtonStyle())
             .controlSize(.regular)
-            .accessibilityLabel("dismiss")
+            .accessibilityLabel(AppStrings.ios_app_dismiss())
             .accessibilityIdentifier("onThisPhone.agedBacklog.dismiss")
         }
         .padding(12)

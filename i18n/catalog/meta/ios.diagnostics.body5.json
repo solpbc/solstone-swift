@@ -1,0 +1,21 @@
+{
+  "description": "severity: {severityText}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "severityText",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "90c060ac04fa3b83428cb304239c82f9d3855b0fbaa7976b67ac661a62d83c43",
+  "risk": "routine",
+  "auto_merge": true
+}

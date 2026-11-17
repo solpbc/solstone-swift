@@ -110,24 +110,24 @@ final class JournalWebNavigationSession {
         case .allow:
             self.emit(
                 "policy_allow",
-                detail: "schemeClass=\(schemeClass) hostPortMatch=\(hostPortMatch) generation=\(self.generation)"
+                detail: AppStrings.ios_portal_schemeclasshostportmatchgeneration("\(schemeClass)", "\(hostPortMatch)", "\(self.generation)")
             )
         case .cancel:
             self.emit(
                 "policy_cancel",
-                detail: "schemeClass=\(schemeClass) hostPortMatch=\(hostPortMatch) generation=\(self.generation)"
+                detail: AppStrings.ios_portal_schemeclasshostportmatchgeneration("\(schemeClass)", "\(hostPortMatch)", "\(self.generation)")
             )
         case .rewrite(let rewrittenURL):
             if self.attemptPhase == .terminalError {
                 self.emit(
                     "policy_rewrite_suppressed_terminal_error",
-                    detail: "schemeClass=\(schemeClass) hostPortMatch=\(hostPortMatch) generation=\(self.generation)"
+                    detail: AppStrings.ios_portal_schemeclasshostportmatchgeneration("\(schemeClass)", "\(hostPortMatch)", "\(self.generation)")
                 )
                 return decision
             }
             self.emit(
                 "policy_rewrite",
-                detail: "schemeClass=\(schemeClass) hostPortMatch=\(hostPortMatch) generation=\(self.generation)"
+                detail: AppStrings.ios_portal_schemeclasshostportmatchgeneration("\(schemeClass)", "\(hostPortMatch)", "\(self.generation)")
             )
             self.retire(self.currentNavigation)
             self.retire(self.expectedNavigation)
@@ -135,7 +135,7 @@ final class JournalWebNavigationSession {
         case .openExternally:
             self.emit(
                 "policy_open_externally",
-                detail: "schemeClass=\(schemeClass) generation=\(self.generation)"
+                detail: AppStrings.ios_portal_decidepolicy("\(schemeClass)", "\(self.generation)")
             )
             if self.boundTask != nil {
                 self.restoreAfterHandoff = true
@@ -233,7 +233,7 @@ final class JournalWebNavigationSession {
         self.unkeyedCallbacksSealed = false
         self.emit(
             "start",
-            detail: "generation=\(self.generation) previousGeneration=\(previousGeneration)"
+            detail: AppStrings.ios_portal_didstart("\(self.generation)", "\(previousGeneration)")
         )
         self.attemptPhase = .loading
         self.setState(JournalWebPresentation.loadState(for: .started))
@@ -244,7 +244,7 @@ final class JournalWebNavigationSession {
         guard !self.isTornDown else { return }
         self.emit(
             "redirect",
-            detail: "navigationGeneration=\(self.generation(for: navigation)) currentGeneration=\(self.generation)"
+            detail: AppStrings.ios_portal_didreceiveserverredirect("\(self.generation(for: navigation))", "\(self.generation)")
         )
     }
 
@@ -282,7 +282,7 @@ final class JournalWebNavigationSession {
         if Self.isCancellationShaped(nsError) {
             self.emit(
                 "superseded",
-                detail: "domain=\(nsError.domain) code=\(nsError.code) navigationGeneration=\(navigationGeneration) currentGeneration=\(self.generation)"
+                detail: AppStrings.ios_portal_didfail("\(nsError.domain)", "\(nsError.code)", "\(navigationGeneration)", "\(self.generation)")
             )
             return
         }
@@ -290,7 +290,7 @@ final class JournalWebNavigationSession {
         self.emit(
             "failure",
             severity: .error,
-            detail: "domain=\(nsError.domain) code=\(nsError.code) navigationGeneration=\(navigationGeneration) currentGeneration=\(self.generation)"
+            detail: AppStrings.ios_portal_didfail("\(nsError.domain)", "\(nsError.code)", "\(navigationGeneration)", "\(self.generation)")
         )
         guard self.acceptsExplicitFailure(navigation: navigation) else { return }
         self.cancelBound()
@@ -367,7 +367,7 @@ final class JournalWebNavigationSession {
             self.emit(
                 "timeout",
                 severity: .error,
-                detail: "generation=\(generation) currentGeneration=\(self.generation)"
+                detail: AppStrings.ios_portal_armbound_native("\(generation)", "\(self.generation)")
             )
             self.boundTask = nil
             self.setState(JournalWebPresentation.loadState(for: .failed(urlErrorCode: NSURLErrorTimedOut)))
@@ -384,7 +384,7 @@ final class JournalWebNavigationSession {
         let port = request.url?.port.map { String($0) } ?? "none"
         self.emit(
             "load_requested",
-            detail: "schemeClass=\(schemeClass) port=\(port) generation=\(self.generation)"
+            detail: AppStrings.ios_portal_issueprogrammaticload("\(schemeClass)", "\(port)", "\(self.generation)")
         )
         self.attemptPhase = .loading
         self.unkeyedCallbacksSealed = true

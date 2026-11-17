@@ -1,0 +1,16 @@
+{
+  "description": "never reached your iphone",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "4875390544739dfe5d4b198b5d3c510f659e24513c297d55594c7ac26fc48f4f",
+  "risk": "routine",
+  "auto_merge": true
+}

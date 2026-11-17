@@ -1,0 +1,16 @@
+{
+  "description": "about",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.phone.about. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 5,
+  "source_revision": "83010f04eae109d71997d8842b28e5cfea46f295e079bfe0b00fa1dc196a2905",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "scan your pairing code",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "3d42a7e36b39678ca0f071f9613bdb7b6bbb65cad0fbe8ac8081fc1e6be74929",
+  "risk": "routine",
+  "auto_merge": true
+}

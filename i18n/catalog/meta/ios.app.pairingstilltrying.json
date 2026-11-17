@@ -1,0 +1,16 @@
+{
+  "description": "still trying to reach your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "864f0e650e074da6a1c742e81d4d25a1a7a14190c4ffea795b284cb3213b9b66",
+  "risk": "routine",
+  "auto_merge": true
+}

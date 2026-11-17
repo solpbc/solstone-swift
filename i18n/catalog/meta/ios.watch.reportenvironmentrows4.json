@@ -1,0 +1,16 @@
+{
+  "description": "iphone app version",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "106987de67d5b3b69700da659cb72f6fbdd920b40e7e18e3bcfc0902487ec77e",
+  "risk": "routine",
+  "auto_merge": true
+}

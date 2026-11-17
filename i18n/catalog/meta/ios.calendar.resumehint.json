@@ -1,0 +1,16 @@
+{
+  "description": "resumes calendar updates to your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "0873226bdbce3ea9c709f9ad36ea0bfbb2fe8a501c427e17542cba65d542fc6b",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "delete all",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 10,
+  "source_revision": "b9002606b09de52179b762b89145ea974860f4733b792db69413e73e8a595d83",
+  "risk": "routine",
+  "auto_merge": true
+}

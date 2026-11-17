@@ -1,0 +1,25 @@
+{
+  "description": "last known journal listener: {generation} seen {age}s ago",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "generation",
+      "type": "string"
+    },
+    {
+      "name": "age",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 57,
+  "source_revision": "9531539d94d9146479d0e5dd8d27d74ba9b13e7c4d98891744b842ff2798ab56",
+  "risk": "routine",
+  "auto_merge": true
+}

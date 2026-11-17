@@ -1,0 +1,16 @@
+{
+  "description": "source",
+  "context": "the solstone app, speaking to the owner. the words stay. the code stops matching them. branch on the enum or the row id.",
+  "surfaces": [
+    "appintents"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 6,
+  "source_revision": "6859d467050b2a3daa1574ca66f745aef8a131383faba193d6fcbf936255013b",
+  "risk": "routine",
+  "auto_merge": true
+}

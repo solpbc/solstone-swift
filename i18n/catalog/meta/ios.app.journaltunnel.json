@@ -1,0 +1,16 @@
+{
+  "description": "private network",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "bb27a43f059e04ddcdbb0c28ae95b3792a76be3ea6146bb3f19f2ec53126e66d",
+  "risk": "routine",
+  "auto_merge": true
+}

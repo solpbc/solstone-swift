@@ -27,7 +27,7 @@ nonisolated final class WatchSteadyVocabularyGrepTests: XCTestCase {
     private static func sourceVocabularyStringLiterals() throws -> [String] {
         let path = StringLiteralGrepSupport.worktreeRoot()
             .appendingPathComponent("Sources/SourceVocabulary.swift")
-        let text = try String(contentsOf: path, encoding: .utf8)
+        let text = try StringCatalogTestSource.read(path)
         return try text.split(separator: "\n", omittingEmptySubsequences: false).flatMap { line in
             try StringLiteralGrepSupport.stringLiterals(in: String(line))
         }

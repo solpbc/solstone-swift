@@ -1,0 +1,25 @@
+{
+  "description": "lifecycle={rawValue} segment={uuidString}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "rawValue",
+      "type": "string"
+    },
+    {
+      "name": "uuidString",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "91f5f32cd44fd5deacdebe0ce5e37488f896310aa60875fc7d5ff759f3470a15",
+  "risk": "routine",
+  "auto_merge": true
+}

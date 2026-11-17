@@ -1,0 +1,16 @@
+{
+  "description": "revoked",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 7,
+  "source_revision": "cc35a7a91cfebed0053461d26758261e08562e3b853221653acdde88bb5f68c7",
+  "risk": "routine",
+  "auto_merge": true
+}

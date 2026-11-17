@@ -1,0 +1,16 @@
+{
+  "description": "solstone for ios",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "problemreports"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "dc65ef4959964f949fcecf2d82a71a69b5dc468335a074a6fc0ff9741ca82e96",
+  "risk": "routine",
+  "auto_merge": true
+}

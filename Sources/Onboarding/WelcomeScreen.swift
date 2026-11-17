@@ -14,14 +14,14 @@ struct WelcomeScreen: View {
 
     var body: some View {
         OnboardingScaffold(
-            title: "welcome to solstone.",
-            subtitle: "the solstone app takes in what you share with it, and all of it goes into your journal.",
+            title: AppStrings.ios_onboarding_body7(),
+            subtitle: AppStrings.ios_onboarding_body5(),
             showsBrandMark: true,
             ground: .deckGround,
             alignment: .center
         ) {
             VStack(alignment: .center, spacing: 16) {
-                Text("your journal is always private, only yours.")
+                Text(AppStrings.ios_onboarding_journallivespromise())
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -35,14 +35,14 @@ struct WelcomeScreen: View {
                     .accessibilityIdentifier("welcome.alreadyHaveOne")
                 }
 
-                Button("not now") {
+                Button(AppStrings.ios_migration_choice_defer()) {
                     WelcomeSetup.notNow(onboarding: self.onboardingFlow)
                 }
                 .buttonStyle(BrandQuietButtonStyle())
                 .controlSize(.large)
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityIdentifier("welcome.notNow")
-                .accessibilityHint("opens your day without connecting a journal")
+                .accessibilityHint(AppStrings.ios_onboarding_body2())
             }
         }
         .navigationDestination(isPresented: self.$isShowingPairFlow) {

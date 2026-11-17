@@ -1,0 +1,16 @@
+{
+  "description": "not",
+  "context": "Existing native lookup unknown_journal.slot.word_1. Mac counterpart: macos.journalmarkgeneric.not. Keep translations consistent. Android counterpart: android.journalmark.wordnot. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "035af29aa4ec6e1877c44b30f5882837cf6cad855b68438e45b9e0a60dbb6d2c",
+  "risk": "routine",
+  "auto_merge": true
+}

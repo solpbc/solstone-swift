@@ -32,8 +32,8 @@ enum ShareImportTransferSpoolMigrator {
         if unresolved == 0 {
             defaults.set(true, forKey: self.flagKey)
         } else {
-            let detail = "source=\(store.cacheRootURL.path) unresolved=\(unresolved)"
-            diagnosticLog?.append(category: .upload, severity: .warning, message: "needs attention", detail: detail)
+            let detail = AppStrings.ios_share_detail("\(store.cacheRootURL.path)", "\(unresolved)")
+            diagnosticLog?.append(category: .upload, severity: .warning, message: AppStrings.ios_presentation_shareimporttransferspoolmigrator_n6(), detail: detail)
             shareImportMigrationLog.error("share import migration unresolved \(unresolved, privacy: .public)")
         }
     }

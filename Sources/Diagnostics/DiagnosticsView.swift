@@ -59,7 +59,7 @@ struct DiagnosticsView: View {
             self.journalLinkSection
             self.eventRows
         }
-        .navigationTitle("diagnostics")
+        .navigationTitle(AppStrings.ios_home_watchdiagnosticsblocktitle())
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
@@ -67,9 +67,9 @@ struct DiagnosticsView: View {
                         self.copySnapshot()
                     } label: {
                         if self.justCopied {
-                            Label("copied", systemImage: "checkmark")
+                            Label(AppStrings.ios_diagnostics_copied(), systemImage: "checkmark")
                         } else {
-                            Label("copy snapshot", systemImage: "doc.on.doc")
+                            Label(AppStrings.ios_diagnostics_body(), systemImage: "doc.on.doc")
                         }
                     }
 
@@ -77,7 +77,7 @@ struct DiagnosticsView: View {
                         item: DiagnosticsExportItem(build: self.buildExportFile),
                         preview: SharePreview("solstone-diagnostics.txt")
                     ) {
-                        Label("export", systemImage: "square.and.arrow.up")
+                        Label(AppStrings.ios_diagnostics_body2(), systemImage: "square.and.arrow.up")
                     }
 
                     Divider()
@@ -86,7 +86,7 @@ struct DiagnosticsView: View {
                         self.problemsOnly.toggle()
                     } label: {
                         Label(
-                            "problems only",
+                            AppStrings.ios_diagnostics_body4(),
                             systemImage: self.problemsOnly ? "checkmark.circle.fill" : "circle"
                         )
                     }
@@ -102,7 +102,7 @@ struct DiagnosticsView: View {
                             }
                         } label: {
                             Label(
-                                category.rawValue,
+                                category.displayLabel,
                                 systemImage: self.enabledCategories.contains(category) ? "checkmark.circle.fill" : "circle"
                             )
                         }
@@ -110,7 +110,7 @@ struct DiagnosticsView: View {
                 } label: {
                     Image(systemName: "line.3.horizontal.decrease.circle")
                 }
-                .accessibilityLabel("filter and actions")
+                .accessibilityLabel(AppStrings.ios_diagnostics_body3())
             }
         }
         .task {
@@ -125,7 +125,7 @@ struct DiagnosticsView: View {
     private var journalLinkSection: some View {
         let events = self.log.recentJournalLinkEvents()
         if !events.isEmpty {
-            Section("recent journal link events") {
+            Section(AppStrings.ios_diagnostics_journallinksection()) {
                 ForEach(events) { event in
                     VStack(alignment: .leading, spacing: 6) {
                         Text(event.kind.summary)
@@ -158,9 +158,9 @@ struct DiagnosticsView: View {
 
     private var emptyEventsView: some View {
         ContentUnavailableView {
-            Label("no events yet", systemImage: "clock")
+            Label(AppStrings.ios_diagnostics_emptyeventsview(), systemImage: "clock")
         } description: {
-            Text("they'll appear as things happen.")
+            Text(AppStrings.ios_diagnostics_emptyeventsview2())
         }
     }
 
@@ -316,11 +316,11 @@ private struct EventRow: View {
     private var severityText: String {
         switch self.event.severity {
         case .info:
-            "info"
+            AppStrings.ios_diagnosticsview_info()
         case .warning:
-            "warning"
+            AppStrings.ios_diagnosticsview_warning()
         case .error:
-            "error"
+            AppStrings.ios_diagnosticsview_error()
         }
     }
 
@@ -345,7 +345,7 @@ private struct EventRow: View {
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
 
-                    Text("severity: \(self.severityText)")
+                    Text(AppStrings.ios_diagnostics_body5("\(self.severityText)"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -361,8 +361,8 @@ private struct EventRow: View {
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: self.onTap)
-        .accessibilityLabel("\(self.event.category.rawValue): \(self.event.message), \(self.relativeTime)")
-        .accessibilityHint(self.isExpanded ? "tap to collapse" : "tap to expand details")
+        .accessibilityLabel(AppStrings.ios_presentation_diagnosticsview_n26("\(self.event.category.displayLabel)", "\(self.event.message)", "\(self.relativeTime)"))
+        .accessibilityHint(self.isExpanded ? AppStrings.ios_diagnostics_body7_native() : AppStrings.ios_diagnosticsview_taptoexpanddetails())
     }
 }
 

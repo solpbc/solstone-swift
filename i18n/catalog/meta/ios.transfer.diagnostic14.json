@@ -1,0 +1,21 @@
+{
+  "description": "mobile segment root migration verify-failed {label}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "label",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 51,
+  "source_revision": "015656d6bc67863471c65401114375cc646340268fd3c691c64badd38cd497bc",
+  "risk": "routine",
+  "auto_merge": true
+}

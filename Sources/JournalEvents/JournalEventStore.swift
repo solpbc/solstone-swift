@@ -138,7 +138,7 @@ nonisolated struct JournalEventStore: Sendable {
     static let diagnosticCap = 1000
     static let retentionDays = 30
     static let noticeWindowDays = 6
-    static let unreadableLine = "journal events could not be read"
+    static let unreadableLine = AppStrings.ios_journalevents_unreadableline()
 
     let rootURL: URL
 
@@ -1005,11 +1005,11 @@ nonisolated struct JournalEventStore: Sendable {
     private func importLine() -> String {
         switch self.readImportMarker() {
         case .notRun:
-            return "Import: not run"
+            return AppStrings.ios_journalevents_importline3()
         case .complete(let imported, let skipped):
-            return "Import: complete, \(imported) imported, \(skipped) skipped"
+            return AppStrings.ios_journalevents_importline("\(imported)", "\(skipped)")
         case .failed(let reason):
-            return "Import: failed, \(reason)"
+            return AppStrings.ios_journalevents_importline2("\(reason)")
         }
     }
 

@@ -110,7 +110,7 @@ final class WatchSegmentLedger {
                 initialError = nil
             } catch {
                 resolvedFileURL = nil
-                initialError = "watch ledger unavailable: \(String(describing: error))"
+                initialError = AppStrings.ios_watch_initialerror("\(String(describing: error))")
             }
         }
 
@@ -209,7 +209,7 @@ final class WatchSegmentLedger {
         var entry = self.store.entries[key] ?? WatchSegmentLedgerStore.Entry()
 
         if entry.droppedAt != nil && entry.handedAt == nil {
-            self.logConflict("watch ledger hand-after-drop id=\(id.uuidString)")
+            self.logConflict(AppStrings.ios_watch_recordhanded("\(id.uuidString)"))
             self.store.entries[key] = entry
             self.pruneAndPersist(from: before)
             return
@@ -236,7 +236,7 @@ final class WatchSegmentLedger {
         let wasUnknown = self.store.entries[key] == nil
 
         if entry.handedAt != nil {
-            self.logConflict("watch ledger drop-after-hand id=\(id.uuidString)")
+            self.logConflict(AppStrings.ios_watch_recorddropped("\(id.uuidString)"))
             self.store.entries[key] = entry
             self.pruneAndPersist(from: before)
             return
@@ -340,7 +340,7 @@ private extension WatchSegmentLedger {
             self.store = try decoder.decode(WatchSegmentLedgerStore.self, from: data)
         } catch {
             self.store = .empty
-            self.setLedgerError("watch ledger load failed: \(String(describing: error))")
+            self.setLedgerError(AppStrings.ios_watch_store("\(String(describing: error))"))
         }
     }
 
@@ -353,7 +353,7 @@ private extension WatchSegmentLedger {
             try self.persist()
             self.lastLedgerError = nil
         } catch {
-            self.setLedgerError("watch ledger persist failed: \(String(describing: error))")
+            self.setLedgerError(AppStrings.ios_watch_pruneandpersist("\(String(describing: error))"))
         }
     }
 

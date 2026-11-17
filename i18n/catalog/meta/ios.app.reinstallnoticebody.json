@@ -1,0 +1,16 @@
+{
+  "description": "deleting the solstone app doesn't disconnect this device. to disconnect, forget this journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 93,
+  "source_revision": "ade22d78587f11800d08e1ca97b2eddabc0285ab6ea7fbfba217d502444b22d8",
+  "risk": "routine",
+  "auto_merge": true
+}

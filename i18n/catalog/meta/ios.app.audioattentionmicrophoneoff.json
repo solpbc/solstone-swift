@@ -1,0 +1,16 @@
+{
+  "description": "microphone access is off.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "4a1ad75a021d5af055ba29f72156a61de40d42efac86fe238aa590fbd5a08493",
+  "risk": "routine",
+  "auto_merge": true
+}

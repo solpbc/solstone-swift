@@ -9,60 +9,60 @@ import SafariServices
 /// Owner-facing words for the Safari source. Shared words (state words, block
 /// titles) come from `SourceVocabulary` and `LocationVocabulary`.
 nonisolated enum SafariVocabulary {
-    static let label = "Safari"
-    static let valueLine = "on the sites you allow in Safari, the solstone extension takes in the page's text and rough layout, and all of it goes into your journal."
-    static let stepTurnOn = "turn on the extension"
-    static let stepTurnOnBody = "one switch in Settings. flip it, then come back here."
-    static let stepTurnOnBodyWithLink = "flip Allow Extension in Settings. to put every site in your journal, also set All Websites (or Other Websites) to Allow, further down the same page. then come back here."
-    static let switchName = "Allow Extension"
-    static let openSettings = "open Settings"
-    static let notOnYet = "not on yet. if Settings opened somewhere else, go to Apps, Safari, Extensions, solstone. the switch is Allow Extension."
-    static let settingsByHand = "in Safari, open the page menu, then Manage Extensions, and turn on solstone."
-    static let settingsByHandPad = "in Safari, tap the extensions button in the address bar and turn on solstone."
-    static let stepChooseSites = "which sites do you want in your journal?"
-    static let chooseEverySite = "share every site"
-    static let chooseOneAtATime = "add sites one at a time"
-    static let everySiteBody = "with Allow Extension on, set All Websites (or Other Websites) to Allow in Settings. that's every website, including ones you visit later. you can leave sites out."
-    static let everySiteByHand = "in Settings, go to Apps, Safari, Extensions, solstone. with Allow Extension on, set All Websites (or Other Websites) to Allow. that's every website, including ones you visit later. you can leave sites out."
-    static let everySiteNext = "once it's set, open any site in Safari, then open solstone from the page menu to check it's on."
-    static let everySiteNextPad = "once it's set, open any site in Safari, then open solstone from the extensions button in the address bar to check it's on."
-    static let oneAtATimeOtherWebsites = "if All Websites (or Other Websites) is set to Allow in Settings, every site you don't leave out goes into your journal. set it back to Ask to add sites one at a time."
-    static let siteField = "which site?"
+    static let label = AppStrings.ios_safarisource_safari()
+    static let valueLine = AppStrings.ios_safarisource_valueline()
+    static let stepTurnOn = AppStrings.ios_safarisource_turnontheextension()
+    static let stepTurnOnBody = AppStrings.ios_safarisource_oneswitchinsettingsflip()
+    static let stepTurnOnBodyWithLink = AppStrings.ios_safarisource_flipallowextensioninsettings()
+    static let switchName = AppStrings.ios_safarisource_allowextension()
+    static let openSettings = AppStrings.ios_safarisource_opensettings()
+    static let notOnYet = AppStrings.ios_safarisource_notonyetifsettings()
+    static let settingsByHand = AppStrings.ios_safarisource_insafariopenthepage()
+    static let settingsByHandPad = AppStrings.ios_safarisource_insafaritaptheextensions()
+    static let stepChooseSites = AppStrings.ios_safarisource_whichsitesdoyouwant()
+    static let chooseEverySite = AppStrings.ios_safarisource_shareeverysite()
+    static let chooseOneAtATime = AppStrings.ios_safarisource_addsitesoneata()
+    static let everySiteBody = AppStrings.ios_safarisource_withallowextensiononset()
+    static let everySiteByHand = AppStrings.ios_safarisource_insettingsgotoapps()
+    static let everySiteNext = AppStrings.ios_safarisource_onceitssetopenany()
+    static let everySiteNextPad = AppStrings.ios_safarisource_onceitssetopenany2()
+    static let oneAtATimeOtherWebsites = AppStrings.ios_safarisource_ifallwebsitesorother()
+    static let siteField = AppStrings.ios_safarisource_whichsite()
     static let sitePlaceholder = "eff.org"
-    static let tapPageMenu = "page menu"
+    static let tapPageMenu = AppStrings.ios_safarisource_pagemenu()
     // On iPad, Safari keeps extensions behind a button in its address bar; its page menu lists none.
-    static let tapExtensions = "extensions"
-    static let tapSolstone = "solstone"
-    static let tapAdd = "add this site"
-    static let tapAlwaysAllow = "Always Allow"
-    static let safariAsks = "choose Always Allow so it keeps working when you come back."
+    static let tapExtensions = AppStrings.ios_safarisource_extensions()
+    static let tapSolstone = AppStrings.ios_push_test_title()
+    static let tapAdd = AppStrings.ios_safarisource_addthissite()
+    static let tapAlwaysAllow = AppStrings.ios_safarisource_alwaysallow()
+    static let safariAsks = AppStrings.ios_safarisource_choosealwaysallowsoit()
     /// On iPhone the page menu opens on its top items; the extensions sit below them.
-    static let safariAsksPhone = "solstone is further down the page menu. choose Always Allow so it keeps working when you come back."
-    static let openInSafari = "open in Safari"
-    static let working = "it's working."
-    static let workingBody = "your first page just came in. it's on its way to your journal."
-    static let addAnother = "add or leave out a site"
-    static let whileClosed = "while this is on, the solstone extension keeps taking in pages from the sites you allow, even when this app is closed. pages wait on this device and go into your journal the next time you open this app."
-    static let privateBrowsing = "the solstone extension takes in nothing from private browsing."
-    static let activeSubtextPaired = "adds pages from the sites you allow to your journal."
-    static let notPaired = "nothing is taken in until you pair."
-    static let awaitingMark = "starts once you confirm your journal's mark."
-    static let full = "this device is out of storage for Safari pages. free up some space and new pages go into your journal again."
-    static let fullCompact = "out of storage."
-    static let unreadable = "this app can't check for Safari pages on this device right now."
-    static let unreadableCompact = "can't check right now."
-    static let noPageYet = "no pages from Safari yet. on a site you want in your journal, open solstone from Safari's page menu and add it."
-    static let noPageYetPad = "no pages from Safari yet. on a site you want in your journal, open solstone from the extensions button in Safari's address bar and add it."
-    static let waiting = "some pages are waiting on this device."
-    static let nothingWaiting = "nothing from Safari is waiting on this device."
-    static let extensionOff = "the extension is off. turn it on in Settings to start intake."
-    static let manageInSettings = "turn it on or off in Settings. to put every site in your journal, set All Websites (or Other Websites) to Allow there. to change one site, open it, then open solstone from Safari's page menu."
-    static let manageInSettingsPad = "turn it on or off in Settings. to put every site in your journal, set All Websites (or Other Websites) to Allow there. to change one site, open it, then open solstone from the extensions button in Safari's address bar."
-    static let manageByHand = "to turn it on or off, in Safari, open the page menu, then Manage Extensions."
-    static let manageByHandPad = "to turn it on or off, in Safari, tap the extensions button in the address bar, then Manage Extensions."
+    static let safariAsksPhone = AppStrings.ios_safarisource_solstoneisfurtherdownthe()
+    static let openInSafari = AppStrings.ios_safarisource_openinsafari()
+    static let working = AppStrings.ios_safarisource_itsworking()
+    static let workingBody = AppStrings.ios_safarisource_yourfirstpagejustcame()
+    static let addAnother = AppStrings.ios_safarisource_addorleaveouta()
+    static let whileClosed = AppStrings.ios_safarisource_whileclosed()
+    static let privateBrowsing = AppStrings.ios_safarisource_privatebrowsing()
+    static let activeSubtextPaired = AppStrings.ios_safarisource_activesubtextpaired()
+    static let notPaired = AppStrings.ios_safarisource_notpaired()
+    static let awaitingMark = AppStrings.ios_safarisource_awaitingmark()
+    static let full = AppStrings.ios_safarisource_full()
+    static let fullCompact = AppStrings.ios_safarisource_fullcompact()
+    static let unreadable = AppStrings.ios_safarisource_unreadable()
+    static let unreadableCompact = AppStrings.ios_safarisource_unreadablecompact()
+    static let noPageYet = AppStrings.ios_safarisource_nopageyet()
+    static let noPageYetPad = AppStrings.ios_safarisource_nopagesfromsafariyet()
+    static let waiting = AppStrings.ios_safarisource_waiting()
+    static let nothingWaiting = AppStrings.ios_safarisource_nothingwaiting()
+    static let extensionOff = AppStrings.ios_safarisource_theextensionisoffturn()
+    static let manageInSettings = AppStrings.ios_safarisource_turnitonoroff()
+    static let manageInSettingsPad = AppStrings.ios_safarisource_turnitonoroff2()
+    static let manageByHand = AppStrings.ios_safarisource_toturnitonor()
+    static let manageByHandPad = AppStrings.ios_safarisource_toturnitonor2()
 
     static func waitingFor(_ site: String) -> String {
-        "waiting for a page from \(site)."
+        AppStrings.ios_safarisource_waitingforapagefrom("\(site)")
     }
 
     static func activeSubtext(isJournalPaired: Bool) -> String {
@@ -70,7 +70,7 @@ nonisolated enum SafariVocabulary {
     }
 
     static func lastPage(_ date: Date, now: Date = Date(), calendar: Calendar = .current) -> String {
-        "last page from Safari: \(CalendarVocabulary.lastCheckedTime(date, now: now, calendar: calendar))"
+        AppStrings.ios_safarisource_calendar("\(CalendarVocabulary.lastCheckedTime(date, now: now, calendar: calendar))")
     }
 }
 

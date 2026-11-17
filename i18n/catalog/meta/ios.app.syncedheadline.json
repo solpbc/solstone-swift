@@ -1,0 +1,16 @@
+{
+  "description": "all caught up",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.status.all.caught.up. Keep translations consistent. Mac counterpart: macos.desktopstatuspane.allcaughtup. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "a46d323846dda1933875664c8b76968391b5c075ca60832744f5b9881f81453c",
+  "risk": "routine",
+  "auto_merge": true
+}

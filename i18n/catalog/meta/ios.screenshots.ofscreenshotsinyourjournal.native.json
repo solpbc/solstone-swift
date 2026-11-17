@@ -1,0 +1,42 @@
+{
+  "description": "{done} of {total} screenshots in your journal",
+  "context": "Shown by Sources/Screenshots/ScreenshotsVocabulary.swift. Arguments preserve the existing presentation values. Mac counterpart: macos.screenshot.ofscreenshotsinyour. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "697632297f4fbe69b1652d35fa337043c1caa41cc25a98800a0b6d1d1ae44890",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "whitespace",
+      "value": " "
+    },
+    {
+      "name": "slot1",
+      "kind": "whitespace",
+      "value": " "
+    },
+    {
+      "name": "slot2",
+      "kind": "whitespace",
+      "value": " "
+    }
+  ]
+}

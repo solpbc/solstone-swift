@@ -1,0 +1,25 @@
+{
+  "description": "navigationGeneration={hole1} currentGeneration={generation}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "portal"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    },
+    {
+      "name": "generation",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 59,
+  "source_revision": "93f946dbada587164b545d443d7e6d5c687d0b3aa7eba2eb42e512787b371459",
+  "risk": "routine",
+  "auto_merge": true
+}

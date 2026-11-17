@@ -1,0 +1,16 @@
+{
+  "description": "finishing up in the background. you can switch away. the solstone app keeps syncing for as long as ios allows.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 110,
+  "source_revision": "e8c50e910d664a0364599318ac26d6c782272f2ef0bc6c2ce63d149e25447499",
+  "risk": "routine",
+  "auto_merge": true
+}

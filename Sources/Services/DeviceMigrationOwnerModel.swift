@@ -175,7 +175,7 @@ final class DeviceMigrationOwnerModel {
         let counts = Dictionary(grouping: self.replacementClients, by: \.displayLabel).mapValues(\.count)
         return self.replacementClients.map { client in
             let label = counts[client.displayLabel, default: 0] > 1
-                ? "\(client.displayLabel) · \(client.cid)"
+                ? AppStrings.ios_frame_devicemigrationownermodel_n178("\(client.displayLabel)", "\(client.cid)")
                 : client.displayLabel
             return (client, label)
         }

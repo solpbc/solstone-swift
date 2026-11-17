@@ -1,0 +1,21 @@
+{
+  "description": "failed {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "9b8fc2fd00abec3a2b4aa82cb56044aa706a5133fd6921492987ec2f58ba87be",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "something answered this device through the relay, and it isn't the journal this device is paired with. this is less certain than a direct connection.",
+  "context": "Existing native lookup unknown_journal.body.relay. Android counterpart: android.unknownjournal.bodyrelay. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "6aaf8315c71820daf38b437a0dc83bafb47688c0e658965b03b71143f9061605",
+  "risk": "routine",
+  "auto_merge": true
+}

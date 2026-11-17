@@ -1,0 +1,16 @@
+{
+  "description": "audio stopped itself",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "58ac9fd7ec60589090aa28d42c9bde92608ae4e6a9f2fbdeec6d94c4dc848afb",
+  "risk": "routine",
+  "auto_merge": true
+}

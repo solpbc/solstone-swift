@@ -1,0 +1,21 @@
+{
+  "description": "start audio in { $applicationName }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "applicationName",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "df3b52445a54f891b115169c0222044baef17fd0bb216e4c5ee471116690b161",
+  "risk": "routine",
+  "auto_merge": true
+}

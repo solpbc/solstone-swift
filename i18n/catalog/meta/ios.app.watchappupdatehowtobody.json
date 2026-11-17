@@ -1,0 +1,16 @@
+{
+  "description": "tap stop on your watch. then, still in solstone, press and hold the side button until the sliders appear, and press and hold the Digital Crown until the watch face appears. your wa",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 239,
+  "source_revision": "c6809e7a5c3565b9a697d2115b84bcc67b0d2b9f4c722848fadc985157af45a7",
+  "risk": "routine",
+  "auto_merge": true
+}

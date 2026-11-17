@@ -1,0 +1,16 @@
+{
+  "description": "needs a retry",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "2d0128bd60d80b123895254808eada7a59e18fddc8f2814b34492de0140ba63e",
+  "risk": "routine",
+  "auto_merge": true
+}

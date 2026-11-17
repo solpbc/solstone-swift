@@ -1,0 +1,37 @@
+{
+  "description": "matched {matched}, app-active-not-in-apple-queue {appActiveNotObserved}, duplicate {duplicate}, orphaned {orphaned}, unparseable {unparseable}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "matched",
+      "type": "string"
+    },
+    {
+      "name": "appActiveNotObserved",
+      "type": "string"
+    },
+    {
+      "name": "duplicate",
+      "type": "string"
+    },
+    {
+      "name": "orphaned",
+      "type": "string"
+    },
+    {
+      "name": "unparseable",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 142,
+  "source_revision": "64796484d57a2e0a69a01cdbea309a7b97ded4e9c4736542b2665661e5397ce9",
+  "risk": "routine",
+  "auto_merge": true
+}

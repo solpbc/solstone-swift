@@ -1,0 +1,16 @@
+{
+  "description": "upload failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "eb8661f8fd33d619f157d4bf5cb49c9b1dd475af6683229ea9fe09f72e91b78a",
+  "risk": "routine",
+  "auto_merge": true
+}

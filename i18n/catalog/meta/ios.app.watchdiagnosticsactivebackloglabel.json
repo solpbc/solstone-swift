@@ -1,0 +1,16 @@
+{
+  "description": "active backlog",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "3464b039372af6cd6372208948c410ed7b978d630537ffd8ca2ee4ae5dfb7d02",
+  "risk": "routine",
+  "auto_merge": true
+}

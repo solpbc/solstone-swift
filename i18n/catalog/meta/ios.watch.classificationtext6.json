@@ -1,0 +1,21 @@
+{
+  "description": "relay bundle bytes {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 26,
+  "source_revision": "d5472310c261f3c0845b0b7934a03625ac1c8a7ef8a24c9fd29702d9dedfc203",
+  "risk": "routine",
+  "auto_merge": true
+}

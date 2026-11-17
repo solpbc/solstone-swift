@@ -1,0 +1,25 @@
+{
+  "description": "source={path} unresolved={unresolved}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    },
+    {
+      "name": "unresolved",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 37,
+  "source_revision": "797f82b1f670e12dcac2d8b725be3b5e6d1664d21c4764348acca64e200dba8d",
+  "risk": "routine",
+  "auto_merge": true
+}

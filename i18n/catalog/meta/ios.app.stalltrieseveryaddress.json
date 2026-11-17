@@ -1,0 +1,16 @@
+{
+  "description": "tries every address your journal gave this phone.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 49,
+  "source_revision": "b015e333fddd79ff50277487db1c3ce889d01e66c13e09ff67fca85fb5d1cf70",
+  "risk": "routine",
+  "auto_merge": true
+}

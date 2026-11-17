@@ -1,0 +1,16 @@
+{
+  "description": "waiting for the system sheet",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "b33020097465c40449fea83c21064cd8307a13dfff2fcc0fa7b4e10148383fec",
+  "risk": "routine",
+  "auto_merge": true
+}

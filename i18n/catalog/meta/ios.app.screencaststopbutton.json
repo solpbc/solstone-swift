@@ -1,0 +1,16 @@
+{
+  "description": "stop screen",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "51707bf1570bc72a947604330b050525963df5cec788acdad728650567d83176",
+  "risk": "routine",
+  "auto_merge": true
+}

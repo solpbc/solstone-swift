@@ -1,0 +1,16 @@
+{
+  "description": "mobile segment resume failed stage=resume",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "c95006953b2a4a3328ada43b0320e748f8b768599d73b5d57c2ad55b0512f6ba",
+  "risk": "routine",
+  "auto_merge": true
+}

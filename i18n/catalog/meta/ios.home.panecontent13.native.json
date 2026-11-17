@@ -1,0 +1,16 @@
+{
+  "description": "probing in progress",
+  "context": "Shown by Sources/Home/StatusPane.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "0b9de7958d974227e9704085234154d429288c2a8e99c3c078478d2db35676ef",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "watch ledger load failed: {String_describing_error}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "String_describing_error",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 51,
+  "source_revision": "bf185c1085467c62404b1eafd340ce19d03fabbbb6432b10870569cdaf000d1c",
+  "risk": "routine",
+  "auto_merge": true
+}

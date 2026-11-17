@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app hasn't checked in",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "e706951e95dc8628ee40ae3948a4c4cbbd2acbc679a3d06e680d565a08bb82a6",
+  "risk": "routine",
+  "auto_merge": true
+}

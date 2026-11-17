@@ -1,0 +1,16 @@
+{
+  "description": "install the solstone app from the Watch app",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "b27eb21be79a4ccc06419fd94f628c1a58cc61c90c7f3f7053652de565d2ad22",
+  "risk": "routine",
+  "auto_merge": true
+}

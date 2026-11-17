@@ -1,0 +1,16 @@
+{
+  "description": "stay connected",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "10421fc07c87e67e5fc1551deac911bcd037fe8d74d7c43815eba8ef6d4e5bdc",
+  "risk": "routine",
+  "auto_merge": true
+}

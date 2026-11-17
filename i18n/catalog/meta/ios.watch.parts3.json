@@ -1,0 +1,21 @@
+{
+  "description": "segment {uuidString}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "uuidString",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "91d3825c85dc29fd9af76e051eab642360c586bc1ab8f89b477c74c281ee9149",
+  "risk": "routine",
+  "auto_merge": true
+}

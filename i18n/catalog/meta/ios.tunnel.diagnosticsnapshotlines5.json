@@ -1,0 +1,16 @@
+{
+  "description": "last known journal listener: unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 40,
+  "source_revision": "c097231e7ee46bfe0d29b7962f5743ef7d8430bad32ca7f97cc61dc17ecb2f53",
+  "risk": "routine",
+  "auto_merge": true
+}

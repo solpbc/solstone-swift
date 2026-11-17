@@ -129,7 +129,7 @@ nonisolated enum DefaultTransferBodyBuilder {
                 guard let savedPath = item.manifest.saveThenStart?.savedPath, !savedPath.isEmpty,
                       let savedTimestamp = item.manifest.saveThenStart?.savedTimestamp, !savedTimestamp.isEmpty
                 else {
-                    throw TransferBodyBuildError.malformedManifest("missing save result")
+                    throw TransferBodyBuildError.malformedManifest(AppStrings.ios_transfer_missingsaveresult())
                 }
                 let body = TransferStartRequestBody(
                     path: savedPath,
@@ -393,7 +393,7 @@ actor TransferEngine {
 
     /// Attention reason earlier builds stored when the journal answered `segment_removed`.
     static let removedInJournalReason = "removed_in_journal"
-    static let removedInJournalDetail = "removed in journal"
+    static let removedInJournalDetail = AppStrings.ios_transfer_removedinjournaldetail()
 
     /// Earlier builds kept a segment the journal answered `segment_removed` in attention, with
     /// its payload. That answer is confirmation, so on launch each such item goes the way a
@@ -440,7 +440,7 @@ actor TransferEngine {
                         nextState: .delivered,
                         outcome: .hookFailed,
                         attempt: 0,
-                        shortDetail: "hook failed",
+                        shortDetail: AppStrings.ios_transfer_hookfailed(),
                         at: self.clock.wallNow()
                     ))
                 }
@@ -648,7 +648,7 @@ actor TransferEngine {
                 attempt: 0,
                 detail: detail
             )
-            self.scheduleStatusUpdate(summary: "needs attention")
+            self.scheduleStatusUpdate(summary: AppStrings.ios_transfer_needsattention())
             return moved.manifest.itemID
         } catch {
             self.queuedItems.removeValue(forKey: committed.manifest.itemID)
@@ -1321,7 +1321,7 @@ actor TransferEngine {
                 case .written(let url, let byteCount):
                     let onDisk = try self.spool.byteCount(at: url)
                     guard onDisk == byteCount else {
-                        throw TransferBodyBuildError.malformedManifest("body length mismatch")
+                        throw TransferBodyBuildError.malformedManifest(AppStrings.ios_transfer_bodylengthmismatch())
                     }
                     bodyURL = url
                 }
@@ -1560,7 +1560,7 @@ actor TransferEngine {
             } catch {
                 retryItem = TransferStoredItem(manifest: updatedManifest, directoryURL: item.directoryURL)
                 self.queuedItems[itemID] = retryItem
-                retryDetail = "retry persistence failed"
+                retryDetail = AppStrings.ios_transfer_retrydetail()
                 transferLog.notice("transfer retry persistence failed \(itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)")
             }
             self.noteError(sourceKey: item.manifest.sourceKey, detail: retryDetail)
@@ -1759,7 +1759,7 @@ actor TransferEngine {
             let currentManifest = self.queuedItems[itemID]?.manifest ?? item.manifest
             let updatedManifest = currentManifest.replacingNextAttemptAt(nextAttemptAt)
             var retryItem = self.queuedItems[itemID] ?? item
-            var retryDetail = "retry persistence failed"
+            var retryDetail = AppStrings.ios_transfer_retrydetail()
             do {
                 let updated = try self.spool.updateQueuedManifest(updatedManifest, directoryURL: item.directoryURL)
                 self.queuedItems[itemID] = updated
@@ -1785,23 +1785,23 @@ actor TransferEngine {
     private func receiptShortDetail(for token: String) -> String {
         switch token {
         case "receipt_sha256":
-            "a file in this recording doesn't match what your journal has. it's still on your phone."
+            AppStrings.ios_transfer_receiptshortdetail2()
         case "receipt_size":
-            "a file in this recording is a different size than what your journal has. it's still on your phone."
+            AppStrings.ios_transfer_receiptshortdetail3()
         case "receipt_disposition":
-            "your journal has this recording but hasn't kept the file. it's still on your phone."
+            AppStrings.ios_transfer_receiptshortdetail6()
         case "receipt_missing_part":
-            "your journal's receipt is missing a file from this recording. it's still on your phone."
+            AppStrings.ios_transfer_receiptshortdetail7()
         case "receipt_extra_part":
-            "your journal's receipt names a file this recording didn't send. it's still on your phone."
+            AppStrings.ios_transfer_receiptshortdetail8()
         case "receipt_duplicate_part":
-            "your journal's receipt names the same file more than once. it's still on your phone."
+            AppStrings.ios_transfer_receiptshortdetail9()
         case "receipt_absent":
-            "your journal didn't confirm the files in this recording. it's still on your phone."
+            AppStrings.ios_transfer_receiptshortdetail5()
         case "payload_unreadable":
-            "a file in this recording couldn't be read. it's still on your phone."
+            AppStrings.ios_transfer_receiptshortdetail()
         default:
-            "this recording needs attention. it's still on your phone."
+            AppStrings.ios_transfer_receiptshortdetail4()
         }
     }
 
@@ -1965,14 +1965,14 @@ private extension TransferEngine {
         self.policyPaused = paused
         if paused {
             let thermal = self.conditions?.current().thermalState ?? .nominal
-            let detail = "thermal \(thermalStateString(thermal))"
+            let detail = AppStrings.ios_transfer_detail2("\(thermalStateString(thermal))")
             self.emitEngineEvent(outcome: .paused, detail: detail)
             transferLog.notice("transfer policy paused \(detail, privacy: .public)")
             self.scheduleStatusUpdate(summary: detail)
         } else {
-            self.emitEngineEvent(outcome: .resumed, detail: "policy resumed")
+            self.emitEngineEvent(outcome: .resumed, detail: AppStrings.ios_transfer_applypolicypause())
             transferLog.notice("transfer policy resumed")
-            self.scheduleStatusUpdate(summary: "policy resumed")
+            self.scheduleStatusUpdate(summary: AppStrings.ios_transfer_applypolicypause())
         }
     }
 
@@ -2108,7 +2108,7 @@ private extension TransferEngine {
                     nextState: .delivered,
                     outcome: .hookFailed,
                     attempt: attempt,
-                    shortDetail: "hook failed",
+                    shortDetail: AppStrings.ios_transfer_hookfailed(),
                     at: at
                 ))
             }
@@ -2144,19 +2144,19 @@ private extension TransferEngine {
             guard item.manifest.payloadParts.count == 1,
                   let part = item.manifest.payloadParts.first
             else {
-                throw TransferBodyBuildError.malformedManifest("save requires one payload")
+                throw TransferBodyBuildError.malformedManifest(AppStrings.ios_transfer_saverequiresonepayload())
             }
             switch part.kind {
             case .text, .file:
                 return
             case .audio, .location, .screen:
-                throw TransferBodyBuildError.malformedManifest("unsupported save payload")
+                throw TransferBodyBuildError.malformedManifest(AppStrings.ios_transfer_unsupportedsavepayload())
             }
         case .start(let state):
             guard let savedPath = state?.savedPath, !savedPath.isEmpty,
                   let savedTimestamp = state?.savedTimestamp, !savedTimestamp.isEmpty
             else {
-                throw TransferBodyBuildError.malformedManifest("missing save result")
+                throw TransferBodyBuildError.malformedManifest(AppStrings.ios_transfer_missingsaveresult())
             }
         }
     }
@@ -2168,13 +2168,13 @@ private extension TransferEngine {
         self.clearInFlight(itemID: item.manifest.itemID, sourceKey: item.manifest.sourceKey)
         self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
         transferLog.notice("transfer body unavailable \(item.manifest.itemID.uuidString, privacy: .public) \(detail, privacy: .public)")
-        self.scheduleStatusUpdate(summary: "needs attention")
+        self.scheduleStatusUpdate(summary: AppStrings.ios_transfer_needsattention())
     }
 
     func markEndpointHeld(detail: String) {
         guard !self.endpointHeld else { return }
         self.endpointHeld = true
-        self.emitEngineEvent(outcome: .held, detail: "held: endpoint unavailable")
+        self.emitEngineEvent(outcome: .held, detail: AppStrings.ios_transfer_markendpointheld())
         transferLog.notice("transfer endpoint unavailable \(detail, privacy: .public)")
         self.scheduleStatusUpdate(summary: "held")
     }
@@ -2182,7 +2182,7 @@ private extension TransferEngine {
     func markEndpointAvailable() {
         guard self.endpointHeld else { return }
         self.endpointHeld = false
-        self.emitEngineEvent(outcome: .resumed, detail: "resumed: endpoint available")
+        self.emitEngineEvent(outcome: .resumed, detail: AppStrings.ios_transfer_markendpointavailable())
         transferLog.notice("transfer endpoint available")
         self.scheduleStatusUpdate(summary: "resumed")
     }
@@ -2281,17 +2281,17 @@ private extension TransferEngine {
         if let bodyError = error as? TransferBodyBuildError {
             switch bodyError {
             case .missingObserverMetadata:
-                return .malformedManifest("missing source details")
+                return .malformedManifest(AppStrings.ios_transfer_missingsourcedetails())
             case .missingPayload(let detail):
                 return .missingPayload(detail)
             case .malformedManifest(let detail):
                 return .malformedManifest(detail)
             case .saveRequestUnsupported:
-                return .malformedManifest("save request unsupported")
+                return .malformedManifest(AppStrings.ios_transfer_attentionreason())
             }
         }
         if error is ObserverIngestMultipartBodyError {
-            return .missingPayload("source file")
+            return .missingPayload(AppStrings.ios_transfer_attentionreason2())
         }
         return .missingPayload(String(describing: error))
     }

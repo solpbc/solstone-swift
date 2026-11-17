@@ -1,0 +1,16 @@
+{
+  "description": "a daily summary of how the solstone app ran will appear here, and a report if it quits unexpectedly or gets stuck.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 114,
+  "source_revision": "1fb0846c32d8b14be8e8915f49384cc8259a101bbfff9d45f189a095c0ff30df",
+  "risk": "routine",
+  "auto_merge": true
+}

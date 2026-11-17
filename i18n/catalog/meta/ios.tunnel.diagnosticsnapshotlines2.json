@@ -1,0 +1,21 @@
+{
+  "description": "candidate outcomes omitted: {omitted}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "omitted",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 37,
+  "source_revision": "9bd6aebaa19ab351d795d8c1fb11d68e8c97b925ae7241eafafb169867e310aa",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "membership undetermined",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "90ac1f6ce27ad72e94d4e0dba4811324b820ea2073f59d71e629a24da4ba1db2",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "asks ios for access to your calendars.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 38,
+  "source_revision": "5a8828fefa6f2d587e8bc72e10f735b4a82ed2f90e7486ce4d760858c114694b",
+  "risk": "routine",
+  "auto_merge": true
+}

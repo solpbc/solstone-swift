@@ -1,0 +1,16 @@
+{
+  "description": "import failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "66c9d18276fa4e0519feaf5caf8e228c69710484f75640e0c9c673d22376901f",
+  "risk": "routine",
+  "auto_merge": true
+}

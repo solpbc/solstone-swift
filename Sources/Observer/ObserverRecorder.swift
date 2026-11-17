@@ -189,7 +189,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
     }
 
     func start(url: URL, segmentID: UUID, sessionID: UUID, mode _: ObserverMode) async throws -> ObserverRecordingStartResult {
-        guard self.writer == nil else { throw ObserverError.unavailable(reason: "audio input unavailable") }
+        guard self.writer == nil else { throw ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable()) }
         if let workerTask {
             _ = await workerTask.result
         }
@@ -199,7 +199,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
               Self.isValidRecordingFormat(format)
         else {
             self.deactivateOwnedSession()
-            throw ObserverError.unavailable(reason: "audio input unavailable")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
         }
 
         PhoneAudioWriterLease.acquire(segmentID)
@@ -248,7 +248,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         guard let format = Self.validatedTapFormat(self.recordingFormat),
               Self.isValidRecordingFormat(format)
         else {
-            throw ObserverError.unavailable(reason: "unsupported audio format")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_rotate())
         }
 
         self.engine.pause()
@@ -382,7 +382,7 @@ final class LiveObserverRecorder: NSObject, ObserverRecording {
         guard let format = Self.validatedTapFormat(self.recordingFormat),
               Self.isValidRecordingFormat(format)
         else {
-            throw ObserverError.unavailable(reason: "audio input unavailable")
+            throw ObserverError.unavailable(reason: AppStrings.ios_observer_audioinputunavailable())
         }
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: self.tapState.makeTapBlock())
         self.engine.prepare()

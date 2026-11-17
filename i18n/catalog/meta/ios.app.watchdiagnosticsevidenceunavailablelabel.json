@@ -1,0 +1,16 @@
+{
+  "description": "evidence unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "614daa9c633cb6dbc33f8f52bf0449dd6944b8f37220a43ebc11230e187ccdbf",
+  "risk": "routine",
+  "auto_merge": true
+}

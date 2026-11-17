@@ -1,0 +1,16 @@
+{
+  "description": "taking in audio on your watch",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "2cb22a5f660e818e3cbf2cc652aebf036f671e954c4d56e91e640d277316f3aa",
+  "risk": "routine",
+  "auto_merge": true
+}

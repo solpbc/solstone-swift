@@ -1,0 +1,25 @@
+{
+  "description": "{ $value0 } { $value1 }",
+  "context": "Native presentation in Sources/SourceVocabulary.swift. Complete frame; arguments carry already formatted display values. Preserve protocol mark words, addresses, identifiers and raw diagnostic values inside arguments. The translator may reorder the named values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "797f937c9e2817cc6d7106b65cfa810785bdebe2726b5db83d81574e701e0817",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "SolstoneNotificationService",
+  "context": "Bundle metadata for SolstoneNotificationService: CFBundleDisplayName.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "15032df2d5eed64a0d614779797b24ef8f69b37d3129ea0cfc2747fd441a5dbd",
+  "risk": "routine",
+  "auto_merge": true
+}

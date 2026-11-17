@@ -1,0 +1,16 @@
+{
+  "description": "ios isn't allowing finish syncing right now.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 44,
+  "source_revision": "7effdb7787e72eb69aaad4a8c9bc4959a37c4d8daa117a2d1040f4eaa9dca3d8",
+  "risk": "routine",
+  "auto_merge": true
+}

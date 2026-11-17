@@ -1,0 +1,16 @@
+{
+  "description": "same device",
+  "context": "Existing native lookup migration.choice.same.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "edd285f5966595bbf0426c7d4a5542266a6b25faf567997b902730f9f41bc8ac",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "transfer rate",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "1bf0ec498b0546708c281ba84c1f28f4cc74144a23e70edf20674e61510be54b",
+  "risk": "routine",
+  "auto_merge": true
+}

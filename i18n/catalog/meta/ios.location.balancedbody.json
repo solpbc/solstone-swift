@@ -1,0 +1,16 @@
+{
+  "description": "your stops, plus the shape of how you move between them.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 56,
+  "source_revision": "ebdbb2b3c881423d0efe8f0ebca373c8e870a6393387332bf6a13b0a65b8782f",
+  "risk": "routine",
+  "auto_merge": true
+}

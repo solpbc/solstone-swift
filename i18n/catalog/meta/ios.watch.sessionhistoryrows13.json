@@ -1,0 +1,16 @@
+{
+  "description": "thermal at last check",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "6c767050bb5b3643b961f87a9dfa91a2a5a9678190653bf55792ffef0a72c190",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "ready to set up",
+  "context": "the solstone app, speaking to the owner. the words stay. the code stops matching them. branch on the enum or the row id. Android counterpart: android.source.ready.set.up. Keep translations consistent. Mac counterpart: macos.desktopshellmodel.readytosetup. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "4cc1b74ea3e8d33468614712786377f76d444ecd29f55627f36c204febea024e",
+  "risk": "routine",
+  "auto_merge": true
+}

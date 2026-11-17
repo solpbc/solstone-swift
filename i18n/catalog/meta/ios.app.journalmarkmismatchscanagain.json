@@ -1,0 +1,16 @@
+{
+  "description": "scan again",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.scan.again. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 10,
+  "source_revision": "b2880b64551b10beb48b967ead5949ca9626ad3cb5ca2f0bf5eaab9728904122",
+  "risk": "routine",
+  "auto_merge": true
+}

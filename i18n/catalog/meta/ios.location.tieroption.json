@@ -1,0 +1,16 @@
+{
+  "description": "Chooses places only for location.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "53fb00b16e23e98c213080e2c7bfdb87503973e5036597db3e680ed5f23ac9f3",
+  "risk": "routine",
+  "auto_merge": true
+}

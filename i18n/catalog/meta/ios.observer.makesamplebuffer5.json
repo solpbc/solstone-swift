@@ -1,0 +1,16 @@
+{
+  "description": "sample buffer create failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "e5faad456b1c4d3febebbebb0aa8bbb8e86c3fe7225c7b2252b044a696746c96",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "your journal asked this device to reconnect.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 44,
+  "source_revision": "368bc1f2c9ac9c1a71b82853facb254e889e5243d9595ce6f634dfe579240b8e",
+  "risk": "routine",
+  "auto_merge": true
+}

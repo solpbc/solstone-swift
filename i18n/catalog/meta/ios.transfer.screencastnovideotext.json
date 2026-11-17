@@ -1,0 +1,16 @@
+{
+  "description": "no screen video was saved",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "b52a3d8e1e3f0d4729d30c20481b2d4513f0b87dcad27eea22b0013c80987b4c",
+  "risk": "routine",
+  "auto_merge": true
+}

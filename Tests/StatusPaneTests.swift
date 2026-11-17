@@ -74,10 +74,9 @@ nonisolated final class StatusPaneTests: XCTestCase {
     }
 
     func testAddressesTriedRowRendersTheOwnerLines() throws {
-        let text = try String(
-            contentsOf: StringLiteralGrepSupport.worktreeRoot()
-                .appendingPathComponent("Sources/Home/StatusPane.swift"),
-            encoding: .utf8
+        let text = try StringCatalogTestSource.read(
+            StringLiteralGrepSupport.worktreeRoot()
+                .appendingPathComponent("Sources/Home/StatusPane.swift")
         )
         let row = try Self.slice(
             in: text,
@@ -89,10 +88,9 @@ nonisolated final class StatusPaneTests: XCTestCase {
     }
 
     func testConnectionDetailsRequireAnActiveTunnelDespitePairedStaleContext() throws {
-        let text = try String(
-            contentsOf: StringLiteralGrepSupport.worktreeRoot()
-                .appendingPathComponent("Sources/Home/StatusPane.swift"),
-            encoding: .utf8
+        let text = try StringCatalogTestSource.read(
+            StringLiteralGrepSupport.worktreeRoot()
+                .appendingPathComponent("Sources/Home/StatusPane.swift")
         )
         let gate = try Self.slice(
             in: text,
@@ -290,10 +288,9 @@ nonisolated final class StatusPaneTests: XCTestCase {
     }
 
     func testStatusPaneAwaitingMarkConfirmationMarkup() throws {
-        let text = try String(
-            contentsOf: StringLiteralGrepSupport.worktreeRoot()
-                .appendingPathComponent("Sources/Home/StatusPane.swift"),
-            encoding: .utf8
+        let text = try StringCatalogTestSource.read(
+            StringLiteralGrepSupport.worktreeRoot()
+                .appendingPathComponent("Sources/Home/StatusPane.swift")
         )
 
         XCTAssertTrue(text.contains("shell.pane.status.awaitingMarkConfirmation"))

@@ -1,0 +1,16 @@
+{
+  "description": "you have a new notification.",
+  "context": "Local notification-service default when a delivered notification cannot be opened. This fallback is app-owned copy, separate from the imported PushMessages catalog and its contract. Preserve the English source until an approved language is adopted. Android counterpart: android.push.fallbackbody. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "9a6293ac7b2a4b738aeb799a0813a09410fe69b292e3f847ea786692c2bfa38d",
+  "risk": "routine",
+  "auto_merge": true
+}

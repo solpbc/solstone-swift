@@ -1,0 +1,16 @@
+{
+  "description": "refused items: app version is the short version only and cannot tell builds of one version apart",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 96,
+  "source_revision": "e41d3eef20e224561d4875407112311382e1e8e515f9ff67e0241e782a39f51e",
+  "risk": "routine",
+  "auto_merge": true
+}

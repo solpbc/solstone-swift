@@ -1,0 +1,16 @@
+{
+  "description": "this device is out of storage for Safari pages. free up some space and new pages go into your journal again.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 108,
+  "source_revision": "4624c955301cb808ac90339fb3dd6ae7c31f6d5315b4a65fb48acca420808ba5",
+  "risk": "routine",
+  "auto_merge": true
+}

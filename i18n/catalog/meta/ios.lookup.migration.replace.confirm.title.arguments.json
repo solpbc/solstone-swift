@@ -1,0 +1,21 @@
+{
+  "description": "replace \"{ $selected_device_label }\"?",
+  "context": "Existing native lookup migration.replace_confirm.title. Named placeholders are runtime arguments.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "selected_device_label",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ae455626b741e70bfcd1211497579286758197271a1f946a1c20803736bb139d",
+  "risk": "routine",
+  "auto_merge": true
+}

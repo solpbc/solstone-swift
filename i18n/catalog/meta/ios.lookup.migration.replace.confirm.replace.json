@@ -1,0 +1,16 @@
+{
+  "description": "replace device",
+  "context": "Existing native lookup migration.replace_confirm.replace. Mac counterpart: macos.desktop.shared.copy.replacedevice. Keep translations consistent. Android counterpart: android.phone.replace.device. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "800200af9b5acbf1067df3b9e1592f3662ca4e42433bcbf3544da16d5b5559a6",
+  "risk": "routine",
+  "auto_merge": true
+}

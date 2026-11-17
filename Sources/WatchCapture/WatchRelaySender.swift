@@ -683,7 +683,7 @@ private extension WatchRelaySender {
             let failure = preparation.attemptFailure ?? WatchConnectivityTransferFailureSnapshot(
                 domain: NSCocoaErrorDomain,
                 code: NSFileWriteUnknownError,
-                boundedRedactedDescription: "unknown attempt persistence failure"
+                boundedRedactedDescription: AppStrings.ios_watch_transfer()
             )
             watchRelaySenderLog.error(
                 "watch relay attempt record write failed id=\(manifest.id.uuidString, privacy: .public): \(failure.boundedRedactedDescription, privacy: .public)"

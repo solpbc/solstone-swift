@@ -1,0 +1,16 @@
+{
+  "description": "check connection",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.shelf.check.connection. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "c4a9b736ecc8fe6b6f19fabbaa9d82024e49d3024414fbc65912e391d1ca551c",
+  "risk": "routine",
+  "auto_merge": true
+}

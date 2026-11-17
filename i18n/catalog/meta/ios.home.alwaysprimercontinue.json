@@ -1,0 +1,16 @@
+{
+  "description": "continue",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.obsidian.continue. Keep translations consistent. Mac counterpart: macos.desktop.shared.copy.setupcontinue. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 8,
+  "source_revision": "cacd477d0f0714ce579bdb1040df9a4afc7d8a6776827adef662c920b61a4b6f",
+  "risk": "routine",
+  "auto_merge": true
+}

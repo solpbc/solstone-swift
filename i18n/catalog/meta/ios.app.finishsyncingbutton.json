@@ -1,0 +1,16 @@
+{
+  "description": "enable background for this sync",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "8e07828d774abb23924f5c0d0ca5beed329b9305c8be57a165d76fe908f42151",
+  "risk": "routine",
+  "auto_merge": true
+}

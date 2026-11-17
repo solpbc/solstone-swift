@@ -1,0 +1,16 @@
+{
+  "description": "cancelled",
+  "context": "the solstone app, speaking to the owner. Mac counterpart: macos.setupdownloadfooter.cancelled, macos.setupdownloadpresentation.cancelled. Keep translations consistent.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 9,
+  "source_revision": "6ebbcfda9ddf2fd288b585c626fc93e31ab756e00c3ca8101423b365b814cd92",
+  "risk": "routine",
+  "auto_merge": true
+}

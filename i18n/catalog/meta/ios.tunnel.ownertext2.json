@@ -1,0 +1,16 @@
+{
+  "description": "couldn't connect",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "25bdfc0d7a5253bf4375ebf7e21c98a21465dbc2681b2309ac7a2d3559b30931",
+  "risk": "routine",
+  "auto_merge": true
+}

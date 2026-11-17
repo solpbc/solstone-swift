@@ -1,0 +1,16 @@
+{
+  "description": "Turns interface haptics on or off",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "4fb4120577c7f75e01f6ace978267263c8b455e9ace87fecf12682200eeb3faa",
+  "risk": "routine",
+  "auto_merge": true
+}

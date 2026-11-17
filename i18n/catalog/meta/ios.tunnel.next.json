@@ -1,0 +1,29 @@
+{
+  "description": "broker wait: active {age}s, reraces {reraceCount}, next in {next}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "age",
+      "type": "string"
+    },
+    {
+      "name": "reraceCount",
+      "type": "string"
+    },
+    {
+      "name": "next",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 65,
+  "source_revision": "065e099cee49b6fcdeacce9abd59670c6c105657f5df135db0da36cc1e7de685",
+  "risk": "routine",
+  "auto_merge": true
+}

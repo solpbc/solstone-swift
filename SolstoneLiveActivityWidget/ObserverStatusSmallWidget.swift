@@ -16,8 +16,8 @@ struct ObserverStatusSmallWidget: Widget {
             ObserverStatusSmallView(entry: entry)
         }
         .supportedFamilies([.systemSmall])
-        .configurationDisplayName("one source")
-        .description("pick a source and see its state.")
+        .configurationDisplayName(AppStrings.ios_liveactivity_body4())
+        .description(AppStrings.ios_liveactivity_body5())
     }
 }
 
@@ -40,9 +40,9 @@ private struct ObserverStatusSmallView: View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: "questionmark.circle")
                 .font(.title2)
-            Text("audio")
+            Text(AppStrings.ios_app_audio())
                 .font(.headline)
-            Text("waiting to sync")
+            Text(AppStrings.ios_liveactivity_waitingtosync())
                 .font(.caption)
         }
         .redacted(reason: .placeholder)
@@ -92,7 +92,7 @@ private struct ObserverStatusSmallView: View {
             // sources, so the member does not resolve here even though its file is.
             SourceVocabulary.onThisPhoneObserverAudioSourceLabel
         case .location:
-            "location"
+            AppStrings.ios_location_sourcedisplayname()
         case .screencast:
             SourceVocabulary.screencastDisplayName
         case .watch, .calendar, .safari, .obsidian, .screenshots, nil:

@@ -1,0 +1,16 @@
+{
+  "description": "nothing here is backed up yet. connect a journal to keep a copy.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 64,
+  "source_revision": "5c196e280c9bab3cf741aa12b1dfe4b6474adceb629ccd5fae2b340fcfc7b620",
+  "risk": "routine",
+  "auto_merge": true
+}

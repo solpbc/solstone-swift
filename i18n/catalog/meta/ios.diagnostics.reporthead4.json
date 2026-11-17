@@ -1,0 +1,16 @@
+{
+  "description": "recent journal link events (last 7 days):",
+  "context": "the solstone app, speaking to the owner. the number is fixed in the English or chosen with a conditional. use one cardinal select, or one enum whose branches contain the fixed number.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "3e38a8128149abac97b0adb374850bbf177b5c3753f0ee0e46e1bfcf3216e273",
+  "risk": "routine",
+  "auto_merge": true
+}

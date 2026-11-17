@@ -1,0 +1,16 @@
+{
+  "description": "trying…",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "onthisphoneitemdetailviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 7,
+  "source_revision": "f6ac2cc92794a5e0cf3dca9655f450b73f824a490e0207ad44ae1b21ae889fbe",
+  "risk": "routine",
+  "auto_merge": true
+}

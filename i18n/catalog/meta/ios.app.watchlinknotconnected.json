@@ -1,0 +1,16 @@
+{
+  "description": "phone link: out of range",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "315a4cd68cc13235dc4d53ee1ec253cc000589c3bd2572211a75470db8e23132",
+  "risk": "routine",
+  "auto_merge": true
+}

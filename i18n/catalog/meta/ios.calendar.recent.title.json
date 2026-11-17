@@ -1,0 +1,25 @@
+{
+  "description": "{ $kind } · { $title }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "kind",
+      "type": "string"
+    },
+    {
+      "name": "title",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "cf10c8b3daa7be928317ac5c5ad3e8c95e0bf8c01a795ddde75510b9216c53e7",
+  "risk": "routine",
+  "auto_merge": true
+}

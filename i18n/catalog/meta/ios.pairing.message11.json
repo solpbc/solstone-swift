@@ -1,0 +1,16 @@
+{
+  "description": "the relay connected to the wrong journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "430d1fd655d415b76b07fb5a74ed3f5a38ca5beb5e41d3a7b43bee21ef0d20d6",
+  "risk": "routine",
+  "auto_merge": true
+}

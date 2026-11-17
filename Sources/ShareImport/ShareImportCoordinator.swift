@@ -34,11 +34,11 @@ protocol ShareImportQueueing: AnyObject {
 extension ShareImportStore: ShareImportQueueing {}
 
 nonisolated enum ShareImportCopy {
-    static let dismiss = "dismiss"
-    static let savedAccessibilityLabel = "saved"
+    static let dismiss = AppStrings.ios_app_dismiss()
+    static let savedAccessibilityLabel = AppStrings.ios_shareimportcoordinator_saved()
 
     static func failureMessage(plainReason: String) -> String {
-        "couldn't save this — \(plainReason). nothing was added."
+        AppStrings.ios_share_failuremessage("\(plainReason)")
     }
 
     static func batchCounts(for results: [ShareImportResult]) -> (saved: Int, failed: Int) {
@@ -64,14 +64,14 @@ nonisolated enum ShareImportCopy {
         case (1, 0):
             Self.savedAccessibilityLabel
         case (let saved, 0) where saved > 1:
-            "saved \(saved) of \(saved)"
+            AppStrings.ios_share_batchstatus2_native("\(saved)", "\(saved)")
         case (let saved, let failed) where saved > 0 && failed > 0:
-            "\(saved) saved · \(failed) couldn't"
+            AppStrings.ios_share_batchstatus3_native("\(saved)", "\(failed)")
         case (0, 1):
             // The caller renders the single failed item's reason-rich copy directly.
             ""
         case (0, let failed) where failed > 1:
-            "couldn't save \(failed) items — nothing was added."
+            AppStrings.ios_share_batchstatus_native("\(failed)")
         default:
             ""
         }
@@ -88,15 +88,15 @@ nonisolated enum ShareImportFailure: Equatable, Sendable {
     var plainReason: String {
         switch self {
         case .noRoom:
-            "not enough space"
+            AppStrings.ios_share_plainreason3()
         case .unreadable:
-            "couldn't read it"
+            AppStrings.ios_share_plainreason()
         case .unsupported:
-            "unsupported file type"
+            AppStrings.ios_share_plainreason5()
         case .protected:
-            "protected file"
+            AppStrings.ios_share_plainreason4()
         case .undecodable:
-            "couldn't read the image"
+            AppStrings.ios_share_plainreason2()
         }
     }
 

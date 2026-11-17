@@ -1,0 +1,21 @@
+{
+  "description": "unknown ingest status {status}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "status",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 30,
+  "source_revision": "b1d33ca20a84e8976219b0eb76ea5eda7fb2c40940d69a55f3c9ea7b4b239dec",
+  "risk": "routine",
+  "auto_merge": true
+}

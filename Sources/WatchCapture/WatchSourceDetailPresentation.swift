@@ -223,7 +223,7 @@ nonisolated enum WatchSourceDetailPresentation {
         index: Int,
         total: Int
     ) -> String {
-        "step \(index + 1) of \(total), \(step.title), \(self.accessibilityText(for: step.state))"
+        AppStrings.ios_watch_setupstepaccessibilitylabel_native("\(index + 1)", "\(total)", "\(step.title)", "\(self.accessibilityText(for: step.state))")
     }
 
     static func pipelineGroups(_ rows: [WatchSourceDetailRow]) -> [WatchPipelineRowGroup] {

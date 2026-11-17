@@ -1,0 +1,60 @@
+{
+  "description": "  { $name } stuck: { $reason }, { $detail } ({ $age } ago, { $count } item)",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    },
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "reason",
+      "type": "string"
+    },
+    {
+      "name": "detail",
+      "type": "string"
+    },
+    {
+      "name": "age",
+      "type": "string"
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 1000,
+  "source_revision": "bc2963a4e9c85434f11950c0134fe733738ae63fd80182c05101d9f0d13d31a0",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "space0",
+      "kind": "whitespace",
+      "value": "  "
+    },
+    {
+      "name": "space1",
+      "kind": "whitespace",
+      "value": "  "
+    },
+    {
+      "name": "space2",
+      "kind": "whitespace",
+      "value": "  "
+    }
+  ],
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

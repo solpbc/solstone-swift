@@ -1,0 +1,16 @@
+{
+  "description": "a request was turned away because your journal was handling too many at once. sending retries automatically. if a page did not load, try opening it again.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 154,
+  "source_revision": "27773b290fe8e7cc6210e5c26537309fd2098bea755c39aa90ceb01879c28572",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "adds pages from the sites you allow to your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 52,
+  "source_revision": "51b99b7072dbecba633a5ad1564dde32844d954447214cce459a9427d88e335f",
+  "risk": "routine",
+  "auto_merge": true
+}

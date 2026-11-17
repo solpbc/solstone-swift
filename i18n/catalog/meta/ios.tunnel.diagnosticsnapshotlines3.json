@@ -1,0 +1,21 @@
+{
+  "description": "connected through: {connectedAddress}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "connectedAddress",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 37,
+  "source_revision": "53c37552c2ae2ae0cc9191d667c2a5954e00e6433bfa563814d40106a99e4548",
+  "risk": "routine",
+  "auto_merge": true
+}

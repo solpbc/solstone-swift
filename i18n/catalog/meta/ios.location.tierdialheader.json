@@ -1,0 +1,16 @@
+{
+  "description": "how much of your day to keep",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "c27410db56aada44ebd9e44b9cc149c9f09a7f1abbcb8f17157e50b9475c1c47",
+  "risk": "routine",
+  "auto_merge": true
+}

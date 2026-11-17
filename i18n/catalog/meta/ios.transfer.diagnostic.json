@@ -1,0 +1,21 @@
+{
+  "description": "ignored undeclared screencast artifact segment={uuidString} source=screencast",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "uuidString",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 77,
+  "source_revision": "2b2ae00b40248c96af3a699856f3ee6056694b891c8c87c995441f9978049364",
+  "risk": "routine",
+  "auto_merge": true
+}

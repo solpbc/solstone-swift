@@ -1,0 +1,16 @@
+{
+  "description": "session disconnected during connect",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "services"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "8b62c0673c0d6cf0c82172ed4cd8142c019bb6a7dd4ef66afc09d60a79f5f41c",
+  "risk": "routine",
+  "auto_merge": true
+}

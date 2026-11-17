@@ -1,0 +1,16 @@
+{
+  "description": "your first audio memory is getting ready",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 40,
+  "source_revision": "6cf339b9c08d576afb8c88030d08df3f8435dc6ad030060f81c30e567dfeca12",
+  "risk": "routine",
+  "auto_merge": true
+}

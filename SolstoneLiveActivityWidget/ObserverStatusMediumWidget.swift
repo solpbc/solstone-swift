@@ -12,8 +12,8 @@ struct ObserverStatusMediumWidget: Widget {
             ObserverStatusMediumView(entry: entry)
         }
         .supportedFamilies([.systemMedium])
-        .configurationDisplayName("your sources")
-        .description("audio, location, screen and watch, with how much is waiting to sync.")
+        .configurationDisplayName(AppStrings.ios_liveactivity_body7())
+        .description(AppStrings.ios_liveactivity_body())
     }
 }
 
@@ -37,9 +37,9 @@ private struct ObserverStatusMediumView: View {
             Image(systemName: "questionmark.circle")
                 .font(.title2)
             VStack(alignment: .leading, spacing: 6) {
-                Text("audio")
+                Text(AppStrings.ios_app_audio())
                     .font(.headline)
-                Text("waiting to sync")
+                Text(AppStrings.ios_liveactivity_waitingtosync())
                     .font(.caption)
             }
             Spacer()

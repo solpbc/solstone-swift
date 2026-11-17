@@ -1,0 +1,16 @@
+{
+  "description": "iPhone → Watch recognized ACK",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "1f9a4b8676854eb150bf72c2c37d3d8752dca66cec29ee870835d5e881f067a3",
+  "risk": "routine",
+  "auto_merge": true
+}

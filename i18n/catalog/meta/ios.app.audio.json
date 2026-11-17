@@ -1,0 +1,16 @@
+{
+  "description": "audio",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.phone.audio. Keep translations consistent. Mac counterpart: macos.desktopshellmodel.audio. Keep translations consistent.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 5,
+  "source_revision": "929cb175f5d80d0063f1a0bdd273a7c58de76cd63ced85efe22565b9c6b1938f",
+  "risk": "routine",
+  "auto_merge": true
+}

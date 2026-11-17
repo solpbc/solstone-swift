@@ -88,12 +88,12 @@ struct SolstoneLiveActivityWidget: Widget {
     /// ⛔ Not an error symbol. This renders when capture has ended, which is a normal outcome
     /// and usually one the owner asked for. It was `exclamationmark.triangle.fill`.
     fileprivate static let endedGlyph = "waveform.slash"
-    fileprivate static let stopButtonTitle = "stop audio"
-    fileprivate static let backlogSuffix = "waiting to sync"
-    fileprivate static let unavailableLabel = "can't check what's waiting"
+    fileprivate static let stopButtonTitle = AppStrings.ios_liveactivity_stopbuttontitle()
+    fileprivate static let backlogSuffix = AppStrings.ios_liveactivity_waitingtosync()
+    fileprivate static let unavailableLabel = AppStrings.ios_liveactivity_unavailablelabel()
     /// "activity" is Apple's noun for the container, not ours for the thing. The owner turned
     /// audio on; this tells them it is off.
-    fileprivate static let staleLabel = "audio ended"
+    fileprivate static let staleLabel = AppStrings.ios_liveactivity_stalelabel()
 
     fileprivate static func modeGlyph(for rawMode: String, isStale: Bool) -> String {
         isStale ? Self.endedGlyph : Self.liveGlyph
@@ -129,7 +129,7 @@ struct SolstoneLiveActivityWidget: Widget {
     fileprivate static func backlogLabel(for backlogCount: Int?) -> String {
         guard let backlogCount else { return Self.unavailableLabel }
         // Count first, matching how the deck already says it (`DayHomeView`).
-        return "\(backlogCount) \(Self.backlogSuffix)"
+        return AppStrings.ios_presentation_solstoneliveactivitywidget_n4("\(backlogCount)", "\(Self.backlogSuffix)")
     }
 }
 
@@ -166,7 +166,7 @@ private extension SolstoneLiveActivityContentView {
             .font(.title2)
             .foregroundStyle(Color.solOrange)
             VStack(alignment: .leading, spacing: 4) {
-                Text("solstone")
+                Text(AppStrings.ios_push_test_title())
                     .font(.custom("Comfortaa-Bold", size: 18, relativeTo: .headline))
                 Text(SolstoneLiveActivityWidget.presentationLabel(for: self.context))
                     .font(.subheadline)

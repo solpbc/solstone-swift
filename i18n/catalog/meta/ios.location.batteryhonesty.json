@@ -1,0 +1,16 @@
+{
+  "description": "fuller settings run in the background and use more battery. ios shows its location arrow whenever location is on.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 113,
+  "source_revision": "210b7a02e8380bf3e921fc0b2d4fa73ab4b96706aea2dec132004e3da81f565d",
+  "risk": "routine",
+  "auto_merge": true
+}

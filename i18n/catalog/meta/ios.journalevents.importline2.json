@@ -1,0 +1,21 @@
+{
+  "description": "Import: failed, {reason}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "journalevents"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "reason",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "5cb29910ebfa134fee9ce5aa0a1c70a4899fa943a23ced21c58f9bb8b8a797f1",
+  "risk": "routine",
+  "auto_merge": true
+}

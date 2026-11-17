@@ -1,0 +1,16 @@
+{
+  "description": "a call or another app took the microphone. resume when it's free.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 65,
+  "source_revision": "6d005b6d7929db22137bb75c84cf579c85cab0308542a289211a922ab27a1052",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "offline",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.source.offline. Keep translations consistent.",
+  "surfaces": [
+    "connection"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 7,
+  "source_revision": "26c08223707237777e26074e31b245efb7421c2db12eedce46ec68e1784ab3b4",
+  "risk": "routine",
+  "auto_merge": true
+}

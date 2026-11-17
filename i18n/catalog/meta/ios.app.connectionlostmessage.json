@@ -1,0 +1,16 @@
+{
+  "description": "lost the connection to your journal. keep the solstone app open and try again.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journal.lost.connection.journal.keep.solstone. Keep translations consistent.",
+  "surfaces": [
+    "journalwebpresentationswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 78,
+  "source_revision": "abacdd29b71f9f0d2c780f11d8ae78e06b56f3554c63ff5e32957916d3ea6635",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "mobile segment owner removal failed segment={uuidString}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "uuidString",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 56,
+  "source_revision": "31895faedd2a57b0ca8de6565c6cf4d1d1a515312aef4e4646c5ffa5920ac3c8",
+  "risk": "routine",
+  "auto_merge": true
+}

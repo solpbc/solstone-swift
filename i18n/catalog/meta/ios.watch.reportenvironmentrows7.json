@@ -1,0 +1,16 @@
+{
+  "description": "iphone low power at report time",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "fa563abd6e958efe0446e67d403252fe66c8ffefd6d62a3990d37b3d31ee3ac3",
+  "risk": "routine",
+  "auto_merge": true
+}

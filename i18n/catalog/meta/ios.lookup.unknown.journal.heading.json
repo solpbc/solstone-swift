@@ -1,0 +1,16 @@
+{
+  "description": "something answered instead of your journal",
+  "context": "Existing native lookup unknown_journal.heading. Mac counterpart: macos.ui.somethingansweredinsteadof. Keep translations consistent. Android counterpart: android.unknownjournal.somethingansweredinsteadjournal. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "db60a7297e2ca5f6900528d2376a5411b0e25389c48dd628ca359067a48665e6",
+  "risk": "routine",
+  "auto_merge": true
+}

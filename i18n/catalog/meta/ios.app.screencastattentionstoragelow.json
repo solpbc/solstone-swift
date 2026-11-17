@@ -1,0 +1,16 @@
+{
+  "description": "this device is low on storage.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 30,
+  "source_revision": "72b6f46a46907939f106e7051775c756cef12025ba486dbfb519de1e39788556",
+  "risk": "routine",
+  "auto_merge": true
+}

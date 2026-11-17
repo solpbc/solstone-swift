@@ -1,0 +1,16 @@
+{
+  "description": "Uses places plus comings and goings from now on. This is the recommended default.",
+  "context": "Shown by Sources/Location/LocationSourceDetailView.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "0f92461a9975c9ebd0490e8f3247256acf92bac3127da3e2c65c220ae53130b8",
+  "risk": "routine",
+  "auto_merge": true
+}

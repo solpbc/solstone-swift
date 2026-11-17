@@ -1,0 +1,16 @@
+{
+  "description": "event log",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.shelf.event.log. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 9,
+  "source_revision": "00993851f79f2c15694d362bc01e3d269e6416c1ec41032015c2c763f186bb79",
+  "risk": "routine",
+  "auto_merge": true
+}

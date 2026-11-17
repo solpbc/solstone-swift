@@ -42,7 +42,7 @@ nonisolated struct WatchRelayBundleReceipt: Codable, Equatable, Sendable {
             guard let bitPattern = UInt64(encoded) else {
                 throw DecodingError.dataCorruptedError(
                     in: container,
-                    debugDescription: "invalid modification-date bit pattern"
+                    debugDescription: AppStrings.ios_watch_makedecoder()
                 )
             }
             return Date(timeIntervalSince1970: Double(bitPattern: bitPattern))

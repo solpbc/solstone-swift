@@ -1,0 +1,16 @@
+{
+  "description": "your journal's receipt names the same file more than once. it's still on your phone.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 84,
+  "source_revision": "b19a214a140264e507239ee2978a726f5c3d7c5ee344b4832abf7c9537606d4b",
+  "risk": "payment",
+  "auto_merge": false
+}

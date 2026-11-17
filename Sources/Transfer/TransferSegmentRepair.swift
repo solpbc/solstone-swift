@@ -360,3 +360,16 @@ nonisolated struct SegmentRepairTally: Codable, Equatable, Sendable {
         value >= Int.max ? Int.max : Swift.max(0, value) + 1
     }
 }
+
+nonisolated extension TransferSegmentRepair.AudioIssue {
+    var displayLabel: String {
+        switch self {
+        case .needsVerification: AppStrings.ios_display_transfersegmentrepairaudioissue_needsverification()
+        case .missingAudio: AppStrings.ios_display_transfersegmentrepairaudioissue_missingaudio()
+        case .unreadableAudio: AppStrings.ios_display_transfersegmentrepairaudioissue_unreadableaudio()
+        case .invalidDuration: AppStrings.ios_display_transfersegmentrepairaudioissue_invalidduration()
+        case .durationMismatch: AppStrings.ios_display_transfersegmentrepairaudioissue_durationmismatch()
+        case .writeFailure: AppStrings.ios_display_transfersegmentrepairaudioissue_writefailure()
+        }
+    }
+}

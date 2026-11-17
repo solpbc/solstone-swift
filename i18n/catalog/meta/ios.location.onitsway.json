@@ -1,0 +1,16 @@
+{
+  "description": "on its way",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 10,
+  "source_revision": "a3042c3cc241485d248cd7704ede301542bed69ccadcb5c13b006d2c5d028c26",
+  "risk": "routine",
+  "auto_merge": true
+}

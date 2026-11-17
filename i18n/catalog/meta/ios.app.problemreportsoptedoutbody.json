@@ -1,0 +1,16 @@
+{
+  "description": "turn them on to keep a daily summary of how the app ran on this device, and a report if it quits unexpectedly or gets stuck.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 124,
+  "source_revision": "fbc20aacff52dab9997287b4b7b92d8f9698d1349a1dafccceac6cd1aee52a41",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "starts once you confirm your journal's mark.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 44,
+  "source_revision": "6bbaa4a9d27e87e573b1c53c2f72506a8ababf4bafea54ff65821efb9c5f7942",
+  "risk": "routine",
+  "auto_merge": true
+}

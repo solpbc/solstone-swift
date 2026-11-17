@@ -1,0 +1,16 @@
+{
+  "description": "solstone",
+  "context": "Bundle metadata for SolstoneShareExtension: CFBundleDisplayName. Mac counterpart: macos.about.solstone, macos.info.cfbundledisplayname, macos.info.cfbundlename. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "bf38593db11de7fe3f5a21bc5fad9ba9de265ad0f9c30825d125df8f075566a3",
+  "risk": "routine",
+  "auto_merge": true
+}

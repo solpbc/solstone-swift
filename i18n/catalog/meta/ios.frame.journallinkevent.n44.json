@@ -1,0 +1,33 @@
+{
+  "description": "{ $value0 } { $value1 }: { $value2 }. { $value3 }",
+  "context": "Native presentation in Sources/Diagnostics/JournalLinkEvent.swift. Complete frame; arguments carry already formatted display values. Preserve protocol mark words, addresses, identifiers and raw diagnostic values inside arguments. The translator may reorder the named values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    },
+    {
+      "name": "value2",
+      "type": "string"
+    },
+    {
+      "name": "value3",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "1ed158f2ef719265f0c2e1fa38f2e051cbe47be19f4cb177d61b67583f68e605",
+  "risk": "routine",
+  "auto_merge": true
+}

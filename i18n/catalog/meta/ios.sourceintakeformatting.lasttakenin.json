@@ -1,0 +1,16 @@
+{
+  "description": "last taken in",
+  "context": "Shown by Sources/SourceIntake/SourceIntakeFormatting.swift. Arguments preserve the existing presentation values. Mac counterpart: macos.desktopsource.lasttakenin. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "6a5679bb1aa24b027e11e7f13eccc45ce52465cb84c65db986bb74c5e77e617d",
+  "risk": "routine",
+  "auto_merge": true
+}

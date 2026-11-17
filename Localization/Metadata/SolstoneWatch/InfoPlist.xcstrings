@@ -1,0 +1,36 @@
+{
+  "sourceLanguage": "en-US",
+  "version": "1.0",
+  "strings": {
+    "CFBundleDisplayName": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "solstone"
+          }
+        }
+      }
+    },
+    "NSMicrophoneUsageDescription": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the solstone app takes in the audio from a moment you start on your watch. what you share stays on the watch until it can go to your iphone, and from there into your journal."
+          }
+        }
+      }
+    },
+    "NSLocationWhenInUseUsageDescription": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the solstone app takes in where you are, as part of what you share with it during a moment you start on your watch. what you share stays on the watch until it can go to your iphone, and from there into your journal."
+          }
+        }
+      }
+    }
+  }
+}

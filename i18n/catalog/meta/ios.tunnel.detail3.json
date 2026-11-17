@@ -1,0 +1,16 @@
+{
+  "description": "endpoint: /app/network/api/status; non-http response",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 52,
+  "source_revision": "ff19e87cb1e1ac2ab9de5211d90c16dcabbb28221137991898ad0bd24422089e",
+  "risk": "routine",
+  "auto_merge": true
+}

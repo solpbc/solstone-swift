@@ -31,7 +31,7 @@ enum MobileSegmentTransferSpoolMigrator {
         do {
             try store.ensureRoot()
         } catch {
-            self.emit(diagnosticLog, detail: "source=\(store.rootURL.path) reason=ensure-root failed")
+            self.emit(diagnosticLog, detail: AppStrings.ios_transfer_sourcereasonensurerootfailed("\(store.rootURL.path)"))
             return
         }
 
@@ -59,7 +59,7 @@ enum MobileSegmentTransferSpoolMigrator {
                     try fileManager.removeItem(at: observerCacheRootURL)
                 } catch {
                     unresolved += 1
-                    self.emit(diagnosticLog, detail: "source=\(observerCacheRootURL.path) reason=remove-root failed")
+                    self.emit(diagnosticLog, detail: AppStrings.ios_transfer_migrate("\(observerCacheRootURL.path)"))
                 }
             }
         }
@@ -83,11 +83,11 @@ enum MobileSegmentTransferSpoolMigrator {
             try fileManager.moveItem(at: sourceURL, to: destination)
             self.emit(
                 diagnosticLog,
-                detail: "source=\(sourceURL.path) quarantine=\(destination.path) reason=\(reason)"
+                detail: AppStrings.ios_transfer_sourcequarantinereason_native("\(sourceURL.path)", "\(destination.path)", "\(reason)")
             )
             return 1
         } catch {
-            self.emit(diagnosticLog, detail: "source=\(sourceURL.path) reason=quarantine failed")
+            self.emit(diagnosticLog, detail: AppStrings.ios_transfer_sourcereasonquarantinefailed("\(sourceURL.path)"))
             mobileSegmentTransferMigrationLog.error("mobile segment quarantine failed source=\(sourceURL.path, privacy: .public): \(String(describing: error), privacy: .public)")
             return 0
         }
@@ -112,7 +112,7 @@ private extension MobileSegmentTransferSpoolMigrator {
         do {
             failed = try store.list(.failed)
         } catch {
-            self.emit(diagnosticLog, detail: "source=\(store.directoryURL(.failed).path) reason=list failed")
+            self.emit(diagnosticLog, detail: AppStrings.ios_transfer_sourcereasonlistfailed("\(store.directoryURL(.failed).path)"))
             return 1
         }
 
@@ -127,7 +127,7 @@ private extension MobileSegmentTransferSpoolMigrator {
                     directory,
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
-                    reason: "manifest unreadable",
+                    reason: AppStrings.ios_transfer_manifestunreadable(),
                     fileManager: fileManager
                 )
                 if quarantined == 0 {
@@ -150,7 +150,7 @@ private extension MobileSegmentTransferSpoolMigrator {
                 _ = try store.move(segmentID: segmentID, from: .failed, to: .pending)
             } catch {
                 unresolved += 1
-                self.emit(diagnosticLog, detail: "source=\(directory.path) reason=reclassify failed")
+                self.emit(diagnosticLog, detail: AppStrings.ios_transfer_reclassifyfailedsegments("\(directory.path)"))
                 mobileSegmentTransferMigrationLog.error("mobile segment failed-dir reclassify failed source=\(directory.path, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         }
@@ -169,7 +169,7 @@ private extension MobileSegmentTransferSpoolMigrator {
             try fileManager.removeItem(at: directory)
             return 0
         } catch {
-            self.emit(diagnosticLog, detail: "source=\(directory.path) reason=remove failed")
+            self.emit(diagnosticLog, detail: AppStrings.ios_transfer_deletebackgroundbodies("\(directory.path)"))
             return 1
         }
     }
@@ -185,7 +185,7 @@ private extension MobileSegmentTransferSpoolMigrator {
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
-            self.emit(diagnosticLog, detail: "source=\(observerCacheRootURL.path) reason=list failed")
+            self.emit(diagnosticLog, detail: AppStrings.ios_transfer_sourcereasonlistfailed("\(observerCacheRootURL.path)"))
             return 1
         }
 
@@ -197,7 +197,7 @@ private extension MobileSegmentTransferSpoolMigrator {
                     audioURL,
                     quarantineRootURL: quarantineRootURL,
                     diagnosticLog: diagnosticLog,
-                    reason: "size unavailable",
+                    reason: AppStrings.ios_transfer_quarantineobserverresidue(),
                     fileManager: fileManager
                 )
                 if quarantined == 0 {
@@ -210,11 +210,11 @@ private extension MobileSegmentTransferSpoolMigrator {
                     try fileManager.removeItem(at: audioURL)
                 } catch {
                     unresolved += 1
-                    self.emit(diagnosticLog, detail: "source=\(audioURL.path) reason=zero-byte discard failed")
+                    self.emit(diagnosticLog, detail: AppStrings.ios_transfer_quarantineobserverresidue2("\(audioURL.path)"))
                 }
                 continue
             }
-            let reason = self.canProbe(audioURL, fileManager: fileManager) ? "stray chunk" : "probe failed"
+            let reason = self.canProbe(audioURL, fileManager: fileManager) ? AppStrings.ios_transfer_quarantineobserverresidue3_native() : AppStrings.ios_presentation_mobilesegmenttransferspoolmigrator_n24()
             let quarantined = self.quarantine(
                 audioURL,
                 quarantineRootURL: quarantineRootURL,
@@ -252,6 +252,6 @@ private extension MobileSegmentTransferSpoolMigrator {
     }
 
     static func emit(_ diagnosticLog: DiagnosticLog?, detail: String) {
-        diagnosticLog?.append(category: .upload, severity: .warning, message: "needs attention", detail: detail)
+        diagnosticLog?.append(category: .upload, severity: .warning, message: AppStrings.ios_presentation_mobilesegmenttransferspoolmigrator_n29(), detail: detail)
     }
 }

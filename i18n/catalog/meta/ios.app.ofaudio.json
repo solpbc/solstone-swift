@@ -1,0 +1,21 @@
+{
+  "description": "{duration} of audio",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "duration",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "935cc41ee8ae2b4e09f604f50bf68a2ab24da5067ac4b4a3f7314a40d084071b",
+  "risk": "routine",
+  "auto_merge": true
+}

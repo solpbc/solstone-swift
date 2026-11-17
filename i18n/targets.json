@@ -1,0 +1,162 @@
+{
+  "info": {
+    "solstone-swift": {
+      "CFBundleDisplayName": {
+        "id": "ios.metadata.solstoneswift.cfbundledisplayname",
+        "where": "settings"
+      },
+      "NSMicrophoneUsageDescription": {
+        "id": "ios.metadata.solstoneswift.nsmicrophoneusagedescription",
+        "where": "settings"
+      },
+      "NSLocalNetworkUsageDescription": {
+        "id": "ios.metadata.solstoneswift.nslocalnetworkusagedescription",
+        "where": "settings"
+      },
+      "NSLocationWhenInUseUsageDescription": {
+        "id": "ios.metadata.solstoneswift.nslocationwheninuseusagedescription",
+        "where": "settings"
+      },
+      "NSLocationAlwaysAndWhenInUseUsageDescription": {
+        "id": "ios.metadata.solstoneswift.nslocationalwaysandwheninuseusagedescription",
+        "where": "settings"
+      },
+      "NSCameraUsageDescription": {
+        "id": "ios.metadata.solstoneswift.nscamerausagedescription",
+        "where": "settings"
+      },
+      "NSPhotoLibraryUsageDescription": {
+        "id": "ios.metadata.solstoneswift.nsphotolibraryusagedescription",
+        "where": "settings"
+      },
+      "NSCalendarsFullAccessUsageDescription": {
+        "id": "ios.metadata.solstoneswift.nscalendarsfullaccessusagedescription",
+        "where": "settings"
+      }
+    },
+    "SolstoneSafariExtension": {
+      "CFBundleDisplayName": {
+        "id": "ios.metadata.solstonesafariextension.cfbundledisplayname",
+        "where": "properties"
+      }
+    },
+    "SolstoneNotificationService": {
+      "CFBundleDisplayName": {
+        "id": "ios.metadata.solstonenotificationservice.cfbundledisplayname",
+        "where": "settings"
+      }
+    },
+    "SolstoneShareExtension": {
+      "CFBundleDisplayName": {
+        "id": "ios.metadata.solstoneshareextension.cfbundledisplayname",
+        "where": "settings"
+      }
+    },
+    "SolstoneBroadcastExtension": {
+      "CFBundleDisplayName": {
+        "id": "ios.metadata.solstonebroadcastextension.cfbundledisplayname",
+        "where": "properties"
+      }
+    },
+    "SolstoneLiveActivityWidget": {
+      "CFBundleDisplayName": {
+        "id": "ios.metadata.solstoneliveactivitywidget.cfbundledisplayname",
+        "where": "settings"
+      }
+    },
+    "SolstoneWatch": {
+      "CFBundleDisplayName": {
+        "id": "ios.metadata.solstonewatch.cfbundledisplayname",
+        "where": "settings"
+      },
+      "NSMicrophoneUsageDescription": {
+        "id": "ios.metadata.solstonewatch.nsmicrophoneusagedescription",
+        "where": "properties"
+      },
+      "NSLocationWhenInUseUsageDescription": {
+        "id": "ios.metadata.solstonewatch.nslocationwheninuseusagedescription",
+        "where": "properties"
+      }
+    },
+    "SolstoneWatchComplication": {
+      "CFBundleDisplayName": {
+        "id": "ios.metadata.solstonewatchcomplication.cfbundledisplayname",
+        "where": "settings"
+      }
+    },
+    "SolstoneWatchTests": {},
+    "solstone-swiftTests": {},
+    "solstone-swiftUITests": {}
+  },
+  "aliases": {
+    "migration.choice.title": "ios.lookup.migration.choice.title",
+    "migration.choice.body": "ios.lookup.migration.choice.body.arguments",
+    "migration.choice.same": "ios.lookup.migration.choice.same",
+    "migration.choice.new": "ios.lookup.migration.choice.new",
+    "migration.choice.defer": "ios.lookup.migration.choice.defer",
+    "migration.replace_offer.title": "ios.lookup.migration.replace.offer.title",
+    "migration.replace_offer.body": "ios.lookup.migration.replace.offer.body",
+    "migration.replace_offer.pick": "ios.lookup.migration.replace.offer.pick",
+    "migration.replace_offer.keep": "ios.lookup.migration.replace.offer.keep",
+    "migration.replace_offer.defer": "ios.lookup.migration.replace.offer.defer",
+    "migration.picker.title": "ios.lookup.migration.picker.title",
+    "migration.picker.empty": "ios.lookup.migration.picker.empty",
+    "migration.picker.cancel": "ios.lookup.migration.picker.cancel",
+    "migration.replace_confirm.title": "ios.lookup.migration.replace.confirm.title.arguments",
+    "migration.replace_confirm.body": "ios.lookup.migration.replace.confirm.body",
+    "migration.replace_confirm.replace": "ios.lookup.migration.replace.confirm.replace",
+    "migration.replace_confirm.cancel": "ios.lookup.migration.replace.confirm.cancel",
+    "migration.pending.row": "ios.lookup.migration.pending.row",
+    "migration.pending.value": "ios.lookup.migration.pending.value",
+    "migration.preparing.title": "ios.lookup.migration.preparing.title",
+    "migration.preparing.body": "ios.lookup.migration.preparing.body",
+    "migration.offline.title": "ios.lookup.migration.offline.title",
+    "migration.offline.body": "ios.lookup.migration.offline.body",
+    "migration.offline.action": "ios.lookup.migration.offline.action",
+    "migration.unsupported.title": "ios.lookup.migration.unsupported.title",
+    "migration.unsupported.body": "ios.lookup.migration.unsupported.body",
+    "migration.unsupported.action": "ios.lookup.migration.unsupported.action",
+    "migration.storage_unavailable.title": "ios.lookup.migration.storage.unavailable.title",
+    "migration.storage_unavailable.body": "ios.lookup.migration.storage.unavailable.body",
+    "migration.storage_unavailable.action": "ios.lookup.migration.storage.unavailable.action",
+    "migration.deciding.title": "ios.lookup.migration.deciding.title",
+    "migration.decision_unknown.title": "ios.lookup.migration.decision.unknown.title",
+    "migration.decision_unknown.body": "ios.lookup.migration.decision.unknown.body",
+    "migration.decision_unknown.action": "ios.lookup.migration.decision.unknown.action",
+    "migration.list_unavailable.title": "ios.lookup.migration.list.unavailable.title",
+    "migration.list_unavailable.body": "ios.lookup.migration.list.unavailable.body",
+    "migration.list_unavailable.action": "ios.lookup.migration.list.unavailable.action",
+    "migration.target_missing.title": "ios.lookup.migration.target.missing.title",
+    "migration.target_missing.body": "ios.lookup.migration.target.missing.body",
+    "migration.target_missing.action": "ios.lookup.migration.target.missing.action",
+    "migration.decision_refused.title": "ios.lookup.migration.decision.refused.title",
+    "migration.decision_refused.body": "ios.lookup.migration.decision.refused.body",
+    "migration.decision_refused.action": "ios.lookup.migration.decision.refused.action",
+    "migration.key_refused.title": "ios.lookup.migration.key.refused.title",
+    "migration.key_refused.body": "ios.lookup.migration.key.refused.body",
+    "migration.key_refused.action": "ios.lookup.migration.key.refused.action",
+    "migration.choice.body_fallback": "ios.lookup.migration.choice.body.fallback",
+    "migration.replace_confirm.title_fallback": "ios.lookup.migration.replace.confirm.title.fallback",
+    "pair_flow.not_changed.title": "ios.lookup.pair.flow.not.changed.title",
+    "pair_flow.not_changed.body": "ios.lookup.pair.flow.not.changed.body",
+    "about.licenses": "ios.lookup.about.licenses",
+    "unknown_journal.row.direct": "ios.lookup.unknown.journal.row.direct.arguments",
+    "unknown_journal.row.relay": "ios.lookup.unknown.journal.row.relay",
+    "unknown_journal.expand": "ios.lookup.unknown.journal.expand",
+    "unknown_journal.heading": "ios.lookup.unknown.journal.heading",
+    "unknown_journal.body.direct": "ios.lookup.unknown.journal.body.direct.arguments",
+    "unknown_journal.body.relay": "ios.lookup.unknown.journal.body.relay",
+    "unknown_journal.label.what_answered": "ios.lookup.unknown.journal.label.what.answered",
+    "unknown_journal.label.your_journal": "ios.lookup.unknown.journal.label.your.journal",
+    "unknown_journal.caption.claimed": "ios.lookup.unknown.journal.caption.claimed",
+    "unknown_journal.caption.no_identity": "ios.lookup.unknown.journal.caption.no.identity",
+    "unknown_journal.slot.spoken": "ios.lookup.unknown.journal.slot.spoken",
+    "unknown_journal.slot.word_1": "ios.lookup.unknown.journal.slot.word.n1",
+    "unknown_journal.slot.word_2": "ios.lookup.unknown.journal.slot.word.n2"
+  },
+  "shortcuts": [
+    "ios.shortcuts.audio.on",
+    "ios.shortcuts.audio.start",
+    "ios.shortcuts.audio.after"
+  ]
+}

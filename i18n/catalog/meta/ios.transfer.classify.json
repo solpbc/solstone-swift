@@ -1,0 +1,16 @@
+{
+  "description": "missing http response",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "6f7b9d73f3500fa080acecc27a3f77cec00aecdb1beac5da5ee06d82fa59a472",
+  "risk": "routine",
+  "auto_merge": true
+}

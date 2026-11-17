@@ -1,0 +1,21 @@
+{
+  "description": "tunnel reconnects (last 5m): {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 36,
+  "source_revision": "2a2ec5b1b3013fe2f9df66d44cf13a88ed2eda4eb22754eb0b0d4bee515f7b26",
+  "risk": "routine",
+  "auto_merge": true
+}

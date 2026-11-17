@@ -12,16 +12,8 @@ nonisolated enum ScreencastDetailPresentation {
         pending: Int,
         failed: Int
     ) -> ScreencastDeliverySummary {
-        if failed > 0 {
-            let phrase = failed == 1 ? "stretch of screen needs attention." : "stretches of screen need attention."
-            return ScreencastDeliverySummary(line: "\(failed) \(phrase)")
-        }
-
-        if pending > 0 {
-            let phrase = pending == 1 ? "stretch of screen on the way to your journal." : "stretches of screen on the way to your journal."
-            return ScreencastDeliverySummary(line: "\(pending) \(phrase)")
-        }
-
-        return ScreencastDeliverySummary(line: "nothing waiting right now.")
-    }
+        if failed > 0 { return ScreencastDeliverySummary(line: AppStrings.ios_delivery_screen_attention(failed)) }
+        if pending > 0 { return ScreencastDeliverySummary(line: AppStrings.ios_delivery_screen_sending(pending)) }
+        return ScreencastDeliverySummary(line: LocationVocabulary.deliveryQuietLine)
+}
 }

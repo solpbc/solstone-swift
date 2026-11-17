@@ -29,10 +29,10 @@ actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
 
     func resolve(_ descriptor: TransferEndpointDescriptor) async -> TransferEndpointResolution {
         guard descriptor.destinationKind == .observerIngest || descriptor.destinationKind == .saveThenStart else {
-            return .unavailable("unsupported endpoint")
+            return .unavailable(AppStrings.ios_observer_resolve2())
         }
         guard let port = self.activeLocalPort else {
-            return .unavailable("waiting")
+            return .unavailable(AppStrings.ios_observer_stallwaitinglabel())
         }
         let snapshot = self.credentials.snapshot()
         guard let pairing = snapshot.pairing,
@@ -44,7 +44,7 @@ actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
             return .unavailable("journal-send-held")
         }
         guard let baseURL = ObserverServerURL.url(localPort: port, path: "/") else {
-            return .unavailable("invalid endpoint")
+            return .unavailable(AppStrings.ios_observer_resolve())
         }
         return .available(TransferResolvedEndpoint(
             baseURL: baseURL,
@@ -131,11 +131,11 @@ nonisolated enum ObserverAudioTransferDiagnostics {
     private static func message(for outcome: TransferDiagnosticOutcomeSummary) -> String {
         switch outcome {
         case .delivered:
-            return "synced to your journal"
+            return AppStrings.ios_observer_message4()
         case .needsAttention, .hookFailed, .salvaged:
-            return "needs attention"
+            return AppStrings.ios_transfer_needsattention()
         case .queued, .retrying, .held, .dropped, .paused, .resumed:
-            return "waiting"
+            return AppStrings.ios_observer_stallwaitinglabel()
         }
     }
 

@@ -1,0 +1,16 @@
+{
+  "description": "store changed mid-scan",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "9919c449ce8d694f45a8b2f36223bd6e3a54de0003969e77eb94619fd6bea1ca",
+  "risk": "routine",
+  "auto_merge": true
+}

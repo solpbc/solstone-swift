@@ -1,0 +1,16 @@
+{
+  "description": "save request unsupported",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "fde7ff0e7d986f3c2ad7dc6631ac5f0aa7036c7de5b6783d5400b1d6312c43fd",
+  "risk": "routine",
+  "auto_merge": true
+}

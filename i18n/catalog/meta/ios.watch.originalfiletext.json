@@ -1,0 +1,25 @@
+{
+  "description": "{rawValue} bytes {byteText}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "rawValue",
+      "type": "string"
+    },
+    {
+      "name": "byteText",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "ea04b9f1a7293c3988f92bd4000f2673f58dad45807ae6dd7c033f19be76ae68",
+  "risk": "routine",
+  "auto_merge": true
+}

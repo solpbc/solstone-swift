@@ -1,0 +1,16 @@
+{
+  "description": "keep your watch near this device. open the solstone app on your watch if this does not move.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 92,
+  "source_revision": "a8c5d8f33bc2008d3b0a090e47ccaad7007454290955e74a3de9a9101f10d58d",
+  "risk": "routine",
+  "auto_merge": true
+}

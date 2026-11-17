@@ -1,0 +1,16 @@
+{
+  "description": "on your computer, open your journal's dashboard, go to the network app, and choose \"pair a device\".",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 99,
+  "source_revision": "6e72c1ebc4b7ad478813f2e576a7018cfce74269f0d401ff379c1377fa140669",
+  "risk": "routine",
+  "auto_merge": true
+}

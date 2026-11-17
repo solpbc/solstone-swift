@@ -1,0 +1,16 @@
+{
+  "description": "can't reach your journal",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.migration.can.t.reach.journal. Keep translations consistent. Mac counterpart: macos.desktop.shared.app.offlinetitle. Keep translations consistent.",
+  "surfaces": [
+    "connection"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "e1d247ea71783fbcef28a3ee242ad1c0d69bba1febd8a4aae9fb1a2173f49336",
+  "risk": "routine",
+  "auto_merge": true
+}

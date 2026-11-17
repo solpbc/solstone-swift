@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app takes in the audio from a moment you start on your watch. what you share stays on the watch until it can go to your iphone, and from there into your journal.",
+  "context": "Bundle metadata for SolstoneWatch: NSMicrophoneUsageDescription. Permission wording requires review before translation. Wording requires review before translation. Legal source wording stays English until an approved legal translation exists.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "c1dbe0c17b16e331d0dee1fa11e164aa91e8fbafb655b9b26a2ed07985f962c9",
+  "risk": "legal",
+  "auto_merge": false
+}

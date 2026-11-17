@@ -1,0 +1,21 @@
+{
+  "description": "copy verification failed {lastPathComponent}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "lastPathComponent",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 44,
+  "source_revision": "af48191c949beb5eb26818140dae9f3da66c9ef4a5202a905b99decc9d9354b2",
+  "risk": "routine",
+  "auto_merge": true
+}

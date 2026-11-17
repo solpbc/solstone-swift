@@ -1,0 +1,16 @@
+{
+  "description": "iPhone → Watch duplicate ACK extras",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 35,
+  "source_revision": "d52b0393c000775c0cfd4a28c4038444538604437423980d58c6b4e09cd5b078",
+  "risk": "routine",
+  "auto_merge": true
+}

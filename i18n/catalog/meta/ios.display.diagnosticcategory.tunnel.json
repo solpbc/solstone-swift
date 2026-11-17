@@ -1,0 +1,16 @@
+{
+  "description": "tunnel",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "54a260a03ec05cec1d16ef680a08b34cd43efe4a9c5a782d9822aeeed036921e",
+  "risk": "routine",
+  "auto_merge": true
+}

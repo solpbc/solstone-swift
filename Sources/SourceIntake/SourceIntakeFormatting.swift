@@ -26,18 +26,18 @@ nonisolated enum SourceIntakeKind: Equatable, Sendable {
 }
 
 nonisolated enum SourceIntakePhrases {
-    static let soFar = "so far"
-    static let lastTakenIn = "last taken in"
-    static let nothingYet = "nothing yet"
-    static let lessThanAMinute = "less than a minute"
-    static let lessThanAMile = "less than a mile"
-    static let lessThanAKilometer = "less than a kilometer"
-    static let justNow = "just now"
-    static let yesterday = "yesterday"
+    static let soFar = AppStrings.ios_sourceintakeformatting_sofar()
+    static let lastTakenIn = AppStrings.ios_sourceintakeformatting_lasttakenin()
+    static let nothingYet = AppStrings.ios_watch_lastfactrows8()
+    static let lessThanAMinute = AppStrings.ios_sourceintakeformatting_lessthanaminute()
+    static let lessThanAMile = AppStrings.ios_sourceintakeformatting_lessthanamile()
+    static let lessThanAKilometer = AppStrings.ios_sourceintakeformatting_lessthanakilometer()
+    static let justNow = AppStrings.ios_app_watchrelativejustnow()
+    static let yesterday = AppStrings.ios_app_relativedaylabel()
 
     static let months = [
-        "january", "february", "march", "april", "may", "june",
-        "july", "august", "september", "october", "november", "december",
+        AppStrings.ios_sourceintakeformatting_january(), AppStrings.ios_sourceintakeformatting_february(), AppStrings.ios_sourceintakeformatting_march(), AppStrings.ios_sourceintakeformatting_april(), AppStrings.ios_sourceintakeformatting_may(), AppStrings.ios_sourceintakeformatting_june(),
+        AppStrings.ios_sourceintakeformatting_july(), AppStrings.ios_sourceintakeformatting_august(), AppStrings.ios_sourceintakeformatting_september(), AppStrings.ios_sourceintakeformatting_october(), AppStrings.ios_sourceintakeformatting_november(), AppStrings.ios_sourceintakeformatting_december(),
     ]
 }
 
@@ -52,15 +52,15 @@ nonisolated enum SourceIntakeFormat {
         case .distance:
             return self.distance(lane.total, locale: locale)
         case .events:
-            return self.count(lane.total, singular: "event", plural: "events", locale: locale)
+            return AppStrings.ios_intake_count_events(lane.total, self.grouped(lane.total, locale: locale))
         case .pages:
-            return self.count(lane.total, singular: "page", plural: "pages", locale: locale)
+            return AppStrings.ios_intake_count_pages(lane.total, self.grouped(lane.total, locale: locale))
         case .items:
-            return self.count(lane.total, singular: "item", plural: "items", locale: locale)
+            return AppStrings.ios_intake_count_items(lane.total, self.grouped(lane.total, locale: locale))
         case .notes:
-            return self.count(lane.total, singular: "note", plural: "notes", locale: locale)
+            return AppStrings.ios_intake_count_notes(lane.total, self.grouped(lane.total, locale: locale))
         case .screenshots:
-            return self.count(lane.total, singular: "screenshot", plural: "screenshots", locale: locale)
+            return AppStrings.ios_intake_count_screenshots(lane.total, self.grouped(lane.total, locale: locale))
         }
     }
 
@@ -70,11 +70,19 @@ nonisolated enum SourceIntakeFormat {
               SourceIntakePhrases.months.indices.contains(month - 1) else {
             return stored
         }
+        if AppStrings.language != "en-US", let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) {
+            let formatter = DateFormatter()
+            formatter.locale = AppStrings.locale
+            formatter.calendar = calendar
+            formatter.timeZone = calendar.timeZone
+            formatter.setLocalizedDateFormatFromTemplate(calendar.component(.year, from: now) == year ? "MMMMd" : "yMMMMd")
+            return formatter.string(from: date)
+        }
         let name = SourceIntakePhrases.months[month - 1]
         if calendar.component(.year, from: now) == year {
-            return "\(name) \(day)"
+            return AppStrings.ios_intake_date_day(name, String(day))
         }
-        return "\(name) \(day), \(year)"
+        return AppStrings.ios_intake_date_year(name, String(day), String(year))
     }
 
     static func relative(_ date: Date, now: Date, calendar: Calendar) -> String {
@@ -83,11 +91,11 @@ nonisolated enum SourceIntakeFormat {
             return SourceIntakePhrases.justNow
         }
         if elapsed < 3_600 {
-            return "\(Int(elapsed / 60)) min ago"
+            return AppStrings.ios_sourceintakeformatting_minago("\(Int(elapsed / 60))")
         }
         if elapsed < 86_400 {
             let hours = Int(elapsed / 3_600)
-            return hours == 1 ? "1 hour ago" : "\(hours) hours ago"
+            return AppStrings.ios_plural_sourceintakeformatting_n90(hours, "\(hours)")
         }
         let today = calendar.startOfDay(for: now)
         let then = calendar.startOfDay(for: date)
@@ -104,7 +112,7 @@ nonisolated enum SourceIntakeFormat {
         let total = self.total(lane, kind: kind, locale: locale)
         let since = self.started(started, now: now, calendar: calendar)
         let relative = lane.last.map { self.relative($0, now: now, calendar: calendar) }
-        return ("\(total), since \(since)", relative)
+        return (AppStrings.ios_sourceintakeformatting_since("\(total)", "\(since)"), relative)
     }
 
     static func status(lane: SourceIntakeLane, kind: SourceIntakeKind, now: Date, locale: Locale, calendar: Calendar) -> (soFar: String, last: String) {
@@ -121,10 +129,10 @@ nonisolated enum SourceIntakeFormat {
         if seconds < 60 { return SourceIntakePhrases.lessThanAMinute }
         if seconds < 3_600 {
             let minutes = seconds / 60
-            return minutes == 1 ? "1 minute" : "\(self.grouped(minutes, locale: locale)) minutes"
+            return AppStrings.ios_plural_sourceintakeformatting_n124(minutes, "\(self.grouped(minutes, locale: locale))")
         }
         let hours = seconds / 3_600
-        return hours == 1 ? "1 hour" : "\(self.grouped(hours, locale: locale)) hours"
+        return AppStrings.ios_plural_sourceintakeformatting_n127(hours, "\(self.grouped(hours, locale: locale))")
     }
 
     static func distance(_ metres: Int, locale: Locale) -> String {
@@ -135,14 +143,9 @@ nonisolated enum SourceIntakeFormat {
             return metric ? SourceIntakePhrases.lessThanAKilometer : SourceIntakePhrases.lessThanAMile
         }
         if metric {
-            return whole == 1 ? "1 kilometer" : "\(self.grouped(whole, locale: locale)) kilometers"
+            return AppStrings.ios_plural_sourceintakeformatting_n138(whole, "\(self.grouped(whole, locale: locale))")
         }
-        return whole == 1 ? "1 mile" : "\(self.grouped(whole, locale: locale)) miles"
-    }
-
-    static func count(_ total: Int, singular: String, plural: String, locale: Locale) -> String {
-        if total == 1 { return "1 \(singular)" }
-        return "\(self.grouped(total, locale: locale)) \(plural)"
+        return AppStrings.ios_plural_sourceintakeformatting_n140(whole, "\(self.grouped(whole, locale: locale))")
     }
 
     static func grouped(_ value: Int, locale: Locale) -> String {

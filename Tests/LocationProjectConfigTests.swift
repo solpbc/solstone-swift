@@ -6,7 +6,7 @@ import XCTest
 
 nonisolated final class LocationProjectConfigTests: XCTestCase {
     func testProjectYMLIncludesNetworkAndLocationUsageStringsAndBackgroundMode() throws {
-        let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8)
+        let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8) + String(contentsOf: Self.projectYMLURL().deletingLastPathComponent().appendingPathComponent("i18n/generated/project.yml"), encoding: .utf8)
 
         XCTAssertTrue(projectYML.contains(#"INFOPLIST_KEY_NSMicrophoneUsageDescription: "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in.""#))
         XCTAssertTrue(projectYML.contains(#"INFOPLIST_KEY_NSLocalNetworkUsageDescription: "connect this iphone or ipad directly to your journal when they're on the same network.""#))
@@ -19,7 +19,7 @@ nonisolated final class LocationProjectConfigTests: XCTestCase {
     }
 
     func testWidgetTargetIncludesOnlyLiveActivitySafeLocationSources() throws {
-        let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8)
+        let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8) + String(contentsOf: Self.projectYMLURL().deletingLastPathComponent().appendingPathComponent("i18n/generated/project.yml"), encoding: .utf8)
         let widgetBlock = try XCTUnwrap(Self.widgetTargetBlock(in: projectYML))
 
         for required in [
@@ -42,7 +42,7 @@ nonisolated final class LocationProjectConfigTests: XCTestCase {
     }
 
     func testProjectYMLRegistersSolstoneURLScheme() throws {
-        let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8)
+        let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8) + String(contentsOf: Self.projectYMLURL().deletingLastPathComponent().appendingPathComponent("i18n/generated/project.yml"), encoding: .utf8)
         let appBlock = try XCTUnwrap(Self.appTargetBlock(in: projectYML))
 
         for required in [

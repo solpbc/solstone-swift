@@ -1,0 +1,29 @@
+{
+  "description": "app: {version} ({build}) / iOS {iosVersion}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "version",
+      "type": "string"
+    },
+    {
+      "name": "build",
+      "type": "string"
+    },
+    {
+      "name": "iosVersion",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "42d3e3637130605a11f5bba7944ae2e4a55408dd6194b8f7afba05310b7e9992",
+  "risk": "routine",
+  "auto_merge": true
+}

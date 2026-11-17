@@ -1,0 +1,16 @@
+{
+  "description": "synced to your journal",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "719589d285678065eea1a52c0155733e6381a580a9fe130250dca5b6c0a1484f",
+  "risk": "routine",
+  "auto_merge": true
+}

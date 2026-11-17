@@ -1,0 +1,16 @@
+{
+  "description": "finish syncing couldn't start.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 30,
+  "source_revision": "80a01dafe5f5bf0c6fee29d862d3449477fa5228138d93f792bd143a86fde2ed",
+  "risk": "routine",
+  "auto_merge": true
+}

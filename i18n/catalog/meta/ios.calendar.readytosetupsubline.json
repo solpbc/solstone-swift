@@ -1,0 +1,16 @@
+{
+  "description": "switch on the calendars you want, then bring them in.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 53,
+  "source_revision": "aa29a29f5b54e2d0d9cb072bf6fe0503f52bfe88098ba76ab5b1f6a99079f56f",
+  "risk": "routine",
+  "auto_merge": true
+}

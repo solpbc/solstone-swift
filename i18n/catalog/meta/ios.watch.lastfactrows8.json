@@ -1,0 +1,16 @@
+{
+  "description": "nothing yet",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.intake.nothingyet. Keep translations consistent. Mac counterpart: macos.desktopshellmodel.nothingyet. Keep translations consistent.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "b8cc78a7cc82212e26afce2688cfe848b0036c57f7125fd147e407388862783b",
+  "risk": "routine",
+  "auto_merge": true
+}

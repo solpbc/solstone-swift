@@ -1,0 +1,16 @@
+{
+  "description": "devices unavailable",
+  "context": "Existing native lookup migration.list_unavailable.title. Mac counterpart: macos.desktop.shared.copy.listunavailabletitle. Keep translations consistent. Android counterpart: android.migration.devices.unavailable. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "37a0ea2aa9e3485cb7bb09df245721d67909c5a2880d281af039a51431c33b0c",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "endpoint: /app/network/api/status; status: {statusCode}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "statusCode",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 55,
+  "source_revision": "373a2a801e9034fa7fedb4b54cff1ce88d63b5d52c56a74b7322dda788d3f4e2",
+  "risk": "routine",
+  "auto_merge": true
+}

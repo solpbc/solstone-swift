@@ -1,0 +1,16 @@
+{
+  "description": "format description create failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "57555004351ab99553e39228992a8528b68e1c0a87cc929793283483c692a360",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "which calendars",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "4ba0053e9acb3022578e028f2c53435ea0f966a271a1ccd14cee61774a8bbccd",
+  "risk": "routine",
+  "auto_merge": true
+}

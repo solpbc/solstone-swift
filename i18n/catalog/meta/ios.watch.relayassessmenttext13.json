@@ -1,0 +1,16 @@
+{
+  "description": "orphaned Apple queue entries",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "eb01a9be5b9bc189995c8cf69f2a1708fb732268faf4085f2f4b43bd9f57f4a7",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "migration.offline.body",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "5f9e5aa36c73aa3c50ddb685544ec33404816f6f97771fbd37acd27bb4397a2c",
+  "risk": "routine",
+  "auto_merge": true
+}

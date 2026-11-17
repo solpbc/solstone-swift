@@ -1,0 +1,21 @@
+{
+  "description": "couldn't reach your journal at {targetAddress}. make sure it's running, then try again.",
+  "context": "the solstone app, speaking to the owner. Mac counterpart: macos.pairingcoordinator.couldntreachyourjournalatmakesureitsrunningth. Keep translations consistent.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "targetAddress",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 87,
+  "source_revision": "5d34ea58fd013b2a54b4a1c03a08f3b54fffc5406aeab61d44f40004969dbe1c",
+  "risk": "routine",
+  "auto_merge": true
+}

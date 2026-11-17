@@ -1,0 +1,16 @@
+{
+  "description": "audio unavailable after restart",
+  "context": "the solstone app, speaking to the owner. the words stay. the code stops matching them. branch on the enum or the row id.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 31,
+  "source_revision": "b268d13b296b45109826efb4ec2dd8c9528dbaf8d1cfbad8853cd8d871f5b700",
+  "risk": "routine",
+  "auto_merge": true
+}

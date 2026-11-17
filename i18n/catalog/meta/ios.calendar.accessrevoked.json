@@ -1,0 +1,16 @@
+{
+  "description": "calendar access is off in ios settings, so nothing new comes in. what's already in your journal stays.",
+  "context": "names the iOS Settings screen.",
+  "surfaces": [
+    "calendar"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 102,
+  "source_revision": "5916d7ac79d82f243747259725d35e676980947e9a89acb249e504669cd31550",
+  "risk": "routine",
+  "auto_merge": true
+}

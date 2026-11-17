@@ -1,0 +1,16 @@
+{
+  "description": "watch low power at snapshot time",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "a80ec9ec2588544fec257845a97a09dee48de2af99be90bea98bb6b7d05ede8f",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "thermal {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "0b39847376a1817a71bd9a8d2d759deb63a7573d6ba9b03992f1868e2fd0e012",
+  "risk": "routine",
+  "auto_merge": true
+}

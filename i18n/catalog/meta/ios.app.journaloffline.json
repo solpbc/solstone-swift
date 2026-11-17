@@ -1,0 +1,16 @@
+{
+  "description": "your journal · offline",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "03fd0d892f9691a249db029bf33fba7b3a530d32c5c059bf1e3eb40ebb28f32b",
+  "risk": "routine",
+  "auto_merge": true
+}

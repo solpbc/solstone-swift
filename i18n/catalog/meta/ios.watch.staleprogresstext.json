@@ -1,0 +1,21 @@
+{
+  "description": "progress not shown - snapshot is stale (as of {hole1})",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 54,
+  "source_revision": "3ee9b04032c8e86d95ff609b4f761fc130070e3b2bf04e3fb54c1ae7b6106634",
+  "risk": "routine",
+  "auto_merge": true
+}

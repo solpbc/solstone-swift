@@ -1,0 +1,16 @@
+{
+  "description": "sharing your screen",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "966d4b19c389cca5fd7bb0ab07ae1b9df5f0b7671a10a0d54408b30de2f828d3",
+  "risk": "routine",
+  "auto_merge": true
+}

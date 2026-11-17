@@ -1,0 +1,16 @@
+{
+  "description": "share history rotated",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneswiftappswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "98f4f638bf85c15c1705efa3551f6293580bad8195485c628e1b9823255b7657",
+  "risk": "routine",
+  "auto_merge": true
+}

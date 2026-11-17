@@ -302,7 +302,7 @@ nonisolated final class RefusedItemsExportTests: XCTestCase {
         // What current builds store is printed as it always was.
         XCTAssertEqual(
             stuckLine(info("reason_code=segment_invalid", code: "segment_invalid")),
-            "  audio stuck: http_client_error, reason_code=segment_invalid (1h0m ago, 1 item(s))"
+            "  audio stuck: http_client_error, reason_code=segment_invalid (1h0m ago, 1 item)"
         )
         XCTAssertTrue(stuckLine(info("that file is too large to bring in.")).contains(", that file is too large to bring in. ("))
         XCTAssertTrue(stuckLine(info("source file", reason: "missing_payload")).hasPrefix("  audio stuck: missing_payload, source file ("))

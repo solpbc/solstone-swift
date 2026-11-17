@@ -1,0 +1,16 @@
+{
+  "description": "transfer completion",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 19,
+  "source_revision": "2d44a2ceba07b692fbc7db85d3e7941d5c67fa003eb768359cd3fcea0b7f45ba",
+  "risk": "routine",
+  "auto_merge": true
+}

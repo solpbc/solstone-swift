@@ -1,0 +1,21 @@
+{
+  "description": "queue entry {index_1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "index_1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "fa6387d77695c18489c2b14cafd022ebff5f6629dab6310a3c41fb28f10e133b",
+  "risk": "routine",
+  "auto_merge": true
+}

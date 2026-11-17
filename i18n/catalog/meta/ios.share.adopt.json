@@ -1,0 +1,16 @@
+{
+  "description": "invalid item id",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "f4c92c6ad19a491d47e011b7aa8bddaa69296baa4ea5300d3355b65e93634f24",
+  "risk": "routine",
+  "auto_merge": true
+}

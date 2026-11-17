@@ -1,0 +1,16 @@
+{
+  "description": "private network: running",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "1bc2f5c7b48b7640ac5cb09ddc331d8d20cf6c05a87f893c87fd74e2462dc965",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -135,8 +135,8 @@ actor SystemObserverLiveActivityWarningScheduler: ObserverLiveActivityWarningSch
 
     func scheduleWarning(for sessionID: UUID) async {
         let content = UNMutableNotificationContent()
-        content.title = "your live session ends soon"
-        content.body = "tap to keep it going. otherwise it wraps up on its own."
+        content.title = AppStrings.ios_observer_title()
+        content.body = AppStrings.ios_observer_body()
         content.categoryIdentifier = ObserverLiveActivityWarningNotification.categoryIdentifier
         let request = UNNotificationRequest(
             identifier: ObserverLiveActivityWarningNotification.identifier(for: sessionID),
@@ -336,5 +336,5 @@ private extension ObserverLiveActivity {
 }
 
 nonisolated func observerModeLabel(for rawMode: String) -> String {
-    "on"
+    AppStrings.ios_app_on()
 }

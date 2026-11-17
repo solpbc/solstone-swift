@@ -1,0 +1,16 @@
+{
+  "description": "on your computer, open your journal's dashboard, go to the network app, choose \"pair a device\", then copy the link.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 115,
+  "source_revision": "1d2f934d2ef68950dbac284637dd2688cae4002cc2a1d0b7d2b3eb208e4e5302",
+  "risk": "routine",
+  "auto_merge": true
+}

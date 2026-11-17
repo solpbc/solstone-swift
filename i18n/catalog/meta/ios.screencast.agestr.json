@@ -1,0 +1,25 @@
+{
+  "description": "{hole1} age={now_timeIntervalSince_0}s",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "screencast"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    },
+    {
+      "name": "now_timeIntervalSince_0",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 38,
+  "source_revision": "69edbfeb85b86af02478a833a773e7bb00e4f556843ee228709ed593760f1e0a",
+  "risk": "routine",
+  "auto_merge": true
+}

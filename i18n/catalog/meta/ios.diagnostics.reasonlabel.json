@@ -1,0 +1,21 @@
+{
+  "description": "{code} (from stored detail)",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "code",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "8b0e1c0a687ad08614672fbb6c38505903d2836455461335bd2cab36169283d4",
+  "risk": "routine",
+  "auto_merge": true
+}

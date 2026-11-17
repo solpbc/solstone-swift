@@ -1,0 +1,16 @@
+{
+  "description": "screen is unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "f47ec17eb874e8ff5f90e6279a1853d49f2e0cfa4699f64273e29fcbab87ffdd",
+  "risk": "routine",
+  "auto_merge": true
+}

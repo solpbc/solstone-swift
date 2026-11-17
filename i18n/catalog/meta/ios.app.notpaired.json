@@ -1,0 +1,16 @@
+{
+  "description": "not paired",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.source.not.paired. Keep translations consistent. Mac counterpart: macos.desktop.shared.app.notpaired. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 10,
+  "source_revision": "91b8fe78249008f9061d0de3420c7ed1676789887a913a210cb62245f58371b7",
+  "risk": "routine",
+  "auto_merge": true
+}

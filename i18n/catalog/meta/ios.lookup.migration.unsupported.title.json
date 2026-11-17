@@ -1,0 +1,16 @@
+{
+  "description": "journal update needed",
+  "context": "Existing native lookup migration.unsupported.title. Android counterpart: android.migration.journal.update.needed. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "4e32db4b0fbb56a0394874a564e99cc709f01e08ae9c96e1fe00da207d5df12a",
+  "risk": "routine",
+  "auto_merge": true
+}

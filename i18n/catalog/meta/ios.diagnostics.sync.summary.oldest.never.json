@@ -1,0 +1,41 @@
+{
+  "description": "{ $name }: pending={ $pending } inFlight={ $inFlight } attention={ $attention } delivered={ $delivered } oldestWaiting={ $oldest } lastDelivered=never",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "pending",
+      "type": "string"
+    },
+    {
+      "name": "inFlight",
+      "type": "string"
+    },
+    {
+      "name": "attention",
+      "type": "string"
+    },
+    {
+      "name": "delivered",
+      "type": "string"
+    },
+    {
+      "name": "oldest",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "0e36240bbdf2d7b644cc25348ed57f6c4c248a381c2f2834bea8393310a49f03",
+  "risk": "routine",
+  "auto_merge": true
+}

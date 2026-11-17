@@ -1,0 +1,16 @@
+{
+  "description": "pair again",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.migration.pair.again. Keep translations consistent. Mac counterpart: macos.desktopshellmodel.pairagain. Keep translations consistent.",
+  "surfaces": [
+    "localizablexcstrings"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 10,
+  "source_revision": "5f600fd084ecae678ff2e974738ae6a3ff615c69396ea291ec89fd1b478462f6",
+  "risk": "routine",
+  "auto_merge": true
+}

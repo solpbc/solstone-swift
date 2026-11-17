@@ -1,0 +1,49 @@
+{
+  "description": "progress fraction {fraction}, units {completedUnitCount}/{totalUnitCount}, finished {hole4}, cancelled {hole5}, throughput {throughput}, eta {eta}, kind {kind}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "fraction",
+      "type": "string"
+    },
+    {
+      "name": "completedUnitCount",
+      "type": "string"
+    },
+    {
+      "name": "totalUnitCount",
+      "type": "string"
+    },
+    {
+      "name": "hole4",
+      "type": "string"
+    },
+    {
+      "name": "hole5",
+      "type": "string"
+    },
+    {
+      "name": "throughput",
+      "type": "string"
+    },
+    {
+      "name": "eta",
+      "type": "string"
+    },
+    {
+      "name": "kind",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 159,
+  "source_revision": "bfe3940dea249a0c475a6ab88cbd21932e38b3e21fb50b7e7705328ae763b81a",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "unknown journal seen at { $address }",
+  "context": "Existing native lookup unknown_journal.row.direct. Mac counterpart: macos.ui.unknownjournalseenat. Keep translations consistent. Named placeholders are runtime arguments.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "address",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "af745005b8b36b4360451aafe2050262244ef9652bed6c00c1e926ea6f906400",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,21 @@
+{
+  "description": "last tried {datePhrase}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "datePhrase",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "fe5149c4baabfdf2b71f42df845e5761d2fa0f07d4a8c3eb49098c0fd54e38d0",
+  "risk": "routine",
+  "auto_merge": true
+}

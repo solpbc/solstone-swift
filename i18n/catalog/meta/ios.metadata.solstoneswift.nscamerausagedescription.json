@@ -1,0 +1,16 @@
+{
+  "description": "used to scan your journal's pairing code",
+  "context": "Bundle metadata for solstone-swift: NSCameraUsageDescription. Permission wording requires review before translation. Wording requires review before translation.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "9c3b24ef3327c724f1d082b60a70ffe3ee9288c98bc91bdbc16591f9158df858",
+  "risk": "consent",
+  "auto_merge": false
+}

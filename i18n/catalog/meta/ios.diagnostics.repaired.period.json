@@ -1,0 +1,25 @@
+{
+  "description": "{ $period } { $count }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "period",
+      "type": "string"
+    },
+    {
+      "name": "count",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "4c6c43a63dbc273e23e190cd64956b58d50273e016f97b9a9c03bfddf1126919",
+  "risk": "routine",
+  "auto_merge": true
+}

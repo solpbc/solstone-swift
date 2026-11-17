@@ -1,0 +1,16 @@
+{
+  "description": "confirming hear-back elapsed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "5e0fc91784ea4c3117390c5a5379e13fa6550bb10ad2d83695e7f9fffdc2c1f1",
+  "risk": "routine",
+  "auto_merge": true
+}

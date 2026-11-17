@@ -78,7 +78,7 @@ nonisolated final class ScreencastBroadcastAudioWriter: ScreencastBroadcastAudio
 
         if !self.sessionStarted {
             guard writer.startWriting() else {
-                let message = writer.error?.localizedDescription ?? "unknown start error"
+                let message = writer.error?.localizedDescription ?? AppStrings.ios_transfer_appendaudio2()
                 screencastAudioLog.error("audio writer startWriting failed: \(message, privacy: .public)")
                 throw NSError(domain: "ScreencastBroadcastAudioWriter", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
             }
@@ -95,7 +95,7 @@ nonisolated final class ScreencastBroadcastAudioWriter: ScreencastBroadcastAudio
         guard writer.status == .writing, audioInput.isReadyForMoreMediaData else { return }
 
         if !audioInput.append(sampleBuffer) {
-            let message = writer.error?.localizedDescription ?? "audio append failed"
+            let message = writer.error?.localizedDescription ?? AppStrings.ios_transfer_appendaudio()
             screencastAudioLog.error("audio writer append failed: \(message, privacy: .public)")
             throw NSError(domain: "ScreencastBroadcastAudioWriter", code: 2, userInfo: [NSLocalizedDescriptionKey: message])
         }

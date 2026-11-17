@@ -1,0 +1,16 @@
+{
+  "description": "pairing didn't go through. show a new pairing code on your journal and try again.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.pairing.pairing.didn.t.go.through. Keep translations consistent.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 81,
+  "source_revision": "cc4ef395b7128502f94d36316ce7ecf79a75939a67fa1f0e43c9c9f7cd9ce0a0",
+  "risk": "routine",
+  "auto_merge": true
+}

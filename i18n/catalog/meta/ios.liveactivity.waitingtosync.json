@@ -1,0 +1,16 @@
+{
+  "description": "waiting to sync",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.status.waiting.sync. Keep translations consistent. Mac counterpart: macos.desktopstatuspane.waitingtosync. Keep translations consistent.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "25bc12192ca1ae39271b247f9043a04e5b97418836564757d82c5d2f4dcf587c",
+  "risk": "routine",
+  "auto_merge": true
+}

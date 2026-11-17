@@ -97,10 +97,10 @@ nonisolated struct LinkedDeviceIngestDaySegment: Decodable, Equatable, Sendable 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: AnyKey.self)
         guard container.allKeys.map(\.stringValue) == ["files"] else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "day manifest entries contain only files"))
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: AppStrings.ios_observer_init()))
         }
         guard let key = AnyKey(stringValue: "files") else {
-            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "missing files"))
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: AppStrings.ios_observer_init2()))
         }
         self.files = try container.decode([LinkedDeviceIngestFile].self, forKey: key)
     }

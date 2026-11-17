@@ -1,0 +1,16 @@
+{
+  "description": "problem report could not be read",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "problemreports"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "c23144aaeb1589b7c77d31617dd25d305db0bd4a04d2da6c43f36269499f9d99",
+  "risk": "routine",
+  "auto_merge": true
+}

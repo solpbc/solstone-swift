@@ -1,0 +1,16 @@
+{
+  "description": "your memories are on this device and not processed until you connect a journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 79,
+  "source_revision": "461785a31791f085a6b1012f88a7fab5fb28b6f0b3824d144ac3b0c4cec92274",
+  "risk": "routine",
+  "auto_merge": true
+}

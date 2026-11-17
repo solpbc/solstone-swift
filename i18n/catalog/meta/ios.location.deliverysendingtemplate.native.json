@@ -1,0 +1,38 @@
+{
+  "description": "{N} location {update} on the way to your journal.",
+  "context": "Shown by Sources/Location/LocationVocabulary.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "007521615346d624278c9d030df3f3c6aeb2c33c41f51302752b2af719dd62b2",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "slot0",
+      "kind": "accepted-input",
+      "value": "{"
+    },
+    {
+      "name": "slot1",
+      "kind": "accepted-input",
+      "value": "}"
+    },
+    {
+      "name": "slot2",
+      "kind": "accepted-input",
+      "value": "{"
+    },
+    {
+      "name": "slot3",
+      "kind": "accepted-input",
+      "value": "}"
+    }
+  ]
+}

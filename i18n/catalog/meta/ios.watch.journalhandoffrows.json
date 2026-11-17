@@ -1,0 +1,16 @@
+{
+  "description": "failed journal handoff",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "2e6b78305173e81a086977b38b39e1ea310a79bded1b76cf28efc1a55990fbda",
+  "risk": "routine",
+  "auto_merge": true
+}

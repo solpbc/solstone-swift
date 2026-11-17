@@ -148,40 +148,38 @@ final class DiagnosticLog {
         formatter.dateFormat = "yyyy-MM-dd HH:mm:ss zzz"
 
         var lines: [String] = []
-        lines.append("solstone-swift diagnostic snapshot")
+        lines.append(AppStrings.ios_diagnostics_reporthead5())
         lines.append(formatter.string(from: now))
-        lines.append("connection: \(tunnel.state)")
-        let reconnectBreakdown = ReconnectReasonBucket.allCases
-            .map { "\($0.exportLabel) \(tunnel.reconnectReasonCounts[$0] ?? 0)" }
-            .joined(separator: ", ")
-        lines.append("tunnel reconnects: \(tunnel.reconnectCount) (\(reconnectBreakdown))")
-        lines.append("tunnel reconnects (last 5m): \(tunnel.reconnectCountLastFiveMinutes())")
+        lines.append(AppStrings.ios_diagnostics_reporthead3("\(tunnel.state)"))
+        let reconnectBreakdown = AppStrings.joinedComma(ReconnectReasonBucket.allCases.map { AppStrings.ios_diagnostics_reconnect_bucket($0.exportLabel, String(tunnel.reconnectReasonCounts[$0] ?? 0)) })
+        lines.append(AppStrings.ios_diagnostics_reporthead8("\(tunnel.reconnectCount)", "\(reconnectBreakdown)"))
+        lines.append(AppStrings.ios_diagnostics_reporthead7("\(tunnel.reconnectCountLastFiveMinutes())"))
         let inboundFaultBreakdown = tunnel.inboundClosedFaultCounts.isEmpty
-            ? "(none)"
+            ? AppStrings.ios_presentation_diagnosticlog_n14()
             : tunnel.inboundClosedFaultCounts
                 .sorted { $0.key < $1.key }
                 .map { "\($0.key) \($0.value)" }
                 .joined(separator: ", ")
-        lines.append("tunnel inbound-closed faults: \(inboundFaultBreakdown)")
+        lines.append(AppStrings.ios_diagnostics_reporthead6("\(inboundFaultBreakdown)"))
         lines.append(contentsOf: tunnel.diagnosticSnapshotLines())
         let linkReport = self.journalLinkReport(now: now)
         if !linkReport.isEmpty {
-            lines.append("recent journal link events (last 7 days):")
+            lines.append(AppStrings.ios_diagnostics_reporthead4())
             lines.append(linkReport)
         }
 
         let network: String
         switch tunnel.currentInterfaceIsWiFi {
-        case true: network = "wifi"
-        case false: network = "cellular"
-        case nil: network = "unknown"
+        case true: network = AppStrings.ios_presentation_diagnosticlog_n18()
+        case false: network = AppStrings.ios_presentation_diagnosticlog_n19()
+        case nil: network = AppStrings.ios_presentation_diagnosticlog_n20()
         }
-        lines.append("network: \(network)")
+        lines.append(AppStrings.ios_diagnostics_network("\(network)"))
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
         let iosVersion = UIDevice.current.systemVersion
-        lines.append("app: \(version) (\(build)) / iOS \(iosVersion)")
+        lines.append(AppStrings.ios_diagnostics_reporthead2("\(version)", "\(build)", "\(iosVersion)"))
 
         if !syncState.isEmpty {
             lines.append(contentsOf: syncState)
@@ -190,13 +188,13 @@ final class DiagnosticLog {
         lines.append("---")
 
         if self.events.isEmpty {
-            lines.append("(no events)")
+            lines.append(AppStrings.ios_diagnostics_reporthead())
         } else {
             for event in self.events.reversed() {
                 let ts = formatter.string(from: event.timestamp)
-                var line = "[\(ts)] [\(event.category.rawValue)] \(event.message)"
+                var line = AppStrings.ios_frame_diagnosticlog_n197("\(ts)", "\(event.category.rawValue)", "\(event.message)")
                 if let detail = event.detail {
-                    line += " — \(detail)"
+                    line = AppStrings.ios_diagnostics_event_detail(line, detail)
                 }
                 lines.append(line)
             }

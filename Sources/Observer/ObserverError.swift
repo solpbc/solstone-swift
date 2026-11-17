@@ -13,13 +13,13 @@ nonisolated enum ObserverError: Error, Equatable, Sendable {
     var message: String {
         switch self {
         case .permissionDenied:
-            "microphone access is required to take in audio"
+            AppStrings.ios_observer_message2()
         case .audioSessionConflict:
-            "audio session changed while taking in audio"
+            AppStrings.ios_observer_message()
         case .diskFull:
-            "storage is full"
+            AppStrings.ios_observer_message3()
         case .uploadFailed:
-            "upload failed"
+            AppStrings.ios_observer_message5()
         case .unavailable(let reason):
             reason
         }

@@ -1,0 +1,16 @@
+{
+  "description": "saving your choice",
+  "context": "Existing native lookup migration.deciding.title. Mac counterpart: macos.desktop.shared.copy.decidingtitle. Keep translations consistent. Android counterpart: android.migration.saving.choice. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "f95030db4a2402c362305309761cfee94ae6485fcd66d31704fc706338476db2",
+  "risk": "routine",
+  "auto_merge": true
+}

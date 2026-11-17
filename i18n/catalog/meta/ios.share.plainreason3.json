@@ -1,0 +1,16 @@
+{
+  "description": "not enough space",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "22df00b546035f9c8361cc040aad1c03873d88e9247477db02534b979371878c",
+  "risk": "routine",
+  "auto_merge": true
+}

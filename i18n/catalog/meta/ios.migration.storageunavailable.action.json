@@ -1,0 +1,16 @@
+{
+  "description": "technical details",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.migration.technical.details. Keep translations consistent. Mac counterpart: macos.desktop.shared.copy.technicaldetails. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 17,
+  "source_revision": "c3189d69bac6ca72656625cc4d48917defe4b86752e031b227e8455a8a230659",
+  "risk": "routine",
+  "auto_merge": true
+}

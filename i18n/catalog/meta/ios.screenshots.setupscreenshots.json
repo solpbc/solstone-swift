@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.import.setupscreenshots. Keep translations consistent. Mac counterpart: macos.desktopimportpage.setupscreenshots. Keep translations consistent.",
+  "surfaces": [
+    "screenshots"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "8acbbefdd9489fed3414298c16e3c4d4806772821419d76654fde0c986153985",
+  "risk": "routine",
+  "auto_merge": true
+}

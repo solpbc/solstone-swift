@@ -82,12 +82,12 @@ nonisolated enum UnknownJournalCopy {
     }
 
     static func localized(_ key: String) -> String {
-        String(localized: String.LocalizationValue(key))
+        AppStrings.legacy(key)
     }
 
     static func localized(_ key: String, place: UnknownJournalNotice.Place) -> String {
         guard case .address(let address) = place else { return Self.localized(key) }
-        return Self.localized(key).replacingOccurrences(of: "{address}", with: address)
+        return AppStrings.legacy(key, values: ["address": address])
     }
 
     /// The `what answered` slot as VoiceOver reads it. The no-identity slot's name is its caption,
@@ -100,9 +100,9 @@ nonisolated enum UnknownJournalCopy {
         case .deriving:
             return caption
         case .mark(let mark):
-            return "\(JournalMarkAccessibility.spokenValue(mark: mark)), \(caption)"
+            return AppStrings.ios_frame_unknownjournalnotice_n103("\(JournalMarkAccessibility.spokenValue(mark: mark))", "\(caption)")
         case .unavailable:
-            return JournalIdentity.unavailableWords.joined(separator: ", ")
+            return AppStrings.joinedComma(JournalIdentity.unavailableWords)
         }
     }
 }

@@ -116,7 +116,7 @@ private struct QRScannerOverlay: View {
 
             VStack {
                 Spacer()
-                Text("point your phone at the code")
+                Text(AppStrings.ios_pairing_body3())
                     .font(.callout.weight(.medium))
                     .foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.65), radius: 3, x: 0, y: 1)

@@ -1,0 +1,16 @@
+{
+  "description": "turn on location",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "7827e21d46469430087aa26657f4ba25f7cfa36546ca50d17a66c25de208fe03",
+  "risk": "routine",
+  "auto_merge": true
+}

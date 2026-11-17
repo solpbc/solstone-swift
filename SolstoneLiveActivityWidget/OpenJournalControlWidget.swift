@@ -8,10 +8,10 @@ struct OpenJournalControlWidget: ControlWidget {
     var body: some ControlWidgetConfiguration {
         StaticControlConfiguration(kind: openJournalControlKind) {
             ControlWidgetButton(action: OpenJournalIntent()) {
-                Label("your journal", systemImage: "book.closed")
+                Label(AppStrings.ios_liveactivity_yourjournalsection(), systemImage: "book.closed")
             }
         }
-        .displayName("your journal")
-        .description("go straight to your journal.")
+        .displayName(AppStrings.ios_liveactivity_yourjournalsection_resource())
+        .description(AppStrings.ios_liveactivity_body2_resource())
     }
 }

@@ -1,0 +1,16 @@
+{
+  "description": "last Watch enqueue",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 18,
+  "source_revision": "e3aed8cc5410129593ee09f346dd5d94dfc5af9a48964c504bbe1fba759ef97e",
+  "risk": "routine",
+  "auto_merge": true
+}

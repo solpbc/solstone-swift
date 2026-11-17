@@ -1,0 +1,16 @@
+{
+  "description": "couldn't read it",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "86b31054bfe8afff66c093b50658f13c756615b1228534e68e504affa9646467",
+  "risk": "routine",
+  "auto_merge": true
+}

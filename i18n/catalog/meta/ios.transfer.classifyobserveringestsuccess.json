@@ -1,0 +1,16 @@
+{
+  "description": "invalid ingest response",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "411c29f8823964d03632a77757330db1937934bec8c7ad8eb4f399578e2a291d",
+  "risk": "routine",
+  "auto_merge": true
+}

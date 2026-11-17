@@ -1,0 +1,16 @@
+{
+  "description": "Uses places only from now on.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "25f60a65b591bcb0c6bf67c0946d83271c8a59c961630046794a7d462859c957",
+  "risk": "routine",
+  "auto_merge": true
+}

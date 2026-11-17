@@ -151,16 +151,16 @@ private extension SolstoneWatchComplicationView {
 
     var accessibilityText: String {
         guard let snapshot = self.snapshot else {
-            return "\(SourceVocabulary.watchComplicationUnknownHeadline), \(SourceVocabulary.watchComplicationUnknownDetail)"
+            return AppStrings.ios_frame_complicationviews_n154("\(SourceVocabulary.watchComplicationUnknownHeadline)", "\(SourceVocabulary.watchComplicationUnknownDetail)")
         }
 
-        var parts = ["solstone", snapshot.stateWord]
+        var parts = [AppStrings.ios_push_test_title(), snapshot.stateWord]
         if let handoffLine = snapshot.handoffLine {
             parts.append(handoffLine)
         }
         if let handoffSubtext = snapshot.handoffSubtext {
             parts.append(handoffSubtext)
         }
-        return parts.joined(separator: ", ")
+        return AppStrings.joinedComma(parts)
     }
 }

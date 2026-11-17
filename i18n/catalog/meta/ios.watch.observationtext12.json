@@ -1,0 +1,21 @@
+{
+  "description": "transferring {transferring}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "transferring",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 27,
+  "source_revision": "be75471b3ef4e49852bd1cc04d037f9d7e5a6eda70834ba06e6e718a5f9aa2db",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -89,7 +89,7 @@ nonisolated extension TransferAttentionInfo {
         }
         let sentence = self.ownerFailureReason
         return sentence.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
-            ? "stored response not shown"
+            ? AppStrings.ios_diagnostics_exporteddetail()
             : sentence
     }
 }
@@ -153,7 +153,7 @@ nonisolated struct RefusedItemExportRecord: Equatable, Sendable {
         case .recorded:
             return code
         case .storedDetail:
-            return "\(code) (from stored detail)"
+            return AppStrings.ios_diagnostics_reasonlabel("\(code)")
         }
     }
 }
@@ -163,7 +163,7 @@ nonisolated struct RefusedItemExportRecord: Equatable, Sendable {
 nonisolated struct RefusedItemsExport: Equatable, Sendable {
     static let listedLimit = 5
     static let appVersionNote =
-        "refused items: app version is the short version only and cannot tell builds of one version apart"
+        AppStrings.ios_diagnostics_appversionnote()
 
     /// Every refusal on the source, most recently refused first.
     let refusals: [RefusedItemExportRecord]
@@ -198,19 +198,16 @@ nonisolated struct RefusedItemsExport: Equatable, Sendable {
     func lines(sourceName: String, now: Date) -> [String] {
         guard !self.refusals.isEmpty else {
             return [
-                "  \(sourceName) refused by reason: none",
-                "  \(sourceName) refused items: none",
+                AppStrings.ios_diagnostics_lines10("\(sourceName)"),
+                AppStrings.ios_diagnostics_lines11("\(sourceName)"),
             ]
         }
-        var lines = ["  \(sourceName) refused by reason:"]
+        var lines = [AppStrings.ios_diagnostics_lines9("\(sourceName)")]
         // Count first, then the code: a line of the form `key: value` is what the export's secret
         // redaction rewrites, and a reason code may contain a word it looks for.
-        lines += self.countsByReason.map { "    \($0.count) × \($0.label)" }
+        lines += self.countsByReason.map { AppStrings.ios_diagnostics_reason_count(String($0.count), $0.label) }
         let total = self.refusals.count
-        lines.append(
-            "  \(sourceName) refused items (\(self.listed.count) most recently refused of \(total) "
-                + (total == 1 ? "refusal):" : "refusals):")
-        )
+        lines.append(AppStrings.ios_diagnostics_refused_heading(total, sourceName, String(self.listed.count)))
         lines += self.listed.map { "    " + Self.itemFields($0, now: now).joined(separator: ", ") }
         return lines
     }
@@ -218,19 +215,19 @@ nonisolated struct RefusedItemsExport: Equatable, Sendable {
     /// The fields of one listed item, in order. Values taken from the item are escaped.
     static func itemFields(_ refusal: RefusedItemExportRecord, now: Date) -> [String] {
         var fields = [
-            "refused \(age(from: refusal.refusedAt, to: now)) ago",
-            "app " + (refusal.appVersion.flatMap { $0.isEmpty ? nil : DiagnosticExportText.escaped($0) } ?? "not recorded"),
+            AppStrings.ios_diagnostics_fields("\(age(from: refusal.refusedAt, to: now))"),
+            AppStrings.ios_diagnostics_refused_field_app((refusal.appVersion.flatMap { $0.isEmpty ? nil : DiagnosticExportText.escaped($0) } ?? AppStrings.ios_diagnostics_itemfields2())),
         ]
         if let key = refusal.ingestKey {
-            fields.append("day " + DiagnosticExportText.delimited(key.day))
-            fields.append("segment " + DiagnosticExportText.delimited(key.segment))
+            fields.append(AppStrings.ios_diagnostics_refused_field_day(DiagnosticExportText.delimited(key.day)))
+            fields.append(AppStrings.ios_diagnostics_refused_field_segment(DiagnosticExportText.delimited(key.segment)))
             if let original = key.segmentRepairedFrom {
-                fields.append("repaired from " + DiagnosticExportText.delimited(original))
+                fields.append(AppStrings.ios_diagnostics_refused_repaired(DiagnosticExportText.delimited(original)))
             }
         } else {
-            fields.append("no ingest metadata")
+            fields.append(AppStrings.ios_diagnostics_itemfields())
         }
-        fields.append("reason " + refusal.reasonLabel)
+        fields.append(AppStrings.ios_diagnostics_refused_field_reason(refusal.reasonLabel))
         return fields
     }
 }
@@ -254,44 +251,45 @@ nonisolated struct SegmentRepairExport: Equatable, Sendable {
     /// block: a line of the form `key: value` is what the export's secret redaction rewrites.
     func lines(now: Date) -> [String] {
         guard !self.isEmpty else { return [] }
-        var lines = ["  segment name repairs:"]
+        var lines = [AppStrings.ios_diagnostics_lines8()]
         if self.tally.repaired > 0 {
-            var detail = TransferSegmentRepair.DayPeriod.allCases.compactMap { period -> String? in
+            let periodDetails = TransferSegmentRepair.DayPeriod.allCases.compactMap { period -> String? in
                 let count = self.tally.repairedByForm[period.rawValue, default: 0]
-                return count > 0 ? "\(period.rawValue) \(count)" : nil
-            }.joined(separator: ", ")
+                return count > 0 ? AppStrings.ios_diagnostics_repaired_period(period.rawValue, String(count)) : nil
+            }
+            var detail = AppStrings.joinedComma(periodDetails)
             let legacy = self.tally.repairedByForm["date-prefixed", default: 0]
             if legacy > 0 {
-                detail += (detail.isEmpty ? "" : ", ") + "date-prefixed \(legacy)"
+                detail = AppStrings.joinedComma([detail, AppStrings.ios_diagnostics_lines12("\(legacy)")].filter { !$0.isEmpty })
             }
             var ages: [String] = []
             if let first = self.tally.firstRepairedAt {
-                ages.append("first \(age(from: first, to: now)) ago")
+                ages.append(AppStrings.ios_diagnostics_lines13("\(age(from: first, to: now))"))
             }
             if let last = self.tally.lastRepairedAt {
-                ages.append("last \(age(from: last, to: now)) ago")
+                ages.append(AppStrings.ios_diagnostics_lines14("\(age(from: last, to: now))"))
             }
             if !ages.isEmpty {
-                detail += (detail.isEmpty ? "" : "; ") + ages.joined(separator: ", ")
+                detail = AppStrings.joinedSemicolon([detail, AppStrings.joinedComma(ages)].filter { !$0.isEmpty })
             }
-            lines.append("    \(self.tally.repaired) × repaired" + (detail.isEmpty ? "" : " (\(detail))"))
+            lines.append(detail.isEmpty ? AppStrings.ios_diagnostics_lines6("\(self.tally.repaired)") : AppStrings.ios_diagnostics_repaired_summary(String(self.tally.repaired), detail))
         }
         if self.tally.failures > 0 {
-            lines.append("    \(self.tally.failures) × repair failures across launches")
+            lines.append(AppStrings.ios_diagnostics_lines2("\(self.tally.failures)"))
         }
         if self.unrepaired.noTwelveHourMatch > 0 {
-            lines.append("    \(self.unrepaired.noTwelveHourMatch) × not repaired, unsupported stored name")
+            lines.append(AppStrings.ios_diagnostics_lines5("\(self.unrepaired.noTwelveHourMatch)"))
         }
         if self.unrepaired.sanityCheckFailed > 0 {
-            lines.append("    \(self.unrepaired.sanityCheckFailed) × not repaired, sanity check failed")
+            lines.append(AppStrings.ios_diagnostics_lines7("\(self.unrepaired.sanityCheckFailed)"))
         }
         if self.unrepaired.legacySanityCheckFailed > 0 {
-            lines.append("    \(self.unrepaired.legacySanityCheckFailed) × date-prefixed name not repaired, date or start time disagrees")
+            lines.append(AppStrings.ios_diagnostics_lines4("\(self.unrepaired.legacySanityCheckFailed)"))
         }
         for issue in TransferSegmentRepair.AudioIssue.allCases {
             let count = self.unrepaired.legacyAudioIssues[issue, default: 0]
             if count > 0 {
-                lines.append("    \(count) × date-prefixed name not repaired, \(issue.rawValue)")
+                lines.append(AppStrings.ios_diagnostics_lines_native("\(count)", issue.displayLabel))
             }
         }
         return lines

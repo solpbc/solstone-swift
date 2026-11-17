@@ -1,0 +1,16 @@
+{
+  "description": "a file in this recording doesn't match what your journal has. it's still on your phone.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 87,
+  "source_revision": "af44c4747361df8613adfc8fbc3d314c9ce4d8b5983103a4be4bde5f91c2671d",
+  "risk": "routine",
+  "auto_merge": true
+}

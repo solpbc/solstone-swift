@@ -1,0 +1,25 @@
+{
+  "description": "Import: complete, {imported} imported, {skipped} skipped",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "journalevents"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "imported",
+      "type": "string"
+    },
+    {
+      "name": "skipped",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 56,
+  "source_revision": "c07a07c308b173bf6b9ac1934d2ff0feabb25198d198c2f39a2a2263d5c1ae35",
+  "risk": "routine",
+  "auto_merge": true
+}

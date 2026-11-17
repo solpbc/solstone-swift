@@ -1,0 +1,16 @@
+{
+  "description": "repair could not be saved",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "557143050d70e8d23cd8f64c4e46e1685d06955fdf4742fd1faae2db869fc61a",
+  "risk": "routine",
+  "auto_merge": true
+}

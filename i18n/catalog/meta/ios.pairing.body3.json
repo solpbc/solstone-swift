@@ -1,0 +1,16 @@
+{
+  "description": "point your phone at the code",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 28,
+  "source_revision": "395b0797df22bc12e9e01fd4f91ea0defde98b1bb479524bf23e34ca2b896f53",
+  "risk": "routine",
+  "auto_merge": true
+}

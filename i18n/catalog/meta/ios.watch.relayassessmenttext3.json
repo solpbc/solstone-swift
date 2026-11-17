@@ -1,0 +1,16 @@
+{
+  "description": "Apple owns matching outstanding transfers with no progress value provided",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 73,
+  "source_revision": "84687ce1e36f1a60229f27e0ba726c433703555da490c1ed5ad4e899a580e275",
+  "risk": "routine",
+  "auto_merge": true
+}

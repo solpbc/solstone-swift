@@ -1,0 +1,16 @@
+{
+  "description": "this pairing link uses an unsupported address format.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 53,
+  "source_revision": "d460f5e6e29c245526f8cbdbd4d3a82ca6bc69845bf40cfbd89ca5198e3c2ea8",
+  "risk": "routine",
+  "auto_merge": true
+}

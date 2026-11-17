@@ -1,0 +1,16 @@
+{
+  "description": "running",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.wear.running. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 7,
+  "source_revision": "51abeaec6e8e3212204617e760f35cbfecd424023d8adbdc61668b2e60aa24b9",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "app used too much processing time",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "c92157032bf5453264f58f7561bb6b2ffd2d2cf3ad11f7347fdef77d82290119",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "open settings",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.wear.open.settings. Keep translations consistent. Mac counterpart: macos.desktopshellmodel.opensettings. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "33374347f1a911a0c05f2b7613b89ffbfcf5d4ca37138429f8e5e044b9e45795",
+  "risk": "routine",
+  "auto_merge": true
+}

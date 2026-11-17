@@ -1,0 +1,21 @@
+{
+  "description": "paused. {pausedSubtext}",
+  "context": "the solstone app, speaking to the owner, VoiceOver on a source tile. split. the state word is one enum message. the detail is a second message. do not append an ASCII full stop by scanning the English (EAL-146). do not decide whether the detail repeats the state by comparing the rendered words (EAL-147).",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "pausedSubtext",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 23,
+  "source_revision": "d1bab2e59337da4d9c34baa6b2b50c0c99cd9410176197ae19f6b5d52314146c",
+  "risk": "routine",
+  "auto_merge": true
+}

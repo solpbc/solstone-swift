@@ -1,0 +1,16 @@
+{
+  "description": "close",
+  "context": "Shown by Sources/ContentView.swift. Arguments preserve the existing presentation values. Mac counterpart: macos.desktopshellviews.close. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "a1f34abf437ec17e427804fd2f06f257c671423b17b647a1bd82dd7ac195af73",
+  "risk": "routine",
+  "auto_merge": true
+}

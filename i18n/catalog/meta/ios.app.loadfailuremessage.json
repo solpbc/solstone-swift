@@ -1,0 +1,16 @@
+{
+  "description": "couldn't reach your journal. keep the solstone app open and try again.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journal.couldn.t.reach.journal.keep. Keep translations consistent.",
+  "surfaces": [
+    "journalwebpresentationswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 70,
+  "source_revision": "19027a512e853744a29aed51a2f2eee9f1b5a8fe424b2dfe6e00494943de12eb",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "everything from your watch is in your journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "1ec6d07fb43d00ea90c35317179ac314144c2f70a24c422dc9b27d524788d530",
+  "risk": "routine",
+  "auto_merge": true
+}

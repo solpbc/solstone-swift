@@ -1,0 +1,16 @@
+{
+  "description": "your journal's receipt names a file this recording didn't send. it's still on your phone.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 89,
+  "source_revision": "de479d4cc434b0b5082bec380452d8f5112ffdc6aad72f7099569ea468bc872f",
+  "risk": "payment",
+  "auto_merge": false
+}

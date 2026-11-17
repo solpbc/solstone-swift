@@ -6,6 +6,7 @@ import Foundation
 nonisolated enum AboutBlock {
     static func line(
         name: String,
+        isJournal: Bool = false,
         version: String,
         build: String = "",
         os: String = "",
@@ -16,8 +17,8 @@ nonisolated enum AboutBlock {
         now: Date = Date()
     ) -> String {
         let cleanVersion = trimLeadingV(version)
-        if name == "journal", cleanVersion.isEmpty {
-            return "journal unknown"
+        if isJournal, cleanVersion.isEmpty {
+            return AppStrings.ios_watch_line()
         }
 
         var result = name
@@ -38,7 +39,7 @@ nonisolated enum AboutBlock {
         }
         if !isCurrent, let observedAt,
            let elapsed = Int(exactly: (now.timeIntervalSince1970 - observedAt).rounded(.down)) {
-            result += " · last seen \(relativeInterval(max(0, elapsed)))"
+            result += AppStrings.ios_watch_result("\(relativeInterval(max(0, elapsed)))")
         }
         return result
     }
@@ -60,21 +61,9 @@ nonisolated enum AboutBlock {
     }
 
     private static func relativeInterval(_ seconds: Int) -> String {
-        let count: Int
-        let unit: String
-        if seconds < 60 {
-            count = seconds
-            unit = "second"
-        } else if seconds < 3_600 {
-            count = seconds / 60
-            unit = "minute"
-        } else if seconds < 86_400 {
-            count = seconds / 3_600
-            unit = "hour"
-        } else {
-            count = seconds / 86_400
-            unit = "day"
-        }
-        return "\(count) \(unit)\(count == 1 ? "" : "s") ago"
+        if seconds < 60 { return AppStrings.ios_about_relative_second(seconds) }
+        if seconds < 3_600 { return AppStrings.ios_about_relative_minute(seconds / 60) }
+        if seconds < 86_400 { return AppStrings.ios_about_relative_hour(seconds / 3_600) }
+        return AppStrings.ios_about_relative_day(seconds / 86_400)
     }
 }

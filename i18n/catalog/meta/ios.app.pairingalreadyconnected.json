@@ -1,0 +1,16 @@
+{
+  "description": "this journal is already connected",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "48d497c2496d86d4073be430227e79ef0d5f090583a3a846c2c9423ecd50818e",
+  "risk": "routine",
+  "auto_merge": true
+}

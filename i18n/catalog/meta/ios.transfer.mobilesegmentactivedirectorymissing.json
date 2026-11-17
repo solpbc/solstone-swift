@@ -1,0 +1,16 @@
+{
+  "description": "mobile segment active directory missing",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "93d48a86fec54df0f31e1b6954275f8815858cfad276560f96b2dc36710326cb",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,25 @@
+{
+  "description": "{ $value0 }. { $value1 }",
+  "context": "Native presentation in Sources/SourceModels.swift. Complete frame; arguments carry already formatted display values. Preserve protocol mark words, addresses, identifiers and raw diagnostic values inside arguments. The translator may reorder the named values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "e40618352e340be322dc033e96f0415536b998db79c442233b279b5dff54da24",
+  "risk": "routine",
+  "auto_merge": true
+}

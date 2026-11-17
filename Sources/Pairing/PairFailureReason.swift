@@ -117,40 +117,34 @@ nonisolated enum PairFailureReason: Equatable, Sendable {
         switch self {
         case .publicJournalUnreachable(let targetAddress):
             if let targetAddress {
-                "couldn't reach your journal at \(targetAddress). make sure it's running, then try again."
+                AppStrings.ios_pairing_message3("\(targetAddress)")
             } else {
-                "couldn't reach your journal. make sure it's running, then try again."
+                AppStrings.ios_pairing_message5()
             }
         case .differentNetwork(let phoneAddress, let targetAddress):
-            """
-            this device and your journal are on different networks.
-            this device: \(phoneAddress)
-            your journal: \(targetAddress)
-            connect both to the same wi-fi, then try again.
-            turning on private network on your journal lets your devices reach it from anywhere.
-            """
+            AppStrings.ios_pairing_message_native_bytes("\(phoneAddress)", "\(targetAddress)")
         case .hostUnreachable(let targetAddress):
             if let targetAddress {
-                "couldn't reach your journal at \(targetAddress). make sure it's running and on the same wi-fi, then try again. some networks block devices from connecting directly. turning on private network on your journal lets your devices reach it from anywhere."
+                AppStrings.ios_pairing_message2("\(targetAddress)")
             } else {
-                "couldn't reach your journal. make sure it's running and on the same wi-fi, then try again. turning on private network on your journal lets your devices reach it from anywhere."
+                AppStrings.ios_pairing_message4()
             }
         case .loopbackAddress:
-            "that address points back at this device. paste the pairing link shown on your journal instead."
+            AppStrings.ios_pairing_message8()
         case .journalUnreachableOffLAN:
-            "your journal isn't reachable from here. you're on cellular, and pairing needs to reach your journal directly. join the same wi-fi as your journal, or try again when you're home. everything the solstone app has taken in is on this device and syncs once you reconnect."
+            AppStrings.ios_pairing_message17()
         case .directAddressNotLocal:
-            "that pairing link points to an address that can't be opened. copy the link from your journal again and try again."
+            AppStrings.ios_pairing_message9()
         case .connectionDropped:
-            "lost the connection to your journal before it answered. try again."
+            AppStrings.ios_pairing_message6()
         case .codeExpired:
-            "the pairing window closed. show a new pairing code on your journal, then try again."
+            AppStrings.ios_pairing_message10()
         case .wrongSolstone:
-            "this journal's identity doesn't match the pairing code. double-check which journal you're pairing, then try again with a new code."
+            AppStrings.ios_pairing_message12()
         case .relayInstanceMismatch:
-            "the relay connected to the wrong journal."
+            AppStrings.ios_pairing_message11()
         case .generic:
-            "pairing didn't go through. show a new pairing code on your journal and try again."
+            AppStrings.ios_pairing_message7()
         }
     }
 

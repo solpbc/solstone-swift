@@ -1,0 +1,21 @@
+{
+  "description": "stage: { $value0 } cancelled",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "1b8cf3756adaa8e4cdfb1287c4d29fbe4c7179938263d0cf0c08c93a7d31689a",
+  "risk": "routine",
+  "auto_merge": true
+}

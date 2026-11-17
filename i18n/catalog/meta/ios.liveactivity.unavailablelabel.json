@@ -1,0 +1,16 @@
+{
+  "description": "can't check what's waiting",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneliveactivitywidget"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 26,
+  "source_revision": "48afaca2141821332c158132eaf5df3dd1b198229011b5662306558fa8ea5d80",
+  "risk": "routine",
+  "auto_merge": true
+}

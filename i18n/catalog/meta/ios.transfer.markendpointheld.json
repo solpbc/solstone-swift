@@ -1,0 +1,16 @@
+{
+  "description": "held: endpoint unavailable",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 26,
+  "source_revision": "83b5e18cf8493b0798299ea67b7223e2ddff343dfe692b73376081f0aa293267",
+  "risk": "routine",
+  "auto_merge": true
+}

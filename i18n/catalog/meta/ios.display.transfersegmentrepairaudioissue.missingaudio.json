@@ -1,0 +1,16 @@
+{
+  "description": "audio missing or ambiguous",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "0a52f0fa56f3c4270c6cd513d953a498d3bc274ba110a7735f93e19a2876cd00",
+  "risk": "routine",
+  "auto_merge": true
+}

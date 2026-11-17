@@ -1,0 +1,16 @@
+{
+  "description": "january",
+  "context": "Shown by Sources/SourceIntake/SourceIntakeFormatting.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "d50aabf00d03b986eab3c80f147e6b71900f3767857eb70684a6515b6f4d5e2d",
+  "risk": "routine",
+  "auto_merge": true
+}

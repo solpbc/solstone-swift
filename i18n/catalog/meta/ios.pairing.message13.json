@@ -1,0 +1,16 @@
+{
+  "description": "this pairing link is damaged.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "8a3e55cdf1a66a574a597d1010d26c980c06e89e9e6d76ec573d3f9fbf7a1be5",
+  "risk": "routine",
+  "auto_merge": true
+}

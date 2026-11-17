@@ -1,0 +1,16 @@
+{
+  "description": "app quit summary",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "0ca9b7d452b01d985c3f8b8d7133d3bec42577583cd8cfc9864a611a23033c1c",
+  "risk": "routine",
+  "auto_merge": true
+}

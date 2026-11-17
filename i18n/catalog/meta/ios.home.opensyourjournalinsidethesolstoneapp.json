@@ -1,0 +1,16 @@
+{
+  "description": "opens your journal inside the solstone app.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 43,
+  "source_revision": "1c67140670e8ea227eb4974106ba119f7353ad6e81624c51c2d028cf09de8fa3",
+  "risk": "routine",
+  "auto_merge": true
+}

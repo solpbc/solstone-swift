@@ -1,0 +1,16 @@
+{
+  "description": "probe not reachable during active uploads",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 41,
+  "source_revision": "ce8cb2a43c7f1bd947f2d905612ed23a7aa548f05ebfd8c972920aa427c79599",
+  "risk": "routine",
+  "auto_merge": true
+}

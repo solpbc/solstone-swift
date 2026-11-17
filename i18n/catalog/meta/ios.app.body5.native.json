@@ -1,0 +1,16 @@
+{
+  "description": "connected via local network",
+  "context": "Shown by Sources/ContentView.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "6f50a0162240bfcf24d656b7b8099b6236a2961fa662b4ac36d0db85ee509dfc",
+  "risk": "routine",
+  "auto_merge": true
+}

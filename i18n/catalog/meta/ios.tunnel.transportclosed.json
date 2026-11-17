@@ -1,0 +1,16 @@
+{
+  "description": "transport closed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "212430f74117833d03a8c7f55bd2214fa060f21ae6469e68c4ccea086a23cb31",
+  "risk": "routine",
+  "auto_merge": true
+}

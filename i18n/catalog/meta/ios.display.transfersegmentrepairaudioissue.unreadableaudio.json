@@ -1,0 +1,16 @@
+{
+  "description": "audio could not be read",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "ad944402eaec1a3d8c7743011d5e0bc10b7528d63eeaa529fbcc33a8e018c683",
+  "risk": "routine",
+  "auto_merge": true
+}

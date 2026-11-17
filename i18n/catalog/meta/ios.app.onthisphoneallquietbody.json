@@ -1,0 +1,16 @@
+{
+  "description": "everything you've shared is in your journal. new moments rest here on their way through.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 88,
+  "source_revision": "c211df174a871e5bb86d5b347669f2a0036f8807b93fb64bcd4c18d8b6149e84",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "a restriction on this device blocks location.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 45,
+  "source_revision": "4c8e80033e162c03ce2d5a2ec567467b82b58673bd3fab4e3d412a7445cabc3c",
+  "risk": "routine",
+  "auto_merge": true
+}

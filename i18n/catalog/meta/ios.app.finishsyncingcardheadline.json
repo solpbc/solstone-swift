@@ -1,0 +1,16 @@
+{
+  "description": "still syncing to your journal",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyfinishsyncingswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "cf30407aabd61b83425e41e2a97012d072806082bb1969d31e350fd61de7c88e",
+  "risk": "routine",
+  "auto_merge": true
+}

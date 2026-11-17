@@ -1,0 +1,16 @@
+{
+  "description": "Owner-facing text added since the 11-03 census.",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.screenshots.pausedscreenshotstakewhile. Keep translations consistent.",
+  "surfaces": [
+    "screenshots"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 70,
+  "source_revision": "e79f322d301a11edd29f8c920b12f586977764c6eabf3ea6b20435e7319f7b9e",
+  "risk": "routine",
+  "auto_merge": true
+}

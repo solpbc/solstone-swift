@@ -1,0 +1,16 @@
+{
+  "description": "cancel",
+  "context": "Existing native lookup migration.picker.cancel. Mac counterpart: macos.desktop.shared.setup.cancel. Keep translations consistent. Android counterpart: android.phone.cancel. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "2fb1b0b4511f744f1f8617c9484ba0385da245221e9a958f185c1f0a1c255879",
+  "risk": "routine",
+  "auto_merge": true
+}

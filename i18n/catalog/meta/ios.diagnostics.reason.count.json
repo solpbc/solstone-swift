@@ -1,0 +1,32 @@
+{
+  "description": "    { $count } × { $reason }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "string"
+    },
+    {
+      "name": "reason",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "fb1c6ece0b5299102a6b79e87bfd1665756ed16324a46f0342b474e452d87a96",
+  "risk": "routine",
+  "auto_merge": true,
+  "protected_slots": [
+    {
+      "name": "space0",
+      "kind": "whitespace",
+      "value": "    "
+    }
+  ]
+}

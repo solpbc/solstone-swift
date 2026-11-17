@@ -1,0 +1,16 @@
+{
+  "description": "cancel pairing",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.journalmark.cancel.pairing. Keep translations consistent. Mac counterpart: macos.desktop.shared.copy.journalmarkunverifiedcancelbutton. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "af7a6389b2176aa7aec4fdf66bcb7d7d993a59f3759f59e4d47eb02c627a8d12",
+  "risk": "routine",
+  "auto_merge": true
+}

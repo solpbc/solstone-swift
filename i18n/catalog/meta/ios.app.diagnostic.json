@@ -1,0 +1,16 @@
+{
+  "description": "mobile segment storage unavailable source=app-group",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "solstoneswiftappswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 51,
+  "source_revision": "ab3171670cd4d94d49ea717db250a8e15435a09b545fa20691bb303ddf077e5e",
+  "risk": "routine",
+  "auto_merge": true
+}

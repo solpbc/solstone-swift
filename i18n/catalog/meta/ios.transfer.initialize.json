@@ -1,0 +1,16 @@
+{
+  "description": "reason=owner conflict",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "cc66b5846f05fbe5df49fbb8c3529d7fbe6b6b90586bbf31d7472ae5a26592aa",
+  "risk": "routine",
+  "auto_merge": true
+}

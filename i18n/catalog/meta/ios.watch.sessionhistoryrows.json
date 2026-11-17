@@ -1,0 +1,16 @@
+{
+  "description": "audio clock at last check",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 25,
+  "source_revision": "f9f76d29423db98af9f9a129f09bad5a97f417806cb0f1f322d40d9fc731f5c0",
+  "risk": "routine",
+  "auto_merge": true
+}

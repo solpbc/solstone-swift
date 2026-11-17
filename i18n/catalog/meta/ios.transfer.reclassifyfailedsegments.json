@@ -1,0 +1,21 @@
+{
+  "description": "source={path} reason=reclassify failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 38,
+  "source_revision": "b91a9010113dc82e103eb13b1cc6e4382c0d6181ce3d545e8af73547b9808336",
+  "risk": "routine",
+  "auto_merge": true
+}

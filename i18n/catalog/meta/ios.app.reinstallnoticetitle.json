@@ -1,0 +1,16 @@
+{
+  "description": "this device is still connected to your journal",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 46,
+  "source_revision": "b292893cf2a06892082743aae3f300cb5cd7ab307aaa81cf832c280e4f63c5f1",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -190,8 +190,8 @@ nonisolated enum PushEnvelope {
         )
     }
 
-    static let fallbackTitle = "solstone"
-    static let fallbackBody = "you have a new notification."
+    static let fallbackTitle = AppStrings.ios_push_test_title()
+    static let fallbackBody = AppStrings.ios_push_fallbackbody_native()
 
     /// What the phone shows when a notification can't be opened. Built here, never taken from the delivered alert.
     static func fallbackContent() -> UNMutableNotificationContent {

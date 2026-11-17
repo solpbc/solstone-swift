@@ -49,11 +49,11 @@ private extension LocationSourceDetailView {
     static func faultActionHint(_ action: SourceFaultAction) -> String {
         switch action {
         case .matchToAllowed:
-            "Changes the detail level to what ios allows."
+            AppStrings.ios_location_faultactionhint2()
         case .requestPermission:
-            "Asks ios for location access."
+            AppStrings.ios_location_faultactionhint()
         case .openSettings, .routeToInstallOrOpen, .none:
-            "Opens ios settings for location access."
+            AppStrings.ios_location_faultactionhint3()
         }
     }
 
@@ -128,7 +128,7 @@ private extension LocationSourceDetailView {
             }
             .buttonStyle(BrandQuietButtonStyle())
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .accessibilityHint(self.locationManager.sourceState == .paused ? "Resumes location updates to your journal." : "Pauses location updates to your journal.")
+            .accessibilityHint(self.locationManager.sourceState == .paused ? AppStrings.ios_location_stateblock_native() : AppStrings.ios_location_pauseslocationupdatestoyour())
         }
     }
 
@@ -170,7 +170,7 @@ private extension LocationSourceDetailView {
                                 .foregroundStyle(.secondary)
                         }
                         .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(item.timeLabel). \(SourceVocabulary.shareDeliveredProgress)")
+                        .accessibilityLabel(AppStrings.ios_frame_locationsourcedetailview_n173("\(item.timeLabel)", "\(SourceVocabulary.shareDeliveredProgress)"))
                     }
                 }
             case .loadedEmpty:
@@ -211,7 +211,7 @@ private extension LocationSourceDetailView {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .disabled(self.journalURL == nil)
             .accessibilityLabel(SourceVocabulary.openJournalLink)
-            .accessibilityHint("opens your journal inside the solstone app.")
+            .accessibilityHint(AppStrings.ios_home_opensyourjournalinsidethesolstoneapp())
             .sheet(isPresented: self.$showingJournal) {
                 InAppJournalView(mark: RootShellView.storedJournalMark())
             }
@@ -254,7 +254,7 @@ private extension LocationSourceDetailView {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint(tier == .light ? "Uses places only from now on." : tier == .balanced ? "Uses places plus comings and goings from now on. This is the recommended default." : "Uses the complete picture from now on.")
+        .accessibilityHint(tier == .light ? AppStrings.ios_location_tierbutton() : tier == .balanced ? AppStrings.ios_location_tierbutton2_native() : AppStrings.ios_location_usesthecompletepicturefrom())
     }
 
     func handlePauseResumeTap() async {
@@ -340,7 +340,7 @@ private struct LocationEnrollmentContent: View {
                     .buttonStyle(BrandProminentButtonStyle())
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, minHeight: 44)
-                    .accessibilityHint("Starts adding location updates to your journal.")
+                    .accessibilityHint(AppStrings.ios_location_body2())
                     .accessibilityIdentifier("location.enrollment.turnOn")
                 }
             }
@@ -399,6 +399,6 @@ private extension LocationEnrollmentContent {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint(tier == .light ? "Chooses places only for location." : tier == .balanced ? "Chooses places plus comings and goings for location. This is the recommended default." : "Chooses the complete picture for location.")
+        .accessibilityHint(tier == .light ? AppStrings.ios_location_tieroption() : tier == .balanced ? AppStrings.ios_location_tieroption2_native() : AppStrings.ios_location_choosesthecompletepicturefor())
     }
 }

@@ -1,0 +1,16 @@
+{
+  "description": "block buffer fill failed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "observer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "7724ddb4119a4394b6d6e00147093c7e87b7d2c366d36c2b48dd2bfa46a153d7",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Import: not run",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "journalevents"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "496ca11ac45055f8efea27b8842febf17a2eef85b002de26e83894a35f33f7c6",
+  "risk": "routine",
+  "auto_merge": true
+}

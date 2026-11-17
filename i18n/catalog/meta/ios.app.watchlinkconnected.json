@@ -1,0 +1,16 @@
+{
+  "description": "phone link: in range",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "8a098f3a52326f656a58f6c4daaedd96e99f5b9f79f01518cc997340139de68d",
+  "risk": "routine",
+  "auto_merge": true
+}

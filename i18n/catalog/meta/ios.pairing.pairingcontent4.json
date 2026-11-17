@@ -1,0 +1,16 @@
+{
+  "description": "pairing method",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 14,
+  "source_revision": "74ab4d79479765e6fe53245844b347a1f4d2d0b8b89daee22f95996c6ad0b99f",
+  "risk": "routine",
+  "auto_merge": true
+}

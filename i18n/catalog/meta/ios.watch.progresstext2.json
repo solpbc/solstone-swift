@@ -1,0 +1,21 @@
+{
+  "description": "progress {hole1}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "de2f6147086020354231c11cf8e0b62e0c77fa682c4e565933526ac021e3b885",
+  "risk": "routine",
+  "auto_merge": true
+}

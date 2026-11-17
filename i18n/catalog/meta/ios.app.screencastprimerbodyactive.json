@@ -1,0 +1,16 @@
+{
+  "description": "to stop sharing your screen, tap \"Stop Broadcast\" in the sheet that comes up.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 77,
+  "source_revision": "c85af1ba80f6cdf4fe0ebd6880949ec175bdb634df7ae8f8d1c8b853d6e6762c",
+  "risk": "routine",
+  "auto_merge": true
+}

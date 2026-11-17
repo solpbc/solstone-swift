@@ -1,0 +1,16 @@
+{
+  "description": "sessions this device has not received",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 37,
+  "source_revision": "10dca6e30f9fab1bd35331fded9a8a0e8ecf747f5c940d3157be5dffa205fede",
+  "risk": "routine",
+  "auto_merge": true
+}

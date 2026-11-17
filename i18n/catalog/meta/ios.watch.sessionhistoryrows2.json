@@ -1,0 +1,16 @@
+{
+  "description": "battery at last check",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "c3b5be64c450bc8f8c1fdaee535f967f20367b601a421fa35cbc9abe4c413fd5",
+  "risk": "routine",
+  "auto_merge": true
+}

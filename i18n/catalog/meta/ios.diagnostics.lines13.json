@@ -1,0 +1,21 @@
+{
+  "description": "first {age_from_first_to_now} ago",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "diagnostics"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "age_from_first_to_now",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 33,
+  "source_revision": "908e1cb92471a51c6e499ada452801478a48d75dcf1e2f4d8faf440738f16012",
+  "risk": "routine",
+  "auto_merge": true
+}

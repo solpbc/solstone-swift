@@ -1,0 +1,16 @@
+{
+  "description": "Opens ios settings for location access.",
+  "context": "names the iOS Settings screen.",
+  "surfaces": [
+    "location"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "af73ca7266c68c97dd91eb05d67793381d44124fd44a5c2d863151a0238740ab",
+  "risk": "routine",
+  "auto_merge": true
+}

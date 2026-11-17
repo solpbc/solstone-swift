@@ -1,0 +1,16 @@
+{
+  "description": "forget",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.shelf.forget. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 6,
+  "source_revision": "5c2f20af1c4713dade17f096eaf3d25dc8e29bbaabec44b4b8492701cd9ecaf8",
+  "risk": "routine",
+  "auto_merge": true
+}

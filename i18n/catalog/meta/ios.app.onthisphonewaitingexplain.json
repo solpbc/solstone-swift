@@ -1,0 +1,16 @@
+{
+  "description": "still on this device. syncing to your journal continues automatically. you don't have to do anything.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 101,
+  "source_revision": "56f2cbe7e6402d1c5e38c141067408ef47443e7f575e00a5883ceebd444b5516",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "couldn't try this again. it's still on this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 51,
+  "source_revision": "da593d31f371a53b80b86b383c118dfbb2111765d63071a4d204a67eb382ce71",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "missing pairing",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "services"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "ec1d26fd782ed4d2080fef548f3fe2e6232986682ead45ccf074bd45f91f6746",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -157,14 +157,14 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
         var zonedCalendar = calendar
         zonedCalendar.timeZone = timeZone
         if zonedCalendar.isDate(date, inSameDayAs: now) {
-            return "today"
+            return AppStrings.ios_app_daytoday()
         }
         if let yesterday = zonedCalendar.date(
             byAdding: .day,
             value: -1,
             to: zonedCalendar.startOfDay(for: now)
         ), zonedCalendar.isDate(date, inSameDayAs: yesterday) {
-            return "yesterday"
+            return AppStrings.ios_app_relativedaylabel()
         }
 
         let formatter = DateFormatter()
@@ -240,7 +240,8 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
             return .network
         }
         return .unknown
-    }
+
+}
 
     static func failureLegibility(
         for item: OnThisPhoneItem,
@@ -282,7 +283,7 @@ nonisolated enum OnThisPhoneItemDetailPresentation {
                 locale: locale,
                 timeZone: timeZone
             )
-            return SourceVocabulary.onThisPhoneFailureLastTried(datePhrase: "\(relativeDay) at \(shortTime)")
+            return SourceVocabulary.onThisPhoneFailureLastTried(datePhrase: AppStrings.ios_app_at("\(relativeDay)", "\(shortTime)"))
         }
 
         return OnThisPhoneFailureLegibility(message: message, lastTried: lastTried)

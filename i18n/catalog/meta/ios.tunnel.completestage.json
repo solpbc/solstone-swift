@@ -1,0 +1,29 @@
+{
+  "description": "stage: {rawValue} done{durationSegment}{detail_map_0}",
+  "context": "the solstone app, speaking to the owner. the number is fixed in the English or chosen with a conditional. use one cardinal select, or one enum whose branches contain the fixed number.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "rawValue",
+      "type": "string"
+    },
+    {
+      "name": "durationSegment",
+      "type": "string"
+    },
+    {
+      "name": "detail_map_0",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 53,
+  "source_revision": "8f8c619c62e0fd79ad888ef5b60329acaec0e73a81be842bfdacab3ea60d440c",
+  "risk": "routine",
+  "auto_merge": true
+}

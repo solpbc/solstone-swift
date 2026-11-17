@@ -1,0 +1,16 @@
+{
+  "description": "forget this journal?",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.shelf.forget.journal.n2. Keep translations consistent.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 20,
+  "source_revision": "c461fa08b7db489f5807b787beee93d6b26cdc79a741ba6e41002ebef1a9f244",
+  "risk": "routine",
+  "auto_merge": true
+}

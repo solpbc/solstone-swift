@@ -1,0 +1,16 @@
+{
+  "description": "iPhone → Watch durable ACK/control",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "76a2b11e55c3a3e093c7547efaf900dfd7da949bbed05c95051b44cd7db85de5",
+  "risk": "routine",
+  "auto_merge": true
+}

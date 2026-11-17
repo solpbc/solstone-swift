@@ -1,0 +1,16 @@
+{
+  "description": "the camera isn't available on this device. paste a pairing link instead.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "pairing"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 72,
+  "source_revision": "1b196af4dbc92dd3c1507d649844966ac4b1bde05afb5bcee63e5e95956f452b",
+  "risk": "routine",
+  "auto_merge": true
+}

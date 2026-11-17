@@ -1,0 +1,16 @@
+{
+  "description": "screencast",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "screencast"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 10,
+  "source_revision": "5992d6761351d6a4584cbee160ec8a9af5e14ef4aa3dd74c5e6eae8b852c205b",
+  "risk": "routine",
+  "auto_merge": true
+}

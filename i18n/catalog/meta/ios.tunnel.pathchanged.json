@@ -1,0 +1,16 @@
+{
+  "description": "path changed",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 12,
+  "source_revision": "ef0350f528cc7a69878cc848440d90944b3357799b8439785f06a3acc0498c77",
+  "risk": "routine",
+  "auto_merge": true
+}

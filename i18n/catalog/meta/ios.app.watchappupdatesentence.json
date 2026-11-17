@@ -1,0 +1,16 @@
+{
+  "description": "the solstone app on your watch has an update waiting.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 53,
+  "source_revision": "94ffd748a12757643f702b89e6de9cb2a08bf2dd17c298614bf913cd9c47da92",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -54,7 +54,7 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
     func composedText(backlog: WatchAwareBacklog) -> String {
         let count = backlog.knownCount
         if count > 0 {
-            return "\(SourceVocabulary.confirmTheMarkAction) · \(count) waiting"
+            return AppStrings.ios_home_composedtext_native("\(SourceVocabulary.confirmTheMarkAction)", "\(count)")
         } else {
             return SourceVocabulary.confirmTheMarkAction
         }

@@ -538,17 +538,17 @@ nonisolated enum MobileSegmentScreencastStopPolicy {
     static func ownerSentence(for reason: MobileSegmentScreencastDiagnosticReason) -> String {
         switch reason {
         case .storageLow:
-            "screen stopped. this device is low on storage."
+            AppStrings.ios_transfer_screencaststoragelowtext()
         case .appGroupUnavailable:
-            "screen is unavailable"
+            AppStrings.ios_transfer_screencastunavailabletext()
         case .noVideo:
-            "no screen video was saved"
+            AppStrings.ios_transfer_screencastnovideotext()
         case .finalizeTimeout:
-            "screen video timed out while saving"
+            AppStrings.ios_transfer_screencastfinalizetimeouttext()
         case .writerFailure:
-            "screen video could not be saved"
+            AppStrings.ios_transfer_screencastfinalizefailedtext()
         case .filesystemHandoffFailure:
-            "screen video could not be stored"
+            AppStrings.ios_transfer_screencastfilesystemfailedtext()
         }
     }
 }

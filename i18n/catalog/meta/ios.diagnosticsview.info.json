@@ -1,0 +1,16 @@
+{
+  "description": "info",
+  "context": "Shown by Sources/Diagnostics/DiagnosticsView.swift. Arguments preserve the existing presentation values.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "56153c4e4b6a37003615e279aab4094a4e7d9eb4232a93ecdafb072d479a258e",
+  "risk": "routine",
+  "auto_merge": true
+}

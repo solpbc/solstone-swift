@@ -1,0 +1,16 @@
+{
+  "description": "watch battery level at snapshot time",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 36,
+  "source_revision": "7c674655bb4c6b7ea2b9cf8e075663a7a56f1b1765ebcc785b02c13165ff96a5",
+  "risk": "routine",
+  "auto_merge": true
+}

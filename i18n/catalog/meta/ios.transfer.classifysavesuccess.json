@@ -1,0 +1,16 @@
+{
+  "description": "invalid save response",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "transfer"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 21,
+  "source_revision": "e5b6b9018fdf09d36f180d56d3ae0533b439adc8f148b601bc4143bbfaa3a723",
+  "risk": "routine",
+  "auto_merge": true
+}

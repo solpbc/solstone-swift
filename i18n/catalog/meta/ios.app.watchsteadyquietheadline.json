@@ -1,0 +1,16 @@
+{
+  "description": "quiet right now",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 15,
+  "source_revision": "fc49d461dac5bba6721374e28c6b15c631238cd1507c1e11c773f6f1fe7bffde",
+  "risk": "routine",
+  "auto_merge": true
+}

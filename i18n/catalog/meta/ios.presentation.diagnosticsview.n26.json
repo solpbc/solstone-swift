@@ -1,0 +1,29 @@
+{
+  "description": "{ $value0 }: { $value1 }, { $value2 }",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "value0",
+      "type": "string"
+    },
+    {
+      "name": "value1",
+      "type": "string"
+    },
+    {
+      "name": "value2",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "cfc08fedff92d1bf1331cbd7075be2e73257c1f24e2e8285f86cd17c88f36337",
+  "risk": "routine",
+  "auto_merge": true
+}

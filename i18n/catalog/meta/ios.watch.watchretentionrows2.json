@@ -1,0 +1,16 @@
+{
+  "description": "Apple queue",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 11,
+  "source_revision": "7dbd1feabbacdeccb5dbb7de5a4a324644b7c3101a9a3e9306c36a340199ca26",
+  "risk": "routine",
+  "auto_merge": true
+}

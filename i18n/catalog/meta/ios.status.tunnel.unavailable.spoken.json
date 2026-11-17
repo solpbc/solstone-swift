@@ -1,0 +1,16 @@
+{
+  "description": "private network: not available",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "150b139bd3c263c596ff3712bca316a4dda42e1d4d483b50f599c514a23749a6",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "app-active-not-in-apple-queue",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "52d8415fb2013537522f3036ccc904dd9ea1e5399084dadfe0dab34fe528e410",
+  "risk": "routine",
+  "auto_merge": true
+}

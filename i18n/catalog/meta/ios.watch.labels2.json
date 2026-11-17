@@ -1,0 +1,16 @@
+{
+  "description": "sessions dropped as older than the retention window",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 51,
+  "source_revision": "b411832c5f808c477b727bfbe2e8affda1599aa9d6feec8de3116428db482d92",
+  "risk": "routine",
+  "auto_merge": true
+}

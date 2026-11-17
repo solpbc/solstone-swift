@@ -1,0 +1,16 @@
+{
+  "description": "update solstone on your watch",
+  "context": "the solstone app, speaking to the owner. Android counterpart: android.wear.update.solstone.on.your.watch. Keep translations consistent.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "bc9b8ce9a38da92b397c357b2bf2122fd38ecac12f1af8539f0c5a25c9585761",
+  "risk": "routine",
+  "auto_merge": true
+}

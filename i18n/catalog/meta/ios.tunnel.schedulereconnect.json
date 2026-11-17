@@ -1,0 +1,25 @@
+{
+  "description": "delayMs={hole1} error={diagnosticLabel}",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "hole1",
+      "type": "string"
+    },
+    {
+      "name": "diagnosticLabel",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 39,
+  "source_revision": "9d20b4e9167d88b4a084ddc7f35c19b527a0dc4d3c95a5e29053630efa08b64b",
+  "risk": "routine",
+  "auto_merge": true
+}

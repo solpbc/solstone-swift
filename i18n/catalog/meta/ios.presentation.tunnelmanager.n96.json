@@ -1,0 +1,16 @@
+{
+  "description": "couldn't reach your journal",
+  "context": "Native app presentation. Translate the whole message; named values may be reordered. Android counterpart: android.shelf.couldn.t.reach.journal. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "e1375ebd660e02321182049126e59bac9e2af3b7f2d847dce2421f228bb453be",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "send a test notification",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "home"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "9862ff307dd02314f638eb0ccfd7c86bf6bb2e31d1b1a4c3fe5f9ecb0238e293",
+  "risk": "routine",
+  "auto_merge": true
+}

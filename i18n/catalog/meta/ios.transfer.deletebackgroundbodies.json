@@ -1,0 +1,21 @@
+{
+  "description": "source={path} reason=remove failed",
+  "context": "diagnostic field line. the values are machine data, not agreed nouns.",
+  "surfaces": [
+    "mobilesegment"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "path",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "6b9a7aa6b7a08af4d501dd4cf5b34078dc43888f6eefff32505ca89331e80a22",
+  "risk": "routine",
+  "auto_merge": true
+}

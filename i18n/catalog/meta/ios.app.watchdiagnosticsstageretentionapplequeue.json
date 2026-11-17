@@ -1,0 +1,16 @@
+{
+  "description": "watch retention + Apple queue",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 29,
+  "source_revision": "7c6b556787598a3506056c22956581337f782ae2e5dadeec31af0efe99d3176c",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -90,8 +90,8 @@ final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsE
             )
         } else {
             return WatchSegmentPowerSample(
-                level: .unavailable(reason: "not available off watch"),
-                state: .unavailable(reason: "not available off watch"),
+                level: .unavailable(reason: AppStrings.ios_watch_notavailableoffwatch()),
+                state: .unavailable(reason: AppStrings.ios_watch_notavailableoffwatch()),
                 lowPowerModeEnabled: lowPowerMode
             )
         }
@@ -105,7 +105,7 @@ final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsE
         if levelReading >= 0 {
             level = .available(Double(levelReading))
         } else {
-            level = .unavailable(reason: "not provided")
+            level = .unavailable(reason: AppStrings.ios_watch_notprovided())
         }
         return (level, .available(stateReading.rawValue))
     }
@@ -125,10 +125,10 @@ final class LiveWatchRelayDiagnosticsEnvironmentProvider: WatchRelayDiagnosticsE
 
 @MainActor
 final class WatchRelayDiagnosticsCollector {
-    static let membershipUnavailableEntryFactsIncomplete = "entry facts incomplete"
-    static let membershipUnavailableMembershipUndetermined = "membership undetermined"
-    static let membershipUnavailableStoreChangedMidScan = "store changed mid-scan"
-    static let membershipUnavailableScanCancelled = "scan cancelled"
+    static let membershipUnavailableEntryFactsIncomplete = AppStrings.ios_watch_membershipunavailableentryfactsincomplete()
+    static let membershipUnavailableMembershipUndetermined = AppStrings.ios_watch_membershipunavailablemembershipundetermined()
+    static let membershipUnavailableStoreChangedMidScan = AppStrings.ios_watch_membershipunavailablestorechangedmidscan()
+    static let membershipUnavailableScanCancelled = AppStrings.ios_watch_membershipunavailablescancancelled()
 
     private let paths: WatchCaptureStoragePaths
     private let storageActor: WatchCaptureStorageActor
@@ -777,13 +777,13 @@ private extension WatchRelayDiagnosticsCollector {
             relayBundleBytes = fact.relayBundleBytes
         } else {
             appManifestState = nil
-            appOwnedEnqueueAgeSeconds = .unavailable(reason: "no app-active manifest")
-            appOwnedSourceBytes = .unavailable(reason: "no app-active manifest")
-            sourcePresent = .unavailable(reason: "no app-active manifest")
-            originalAudioFile = .unavailable(reason: "no app-active manifest")
-            originalLocationFile = .unavailable(reason: "no app-active manifest")
-            relayBundlePresent = .unavailable(reason: "no app-active manifest")
-            relayBundleBytes = .unavailable(reason: "no app-active manifest")
+            appOwnedEnqueueAgeSeconds = .unavailable(reason: AppStrings.ios_watch_noappactivemanifest())
+            appOwnedSourceBytes = .unavailable(reason: AppStrings.ios_watch_noappactivemanifest())
+            sourcePresent = .unavailable(reason: AppStrings.ios_watch_noappactivemanifest())
+            originalAudioFile = .unavailable(reason: AppStrings.ios_watch_noappactivemanifest())
+            originalLocationFile = .unavailable(reason: AppStrings.ios_watch_noappactivemanifest())
+            relayBundlePresent = .unavailable(reason: AppStrings.ios_watch_noappactivemanifest())
+            relayBundleBytes = .unavailable(reason: AppStrings.ios_watch_noappactivemanifest())
         }
 
         let isTransferring: DiagnosticAvailability<Bool>
@@ -792,8 +792,8 @@ private extension WatchRelayDiagnosticsCollector {
             isTransferring = .available(transfer.snapshot.isTransferring)
             progress = .available(transfer.snapshot.progress)
         } else {
-            isTransferring = .unavailable(reason: "not in Apple queue snapshot")
-            progress = .unavailable(reason: "not in Apple queue snapshot")
+            isTransferring = .unavailable(reason: AppStrings.ios_watch_observation())
+            progress = .unavailable(reason: AppStrings.ios_watch_observation())
         }
 
         return WatchRelayTransferObservation(
@@ -1183,7 +1183,7 @@ private extension WatchRelayDiagnosticsCollector {
         case .inactive:
             return "inactive"
         case .notActivated:
-            return "not activated"
+            return AppStrings.ios_app_watchactivationnotactivated()
         @unknown default:
             return "unknown"
         }
@@ -1304,7 +1304,7 @@ private extension LiveWatchRelayDiagnosticsEnvironmentProvider {
         guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
               !value.isEmpty
         else {
-            return .unavailable(reason: "not provided")
+            return .unavailable(reason: AppStrings.ios_watch_notprovided())
         }
         return .available(value)
     }
@@ -1328,7 +1328,7 @@ private extension LiveWatchRelayDiagnosticsEnvironmentProvider {
         #if os(watchOS)
         return .available(WKInterfaceDevice.current().systemVersion)
         #else
-        return .unavailable(reason: "not available off watch")
+        return .unavailable(reason: AppStrings.ios_watch_notavailableoffwatch())
         #endif
     }
 
@@ -1339,8 +1339,8 @@ private extension LiveWatchRelayDiagnosticsEnvironmentProvider {
         )
         #else
         return (
-            .unavailable(reason: "not available off watch"),
-            .unavailable(reason: "not available off watch")
+            .unavailable(reason: AppStrings.ios_watch_notavailableoffwatch()),
+            .unavailable(reason: AppStrings.ios_watch_notavailableoffwatch())
         )
         #endif
     }

@@ -1,0 +1,16 @@
+{
+  "description": "the solstone extension takes in nothing from private browsing.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "safarisource"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 62,
+  "source_revision": "4f9bd3a5c5ddd99d5febd543047365cd8d26da436f40909791f9451a7d7e0bdb",
+  "risk": "routine",
+  "auto_merge": true
+}

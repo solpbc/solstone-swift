@@ -1,0 +1,16 @@
+{
+  "description": "waiting for your watch to check in",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 34,
+  "source_revision": "6a3d48d5f6f4990663acef6d85835b3bb604c534e1928c40e69cc70b624796d9",
+  "risk": "routine",
+  "auto_merge": true
+}

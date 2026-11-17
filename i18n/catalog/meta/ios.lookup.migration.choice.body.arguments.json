@@ -1,0 +1,21 @@
+{
+  "description": "same device continues \"{ $previous_device_label }\" with its name and history, and removes the old device's access to your journal. new device keeps both.",
+  "context": "Existing native lookup migration.choice.body. Named placeholders are runtime arguments.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "previous_device_label",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "46e00adb2b14b836c5c4699a9c282cc86146c4a8e4d9e5a87e29b563ff6fcea5",
+  "risk": "routine",
+  "auto_merge": true
+}

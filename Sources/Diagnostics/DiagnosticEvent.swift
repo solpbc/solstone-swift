@@ -57,3 +57,15 @@ struct DiagnosticEvent: Identifiable, Sendable {
         self.detail = detail
     }
 }
+
+nonisolated extension DiagnosticCategory {
+    var displayLabel: String {
+        switch self {
+        case .tunnel: AppStrings.ios_display_diagnosticcategory_tunnel()
+        case .network: AppStrings.ios_display_diagnosticcategory_network()
+        case .upload: AppStrings.ios_display_diagnosticcategory_upload()
+        case .journal: AppStrings.ios_display_diagnosticcategory_journal()
+        case .diagnostics: AppStrings.ios_display_diagnosticcategory_diagnostics()
+        }
+    }
+}

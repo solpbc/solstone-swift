@@ -1,0 +1,16 @@
+{
+  "description": "turn on audio",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "appintents"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 13,
+  "source_revision": "9c55c4d501157b874a8a771625249caf0808a27368ff99801bc223c954f755e4",
+  "risk": "routine",
+  "auto_merge": true
+}

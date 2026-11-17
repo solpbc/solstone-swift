@@ -1,0 +1,16 @@
+{
+  "description": "entry facts incomplete",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 22,
+  "source_revision": "b66c8093901fb22fd3eb90e4041fa71be47296581c9df5a109538b44cb86f48f",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "selected",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "tunnel"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 8,
+  "source_revision": "d54ce88357a4df3b454dcb89d51af75d86691747bb252c06f7a290319e6e7ec6",
+  "risk": "routine",
+  "auto_merge": true
+}

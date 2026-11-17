@@ -1,0 +1,21 @@
+{
+  "description": "some of what you shared on {weekday} didn't reach it.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "weekday",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 53,
+  "source_revision": "90b1d7238a32c445e704b93685259419375ca6d1b445d4bd5037f97d7685594f",
+  "risk": "routine",
+  "auto_merge": true
+}

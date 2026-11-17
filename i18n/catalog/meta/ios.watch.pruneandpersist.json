@@ -1,0 +1,21 @@
+{
+  "description": "watch ledger persist failed: {String_describing_error}",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "watchcapture"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "String_describing_error",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 54,
+  "source_revision": "eb4a8b09ef26f8e9ded86045ec43d19826a07924d8e885f0f257cc2f65932e15",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "keep both",
+  "context": "Existing native lookup migration.replace_offer.keep. Mac counterpart: macos.desktop.shared.copy.keepboth. Keep translations consistent. Android counterpart: android.phone.keep.both. Keep translations consistent.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "f28628bc9366c20b18084178d2f1aaefc9547e6b70706c5175f4528eba3f16a4",
+  "risk": "routine",
+  "auto_merge": true
+}

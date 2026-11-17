@@ -1,0 +1,16 @@
+{
+  "description": "suggest other sources you'd like to have here",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "sourcevocabularyswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 45,
+  "source_revision": "081ee713c42e3e4ee7ab7ee9dcb03fba58ac270f04226b2862b1cd4b1ac04ec5",
+  "risk": "routine",
+  "auto_merge": true
+}

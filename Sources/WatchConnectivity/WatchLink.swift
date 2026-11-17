@@ -163,7 +163,7 @@ final class WatchLink {
             self.diagnosticLog?.append(
                 category: .upload,
                 severity: .warning,
-                message: "needs attention",
+                message: AppStrings.ios_transfer_needsattention(),
                 detail: "kind=relay"
             )
         }
@@ -171,7 +171,7 @@ final class WatchLink {
             self.diagnosticLog?.append(
                 category: .upload,
                 severity: .warning,
-                message: "needs attention",
+                message: AppStrings.ios_transfer_needsattention(),
                 detail: "kind=handoff"
             )
         }
@@ -179,7 +179,7 @@ final class WatchLink {
             self.diagnosticLog?.append(
                 category: .upload,
                 severity: .warning,
-                message: "needs attention",
+                message: AppStrings.ios_transfer_needsattention(),
                 detail: "kind=orphan"
             )
         }
@@ -281,7 +281,7 @@ private extension WatchLink {
         self.isReachable = isReachable
         if !isReachable { self.journalVersionNonce = nil }
         self.publishJournalVersion()
-        let detail = isReachable ? "reachable" : "not reachable"
+        let detail = isReachable ? "reachable" : AppStrings.ios_app_notreachable()
         watchLog.info("watch: reachability \(detail, privacy: .public)")
     }
 }
