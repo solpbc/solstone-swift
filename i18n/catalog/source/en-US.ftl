@@ -1015,75 +1015,11 @@ ios.home.body15 = journal root
 
 ios.home.body16 = journal version
 
-ios.home.body17 = migration.deciding.title
-
-ios.home.body18 = migration.decision_refused.action
-
-ios.home.body19 = migration.decision_refused.body
-
 ios.home.body2 = a short heads-up, never the content
-
-ios.home.body20 = migration.decision_refused.title
-
-ios.home.body21 = migration.decision_unknown.action
-
-ios.home.body22 = migration.decision_unknown.body
-
-ios.home.body23 = migration.decision_unknown.title
-
-ios.home.body24 = migration.key_refused.action
-
-ios.home.body25 = migration.key_refused.body
-
-ios.home.body26 = migration.key_refused.title
-
-ios.home.body27 = migration.list_unavailable.action
-
-ios.home.body28 = migration.list_unavailable.body
-
-ios.home.body29 = migration.list_unavailable.title
 
 ios.home.body3 = about
 
-ios.home.body30 = migration.offline.action
-
-ios.home.body31 = migration.offline.body
-
-ios.home.body32 = migration.offline.title
-
-ios.home.body33 = migration.pending.row
-
-ios.home.body34 = migration.pending.value
-
-ios.home.body35 = migration.picker.cancel
-
-ios.home.body36 = migration.picker.empty
-
-ios.home.body37 = migration.picker.title
-
-ios.home.body38 = migration.preparing.body
-
-ios.home.body39 = migration.preparing.title
-
 ios.home.body4 = addresses
-
-ios.home.body40 = migration.replace_confirm.cancel
-
-ios.home.body41 = migration.storage_unavailable.action
-
-ios.home.body42 = migration.storage_unavailable.body
-
-ios.home.body43 = migration.storage_unavailable.title
-
-ios.home.body44 = migration.target_missing.body
-
-ios.home.body45 = migration.target_missing.title
-
-ios.home.body46 = migration.unsupported.action
-
-ios.home.body47 = migration.unsupported.body
-
-ios.home.body48 = migration.unsupported.title
 
 ios.home.body49 = notifications from your journal
 
@@ -1139,22 +1075,6 @@ ios.home.message2 = sending…
 
 ios.home.message3 = sent. it should show up on this device in a moment.
 
-ios.home.migrationchoicebodyfallback = migration.choice.body_fallback
-
-ios.home.migrationchoicenew = migration.choice.new
-
-ios.home.migrationchoicesame = migration.choice.same
-
-ios.home.migrationchoicetitle = migration.choice.title
-
-ios.home.migrationreplaceofferbody = migration.replace_offer.body
-
-ios.home.migrationreplaceofferdefer = migration.replace_offer.defer
-
-ios.home.migrationreplaceofferpick = migration.replace_offer.pick
-
-ios.home.migrationreplaceoffertitle = migration.replace_offer.title
-
 ios.home.opensettings = open settings
 
 ios.home.opensyourjournalinsidethesolstoneapp = opens your journal inside the solstone app.
@@ -1181,8 +1101,6 @@ ios.home.panecontent8 = uptime
 
 ios.home.panecontent9 = your journal's address
 
-ios.home.presentation = migration.replace_confirm.replace
-
 ios.home.reinstallnoticeforget = forget this journal
 
 ios.home.rendertriedaddresses = addresses tried
@@ -1196,10 +1114,6 @@ ios.home.shelftitle2 = help
 ios.home.shelftitle3 = notifications
 
 ios.home.shelftitle4 = this device
-
-ios.home.showingfreshpairoffer = migration.replace_offer.keep
-
-ios.home.showingsamedeviceconfirmation = migration.choice.defer
 
 ios.home.showingunpairconfirm = Clears this device pairing and returns to onboarding
 
@@ -1240,8 +1154,6 @@ ios.journalevents.importline3 = Import: not run
 ios.journalevents.unreadableline = journal events could not be read
 
 ios.journalwebpanels.ok = ok
-
-ios.licensespane.aboutlicenses = about.licenses
 
 ios.liveactivity.body = audio, location, screen and watch, with how much is waiting to sync.
 
@@ -1986,8 +1898,6 @@ ios.share.plainreason4 = protected file
 ios.share.plainreason5 = unsupported file type
 
 ios.shareimportcoordinator.saved = saved
-
-ios.shelfpane.aboutlicenses = about.licenses
 
 ios.shelfpane.unpaired = unpaired
 

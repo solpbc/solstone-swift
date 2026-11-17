@@ -1088,76 +1088,12 @@ nonisolated enum AppStrings {
     static func ios_home_body15_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793135") }
     static func ios_home_body16() -> String { render("m696f732e686f6d652e626f64793136", []) }
     static func ios_home_body16_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793136") }
-    static func ios_home_body17() -> String { render("m696f732e686f6d652e626f64793137", []) }
-    static func ios_home_body17_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793137") }
-    static func ios_home_body18() -> String { render("m696f732e686f6d652e626f64793138", []) }
-    static func ios_home_body18_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793138") }
-    static func ios_home_body19() -> String { render("m696f732e686f6d652e626f64793139", []) }
-    static func ios_home_body19_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793139") }
     static func ios_home_body2() -> String { render("m696f732e686f6d652e626f647932", []) }
     static func ios_home_body2_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f647932") }
-    static func ios_home_body20() -> String { render("m696f732e686f6d652e626f64793230", []) }
-    static func ios_home_body20_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793230") }
-    static func ios_home_body21() -> String { render("m696f732e686f6d652e626f64793231", []) }
-    static func ios_home_body21_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793231") }
-    static func ios_home_body22() -> String { render("m696f732e686f6d652e626f64793232", []) }
-    static func ios_home_body22_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793232") }
-    static func ios_home_body23() -> String { render("m696f732e686f6d652e626f64793233", []) }
-    static func ios_home_body23_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793233") }
-    static func ios_home_body24() -> String { render("m696f732e686f6d652e626f64793234", []) }
-    static func ios_home_body24_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793234") }
-    static func ios_home_body25() -> String { render("m696f732e686f6d652e626f64793235", []) }
-    static func ios_home_body25_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793235") }
-    static func ios_home_body26() -> String { render("m696f732e686f6d652e626f64793236", []) }
-    static func ios_home_body26_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793236") }
-    static func ios_home_body27() -> String { render("m696f732e686f6d652e626f64793237", []) }
-    static func ios_home_body27_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793237") }
-    static func ios_home_body28() -> String { render("m696f732e686f6d652e626f64793238", []) }
-    static func ios_home_body28_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793238") }
-    static func ios_home_body29() -> String { render("m696f732e686f6d652e626f64793239", []) }
-    static func ios_home_body29_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793239") }
     static func ios_home_body3() -> String { render("m696f732e686f6d652e626f647933", []) }
     static func ios_home_body3_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f647933") }
-    static func ios_home_body30() -> String { render("m696f732e686f6d652e626f64793330", []) }
-    static func ios_home_body30_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793330") }
-    static func ios_home_body31() -> String { render("m696f732e686f6d652e626f64793331", []) }
-    static func ios_home_body31_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793331") }
-    static func ios_home_body32() -> String { render("m696f732e686f6d652e626f64793332", []) }
-    static func ios_home_body32_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793332") }
-    static func ios_home_body33() -> String { render("m696f732e686f6d652e626f64793333", []) }
-    static func ios_home_body33_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793333") }
-    static func ios_home_body34() -> String { render("m696f732e686f6d652e626f64793334", []) }
-    static func ios_home_body34_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793334") }
-    static func ios_home_body35() -> String { render("m696f732e686f6d652e626f64793335", []) }
-    static func ios_home_body35_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793335") }
-    static func ios_home_body36() -> String { render("m696f732e686f6d652e626f64793336", []) }
-    static func ios_home_body36_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793336") }
-    static func ios_home_body37() -> String { render("m696f732e686f6d652e626f64793337", []) }
-    static func ios_home_body37_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793337") }
-    static func ios_home_body38() -> String { render("m696f732e686f6d652e626f64793338", []) }
-    static func ios_home_body38_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793338") }
-    static func ios_home_body39() -> String { render("m696f732e686f6d652e626f64793339", []) }
-    static func ios_home_body39_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793339") }
     static func ios_home_body4() -> String { render("m696f732e686f6d652e626f647934", []) }
     static func ios_home_body4_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f647934") }
-    static func ios_home_body40() -> String { render("m696f732e686f6d652e626f64793430", []) }
-    static func ios_home_body40_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793430") }
-    static func ios_home_body41() -> String { render("m696f732e686f6d652e626f64793431", []) }
-    static func ios_home_body41_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793431") }
-    static func ios_home_body42() -> String { render("m696f732e686f6d652e626f64793432", []) }
-    static func ios_home_body42_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793432") }
-    static func ios_home_body43() -> String { render("m696f732e686f6d652e626f64793433", []) }
-    static func ios_home_body43_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793433") }
-    static func ios_home_body44() -> String { render("m696f732e686f6d652e626f64793434", []) }
-    static func ios_home_body44_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793434") }
-    static func ios_home_body45() -> String { render("m696f732e686f6d652e626f64793435", []) }
-    static func ios_home_body45_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793435") }
-    static func ios_home_body46() -> String { render("m696f732e686f6d652e626f64793436", []) }
-    static func ios_home_body46_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793436") }
-    static func ios_home_body47() -> String { render("m696f732e686f6d652e626f64793437", []) }
-    static func ios_home_body47_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793437") }
-    static func ios_home_body48() -> String { render("m696f732e686f6d652e626f64793438", []) }
-    static func ios_home_body48_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793438") }
     static func ios_home_body49() -> String { render("m696f732e686f6d652e626f64793439", []) }
     static func ios_home_body49_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e626f64793439") }
     static func ios_home_body5() -> String { render("m696f732e686f6d652e626f647935", []) }
@@ -1210,22 +1146,6 @@ nonisolated enum AppStrings {
     static func ios_home_message2_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d65737361676532") }
     static func ios_home_message3() -> String { render("m696f732e686f6d652e6d65737361676533", []) }
     static func ios_home_message3_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d65737361676533") }
-    static func ios_home_migrationchoicebodyfallback() -> String { render("m696f732e686f6d652e6d6967726174696f6e63686f696365626f647966616c6c6261636b", []) }
-    static func ios_home_migrationchoicebodyfallback_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d6967726174696f6e63686f696365626f647966616c6c6261636b") }
-    static func ios_home_migrationchoicenew() -> String { render("m696f732e686f6d652e6d6967726174696f6e63686f6963656e6577", []) }
-    static func ios_home_migrationchoicenew_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d6967726174696f6e63686f6963656e6577") }
-    static func ios_home_migrationchoicesame() -> String { render("m696f732e686f6d652e6d6967726174696f6e63686f69636573616d65", []) }
-    static func ios_home_migrationchoicesame_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d6967726174696f6e63686f69636573616d65") }
-    static func ios_home_migrationchoicetitle() -> String { render("m696f732e686f6d652e6d6967726174696f6e63686f6963657469746c65", []) }
-    static func ios_home_migrationchoicetitle_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d6967726174696f6e63686f6963657469746c65") }
-    static func ios_home_migrationreplaceofferbody() -> String { render("m696f732e686f6d652e6d6967726174696f6e7265706c6163656f66666572626f6479", []) }
-    static func ios_home_migrationreplaceofferbody_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d6967726174696f6e7265706c6163656f66666572626f6479") }
-    static func ios_home_migrationreplaceofferdefer() -> String { render("m696f732e686f6d652e6d6967726174696f6e7265706c6163656f666665726465666572", []) }
-    static func ios_home_migrationreplaceofferdefer_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d6967726174696f6e7265706c6163656f666665726465666572") }
-    static func ios_home_migrationreplaceofferpick() -> String { render("m696f732e686f6d652e6d6967726174696f6e7265706c6163656f666665727069636b", []) }
-    static func ios_home_migrationreplaceofferpick_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d6967726174696f6e7265706c6163656f666665727069636b") }
-    static func ios_home_migrationreplaceoffertitle() -> String { render("m696f732e686f6d652e6d6967726174696f6e7265706c6163656f666665727469746c65", []) }
-    static func ios_home_migrationreplaceoffertitle_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6d6967726174696f6e7265706c6163656f666665727469746c65") }
     static func ios_home_opensettings() -> String { render("m696f732e686f6d652e6f70656e73657474696e6773", []) }
     static func ios_home_opensettings_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e6f70656e73657474696e6773") }
     static func ios_home_opensyourjournalinsidethesolstoneapp() -> String { render("m696f732e686f6d652e6f70656e73796f75726a6f75726e616c696e73696465746865736f6c73746f6e65617070", []) }
@@ -1250,8 +1170,6 @@ nonisolated enum AppStrings {
     static func ios_home_panecontent8_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e70616e65636f6e74656e7438") }
     static func ios_home_panecontent9() -> String { render("m696f732e686f6d652e70616e65636f6e74656e7439", []) }
     static func ios_home_panecontent9_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e70616e65636f6e74656e7439") }
-    static func ios_home_presentation() -> String { render("m696f732e686f6d652e70726573656e746174696f6e", []) }
-    static func ios_home_presentation_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e70726573656e746174696f6e") }
     static func ios_home_reinstallnoticeforget() -> String { render("m696f732e686f6d652e7265696e7374616c6c6e6f74696365666f72676574", []) }
     static func ios_home_reinstallnoticeforget_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e7265696e7374616c6c6e6f74696365666f72676574") }
     static func ios_home_rendertriedaddresses() -> String { render("m696f732e686f6d652e72656e6465727472696564616464726573736573", []) }
@@ -1266,10 +1184,6 @@ nonisolated enum AppStrings {
     static func ios_home_shelftitle3_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e7368656c667469746c6533") }
     static func ios_home_shelftitle4() -> String { render("m696f732e686f6d652e7368656c667469746c6534", []) }
     static func ios_home_shelftitle4_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e7368656c667469746c6534") }
-    static func ios_home_showingfreshpairoffer() -> String { render("m696f732e686f6d652e73686f77696e676672657368706169726f66666572", []) }
-    static func ios_home_showingfreshpairoffer_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e73686f77696e676672657368706169726f66666572") }
-    static func ios_home_showingsamedeviceconfirmation() -> String { render("m696f732e686f6d652e73686f77696e6773616d65646576696365636f6e6669726d6174696f6e", []) }
-    static func ios_home_showingsamedeviceconfirmation_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e73686f77696e6773616d65646576696365636f6e6669726d6174696f6e") }
     static func ios_home_showingunpairconfirm() -> String { render("m696f732e686f6d652e73686f77696e67756e70616972636f6e6669726d", []) }
     static func ios_home_showingunpairconfirm_resource() -> LocalizedStringResource { resource("m696f732e686f6d652e73686f77696e67756e70616972636f6e6669726d") }
     static func ios_home_statustext() -> String { render("m696f732e686f6d652e73746174757374657874", []) }
@@ -1316,8 +1230,6 @@ nonisolated enum AppStrings {
     static func ios_journalevents_unreadableline_resource() -> LocalizedStringResource { resource("m696f732e6a6f75726e616c6576656e74732e756e7265616461626c656c696e65") }
     static func ios_journalwebpanels_ok() -> String { render("m696f732e6a6f75726e616c77656270616e656c732e6f6b", []) }
     static func ios_journalwebpanels_ok_resource() -> LocalizedStringResource { resource("m696f732e6a6f75726e616c77656270616e656c732e6f6b") }
-    static func ios_licensespane_aboutlicenses() -> String { render("m696f732e6c6963656e73657370616e652e61626f75746c6963656e736573", []) }
-    static func ios_licensespane_aboutlicenses_resource() -> LocalizedStringResource { resource("m696f732e6c6963656e73657370616e652e61626f75746c6963656e736573") }
     static func ios_list_comma_n2(_ value0: String, _ value1: String) -> String { render("m696f732e6c6973742e636f6d6d612e6e32", [value0, value1]) }
     static func ios_list_comma_n3(_ value0: String, _ value1: String, _ value2: String) -> String { render("m696f732e6c6973742e636f6d6d612e6e33", [value0, value1, value2]) }
     static func ios_list_comma_n4(_ value0: String, _ value1: String, _ value2: String, _ value3: String) -> String { render("m696f732e6c6973742e636f6d6d612e6e34", [value0, value1, value2, value3]) }
@@ -2157,8 +2069,6 @@ nonisolated enum AppStrings {
     static func ios_share_plainreason5_resource() -> LocalizedStringResource { resource("m696f732e73686172652e706c61696e726561736f6e35") }
     static func ios_shareimportcoordinator_saved() -> String { render("m696f732e7368617265696d706f7274636f6f7264696e61746f722e7361766564", []) }
     static func ios_shareimportcoordinator_saved_resource() -> LocalizedStringResource { resource("m696f732e7368617265696d706f7274636f6f7264696e61746f722e7361766564") }
-    static func ios_shelfpane_aboutlicenses() -> String { render("m696f732e7368656c6670616e652e61626f75746c6963656e736573", []) }
-    static func ios_shelfpane_aboutlicenses_resource() -> LocalizedStringResource { resource("m696f732e7368656c6670616e652e61626f75746c6963656e736573") }
     static func ios_shelfpane_unpaired() -> String { render("m696f732e7368656c6670616e652e756e706169726564", []) }
     static func ios_shelfpane_unpaired_resource() -> LocalizedStringResource { resource("m696f732e7368656c6670616e652e756e706169726564") }
     static func ios_shortcuts_audio_after(_ applicationName: String) -> String { render("m696f732e73686f7274637574732e617564696f2e6166746572", [applicationName]) }

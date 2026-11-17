@@ -6063,142 +6063,12 @@
         }
       }
     },
-    "m696f732e686f6d652e626f64793137": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.deciding.title"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793138": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.decision_refused.action"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793139": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.decision_refused.body"
-          }
-        }
-      }
-    },
     "m696f732e686f6d652e626f647932": {
       "localizations": {
         "en-US": {
           "stringUnit": {
             "state": "translated",
             "value": "a short heads-up, never the content"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793230": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.decision_refused.title"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793231": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.decision_unknown.action"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793232": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.decision_unknown.body"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793233": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.decision_unknown.title"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793234": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.key_refused.action"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793235": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.key_refused.body"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793236": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.key_refused.title"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793237": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.list_unavailable.action"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793238": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.list_unavailable.body"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793239": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.list_unavailable.title"
           }
         }
       }
@@ -6213,202 +6083,12 @@
         }
       }
     },
-    "m696f732e686f6d652e626f64793330": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.offline.action"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793331": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.offline.body"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793332": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.offline.title"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793333": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.pending.row"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793334": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.pending.value"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793335": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.picker.cancel"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793336": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.picker.empty"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793337": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.picker.title"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793338": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.preparing.body"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793339": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.preparing.title"
-          }
-        }
-      }
-    },
     "m696f732e686f6d652e626f647934": {
       "localizations": {
         "en-US": {
           "stringUnit": {
             "state": "translated",
             "value": "addresses"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793430": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.replace_confirm.cancel"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793431": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.storage_unavailable.action"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793432": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.storage_unavailable.body"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793433": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.storage_unavailable.title"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793434": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.target_missing.body"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793435": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.target_missing.title"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793436": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.unsupported.action"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793437": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.unsupported.body"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e626f64793438": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.unsupported.title"
           }
         }
       }
@@ -6683,86 +6363,6 @@
         }
       }
     },
-    "m696f732e686f6d652e6d6967726174696f6e63686f696365626f647966616c6c6261636b": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.choice.body_fallback"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e6d6967726174696f6e63686f6963656e6577": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.choice.new"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e6d6967726174696f6e63686f69636573616d65": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.choice.same"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e6d6967726174696f6e63686f6963657469746c65": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.choice.title"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e6d6967726174696f6e7265706c6163656f66666572626f6479": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.replace_offer.body"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e6d6967726174696f6e7265706c6163656f666665726465666572": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.replace_offer.defer"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e6d6967726174696f6e7265706c6163656f666665727069636b": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.replace_offer.pick"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e6d6967726174696f6e7265706c6163656f666665727469746c65": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.replace_offer.title"
-          }
-        }
-      }
-    },
     "m696f732e686f6d652e6f70656e73657474696e6773": {
       "localizations": {
         "en-US": {
@@ -6893,16 +6493,6 @@
         }
       }
     },
-    "m696f732e686f6d652e70726573656e746174696f6e": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.replace_confirm.replace"
-          }
-        }
-      }
-    },
     "m696f732e686f6d652e7265696e7374616c6c6e6f74696365666f72676574": {
       "localizations": {
         "en-US": {
@@ -6969,26 +6559,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "this device"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e73686f77696e676672657368706169726f66666572": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.replace_offer.keep"
-          }
-        }
-      }
-    },
-    "m696f732e686f6d652e73686f77696e6773616d65646576696365636f6e6669726d6174696f6e": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "migration.choice.defer"
           }
         }
       }
@@ -7379,16 +6949,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "ok"
-          }
-        }
-      }
-    },
-    "m696f732e6c6963656e73657370616e652e61626f75746c6963656e736573": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "about.licenses"
           }
         }
       }
@@ -12601,16 +12161,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "saved"
-          }
-        }
-      }
-    },
-    "m696f732e7368656c6670616e652e61626f75746c6963656e736573": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "about.licenses"
           }
         }
       }

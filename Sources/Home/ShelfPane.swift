@@ -486,30 +486,30 @@ struct ThisDevicePane: View {
                     Section {
                         switch recovery {
                         case .preparing:
-                            Text(AppStrings.ios_home_body39()).font(.headline)
-                            Text(AppStrings.ios_home_body38())
+                            Text(AppStrings.ios_lookup_migration_preparing_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_preparing_body())
                         case .offline:
-                            Text(AppStrings.ios_home_body32()).font(.headline)
-                            Text(AppStrings.ios_home_body31())
-                            Button(AppStrings.ios_home_body30()) {
+                            Text(AppStrings.ios_lookup_migration_offline_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_offline_body())
+                            Button(AppStrings.ios_lookup_migration_offline_action()) {
                                 Task { await self.tunnelManager.connect() }
                             }
                         case .unsupported:
-                            Text(AppStrings.ios_home_body48()).font(.headline)
-                            Text(AppStrings.ios_home_body47())
-                            Button(AppStrings.ios_home_body46()) {
+                            Text(AppStrings.ios_lookup_migration_unsupported_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_unsupported_body())
+                            Button(AppStrings.ios_lookup_migration_unsupported_action()) {
                                 Task { await self.tunnelManager.connect() }
                             }
                         case .storageUnavailable:
-                            Text(AppStrings.ios_home_body43()).font(.headline)
-                            Text(AppStrings.ios_home_body42())
-                            Button(AppStrings.ios_home_body41()) {
+                            Text(AppStrings.ios_lookup_migration_storage_unavailable_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_storage_unavailable_body())
+                            Button(AppStrings.ios_lookup_migration_storage_unavailable_action()) {
                                 UserSettings.verboseErrors = true
                             }
                         case .keyRefused:
-                            Text(AppStrings.ios_home_body26()).font(.headline)
-                            Text(AppStrings.ios_home_body25())
-                            Button(AppStrings.ios_home_body24()) {
+                            Text(AppStrings.ios_lookup_migration_key_refused_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_key_refused_body())
+                            Button(AppStrings.ios_lookup_migration_key_refused_action()) {
                                 self.showingPairFlow = true
                             }
                         }
@@ -518,39 +518,39 @@ struct ThisDevicePane: View {
 
                 if self.deviceMigrationOwner.migrationChoicePending {
                     Section {
-                        LabeledContent { Text(AppStrings.ios_home_body34()) } label: { Text(AppStrings.ios_home_body33()) }
-                        Text(AppStrings.ios_home_migrationchoicetitle()).font(.headline)
-                        Text(AppStrings.ios_home_migrationchoicebodyfallback())
+                        LabeledContent { Text(AppStrings.ios_lookup_migration_pending_value()) } label: { Text(AppStrings.ios_lookup_migration_pending_row()) }
+                        Text(AppStrings.ios_lookup_migration_choice_title()).font(.headline)
+                        Text(AppStrings.ios_lookup_migration_choice_body_fallback())
                         if self.deviceMigrationOwner.migrationDecisionState == .submitting {
-                            Text(AppStrings.ios_home_body17()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_deciding_title()).font(.headline)
                         } else if self.deviceMigrationOwner.migrationDecisionState == .unknown {
-                            Text(AppStrings.ios_home_body23()).font(.headline)
-                            Text(AppStrings.ios_home_body22())
-                            Button(AppStrings.ios_home_body21()) {
+                            Text(AppStrings.ios_lookup_migration_decision_unknown_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_decision_unknown_body())
+                            Button(AppStrings.ios_lookup_migration_decision_unknown_action()) {
                                 Task { await self.deviceMigrationOwner.refresh() }
                             }
                         } else if self.deviceMigrationOwner.serverState == nil {
-                            Text(AppStrings.ios_home_body32()).font(.headline)
-                            Text(AppStrings.ios_home_body31())
-                            Button(AppStrings.ios_home_body30()) {
+                            Text(AppStrings.ios_lookup_migration_offline_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_offline_body())
+                            Button(AppStrings.ios_lookup_migration_offline_action()) {
                                 Task { await self.deviceMigrationOwner.refresh() }
                             }
                         } else if self.deviceMigrationOwner.migrationDecisionState == .refused {
-                            Text(AppStrings.ios_home_body20()).font(.headline)
-                            Text(AppStrings.ios_home_body19())
-                            Button(AppStrings.ios_home_body18()) {
+                            Text(AppStrings.ios_lookup_migration_decision_refused_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_decision_refused_body())
+                            Button(AppStrings.ios_lookup_migration_decision_refused_action()) {
                                 UserSettings.verboseErrors = true
                             }
                         } else if self.deviceMigrationOwner.canChooseMigration {
-                            Button(AppStrings.ios_home_migrationchoicenew()) {
+                            Button(AppStrings.ios_lookup_migration_choice_new()) {
                                 guard let context = self.deviceMigrationOwner.migrationChoicePresentation() else { return }
                                 Task { await self.deviceMigrationOwner.submitMigrationChoice(.newDevice, presentedContext: context) }
                             }
-                            Button(AppStrings.ios_home_migrationchoicesame()) {
+                            Button(AppStrings.ios_lookup_migration_choice_same()) {
                                 self.sameDevicePresentation = self.deviceMigrationOwner.migrationChoicePresentation()
                                 self.showingSameDeviceConfirmation = true
                             }
-                            Button(AppStrings.ios_home_showingsamedeviceconfirmation(), role: .cancel) {
+                            Button(AppStrings.ios_lookup_migration_choice_defer(), role: .cancel) {
                                 self.deviceMigrationOwner.deferMigrationChoice()
                             }
                         }
@@ -561,39 +561,39 @@ struct ThisDevicePane: View {
                    self.deviceMigrationOwner.isFreshPairPendingVisible,
                    let offer = self.deviceMigrationOwner.freshPairOffer {
                     Section {
-                        LabeledContent { Text(AppStrings.ios_home_body34()) } label: { Text(AppStrings.ios_home_body33()) }
-                        Text(AppStrings.ios_home_migrationreplaceoffertitle()).font(.headline)
-                        Text(AppStrings.ios_home_migrationreplaceofferbody())
+                        LabeledContent { Text(AppStrings.ios_lookup_migration_pending_value()) } label: { Text(AppStrings.ios_lookup_migration_pending_row()) }
+                        Text(AppStrings.ios_lookup_migration_replace_offer_title()).font(.headline)
+                        Text(AppStrings.ios_lookup_migration_replace_offer_body())
                         if offer.state == .submitting {
-                            Text(AppStrings.ios_home_body17()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_deciding_title()).font(.headline)
                         } else if offer.state == .unknown {
-                            Text(AppStrings.ios_home_body23()).font(.headline)
-                            Text(AppStrings.ios_home_body22())
-                            Button(AppStrings.ios_home_body21()) {
+                            Text(AppStrings.ios_lookup_migration_decision_unknown_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_decision_unknown_body())
+                            Button(AppStrings.ios_lookup_migration_decision_unknown_action()) {
                                 Task { await self.deviceMigrationOwner.refresh() }
                             }
                         } else {
                             if offer.state == .targetRemoved {
-                                Text(AppStrings.ios_home_body45()).font(.headline)
-                                Text(AppStrings.ios_home_body44())
+                                Text(AppStrings.ios_lookup_migration_target_missing_title()).font(.headline)
+                                Text(AppStrings.ios_lookup_migration_target_missing_body())
                             } else if offer.state == .refused {
-                                Text(AppStrings.ios_home_body20()).font(.headline)
-                                Text(AppStrings.ios_home_body19())
-                                Button(AppStrings.ios_home_body18()) {
+                                Text(AppStrings.ios_lookup_migration_decision_refused_title()).font(.headline)
+                                Text(AppStrings.ios_lookup_migration_decision_refused_body())
+                                Button(AppStrings.ios_lookup_migration_decision_refused_action()) {
                                     UserSettings.verboseErrors = true
                                 }
                             }
-                            Button(AppStrings.ios_home_migrationreplaceofferpick()) {
+                            Button(AppStrings.ios_lookup_migration_replace_offer_pick()) {
                                 self.deviceMigrationOwner.prepareReplacementSelection()
                                 Task {
                                     await self.deviceMigrationOwner.loadReplacementClients()
                                     self.showingFreshPairOffer = true
                                 }
                             }
-                            Button(AppStrings.ios_home_showingfreshpairoffer()) {
+                            Button(AppStrings.ios_lookup_migration_replace_offer_keep()) {
                                 self.deviceMigrationOwner.keepBothFromFreshPairOffer()
                             }
-                            Button(AppStrings.ios_home_migrationreplaceofferdefer()) {
+                            Button(AppStrings.ios_lookup_migration_replace_offer_defer()) {
                                 self.deviceMigrationOwner.dismissReplacementOffer()
                             }
                         }
@@ -634,12 +634,12 @@ struct ThisDevicePane: View {
             NavigationStack {
                 List {
                     if self.deviceMigrationOwner.replacementListState == .empty {
-                        Text(AppStrings.ios_home_body36())
+                        Text(AppStrings.ios_lookup_migration_picker_empty())
                     } else if self.deviceMigrationOwner.replacementListState == .unavailable {
                         Section {
-                            Text(AppStrings.ios_home_body29()).font(.headline)
-                            Text(AppStrings.ios_home_body28())
-                            Button(AppStrings.ios_home_body27()) {
+                            Text(AppStrings.ios_lookup_migration_list_unavailable_title()).font(.headline)
+                            Text(AppStrings.ios_lookup_migration_list_unavailable_body())
+                            Button(AppStrings.ios_lookup_migration_list_unavailable_action()) {
                                 Task { await self.deviceMigrationOwner.loadReplacementClients() }
                             }
                         }
@@ -657,11 +657,11 @@ struct ThisDevicePane: View {
                         }
                     }
                 }
-                .navigationTitle(AppStrings.ios_home_body37())
+                .navigationTitle(AppStrings.ios_lookup_migration_picker_title())
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button(AppStrings.ios_home_body35()) { self.showingFreshPairOffer = false }
+                        Button(AppStrings.ios_lookup_migration_picker_cancel()) { self.showingFreshPairOffer = false }
                     }
                 }
             }
@@ -683,7 +683,7 @@ struct ThisDevicePane: View {
                 titleVisibility: .visible
             ) {
                 if let presentation = self.replacementPresentation {
-                    Button(AppStrings.ios_home_presentation(), role: .destructive) {
+                    Button(AppStrings.ios_lookup_migration_replace_confirm_replace(), role: .destructive) {
                         self.pendingReplacementCID = nil
                         self.pendingReplacementLabel = ""
                         self.replacementPresentation = nil
@@ -691,7 +691,7 @@ struct ThisDevicePane: View {
                         Task { await self.deviceMigrationOwner.confirmFreshPairReplacement(presentedContext: presentation) }
                     }
                 }
-                Button(AppStrings.ios_home_body40(), role: .cancel) {
+                Button(AppStrings.ios_lookup_migration_replace_confirm_cancel(), role: .cancel) {
                     self.pendingReplacementCID = nil
                     self.pendingReplacementLabel = ""
                     self.replacementPresentation = nil
@@ -717,23 +717,23 @@ struct ThisDevicePane: View {
             }
         }
         .confirmationDialog(
-            Text(AppStrings.ios_home_migrationchoicetitle()),
+            Text(AppStrings.ios_lookup_migration_choice_title()),
             isPresented: self.$showingSameDeviceConfirmation,
             titleVisibility: .visible
         ) {
-            Button(AppStrings.ios_home_migrationchoicesame(), role: .destructive) {
+            Button(AppStrings.ios_lookup_migration_choice_same(), role: .destructive) {
                 guard let context = self.sameDevicePresentation else { return }
                 Task { await self.deviceMigrationOwner.submitMigrationChoice(.sameDevice, presentedContext: context) }
             }
-            Button(AppStrings.ios_home_migrationchoicenew()) {
+            Button(AppStrings.ios_lookup_migration_choice_new()) {
                 guard let context = self.sameDevicePresentation else { return }
                 Task { await self.deviceMigrationOwner.submitMigrationChoice(.newDevice, presentedContext: context) }
             }
-            Button(AppStrings.ios_home_showingsamedeviceconfirmation(), role: .cancel) {
+            Button(AppStrings.ios_lookup_migration_choice_defer(), role: .cancel) {
                 self.deviceMigrationOwner.deferMigrationChoice()
             }
         } message: {
-            Text(AppStrings.ios_home_migrationchoicebodyfallback())
+            Text(AppStrings.ios_lookup_migration_choice_body_fallback())
         }
 
     }
@@ -858,7 +858,7 @@ struct AboutPane: View {
 
                 Section {
                     NavigationLink(value: ShellDestination.licenses) {
-                        Text(AppStrings.ios_shelfpane_aboutlicenses())
+                        Text(AppStrings.ios_lookup_about_licenses())
                     }
                     .accessibilityIdentifier("shell.pane.shelfAbout.licenses")
                     .hoverEffect(.highlight)

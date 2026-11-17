@@ -22,7 +22,7 @@ struct DeviceMigrationInitialPrompt: ViewModifier {
                 if phase == .active { self.presentIfNeeded() }
             }
             .confirmationDialog(
-                self.isMigration ? Text(AppStrings.ios_home_migrationchoicetitle()) : Text(AppStrings.ios_home_migrationreplaceoffertitle()),
+                self.isMigration ? Text(AppStrings.ios_lookup_migration_choice_title()) : Text(AppStrings.ios_lookup_migration_replace_offer_title()),
                 isPresented: Binding(
                     get: { self.presentation != nil },
                     set: { if !$0 { self.presentation = nil } }
@@ -30,30 +30,30 @@ struct DeviceMigrationInitialPrompt: ViewModifier {
                 titleVisibility: .visible
             ) {
                 if let context = self.presentation, self.isMigration {
-                    Button(AppStrings.ios_home_migrationchoicesame(), role: .destructive) {
+                    Button(AppStrings.ios_lookup_migration_choice_same(), role: .destructive) {
                         Task { await self.owner.submitMigrationChoice(.sameDevice, presentedContext: context) }
                     }
                     .accessibilityIdentifier("device.migration.initial.same")
-                    Button(AppStrings.ios_home_migrationchoicenew()) {
+                    Button(AppStrings.ios_lookup_migration_choice_new()) {
                         Task { await self.owner.submitMigrationChoice(.newDevice, presentedContext: context) }
                     }
                     .accessibilityIdentifier("device.migration.initial.new")
-                    Button(AppStrings.ios_home_showingsamedeviceconfirmation(), role: .cancel) {}
+                    Button(AppStrings.ios_lookup_migration_choice_defer(), role: .cancel) {}
                 } else if let context = self.presentation {
-                    Button(AppStrings.ios_home_migrationreplaceofferpick()) {
+                    Button(AppStrings.ios_lookup_migration_replace_offer_pick()) {
                         guard self.owner.freshPairOfferPresentation() == context else { return }
                         self.navigation.selectFromDeck(.shelfThisDevice)
                     }
-                    Button(AppStrings.ios_home_showingfreshpairoffer()) {
+                    Button(AppStrings.ios_lookup_migration_replace_offer_keep()) {
                         self.owner.keepBothFromFreshPairOffer(presentedContext: context)
                     }
-                    Button(AppStrings.ios_home_migrationreplaceofferdefer(), role: .cancel) {}
+                    Button(AppStrings.ios_lookup_migration_replace_offer_defer(), role: .cancel) {}
                 }
             } message: {
                 if self.isMigration {
-                    Text(AppStrings.ios_home_migrationchoicebodyfallback())
+                    Text(AppStrings.ios_lookup_migration_choice_body_fallback())
                 } else {
-                    Text(AppStrings.ios_home_migrationreplaceofferbody())
+                    Text(AppStrings.ios_lookup_migration_replace_offer_body())
                 }
             }
     }
