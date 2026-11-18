@@ -115,9 +115,10 @@ nonisolated enum SourceIntakeFormat {
         return (AppStrings.ios_sourceintakeformatting_since("\(total)", "\(since)"), relative)
     }
 
-    static func status(lane: SourceIntakeLane, kind: SourceIntakeKind, now: Date, locale: Locale, calendar: Calendar) -> (soFar: String, last: String) {
+    /// Before a source takes anything in, the row has no last time: `nothing yet` stands once, across both columns.
+    static func status(lane: SourceIntakeLane, kind: SourceIntakeKind, now: Date, locale: Locale, calendar: Calendar) -> (soFar: String, last: String?) {
         guard let last = lane.last else {
-            return (SourceIntakePhrases.nothingYet, SourceIntakePhrases.nothingYet)
+            return (SourceIntakePhrases.nothingYet, nil)
         }
         return (
             self.total(lane, kind: kind, locale: locale),

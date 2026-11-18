@@ -562,7 +562,7 @@ struct StatusPane: View {
                         self.intakeRow(row, widest: widest)
                             .accessibilityElement(children: .ignore)
                             .accessibilityLabel(row.name)
-                            .accessibilityValue(AppStrings.ios_frame_statuspane_n565("\(row.soFar)", "\(row.last)"))
+                            .accessibilityValue(row.last.map { AppStrings.ios_frame_statuspane_n565("\(row.soFar)", "\($0)") } ?? row.soFar)
                     }
                     .accessibilityIdentifier("intake.status.\(row.id)")
                 }
@@ -608,7 +608,9 @@ struct StatusPane: View {
                     .font(ShellFont.tileName)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 LabeledContent(SourceIntakePhrases.soFar, value: row.soFar)
-                LabeledContent(SourceIntakePhrases.lastTakenIn, value: row.last)
+                if let last = row.last {
+                    LabeledContent(SourceIntakePhrases.lastTakenIn, value: last)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(minHeight: 44)
@@ -624,10 +626,13 @@ struct StatusPane: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text(row.last)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                // With nothing taken in yet, the so-far value spans the last-taken-in column too.
+                if let last = row.last {
+                    Text(last)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .frame(minHeight: 44)
         }

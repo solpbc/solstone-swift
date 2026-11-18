@@ -373,7 +373,7 @@ final class SourceIntakeTests: XCTestCase {
             snapshot: .empty, includeSafari: true, includeWatch: true, now: now, locale: locale, calendar: calendar
         )
         XCTAssertEqual(empty.map(\.id), ["audio", "location", "screen", "calendar", "safari", "watch", "screenshots", "obsidian", "imports"])
-        XCTAssertTrue(empty.allSatisfy { $0.soFar == "nothing yet" && $0.last == "nothing yet" })
+        XCTAssertTrue(empty.allSatisfy { $0.soFar == "nothing yet" && $0.last == nil })
         let page = SourceIntakeFormat.page(lane: snapshot.audio, kind: .duration, started: snapshot.started, now: now, locale: locale, calendar: calendar)
         XCTAssertEqual(page.soFar, "1 hour, since march 3")
         XCTAssertEqual(page.lastTakenIn, "10 min ago")

@@ -7,7 +7,7 @@ nonisolated struct SourceIntakeStatusRow: Equatable, Identifiable, Sendable {
     var id: String
     var name: String
     var soFar: String
-    var last: String
+    var last: String?
     var destination: ShellDestination
 }
 
