@@ -1427,7 +1427,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         transport.nextResult = .success(8080)
         let cache = EndpointCache(fileURL: Self.tempFileURL())
         await cache.bootstrap(from: Self.fixturePairing())
-        let manager = makeManager(transport: transport, endpointCache: cache, probeSession: session)
+        let manager = makeManager(
+            transport: transport, endpointCache: cache, probeSession: session,
+            probeInterval: .milliseconds(50), probeFailureThreshold: 5
+        )
 
         await manager.connect()
 
@@ -1436,9 +1439,10 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         for _ in 0..<200 where TunnelProbeURLProtocol.capturedRequests.isEmpty {
             try await Task.sleep(for: .milliseconds(10))
         }
-        // The journal is asked at once, not a probe interval later, and a refusal is not heard.
+        // The journal was asked, and a refusal is not heard.
         XCTAssertFalse(TunnelProbeURLProtocol.capturedRequests.isEmpty)
         XCTAssertNil(manager.lastHeardAt)
+        await manager.disconnect()
     }
 
     @MainActor
@@ -1457,14 +1461,19 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         transport.nextResult = .success(8080)
         let cache = EndpointCache(fileURL: Self.tempFileURL())
         await cache.bootstrap(from: Self.fixturePairing())
-        let manager = makeManager(transport: transport, endpointCache: cache, probeSession: session)
+        let manager = makeManager(
+            transport: transport, endpointCache: cache, probeSession: session,
+            probeInterval: .milliseconds(50)
+        )
 
         await manager.connect()
+        XCTAssertNil(manager.lastHeardAt)
         for _ in 0..<200 where manager.lastHeardAt == nil {
             try await Task.sleep(for: .milliseconds(10))
         }
 
         XCTAssertNotNil(manager.lastHeardAt)
+        await manager.disconnect()
     }
 
     @MainActor

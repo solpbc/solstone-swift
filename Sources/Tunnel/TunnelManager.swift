@@ -1042,11 +1042,11 @@ final class TunnelManager {
                 self.completeStage(.connected)
                 // A finished handshake is not the journal answering: under TLS 1.3 this side
                 // finishes before the journal has checked its certificate, so the journal can
-                // still turn it away. Ask at once; the first answer is what counts as heard.
+                // still turn it away. The first probe answer or inbound bytes count as heard.
                 self.consecutiveKeepaliveFailures = 0
                 self.consecutiveNotEntitled = 0
                 self.probeWatchdog.noteConnectionEstablished()
-                self.startLivenessProbe(epoch: epoch, firstProbeAfter: .zero)
+                self.startLivenessProbe(epoch: epoch)
                 log.info("[solstone-swift] connected on localhost:\(localPort) via \(endpoint == .lan ? "lan" : "remote")")
                 self.diagnosticLog?.append(
                     category: .tunnel,
