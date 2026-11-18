@@ -337,8 +337,8 @@ final class TunnelManager {
     var currentPathStatus: NetworkPathStatus?
     var isNetworkSatisfied: Bool?
     var currentInterfaceIsWiFi: Bool?
-    /// When the journal last answered on the current connection: the handshake, a probe,
-    /// inbound bytes or an acknowledged transfer. Nil while there is no connection.
+    /// When the journal last answered on the current connection: a probe, inbound bytes or an
+    /// acknowledged transfer. Nil until the journal first answers on a connection.
     var lastHeardAt: Date?
     var connectionHeardSink: ConnectionHeardSink?
     private(set) var dialedPairingIdentity: String?
@@ -1040,12 +1040,13 @@ final class TunnelManager {
                 self.completeStage(.loopback)
                 self.appendStage(.connected)
                 self.completeStage(.connected)
-                // The inner TLS handshake just completed end to end with the journal.
-                self.lastHeardAt = Date()
+                // A finished handshake is not the journal answering: under TLS 1.3 this side
+                // finishes before the journal has checked its certificate, so the journal can
+                // still turn it away. Ask at once; the first answer is what counts as heard.
                 self.consecutiveKeepaliveFailures = 0
                 self.consecutiveNotEntitled = 0
                 self.probeWatchdog.noteConnectionEstablished()
-                self.startLivenessProbe(epoch: epoch)
+                self.startLivenessProbe(epoch: epoch, firstProbeAfter: .zero)
                 log.info("[solstone-swift] connected on localhost:\(localPort) via \(endpoint == .lan ? "lan" : "remote")")
                 self.diagnosticLog?.append(
                     category: .tunnel,

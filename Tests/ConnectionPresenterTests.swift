@@ -23,6 +23,21 @@ nonisolated final class ConnectionPresenterTests: XCTestCase {
         XCTAssertEqual(presenter.shown, .connectedIdle)
     }
 
+    func testAConnectionTheJournalHasNotAnsweredYetShowsConnecting() {
+        // A finished handshake alone: the journal may still turn this device away.
+        var presenter = self.launched()
+        presenter.step(Self.connected(heard: nil), now: self.at(1))
+        XCTAssertEqual(presenter.shown, .connecting)
+
+        // Back from a drop: trying again reads connecting until the journal answers, never a can't-reach.
+        var recovering = self.connectedPresenter()
+        recovering.step(Self.inputs(.error(.muxTeardown), reconnectCountdown: 1), now: self.at(5))
+        recovering.step(Self.connected(heard: nil), now: self.at(8))
+        XCTAssertEqual(recovering.shown, .connecting)
+        recovering.step(Self.connected(heard: self.at(8.1)), now: self.at(8.1))
+        XCTAssertEqual(recovering.shown, .connectedIdle)
+    }
+
     func testAFreshLaunchShowsConnectingUntilEarnedAndNeverFlashesOffline() {
         var presenter = self.launched()
         XCTAssertEqual(presenter.shown, .connecting)

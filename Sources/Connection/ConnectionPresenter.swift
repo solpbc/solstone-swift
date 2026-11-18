@@ -80,7 +80,9 @@ nonisolated struct ConnectionPresenter: Sendable {
         if let heard = inputs.lastHeardAt, now.timeIntervalSince(heard) <= policy.heardLease {
             return raw
         }
-        return inputs.isNetworkSatisfied == false ? .offline : .unreachable
+        if inputs.isNetworkSatisfied == false { return .offline }
+        // Up but not yet answered on this connection is still connecting, not a drop.
+        return inputs.lastHeardAt == nil ? .connecting : .unreachable
     }
 
     /// Folds the current facts in. Returns true when the shown status or the linger changed.

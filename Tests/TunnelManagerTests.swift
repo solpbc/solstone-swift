@@ -1412,6 +1412,62 @@ nonisolated final class TunnelManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testAFinishedHandshakeIsNotHeardUntilTheJournalAnswers() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 503, httpVersion: nil, headerFields: nil)!, Data())
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        transport.nextResult = .success(8080)
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing())
+        let manager = makeManager(transport: transport, endpointCache: cache, probeSession: session)
+
+        await manager.connect()
+
+        XCTAssertEqual(manager.state, .connected(localPort: 8080, via: .lan))
+        XCTAssertNil(manager.lastHeardAt)
+        for _ in 0..<200 where TunnelProbeURLProtocol.capturedRequests.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        // The journal is asked at once, not a probe interval later, and a refusal is not heard.
+        XCTAssertFalse(TunnelProbeURLProtocol.capturedRequests.isEmpty)
+        XCTAssertNil(manager.lastHeardAt)
+    }
+
+    @MainActor
+    func testTheJournalsFirstAnswerAfterConnectingCountsAsHeard() async throws {
+        TunnelProbeURLProtocol.reset()
+        TunnelProbeURLProtocol.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data("ok".utf8))
+        }
+        let session = Self.probeSession()
+        defer {
+            session.invalidateAndCancel()
+            TunnelProbeURLProtocol.reset()
+        }
+        let transport = MockCFTunnelTransport()
+        transport.connectionMode = .plDirect
+        transport.nextResult = .success(8080)
+        let cache = EndpointCache(fileURL: Self.tempFileURL())
+        await cache.bootstrap(from: Self.fixturePairing())
+        let manager = makeManager(transport: transport, endpointCache: cache, probeSession: session)
+
+        await manager.connect()
+        for _ in 0..<200 where manager.lastHeardAt == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertNotNil(manager.lastHeardAt)
+    }
+
+    @MainActor
     func testConnectionEpochTracksSuccessfulConnectionsAndHidesWhenInactive() async throws {
         let transport = MockCFTunnelTransport()
         transport.connectionMode = .plDirect
