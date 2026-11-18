@@ -8,6 +8,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ### Fixed
 
+- the solstone app now says connected only once your journal has answered. before, an iphone or ipad your journal no longer accepts could briefly show connected.
 - on iphone and ipad, when the connection to your journal comes back, the solstone app now reopens the page you were on. before, it went back to home.
 
 ## [2.0.13 (163)] - 2026-11-17
