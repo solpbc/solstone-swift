@@ -6,6 +6,7 @@ import Foundation
 import Network
 import os
 import SPLTunnel
+import SwiftUI
 import WebKit
 import XCTest
 
@@ -14,6 +15,81 @@ import XCTest
 /// that WebKit and its delegate actually carry this sequence end to end.
 @MainActor
 final class JournalWKWebViewRuntimeTests: XCTestCase {
+    func testOpenPaneRestoresDocumentAddressAfterTunnelReconnect() async throws {
+        let address = "/app/recovered/?q=a%26b#part%2F2"
+        let first = try LoopbackJournalFixture(reportDocument: true, pushAddress: address)
+        let firstPort = try await first.start()
+        defer { first.stop() }
+        let second = try LoopbackJournalFixture(reportDocument: true)
+        let secondPort = try await second.start()
+        defer { second.stop() }
+
+        let confirmation = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            loadPairing: { nil },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        let appConfig = AppConfig(confirmationStore: confirmation, store: credentials)
+        appConfig.seedUITestPairing(deviceID: "journal-reconnect-test")
+        XCTAssertTrue(appConfig.journalSendConfirmed)
+
+        let tunnel = TunnelManager(transport: MockCFTunnelTransport(), store: credentials)
+        tunnel.forceConnected(port: Int(firstPort), via: .lan)
+        let log = DiagnosticLog()
+        let pane = InAppJournalView(presentation: .detail)
+            .environment(appConfig)
+            .environment(tunnel)
+            .environment(PairFlowRouter())
+            .environment(log)
+            .environment(ConnectionSyncModel(clock: SystemObserverClock()) {
+                ConnectionSyncInputs(
+                    tunnelState: tunnel.state, reconnectCountdown: nil, isNetworkSatisfied: true,
+                    confirmedTransferCount: 0, recentBytesPerSecond: 0, backlogPending: 0, backlogFailed: 0
+                )
+            })
+            .environment(ConnectionStallMonitor(
+                store: InMemoryConnectionStallStore(),
+                clock: SystemConnectionStallClock(),
+                credentials: credentials
+            ))
+        let controller = UIHostingController(rootView: pane)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        let previous = try await self.waitForDocumentReport(from: first)
+        XCTAssertEqual(previous.address, address)
+        XCTAssertEqual(previous.title, "journal-ready")
+
+        tunnel.forceDisconnectedForUITest()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !log.events.contains(where: { $0.message == "teardown" }) && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(log.events.contains { $0.message == "teardown" })
+
+        tunnel.forceConnected(port: Int(secondPort), via: .lan)
+        let current = try await self.waitForDocumentReport(from: second)
+        XCTAssertEqual(current.address, address)
+        XCTAssertEqual(current.title, "journal-recovered")
+        XCTAssertGreaterThan(current.timeOrigin, previous.timeOrigin)
+    }
+
+    private func waitForDocumentReport(from fixture: LoopbackJournalFixture) async throws -> LoopbackJournalFixture.DocumentReport {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while ContinuousClock.now < deadline {
+            if let report = fixture.documentReport { return report }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return try XCTUnwrap(fixture.documentReport, "Journal did not report its document")
+    }
+
     func testLoopbackRedirectAndBootGraphReachReadyDocument() async throws {
         let fixture = try LoopbackJournalFixture()
         let port = try await fixture.start()
@@ -446,11 +522,24 @@ private struct RuntimeJournal {
 }
 
 private final class LoopbackJournalFixture: @unchecked Sendable {
+    struct DocumentReport: Sendable {
+        let address: String
+        let title: String
+        let timeOrigin: Double
+    }
+
     private let listener: NWListener
+    private let reportDocument: Bool
+    private let pushAddress: String?
     private let queue = DispatchQueue(label: "app.solstone.swift.tests.journal-loopback")
     private let paths = OSAllocatedUnfairLock<[String]>(initialState: [])
     private let admissions = OSAllocatedUnfairLock<[(path: String, admitted: Bool)]>(initialState: [])
     private let startup = OSAllocatedUnfairLock<CheckedContinuation<UInt16, any Error>?>(initialState: nil)
+    private let report = OSAllocatedUnfairLock<DocumentReport?>(initialState: nil)
+
+    var documentReport: DocumentReport? {
+        self.report.withLock { $0 }
+    }
 
     var requestedPaths: [String] {
         self.paths.withLock { $0 }
@@ -460,7 +549,9 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
         self.admissions.withLock { $0 }
     }
 
-    init() throws {
+    init(reportDocument: Bool = false, pushAddress: String? = nil) throws {
+        self.reportDocument = reportDocument
+        self.pushAddress = pushAddress
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         self.listener = try NWListener(using: parameters)
@@ -562,6 +653,15 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
                 return
             }
 
+            if path == "/test-document",
+               let query = URLComponents(string: String(target))?.queryItems,
+               let address = query.first(where: { $0.name == "address" })?.value,
+               let title = query.first(where: { $0.name == "title" })?.value,
+               let timeText = query.first(where: { $0.name == "time" })?.value,
+               let time = Double(timeText)
+            {
+                self.report.withLock { $0 = DocumentReport(address: address, title: title, timeOrigin: time) }
+            }
             let response = self.response(for: path)
             connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
                 connection.cancel()
@@ -585,6 +685,12 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
     }
 
     private func response(for path: String) -> String {
+        let reportScript = self.reportDocument ? """
+        fetch('/test-document?' + new URLSearchParams({
+            address: location.pathname + location.search + location.hash,
+            title: document.title, time: performance.timeOrigin
+        }));
+        """ : ""
         switch path {
         case "/":
             return Self.httpResponse(status: "302 Found", headers: ["Location: /app/home/"], body: "")
@@ -592,7 +698,7 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
             return Self.httpResponse(
                 status: "200 OK",
                 headers: ["Content-Type: text/html; charset=utf-8"],
-                body: "<!doctype html><html><head><title>journal-recovered</title></head><body>recovered</body></html>"
+                body: "<!doctype html><html><head><title>journal-recovered</title></head><body>recovered<script>\(reportScript)</script></body></html>"
             )
         case "/app/home/":
             return Self.httpResponse(
@@ -615,11 +721,20 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
                 body: "<!doctype html><html><head><title>same-authority-target</title></head><body>same</body></html>"
             )
         case "/static/boot.js":
+            let push = self.pushAddress.map { "history.pushState(null, '', '\($0)');" } ?? ""
             return Self.httpResponse(
                 status: "200 OK",
                 headers: ["Content-Type: application/javascript"],
-                body: "fetch('/api/pulse').then(r => r.json()).then(() => { document.title = 'journal-ready'; });"
+                body: """
+                fetch('/api/pulse').then(r => r.json()).then(() => {
+                    document.title = 'journal-ready';
+                    \(push)
+                    \(reportScript)
+                });
+                """
             )
+        case "/test-document":
+            return Self.httpResponse(status: "204 No Content", headers: [], body: "")
         case "/api/pulse":
             return Self.httpResponse(
                 status: "200 OK",

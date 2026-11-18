@@ -15,11 +15,13 @@ struct JournalWebView: UIViewRepresentable {
     let reloadToken: Int
     /// The paired journal; its pages live in that pairing's own data store.
     var journalInstanceID: String? = nil
+    let pairingOwnerID: UUID?
+    let reconnectLocation: JournalWebReconnectLocation
     @Binding var loadState: JournalWebPresentation.LoadState
     let diagnosticLog: DiagnosticLog
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(diagnosticLog: self.diagnosticLog) { state in
+        Coordinator(diagnosticLog: self.diagnosticLog, reconnectLocation: self.reconnectLocation) { state in
             self.loadState = state
         }
     }
@@ -34,7 +36,10 @@ struct JournalWebView: UIViewRepresentable {
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
         context.coordinator.observeForeground(of: webView)
-        context.coordinator.requestLoad(url: self.url, reloadToken: self.reloadToken, webView: webView)
+        let resumeURL = self.reconnectLocation.attach(webView, entryURL: self.url, ownerID: self.pairingOwnerID)
+        context.coordinator.requestLoad(
+            url: self.url, reloadToken: self.reloadToken, webView: webView, resumeURL: resumeURL
+        )
         return webView
     }
 
@@ -43,6 +48,7 @@ struct JournalWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
+        coordinator.reconnectLocation?.detach(uiView)
         coordinator.teardown()
         uiView.stopLoading()
         uiView.navigationDelegate = nil
@@ -52,6 +58,7 @@ struct JournalWebView: UIViewRepresentable {
     nonisolated final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, @unchecked Sendable {
         private let setState: @MainActor (JournalWebPresentation.LoadState) -> Void
         private let diagnosticLog: DiagnosticLog
+        let reconnectLocation: JournalWebReconnectLocation?
         @MainActor private var session: JournalWebNavigationSession?
         @MainActor private var activationRouter: JournalWebActivationRouter?
         @MainActor private var latestLoad: (url: URL, reloadToken: Int)?
@@ -60,10 +67,12 @@ struct JournalWebView: UIViewRepresentable {
 
         init(
             diagnosticLog: DiagnosticLog,
+            reconnectLocation: JournalWebReconnectLocation? = nil,
             setState: @escaping @MainActor (JournalWebPresentation.LoadState) -> Void,
             opener: @escaping JournalWebActivationRouter.Opener = JournalSystemOpen.live
         ) {
             self.diagnosticLog = diagnosticLog
+            self.reconnectLocation = reconnectLocation
             self.setState = setState
             self.opener = opener
         }
@@ -76,7 +85,7 @@ struct JournalWebView: UIViewRepresentable {
         /// its page makes carry it. Re-setting per load, not once, recovers a
         /// cookie lost with the WebKit network process on the next reload.
         @MainActor
-        func requestLoad(url: URL, reloadToken: Int, webView: WKWebView) {
+        func requestLoad(url: URL, reloadToken: Int, webView: WKWebView, resumeURL: URL? = nil) {
             guard !self.isTornDown,
                   self.latestLoad?.url != url || self.latestLoad?.reloadToken != reloadToken
             else { return }
@@ -91,7 +100,7 @@ struct JournalWebView: UIViewRepresentable {
                 guard let self, let webView, !self.isTornDown,
                       self.latestLoad?.url == url, self.latestLoad?.reloadToken == reloadToken
                 else { return }
-                self.creatingSession(for: webView).requestLoad(url: url, reloadToken: reloadToken)
+                self.creatingSession(for: webView).requestLoad(url: resumeURL ?? url, reloadToken: reloadToken)
             }
         }
 
@@ -321,6 +330,55 @@ struct JournalWebView: UIViewRepresentable {
     }
 }
 
+/// The open pane owns this location across web view lifetimes. The attachment is
+/// weak, so the waiting state can still release WebKit while the tunnel is down.
+@MainActor
+final class JournalWebReconnectLocation {
+    private weak var webView: WKWebView?
+    private var entryURL: URL?
+    private var ownerID: UUID?
+    private var lastAddress: URL?
+
+    func attach(_ webView: WKWebView, entryURL: URL, ownerID: UUID?) -> URL? {
+        // SwiftUI can create a replacement before dismantling the old view.
+        self.rememberCurrentPage()
+        if ownerID == nil || ownerID != self.ownerID || entryURL.path != self.entryURL?.path {
+            self.lastAddress = nil
+        }
+        self.webView = webView
+        self.entryURL = entryURL
+        self.ownerID = ownerID
+
+        guard let lastAddress = self.lastAddress,
+              let previous = URLComponents(url: lastAddress, resolvingAgainstBaseURL: false),
+              var target = URLComponents(url: entryURL, resolvingAgainstBaseURL: false)
+        else { return nil }
+        target.percentEncodedPath = previous.percentEncodedPath
+        target.percentEncodedQuery = previous.percentEncodedQuery
+        target.percentEncodedFragment = previous.percentEncodedFragment
+        return target.url
+    }
+
+    func detach(_ webView: WKWebView) {
+        guard webView === self.webView else { return }
+        self.rememberCurrentPage()
+        self.webView = nil
+    }
+
+    private func rememberCurrentPage() {
+        // The committed history item also tracks history.pushState, replaceState
+        // and hash changes, including journal navigation without a document load.
+        guard self.ownerID != nil,
+              let entryURL = self.entryURL,
+              let origin = JournalWebNavigationPolicy.authority(for: entryURL),
+              let url = self.webView?.backForwardList.currentItem?.url,
+              JournalWebNavigationPolicy.authority(for: url) == origin,
+              url.user == nil, url.password == nil
+        else { return }
+        self.lastAddress = url
+    }
+}
+
 nonisolated enum InAppJournalPresentation {
     enum Content: Equatable, Sendable {
         case web
@@ -368,6 +426,7 @@ struct InAppJournalView: View {
     @AccessibilityFocusState private var headingFocused: Bool
     @State private var loadState: JournalWebPresentation.LoadState = .loading
     @State private var reloadToken = 0
+    @State private var reconnectLocation = JournalWebReconnectLocation()
 
     private var resolvedURL: URL? {
         JournalWebPresentation.resolvedURL(
@@ -456,9 +515,13 @@ struct InAppJournalView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("shell.pane.journal")
         .onAppear { self.headingFocused = true }
-        .onChange(of: self.tunnelManager.activeConnection?.port) { _, newPort in
-            // A new port means a new page load: the drop it replaces is no longer true.
-            self.loadState = newPort == nil ? JournalWebPresentation.connectionLostState : .loading
+        .onChange(of: self.tunnelManager.activeConnection?.epoch) { _, epoch in
+            self.loadState = epoch == nil ? JournalWebPresentation.connectionLostState : .loading
+        }
+        .onChange(of: self.appConfig.journalSendConfirmed) { _, confirmed in
+            if !confirmed {
+                self.reconnectLocation = JournalWebReconnectLocation()
+            }
         }
     }
 
@@ -486,23 +549,28 @@ struct InAppJournalView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
+            let connection = self.tunnelManager.activeConnection
+            let resolvedURL = JournalWebPresentation.resolvedURL(activeLocalPort: connection?.port, path: self.path)
             switch InAppJournalPresentation.content(
                 journalSendConfirmed: self.appConfig.journalSendConfirmed,
-                resolvedURL: self.resolvedURL,
+                resolvedURL: resolvedURL,
                 awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
                 status: self.connectionSyncModel.status,
                 isStalled: self.connectionStallMonitor.isStalled
             ) {
             case .web:
-                if let url = self.resolvedURL {
+                if let url = resolvedURL, let connection {
                     ZStack {
                         JournalWebView(
                             url: url,
                             reloadToken: self.reloadToken,
                             journalInstanceID: self.appConfig.deviceID,
+                            pairingOwnerID: self.appConfig.store.snapshot().deviceOwnerID,
+                            reconnectLocation: self.reconnectLocation,
                             loadState: self.$loadState,
                             diagnosticLog: self.diagnosticLog
                         )
+                        .id(connection.epoch)
                         self.stateOverlay
                     }
                 } else {
