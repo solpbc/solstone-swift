@@ -6,7 +6,7 @@ Built in SwiftUI. You choose what the app takes in (audio, location and screen, 
 
 ## Status
 
-On the [App Store](https://apps.apple.com/app/id6776850664), where it's listed as solstone mobile. It needs ios or ipados 26 or later.
+On the [App Store](https://apps.apple.com/app/id6776850664), where it's listed as solstone.app. It needs ios or ipados 26 or later.
 
 ## Install
 
