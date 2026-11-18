@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.13 (163)] - 2026-11-17
+
 ### Changed
 
 - on ipad, when the left column is showing, your journal now reaches the top of the screen. the bar above it only repeated your journal's two words, which already show at the bottom of that column.
