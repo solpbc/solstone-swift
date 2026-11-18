@@ -515,8 +515,9 @@ struct InAppJournalView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("shell.pane.journal")
         .onAppear { self.headingFocused = true }
-        .onChange(of: self.tunnelManager.activeConnection?.epoch) { _, epoch in
-            self.loadState = epoch == nil ? JournalWebPresentation.connectionLostState : .loading
+        .onChange(of: self.tunnelManager.activeConnection?.port) { _, newPort in
+            // A new port means a new page load: the drop it replaces is no longer true.
+            self.loadState = newPort == nil ? JournalWebPresentation.connectionLostState : .loading
         }
         .onChange(of: self.appConfig.journalSendConfirmed) { _, confirmed in
             if !confirmed {
@@ -549,17 +550,15 @@ struct InAppJournalView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            let connection = self.tunnelManager.activeConnection
-            let resolvedURL = JournalWebPresentation.resolvedURL(activeLocalPort: connection?.port, path: self.path)
             switch InAppJournalPresentation.content(
                 journalSendConfirmed: self.appConfig.journalSendConfirmed,
-                resolvedURL: resolvedURL,
+                resolvedURL: self.resolvedURL,
                 awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
                 status: self.connectionSyncModel.status,
                 isStalled: self.connectionStallMonitor.isStalled
             ) {
             case .web:
-                if let url = resolvedURL, let connection {
+                if let url = self.resolvedURL {
                     ZStack {
                         JournalWebView(
                             url: url,
@@ -570,7 +569,9 @@ struct InAppJournalView: View {
                             loadState: self.$loadState,
                             diagnosticLog: self.diagnosticLog
                         )
-                        .id(connection.epoch)
+                        // A changed origin needs a new document. A page that
+                        // stayed mounted through a same-port reconnect can keep it.
+                        .id(url)
                         self.stateOverlay
                     }
                 } else {
