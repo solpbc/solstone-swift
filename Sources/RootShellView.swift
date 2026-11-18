@@ -525,6 +525,7 @@ struct RootShellView: View {
                 journalPath: self.journalInitialPath,
                 journalOpenID: self.journalOpenID
             )
+                .environment(\.paneBesideDeck, self.nav.columnVisibility != .detailOnly)
                 .navigationDestination(for: ShellDestination.self) { destination in
                     ShellDestinationView(
                         destination: destination,
@@ -532,6 +533,7 @@ struct RootShellView: View {
                         journalPath: self.journalInitialPath,
                         journalOpenID: self.journalOpenID
                     )
+                        .environment(\.paneBesideDeck, false)
                 }
         }
     }

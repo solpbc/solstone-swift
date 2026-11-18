@@ -364,6 +364,7 @@ struct InAppJournalView: View {
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(PairFlowRouter.self) private var pairFlowRouter
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.paneBesideDeck) private var paneBesideDeck
     @AccessibilityFocusState private var headingFocused: Bool
     @State private var loadState: JournalWebPresentation.LoadState = .loading
     @State private var reloadToken = 0
@@ -385,6 +386,13 @@ struct InAppJournalView: View {
 
     private var headingString: String {
         self.journalIdentity.title
+    }
+
+    /// Beside the deck the pill already shows the mark, so a bar repeating it above
+    /// the journal is only lost height. Without the deck, or above a pushed pane, the
+    /// bar stays: it carries the sidebar toggle or the back button.
+    private var hidesBar: Bool {
+        self.paneBesideDeck && self.appConfig.isPaired
     }
 
     @ViewBuilder
@@ -411,6 +419,20 @@ struct InAppJournalView: View {
             .background(Color.deckGround.ignoresSafeArea())
             .navigationTitle(self.headingString)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(self.hidesBar ? .hidden : .automatic, for: .navigationBar)
+            .overlay(alignment: .top) {
+                // The pane keeps its standing heading for assistive tech when the bar
+                // that draws it is hidden.
+                if self.hidesBar {
+                    Color.clear
+                        .frame(height: 1)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(self.journalIdentity.spokenValue)
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("shell.pane.journal.heading")
+                        .accessibilityFocused(self.$headingFocused)
+                }
+            }
             .toolbar {
                 if self.presentation.isPhoneModal {
                     ToolbarItem(placement: .confirmationAction) {

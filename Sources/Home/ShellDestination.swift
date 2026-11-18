@@ -90,6 +90,17 @@ nonisolated enum ShellDestination: Hashable, Sendable {
     }
 }
 
+/// Whether the deck is showing beside this pane, its pill carrying the journal's mark.
+/// Set only on the iPad split's pane root: a pushed pane has a back button to carry,
+/// and the phone's single stack has no deck beside it.
+private struct PaneBesideDeckKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var paneBesideDeck: Bool {
+        get { self[PaneBesideDeckKey.self] }
+        set { self[PaneBesideDeckKey.self] = newValue }
+    }
+}
+
 nonisolated enum ShellPanePresentation: Sendable {
     case phoneModal
     case detail
