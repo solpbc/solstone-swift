@@ -162,6 +162,53 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
         XCTAssertEqual(actualClientItemID, fixture.itemID.lowercased())
     }
 
+    func testSaveBodyIncludesCapturedAtAndExactWrappingByteCount() throws {
+        let itemID = UUID(uuidString: "00000000-0000-0000-0000-000000000799")!
+        let payload = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        let fields = ShareImportTransferMetadata.Fields(
+            basis: "file",
+            contentType: "public.jpeg",
+            targetJournal: "journal-1",
+            filename: "IMG_4821.jpg",
+            originApp: nil,
+            itemTime: "2026-11-11T23:30:00Z",
+            bytes: Int64(payload.count),
+            requestSource: "file",
+            capturedAt: "2026-11-12T08:30:00+09:00"
+        )
+        let manifest = TransferManifest(
+            itemID: itemID,
+            source: ObserverAudioTransferSource.share,
+            createdAt: Date(timeIntervalSince1970: 1_783_536_000),
+            priority: TransferPriorityInputs(basePriority: .normal, sourceKey: ObserverAudioTransferSource.share),
+            payloadParts: [
+                TransferPayloadPartDescriptor(
+                    partID: "file",
+                    kind: .file,
+                    relativePath: "raw.bin",
+                    filename: "image.jpg",
+                    contentType: "image/jpeg"
+                ),
+            ],
+            endpoint: TransferEndpointDescriptor(
+                destinationKind: .saveThenStart,
+                path: ImporterServerURL.savePath,
+                startPath: ImporterServerURL.startPath
+            ),
+            meta: ShareImportTransferMetadata.meta(fields: fields),
+            saveThenStart: TransferSaveThenStartState(phase: .savePending)
+        )
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent(itemID.uuidString, isDirectory: true))
+        let staged = try spool.stage(manifest: manifest, payloads: ["file": payload])
+        let item = try spool.commitStagedItem(itemID: staged.item.manifest.itemID)
+
+        let built = try ShareImportSaveBody.build(item: item, spool: spool)
+        let data = try self.bodyData(built)
+        let wrappingBytes = try ShareImportSaveBody.fileWrappingByteCount(item: item)
+        XCTAssertEqual(data.count, wrappingBytes + payload.count)
+        XCTAssertEqual(self.multipartValue(named: "captured_at", in: data), "2026-11-12T08:30:00+09:00")
+    }
+
     private func bodyData(_ payload: TransferBodyPayload) throws -> Data {
         switch payload {
         case .inMemory(let data):

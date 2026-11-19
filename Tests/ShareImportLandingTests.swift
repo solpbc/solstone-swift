@@ -2,7 +2,10 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import CoreGraphics
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 import XCTest
 
 nonisolated final class ShareImportLandingTests: XCTestCase {
@@ -224,6 +227,102 @@ nonisolated final class ShareImportLandingTests: XCTestCase {
             let entries = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
             XCTAssertTrue(entries.isEmpty, "\(subdirectory) should be empty")
         }
+    }
+
+    @MainActor
+    func testHEICTranscodePreservesEXIFCaptureTimeAndOffset() async throws {
+        let heicURL = self.tempDirectory.appendingPathComponent("tokyo.heic")
+        try self.writeSyntheticImage(
+            to: heicURL,
+            type: UTType.heic,
+            exif: [
+                kCGImagePropertyExifDateTimeOriginal: "2026:11:12 08:30:00",
+                kCGImagePropertyExifOffsetTimeOriginal: "+09:00",
+            ]
+        )
+
+        let queueRoot = self.tempDirectory.appendingPathComponent("queue-heic-\(UUID().uuidString)", isDirectory: true)
+        let store = ShareImportStore(cacheRootURL: queueRoot)
+        let coordinator = ShareImportCoordinator(queue: store)
+        let result = await coordinator.accept(
+            provider: StubLandingProvider(
+                contentType: UTType.heic.identifier,
+                filename: "IMG_4821.HEIC",
+                fileURL: heicURL,
+                isInPlace: false
+            )
+        )
+        guard case .success(let itemID) = result else {
+            XCTFail("expected HEIC share to succeed: \(result)")
+            return
+        }
+
+        let itemDir = queueRoot
+            .appendingPathComponent("pending", isDirectory: true)
+            .appendingPathComponent(itemID.uuidString.lowercased(), isDirectory: true)
+        let rawURL = itemDir.appendingPathComponent("raw.bin", isDirectory: false)
+        let convertedCapture = ShareImportFileSink.extractPhotoCapture(from: rawURL)
+        XCTAssertEqual(convertedCapture?.capturedAt, "2026-11-12T08:30:00+09:00")
+
+        let noteData = try Data(contentsOf: itemDir.appendingPathComponent("note.json", isDirectory: false))
+        let noteObject = try XCTUnwrap(JSONSerialization.jsonObject(with: noteData) as? [String: Any])
+        XCTAssertEqual(noteObject["captured_at"] as? String, "2026-11-12T08:30:00+09:00")
+        XCTAssertEqual(noteObject["content_type"] as? String, UTType.jpeg.identifier)
+    }
+
+    @MainActor
+    func testMetadataFreeImageEmitsNoCapturedAt() async throws {
+        let pngURL = self.tempDirectory.appendingPathComponent("plain.png")
+        try self.writeSyntheticImage(to: pngURL, type: UTType.png, exif: nil)
+
+        let queueRoot = self.tempDirectory.appendingPathComponent("queue-png-\(UUID().uuidString)", isDirectory: true)
+        let store = ShareImportStore(cacheRootURL: queueRoot)
+        let coordinator = ShareImportCoordinator(queue: store)
+        let result = await coordinator.accept(
+            provider: StubLandingProvider(
+                contentType: UTType.png.identifier,
+                filename: "plain.png",
+                fileURL: pngURL,
+                isInPlace: false
+            )
+        )
+        guard case .success(let itemID) = result else {
+            XCTFail("expected PNG share to succeed: \(result)")
+            return
+        }
+
+        let itemDir = queueRoot
+            .appendingPathComponent("pending", isDirectory: true)
+            .appendingPathComponent(itemID.uuidString.lowercased(), isDirectory: true)
+        let noteData = try Data(contentsOf: itemDir.appendingPathComponent("note.json", isDirectory: false))
+        let noteObject = try XCTUnwrap(JSONSerialization.jsonObject(with: noteData) as? [String: Any])
+        XCTAssertNil(noteObject["captured_at"])
+    }
+
+    private func writeSyntheticImage(to url: URL, type: UTType, exif: [CFString: Any]?) throws {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        var pixel: [UInt8] = [40, 80, 120, 255]
+        let image = try XCTUnwrap(pixel.withUnsafeMutableBytes { raw -> CGImage? in
+            guard let ctx = CGContext(
+                data: raw.baseAddress,
+                width: 1,
+                height: 1,
+                bitsPerComponent: 8,
+                bytesPerRow: 4,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return nil }
+            return ctx.makeImage()
+        })
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(
+            url as CFURL,
+            type.identifier as CFString,
+            1,
+            nil
+        ))
+        let properties: CFDictionary? = exif.map { [kCGImagePropertyExifDictionary: $0] as CFDictionary }
+        CGImageDestinationAddImage(destination, image, properties)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
     }
 
     private func makeFile(named name: String, data: Data) throws -> URL {

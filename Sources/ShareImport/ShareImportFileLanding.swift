@@ -15,6 +15,9 @@ nonisolated struct ShareFileDelivery: Sendable {
     var basis: String
     var contentType: String
     var filename: String?
+    /// RFC 3339 (with offset when present in EXIF) or civil capture timestamp read from image EXIF.
+    /// Always `nil` when the image carries no capture timestamp — never fabricated from share time.
+    var capturedAt: String? = nil
 }
 
 nonisolated struct ShareImportEnqueueHandle: Sendable {
@@ -131,12 +134,16 @@ nonisolated struct ShareImportFileSink: ShareFileSink {
         sourceURL: URL
     ) throws -> ShareFileDelivery {
         let dates = try self.payloadIO.itemDates(at: sourceURL)
+        let isImage = UTType(contentType)?.conforms(to: .image) == true
+            || self.operation == .transcodeHEICToJPEG
+        let capture = isImage ? Self.extractPhotoCapture(from: sourceURL) : nil
         return ShareFileDelivery(
             byteCount: byteCount,
-            itemTime: dates.created ?? dates.modified ?? self.now(),
+            itemTime: capture?.date ?? dates.created ?? dates.modified ?? self.now(),
             basis: "file",
             contentType: contentType,
-            filename: filename
+            filename: filename,
+            capturedAt: capture?.capturedAt
         )
     }
 
@@ -154,10 +161,107 @@ nonisolated struct ShareImportFileSink: ShareFileSink {
         ) else {
             throw ShareImportStoreError.undecodable
         }
-        CGImageDestinationAddImageFromSource(destination, source, 0, nil)
+        let primaryIndex = CGImageSourceGetPrimaryImageIndex(source)
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: 0.92,
+        ]
+        CGImageDestinationAddImageFromSource(destination, source, primaryIndex, options as CFDictionary)
         guard CGImageDestinationFinalize(destination) else {
             throw ShareImportStoreError.undecodable
         }
+    }
+
+    /// Reads EXIF capture date (`DateTimeOriginal` + `OffsetTimeOriginal`, falling back to
+    /// `DateTimeDigitized` + `OffsetTimeDigitized`) from the image's primary frame.
+    /// Returns `nil` when no valid capture date exists in EXIF.
+    nonisolated static func extractPhotoCapture(from sourceURL: URL) -> (capturedAt: String, date: Date?)? {
+        guard let source = CGImageSourceCreateWithURL(sourceURL as CFURL, nil),
+              CGImageSourceGetCount(source) > 0
+        else {
+            return nil
+        }
+        let index = CGImageSourceGetPrimaryImageIndex(source)
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
+              let exif = properties[kCGImagePropertyExifDictionary] as? [CFString: Any]
+        else {
+            return nil
+        }
+        let dateOrig = (exif[kCGImagePropertyExifDateTimeOriginal] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let offsetOrig = (exif[kCGImagePropertyExifOffsetTimeOriginal] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let dateDigit = (exif[kCGImagePropertyExifDateTimeDigitized] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let offsetDigit = (exif[kCGImagePropertyExifOffsetTimeDigitized] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let dateOrig, let parsed = Self.formatExifCapture(
+            dateString: dateOrig,
+            offsetString: offsetOrig ?? (dateDigit == dateOrig ? offsetDigit : nil)
+        ) {
+            return parsed
+        }
+        if let dateDigit, let parsed = Self.formatExifCapture(dateString: dateDigit, offsetString: offsetDigit) {
+            return parsed
+        }
+        return nil
+    }
+
+    nonisolated private static func formatExifCapture(
+        dateString: String,
+        offsetString: String?
+    ) -> (capturedAt: String, date: Date?)? {
+        guard dateString.count == 19 else { return nil }
+        let chars = Array(dateString)
+        guard chars[4] == ":", chars[7] == ":", chars[10] == " ", chars[13] == ":", chars[16] == ":" else {
+            return nil
+        }
+        let yearStr = String(chars[0..<4])
+        let monthStr = String(chars[5..<7])
+        let dayStr = String(chars[8..<10])
+        let hourStr = String(chars[11..<13])
+        let minuteStr = String(chars[14..<16])
+        let secondStr = String(chars[17..<19])
+        guard let year = Int(yearStr), let month = Int(monthStr), let day = Int(dayStr),
+              let hour = Int(hourStr), let minute = Int(minuteStr), let second = Int(secondStr),
+              year > 0, (1...12).contains(month), (1...31).contains(day),
+              (0...23).contains(hour), (0...59).contains(minute), (0...59).contains(second)
+        else {
+            return nil
+        }
+        // Reject placeholder epochs.
+        if (year == 1904 || year == 1970) && month == 1 && day == 1 && hour == 0 && minute == 0 && second == 0 {
+            return nil
+        }
+        let civil = "\(yearStr)-\(monthStr)-\(dayStr)T\(hourStr):\(minuteStr):\(secondStr)"
+        guard let rawOffset = offsetString, !rawOffset.isEmpty else {
+            return (civil, nil)
+        }
+        guard let normalizedOffset = Self.normalizeExifOffset(rawOffset) else {
+            return nil
+        }
+        let full = civil + normalizedOffset
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let instant = formatter.date(from: full) else {
+            return nil
+        }
+        return (full, instant)
+    }
+
+    nonisolated private static func normalizeExifOffset(_ raw: String) -> String? {
+        if raw == "Z" || raw == "z" { return "+00:00" }
+        guard let sign = raw.first, sign == "+" || sign == "-" else { return nil }
+        let rest = String(raw.dropFirst())
+        let parts = rest.split(separator: ":")
+        let h: Int
+        let m: Int
+        if parts.count == 2, parts[0].count == 2, parts[1].count == 2,
+           let hh = Int(parts[0]), let mm = Int(parts[1]) {
+            h = hh; m = mm
+        } else if rest.count == 4, let hh = Int(rest.prefix(2)), let mm = Int(rest.suffix(2)) {
+            h = hh; m = mm
+        } else {
+            return nil
+        }
+        guard (0...23).contains(h), (0...59).contains(m) else { return nil }
+        return String(format: "%c%02d:%02d", sign == "+" ? 43 : 45, h, m)
     }
 
     nonisolated static func jpegFilename(for filename: String) -> String {

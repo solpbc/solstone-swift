@@ -92,10 +92,10 @@ nonisolated enum ShareImportSaveBody {
         boundary: String
     ) -> Data {
         var fields = Data()
-        let originApp = (try? ShareImportTransferMetadata.fields(from: item.manifest))?.originApp
+        let metadata = try? ShareImportTransferMetadata.fields(from: item.manifest)
         fields.append(self.multipartField(
             named: "imported_via",
-            value: ShareImportOrigin.importedVia(originApp: originApp),
+            value: ShareImportOrigin.importedVia(originApp: metadata?.originApp),
             boundary: boundary
         ))
         fields.append(self.multipartField(
@@ -103,6 +103,13 @@ nonisolated enum ShareImportSaveBody {
             value: item.manifest.itemID.uuidString.lowercased(),
             boundary: boundary
         ))
+        if let capturedAt = metadata?.capturedAt, !capturedAt.isEmpty {
+            fields.append(self.multipartField(
+                named: "captured_at",
+                value: capturedAt,
+                boundary: boundary
+            ))
+        }
         return fields
     }
 

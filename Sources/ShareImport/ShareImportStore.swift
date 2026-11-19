@@ -108,7 +108,8 @@ final class ShareImportStore {
                 basis: delivery.basis,
                 itemTime: Self.iso8601String(for: delivery.itemTime),
                 targetJournal: targetJournal,
-                itemID: handle.itemIDString
+                itemID: handle.itemIDString,
+                capturedAt: delivery.capturedAt
             )
             let requestFilename = ShareImportOrigin.requestFilename(originApp: originApp, ownName: delivery.filename, standIn: rawInfo.filename)
             let descriptor = RequestDescriptor(source: source, filename: requestFilename, contentType: rawInfo.mimeType)
@@ -258,6 +259,7 @@ extension ShareImportStore {
         let itemTime: String
         let targetJournal: String
         let itemID: String
+        var capturedAt: String? = nil
     }
 
     struct RequestDescriptor: Codable, Equatable, Sendable {
@@ -572,7 +574,7 @@ extension ShareImportStore {
     }
 
     nonisolated static func orderedNoteData(_ note: FrozenNote) throws -> Data {
-        let json = "{"
+        var json = "{"
             + "\"schema\":\"solstone.source.item/1\","
             + "\"source\":\(try Self.jsonString(note.source)),"
             + "\"origin_app\":\(try Self.optionalJSONString(note.originApp)),"
@@ -584,7 +586,10 @@ extension ShareImportStore {
             + "\"target_journal\":\(try Self.jsonString(note.targetJournal)),"
             + "\"kind\":\"raw\","
             + "\"item_id\":\(try Self.jsonString(note.itemID))"
-            + "}"
+        if let capturedAt = note.capturedAt, !capturedAt.isEmpty {
+            json += ",\"captured_at\":\(try Self.jsonString(capturedAt))"
+        }
+        json += "}"
         return Data(json.utf8)
     }
 

@@ -18,21 +18,24 @@ nonisolated enum ShareImportTransferMetadata {
         let itemTime: String?
         let bytes: Int64?
         let requestSource: String
+        var capturedAt: String? = nil
     }
 
     static func meta(fields: Fields) -> JSONValue {
-        .object([
-            self.key: .object([
-                "basis": .string(fields.basis),
-                "content_type": .string(fields.contentType),
-                "target_journal": .string(fields.targetJournal),
-                "filename": fields.filename.map(JSONValue.string) ?? .null,
-                "origin_app": fields.originApp.map(JSONValue.string) ?? .null,
-                "item_time": fields.itemTime.map(JSONValue.string) ?? .null,
-                "bytes": fields.bytes.map { .int(Int($0)) } ?? .null,
-                "request_source": .string(fields.requestSource),
-            ]),
-        ])
+        var object: [String: JSONValue] = [
+            "basis": .string(fields.basis),
+            "content_type": .string(fields.contentType),
+            "target_journal": .string(fields.targetJournal),
+            "filename": fields.filename.map(JSONValue.string) ?? .null,
+            "origin_app": fields.originApp.map(JSONValue.string) ?? .null,
+            "item_time": fields.itemTime.map(JSONValue.string) ?? .null,
+            "bytes": fields.bytes.map { .int(Int($0)) } ?? .null,
+            "request_source": .string(fields.requestSource),
+        ]
+        if let capturedAt = fields.capturedAt, !capturedAt.isEmpty {
+            object["captured_at"] = .string(capturedAt)
+        }
+        return .object([self.key: .object(object)])
     }
 
     static func fields(from manifest: TransferManifest) throws -> Fields {
@@ -53,7 +56,8 @@ nonisolated enum ShareImportTransferMetadata {
             originApp: self.optionalString(object["origin_app"]),
             itemTime: self.optionalString(object["item_time"]),
             bytes: self.optionalInt(object["bytes"]).map(Int64.init),
-            requestSource: requestSource
+            requestSource: requestSource,
+            capturedAt: self.optionalString(object["captured_at"])
         )
     }
 
@@ -281,7 +285,8 @@ extension ShareImportStore {
             originApp: object["origin_app"] as? String,
             itemTime: object["item_time"] as? String,
             bytes: (object["bytes"] as? NSNumber)?.int64Value,
-            requestSource: requestSource
+            requestSource: requestSource,
+            capturedAt: object["captured_at"] as? String
         )
     }
 
