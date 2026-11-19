@@ -264,7 +264,7 @@ nonisolated final class ShareImportLandingTests: XCTestCase {
         let convertedCapture = ShareImportFileSink.extractPhotoCapture(from: rawURL)
         XCTAssertEqual(convertedCapture?.capturedAt, "2026-11-12T08:30:00+09:00")
 
-        let noteData = try Data(contentsOf: itemDir.appendingPathComponent("note.json", isDirectory: false))
+        let noteData = try Data(contentsOf: itemDir.appendingPathComponent("item.json", isDirectory: false))
         let noteObject = try XCTUnwrap(JSONSerialization.jsonObject(with: noteData) as? [String: Any])
         XCTAssertEqual(noteObject["captured_at"] as? String, "2026-11-12T08:30:00+09:00")
         XCTAssertEqual(noteObject["content_type"] as? String, UTType.jpeg.identifier)
@@ -294,7 +294,7 @@ nonisolated final class ShareImportLandingTests: XCTestCase {
         let itemDir = queueRoot
             .appendingPathComponent("pending", isDirectory: true)
             .appendingPathComponent(itemID.uuidString.lowercased(), isDirectory: true)
-        let noteData = try Data(contentsOf: itemDir.appendingPathComponent("note.json", isDirectory: false))
+        let noteData = try Data(contentsOf: itemDir.appendingPathComponent("item.json", isDirectory: false))
         let noteObject = try XCTUnwrap(JSONSerialization.jsonObject(with: noteData) as? [String: Any])
         XCTAssertNil(noteObject["captured_at"])
     }
