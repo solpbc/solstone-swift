@@ -10,7 +10,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - the solstone app now says connected only once your journal has answered. before, an iphone or ipad your journal no longer accepts could briefly show connected.
 - on iphone and ipad, when the connection to your journal comes back, the solstone app now reopens the page you were on. before, it went back to home.
-- on iphone and ipad, the status pane now says "nothing yet" once for a source that hasn't taken anything in. before, it said it twice, under both headings.
+- on iphone and ipad, the status screen now says "nothing yet" once for a source that hasn't taken anything in. before, it said it twice, under both headings.
 
 ## [2.0.13 (163)] - 2026-11-17
 
