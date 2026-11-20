@@ -6,9 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.14 (165)] - 2026-11-20
+
 ### Fixed
 
-- sharing a photo from your iphone or ipad now sends the date, time, and time zone it was taken to your journal, and keeps that date when converting HEIC photos to JPEG, so photos land on the day they were taken.
+- photos you share from your iphone or ipad, HEIC photos included, now land in your journal on the day they were taken, when they carry that date.
 
 ## [2.0.14 (164)] - 2026-11-19
 
