@@ -514,7 +514,7 @@
     },
     {
       "id": "ios.app.importfileshint",
-      "source": "7bd33de08c41b24fe27814d37a07b3ef048a1cbb30a941ad047bc2eb214da5e0",
+      "source": "c6f6028c53d65efd1f4bf63e92a502f5cd226f999b2e61885686dcba4a83abe5",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
       "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
       "locales": []
@@ -802,6 +802,20 @@
     {
       "id": "ios.app.migrationheadlineuptodate",
       "source": "2cf4247215b752fecaf43a1db809e19054ba44e1e65d5de67a53b2916d2f0e2b",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.moreimportshint",
+      "source": "6ec0ea6de2573cce8db1ccd6299a0db006406405f86dec26cdb21b701d77bfaa",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.moreimportsrow",
+      "source": "7de9a06c950f205d3d25ee4d45bcb8a612a294696a1c7d90b271f33f63df7a82",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
       "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
       "locales": []

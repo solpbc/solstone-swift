@@ -19,8 +19,9 @@ nonisolated final class TransferTransport: @unchecked Sendable {
             @Sendable () -> Void
         ) async -> Bool = { _, start in start(); return true }
     ) {
+        // A stalled request gives up after 60 seconds without data. A whole upload keeps the
+        // system's own limit of days, so a long Apple Health export that keeps moving finishes.
         sessionConfiguration.timeoutIntervalForRequest = 60
-        sessionConfiguration.timeoutIntervalForResource = 30 * 60
         self.session = URLSession(configuration: sessionConfiguration)
         self.admission = admission
         self.requestAdmission = requestAdmission

@@ -19,6 +19,8 @@ struct JournalWebView: UIViewRepresentable {
     let reconnectLocation: JournalWebReconnectLocation
     @Binding var loadState: JournalWebPresentation.LoadState
     let diagnosticLog: DiagnosticLog
+    /// The app's import queue, offered to the journal's own pages; `nil` offers nothing.
+    var importIntake: (any JournalImportIntake)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(diagnosticLog: self.diagnosticLog, reconnectLocation: self.reconnectLocation) { state in
@@ -31,7 +33,11 @@ struct JournalWebView: UIViewRepresentable {
         if let journalInstanceID, !journalInstanceID.isEmpty {
             configuration.websiteDataStore = JournalWebDataStore.store(for: journalInstanceID)
         }
+        let importHost = self.importIntake.flatMap { JournalImportHost(entryURL: self.url, intake: $0) }
+        importHost?.install(in: configuration.userContentController)
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        importHost?.attach(to: webView)
+        context.coordinator.importHost = importHost
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = false
@@ -49,6 +55,9 @@ struct JournalWebView: UIViewRepresentable {
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
         coordinator.reconnectLocation?.detach(uiView)
+        // Items the page queued stay in the app's queue and keep going to the journal.
+        coordinator.importHost?.teardown(controller: uiView.configuration.userContentController)
+        coordinator.importHost = nil
         coordinator.teardown()
         uiView.stopLoading()
         uiView.navigationDelegate = nil
@@ -64,6 +73,7 @@ struct JournalWebView: UIViewRepresentable {
         @MainActor private var latestLoad: (url: URL, reloadToken: Int)?
         @MainActor private var isTornDown = false
         @MainActor private var foregroundObserver: (any NSObjectProtocol)?
+        @MainActor var importHost: JournalImportHost?
 
         init(
             diagnosticLog: DiagnosticLog,
@@ -421,6 +431,8 @@ struct InAppJournalView: View {
     @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(PairFlowRouter.self) private var pairFlowRouter
+    @Environment(ShareTransferHolder.self) private var shareTransferHolder: ShareTransferHolder?
+    @Environment(ForegroundDrainGate.self) private var foregroundDrainGate: ForegroundDrainGate?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.paneBesideDeck) private var paneBesideDeck
     @AccessibilityFocusState private var headingFocused: Bool
@@ -433,6 +445,11 @@ struct InAppJournalView: View {
             activeLocalPort: self.tunnelManager.activeConnection?.port,
             path: self.path
         )
+    }
+
+    private var importIntake: (any JournalImportIntake)? {
+        guard let holder = self.shareTransferHolder, let gate = self.foregroundDrainGate else { return nil }
+        return JournalImportQueueIntake(holder: holder, drainGate: gate)
     }
 
     private var journalIdentity: JournalIdentity {
@@ -567,7 +584,8 @@ struct InAppJournalView: View {
                             pairingOwnerID: self.appConfig.store.snapshot().deviceOwnerID,
                             reconnectLocation: self.reconnectLocation,
                             loadState: self.$loadState,
-                            diagnosticLog: self.diagnosticLog
+                            diagnosticLog: self.diagnosticLog,
+                            importIntake: self.importIntake
                         )
                         // A changed origin needs a new document. A page that
                         // stayed mounted through a same-port reconnect can keep it.

@@ -824,7 +824,7 @@
         "en-US": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chooses files to import."
+            "value": "chooses files to import."
           }
         }
       }
@@ -1235,6 +1235,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "your journal is up to date"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e6d6f7265696d706f72747368696e74": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "opens your journal's import page."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e6d6f7265696d706f727473726f77": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "more imports"
           }
         }
       }

@@ -95,7 +95,7 @@ nonisolated enum ShareImportSaveBody {
         let metadata = try? ShareImportTransferMetadata.fields(from: item.manifest)
         fields.append(self.multipartField(
             named: "imported_via",
-            value: ShareImportOrigin.importedVia(originApp: metadata?.originApp),
+            value: ShareImportOrigin.importedVia,
             boundary: boundary
         ))
         fields.append(self.multipartField(
@@ -109,6 +109,13 @@ nonisolated enum ShareImportSaveBody {
                 value: capturedAt,
                 boundary: boundary
             ))
+        }
+        // What the journal's import page asked for rides with the file, unchanged.
+        if let area = metadata?.importArea {
+            fields.append(self.multipartField(named: "area", value: area, boundary: boundary))
+        }
+        if let context = metadata?.importContext {
+            fields.append(self.multipartField(named: "context", value: context, boundary: boundary))
         }
         return fields
     }

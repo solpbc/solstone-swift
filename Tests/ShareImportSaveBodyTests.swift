@@ -209,6 +209,55 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
         XCTAssertEqual(self.multipartValue(named: "captured_at", in: data), "2026-11-12T08:30:00+09:00")
     }
 
+    func testHandedOffSaveBodyCarriesAreaAndWholeContext() throws {
+        let itemID = UUID(uuidString: "00000000-0000-0000-0000-000000000800")!
+        let payload = Data("conformance".utf8)
+        let context = #"{"future":{"preserve":true},"setting":"host conformance"}"#
+        let fields = ShareImportTransferMetadata.Fields(
+            basis: "file",
+            contentType: "public.zip-archive",
+            targetJournal: "",
+            filename: "chatgpt-export.zip",
+            originApp: nil,
+            itemTime: "2026-11-20T23:30:00Z",
+            bytes: Int64(payload.count),
+            requestSource: "file",
+            importArea: "chatgpt",
+            importContext: context
+        )
+        let manifest = TransferManifest(
+            itemID: itemID,
+            source: ObserverAudioTransferSource.share,
+            createdAt: Date(timeIntervalSince1970: 1_783_536_000),
+            priority: TransferPriorityInputs(basePriority: .normal, sourceKey: ObserverAudioTransferSource.share),
+            payloadParts: [
+                TransferPayloadPartDescriptor(
+                    partID: "file",
+                    kind: .file,
+                    relativePath: "raw.bin",
+                    filename: "chatgpt-export.zip",
+                    contentType: "application/zip"
+                ),
+            ],
+            endpoint: TransferEndpointDescriptor(
+                destinationKind: .saveThenStart,
+                path: ImporterServerURL.savePath,
+                startPath: ImporterServerURL.startPath
+            ),
+            meta: ShareImportTransferMetadata.meta(fields: fields),
+            saveThenStart: TransferSaveThenStartState(phase: .savePending)
+        )
+        let spool = TransferSpool(rootURL: self.tempDirectory.appendingPathComponent(itemID.uuidString, isDirectory: true))
+        let staged = try spool.stage(manifest: manifest, payloads: ["file": payload])
+        let item = try spool.commitStagedItem(itemID: staged.item.manifest.itemID)
+
+        let data = try self.bodyData(try ShareImportSaveBody.build(item: item, spool: spool))
+        XCTAssertEqual(self.multipartValue(named: "area", in: data), "chatgpt")
+        XCTAssertEqual(self.multipartValue(named: "context", in: data), context)
+        XCTAssertEqual(self.multipartValue(named: "imported_via", in: data), "ios")
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains(#"filename="chatgpt-export.zip""#))
+    }
+
     private func bodyData(_ payload: TransferBodyPayload) throws -> Data {
         switch payload {
         case .inMemory(let data):

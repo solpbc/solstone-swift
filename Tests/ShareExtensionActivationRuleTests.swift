@@ -8,10 +8,12 @@ nonisolated final class ShareExtensionActivationRuleTests: XCTestCase {
     func testPlainTextActivationRuleIsPresentInProjectAndPlist() throws {
         let projectYML = try String(contentsOf: Self.projectYMLURL(), encoding: .utf8)
         let infoPlist = try String(contentsOf: Self.infoPlistURL(), encoding: .utf8)
-        let plainTextPredicate = #"ANY $att.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text""#
-
-        XCTAssertTrue(projectYML.contains(plainTextPredicate))
-        XCTAssertTrue(infoPlist.contains(plainTextPredicate))
+        // project.yml generates the plist; the two must carry the same rule. What the rule admits is
+        // tested by evaluating it (ShareImportCoordinatorTests.testShareSheetOffersAnyFileButNotABareLink).
+        let plist = try XCTUnwrap(NSDictionary(contentsOf: Self.infoPlistURL()))
+        let rule = try XCTUnwrap(((plist["NSExtension"] as? NSDictionary)?["NSExtensionAttributes"] as? NSDictionary)?["NSExtensionActivationRule"] as? String)
+        XCTAssertTrue(projectYML.contains("NSExtensionActivationRule: " + rule))
+        XCTAssertFalse(infoPlist.isEmpty)
         XCTAssertFalse(Self.shareExtensionTargetBlock(in: projectYML)?.contains("Sources/ShareImport/ImporterServerURL.swift") ?? true)
         XCTAssertFalse(Self.shareExtensionTargetBlock(in: projectYML)?.contains("Sources/Transfer/") ?? true)
         XCTAssertFalse(Self.shareExtensionTargetBlock(in: projectYML)?.contains("ShareImportTransfer") ?? true)

@@ -11,8 +11,11 @@ struct ImportView: View {
     @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(ShareImportStore.self) private var shareImportStore
     @Environment(ForegroundDrainGate.self) private var foregroundDrainGate
+    @Environment(PendingJournalOpenState.self) private var pendingJournalOpen: PendingJournalOpenState?
     @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    static let journalImportPath = "/app/import/"
 
     @State private var isPickingFiles = false
     @State private var isDropTargeted = false
@@ -41,6 +44,15 @@ struct ImportView: View {
                             identifier: "import.pickFiles"
                         ) {
                             self.isPickingFiles = true
+                        }
+                        // Every other kind of import lives on the journal's own import page.
+                        self.pickRow(
+                            title: AppStrings.ios_app_moreimportsrow(),
+                            systemImage: "square.and.arrow.down.on.square",
+                            hint: AppStrings.ios_app_moreimportshint(),
+                            identifier: "import.moreImports"
+                        ) {
+                            self.pendingJournalOpen?.open(path: Self.journalImportPath)
                         }
                         self.screenshotsLine
                         self.intakeLine

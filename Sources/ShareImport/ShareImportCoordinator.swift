@@ -26,12 +26,40 @@ protocol ShareImportQueueing: AnyObject {
         delivery: ShareFileDelivery,
         source: String,
         targetJournal: String,
-        originApp: String?
+        originApp: String?,
+        handoff: ShareImportHandoff?
     ) throws -> UUID
     func abortEnqueue(_ handle: ShareImportEnqueueHandle)
 }
 
+extension ShareImportQueueing {
+    func commitEnqueue(
+        handle: ShareImportEnqueueHandle,
+        delivery: ShareFileDelivery,
+        source: String,
+        targetJournal: String,
+        originApp: String?
+    ) throws -> UUID {
+        try self.commitEnqueue(
+            handle: handle,
+            delivery: delivery,
+            source: source,
+            targetJournal: targetJournal,
+            originApp: originApp,
+            handoff: nil
+        )
+    }
+}
+
 extension ShareImportStore: ShareImportQueueing {}
+
+/// What the journal's import page asked for when it handed a pick to the app: the import
+/// area and the page's context object, kept as the JSON text the page sent. Both ride to
+/// the journal with the file, unchanged.
+nonisolated struct ShareImportHandoff: Equatable, Sendable {
+    let area: String
+    let context: String
+}
 
 nonisolated enum ShareImportCopy {
     static let dismiss = AppStrings.ios_app_dismiss()
@@ -133,23 +161,26 @@ nonisolated enum ShareImportResult: Equatable, Sendable {
 final class ShareImportCoordinator {
     private let queue: any ShareImportQueueing
     private let originApp: String?
+    private let handoff: ShareImportHandoff?
     private let recordEvent: @MainActor @Sendable (ShareImportEvent) -> Void
 
     /// `originApp` names where every item in this batch came from, when the app knows it (see `ShareImportOrigin`).
+    /// `handoff` is set when the journal's import page asked for these items.
     init(
         queue: any ShareImportQueueing,
         originApp: String? = nil,
+        handoff: ShareImportHandoff? = nil,
         recordEvent: @escaping @MainActor @Sendable (ShareImportEvent) -> Void = { _ in }
     ) {
         self.queue = queue
         self.originApp = originApp
+        self.handoff = handoff
         self.recordEvent = recordEvent
     }
 
     func accept(provider: any ShareItemProvider) async -> ShareImportResult {
-        // TODO(import-classifier): future classifiers may route screenshots/current-segment captures to the iPhone segment stream.
+        // The journal decides what a file is, so any file is taken; only a bare link is not a file.
         guard let contentType = provider.registeredContentType(),
-              Self.isSupportedContentType(contentType),
               let importerSource = Self.importerSource(for: contentType)
         else {
             return self.fail(.unsupported)
@@ -157,7 +188,7 @@ final class ShareImportCoordinator {
         let originalFilename = provider.suggestedFilename()
         self.emit(.resolved)
 
-        if Self.isPlainTextContentType(contentType) {
+        if Self.isPlainTextContentType(contentType), self.handoff == nil {
             return await self.acceptText(
                 provider: provider,
                 originalFilename: originalFilename
@@ -187,9 +218,11 @@ final class ShareImportCoordinator {
             let itemID = try self.queue.commitEnqueue(
                 handle: handle,
                 delivery: delivery,
-                source: importerSource,
+                // A handed-off text file goes as a file, so the journal keeps its name.
+                source: importerSource == "quick" ? "file" : importerSource,
                 targetJournal: "",
-                originApp: self.originApp
+                originApp: self.originApp,
+                handoff: self.handoff
             )
             committed = true
             self.emit(.enqueueSucceeded(itemID))
@@ -214,14 +247,22 @@ extension ShareImportCoordinator {
         return results
     }
 
+    /// The type an item is read as: a kind the app knows first, otherwise any file type it carries.
     nonisolated static func supportedContentType(from identifiers: [String]) -> String? {
-        identifiers.first { self.isSupportedContentType($0) }
+        identifiers.first { self.isKnownContentType($0) } ?? identifiers.first { self.isSupportedContentType($0) }
     }
 
     nonisolated static func isSupportedContentType(_ identifier: String) -> Bool {
         self.importerSource(for: identifier) != nil
     }
 
+    private nonisolated static func isKnownContentType(_ identifier: String) -> Bool {
+        guard let source = self.importerSource(for: identifier) else { return false }
+        return source != "file"
+    }
+
+    /// The local label an item is filed under. `quick` items go to the journal as text; every
+    /// other kind goes as a file. Only a link, which is not a file, has none.
     nonisolated static func importerSource(for identifier: String) -> String? {
         if self.isPlainTextContentType(identifier) {
             return "quick"
@@ -239,7 +280,10 @@ extension ShareImportCoordinator {
         if type.conforms(to: .audio) {
             return "audio"
         }
-        return nil
+        if type.conforms(to: .url) || !type.conforms(to: .data) {
+            return nil
+        }
+        return "file"
     }
 
     nonisolated static func isPlainTextContentType(_ identifier: String) -> Bool {
@@ -330,7 +374,8 @@ private extension ShareImportCoordinator {
                 delivery: delivery,
                 source: "quick",
                 targetJournal: "",
-                originApp: self.originApp
+                originApp: self.originApp,
+                handoff: nil
             )
             committed = true
             self.emit(.enqueueSucceeded(itemID))

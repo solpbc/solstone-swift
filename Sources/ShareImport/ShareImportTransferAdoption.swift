@@ -19,6 +19,8 @@ nonisolated enum ShareImportTransferMetadata {
         let bytes: Int64?
         let requestSource: String
         var capturedAt: String? = nil
+        var importArea: String? = nil
+        var importContext: String? = nil
     }
 
     static func meta(fields: Fields) -> JSONValue {
@@ -34,6 +36,12 @@ nonisolated enum ShareImportTransferMetadata {
         ]
         if let capturedAt = fields.capturedAt, !capturedAt.isEmpty {
             object["captured_at"] = .string(capturedAt)
+        }
+        if let area = fields.importArea {
+            object["import_area"] = .string(area)
+        }
+        if let context = fields.importContext {
+            object["import_context"] = .string(context)
         }
         return .object([self.key: .object(object)])
     }
@@ -57,7 +65,9 @@ nonisolated enum ShareImportTransferMetadata {
             itemTime: self.optionalString(object["item_time"]),
             bytes: self.optionalInt(object["bytes"]).map(Int64.init),
             requestSource: requestSource,
-            capturedAt: self.optionalString(object["captured_at"])
+            capturedAt: self.optionalString(object["captured_at"]),
+            importArea: self.optionalString(object["import_area"]),
+            importContext: self.optionalString(object["import_context"])
         )
     }
 
@@ -286,7 +296,9 @@ extension ShareImportStore {
             itemTime: object["item_time"] as? String,
             bytes: (object["bytes"] as? NSNumber)?.int64Value,
             requestSource: requestSource,
-            capturedAt: object["captured_at"] as? String
+            capturedAt: object["captured_at"] as? String,
+            importArea: object["import_area"] as? String,
+            importContext: object["import_context"] as? String
         )
     }
 

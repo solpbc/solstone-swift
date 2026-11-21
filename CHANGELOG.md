@@ -9,6 +9,13 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 ### Added
 
 - when another device brings Obsidian notes or calendar events into your journal, your iphone or ipad shows which device they come from.
+- on iphone and ipad, with an up-to-date journal, files you choose on its import page keep going into your journal after you leave the page.
+- the import screen has a "more imports" button that opens your journal's import page.
+
+### Changed
+
+- the solstone app now takes any file you share or choose, and your journal works out what it is. before, it turned away files like a ChatGPT export.
+- a long upload, like a large Apple Health export, now keeps going for as long as it is still moving. before, it stopped after 30 minutes.
 
 ## [2.0.14 (165)] - 2026-11-20
 

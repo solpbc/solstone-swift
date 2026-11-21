@@ -1,0 +1,16 @@
+{
+  "description": "more imports",
+  "context": "the solstone app, speaking to the owner. A button on the import screen that opens the journal's own import page, where every kind of import lives.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 16,
+  "source_revision": "7de9a06c950f205d3d25ee4d45bcb8a612a294696a1c7d90b271f33f63df7a82",
+  "risk": "routine",
+  "auto_merge": true
+}

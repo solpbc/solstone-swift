@@ -136,7 +136,7 @@ ios.app.greetingmorning = good morning
 
 ios.app.hidingthisneverturnsitoff = taking a tile off home does not turn the source off. it just keeps home to what you actually look at.
 
-ios.app.importfileshint = Chooses files to import.
+ios.app.importfileshint = chooses files to import.
 
 ios.app.importfilesrow = files
 
@@ -220,6 +220,10 @@ ios.app.microphonetakensubtext = a call or another app took the microphone. resu
 ios.app.microphonetakensubtextcompact = another app took the microphone.
 
 ios.app.migrationheadlineuptodate = your journal is up to date
+
+ios.app.moreimportshint = opens your journal's import page.
+
+ios.app.moreimportsrow = more imports
 
 ios.app.notconnected = not connected
 

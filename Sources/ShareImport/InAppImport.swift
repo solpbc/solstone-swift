@@ -9,8 +9,8 @@ import UniformTypeIdentifiers
 /// so a picked or dropped item lands exactly as a shared one does.
 @MainActor
 enum InAppImport {
-    /// What the file picker and the drop target offer: the kinds the share extension accepts.
-    static let acceptedContentTypes: [UTType] = [.pdf, .audio, .image, .plainText]
+    /// What the file picker and the drop target offer: any file. The journal decides what it is.
+    static let acceptedContentTypes: [UTType] = [.data]
 
     static func accept(
         itemProviders: [NSItemProvider],

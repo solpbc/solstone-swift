@@ -115,10 +115,27 @@ nonisolated final class ShellPresentationGrepTests: XCTestCase {
         XCTAssertTrue(view.contains("uiDelegate = nil"))
         XCTAssertFalse(view.contains("WKScriptMessageHandler"))
         XCTAssertFalse(view.contains("URLSchemeHandler"))
+        XCTAssertFalse(view.contains("addScriptMessageHandler"))
         XCTAssertFalse(view.contains("navigationTitle(\"journal\")"))
         XCTAssertTrue(view.contains("JournalIdentity.select"))
         XCTAssertTrue(view.contains("JournalMarkCompactChips(identity:"))
         XCTAssertFalse(view.contains("WebPage("))
+    }
+
+    /// The journal's page reaches the app through exactly one handler: the import host, bound to
+    /// the main frame and the journal's origin. No other file installs one.
+    func testOnlyTheImportHostInstallsAScriptMessageHandler() throws {
+        let host = try Self.sourceText("Sources/Portal/JournalImportHost.swift")
+        XCTAssertEqual(host.components(separatedBy: "addScriptMessageHandler(").count - 1, 1)
+        XCTAssertTrue(host.contains("forMainFrameOnly: true"))
+        XCTAssertTrue(host.contains("frame.isMainFrame, sender == self.origin, current == self.origin"))
+        XCTAssertFalse(host.contains("URLSchemeHandler"))
+        for path in try Self.relativeSwiftFiles(under: "Sources") where path != "Sources/Portal/JournalImportHost.swift" {
+            let text = try Self.sourceText(path)
+            XCTAssertFalse(text.contains("addScriptMessageHandler"), path)
+            XCTAssertFalse(text.contains("WKScriptMessageHandler"), path)
+            XCTAssertFalse(text.contains("setURLSchemeHandler"), path)
+        }
     }
 
     func testJournalPaneDisablesBackForwardGestures() throws {

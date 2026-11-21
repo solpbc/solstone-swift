@@ -95,7 +95,8 @@ final class ShareImportStore {
         delivery: ShareFileDelivery,
         source: String,
         targetJournal: String,
-        originApp: String?
+        originApp: String?,
+        handoff: ShareImportHandoff?
     ) throws -> UUID {
         do {
             let rawInfo = Self.rawFileInfo(for: delivery.contentType)
@@ -109,7 +110,9 @@ final class ShareImportStore {
                 itemTime: Self.iso8601String(for: delivery.itemTime),
                 targetJournal: targetJournal,
                 itemID: handle.itemIDString,
-                capturedAt: delivery.capturedAt
+                capturedAt: delivery.capturedAt,
+                importArea: handoff?.area,
+                importContext: handoff?.context
             )
             let requestFilename = ShareImportOrigin.requestFilename(originApp: originApp, ownName: delivery.filename, standIn: rawInfo.filename)
             let descriptor = RequestDescriptor(source: source, filename: requestFilename, contentType: rawInfo.mimeType)
@@ -260,6 +263,8 @@ extension ShareImportStore {
         let targetJournal: String
         let itemID: String
         var capturedAt: String? = nil
+        var importArea: String? = nil
+        var importContext: String? = nil
     }
 
     struct RequestDescriptor: Codable, Equatable, Sendable {
@@ -569,6 +574,10 @@ extension ShareImportStore {
                 let mime = type.preferredMIMEType ?? "audio/\(ext)"
                 return RawFileInfo(filename: "audio.\(ext)", mimeType: mime)
             }
+            if let type = UTType(contentType) ?? UTType(mimeType: contentType),
+               let ext = type.preferredFilenameExtension {
+                return RawFileInfo(filename: "item.\(ext)", mimeType: type.preferredMIMEType ?? "application/octet-stream")
+            }
             return RawFileInfo(filename: "item.bin", mimeType: "application/octet-stream")
         }
     }
@@ -588,6 +597,12 @@ extension ShareImportStore {
             + "\"item_id\":\(try Self.jsonString(note.itemID))"
         if let capturedAt = note.capturedAt, !capturedAt.isEmpty {
             json += ",\"captured_at\":\(try Self.jsonString(capturedAt))"
+        }
+        if let area = note.importArea {
+            json += ",\"import_area\":\(try Self.jsonString(area))"
+        }
+        if let context = note.importContext {
+            json += ",\"import_context\":\(try Self.jsonString(context))"
         }
         json += "}"
         return Data(json.utf8)

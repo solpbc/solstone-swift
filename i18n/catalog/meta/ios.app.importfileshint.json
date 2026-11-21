@@ -1,5 +1,5 @@
 {
-  "description": "Chooses files to import.",
+  "description": "chooses files to import.",
   "context": "the solstone app, speaking to the owner.",
   "surfaces": [
     "sourcevocabularyswift"
@@ -10,7 +10,7 @@
   "arguments": [],
   "format_intent": "text",
   "max_length": 24,
-  "source_revision": "7bd33de08c41b24fe27814d37a07b3ef048a1cbb30a941ad047bc2eb214da5e0",
+  "source_revision": "c6f6028c53d65efd1f4bf63e92a502f5cd226f999b2e61885686dcba4a83abe5",
   "risk": "routine",
   "auto_merge": true
 }

@@ -65,12 +65,45 @@ nonisolated final class ShareImportCoordinatorTests: XCTestCase {
         )
     }
 
+    /// The journal decides what a file is, so the app takes any file: a ChatGPT export, a bitmap.
     @MainActor
-    func testUnsupportedImageSubtypeShowsCantSaveAndNothingEnqueued() async throws {
-        try await self.assertPreEnqueueFailure(
-            provider: StubShareItemProvider(contentType: "com.microsoft.bmp", filename: "image.bmp", fileURL: nil),
-            expectedFailure: .unsupported
+    func testAnyFileIsTakenUnderItsOwnName() async throws {
+        for (contentType, filename) in [("public.zip-archive", "chatgpt-export.zip"), ("com.microsoft.bmp", "scan.bmp")] {
+            let queue = CapturingShareImportQueue()
+            let coordinator = ShareImportCoordinator(queue: queue)
+            let source = try self.makeFile(named: "\(UUID().uuidString).bin", data: Data("data".utf8))
+            let result = await coordinator.accept(
+                provider: StubShareItemProvider(contentType: contentType, filename: filename, fileURL: source)
+            )
+            guard case .success = result else {
+                XCTFail("Expected \(contentType) to be taken")
+                continue
+            }
+            XCTAssertEqual(queue.lastSource, "file")
+            XCTAssertEqual(queue.lastOriginalFilename, filename)
+        }
+        XCTAssertEqual(
+            ShareImportOrigin.requestFilename(originApp: nil, ownName: "chatgpt-export.zip", standIn: "item.zip"),
+            "chatgpt-export.zip"
         )
+        XCTAssertEqual(ShareImportStore.rawFileInfo(for: "public.zip-archive").mimeType, "application/zip")
+    }
+
+    /// The share sheet offers solstone for any file, and not for a bare link.
+    func testShareSheetOffersAnyFileButNotABareLink() throws {
+        let plist = try XCTUnwrap(NSDictionary(contentsOf: StringLiteralGrepSupport.worktreeRoot()
+            .appendingPathComponent("SolstoneShareExtension/Info.plist")))
+        let rule = try XCTUnwrap(((plist["NSExtension"] as? NSDictionary)?["NSExtensionAttributes"] as? NSDictionary)?["NSExtensionActivationRule"] as? String)
+        let predicate = NSPredicate(format: rule)
+        func offered(_ types: [[String]]) -> Bool {
+            predicate.evaluate(with: ["extensionItems": [["attachments": types.map { ["registeredTypeIdentifiers": $0] }]]])
+        }
+        XCTAssertTrue(offered([["public.zip-archive"]]))
+        XCTAssertTrue(offered([["com.adobe.pdf"], ["public.jpeg"]]))
+        XCTAssertTrue(offered([["public.plain-text"]]))
+        XCTAssertTrue(offered([["com.garmin.fit", "public.data"]]))
+        XCTAssertFalse(offered([["public.url"]]))
+        XCTAssertFalse(offered([["public.zip-archive"], ["public.url"]]))
     }
 
     @MainActor
@@ -376,7 +409,8 @@ private final class RecordingShareImportQueue: ShareImportQueueing {
         delivery: ShareFileDelivery,
         source: String,
         targetJournal: String,
-        originApp: String?
+        originApp: String?,
+        handoff: ShareImportHandoff?
     ) throws -> UUID {
         self.enqueueCallCount += 1
         return try self.base.commitEnqueue(
@@ -384,7 +418,8 @@ private final class RecordingShareImportQueue: ShareImportQueueing {
             delivery: delivery,
             source: source,
             targetJournal: targetJournal,
-            originApp: originApp
+            originApp: originApp,
+            handoff: handoff
         )
     }
 
@@ -443,7 +478,8 @@ private final class CapturingShareImportQueue: ShareImportQueueing {
         delivery: ShareFileDelivery,
         source: String,
         targetJournal: String,
-        originApp: String?
+        originApp: String?,
+        handoff: ShareImportHandoff?
     ) throws -> UUID {
         self.enqueueCallCount += 1
         self.lastSource = source

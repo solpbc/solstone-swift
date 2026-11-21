@@ -59,16 +59,18 @@ nonisolated final class InAppImportTests: XCTestCase {
     }
 
     @MainActor
-    func testUnsupportedFileIsRefusedAndNothingLands() async throws {
+    /// The journal decides what a file is, so an archive the app has no kind for still lands.
+    func testAnyFileLandsForTheJournalToRead() async throws {
         let queueRoot = self.tempDirectory.appendingPathComponent("queue", isDirectory: true)
         let store = ShareImportStore(cacheRootURL: queueRoot)
         let archive = try self.makeFile(named: "bundle.zip", data: Data("PK".utf8))
 
         let results = await InAppImport.accept(fileURLs: [archive], queue: store)
 
-        XCTAssertEqual(results, [.failure(.unsupported)])
-        XCTAssertEqual(store.pendingCount, 0)
-        XCTAssertEqual(InAppImport.outcomeText(for: results), ShareImportFailure.unsupported.message)
+        let row = try self.pendingRow(for: try XCTUnwrap(results.first), queueRoot: queueRoot)
+        XCTAssertEqual(row["source"] as? String, "file")
+        XCTAssertEqual(store.pendingCount, 1)
+        XCTAssertEqual(InAppImport.outcomeText(for: results), "saved")
     }
 
     func testOutcomeTextUsesTheShareExtensionsWording() {

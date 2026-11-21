@@ -171,6 +171,32 @@ nonisolated final class JournalWebNavigationPolicyTests: XCTestCase {
         XCTAssertEqual(decision, .openExternally(requestURL))
     }
 
+    /// The web view shows the journal's own pages only: the services site, help and guides open
+    /// in the system browser from a tap or a new window, and the import page stays in place.
+    func testOnlyJournalPagesStayInTheWebView() throws {
+        let live = try self.liveAuthority()
+        for address in [
+            "https://services.solstone.app/",
+            "https://services.solstone.app/support",
+            "https://solstone.app/help/",
+            "https://solstone.app/guides/apple-health",
+        ] {
+            let url = try XCTUnwrap(URL(string: address))
+            for frame in [JournalWebNavigationPolicy.Frame.main, .noTarget] {
+                XCTAssertEqual(
+                    JournalWebNavigationPolicy.decision(requestURL: url, httpMethod: "GET", frame: frame, liveAuthority: live),
+                    .openExternally(url),
+                    address
+                )
+            }
+        }
+        let importPage = try XCTUnwrap(URL(string: "http://\(live.host):\(live.port)/app/import/"))
+        XCTAssertEqual(
+            JournalWebNavigationPolicy.decision(requestURL: importPage, httpMethod: "GET", frame: .main, liveAuthority: live),
+            .allow
+        )
+    }
+
     func testOpensExternalHTTPPostExternally() throws {
         let requestURL = try XCTUnwrap(URL(string: "http://example.test/form"))
         let decision = JournalWebNavigationPolicy.decision(

@@ -1,0 +1,16 @@
+{
+  "description": "opens your journal's import page.",
+  "context": "the solstone app, speaking to the owner. The accessibility hint for the more imports button.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "6ec0ea6de2573cce8db1ccd6299a0db006406405f86dec26cdb21b701d77bfaa",
+  "risk": "routine",
+  "auto_merge": true
+}

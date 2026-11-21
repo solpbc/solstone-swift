@@ -250,6 +250,10 @@ nonisolated enum AppStrings {
     static func ios_app_microphonetakensubtextcompact_resource() -> LocalizedStringResource { resource("m696f732e6170702e6d6963726f70686f6e6574616b656e73756274657874636f6d70616374") }
     static func ios_app_migrationheadlineuptodate() -> String { render("m696f732e6170702e6d6967726174696f6e686561646c696e657570746f64617465", []) }
     static func ios_app_migrationheadlineuptodate_resource() -> LocalizedStringResource { resource("m696f732e6170702e6d6967726174696f6e686561646c696e657570746f64617465") }
+    static func ios_app_moreimportshint() -> String { render("m696f732e6170702e6d6f7265696d706f72747368696e74", []) }
+    static func ios_app_moreimportshint_resource() -> LocalizedStringResource { resource("m696f732e6170702e6d6f7265696d706f72747368696e74") }
+    static func ios_app_moreimportsrow() -> String { render("m696f732e6170702e6d6f7265696d706f727473726f77", []) }
+    static func ios_app_moreimportsrow_resource() -> LocalizedStringResource { resource("m696f732e6170702e6d6f7265696d706f727473726f77") }
     static func ios_app_notconnected() -> String { render("m696f732e6170702e6e6f74636f6e6e6563746564", []) }
     static func ios_app_notconnected_resource() -> LocalizedStringResource { resource("m696f732e6170702e6e6f74636f6e6e6563746564") }
     static func ios_app_notconnectedrowaffordancepaired() -> String { render("m696f732e6170702e6e6f74636f6e6e6563746564726f776166666f7264616e6365706169726564", []) }
