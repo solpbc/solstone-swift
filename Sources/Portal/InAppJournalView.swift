@@ -309,6 +309,7 @@ struct JournalWebView: UIViewRepresentable {
         nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             Task { @MainActor in
                 self.existingSession?.didFinish(navigation: navigation)
+                self.importHost?.ensureDropInteraction()
             }
         }
 

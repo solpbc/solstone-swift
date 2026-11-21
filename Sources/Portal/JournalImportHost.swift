@@ -151,13 +151,15 @@ final class JournalImportQueueIntake: JournalImportIntake {
     }
 }
 
-/// A file the owner picked in the document picker: read from the copy the picker made.
+/// A file the owner picked or dropped: read from a local copy the host owns until intake finishes.
 @MainActor
 final class PickedFileItemProvider: ShareItemProvider {
     private let url: URL
+    private let fallbackContentType: String?
 
-    init(url: URL) {
+    init(url: URL, fallbackContentType: String? = nil) {
         self.url = url
+        self.fallbackContentType = fallbackContentType
     }
 
     func registeredContentType() -> String? {
@@ -165,7 +167,7 @@ final class PickedFileItemProvider: ShareItemProvider {
         if !ext.isEmpty, let type = UTType(filenameExtension: ext) {
             return type.identifier
         }
-        return UTType.data.identifier
+        return self.fallbackContentType ?? UTType.data.identifier
     }
 
     func suggestedFilename() -> String? {
@@ -178,6 +180,201 @@ final class PickedFileItemProvider: ShareItemProvider {
 
     func loadText() async throws -> String {
         throw ShareExtensionItemProviderError.unsupported
+    }
+}
+
+/// Stages dropped `NSItemProvider` items into a temporary directory synchronously during
+/// `UIDropInteractionDelegate.dropInteraction(_:performDrop:)`. UIKit only guarantees that
+/// cross-process drag representations remain valid when requested inside `performDrop`;
+/// requesting them after the page's JavaScript round-trip can lose external file grants.
+nonisolated final class JournalDropStaging: @unchecked Sendable {
+    enum Entry: Sendable {
+        case staged(url: URL, name: String, contentType: String)
+        case refused(name: String, reason: String)
+    }
+
+    let directory: URL
+    private let lock = NSLock()
+    private var slots: [Entry?]
+    private var remaining: Int
+    private var completedEntries: [Entry]?
+    private var continuation: CheckedContinuation<[Entry], Never>?
+    private var progresses: [Progress] = []
+    private var cleanupRequested = false
+
+    private init(directory: URL, count: Int) {
+        self.directory = directory
+        self.slots = Array(repeating: nil, count: count)
+        self.remaining = count
+        if count == 0 {
+            self.completedEntries = []
+        }
+    }
+
+    static func start(
+        providers: [NSItemProvider],
+        token: String,
+        maxFiles: Int,
+        temporaryRoot: URL = FileManager.default.temporaryDirectory
+    ) -> JournalDropStaging {
+        let capped = Array(providers.prefix(maxFiles))
+        let directory = temporaryRoot.appendingPathComponent("journal-drop-\(token)", isDirectory: true)
+        let staging = JournalDropStaging(directory: directory, count: capped.count)
+        guard !capped.isEmpty else { return staging }
+
+        for (index, provider) in capped.enumerated() {
+            let suggestedName = provider.suggestedName
+            let fallbackName = Self.sanitizedFilename(suggestedName) ?? "item \(index + 1)"
+            guard let typeIdentifier = ShareImportCoordinator.supportedContentType(from: provider.registeredTypeIdentifiers) else {
+                staging.finishSlot(index, entry: .refused(name: fallbackName, reason: ShareImportFailure.unsupported.message))
+                continue
+            }
+            let progress = provider.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { @Sendable sourceURL, error in
+                let entry: Entry
+                if staging.isCleanupRequested {
+                    entry = .refused(name: fallbackName, reason: ShareImportFailure.unreadable.message)
+                } else {
+                    entry = Self.copyLoadedFile(
+                        sourceURL: sourceURL,
+                        error: error,
+                        directory: directory,
+                        index: index,
+                        suggestedName: suggestedName,
+                        fallbackName: fallbackName,
+                        contentType: typeIdentifier
+                    )
+                }
+                staging.finishSlot(index, entry: entry)
+            }
+            staging.recordProgress(progress)
+        }
+        return staging
+    }
+
+    func waitForEntries() async -> [Entry] {
+        await withCheckedContinuation { continuation in
+            self.lock.lock()
+            if let completed = self.completedEntries {
+                self.lock.unlock()
+                continuation.resume(returning: completed)
+                return
+            }
+            self.continuation = continuation
+            self.lock.unlock()
+        }
+    }
+
+    func cancelAndCleanup() {
+        self.lock.lock()
+        self.cleanupRequested = true
+        let progresses = self.progresses
+        self.progresses = []
+        let done = self.remaining == 0
+        let directory = self.directory
+        self.lock.unlock()
+        for progress in progresses {
+            progress.cancel()
+        }
+        if done {
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    private var isCleanupRequested: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.cleanupRequested
+    }
+
+    private func recordProgress(_ progress: Progress) {
+        self.lock.lock()
+        let shouldCancel = self.cleanupRequested
+        if !shouldCancel, self.remaining > 0 {
+            self.progresses.append(progress)
+        }
+        self.lock.unlock()
+        if shouldCancel {
+            progress.cancel()
+        }
+    }
+
+    private func finishSlot(_ index: Int, entry: Entry) {
+        self.lock.lock()
+        self.slots[index] = entry
+        self.remaining -= 1
+        guard self.remaining == 0 else {
+            self.lock.unlock()
+            return
+        }
+        let completed = self.slots.compactMap { $0 }
+        self.completedEntries = completed
+        self.progresses = []
+        let continuation = self.continuation
+        self.continuation = nil
+        let shouldDelete = self.cleanupRequested
+        let directory = self.directory
+        self.lock.unlock()
+
+        if shouldDelete {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        continuation?.resume(returning: completed)
+    }
+
+    private static func copyLoadedFile(
+        sourceURL: URL?,
+        error: (any Error)?,
+        directory: URL,
+        index: Int,
+        suggestedName: String?,
+        fallbackName: String,
+        contentType: String
+    ) -> Entry {
+        if let error {
+            let failure: ShareImportFailure = ShareImportNoRoom.matches(error) ? .noRoom : .unreadable
+            return .refused(name: fallbackName, reason: failure.message)
+        }
+        guard let sourceURL else {
+            return .refused(name: fallbackName, reason: ShareImportFailure.unreadable.message)
+        }
+        let filename = Self.stagedFilename(suggestedName: suggestedName, sourceURL: sourceURL, fallbackIndex: index)
+        let scoped = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if scoped {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        let slotDirectory = directory.appendingPathComponent("\(index)", isDirectory: true)
+        let destinationURL = slotDirectory.appendingPathComponent(filename)
+        do {
+            try FileManager.default.createDirectory(at: slotDirectory, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
+            return .staged(url: destinationURL, name: filename, contentType: contentType)
+        } catch {
+            let failure: ShareImportFailure = ShareImportNoRoom.matches(error) ? .noRoom : .unreadable
+            return .refused(name: filename, reason: failure.message)
+        }
+    }
+
+    static func stagedFilename(suggestedName: String?, sourceURL: URL, fallbackIndex: Int) -> String {
+        let sourceName = Self.sanitizedFilename(sourceURL.lastPathComponent)
+        let sourceExtension = sourceName.map { ($0 as NSString).pathExtension } ?? ""
+        if let suggested = Self.sanitizedFilename(suggestedName) {
+            if !(suggested as NSString).pathExtension.isEmpty || sourceExtension.isEmpty {
+                return suggested
+            }
+            return "\(suggested).\(sourceExtension)"
+        }
+        return sourceName ?? "item-\(fallbackIndex + 1)"
+    }
+
+    static func sanitizedFilename(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let leaf = URL(fileURLWithPath: trimmed).lastPathComponent
+        guard !leaf.isEmpty, leaf != ".", leaf != "..", leaf != "/" else { return nil }
+        return leaf
     }
 }
 
@@ -204,7 +401,7 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
     private var pageReady = false
     private var busy = false
     private var pickerContinuation: CheckedContinuation<[URL]?, Never>?
-    private var pendingDrop: (token: String, providers: [NSItemProvider])?
+    private var pendingDrop: (token: String, staging: JournalDropStaging)?
     private var isTornDown = false
 
     /// `nil` when the bundle has no usable contract or the entry address has no origin, so the
@@ -246,8 +443,32 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
 
     func attach(to webView: WKWebView) {
         self.webView = webView
-        // A drop lands on the page's content view, which is where WebKit takes drops too.
-        let target = webView.scrollView.subviews.first { String(describing: type(of: $0)).contains("WKContentView") } ?? webView
+        self.ensureDropInteraction()
+    }
+
+    /// Keeps the host's drop interaction attached to the web view's current content view and
+    /// ordered after WebKit's own drop interaction. At initial view creation `WKContentView` has
+    /// not installed its own interactions yet, so WebKit later appends its `UIDropInteraction`
+    /// after ours and shadows it when both return `true` from `canHandle`. Re-running once the
+    /// page is ready keeps ours last while leaving WebKit's intact for non-import drags.
+    func ensureDropInteraction() {
+        guard !self.isTornDown, let webView = self.webView else { return }
+        let target = webView.scrollView.subviews.first {
+            String(describing: type(of: $0)).contains("WKContentView")
+        } ?? webView
+        if let existing = self.dropInteraction {
+            if self.dropView === target {
+                let oursIndex = target.interactions.firstIndex { $0 === existing }
+                let lastDropIndex = target.interactions.lastIndex { $0 is UIDropInteraction }
+                if let oursIndex, let lastDropIndex, oursIndex == lastDropIndex {
+                    return
+                }
+                target.removeInteraction(existing)
+                target.addInteraction(existing)
+                return
+            }
+            self.dropView?.removeInteraction(existing)
+        }
         let interaction = UIDropInteraction(delegate: self)
         target.addInteraction(interaction)
         self.dropView = target
@@ -260,8 +481,15 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
         if let interaction = self.dropInteraction {
             self.dropView?.removeInteraction(interaction)
         }
-        self.pendingDrop = nil
+        self.dropView = nil
+        self.dropInteraction = nil
+        self.clearPendingDrop()
         self.finishPicker(nil)
+    }
+
+    private func clearPendingDrop() {
+        self.pendingDrop?.staging.cancelAndCleanup()
+        self.pendingDrop = nil
     }
 
     // MARK: - Messages
@@ -313,12 +541,13 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
             self.documentID = documentID
             self.documentGeneration += 1
             self.pageReady = false
-            self.pendingDrop = nil
+            self.clearPendingDrop()
         }
         let type = message["type"] as? String
         switch type {
         case "host.ready":
             self.pageReady = true
+            self.ensureDropInteraction()
             return .success("{}")
         case "host.status":
             guard let item = (message["item"] as? String).flatMap(UUID.init(uuidString:)) else {
@@ -358,13 +587,24 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
         if let token = message["drop"] as? String {
             guard let drop = self.pendingDrop, drop.token == token else { return ["outcome": "refused"] }
             self.pendingDrop = nil
-            let providers = Array(drop.providers.prefix(Self.maxFiles))
-            let names = providers.enumerated().map { $0.element.suggestedName ?? "item \($0.offset + 1)" }
-            let result = await self.intake.take(
-                providers.map { ShareExtensionItemProvider(provider: $0) },
-                names: names,
-                handoff: handoff
-            )
+            defer { drop.staging.cancelAndCleanup() }
+            let entries = await drop.staging.waitForEntries()
+            var providers: [any ShareItemProvider] = []
+            var names: [String] = []
+            var preRefused: [JournalImportIntakeResult.Refused] = []
+            for entry in entries {
+                switch entry {
+                case .staged(let url, let name, let contentType):
+                    providers.append(PickedFileItemProvider(url: url, fallbackContentType: contentType))
+                    names.append(name)
+                case .refused(let name, let reason):
+                    preRefused.append(.init(name: name, reason: reason))
+                }
+            }
+            var result = providers.isEmpty
+                ? JournalImportIntakeResult()
+                : await self.intake.take(providers, names: names, handoff: handoff)
+            result.refused.insert(contentsOf: preRefused, at: 0)
             return Self.reply(for: result)
         }
 
@@ -481,15 +721,20 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
         self.offerDrop(session.items.map(\.itemProvider))
     }
 
-    /// Holds dropped items behind a one-time token and tells the page, which asks for them with
-    /// the card the owner dropped on, or as a general import.
-    func offerDrop(_ providers: [NSItemProvider]) {
-        guard self.pageReady, !providers.isEmpty, let webView = self.webView else { return }
+    /// Starts staging dropped items immediately inside `performDrop`, holds them behind a one-time
+    /// token, and tells the page, which asks for them with the card the owner dropped on, or as a
+    /// general import.
+    @discardableResult
+    func offerDrop(_ providers: [NSItemProvider]) -> String? {
+        guard self.pageReady, !providers.isEmpty, let webView = self.webView else { return nil }
+        self.clearPendingDrop()
         let token = UUID().uuidString.lowercased()
-        self.pendingDrop = (token, providers)
+        let staging = JournalDropStaging.start(providers: providers, token: token, maxFiles: Self.maxFiles)
+        self.pendingDrop = (token, staging)
         let event = (try? JSONEncoder().encode(self.contract.drop)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
         let script = "window.dispatchEvent(new CustomEvent(\(event),{cancelable:true,detail:{token:'\(token)'}}))"
         webView.evaluateJavaScript(script, in: nil, in: .page) { _ in }
+        return token
     }
 
     // MARK: - The page side

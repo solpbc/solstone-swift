@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- on ipad, with an up-to-date journal, a file you drag onto its import page now goes into your journal. before, the drop did nothing.
+
 ## [2.0.14 (166)] - 2026-11-21
 
 ### Added

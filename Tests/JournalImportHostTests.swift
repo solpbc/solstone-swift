@@ -109,6 +109,115 @@ final class JournalImportHostTests: XCTestCase {
         XCTAssertFalse(presented)
     }
 
+    /// UIKit only guarantees cross-process item-provider grants while `performDrop` is running, so
+    /// `offerDrop` must request file representations immediately and keep its staged copy until
+    /// `pick` finishes intake, then remove the temporary staging directory.
+    func testOfferDropStagesImmediatelyAndCleansUpAfterPick() async throws {
+        let intake = FakeImportIntake()
+        intake.readDeliveredBytes = true
+        let (webView, host) = try self.makeWebView(intake: intake)
+        defer { host.teardown(controller: webView.configuration.userContentController) }
+        _ = try await self.send(["type": "host.ready"], to: host)
+
+        let sourceDir = FileManager.default.temporaryDirectory.appendingPathComponent("drop-src-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sourceDir) }
+        let sourceFile = sourceDir.appendingPathComponent("notes.txt")
+        let payload = Data("dropped payload \(UUID())".utf8)
+        try payload.write(to: sourceFile)
+
+        let requestedBox = SyncFlag()
+        let provider = NSItemProvider()
+        provider.suggestedName = "notes"
+        provider.registerFileRepresentation(
+            forTypeIdentifier: UTType.plainText.identifier,
+            fileOptions: [],
+            visibility: .all
+        ) { completion in
+            requestedBox.set()
+            completion(sourceFile, false, nil)
+            return nil
+        }
+
+        let token = try XCTUnwrap(host.offerDrop([provider]))
+        XCTAssertTrue(requestedBox.isSet, "drop provider must be requested synchronously inside performDrop")
+
+        let stagingDir = FileManager.default.temporaryDirectory.appendingPathComponent("journal-drop-\(token)", isDirectory: true)
+        var dropPick = self.pickCase
+        dropPick["drop"] = token
+        let reply = try await self.send(dropPick, to: host)
+        XCTAssertEqual(reply["outcome"] as? String, "queued")
+        let items = try XCTUnwrap(reply["items"] as? [[String: Any]])
+        XCTAssertEqual(items.first?["name"] as? String, "notes.txt")
+        XCTAssertEqual(intake.names, [["notes.txt"]])
+        XCTAssertEqual(intake.deliveredPayloads, [payload])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagingDir.path), "staging directory must be removed after intake")
+    }
+
+    func testAbandonedDropCleansUpStagedDirectoryOnDocumentChange() async throws {
+        let intake = FakeImportIntake()
+        let (webView, host) = try self.makeWebView(intake: intake)
+        defer { host.teardown(controller: webView.configuration.userContentController) }
+        _ = try await self.send(["type": "host.ready"], to: host)
+
+        let sourceDir = FileManager.default.temporaryDirectory.appendingPathComponent("drop-abandon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sourceDir) }
+        let sourceFile = sourceDir.appendingPathComponent("abandoned.txt")
+        try Data("temporary".utf8).write(to: sourceFile)
+
+        let provider = try XCTUnwrap(NSItemProvider(contentsOf: sourceFile))
+        let token = try XCTUnwrap(host.offerDrop([provider]))
+        let stagingDir = FileManager.default.temporaryDirectory.appendingPathComponent("journal-drop-\(token)", isDirectory: true)
+
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline, !FileManager.default.fileExists(atPath: stagingDir.path) {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagingDir.path))
+
+        // Navigating to a new document abandons the pending drop and deletes its staged copy.
+        let nextDocPacket = try JSONSerialization.data(withJSONObject: [
+            "documentId": UUID().uuidString.lowercased(),
+            "message": ["type": "host.ready"],
+        ])
+        _ = try await host.handle(packet: String(decoding: nextDocPacket, as: UTF8.self)).get()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagingDir.path))
+    }
+
+    func testDropInteractionMovesAfterWebKitDropInteractionOnReady() async throws {
+        let intake = FakeImportIntake()
+        let (webView, host) = try self.makeWebView(intake: intake)
+        defer { host.teardown(controller: webView.configuration.userContentController) }
+
+        let target = webView.scrollView.subviews.first {
+            String(describing: type(of: $0)).contains("WKContentView")
+        } ?? webView
+        let siblingDelegate = DummyDropDelegate()
+        let sibling = UIDropInteraction(delegate: siblingDelegate)
+        target.addInteraction(sibling)
+        defer { target.removeInteraction(sibling) }
+
+        // Before host.ready, the sibling drop interaction sits after the host's interaction.
+        let beforeHostIdx = try XCTUnwrap(target.interactions.firstIndex { ($0 as? UIDropInteraction)?.delegate === host })
+        let beforeSiblingIdx = try XCTUnwrap(target.interactions.firstIndex { $0 === sibling })
+        XCTAssertLessThan(beforeHostIdx, beforeSiblingIdx)
+
+        _ = try await self.send(["type": "host.ready"], to: host)
+
+        let afterHostIdx = try XCTUnwrap(target.interactions.firstIndex { ($0 as? UIDropInteraction)?.delegate === host })
+        let afterSiblingIdx = try XCTUnwrap(target.interactions.firstIndex { $0 === sibling })
+        XCTAssertGreaterThan(afterHostIdx, afterSiblingIdx)
+    }
+
+    func testStagedDropFilenamePreservesExtensionAndStripsTraversal() {
+        let pdfURL = URL(fileURLWithPath: "/tmp/source/quarterly.pdf")
+        XCTAssertEqual(JournalDropStaging.stagedFilename(suggestedName: "quarterly", sourceURL: pdfURL, fallbackIndex: 0), "quarterly.pdf")
+        XCTAssertEqual(JournalDropStaging.stagedFilename(suggestedName: "custom.zip", sourceURL: pdfURL, fallbackIndex: 0), "custom.zip")
+        XCTAssertEqual(JournalDropStaging.stagedFilename(suggestedName: "../escape.txt", sourceURL: pdfURL, fallbackIndex: 0), "escape.txt")
+        XCTAssertEqual(JournalDropStaging.stagedFilename(suggestedName: nil, sourceURL: pdfURL, fallbackIndex: 2), "quarterly.pdf")
+    }
+
     func testPickerTypesFollowThePagesFilters() {
         XCTAssertEqual(JournalImportHost.contentTypes(accept: [".txt", "text/plain"]), [.plainText])
         XCTAssertEqual(JournalImportHost.contentTypes(accept: [".zip", "application/zip", "image/*"]), [.zip, .image])
@@ -222,17 +331,70 @@ final class JournalImportHostTests: XCTestCase {
 }
 
 @MainActor
+private final class DummyDropDelegate: NSObject, UIDropInteractionDelegate {}
+
+private nonisolated final class SyncFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var flag = false
+
+    func set() {
+        self.lock.lock()
+        self.flag = true
+        self.lock.unlock()
+    }
+
+    var isSet: Bool {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.flag
+    }
+}
+
+private nonisolated final class MemoryFileSink: ShareFileSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var bytes: Data?
+
+    func consume(sourceURL: URL, isInPlace: Bool) throws -> ShareFileDelivery {
+        let data = try Data(contentsOf: sourceURL)
+        self.lock.lock()
+        self.bytes = data
+        self.lock.unlock()
+        return ShareFileDelivery(
+            byteCount: Int64(data.count),
+            itemTime: Date(),
+            basis: "file",
+            contentType: UTType.data.identifier,
+            filename: sourceURL.lastPathComponent
+        )
+    }
+
+    var captured: Data? {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.bytes
+    }
+}
+
+@MainActor
 private final class FakeImportIntake: JournalImportIntake {
     var handoffs: [ShareImportHandoff] = []
     var names: [[String]] = []
     var issued: [UUID] = []
     var states: [UUID: JournalImportItemState] = [:]
+    var readDeliveredBytes = false
+    var deliveredPayloads: [Data] = []
 
     func take(_ providers: [any ShareItemProvider], names: [String], handoff: ShareImportHandoff) async -> JournalImportIntakeResult {
         self.handoffs.append(handoff)
         self.names.append(names)
         var result = JournalImportIntakeResult()
-        for name in names {
+        for (provider, name) in zip(providers, names) {
+            if self.readDeliveredBytes {
+                let sink = MemoryFileSink()
+                if (try? await provider.deliverFile(to: sink)) != nil, let data = sink.captured {
+                    self.deliveredPayloads.append(data)
+                }
+            }
             let item = UUID()
             self.issued.append(item)
             result.accepted.append(.init(item: item, name: name, size: nil))
