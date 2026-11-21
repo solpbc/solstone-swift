@@ -6,6 +6,8 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.14 (166)] - 2026-11-21
+
 ### Added
 
 - when another device brings Obsidian notes or calendar events into your journal, your iphone or ipad shows which device they come from.
@@ -16,6 +18,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - the solstone app now takes any file you share or choose, and your journal works out what it is. before, it turned away files like a ChatGPT export.
 - a long upload, like a large Apple Health export, now keeps going for as long as it is still moving. before, it stopped after 30 minutes.
+
+### Fixed
+
+- on iphone and ipad, the solstone app now responds sooner when you open it or come back to it. before, it could stop responding for a few seconds.
 
 ## [2.0.14 (165)] - 2026-11-20
 
