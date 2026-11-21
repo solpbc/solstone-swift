@@ -851,7 +851,7 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
         XCTAssertEqual(mappedIDs, ["shot-1", "shot-2"])
         XCTAssertEqual(filtered.map(\.localIdentifier), ["shot-1", "shot-2"])
 
-        // Structural guard: all 6 async methods route off-main and Decision 261110 hardware isolation stays intact.
+        // Structural guard: all 6 async methods route off-main and the hardware isolation stays intact.
         let photoKitURL = StringLiteralGrepSupport.worktreeRoot()
             .appendingPathComponent("Sources/Screenshots/ScreenshotsPhotoKit.swift")
         let source = try String(contentsOf: photoKitURL, encoding: .utf8)
