@@ -70,6 +70,11 @@ CI_IPAD_SIM_DEVICETYPE   ?= com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-in
 CI_ATTEMPT_TIMEOUT ?= 3600
 CI_MAX_ATTEMPTS    ?= 2
 
+# A proof build turns the store age check on with AGE_SIGNAL=YES. Left empty, the build
+# takes project.yml's setting, which is off.
+AGE_SIGNAL ?=
+AGE_SIGNAL_SETTING = $(if $(strip $(AGE_SIGNAL)),SOLSTONE_AGE_SIGNAL=$(AGE_SIGNAL))
+
 # --- Project setup ---
 
 build-metadata-bootstrap:
@@ -215,6 +220,7 @@ sim: deps
 		-destination '$(SIM_DESTINATION)' \
 		-derivedDataPath $(DERIVED) \
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
+		$(AGE_SIGNAL_SETTING) \
 		build
 
 # The -json targets report xcodebuild's exit status. xcsift exits 0 even when the
@@ -225,6 +231,7 @@ sim-json: deps
 		-destination 'platform=iOS Simulator,name=$(SIM)' \
 		-derivedDataPath $(DERIVED) \
 		COMPILATION_CACHE_ENABLE_CACHING=YES \
+		$(AGE_SIGNAL_SETTING) \
 		build 2>&1 | xcsift
 
 sim-ipad: deps
@@ -715,6 +722,7 @@ test-one: deps
 		-skipMacroValidation \
 		-destination '$(SIM_DESTINATION)' \
 		-derivedDataPath $(DERIVED) \
+		$(AGE_SIGNAL_SETTING) \
 		-only-testing:'$(TEST_TARGET)/$(TEST)'
 
 test-build: deps

@@ -1,0 +1,16 @@
+{
+  "description": "a parent or guardian needs to approve this version of solstone before you can keep using it.",
+  "context": "the solstone app, speaking to a teen. The only line on the screen that holds the app until a parent or guardian approves this version through Apple. Required by app store age laws. Wording requires review before translation.",
+  "surfaces": [
+    "agesignalmodelswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 110,
+  "source_revision": "ac6b83048225435c5357590a778dae2bb534912951373426d53a2d34427127d0",
+  "risk": "statutory",
+  "auto_merge": false
+}

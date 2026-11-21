@@ -79,6 +79,34 @@
       "locales": []
     },
     {
+      "id": "ios.app.agesignalaskagain",
+      "source": "adcf6f7cd218df158c157fc95ec176936dd2128c599de575c485e13b459304d6",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.agesignalhold",
+      "source": "ac6b83048225435c5357590a778dae2bb534912951373426d53a2d34427127d0",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.agesignalunder13",
+      "source": "54398ff46607262601f2ea12fc839cec82a114a9af60f218f9aaf94faf11f422",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.agesignalupdatedescription",
+      "source": "e91977009637ea73a3ac7a5e3ef437872adb1379bcd34c33e5dd5cf6a0942444",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
       "id": "ios.app.at",
       "source": "27a0b30c7085e39f22b582c490d34776d83736561033fd5d127005fd20fccca8",
       "contract": "529dee2bec7c882430141726bbc1ba095cf4d924138fa44bd0348fb538b59900",

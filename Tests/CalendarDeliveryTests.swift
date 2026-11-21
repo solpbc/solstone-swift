@@ -450,6 +450,29 @@ nonisolated final class CalendarDeliveryTests: XCTestCase {
         XCTAssertEqual(submitted, 1, "a registered refresh is asked for")
     }
 
+    /// While a launch check has stopped or held the app, it asks iOS for no background time.
+    @MainActor
+    func testAStoppedOrHeldLaunchCheckAsksForNoRefreshTime() async throws {
+        let rig = try await CalendarDeliveryRig(capabilities: ["calendar_notes"])
+        rig.addMeetings(count: 1)
+        await rig.harness.setUpAndConfirm()
+        XCTAssertTrue(rig.harness.engine.wantsBackgroundRefresh)
+        let suite = "CalendarDeliveryTests.age.\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let ageStore = AgeSignalStore(suiteName: suite)
+        var submitted = 0
+        for outcome in [AgeSignalOutcome.stopped, .held, .run] {
+            ageStore.saveOutcome(outcome)
+            let refresh = CalendarBackgroundRefresh(
+                engine: rig.harness.engine, registrationStandIn: { true }, submitter: { _ in submitted += 1 },
+                ageGate: AgeSignalGate(isEnabled: true, store: ageStore)
+            )
+            refresh.register()
+            refresh.schedule()
+        }
+        XCTAssertEqual(submitted, 1, "only the settled check asks")
+    }
+
     @MainActor
     func testTheIOSConfigurationAsksForFullAccessOnlyAndPermitsTheRefreshTask() throws {
         let info = Bundle(for: CalendarTransferHolder.self)

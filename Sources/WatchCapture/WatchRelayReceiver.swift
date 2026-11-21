@@ -26,6 +26,7 @@ final class WatchRelayReceiver {
     var intake: SourceIntakeStore? = nil
     private let fileWriter: any WatchFileWriting
     private let facts: WatchSourceFacts
+    private let ageGate: AgeSignalGate
 
     init(
         session: any WatchConnectivitySession,
@@ -33,8 +34,10 @@ final class WatchRelayReceiver {
         stagingRootURL: URL? = nil,
         fileWriter: any WatchFileWriting = FoundationWatchFileWriter(),
         fileManager: FileManager = .default,
-        facts: WatchSourceFacts
+        facts: WatchSourceFacts,
+        ageGate: AgeSignalGate = .live
     ) throws {
+        self.ageGate = ageGate
         self.session = session
         self.ledger = ledger
         self.fileWriter = fileWriter
@@ -51,6 +54,12 @@ final class WatchRelayReceiver {
     }
 
     func receiveFile(_ scratchURL: URL, metadata: [String: Any]) async {
+        // Stopped or held by the launch check: the phone keeps nothing and acknowledges nothing,
+        // so the recording stays with the watch.
+        guard self.ageGate.allowsActivity() else {
+            try? await self.fileWriter.removeItem(at: scratchURL)
+            return
+        }
         guard let idString = metadata["id"] as? String,
               let id = UUID(uuidString: idString)
         else {

@@ -101,6 +101,40 @@ nonisolated final class TunnelManagerTests: XCTestCase {
         await cache.wipe()
     }
 
+    /// A process that finds a stopped or held launch check, foreground or not, never dials.
+    @MainActor
+    func testAStoppedOrHeldLaunchCheckKeepsTheTunnelFromDialling() async throws {
+        let suite = "TunnelManagerTests.age.\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let ageStore = AgeSignalStore(suiteName: suite)
+        let pairing = Self.fixturePairing()
+        let holder = OSAllocatedUnfairLock<StoredPairing?>(initialState: pairing)
+        let store = PairingCredentialStore(loadPairing: { holder.withLock { $0 } },
+            savePairing: { updated in holder.withLock { $0 = updated } })
+        for outcome in [AgeSignalOutcome.stopped, .held] {
+            ageStore.saveOutcome(outcome)
+            let transport = MockCFTunnelTransport()
+            let manager = TunnelManager(transport: transport, endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+                store: store, automaticallyReconnectOnCredentialReplacement: false,
+                ageGate: AgeSignalGate(isEnabled: true, store: ageStore))
+            await manager.connect()
+            await manager.retryNow()
+            for _ in 0..<20 { await Task.yield() }
+            XCTAssertEqual(transport.connectCallCount, 0)
+            XCTAssertEqual(manager.state, .disconnected)
+        }
+        // The control: the same manager with the check settled dials.
+        ageStore.saveOutcome(.run)
+        let transport = MockCFTunnelTransport()
+        let manager = TunnelManager(transport: transport, endpointCache: EndpointCache(fileURL: Self.tempFileURL()),
+            store: store, automaticallyReconnectOnCredentialReplacement: false,
+            ageGate: AgeSignalGate(isEnabled: true, store: ageStore))
+        await manager.connect()
+        for _ in 0..<200 where transport.connectCallCount == 0 { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(transport.connectCallCount, 1)
+        await manager.disconnect()
+    }
+
     @MainActor
     func testFixtureReplacementClosesAdmissionWithoutStartingAutomaticReconnect() async throws {
         let pairing = Self.fixturePairing()

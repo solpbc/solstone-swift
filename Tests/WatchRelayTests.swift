@@ -162,6 +162,46 @@ final class WatchRelayTests: XCTestCase {
         XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [id.uuidString])
     }
 
+    /// While a launch check has stopped or held the app, the phone keeps nothing the watch sends
+    /// and acknowledges nothing, so the recording stays on the watch.
+    func testAStoppedOrHeldLaunchCheckStagesAndAcknowledgesNothing() async throws {
+        let storage = try self.makeStorage("age-signal-watch")
+        let stagingRoot = self.tempDirectory.appendingPathComponent("age-signal-staging", isDirectory: true)
+        let suite = "WatchRelayTests.age.\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let ageStore = AgeSignalStore(suiteName: suite)
+        ageStore.saveOutcome(.stopped)
+        let id = UUID()
+        _ = try await self.writeSegment(storage: storage, id: id, index: 0)
+        let watchSession = MockWatchConnectivitySession()
+        let phoneSession = MockWatchConnectivitySession()
+        let sender = WatchRelaySender(paths: storage.paths, storageActor: self.storageActor(for: storage), session: watchSession)
+        let receiver = try WatchRelayReceiver(
+            session: phoneSession,
+            ledger: self.makeLedger("receiver-ledger-\(UUID().uuidString)"),
+            stagingRootURL: stagingRoot,
+            facts: self.watchSourceFacts(),
+            ageGate: AgeSignalGate(isEnabled: true, store: ageStore)
+        )
+        defer { withExtendedLifetime(receiver) {} }
+
+        watchSession.activate()
+        await sender.requestDrain(trigger: .testDirect)
+        try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+        await self.settleConnectivityCallback()
+
+        XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [])
+        XCTAssertEqual(phoneSession.transferredUserInfos.count, 0)
+        XCTAssertEqual(phoneSession.sentMessages.count, 0)
+
+        // The control: the same delivery once the check lets the app go is staged and acknowledged.
+        ageStore.saveOutcome(.run)
+        try await self.deliverTransfer(from: watchSession, index: 0, to: phoneSession)
+        await self.settleConnectivityCallback()
+        XCTAssertEqual(try self.stagedEntryIDs(at: stagingRoot), [id.uuidString])
+        XCTAssertEqual(phoneSession.transferredUserInfos.count, 1)
+    }
+
     func testReachableACKUsesFastMessageAndDurableUserInfo() async throws {
         let storage = try self.makeStorage("reachable-ack-watch")
         let stagingRoot = self.tempDirectory.appendingPathComponent("reachable-ack-staging", isDirectory: true)

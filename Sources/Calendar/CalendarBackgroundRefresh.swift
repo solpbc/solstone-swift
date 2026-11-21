@@ -23,6 +23,7 @@ final class CalendarBackgroundRefresh {
     /// Tests stand in for iOS's answer to registration; nil registers with iOS.
     private let registrationStandIn: (() -> Bool)?
     private let submitter: Submitter
+    private let ageGate: AgeSignalGate
     /// iOS refuses, by raising, a request for a task this process never registered. A launch
     /// that skips registration (test modes do) must therefore never ask for refresh time.
     private(set) var isRegistered = false
@@ -30,8 +31,10 @@ final class CalendarBackgroundRefresh {
     init(
         engine: CalendarSourceEngine,
         registrationStandIn: (() -> Bool)? = nil,
-        submitter: @escaping Submitter = { try BGTaskScheduler.shared.submit($0) }
+        submitter: @escaping Submitter = { try BGTaskScheduler.shared.submit($0) },
+        ageGate: AgeSignalGate = .live
     ) {
+        self.ageGate = ageGate
         self.engine = engine
         self.registrationStandIn = registrationStandIn
         self.submitter = submitter
@@ -58,7 +61,7 @@ final class CalendarBackgroundRefresh {
         let wants = self.engine.wantsBackgroundRefresh
             || self.obsidianEngine?.wantsBackgroundRefresh == true
             || self.screenshotsEngine?.wantsBackgroundRefresh == true
-        guard self.isRegistered, wants else { return }
+        guard self.isRegistered, wants, self.ageGate.allowsActivity() else { return }
         let request = BGAppRefreshTaskRequest(identifier: Self.identifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: Self.interval)
         do {
@@ -69,6 +72,11 @@ final class CalendarBackgroundRefresh {
     }
 
     private func run(_ handle: CalendarRefreshTaskHandle) {
+        // Stopped or held by the launch check: the sources read nothing and nothing is staged.
+        guard self.ageGate.allowsActivity() else {
+            handle.complete(success: false)
+            return
+        }
         self.schedule()
         let engine = self.engine
         let obsidianEngine = self.obsidianEngine

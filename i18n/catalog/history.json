@@ -198,6 +198,54 @@
       "selector": null
     },
     {
+      "id": "ios.app.agesignalaskagain",
+      "resource": "m696f732e6170702e6167657369676e616c61736b616761696e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.agesignalhold",
+      "resource": "m696f732e6170702e6167657369676e616c686f6c64",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.agesignalunder13",
+      "resource": "m696f732e6170702e6167657369676e616c756e6465723133",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.agesignalupdatedescription",
+      "resource": "m696f732e6170702e6167657369676e616c7570646174656465736372697074696f6e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.app.at",
       "resource": "m696f732e6170702e6174",
       "namespace": "ios.app",

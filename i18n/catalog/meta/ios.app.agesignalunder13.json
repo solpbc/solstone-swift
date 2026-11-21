@@ -1,0 +1,16 @@
+{
+  "description": "solstone is for people 13 and over.",
+  "context": "the solstone app, speaking to a person the App Store says is under 13. The only line on the screen; the app does nothing else. Required by app store age laws. Wording requires review before translation.",
+  "surfaces": [
+    "agesignalmodelswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "54398ff46607262601f2ea12fc839cec82a114a9af60f218f9aaf94faf11f422",
+  "risk": "statutory",
+  "auto_merge": false
+}

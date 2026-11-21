@@ -106,6 +106,7 @@ final class ObserverManager {
     @ObservationIgnored private var watchdogStrikes = 0
     @ObservationIgnored private let journalEvents: JournalEventStore
     @ObservationIgnored private let diagnosticLog: DiagnosticLog?
+    @ObservationIgnored private let ageGate: AgeSignalGate
 
     init(
         recorder: any ObserverRecording,
@@ -114,8 +115,10 @@ final class ObserverManager {
         diagnosticLog: DiagnosticLog? = nil,
         clock: any ObserverClock = SystemObserverClock(),
         liveActivity: any ObserverLiveActivitying = ObserverLiveActivity(),
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        ageGate: AgeSignalGate = .live
     ) {
+        self.ageGate = ageGate
         self.recorder = recorder
         self.mobileSegmentEngine = mobileSegmentEngine
         self.journalEvents = journalEvents
@@ -160,6 +163,8 @@ final class ObserverManager {
     }
 
     func startSession(mode: ObserverMode) async -> ObserverStartOutcome {
+        // Covers every way in: the app, a shortcut, a control, the live activity.
+        guard self.ageGate.allowsActivity() else { return .refused(.cancelled) }
         switch self.state {
         case .idle, .error, .microphoneTaken:
             break

@@ -63,6 +63,7 @@ final class LocationManager {
     @ObservationIgnored private var lifecycleGeneration: UInt64 = 0
     @ObservationIgnored private var isRefreshingForStart = false
     private var lastCapability: LocationCapability
+    @ObservationIgnored private let ageGate: AgeSignalGate
 
     private enum Key {
         static let enabled = "location.enabled"
@@ -74,8 +75,10 @@ final class LocationManager {
         provider: any LocationProviding = LiveLocationProvider(),
         mobileSegmentEngine: MobileSegmentEngine,
         clock: any ObserverClock = SystemObserverClock(),
-        defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier)
+        defaults: UserDefaults? = UserDefaults(suiteName: AppGroupContainer.identifier),
+        ageGate: AgeSignalGate = .live
     ) {
+        self.ageGate = ageGate
         self.provider = provider
         self.mobileSegmentEngine = mobileSegmentEngine
         self.clock = clock
@@ -180,6 +183,15 @@ final class LocationManager {
         await self.provider.endBackgroundSustain()
         self.resetRuntime()
         self.state = .idle
+    }
+
+    /// Ends system location monitoring a session left running, whatever this process's state:
+    /// iOS keeps significant-change and visit monitoring across launches, and would otherwise
+    /// keep waking an app the launch check has stopped or held.
+    func haltSystemMonitoring() async {
+        await self.stop()
+        await self.provider.stopObservation()
+        await self.provider.endBackgroundSustain()
     }
 
     func pause() async {
@@ -438,6 +450,14 @@ private extension LocationManager {
     }
 
     func activateSessionIfAllowed(capability: LocationCapability) async {
+        // Stopped or held by the launch check: no session, and no system monitoring left to
+        // wake the app for one. The owner's choice to have location on is kept for later.
+        guard self.ageGate.allowsActivity() else {
+            await self.provider.stopObservation()
+            self.clearSunArcPresentationCoordinate()
+            self.state = .idle
+            return
+        }
         let tier = self.tier
         guard tier.isSatisfied(by: capability) else {
             self.clearSunArcPresentationCoordinate()

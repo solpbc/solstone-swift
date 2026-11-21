@@ -1,0 +1,16 @@
+{
+  "description": "solstone's App Store age rating has changed.",
+  "context": "shown by Apple to a teen's parent or guardian in the request to approve this version of solstone. It names the change they are approving. Required by app store age laws. Wording requires review before translation.",
+  "surfaces": [
+    "agesignalmodelswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 80,
+  "source_revision": "e91977009637ea73a3ac7a5e3ef437872adb1379bcd34c33e5dd5cf6a0942444",
+  "risk": "statutory",
+  "auto_merge": false
+}

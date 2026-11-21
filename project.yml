@@ -26,6 +26,14 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
+    # The store age check (Sources/AgeSignal). NO for every build a published binary is cut
+    # from: the check is not compiled in and no age API is called. A proof build passes
+    # AGE_SIGNAL=YES to make. Turning it on for publication is this one line, together with
+    # the com.apple.developer.declared-age-range entitlement on the app target.
+    SOLSTONE_AGE_SIGNAL: NO
+    SOLSTONE_AGE_SIGNAL_SWIFT_FLAG_YES: -DSOLSTONE_AGE_SIGNAL
+    SOLSTONE_AGE_SIGNAL_SWIFT_FLAG_NO: ""
+    OTHER_SWIFT_FLAGS: $(inherited) $(SOLSTONE_AGE_SIGNAL_SWIFT_FLAG_$(SOLSTONE_AGE_SIGNAL))
 
 packages:
   SwiftCrypto:
@@ -147,6 +155,7 @@ targets:
         excludes:
           - SafariBrowserDelivery.swift
       - path: Sources/Services/AppGroupContainer.swift
+      - path: Sources/AgeSignal/AgeSignalGate.swift
       - path: Sources/SourceIntake/SourceIntakeStore.swift
       - path: vendor/browser-contract
         type: folder
@@ -283,6 +292,7 @@ targets:
         buildPhase: resources
       - path: SolstoneBroadcastExtension
       - path: Sources/Services/AppGroupContainer.swift
+      - path: Sources/AgeSignal/AgeSignalGate.swift
       - path: Sources/MobileSegment/MobileSegmentModels.swift
       - path: Sources/Observer/ObserverMode.swift
       - path: Sources/MobileSegment/MobileSegmentScreencastShared.swift

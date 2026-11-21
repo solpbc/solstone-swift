@@ -199,6 +199,46 @@
         }
       }
     },
+    "m696f732e6170702e6167657369676e616c61736b616761696e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ask again"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e6167657369676e616c686f6c64": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a parent or guardian needs to approve this version of solstone before you can keep using it."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e6167657369676e616c756e6465723133": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "solstone is for people 13 and over."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e6167657369676e616c7570646174656465736372697074696f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "solstone's App Store age rating has changed."
+          }
+        }
+      }
+    },
     "m696f732e6170702e6174": {
       "localizations": {
         "en-US": {

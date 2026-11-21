@@ -50,6 +50,14 @@ nonisolated enum AppStrings {
     static func ios_app_addmoresuggestionstitle_resource() -> LocalizedStringResource { resource("m696f732e6170702e6164646d6f726573756767657374696f6e737469746c65") }
     static func ios_app_addmoretitle() -> String { render("m696f732e6170702e6164646d6f72657469746c65", []) }
     static func ios_app_addmoretitle_resource() -> LocalizedStringResource { resource("m696f732e6170702e6164646d6f72657469746c65") }
+    static func ios_app_agesignalaskagain() -> String { render("m696f732e6170702e6167657369676e616c61736b616761696e", []) }
+    static func ios_app_agesignalaskagain_resource() -> LocalizedStringResource { resource("m696f732e6170702e6167657369676e616c61736b616761696e") }
+    static func ios_app_agesignalhold() -> String { render("m696f732e6170702e6167657369676e616c686f6c64", []) }
+    static func ios_app_agesignalhold_resource() -> LocalizedStringResource { resource("m696f732e6170702e6167657369676e616c686f6c64") }
+    static func ios_app_agesignalunder13() -> String { render("m696f732e6170702e6167657369676e616c756e6465723133", []) }
+    static func ios_app_agesignalunder13_resource() -> LocalizedStringResource { resource("m696f732e6170702e6167657369676e616c756e6465723133") }
+    static func ios_app_agesignalupdatedescription() -> String { render("m696f732e6170702e6167657369676e616c7570646174656465736372697074696f6e", []) }
+    static func ios_app_agesignalupdatedescription_resource() -> LocalizedStringResource { resource("m696f732e6170702e6167657369676e616c7570646174656465736372697074696f6e") }
     static func ios_app_at(_ relativeDay: String, _ shortTime: String) -> String { render("m696f732e6170702e6174", [relativeDay, shortTime]) }
     static func ios_app_audio() -> String { render("m696f732e6170702e617564696f", []) }
     static func ios_app_audio_resource() -> LocalizedStringResource { resource("m696f732e6170702e617564696f") }

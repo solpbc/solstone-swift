@@ -16,6 +16,8 @@ nonisolated final class SafariWebExtensionHandler: NSObject, NSExtensionRequestH
             "time_ms": start * 1000]
         do {
             guard let message, message["v"] as? Int == 1 else { throw SafariBrowserError.malformed }
+            // The app's launch check stopped or held it: the browser's pages are not taken in.
+            guard AgeSignalGate.live.allowsActivity() else { throw CancellationError() }
             let store = try SafariBrowserStore()
             if message["probe"] as? Bool == true {
                 reply["inventory"] = try store.inventory()

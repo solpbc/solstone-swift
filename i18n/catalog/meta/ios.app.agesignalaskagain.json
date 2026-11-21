@@ -1,0 +1,16 @@
+{
+  "description": "ask again",
+  "context": "the solstone app, speaking to a teen whose parent or guardian has not yet approved this version. A button that sends Apple's request for that approval to the parent again. Wording requires review before translation.",
+  "surfaces": [
+    "agesignalmodelswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 12,
+  "source_revision": "adcf6f7cd218df158c157fc95ec176936dd2128c599de575c485e13b459304d6",
+  "risk": "consent",
+  "auto_merge": false
+}

@@ -28,6 +28,11 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
         #if DEBUG
         self.micProbe.broadcastStarted()
         #endif
+        // The app's launch check stopped or held it: no screen is recorded.
+        if let line = Self.ageSignalLine() {
+            self.finishBroadcastWithError(Self.error(line))
+            return
+        }
         self.workQueue.async {
             do {
                 let rootURL = try AppGroupContainer.rootURL()
@@ -56,6 +61,14 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
                     repeating: MobileSegmentScreencastLivenessPolicy.livenessRefreshIntervalSeconds
                 )
                 timer.setEventHandler { [weak self] in
+                    // A check that stops or holds the app mid-broadcast ends it on the next tick.
+                    if let line = Self.ageSignalLine() {
+                        self?.timer?.cancel()
+                        self?.session?.broadcastFinished()
+                        self?.session = nil
+                        self?.finishBroadcastWithError(Self.error(line))
+                        return
+                    }
                     self?.session?.tick()
                 }
                 timer.resume()
@@ -132,6 +145,14 @@ nonisolated final class SampleHandler: RPBroadcastSampleHandler {
             nil,
             true
         )
+    }
+
+    private static func ageSignalLine() -> String? {
+        switch AgeSignalGate.live.outcome {
+        case .run: nil
+        case .stopped: AppStrings.ios_app_agesignalunder13()
+        case .held: AppStrings.ios_app_agesignalhold()
+        }
     }
 
     private static func error(_ description: String) -> NSError {

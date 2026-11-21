@@ -61,6 +61,7 @@ struct SolstoneSwiftApp: App {
     @State private var journalSendRelease: JournalSendRelease
     @State private var deviceMigrationOwner: DeviceMigrationOwnerModel
     @State private var pairFlowPresence: PairFlowPresence
+    @State private var ageSignal: AgeSignalModel
     @State private var backgroundDrainTask: Task<Void, Never>?
     @State private var didBootstrapTransfer = false
     @State private var safariTransferReady = false
@@ -899,6 +900,22 @@ struct SolstoneSwiftApp: App {
             homeJobs: homeJobs
         )
         let pairFlowPresence = PairFlowPresence()
+        let ageSignal = AgeSignalModel.live()
+        ageSignal.onBlocked = { [weak observerManager, weak locationManager, weak tunnel] in
+            Task {
+                _ = await observerManager?.stopSession()
+                await locationManager?.haltSystemMonitoring()
+                tunnel?.cancelConnect()
+                tunnel?.cancelReconnect()
+                tunnel?.stopNetworkMonitoring()
+                await tunnel?.disconnect()
+            }
+        }
+        // A process iOS starts while the last check stopped or held the app stops what the OS
+        // keeps running for it, such as location monitoring, before anything else.
+        if ageSignal.presentation == .stopped || ageSignal.presentation == .held {
+            ageSignal.onBlocked()
+        }
         self._appConfig = State(initialValue: appConfig)
         self._appGroupMirror = State(initialValue: appGroupMirror)
         self._onboardingFlow = State(initialValue: onboardingFlow)
@@ -944,6 +961,7 @@ struct SolstoneSwiftApp: App {
         self._journalSendRelease = State(initialValue: journalSendRelease)
         self._deviceMigrationOwner = State(initialValue: deviceMigrationOwner)
         self._pairFlowPresence = State(initialValue: pairFlowPresence)
+        self._ageSignal = State(initialValue: ageSignal)
 #if DEBUG && targetEnvironment(simulator)
         self._integrationGateDriver = State(initialValue: integrationGateDriver)
 #endif
@@ -1128,141 +1146,20 @@ struct SolstoneSwiftApp: App {
                     await self.transferEngine.noteNewConnectionEstablished(pairingIdentity: pairingIdentity)
                     await self.transferEngine.endpointAvailabilityChanged()
                 }
+                // Last, so a stopped or held app builds none of the above.
+                .modifier(AgeSignalGateModifier(model: self.ageSignal))
+        }
+        .onChange(of: self.scenePhase, initial: true) { _, phase in
+            self.ageSignal.scenePhaseChanged(phase)
         }
         .onChange(of: self.scenePhase) { oldPhase, newPhase in
-            self.obsidianSource.setAppActive(newPhase == .active)
-            self.screencastManager.receiveScenePhase(Self.screencastScenePhase(newPhase))
-            ConnectionScenePhaseFanout.deliver(
-                newPhase,
-                tunnel: self.tunnelManager,
-                monitor: self.connectionStallMonitor
-            )
-            // Leaving the background comes a frame before `.active`, and that first frame must
-            // not show the drop going to the background caused.
-            if oldPhase == .background, newPhase == .inactive,
-               !Self.isIntegrationMode, !Self.isUITest, self.appConfig.isPaired {
-                self.connectionSyncModel.noteForeground()
-            }
-            self.connectionSyncModel.setInBackground(newPhase == .background)
-            switch newPhase {
-            case .active:
-                self.mobileSegmentTransferHolder.refreshJournalGap()
-                self.sourceIntakeModel.reload()
-                if let safariSource = self.safariSource {
-                    Task { await safariSource.refreshAsync() }
-                    Task { await safariSource.refreshExtensionState() }
-                }
-                self.backgroundDrainTask?.cancel()
-                self.backgroundDrainTask = nil
-                if Self.shouldRunLaunchMaintenance(scenePhase: newPhase) {
-                    Task {
-                        await self.launchMaintenanceCoordinator.runForegroundMaintenance()
-                    }
-                }
-                Task {
-                    await self.screencastManager.reconcileScreencast(reason: .foreground)
-                }
-                self.calendarSource.foreground()
-                Task { await self.screenshotsSource.foreground() }
-                Task { await self.obsidianSource.checkNow() }
-                if Self.isIntegrationMode || Self.isUITest {
-                    return
-                }
-                guard self.appConfig.isPaired else {
-                    return
-                }
-                self.connectionSyncModel.noteForeground()
-                self.tunnelManager.startNetworkMonitoring()
-                if self.appConfig.retrySettleIfNeeded() {
-                    self.journalSendRelease.kickConfirmedSend()
-                }
-
-                switch self.tunnelManager.state {
-                case .connected:
-                    // Connected tunnels are probed before foreground drain starts; waitingForHome is
-                    // re-driven below because suspended timers may not have fired while backgrounded.
-                    // Disconnected and retryable-error states use retryNow().
-                    Task {
-                        await Self.revalidateThenRequestDrain(tunnelManager: self.tunnelManager) {
-                            await self.foregroundDrainGate.requestDrain()
-                        }
-                    }
-                case .connecting:
-                    break
-                case .waitingForHome:
-                    break
-                case .disconnected:
-                    Task {
-                        await self.tunnelManager.retryNow()
-                    }
-                case .error(let error):
-                    if error.isRetryable {
-                        Task {
-                            await self.tunnelManager.retryNow()
-                        }
-                    }
-                }
-            case .background:
-                Task {
-                    await self.screencastManager.prepareForBackground()
-                }
-                self.calendarBackgroundRefresh.schedule()
-                self.screenshotsSource.background()
-                self.launchMaintenanceCoordinator.cancel()
-                self.integrationObserverStartTask?.cancel()
-                self.integrationObserverStartTask = nil
-                self.integrationObserverStopTask?.cancel()
-                self.integrationObserverStopTask = nil
-                if Self.isIntegrationMode || Self.isUITest {
-                    return
-                }
-                let coordinator = BackgroundDrainCoordinator(
-                    totals: {
-                        sendableUploadTotals(
-                            mobileSegment: self.mobileSegmentTransferHolder,
-                            watch: self.watchUploaderHolder,
-                            share: self.shareTransferHolder,
-                            calendar: self.calendarTransferHolder,
-                            obsidian: self.obsidianTransferHolder
-                        )
-                    },
-                    inFlight: {
-                        uploadInFlight(
-                            mobileSegment: self.mobileSegmentTransferHolder,
-                            watch: self.watchUploaderHolder,
-                            share: self.shareTransferHolder,
-                            calendar: self.calendarTransferHolder
-                        )
-                    },
-                    backoff: {
-                        uploadBackoff(mirror: self.transferStatusMirror)
-                    },
-                    isSustaining: { self.locationManager.isSustainingBackground },
-                    isConnected: { self.tunnelManager.state.isConnected },
-                    drive: {
-                        await driveUploadDrain(
-                            mobileSegment: self.mobileSegmentUploader,
-                            transferEngine: self.transferEngine,
-                            shareImportStore: self.shareImportStore,
-                            shareTransferHolder: self.shareTransferHolder,
-                            diagnosticLog: self.diagnosticLog,
-                            watchDrain: self.watchSegmentDrain
-                        )
-                    },
-                    disconnect: {
-                        self.tunnelManager.cancelConnect()
-                        self.tunnelManager.cancelReconnect()
-                        self.tunnelManager.stopNetworkMonitoring()
-                        await self.tunnelManager.disconnect()
-                    },
-                    asserter: UIBackgroundTaskAsserter()
-                )
-                self.backgroundDrainTask = Task {
-                    await coordinator.run()
-                }
-            default:
-                break
-            }
+            self.handleScenePhase(oldPhase, newPhase)
+        }
+        // The first foreground's work waits for the launch check; it runs once the check lets
+        // the app go, and again when a parent approves a hold.
+        .onChange(of: self.ageSignal.allowsActivity) { _, allowed in
+            guard allowed else { return }
+            self.handleScenePhase(.inactive, self.scenePhase)
         }
         .onChange(of: self.tunnelManager.state) { _, newState in
             if case .error(.revoked) = newState { self.appConfig.sharedSources.revoke() }
@@ -1332,6 +1229,144 @@ struct SolstoneSwiftApp: App {
                     connectionSyncModel: self.connectionSyncModel
                 )
             }
+        }
+    }
+
+    private func handleScenePhase(_ oldPhase: ScenePhase, _ newPhase: ScenePhase) {
+        // While a launch check is open, or has stopped or held the app, none of this runs.
+        guard self.ageSignal.allowsActivity else { return }
+        self.obsidianSource.setAppActive(newPhase == .active)
+        self.screencastManager.receiveScenePhase(Self.screencastScenePhase(newPhase))
+        ConnectionScenePhaseFanout.deliver(
+            newPhase,
+            tunnel: self.tunnelManager,
+            monitor: self.connectionStallMonitor
+        )
+        // Leaving the background comes a frame before `.active`, and that first frame must
+        // not show the drop going to the background caused.
+        if oldPhase == .background, newPhase == .inactive,
+           !Self.isIntegrationMode, !Self.isUITest, self.appConfig.isPaired {
+            self.connectionSyncModel.noteForeground()
+        }
+        self.connectionSyncModel.setInBackground(newPhase == .background)
+        switch newPhase {
+        case .active:
+            self.mobileSegmentTransferHolder.refreshJournalGap()
+            self.sourceIntakeModel.reload()
+            if let safariSource = self.safariSource {
+                Task { await safariSource.refreshAsync() }
+                Task { await safariSource.refreshExtensionState() }
+            }
+            self.backgroundDrainTask?.cancel()
+            self.backgroundDrainTask = nil
+            if Self.shouldRunLaunchMaintenance(scenePhase: newPhase) {
+                Task {
+                    await self.launchMaintenanceCoordinator.runForegroundMaintenance()
+                }
+            }
+            Task {
+                await self.screencastManager.reconcileScreencast(reason: .foreground)
+            }
+            self.calendarSource.foreground()
+            Task { await self.screenshotsSource.foreground() }
+            Task { await self.obsidianSource.checkNow() }
+            if Self.isIntegrationMode || Self.isUITest {
+                return
+            }
+            guard self.appConfig.isPaired else {
+                return
+            }
+            self.connectionSyncModel.noteForeground()
+            self.tunnelManager.startNetworkMonitoring()
+            if self.appConfig.retrySettleIfNeeded() {
+                self.journalSendRelease.kickConfirmedSend()
+            }
+
+            switch self.tunnelManager.state {
+            case .connected:
+                // Connected tunnels are probed before foreground drain starts; waitingForHome is
+                // re-driven below because suspended timers may not have fired while backgrounded.
+                // Disconnected and retryable-error states use retryNow().
+                Task {
+                    await Self.revalidateThenRequestDrain(tunnelManager: self.tunnelManager) {
+                        await self.foregroundDrainGate.requestDrain()
+                    }
+                }
+            case .connecting:
+                break
+            case .waitingForHome:
+                break
+            case .disconnected:
+                Task {
+                    await self.tunnelManager.retryNow()
+                }
+            case .error(let error):
+                if error.isRetryable {
+                    Task {
+                        await self.tunnelManager.retryNow()
+                    }
+                }
+            }
+        case .background:
+            Task {
+                await self.screencastManager.prepareForBackground()
+            }
+            self.calendarBackgroundRefresh.schedule()
+            self.screenshotsSource.background()
+            self.launchMaintenanceCoordinator.cancel()
+            self.integrationObserverStartTask?.cancel()
+            self.integrationObserverStartTask = nil
+            self.integrationObserverStopTask?.cancel()
+            self.integrationObserverStopTask = nil
+            if Self.isIntegrationMode || Self.isUITest {
+                return
+            }
+            let coordinator = BackgroundDrainCoordinator(
+                totals: {
+                    sendableUploadTotals(
+                        mobileSegment: self.mobileSegmentTransferHolder,
+                        watch: self.watchUploaderHolder,
+                        share: self.shareTransferHolder,
+                        calendar: self.calendarTransferHolder,
+                        obsidian: self.obsidianTransferHolder
+                    )
+                },
+                inFlight: {
+                    uploadInFlight(
+                        mobileSegment: self.mobileSegmentTransferHolder,
+                        watch: self.watchUploaderHolder,
+                        share: self.shareTransferHolder,
+                        calendar: self.calendarTransferHolder
+                    )
+                },
+                backoff: {
+                    uploadBackoff(mirror: self.transferStatusMirror)
+                },
+                isSustaining: { self.locationManager.isSustainingBackground },
+                isConnected: { self.tunnelManager.state.isConnected },
+                drive: {
+                    await driveUploadDrain(
+                        mobileSegment: self.mobileSegmentUploader,
+                        transferEngine: self.transferEngine,
+                        shareImportStore: self.shareImportStore,
+                        shareTransferHolder: self.shareTransferHolder,
+                        diagnosticLog: self.diagnosticLog,
+                        watchDrain: self.watchSegmentDrain
+                    )
+                },
+                disconnect: {
+                    self.tunnelManager.cancelConnect()
+                    self.tunnelManager.cancelReconnect()
+                    self.tunnelManager.stopNetworkMonitoring()
+                    await self.tunnelManager.disconnect()
+                },
+                asserter: UIBackgroundTaskAsserter()
+            )
+            self.backgroundDrainTask = Task {
+                await coordinator.run()
+            }
+        default:
+            break
         }
     }
 

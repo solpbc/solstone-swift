@@ -12,6 +12,14 @@ ios.app.addmoresuggestionstitle = suggestions
 
 ios.app.addmoretitle = add more
 
+ios.app.agesignalaskagain = ask again
+
+ios.app.agesignalhold = a parent or guardian needs to approve this version of solstone before you can keep using it.
+
+ios.app.agesignalunder13 = solstone is for people 13 and over.
+
+ios.app.agesignalupdatedescription = solstone's App Store age rating has changed.
+
 ios.app.at = { $relativeDay } at { $shortTime }
 
 ios.app.audio = audio

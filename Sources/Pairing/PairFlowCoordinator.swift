@@ -98,6 +98,7 @@ final class PairFlowCoordinator {
         _ pairURL: PairURL,
         shouldCommit: @escaping @Sendable () -> Bool = { true }
     ) async throws -> Bool {
+        guard AgeSignalGate.live.allowsActivity() else { throw CancellationError() }
         let lease = try self.store.beginPairingFlow()
         self.pairingFlowGeneration &+= 1
         let flowGeneration = self.pairingFlowGeneration

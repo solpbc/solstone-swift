@@ -74,6 +74,31 @@ nonisolated final class ObserverManagerTests: XCTestCase {
         XCTAssertEqual(self.recorder.startCallCount, 1)
     }
 
+    /// However it is asked (the app, a shortcut, a control), audio does not start while a launch
+    /// check has stopped or held the app.
+    @MainActor
+    func testAStoppedOrHeldLaunchCheckRefusesToStartAudio() async {
+        let suite = "ObserverManagerTests.age.\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite) }
+        let ageStore = AgeSignalStore(suiteName: suite)
+        for outcome in [AgeSignalOutcome.stopped, .held] {
+            ageStore.saveOutcome(outcome)
+            let manager = ObserverManager(
+                recorder: self.recorder,
+                mobileSegmentEngine: self.mobileSegmentEngine,
+                journalEvents: self.mobileSegmentUploader.journalEvents,
+                clock: self.clock,
+                liveActivity: self.liveActivity,
+                defaults: self.defaults,
+                ageGate: AgeSignalGate(isEnabled: true, store: ageStore)
+            )
+            let started = await manager.startSession(mode: .meeting)
+            XCTAssertEqual(started, .refused(.cancelled))
+            XCTAssertEqual(manager.state, .idle)
+        }
+        XCTAssertEqual(self.recorder.startCallCount, 0)
+    }
+
     @MainActor
     func testCaptureAdapterTreatsStartedAndAlreadyRunningAsSuccess() async {
         let started = await self.manager.startCaptureSession(mode: .meeting)

@@ -298,6 +298,7 @@ final class TunnelManager {
     @ObservationIgnored private let migrationCoordinator: DeviceMigrationCoordinator?
     @ObservationIgnored private let journalVersion: JournalVersionMetadata?
     @ObservationIgnored private let transport: any Transporting
+    @ObservationIgnored private let ageGate: AgeSignalGate
     @ObservationIgnored private let endpointCache: EndpointCache
     @ObservationIgnored private let pathMonitor: PathMonitor
     @ObservationIgnored private let loadPairing: @Sendable () throws -> StoredPairing?
@@ -413,7 +414,8 @@ final class TunnelManager {
         homeJobs: HomeAuthenticatedJobs? = nil,
         migrationCoordinator: DeviceMigrationCoordinator? = nil,
         automaticallyReconnectOnCredentialReplacement: Bool = true,
-        deriveClaimedMark: @escaping @Sendable (String) async -> JournalMark? = { await JournalMarkDerivation.mark(forClaimedJournalID: $0) }
+        deriveClaimedMark: @escaping @Sendable (String) async -> JournalMark? = { await JournalMarkDerivation.mark(forClaimedJournalID: $0) },
+        ageGate: AgeSignalGate = .live
     ) {
         let effectiveStore = store ?? PairingCredentialStore(
             loadPairing: loadPairing,
@@ -425,6 +427,7 @@ final class TunnelManager {
         self.migrationCoordinator = migrationCoordinator
         self.journalVersion = journalVersion
         self.transport = transport ?? CFTunnelTransport(diagnosticLog: diagnosticLog, loadPairing: { try effectiveStore.load() })
+        self.ageGate = ageGate
         self.endpointCache = endpointCache
         self.pathMonitor = pathMonitor
         self.loadPairing = { try effectiveStore.load() }
@@ -926,6 +929,8 @@ final class TunnelManager {
     }
 
     func connect() async {
+        // A launch check that stopped or held the app keeps it from reaching the journal at all.
+        guard self.ageGate.allowsActivity() else { return }
         if self.connectTask != nil {
             log.info("[solstone-swift] connect() skipped — already in progress")
             return

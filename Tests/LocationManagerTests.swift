@@ -646,6 +646,49 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertEqual(self.provider.startCallCount, 1)
     }
 
+    /// A process iOS starts for location while the launch check has stopped or held the app records
+    /// nothing, ends the system monitoring that woke it, and keeps the owner's choice for later.
+    @MainActor
+    func testAStoppedOrHeldLaunchCheckStartsNoLocationSession() async {
+        let ageSuite = "LocationManagerTests.age.\(UUID().uuidString)"
+        defer { UserDefaults(suiteName: ageSuite)?.removePersistentDomain(forName: ageSuite) }
+        let ageStore = AgeSignalStore(suiteName: ageSuite)
+        ageStore.saveOutcome(.stopped)
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        self.provider.capability = .always(accuracy: .reduced)
+        let manager = LocationManager(
+            provider: self.provider,
+            mobileSegmentEngine: self.mobileSegmentEngine,
+            clock: self.clock,
+            defaults: self.defaults,
+            ageGate: AgeSignalGate(isEnabled: true, store: ageStore)
+        )
+
+        await manager.resumeIfEnabled()
+
+        XCTAssertEqual(manager.state, .idle)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+        XCTAssertEqual(self.provider.stopCallCount, 1)
+        XCTAssertTrue(self.defaults.bool(forKey: "location.enabled"))
+    }
+
+    /// A process iOS woke for location while the app is stopped or held has an idle manager; halting
+    /// still ends the system monitoring that woke it, and keeps the owner's choice.
+    @MainActor
+    func testHaltingFromIdleEndsSystemMonitoringAndKeepsTheOwnersChoice() async {
+        self.defaults.set(true, forKey: "location.enabled")
+        let manager = self.makeManager()
+        XCTAssertEqual(manager.state, .idle)
+
+        await manager.haltSystemMonitoring()
+
+        XCTAssertEqual(self.provider.stopCallCount, 1)
+        XCTAssertEqual(self.provider.endBackgroundSustainCallCount, 1)
+        XCTAssertEqual(self.provider.startCallCount, 0)
+        XCTAssertTrue(self.defaults.bool(forKey: "location.enabled"))
+    }
+
     @MainActor
     func testResumeIfEnabledPausedRestoresPausedWithoutStarting() async {
         self.defaults.set(true, forKey: "location.enabled")
