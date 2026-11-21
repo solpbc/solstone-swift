@@ -18,7 +18,10 @@ enum SharedSourceCopy {
     // SA3 uses the device name; SA4 substitutes the vault name (if present).
     static func line(device: KnownSources.Device, entry: KnownSources.Entry, detail: Bool = false,
                      spoken: Bool = false, now: Date) -> String {
-        let parts = fields(device: device, entry: entry, detail: detail, spoken: spoken, now: now)
+        join(fields(device: device, entry: entry, detail: detail, spoken: spoken, now: now), spoken: spoken)
+    }
+
+    private static func join(_ parts: [String], spoken: Bool) -> String {
         switch parts.count {
         case 3:
             return spoken ? AppStrings.ios_sharedsources_spokentriple(parts[0], parts[1], parts[2])
@@ -29,6 +32,26 @@ enum SharedSourceCopy {
         default:
             return parts.first ?? ""
         }
+    }
+
+    /// On the tile a long device name gives way first: 19 characters, trimmed, then an ellipsis.
+    static func tileName(_ name: String) -> String {
+        guard name.count > 20 else { return name }
+        return String(name.prefix(19)).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    /// The written line where it can run to more than one line (an `also on` value, a card line).
+    /// A state or a time never splits, and the space before each separator holds, so a line breaks
+    /// only after a separator or inside a long name, and never starts with one.
+    static func wrappingLine(device: KnownSources.Device, entry: KnownSources.Entry, detail: Bool = false,
+                             now: Date) -> String {
+        let held = "\u{00A0}"
+        let named = (detail ? entry.detail : device.display_label) != nil
+        var parts = fields(device: device, entry: entry, detail: detail, now: now)
+        for index in parts.indices where index > 0 || !named {
+            parts[index] = parts[index].replacingOccurrences(of: " ", with: held)
+        }
+        return join(parts, spoken: false).replacingOccurrences(of: " · ", with: held + "· ")
     }
 
     static func fields(device: KnownSources.Device, entry: KnownSources.Entry, detail: Bool = false,
@@ -62,7 +85,7 @@ struct SharedSourceTileLine: View {
                 let field = fields[index]
                 HStack(spacing: 0) {
                     if index == 0 {
-                        Text(verbatim: field.count > 20 ? String(field.prefix(19)) + "…" : field)
+                        Text(verbatim: SharedSourceCopy.tileName(field))
                             .lineLimit(1)
                     } else {
                         Text(verbatim: field).fixedSize()
@@ -150,7 +173,7 @@ struct SharedSourceDetails: View {
                                     Text(verbatim: device.display_label).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                                     ForEach(device.sources.indices, id: \.self) { i in
                                         let entry = device.sources[i]
-                                        let line = SharedSourceCopy.line(device: device, entry: entry, detail: true, now: now)
+                                        let line = SharedSourceCopy.wrappingLine(device: device, entry: entry, detail: true, now: now)
                                         if !line.isEmpty {
                                             Text(verbatim: line).font(.footnote).foregroundStyle(.secondary)
                                                 .accessibilityLabel(SharedSourceCopy.line(device: device, entry: entry, detail: true, spoken: true, now: now))
@@ -171,7 +194,7 @@ struct SharedSourceDetails: View {
                     ForEach(devices, id: \.cid) { device in
                         if let entry = device.sources.first {
                             let label = device.cid == devices.first?.cid ? SharedSourceCopy.alsoOn : ""
-                            LabeledContent(label, value: SharedSourceCopy.line(device: device, entry: entry, now: now))
+                            LabeledContent(label, value: SharedSourceCopy.wrappingLine(device: device, entry: entry, now: now))
                                 .accessibilityValue(SharedSourceCopy.line(device: device, entry: entry, spoken: true, now: now))
                         }
                     }
