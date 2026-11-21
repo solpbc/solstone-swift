@@ -13,8 +13,37 @@ nonisolated final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPho
     private var onChange: (@Sendable () -> Void)?
     private var observing = false
 
+    static let batchFetchChunkSize = 500
+
     init(library: PHPhotoLibrary = .shared()) {
         self.library = library
+    }
+
+    static func runOffMain<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await Task.detached(priority: .utility) {
+            work()
+        }.value
+    }
+
+    static func runOffMainThrowing<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await Task.detached(priority: .utility) {
+            try work()
+        }.value
+    }
+
+    /// Filter non-screenshots before invoking expensive per-asset resource extraction.
+    static func filterAndMapAssets<Candidate>(
+        _ candidates: [Candidate],
+        isScreenshot: (Candidate) -> Bool,
+        map: (Candidate) -> ScreenshotsAsset?
+    ) -> [ScreenshotsAsset] {
+        var result: [ScreenshotsAsset] = []
+        for candidate in candidates where isScreenshot(candidate) {
+            if let mapped = map(candidate) {
+                result.append(mapped)
+            }
+        }
+        return result
     }
 
     func setOnChange(_ onChange: @escaping @Sendable () -> Void) {
@@ -33,37 +62,69 @@ nonisolated final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPho
     }
 
     func screenshots(onOrAfter start: Date) async throws -> [ScreenshotsAsset] {
-        try self.assets(matching: Self.fetchOptions(onOrAfter: start))
+        try await Self.runOffMainThrowing {
+            try self.assets(matching: Self.fetchOptions(onOrAfter: start))
+        }
     }
 
     func asset(localIdentifier: String) async -> ScreenshotsAsset? {
-        let fetched = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
-        guard let asset = fetched.firstObject, Self.isScreenshot(asset) else { return nil }
-        return Self.makeAsset(asset)
+        await Self.runOffMain {
+            let fetched = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
+            guard let asset = fetched.firstObject, Self.isScreenshot(asset) else { return nil }
+            return Self.makeAsset(asset)
+        }
+    }
+
+    func assets(localIdentifiers: [String]) async -> [ScreenshotsAsset] {
+        guard !localIdentifiers.isEmpty else { return [] }
+        return await Self.runOffMain {
+            var assets: [ScreenshotsAsset] = []
+            var offset = 0
+            while offset < localIdentifiers.count {
+                let end = min(offset + Self.batchFetchChunkSize, localIdentifiers.count)
+                let chunk = Array(localIdentifiers[offset..<end])
+                offset = end
+                let fetched = PHAsset.fetchAssets(withLocalIdentifiers: chunk, options: nil)
+                var candidates: [PHAsset] = []
+                candidates.reserveCapacity(fetched.count)
+                fetched.enumerateObjects { asset, _, _ in
+                    candidates.append(asset)
+                }
+                assets.append(contentsOf: Self.filterAndMapAssets(
+                    candidates,
+                    isScreenshot: Self.isScreenshot,
+                    map: Self.makeAsset
+                ))
+            }
+            return assets
+        }
     }
 
     func changes(since token: Data?) async -> ScreenshotsChanges {
-        guard let token, let stored = try? NSKeyedUnarchiver.unarchivedObject(ofClass: PHPersistentChangeToken.self, from: token) else {
-            return .expired
-        }
-        do {
-            let result = try self.library.fetchPersistentChanges(since: stored)
-            var inserted: [String] = []
-            var updated: [String] = []
-            var deleted: [String] = []
-            for change in result {
-                let details = try change.changeDetails(for: .asset)
-                inserted.append(contentsOf: details.insertedLocalIdentifiers)
-                updated.append(contentsOf: details.updatedLocalIdentifiers)
-                deleted.append(contentsOf: details.deletedLocalIdentifiers)
-            }
-            guard let token = Self.archive(self.library.currentChangeToken) else { return .expired }
-            return .delta(inserted: inserted, updated: updated, deleted: deleted, token: token)
-        } catch let error as NSError {
-            if error.domain == PHPhotosErrorDomain, error.code == PHPhotosError.persistentChangeTokenExpired.rawValue {
+        guard let token else { return .expired }
+        return await Self.runOffMain {
+            guard let stored = try? NSKeyedUnarchiver.unarchivedObject(ofClass: PHPersistentChangeToken.self, from: token) else {
                 return .expired
             }
-            return .delta(inserted: [], updated: [], deleted: [], token: token)
+            do {
+                let result = try self.library.fetchPersistentChanges(since: stored)
+                var inserted: [String] = []
+                var updated: [String] = []
+                var deleted: [String] = []
+                for change in result {
+                    let details = try change.changeDetails(for: .asset)
+                    inserted.append(contentsOf: details.insertedLocalIdentifiers)
+                    updated.append(contentsOf: details.updatedLocalIdentifiers)
+                    deleted.append(contentsOf: details.deletedLocalIdentifiers)
+                }
+                guard let current = Self.archive(self.library.currentChangeToken) else { return .expired }
+                return .delta(inserted: inserted, updated: updated, deleted: deleted, token: current)
+            } catch let error as NSError {
+                if error.domain == PHPhotosErrorDomain, error.code == PHPhotosError.persistentChangeTokenExpired.rawValue {
+                    return .expired
+                }
+                return .delta(inserted: [], updated: [], deleted: [], token: token)
+            }
         }
     }
 
@@ -71,34 +132,47 @@ nonisolated final class ScreenshotsPhotoKit: NSObject, ScreenshotsLibrary, PHPho
         Self.archive(self.library.currentChangeToken)
     }
 
-    func export(localIdentifier: String) async -> ScreenshotsExportResult {
-        let fetched = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
-        guard let asset = fetched.firstObject else { return .missing }
-        let resources = PHAssetResource.assetResources(for: asset)
-        guard let resource = resources.first(where: { $0.type == .fullSizePhoto }) ?? resources.first(where: { $0.type == .photo }) else {
-            return .failed
-        }
-        let options = PHAssetResourceRequestOptions()
-        options.isNetworkAccessAllowed = true
-        let typeIdentifier = resource.uniformTypeIdentifier
-        return await withCheckedContinuation { continuation in
-            let box = ExportBox()
-            // @Sendable: PhotoKit runs these on its own queue, not the caller's actor.
-            PHAssetResourceManager.default().requestData(for: resource, options: options) { @Sendable chunk in
-                box.append(chunk)
-            } completionHandler: { @Sendable error in
-                if error != nil {
-                    continuation.resume(returning: .failed)
-                } else {
-                    continuation.resume(returning: .bytes(box.data, uniformTypeIdentifier: typeIdentifier))
-                }
-            }
+    func currentTokenAsync() async -> Data? {
+        await Self.runOffMain {
+            Self.archive(self.library.currentChangeToken)
         }
     }
 
+    func export(localIdentifier: String) async -> ScreenshotsExportResult {
+        await Task.detached(priority: .utility) {
+            let fetched = PHAsset.fetchAssets(withLocalIdentifiers: [localIdentifier], options: nil)
+            guard let asset = fetched.firstObject else { return .missing }
+            let resources = PHAssetResource.assetResources(for: asset)
+            guard let resource = resources.first(where: { $0.type == .fullSizePhoto }) ?? resources.first(where: { $0.type == .photo }) else {
+                return .failed
+            }
+            let options = PHAssetResourceRequestOptions()
+            options.isNetworkAccessAllowed = true
+            let typeIdentifier = resource.uniformTypeIdentifier
+            return await withCheckedContinuation { continuation in
+                let box = ExportBox()
+                // @Sendable: PhotoKit runs these on its own queue, not the caller's actor.
+                PHAssetResourceManager.default().requestData(for: resource, options: options) { @Sendable chunk in
+                    box.append(chunk)
+                } completionHandler: { @Sendable error in
+                    if error != nil {
+                        continuation.resume(returning: .failed)
+                    } else {
+                        continuation.resume(returning: .bytes(box.data, uniformTypeIdentifier: typeIdentifier))
+                    }
+                }
+            }
+        }.value
+    }
+
     func setObserving(_ on: Bool) {
-        guard on != self.observing else { return }
-        self.observing = on
+        self.lock.lock()
+        let changed = on != self.observing
+        if changed {
+            self.observing = on
+        }
+        self.lock.unlock()
+        guard changed else { return }
         if on {
             self.library.register(self)
         } else {

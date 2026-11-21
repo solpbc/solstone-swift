@@ -24,7 +24,11 @@ struct SafariSourceDetailView: View {
     @FocusState private var siteFieldFocused: Bool
 
     var body: some View {
-        let status = SafariSourceStatus(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn)
+        let status = SafariSourceStatus(
+            snapshot: self.model.snapshot,
+            extensionOn: self.model.extensionOn,
+            hasLoaded: self.model.hasLoaded
+        )
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -81,14 +85,14 @@ struct SafariSourceDetailView: View {
         .task {
             // The extension writes the store from another process; read it while shown.
             while !Task.isCancelled {
-                self.model.refresh()
+                await self.model.refreshAsync()
                 try? await Task.sleep(for: .seconds(2))
             }
         }
         .task { await self.model.refreshExtensionState() }
         .onChange(of: self.scenePhase) { _, phase in
             guard phase == .active else { return }
-            self.model.refresh()
+            Task { await self.model.refreshAsync() }
             Task { await self.model.refreshExtensionState() }
         }
         .onDisappear {
@@ -99,7 +103,7 @@ struct SafariSourceDetailView: View {
     private func setUpSteps(_ status: SafariSourceStatus) -> some View {
         let step = SafariSetUpStep(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn)
         let source = safariSourceModel(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn,
-                                       isJournalPaired: self.appConfig.isPaired)
+                                       isJournalPaired: self.appConfig.isPaired, hasLoaded: self.model.hasLoaded)
         return VStack(alignment: .leading, spacing: 0) {
             if status.sourceState == .off, let reason = source.subtext {
                 Text(reason)
@@ -392,7 +396,7 @@ struct SafariSourceDetailView: View {
 
     private func stateBlock(_ status: SafariSourceStatus) -> some View {
         let source = safariSourceModel(snapshot: self.model.snapshot, extensionOn: self.model.extensionOn,
-                                       isJournalPaired: self.appConfig.isPaired)
+                                       isJournalPaired: self.appConfig.isPaired, hasLoaded: self.model.hasLoaded)
         return VStack(alignment: .leading, spacing: 12) {
             SourceDetailVerdictLine(state: status.sourceState)
             if let subtext = status.attention ?? source.subtext {

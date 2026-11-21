@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
 @MainActor
@@ -1006,6 +1007,75 @@ final class SourceIntakeTests: XCTestCase {
         XCTAssertEqual(store.recordObsidianNew(vaultID: vaultID, seenHash: "h6", now: t1), .unchanged)
         snapshot = try self.ready(store)
         XCTAssertEqual(snapshot.obsidian.total, 1)
+    }
+
+    // MARK: - Phase 1 Startup & Foreground Unblock Tests
+
+    func testSourceIntakeModelDeferredLoadSamplePrecedenceOffMainAndGenerationOrdering() async {
+        let locale = Locale(identifier: "en_US")
+        let store = self.store()
+
+        // 1. showsSample: true takes precedence over deferInitialLoad: true.
+        let sampleModel = SourceIntakeModel(store: store, showsSample: true, deferInitialLoad: true)
+        XCTAssertNotNil(sampleModel.statusRows(includeSafari: true, includeWatch: true, locale: locale, calendar: self.utc))
+        XCTAssertEqual(
+            sampleModel.pageFacts(source: .calendar, locale: locale, calendar: self.utc)?.soFar,
+            "1 event, since march 3"
+        )
+
+        // 2. showsSample: false + deferInitialLoad: true starts with nil statusRows & pageFacts without touching loader.
+        let loaderCalls = OSAllocatedUnfairLock<(count: Int, offMain: [Bool])>(initialState: (0, []))
+        let snap1: SourceIntakeSnapshot = {
+            var s = SourceIntakeSnapshot.empty
+            s.started = "2026-03-03"
+            s.safari = SourceIntakeLane(total: 10, last: Date(timeIntervalSince1970: 1_700_000_000))
+            return s
+        }()
+        let snap2: SourceIntakeSnapshot = {
+            var s = SourceIntakeSnapshot.empty
+            s.started = "2026-03-03"
+            s.safari = SourceIntakeLane(total: 42, last: Date(timeIntervalSince1970: 1_700_000_100))
+            return s
+        }()
+
+        let slowEntered = DispatchSemaphore(value: 0)
+        let slowRelease = DispatchSemaphore(value: 0)
+        let deferred = SourceIntakeModel(
+            store: store,
+            showsSample: false,
+            load: {
+                let n = loaderCalls.withLock { state -> Int in
+                    state.count += 1
+                    state.offMain.append(!Thread.isMainThread)
+                    return state.count
+                }
+                if n == 1 {
+                    slowEntered.signal()
+                    slowRelease.wait()
+                    return .ready(snap1)
+                }
+                return .ready(snap2)
+            },
+            deferInitialLoad: true
+        )
+        XCTAssertEqual(loaderCalls.withLock { $0.count }, 0)
+        XCTAssertNil(deferred.statusRows(includeSafari: true, includeWatch: true, locale: locale, calendar: self.utc))
+        XCTAssertNil(deferred.pageFacts(source: .safari, locale: locale, calendar: self.utc))
+
+        // 3. reloadAsync() runs off @MainActor and enforces generation ordering (slow older call dropped).
+        let slowTask = Task { await deferred.reloadAsync() }
+        let entered = await TestSemaphore.wait(slowEntered, timeout: .now() + 5)
+        XCTAssertEqual(entered, .success)
+
+        await deferred.reloadAsync()
+        XCTAssertEqual(deferred.load, .ready(snap2))
+        XCTAssertNotNil(deferred.statusRows(includeSafari: true, includeWatch: true, locale: locale, calendar: self.utc))
+        XCTAssertNotNil(deferred.pageFacts(source: .safari, locale: locale, calendar: self.utc))
+
+        slowRelease.signal()
+        await slowTask.value
+        XCTAssertEqual(deferred.load, .ready(snap2), "stale reloadAsync() must not overwrite newer reloadAsync()")
+        XCTAssertEqual(loaderCalls.withLock { $0.offMain }, [true, true])
     }
 }
 

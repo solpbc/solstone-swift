@@ -416,6 +416,362 @@ final class MobileSegmentUploaderTests: XCTestCase {
         XCTAssertFalse(harness.store.fileExists(stuck))
         XCTAssertFalse(harness.store.fileExists(failedResidue))
     }
+
+    // MARK: - Phase 1 Startup & Foreground Unblock Tests
+
+    func testScanStoreCountsFixtureParityCachedSummaryGenerationGuardDisabledAndGapNotice() async throws {
+        let harness = self.makeHarness()
+        let now = self.clock.now()
+
+        // 1. pending/ multi-facet bundle ([.audio, .location, .screencast])
+        let pendingMultiID = UUID()
+        let pendingDir = try self.writeSegment(
+            store: harness.store,
+            segmentID: pendingMultiID,
+            sources: [.audio, .location, .screencast]
+        )
+
+        // 2. failed/ with manifest.hasFinalizeFailure == false and failure.json stage == "schedule-gate"
+        let scheduleGateID = UUID()
+        _ = try self.writeSegment(store: harness.store, segmentID: scheduleGateID, sources: [.audio])
+        let scheduleGateDir = try harness.store.move(segmentID: scheduleGateID, from: .pending, to: .failed)
+        try harness.store.writeFailure(
+            MobileSegmentFailureSidecar(
+                reason: "schedule gate",
+                httpStatus: nil,
+                transportError: nil,
+                attemptCount: 1,
+                stage: "schedule-gate",
+                lastAttemptAt: now
+            ),
+            in: scheduleGateDir
+        )
+
+        // 3. failed/ with non-finalize stage == "upload" (failedCount += 1, finalizeFailedCount += 0)
+        let uploadFailedID = UUID()
+        _ = try self.writeSegment(store: harness.store, segmentID: uploadFailedID, sources: [.location])
+        let uploadFailedDir = try harness.store.move(segmentID: uploadFailedID, from: .pending, to: .failed)
+        try harness.store.writeFailure(
+            MobileSegmentFailureSidecar(
+                reason: "http 500",
+                httpStatus: 500,
+                transportError: "server",
+                attemptCount: 3,
+                stage: "upload",
+                lastAttemptAt: now
+            ),
+            in: uploadFailedDir
+        )
+
+        // 4. Unreadable manifest.json directories in pending/ and failed/ (counted in pendingCount/failedCount)
+        let unreadablePendingDir = harness.store.segmentDirectoryURL(.pending, segmentID: UUID())
+        try FileManager.default.createDirectory(at: unreadablePendingDir, withIntermediateDirectories: true)
+        try Data("{corrupt".utf8).write(to: unreadablePendingDir.appendingPathComponent("manifest.json"))
+
+        let unreadableFailedDir = harness.store.segmentDirectoryURL(.failed, segmentID: UUID())
+        try FileManager.default.createDirectory(at: unreadableFailedDir, withIntermediateDirectories: true)
+        try Data("{corrupt".utf8).write(to: unreadableFailedDir.appendingPathComponent("manifest.json"))
+
+        // 5. Delivered residue (tombstones/uploaded/<UUID>.json) excluded from counts
+        let deliveredResidueID = UUID()
+        _ = try self.writeSegment(store: harness.store, segmentID: deliveredResidueID, sources: [.audio, .screencast])
+        try harness.store.writeTombstone(segmentID: deliveredResidueID, kind: "uploaded", reason: "delivered", now: now)
+
+        let scanned = MobileSegmentUploader.scanStoreCounts(rootURL: harness.store.rootURL)
+        XCTAssertEqual(scanned.pendingCount, 2)
+        XCTAssertEqual(scanned.failedCount, 3)
+        XCTAssertEqual(scanned.finalizeFailedCount, 1)
+        XCTAssertEqual(scanned.facetPending[.audio], 1)
+        XCTAssertEqual(scanned.facetPending[.location], 1)
+        XCTAssertEqual(scanned.facetPending[.screencast], 1)
+        XCTAssertEqual(scanned.facetFailed[.audio], 1)
+        XCTAssertEqual(scanned.facetFailed[.location], 1)
+        XCTAssertEqual(scanned.facetFailed[.screencast, default: 0], 0)
+
+        // O(1) memory lookup: refreshCounts() populates cached summaries; deleting manifest.json without refreshing
+        // still returns the cached values.
+        harness.uploader.refreshCounts()
+        XCTAssertEqual(harness.uploader.summary(for: .audio).pendingCount, 1)
+        XCTAssertEqual(harness.uploader.summary(for: .audio).failedCount, 1)
+        XCTAssertEqual(harness.uploader.summary(for: .location).pendingCount, 1)
+        XCTAssertEqual(harness.uploader.summary(for: .location).failedCount, 1)
+        XCTAssertEqual(harness.uploader.summary(for: .screencast).pendingCount, 1)
+
+        try FileManager.default.removeItem(at: pendingDir.appendingPathComponent("manifest.json"))
+        XCTAssertEqual(harness.uploader.summary(for: .audio).pendingCount, 1)
+        XCTAssertEqual(harness.uploader.summary(for: .location).pendingCount, 1)
+        XCTAssertEqual(harness.uploader.summary(for: .screencast).pendingCount, 1)
+
+        // Injectable scanCounts seam proves stale scheduleRefreshCounts() / refreshCountsAsync()
+        // never overwrites a newer synchronous refreshCounts().
+        let scanEntered = DispatchSemaphore(value: 0)
+        let scanRelease = DispatchSemaphore(value: 0)
+        let scanMode = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let staleCounts = MobileSegmentStoreCounts(pendingCount: 99, failedCount: 99, finalizeFailedCount: 99, facetPending: [.audio: 99], facetFailed: [:])
+        let freshCounts = MobileSegmentStoreCounts(pendingCount: 4, failedCount: 1, finalizeFailedCount: 0, facetPending: [.audio: 4], facetFailed: [.audio: 1])
+        harness.uploader.scanCounts = { _ in
+            let mode = scanMode.withLock { m -> Int in
+                let cur = m
+                if cur == 0 { m = 1 }
+                return cur
+            }
+            if mode == 0 {
+                scanEntered.signal()
+                scanRelease.wait()
+                return staleCounts
+            }
+            return freshCounts
+        }
+        harness.uploader.scheduleRefreshCounts()
+        let enteredResult = await TestSemaphore.wait(scanEntered, timeout: .now() + 5)
+        XCTAssertEqual(enteredResult, .success)
+        harness.uploader.refreshCounts()
+        XCTAssertEqual(harness.uploader.pendingCount, 4)
+        XCTAssertEqual(harness.uploader.summary(for: .audio).pendingCount, 4)
+        scanRelease.signal()
+        await harness.uploader.waitForCountsRefreshForTesting()
+        XCTAssertEqual(harness.uploader.pendingCount, 4, "stale scheduleRefreshCounts must not overwrite newer sync refreshCounts")
+
+        // Same check for refreshCountsAsync().
+        scanMode.withLock { $0 = 0 }
+        let asyncRefreshTask = Task { await harness.uploader.refreshCountsAsync() }
+        let enteredResult2 = await TestSemaphore.wait(scanEntered, timeout: .now() + 5)
+        XCTAssertEqual(enteredResult2, .success)
+        harness.uploader.refreshCounts()
+        scanRelease.signal()
+        await asyncRefreshTask.value
+        XCTAssertEqual(harness.uploader.pendingCount, 4, "stale refreshCountsAsync must not overwrite newer sync refreshCounts")
+
+        // Disabled uploader does not touch disk.
+        let disabledStore = MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("DisabledStore", isDirectory: true))
+        let disabledUploader = MobileSegmentUploader(
+            store: disabledStore,
+            clock: self.clock,
+            storageDisabledReason: "container unavailable",
+            deferInitialCountScan: true
+        )
+        let disabledScanCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+        disabledUploader.scanCounts = { _ in
+            disabledScanCount.withLock { $0 += 1 }
+            return staleCounts
+        }
+        disabledUploader.refreshCounts()
+        disabledUploader.scheduleRefreshCounts()
+        await disabledUploader.refreshCountsAsync()
+        XCTAssertEqual(disabledScanCount.withLock { $0 }, 0)
+
+        // refreshJournalGap() and refreshJournalGapNotice() (including under Task.isCancelled == true) update journalGapNotice.
+        harness.uploader.scanCounts = MobileSegmentUploader.scanStoreCounts
+        let lossID = UUID()
+        try harness.uploader.journalEvents.openGate(now: now)
+        try harness.uploader.journalEvents.recordLoss(
+            segmentID: lossID,
+            source: .audio,
+            reason: "audio_capture_unfinished",
+            captureAt: now,
+            now: now
+        )
+        let holder = MobileSegmentTransferHolder(
+            transferEngine: harness.engine,
+            mirror: TransferStatusMirror(),
+            uploader: harness.uploader
+        )
+        holder.refreshJournalGap()
+        await harness.uploader.waitForJournalGapNotice()
+        XCTAssertTrue(harness.uploader.journalGapNotice.isShowing)
+
+        // Under Task.isCancelled == true, refreshJournalGapNotice() still refreshes notice & counts.
+        try harness.uploader.journalEvents.markAllEventsSeen()
+        let cancelledNoticeTask = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            XCTAssertTrue(Task.isCancelled)
+            await harness.uploader.refreshJournalGapNotice()
+        }
+        await cancelledNoticeTask.value
+        XCTAssertFalse(harness.uploader.journalGapNotice.isShowing)
+
+        // Cancelled migrateLegacyMobileItems() flushes deferred counts when suppressed refreshes occurred.
+        let legacyRoot = self.tempDirectory.appendingPathComponent("LegacyLocCancel", isDirectory: true)
+        let legacyPending = legacyRoot.appendingPathComponent("pending", isDirectory: true)
+        try FileManager.default.createDirectory(at: legacyPending, withIntermediateDirectories: true)
+        let legacyPayload = Data(#"{"type":"solstone.location.segment","started_at":"2026-06-28T09:00:00Z","ended_at":"2026-06-28T09:01:00Z","day":"20260628","segment":"090000_60"}"#.utf8)
+        try legacyPayload.write(to: legacyPending.appendingPathComponent("20260628-090000_60.jsonl"))
+        try legacyPayload.write(to: legacyPending.appendingPathComponent("20260628-090100_60.jsonl"))
+        var cancelMigrateTask: Task<Void, Never>?
+        var checkpoints = 0
+        let cancelCooperator = MaintenanceCooperator(chunkSize: 1) {
+            checkpoints += 1
+            if checkpoints == 2 {
+                // First legacy file already migrated & called suppressed refreshCounts(); cancel before file 2 & resumeFromDisk().
+                cancelMigrateTask?.cancel()
+            }
+        }
+        let freshCancelHarness = self.makeHarness(
+            transferRootName: "MigrateCancelTransfer",
+            store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("MigrateCancelBox/MobileSegment", isDirectory: true)),
+            cooperator: cancelCooperator
+        )
+        XCTAssertEqual(freshCancelHarness.uploader.pendingCount, 0)
+        cancelMigrateTask = Task {
+            await freshCancelHarness.uploader.migrateLegacyMobileItems(locationCacheRootURL: legacyRoot)
+        }
+        await cancelMigrateTask?.value
+        await freshCancelHarness.uploader.waitForCountsRefreshForTesting()
+        XCTAssertFalse(freshCancelHarness.uploader.journalEvents.isGateOpen, "cancelled migration must not run resumeFromDisk")
+        XCTAssertEqual(freshCancelHarness.uploader.pendingCount, 1, "cancelled migrateLegacyMobileItems must still flush deferred counts")
+    }
+
+    func testPruneJournalEventsRunsOffMainAndOncePerResumeFromDisk() async throws {
+        let harness = self.makeHarness()
+        let stats = OSAllocatedUnfairLock<(count: Int, offMain: [Bool])>(initialState: (0, []))
+        harness.uploader.pruneJournalEvents = { store, now in
+            stats.withLock {
+                $0.count += 1
+                $0.offMain.append(!Thread.isMainThread)
+            }
+            store.pruneForPass(now: now)
+        }
+
+        await harness.uploader.resumeFromDisk()
+
+        let result = stats.withLock { $0 }
+        XCTAssertEqual(result.count, 1, "resumeFromDisk() must prune journal events exactly once")
+        XCTAssertEqual(result.offMain, [true], "pruneForPass must execute off @MainActor")
+    }
+
+    func testResumeFromDiskFIFOSerializationAndCancellationHandoffSafety() async throws {
+        // (a) Cancelling queued Caller 2 wakes Caller 2 promptly without opening the gate or stranding Caller 3.
+        do {
+            let harness = self.makeHarness(
+                transferRootName: "FIFO-A-Transfer",
+                store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("FIFO-A/MobileSegment", isDirectory: true))
+            )
+            let pass1Entered = DispatchSemaphore(value: 0)
+            let pass1Release = DispatchSemaphore(value: 0)
+            let callCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+            harness.uploader.pruneJournalEvents = { store, now in
+                let n = callCount.withLock { c -> Int in c += 1; return c }
+                if n == 1 {
+                    pass1Entered.signal()
+                    pass1Release.wait()
+                }
+                store.pruneForPass(now: now)
+            }
+
+            let caller1 = Task { await harness.uploader.resumeFromDisk() }
+            let entered1 = await TestSemaphore.wait(pass1Entered, timeout: .now() + 5)
+            XCTAssertEqual(entered1, .success)
+
+            let caller2 = Task { await harness.uploader.resumeFromDisk() }
+            let caller3 = Task { await harness.uploader.resumeFromDisk() }
+            await Task.yield()
+
+            // Cancel queued Caller 2 while Caller 1 is still active.
+            caller2.cancel()
+            await caller2.value
+            XCTAssertFalse(harness.uploader.journalEvents.isGateOpen, "cancelled queued Caller 2 must not open gate")
+
+            pass1Release.signal()
+            await caller1.value
+            await caller3.value
+            XCTAssertTrue(harness.uploader.journalEvents.isGateOpen)
+            XCTAssertEqual(callCount.withLock { $0 }, 2, "Caller 1 and Caller 3 run; cancelled Caller 2 skipped")
+        }
+
+        // (b) Cancelling active Caller 1 mid-pass releases Caller 2 to complete and open the gate once.
+        do {
+            let harness = self.makeHarness(
+                transferRootName: "FIFO-B-Transfer",
+                store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("FIFO-B/MobileSegment", isDirectory: true))
+            )
+            let pass1Entered = DispatchSemaphore(value: 0)
+            let pass1Release = DispatchSemaphore(value: 0)
+            let callCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+            harness.uploader.pruneJournalEvents = { store, now in
+                let n = callCount.withLock { c -> Int in c += 1; return c }
+                if n == 1 {
+                    pass1Entered.signal()
+                    pass1Release.wait()
+                }
+                store.pruneForPass(now: now)
+            }
+
+            let caller1 = Task { await harness.uploader.resumeFromDisk() }
+            let entered1 = await TestSemaphore.wait(pass1Entered, timeout: .now() + 5)
+            XCTAssertEqual(entered1, .success)
+
+            let caller2 = Task { await harness.uploader.resumeFromDisk() }
+            await Task.yield()
+
+            caller1.cancel()
+            pass1Release.signal()
+            await caller1.value
+            await caller2.value
+            XCTAssertTrue(harness.uploader.journalEvents.isGateOpen)
+            XCTAssertEqual(callCount.withLock { $0 }, 2)
+        }
+
+        // (c1) Cancelling Caller 2 right after Caller 1's handoff releases lock so Caller 3 completes and opens gate.
+        do {
+            let harness = self.makeHarness(
+                transferRootName: "FIFO-C1-Transfer",
+                store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("FIFO-C1/MobileSegment", isDirectory: true))
+            )
+            let pass1Entered = DispatchSemaphore(value: 0)
+            let pass1Release = DispatchSemaphore(value: 0)
+            let callCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+            harness.uploader.pruneJournalEvents = { store, now in
+                let n = callCount.withLock { c -> Int in c += 1; return c }
+                if n == 1 {
+                    pass1Entered.signal()
+                    pass1Release.wait()
+                }
+                store.pruneForPass(now: now)
+            }
+
+            let caller1 = Task { await harness.uploader.resumeFromDisk() }
+            let entered1 = await TestSemaphore.wait(pass1Entered, timeout: .now() + 5)
+            XCTAssertEqual(entered1, .success)
+
+            let caller2 = Task { await harness.uploader.resumeFromDisk() }
+            let caller3 = Task { await harness.uploader.resumeFromDisk() }
+            await Task.yield()
+
+            var handedOffCount = 0
+            harness.uploader.onResumeSlotHandedOff = {
+                handedOffCount += 1
+                if handedOffCount == 1 {
+                    // Cancel Caller 2 synchronously right after ownership was handed off to it!
+                    caller2.cancel()
+                }
+            }
+            caller1.cancel()
+            pass1Release.signal()
+            await caller1.value
+            await caller2.value
+            await caller3.value
+            XCTAssertEqual(handedOffCount, 2, "Caller 2 must hand off lock to Caller 3 on cancel-after-handoff")
+            XCTAssertTrue(harness.uploader.journalEvents.isGateOpen)
+            XCTAssertEqual(callCount.withLock { $0 }, 2, "Caller 1 (cancelled) + Caller 3 (completed); Caller 2 exited before prune")
+        }
+
+        // (c2) Pre-cancelled Caller 2 never takes or strands the lock for Caller 3.
+        do {
+            let harness = self.makeHarness(
+                transferRootName: "FIFO-C2-Transfer",
+                store: MobileSegmentStore(rootURL: self.tempDirectory.appendingPathComponent("FIFO-C2/MobileSegment", isDirectory: true))
+            )
+            let preCancelled = Task {
+                withUnsafeCurrentTask { $0?.cancel() }
+                await harness.uploader.resumeFromDisk()
+            }
+            await preCancelled.value
+            XCTAssertFalse(harness.uploader.journalEvents.isGateOpen)
+
+            await harness.uploader.resumeFromDisk()
+            XCTAssertTrue(harness.uploader.journalEvents.isGateOpen)
+        }
+    }
 }
 
 private extension MobileSegmentUploaderTests {

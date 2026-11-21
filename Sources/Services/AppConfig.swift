@@ -26,11 +26,20 @@ final class AppConfig {
     /// never touches the journal's own confirmation; it is retried at the next
     /// sync (each foreground).
     @ObservationIgnored var safariAuthority: ((Bool) throws -> Void)?
+    /// Serialized, epoch-guarded coordinator wired only in builds carrying the Safari extension.
+    @ObservationIgnored var safariAuthorityCoordinator: SafariAuthorityCoordinator?
+    @ObservationIgnored private var pendingSafariAuthorityTask: Task<Bool, Never>?
     var journalSendConfirmed: Bool {
         get { self.journalSendConfirmationValue && self.store.hasActiveOwner }
         set {
             self.journalSendConfirmationValue = newValue
-            self.syncSafariAuthority()
+            let effectiveConfirmed = self.journalSendConfirmed
+            if effectiveConfirmed, let coordinator = self.safariAuthorityCoordinator {
+                // Bump epoch synchronously before returning so a following revocation always wins.
+                self.pendingSafariAuthorityTask = coordinator.enqueuePublish(true)
+            } else {
+                self.publishSafariAuthority(effectiveConfirmed)
+            }
         }
     }
 
@@ -39,12 +48,31 @@ final class AppConfig {
         self.publishSafariAuthority(self.journalSendConfirmed)
     }
 
+    @discardableResult
+    func syncSafariAuthorityAsync() async -> Bool {
+        let effectiveConfirmed = self.journalSendConfirmed
+        if let coordinator = self.safariAuthorityCoordinator {
+            let task = coordinator.enqueuePublish(effectiveConfirmed)
+            self.pendingSafariAuthorityTask = task
+            return await task.value
+        }
+        return self.publishSafariAuthority(effectiveConfirmed)
+    }
+
+    func waitForPendingSafariAuthorityForTesting() async {
+        _ = await self.pendingSafariAuthorityTask?.value
+    }
+
     /// Closes Safari's intake before a pairing changes, so no page is taken in
     /// under a confirmation that is about to end.
     @discardableResult
     private func publishSafariAuthority(_ confirmed: Bool) -> Bool {
         do {
-            try self.safariAuthority?(confirmed)
+            if let coordinator = self.safariAuthorityCoordinator {
+                try coordinator.publishSync(confirmed)
+            } else {
+                try self.safariAuthority?(confirmed)
+            }
             return true
         } catch {
             appConfigLog.error("Safari authority write failed; retried on next sync")

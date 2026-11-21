@@ -51,7 +51,13 @@ final class ScreenshotsSourceEngine {
     private let timeZone: TimeZone
     var isPaired: () -> Bool = { false }
     private(set) var snapshot = ScreenshotsSnapshot()
-    private var pumping = false
+    @ObservationIgnored private var pumping = false
+    @ObservationIgnored private var isConfirming = false
+    @ObservationIgnored private var catchUpEpoch: UInt64 = 0
+    @ObservationIgnored private var catchUpTask: Task<Void, Never>?
+    @ObservationIgnored private var needsFollowUpCatchUp = false
+
+    private static let tokenPersistDeltaThreshold = 50
 
     init(
         library: any ScreenshotsLibrary,
@@ -83,20 +89,25 @@ final class ScreenshotsSourceEngine {
 
     func launch() async {
         self.refreshAccess()
-        await self.catchUp()
+        await self.catchUp(forceFollowUp: false)
         if self.snapshot.view.showChooser { await self.count() }
         await self.pump()
     }
 
     func foreground() async {
         self.refreshAccess()
-        await self.catchUp()
+        await self.catchUp(forceFollowUp: false)
         await self.pump()
+    }
+
+    func background() {
+        guard self.store.document.everOn else { return }
+        self.store.save(persistingToken: true)
     }
 
     func backgroundRefresh() async -> Bool {
         guard self.wantsBackgroundRefresh else { return true }
-        await self.catchUp()
+        await self.catchUp(forceFollowUp: true)
         await self.pump()
         return true
     }
@@ -123,26 +134,42 @@ final class ScreenshotsSourceEngine {
     }
 
     func chooseSpan(_ span: ScreenshotsSpan) async {
+        self.catchUpEpoch &+= 1
         self.store.document.selectedSpan = span
         self.store.save()
         await self.count()
     }
 
     func confirm() async {
+        guard !self.isConfirming else { return }
         let document = self.store.document
         guard case .ready(let span, _) = self.snapshot.confirm, span == document.selectedSpan else { return }
+        self.isConfirming = true
+        self.catchUpEpoch &+= 1
+        let epoch = self.catchUpEpoch
         let ids = document.countedIDs
+        let delivered = document.deliveredLocalIDs
+        let existingIDs = Set(document.items.map(\.localIdentifier))
+        let missingIDs = ids.filter { !delivered.contains($0) && !existingIDs.contains($0) }
+        let needsToken = document.changeToken == nil
+
+        let fetchedAssets = missingIDs.isEmpty ? [] : await self.library.assets(localIdentifiers: missingIDs)
+        let fetchedToken: Data? = needsToken ? await self.library.currentTokenAsync() : nil
+        self.isConfirming = false
+
+        guard self.catchUpEpoch == epoch, self.store.document.selectedSpan == span else { return }
+        let fetchedByID = Dictionary(fetchedAssets.map { ($0.localIdentifier, $0) }, uniquingKeysWith: { first, _ in first })
+        let currentDelivered = self.store.document.deliveredLocalIDs
         self.store.document.everOn = true
         self.store.document.enabled = true
         self.store.document.needsSpan = false
         self.store.document.liveFloor = span.start(now: Date(), timeZone: self.timeZone)
         self.store.document.progressDone = 0
         self.store.document.progressTotal = ids.count
-        let delivered = self.store.document.deliveredLocalIDs
-        for id in ids where !delivered.contains(id) {
+        for id in ids where !currentDelivered.contains(id) {
             if let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == id }) {
                 self.store.document.items[index].inFrozen = true
-            } else if let asset = await self.library.asset(localIdentifier: id) {
+            } else if let asset = fetchedByID[id] {
                 self.store.document.items.append(self.item(asset, frozen: true))
             } else {
                 self.store.document.items.append(ScreenshotsItem(
@@ -152,12 +179,13 @@ final class ScreenshotsSourceEngine {
                 self.store.document.progressDone += 1
             }
         }
-        for index in self.store.document.items.indices where !ids.contains(self.store.document.items[index].localIdentifier) {
+        let idSet = Set(ids)
+        for index in self.store.document.items.indices where !idSet.contains(self.store.document.items[index].localIdentifier) {
             self.store.document.items[index].inFrozen = false
         }
         self.recountFrozen()
         if self.store.document.changeToken == nil {
-            self.store.document.changeToken = self.library.currentToken()
+            self.store.document.changeToken = fetchedToken
         }
         self.store.document.lastChecked = Date()
         self.store.save()
@@ -180,6 +208,7 @@ final class ScreenshotsSourceEngine {
     }
 
     func turnOff() {
+        self.catchUpEpoch &+= 1
         self.closePause(at: Date())
         self.store.document.enabled = false
         self.store.document.paused = false
@@ -194,7 +223,7 @@ final class ScreenshotsSourceEngine {
         self.store.document.pauseWindows.append(ScreenshotsPauseWindow(start: Date(), end: nil))
         self.store.save()
         self.publish()
-        Task { await self.catchUp() }
+        Task { await self.catchUp(forceFollowUp: false) }
     }
 
     func resume() async {
@@ -203,7 +232,7 @@ final class ScreenshotsSourceEngine {
         self.store.document.paused = false
         self.store.save()
         self.publish()
-        await self.catchUp()
+        await self.catchUp(forceFollowUp: true)
         await self.pump()
     }
 
@@ -223,6 +252,7 @@ final class ScreenshotsSourceEngine {
     /// Photos access and a pause stay. A screenshot already waiting still goes, to the journal
     /// paired now. Saved before it returns.
     func restartFirstSetup() {
+        self.catchUpEpoch &+= 1
         // What the earlier journal had is no record of what this one has.
         self.store.document.items.removeAll { $0.phase == .delivered }
         self.store.document.progressDone = 0
@@ -265,7 +295,7 @@ final class ScreenshotsSourceEngine {
     }
 
     func libraryChanged() async {
-        await self.catchUp()
+        await self.catchUp(forceFollowUp: true)
         await self.pump()
     }
 
@@ -296,31 +326,73 @@ final class ScreenshotsSourceEngine {
         self.publish()
     }
 
-    private func catchUp() async {
+    private func catchUp(forceFollowUp: Bool) async {
+        guard !self.isConfirming else { return }
+        if let existing = self.catchUpTask {
+            if forceFollowUp {
+                self.needsFollowUpCatchUp = true
+            }
+            await existing.value
+            return
+        }
+        let task = Task { @MainActor in
+            await self.runCatchUpLoop()
+        }
+        self.catchUpTask = task
+        await task.value
+    }
+
+    private func runCatchUpLoop() async {
+        defer { self.catchUpTask = nil }
+        repeat {
+            self.needsFollowUpCatchUp = false
+            await self.runCatchUpPass()
+        } while self.needsFollowUpCatchUp
+    }
+
+    private func canApplyCatchUp(epoch: UInt64) -> Bool {
         let document = self.store.document
-        guard document.everOn, document.enabled, !document.needsSpan, self.library.access() == .full else { return }
+        return self.catchUpEpoch == epoch
+            && document.everOn
+            && document.enabled
+            && !document.needsSpan
+    }
+
+    private func runCatchUpPass() async {
+        let document = self.store.document
+        guard document.everOn, document.enabled, !document.needsSpan, !self.isConfirming, self.library.access() == .full else { return }
+        let epoch = self.catchUpEpoch
         let changes = await self.library.changes(since: document.changeToken)
+        guard self.canApplyCatchUp(epoch: epoch) else { return }
+        let persistToken: Bool
         switch changes {
         case .expired:
-            await self.rescan()
+            let rescanned = await self.rescan(epoch: epoch)
+            guard self.canApplyCatchUp(epoch: epoch) else { return }
+            persistToken = rescanned
         case .delta(let inserted, let updated, let deleted, let token):
+            let knownIDs = Set(self.store.document.items.map(\.localIdentifier))
+            let candidateIDs = Array(Set(inserted + updated)).filter { !knownIDs.contains($0) }
+            let fetchedAssets = candidateIDs.isEmpty ? [] : await self.library.assets(localIdentifiers: candidateIDs)
+            guard self.canApplyCatchUp(epoch: epoch) else { return }
             self.apply(deleted: deleted)
-            let ids = Array(Set(inserted + updated))
-            for id in ids {
-                guard let asset = await self.library.asset(localIdentifier: id) else { continue }
+            for asset in fetchedAssets {
                 self.considerLive(asset)
             }
             self.store.document.changeToken = token
+            persistToken = (inserted.count + updated.count + deleted.count) >= Self.tokenPersistDeltaThreshold
         }
         self.store.document.lastChecked = Date()
-        self.store.save()
+        self.store.save(persistingToken: persistToken)
         self.publish()
     }
 
-    private func rescan() async {
+    private func rescan(epoch: UInt64) async -> Bool {
         let start = self.store.document.liveFloor
             ?? self.store.document.selectedSpan.start(now: Date(), timeZone: self.timeZone)
-        guard let assets = try? await self.library.screenshots(onOrAfter: start) else { return }
+        guard let assets = try? await self.library.screenshots(onOrAfter: start) else { return false }
+        let freshToken = await self.library.currentTokenAsync()
+        guard self.canApplyCatchUp(epoch: epoch) else { return false }
         for asset in assets {
             if self.store.document.items.contains(where: { $0.localIdentifier == asset.localIdentifier && $0.phase != .pending }) {
                 continue
@@ -331,7 +403,8 @@ final class ScreenshotsSourceEngine {
             }
             self.considerLive(asset, ignorePause: frozen)
         }
-        self.store.document.changeToken = self.library.currentToken()
+        self.store.document.changeToken = freshToken
+        return true
     }
 
     private func considerLive(_ asset: ScreenshotsAsset, ignorePause: Bool = false) {
@@ -419,23 +492,54 @@ final class ScreenshotsSourceEngine {
                 await self.export(localIdentifier)
             }
         case .bytes(let data, let uti):
-            await self.accept(index: index, asset: asset, data: data, uti: uti)
+            await self.accept(asset: asset, data: data, uti: uti)
         }
     }
 
-    private func accept(index: Int, asset: ScreenshotsAsset, data: Data, uti: String) async {
-        guard let prepared = ScreenshotsWire.uploadBytes(data: data, uniformTypeIdentifier: uti) else {
+    private nonisolated enum PreparedScreenshot: Sendable {
+        case refusedType
+        case tooBig
+        case ready(data: Data, ext: String, contentType: String, hash: String)
+    }
+
+    private func accept(asset: ScreenshotsAsset, data: Data, uti: String) async {
+        let pixelWidth = asset.pixelWidth
+        let pixelHeight = asset.pixelHeight
+        let preparedResult: PreparedScreenshot = await Task.detached(priority: .utility) {
+            guard let prepared = ScreenshotsWire.uploadBytes(data: data, uniformTypeIdentifier: uti) else {
+                return .refusedType
+            }
+            let pixels = ScreenshotsWire.pixels(in: prepared.data)
+            let width = pixels?.0 ?? pixelWidth
+            let height = pixels?.1 ?? pixelHeight
+            if ScreenshotsWire.exceedsLimits(byteCount: prepared.data.count, pixelWidth: width, pixelHeight: height) {
+                return .tooBig
+            }
+            let hash = ScreenshotsWire.sha256Hex(prepared.data)
+            return .ready(data: prepared.data, ext: prepared.ext, contentType: prepared.contentType, hash: hash)
+        }.value
+
+        guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }),
+              self.store.document.items[index].phase == .pending
+        else { return }
+
+        let preparedData: Data
+        let preparedExt: String
+        let preparedContentType: String
+        let hash: String
+        switch preparedResult {
+        case .refusedType:
             self.finish(index, .refusedType)
             return
-        }
-        let pixels = ScreenshotsWire.pixels(in: prepared.data)
-        let width = pixels?.0 ?? asset.pixelWidth
-        let height = pixels?.1 ?? asset.pixelHeight
-        if ScreenshotsWire.exceedsLimits(byteCount: prepared.data.count, pixelWidth: width, pixelHeight: height) {
+        case .tooBig:
             self.finish(index, .tooBig)
             return
+        case .ready(let readyData, let readyExt, let readyContentType, let readyHash):
+            preparedData = readyData
+            preparedExt = readyExt
+            preparedContentType = readyContentType
+            hash = readyHash
         }
-        let hash = ScreenshotsWire.sha256Hex(prepared.data)
         // The same bytes under another screenshot are already in this journal.
         if self.store.document.hasDelivered(hash: hash) {
             self.store.document.items[index].hash = hash
@@ -450,9 +554,9 @@ final class ScreenshotsSourceEngine {
         let upload = ScreenshotsUpload(
             localIdentifier: asset.localIdentifier,
             itemID: ScreenshotsWire.itemID(forHash: hash),
-            bytes: prepared.data,
-            filename: ScreenshotsWire.filename(ext: prepared.ext),
-            contentType: prepared.contentType,
+            bytes: preparedData,
+            filename: ScreenshotsWire.filename(ext: preparedExt),
+            contentType: preparedContentType,
             hash: hash,
             capturedAt: placement.capturedAt,
             day: placement.day,

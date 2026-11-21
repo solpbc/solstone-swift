@@ -13,14 +13,18 @@ final class ProblemReportsManager {
     @ObservationIgnored private let store: ProblemReportStore
     @ObservationIgnored private var subscriber: (any MetricSubscribing)?
     @ObservationIgnored private var isSubscribed = false
+    @ObservationIgnored private var loadGeneration: UInt64 = 0
 
     init(
         store: ProblemReportStore,
         initialEnabled: Bool = UserSettings.problemReportsEnabled,
+        deferInitialLoad: Bool = false,
         makeSubscriber: (@escaping @MainActor @Sendable ([ProblemReportPayloadInput]) -> Void) -> any MetricSubscribing
     ) {
         self.store = store
-        self.reports = store.all()
+        if !deferInitialLoad {
+            self.reports = store.all()
+        }
         self.subscriber = nil
         self.subscriber = makeSubscriber { [weak self] inputs in
             self?.ingest(inputs)
@@ -31,11 +35,13 @@ final class ProblemReportsManager {
     convenience init(
         store: ProblemReportStore,
         subscriber: any MetricSubscribing,
-        initialEnabled: Bool = UserSettings.problemReportsEnabled
+        initialEnabled: Bool = UserSettings.problemReportsEnabled,
+        deferInitialLoad: Bool = false
     ) {
         self.init(
             store: store,
             initialEnabled: initialEnabled,
+            deferInitialLoad: deferInitialLoad,
             makeSubscriber: { _ in subscriber }
         )
     }
@@ -55,10 +61,23 @@ final class ProblemReportsManager {
     }
 
     func refresh() {
+        self.loadGeneration &+= 1
         self.reports = self.store.all()
     }
 
+    func refreshAsync() async {
+        self.loadGeneration &+= 1
+        let generation = self.loadGeneration
+        let result = await self.store.loadSnapshotOffMain()
+        guard generation == self.loadGeneration else { return }
+        if result.failedDecodeCount > 0 {
+            self.store.reportDecodeFailures(count: result.failedDecodeCount)
+        }
+        self.reports = result.reports
+    }
+
     func ingest(_ inputs: [ProblemReportPayloadInput]) {
+        self.loadGeneration &+= 1
         self.store.ingest(inputs)
         self.refresh()
     }
@@ -68,11 +87,13 @@ final class ProblemReportsManager {
     }
 
     func delete(id: UUID) {
+        self.loadGeneration &+= 1
         self.store.delete(id: id)
         self.refresh()
     }
 
     func deleteAll() {
+        self.loadGeneration &+= 1
         self.store.deleteAll()
         self.refresh()
     }

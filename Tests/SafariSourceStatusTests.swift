@@ -130,4 +130,131 @@ final class SafariSourceStatusTests: XCTestCase {
         let unpaired = safariSourceModel(snapshot: self.snapshot(confirmed: false), isJournalPaired: false)
         XCTAssertEqual(unpaired.subtext, SafariVocabulary.notPaired)
     }
+
+    // MARK: - Phase 1 Startup & Foreground Unblock Tests
+
+    @MainActor
+    func testDeferredInitialLoadStartsCheckingThenTransitionsAndPreservesOrderingAndCustomLoad() async {
+        // 1. deferInitialLoad == true starts with hasLoaded == false, .checking, waitingIsKnown == false.
+        let activeSnap = self.snapshot()
+        let deferred = SafariSourceModel(
+            loadAsync: { activeSnap },
+            deferInitialLoad: true
+        )
+        XCTAssertFalse(deferred.hasLoaded)
+        XCTAssertNil(deferred.snapshot)
+        XCTAssertFalse(deferred.waitingIsKnown)
+        let checkingStatus = SafariSourceStatus(snapshot: deferred.snapshot, extensionOn: nil, hasLoaded: deferred.hasLoaded)
+        XCTAssertEqual(checkingStatus.sourceState, .checking)
+        XCTAssertNil(checkingStatus.attention)
+        let checkingModel = safariSourceModel(snapshot: deferred.snapshot, extensionOn: nil, isJournalPaired: true, hasLoaded: deferred.hasLoaded)
+        XCTAssertEqual(checkingModel.state, .checking)
+        XCTAssertNil(checkingModel.attention)
+
+        // Transitions cleanly to .active after refreshAsync().
+        await deferred.refreshAsync()
+        XCTAssertTrue(deferred.hasLoaded)
+        XCTAssertTrue(deferred.waitingIsKnown)
+        XCTAssertEqual(
+            SafariSourceStatus(snapshot: deferred.snapshot, extensionOn: nil, hasLoaded: deferred.hasLoaded).sourceState,
+            .active
+        )
+
+        // Read failure after load transitions to .needsAttention / unreadable.
+        let failing = SafariSourceModel(
+            loadAsync: { throw SafariBrowserError.storage },
+            deferInitialLoad: true
+        )
+        await failing.refreshAsync()
+        XCTAssertTrue(failing.hasLoaded)
+        XCTAssertNil(failing.snapshot)
+        let failedStatus = SafariSourceStatus(snapshot: failing.snapshot, extensionOn: nil, hasLoaded: failing.hasLoaded)
+        XCTAssertEqual(failedStatus.sourceState, .needsAttention)
+        XCTAssertEqual(failedStatus.attention, SafariVocabulary.unreadable)
+
+        // 2. Default off-main runner executes off @MainActor.
+        let ranOffMain = SafariStatusFlag()
+        let offMainSnap = await SafariSourceModel.loadSnapshotOffMain {
+            ranOffMain.set(!Thread.isMainThread)
+            return SafariBrowserSnapshot(confirmed: true, heldBytes: 0, queuedBytes: 0, lastAccepted: Date(), lastContact: Date(), full: false)
+        }
+        XCTAssertNotNil(offMainSnap)
+        XCTAssertTrue(ranOffMain.get())
+        XCTAssertTrue(Thread.isMainThread)
+
+        // 3. Generation ordering: slow earlier refreshAsync() cannot overwrite newer refreshAsync() or refresh().
+        let slowStarted = DispatchSemaphore(value: 0)
+        let slowRelease = DispatchSemaphore(value: 0)
+        let callIndex = SafariStatusCounter()
+        let olderSnap = self.snapshot(confirmed: false)
+        let newerSnap = self.snapshot(confirmed: true)
+        let ordered = SafariSourceModel(
+            load: { newerSnap },
+            loadAsync: {
+                let n = callIndex.next()
+                if n == 1 {
+                    slowStarted.signal()
+                    await TestSemaphore.wait(slowRelease)
+                    return olderSnap
+                }
+                return newerSnap
+            },
+            deferInitialLoad: true
+        )
+        let slowTask = Task { await ordered.refreshAsync() }
+        let slowResult = await TestSemaphore.wait(slowStarted, timeout: .now() + 5)
+        XCTAssertEqual(slowResult, .success)
+        await ordered.refreshAsync()
+        XCTAssertEqual(ordered.snapshot, newerSnap)
+        slowRelease.signal()
+        await slowTask.value
+        XCTAssertEqual(ordered.snapshot, newerSnap, "stale refreshAsync() must not overwrite newer refreshAsync()")
+
+        // Stale refreshAsync() cannot overwrite newer sync refresh() either.
+        let slow2Started = DispatchSemaphore(value: 0)
+        let slow2Release = DispatchSemaphore(value: 0)
+        let syncSnap = self.snapshot(full: true)
+        let syncBeatsAsync = SafariSourceModel(
+            load: { syncSnap },
+            loadAsync: {
+                slow2Started.signal()
+                await TestSemaphore.wait(slow2Release)
+                return olderSnap
+            },
+            deferInitialLoad: true
+        )
+        let slow2Task = Task { await syncBeatsAsync.refreshAsync() }
+        let slow2Result = await TestSemaphore.wait(slow2Started, timeout: .now() + 5)
+        XCTAssertEqual(slow2Result, .success)
+        syncBeatsAsync.refresh()
+        XCTAssertEqual(syncBeatsAsync.snapshot, syncSnap)
+        slow2Release.signal()
+        await slow2Task.value
+        XCTAssertEqual(syncBeatsAsync.snapshot, syncSnap, "stale refreshAsync() must not overwrite newer sync refresh()")
+
+        // 4. Custom sync `load` closure (e.g. SafariUITestSource.seeded()) is honored by refreshAsync().
+        let seededSnap = self.snapshot(full: true)
+        var customLoadCalls = 0
+        let seeded = SafariSourceModel(load: {
+            customLoadCalls += 1
+            return seededSnap
+        })
+        XCTAssertEqual(customLoadCalls, 1)
+        await seeded.refreshAsync()
+        XCTAssertEqual(customLoadCalls, 2)
+        XCTAssertEqual(seeded.snapshot, seededSnap)
+    }
+}
+
+private nonisolated final class SafariStatusCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func next() -> Int { self.lock.lock(); defer { self.lock.unlock() }; self.count += 1; return self.count }
+}
+
+private nonisolated final class SafariStatusFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func get() -> Bool { self.lock.lock(); defer { self.lock.unlock() }; return self.value }
+    func set(_ newValue: Bool) { self.lock.lock(); self.value = newValue; self.lock.unlock() }
 }

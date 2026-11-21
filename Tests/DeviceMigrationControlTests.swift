@@ -3,6 +3,7 @@
 
 import Foundation
 import Crypto
+import os
 import SPLTunnel
 import XCTest
 @testable import SPLTunnel
@@ -363,6 +364,80 @@ final class DeviceMigrationControlTests: XCTestCase {
         let streamState = await session.streamState()
         XCTAssertEqual(disconnectCount, 1)
         XCTAssertEqual(streamState, .resetLocal)
+    }
+
+    @MainActor
+    func testPostRekeyWaitsForInnerTLSOrphanPurgeBarrierAndHonorsImmediateCancellationAndShouldContinue() async throws {
+        let barrier = InnerTLSOrphanPurgeBarrier()
+        let purgeEntered = DispatchSemaphore(value: 0)
+        let purgeRelease = DispatchSemaphore(value: 0)
+        barrier.start {
+            purgeEntered.signal()
+            purgeRelease.wait()
+        }
+        let entered = await TestSemaphore.wait(purgeEntered, timeout: .now() + 5)
+        XCTAssertEqual(entered, .success)
+
+        let sessionBuilds = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let capture = MigrationMuxCapture()
+        let response = Data("HTTP/1.1 201 Created\r\nContent-Length: 2\r\n\r\n{}".utf8)
+        let exchange = SPLMigrationControlExchange(
+            makeSession: { _ in
+                sessionBuilds.withLock { $0 += 1 }
+                return MigrationControlSession(response: response, capture: capture)
+            },
+            orphanPurgeBarrier: barrier
+        )
+
+        // 1. Cancelling postRekey while waiting throws CancellationError immediately before purge finishes.
+        let cancelledTask = Task {
+            try await exchange.postRekey(
+                pairing: Self.pairing,
+                candidates: [.lan(host: "192.0.2.1", port: 7657, scope: "")],
+                body: Data("{}".utf8),
+                shouldContinue: { true },
+                afterResponse: { _ in }
+            )
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(sessionBuilds.withLock { $0 }, 0)
+        cancelledTask.cancel()
+        do {
+            try await cancelledTask.value
+            XCTFail("cancelled postRekey waiting on barrier must throw immediately")
+        } catch is CancellationError {}
+        XCTAssertEqual(sessionBuilds.withLock { $0 }, 0)
+
+        // 2. shouldContinue() returning false after purge finishes skips makeSession.
+        let allowContinue = OSAllocatedUnfairLock<Bool>(initialState: true)
+        let stoppedTask = Task {
+            try await exchange.postRekey(
+                pairing: Self.pairing,
+                candidates: [.lan(host: "192.0.2.1", port: 7657, scope: "")],
+                body: Data("{}".utf8),
+                shouldContinue: { allowContinue.withLock { $0 } },
+                afterResponse: { _ in }
+            )
+        }
+        let succeedingTask = Task {
+            try await exchange.postRekey(
+                pairing: Self.pairing,
+                candidates: [.lan(host: "192.0.2.1", port: 7657, scope: "")],
+                body: Data("{}".utf8),
+                shouldContinue: { true },
+                afterResponse: { _ in }
+            )
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        allowContinue.withLock { $0 = false }
+        purgeRelease.signal()
+
+        do {
+            try await stoppedTask.value
+            XCTFail("shouldContinue() == false must throw CancellationError without calling makeSession")
+        } catch is CancellationError {}
+        try await succeedingTask.value
+        XCTAssertEqual(sessionBuilds.withLock { $0 }, 1)
     }
 
     private static let pairing = StoredPairing(

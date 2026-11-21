@@ -147,8 +147,11 @@ struct ProblemReportsView: View {
             Text(SourceVocabulary.problemReportsDeleteAllConfirmBody)
         }
         .onAppear {
-            self.manager.refresh()
             self.refreshShareAllURL()
+            Task {
+                await self.manager.refreshAsync()
+                self.refreshShareAllURL()
+            }
         }
         .onChange(of: self.manager.reports) {
             self.refreshShareAllURL()

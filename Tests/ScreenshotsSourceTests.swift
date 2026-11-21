@@ -768,38 +768,635 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
             progressTotal: 0
         )
     }
+
+    // MARK: - Phase 1 Startup & Foreground Unblock Tests
+
+    @MainActor
+    func testCatchUpConfirmAndRescanUseBatchedAssetFetchAndAsyncToken() async throws {
+        let url = self.makeRoot().appendingPathComponent("state.json")
+        let library = FakeScreenshotsLibrary()
+        library.status = .full
+        let initial = Self.asset("init-1", age: -3_600, uti: "public.png")
+        let newA = Self.asset("new-a", age: -60, uti: "public.png")
+        let newB = Self.asset("new-b", age: -30, uti: "public.png")
+        library.assets = [initial]
+        library.exports = [
+            "init-1": .bytes(Data("init-1".utf8), uniformTypeIdentifier: "public.png"),
+            "new-a": .bytes(Data("new-a".utf8), uniformTypeIdentifier: "public.png"),
+            "new-b": .bytes(Data("new-b".utf8), uniformTypeIdentifier: "public.png"),
+        ]
+        library.token = Data("tok-confirm".utf8)
+        let sender = FakeScreenshotsSender()
+        let engine = ScreenshotsSourceEngine(
+            library: library, store: ScreenshotsStore(fileURL: url), sender: sender,
+            timeZone: TimeZone(identifier: "America/Denver")!
+        )
+        // Keep isPaired == true so confirm/catchUp + pump both run; verify confirm/catchUp use batched assets(localIdentifiers:)
+        // and never call asset(localIdentifier:) for non-screenshots or already-known items (only pump's export calls asset for real screenshots).
+        engine.isPaired = { true }
+
+        await engine.turnOn()
+        await engine.confirm()
+        XCTAssertGreaterThanOrEqual(library.currentTokenAsyncCalls, 1)
+        XCTAssertEqual(library.assetsBatchCalls, [["init-1"]])
+        XCTAssertEqual(library.singleAssetCalls, ["init-1"])
+
+        // Delta with known ID ("init-1") plus two new screenshots and two non-screenshots fetches only unknown IDs in one batch call.
+        library.resetCallTracking()
+        library.assets = [initial, newA, newB]
+        library.changeResult = .delta(
+            inserted: ["new-a", "new-b", "non-shot-1", "non-shot-2"],
+            updated: ["init-1"],
+            deleted: [],
+            token: Data("tok-delta".utf8)
+        )
+        await engine.libraryChanged()
+        XCTAssertEqual(library.assetsBatchCalls.count, 1)
+        XCTAssertEqual(Set(library.assetsBatchCalls[0]), Set(["new-a", "new-b", "non-shot-1", "non-shot-2"]))
+        XCTAssertFalse(library.assetsBatchCalls[0].contains("init-1"))
+        XCTAssertEqual(Set(library.singleAssetCalls), Set(["new-a", "new-b"]))
+        XCTAssertFalse(library.singleAssetCalls.contains("non-shot-1"))
+        XCTAssertFalse(library.singleAssetCalls.contains("non-shot-2"))
+        XCTAssertFalse(library.singleAssetCalls.contains("init-1"))
+
+        // Expired token rescan uses currentTokenAsync().
+        library.resetCallTracking()
+        library.token = Data("tok-rescan".utf8)
+        library.changeResult = .expired
+        await engine.libraryChanged()
+        XCTAssertEqual(library.currentTokenAsyncCalls, 1)
+        XCTAssertEqual(library.singleAssetCalls, [])
+    }
+
+    @MainActor
+    func testScreenshotsPhotoKitOffMainRunnerFilterHelperAndHardwareIsolationGuard() async throws {
+        // Positive: runOffMain executes off the main thread.
+        let ranOffMain = await ScreenshotsPhotoKit.runOffMain { !Thread.isMainThread }
+        XCTAssertTrue(ranOffMain)
+        let ranOffMainThrowing = try await ScreenshotsPhotoKit.runOffMainThrowing { !Thread.isMainThread }
+        XCTAssertTrue(ranOffMainThrowing)
+        // Negative twin: @MainActor body executes on the main thread.
+        XCTAssertTrue(Thread.isMainThread)
+
+        // Pure filter-before-resource helper skips non-screenshots before invoking map.
+        var mappedIDs: [String] = []
+        let filtered = ScreenshotsPhotoKit.filterAndMapAssets(
+            [("cam-1", false), ("shot-1", true), ("cam-2", false), ("shot-2", true)],
+            isScreenshot: { $0.1 },
+            map: { item in
+                mappedIDs.append(item.0)
+                return Self.asset(item.0, age: -10, uti: "public.png")
+            }
+        )
+        XCTAssertEqual(mappedIDs, ["shot-1", "shot-2"])
+        XCTAssertEqual(filtered.map(\.localIdentifier), ["shot-1", "shot-2"])
+
+        // Structural guard: all 6 async methods route off-main and Decision 261110 hardware isolation stays intact.
+        let photoKitURL = StringLiteralGrepSupport.worktreeRoot()
+            .appendingPathComponent("Sources/Screenshots/ScreenshotsPhotoKit.swift")
+        let source = try String(contentsOf: photoKitURL, encoding: .utf8)
+        XCTAssertTrue(source.contains("nonisolated final class ScreenshotsPhotoKit:"))
+        XCTAssertTrue(source.contains("private nonisolated final class ExportBox:"))
+        XCTAssertTrue(source.contains("{ @Sendable chunk in"))
+        XCTAssertTrue(source.contains("completionHandler: { @Sendable error in"))
+        let methodOffMainMarkers: [(String, String)] = [
+            ("func screenshots(onOrAfter", "Self.runOffMainThrowing"),
+            ("func asset(localIdentifier", "Self.runOffMain"),
+            ("func assets(localIdentifiers", "Self.runOffMain"),
+            ("func changes(since", "Self.runOffMain"),
+            ("func currentTokenAsync()", "Self.runOffMain"),
+            ("func export(localIdentifier", "Task.detached(priority: .utility)"),
+        ]
+        for (signature, marker) in methodOffMainMarkers {
+            let start = try XCTUnwrap(source.range(of: signature), "missing \(signature)")
+            let window = source[start.lowerBound..<source.index(start.lowerBound, offsetBy: min(400, source.distance(from: start.lowerBound, to: source.endIndex)))]
+            XCTAssertTrue(window.contains(marker), "\(signature) must route off-main via \(marker)")
+        }
+    }
+
+    @MainActor
+    func testCatchUpCoalescesLaunchAndForegroundAndWaitsForFollowUpOnChangeResumeAndBackgroundRefresh() async throws {
+        let url = self.makeRoot().appendingPathComponent("state.json")
+        let library = FakeScreenshotsLibrary()
+        library.status = .full
+        let first = Self.asset("first", age: -3_600, uti: "public.png")
+        library.assets = [first]
+        library.exports = ["first": .bytes(Data("first".utf8), uniformTypeIdentifier: "public.png")]
+        let sender = FakeScreenshotsSender()
+        let engine = ScreenshotsSourceEngine(
+            library: library, store: ScreenshotsStore(fileURL: url), sender: sender,
+            timeZone: TimeZone(identifier: "America/Denver")!
+        )
+        engine.isPaired = { true }
+        await engine.turnOn()
+        await engine.confirm()
+        library.resetCallTracking()
+
+        // 1. Overlapping launch() + foreground() coalesce into a single changes() pass.
+        let gate = AsyncGate()
+        let entered = AsyncGate()
+        library.onChanges = { _ in
+            entered.open()
+            await gate.wait()
+            return .delta(inserted: [], updated: [], deleted: [], token: Data("tok-1".utf8))
+        }
+        let launchTask = Task { await engine.launch() }
+        await entered.wait()
+        let foregroundTask = Task { await engine.foreground() }
+        await Task.yield()
+        gate.open()
+        await launchTask.value
+        await foregroundTask.value
+        XCTAssertEqual(library.changesCallCount, 1)
+
+        // 2. libraryChanged(), resume(), and backgroundRefresh() arriving mid-catchUp schedule
+        //    one follow-up pass and DO NOT return until that follow-up pass completes.
+        for label in ["libraryChanged", "resume", "backgroundRefresh"] {
+            library.resetCallTracking()
+            let pass1Entered = AsyncGate()
+            let pass1Release = AsyncGate()
+            let pass2Entered = AsyncGate()
+            let pass2Release = AsyncGate()
+            let passCounter = OSAllocatedUnfairLock<Int>(initialState: 0)
+            let pass2Completed = OSAllocatedUnfairLock<Bool>(initialState: false)
+            library.onChanges = { _ in
+                let pass = passCounter.withLock { n -> Int in n += 1; return n }
+                if pass == 1 {
+                    pass1Entered.open()
+                    await pass1Release.wait()
+                    return .delta(inserted: [], updated: [], deleted: [], token: Data("p1".utf8))
+                } else {
+                    pass2Entered.open()
+                    await pass2Release.wait()
+                    pass2Completed.withLock { $0 = true }
+                    return .delta(inserted: [], updated: [], deleted: [], token: Data("p2".utf8))
+                }
+            }
+
+            let inFlight = Task { await engine.foreground() }
+            await pass1Entered.wait()
+            if label == "resume" {
+                engine.pause()
+            }
+            let follower = Task {
+                switch label {
+                case "libraryChanged":
+                    await engine.libraryChanged()
+                case "resume":
+                    await engine.resume()
+                default:
+                    _ = await engine.backgroundRefresh()
+                }
+            }
+            await Task.yield()
+            pass1Release.open()
+            await pass2Entered.wait()
+            XCTAssertFalse(pass2Completed.withLock { $0 }, "\(label) must not return before pass 2 completes")
+            pass2Release.open()
+            await inFlight.value
+            await follower.value
+            XCTAssertTrue(pass2Completed.withLock { $0 }, "\(label) must finish pass 2 before returning")
+            XCTAssertEqual(library.changesCallCount, 2, "\(label) should run exactly 2 passes")
+        }
+    }
+
+    @MainActor
+    func testMidAwaitInterruptionsLeaveStoreUnmutatedAndPreservePendingItemsOnRestart() async throws {
+        // 1. turnOff(), restartFirstSetup(), and chooseSpan(_:) mid-confirm() discard partial state,
+        //    and foreground() mid-confirm() does not launch .expired rescan.
+        for interrupt in ["turnOff", "restartFirstSetup", "chooseSpan"] {
+            let url = self.makeRoot().appendingPathComponent("confirm-\(interrupt).json")
+            let library = FakeScreenshotsLibrary()
+            library.status = .full
+            library.assets = [Self.asset("c-1", age: -100, uti: "public.png")]
+            library.exports = ["c-1": .bytes(Data("c-1".utf8), uniformTypeIdentifier: "public.png")]
+            let sender = FakeScreenshotsSender()
+            let store = ScreenshotsStore(fileURL: url)
+            let engine = ScreenshotsSourceEngine(
+                library: library, store: store, sender: sender,
+                timeZone: TimeZone(identifier: "America/Denver")!
+            )
+            engine.isPaired = { true }
+            await engine.turnOn()
+
+            let entered = AsyncGate()
+            let release = AsyncGate()
+            library.onAssetsBatch = { ids in
+                entered.open()
+                await release.wait()
+                return ids.compactMap { id in library.assets.first { $0.localIdentifier == id } }
+            }
+            library.changeResult = .expired
+            let confirmTask = Task { await engine.confirm() }
+            await entered.wait()
+            // Foreground mid-confirm() must NOT run catchUp / .expired rescan!
+            await engine.foreground()
+            XCTAssertEqual(library.changesCallCount, 0)
+
+            let docBeforeInterrupt = store.document
+            switch interrupt {
+            case "turnOff":
+                engine.turnOff()
+            case "restartFirstSetup":
+                engine.restartFirstSetup()
+            default:
+                await engine.chooseSpan(.last30Days)
+            }
+            release.open()
+            await confirmTask.value
+
+            XCTAssertEqual(store.document.everOn, interrupt == "turnOff" ? false : docBeforeInterrupt.everOn)
+            XCTAssertFalse(store.document.enabled, "\(interrupt) mid-confirm must not leave source enabled")
+            XCTAssertNil(store.document.liveFloor, "\(interrupt) mid-confirm must not persist liveFloor")
+            XCTAssertEqual(store.document.progressTotal, 0, "\(interrupt) mid-confirm must not persist progressTotal")
+            XCTAssertEqual(sender.sent.count, 0)
+        }
+
+        // 2. turnOff() mid-catchUp .delta and between rescan's screenshots() and currentTokenAsync()
+        //    leaves store.document unmutated.
+        do {
+            let url = self.makeRoot().appendingPathComponent("delta-interrupt.json")
+            let library = FakeScreenshotsLibrary()
+            library.status = .full
+            let first = Self.asset("d-1", age: -3_600, uti: "public.png")
+            let second = Self.asset("d-2", age: -10, uti: "public.png")
+            library.assets = [first]
+            library.exports = [
+                "d-1": .bytes(Data("d-1".utf8), uniformTypeIdentifier: "public.png"),
+                "d-2": .bytes(Data("d-2".utf8), uniformTypeIdentifier: "public.png"),
+            ]
+            let sender = FakeScreenshotsSender()
+            let store = ScreenshotsStore(fileURL: url)
+            let engine = ScreenshotsSourceEngine(
+                library: library, store: store, sender: sender,
+                timeZone: TimeZone(identifier: "America/Denver")!
+            )
+            engine.isPaired = { true }
+            await engine.turnOn()
+            await engine.confirm()
+            let savedToken = store.document.changeToken
+
+            library.assets = [first, second]
+            library.changeResult = .delta(inserted: ["d-2"], updated: [], deleted: ["d-1"], token: Data("new-tok".utf8))
+            let entered = AsyncGate()
+            let release = AsyncGate()
+            library.onAssetsBatch = { ids in
+                entered.open()
+                await release.wait()
+                return ids.compactMap { id in library.assets.first { $0.localIdentifier == id } }
+            }
+            let catchUpTask = Task { await engine.libraryChanged() }
+            await entered.wait()
+            engine.turnOff()
+            release.open()
+            await catchUpTask.value
+
+            XCTAssertFalse(store.document.enabled)
+            XCTAssertEqual(store.document.changeToken, savedToken, "interrupted delta must not advance token")
+            XCTAssertNotNil(store.document.items.first { $0.localIdentifier == "d-1" }, "interrupted delta must not apply pre-await deletions")
+            XCTAssertNil(store.document.items.first { $0.localIdentifier == "d-2" }, "interrupted delta must not insert new items")
+        }
+
+        do {
+            let url = self.makeRoot().appendingPathComponent("rescan-interrupt.json")
+            let library = FakeScreenshotsLibrary()
+            library.status = .full
+            let first = Self.asset("r-1", age: -3_600, uti: "public.png")
+            let second = Self.asset("r-2", age: -10, uti: "public.png")
+            library.assets = [first]
+            library.exports = [
+                "r-1": .bytes(Data("r-1".utf8), uniformTypeIdentifier: "public.png"),
+                "r-2": .bytes(Data("r-2".utf8), uniformTypeIdentifier: "public.png"),
+            ]
+            let sender = FakeScreenshotsSender()
+            let store = ScreenshotsStore(fileURL: url)
+            let engine = ScreenshotsSourceEngine(
+                library: library, store: store, sender: sender,
+                timeZone: TimeZone(identifier: "America/Denver")!
+            )
+            engine.isPaired = { true }
+            await engine.turnOn()
+            await engine.confirm()
+            let savedToken = store.document.changeToken
+
+            library.assets = [first, second]
+            library.changeResult = .expired
+            let enteredToken = AsyncGate()
+            let releaseToken = AsyncGate()
+            library.onCurrentTokenAsync = {
+                enteredToken.open()
+                await releaseToken.wait()
+                return Data("post-rescan-tok".utf8)
+            }
+            let rescanTask = Task { await engine.libraryChanged() }
+            await enteredToken.wait()
+            engine.restartFirstSetup()
+            releaseToken.open()
+            await rescanTask.value
+
+            XCTAssertEqual(store.document.changeToken, savedToken)
+            XCTAssertNil(store.document.items.first { $0.localIdentifier == "r-2" }, "interrupted rescan must not commit items")
+        }
+
+        // 3. Pending items survive restartFirstSetup() across an in-flight accept().
+        do {
+            let url = self.makeRoot().appendingPathComponent("accept-restart.json")
+            let library = FakeScreenshotsLibrary()
+            library.status = .full
+            let item = Self.asset("p-1", age: -60, uti: "public.png")
+            library.assets = [item]
+            let png = Self.pngBytes(width: 4, height: 4)
+            library.exports = ["p-1": .bytes(png, uniformTypeIdentifier: "public.png")]
+            let sender = FakeScreenshotsSender()
+            let store = ScreenshotsStore(fileURL: url)
+            let engine = ScreenshotsSourceEngine(
+                library: library, store: store, sender: sender,
+                timeZone: TimeZone(identifier: "America/Denver")!
+            )
+            engine.isPaired = { true }
+            await engine.turnOn()
+            let exportEntered = AsyncGate()
+            let exportRelease = AsyncGate()
+            library.onExport = { _ in
+                exportEntered.open()
+                await exportRelease.wait()
+                return .bytes(png, uniformTypeIdentifier: "public.png")
+            }
+            let confirmTask = Task { await engine.confirm() }
+            await exportEntered.wait()
+            engine.restartFirstSetup()
+            exportRelease.open()
+            await confirmTask.value
+            XCTAssertEqual(sender.sent.map(\.localIdentifier), ["p-1"])
+            XCTAssertEqual(store.document.items.first { $0.localIdentifier == "p-1" }?.phase, .queued)
+        }
+    }
+
+    @MainActor
+    func testBoundedChangeTokenPersistenceForExpiredRescanLargeDeltaAndBackground() async throws {
+        enum SampleError: Error { case photoKitFailed }
+        let url = self.makeRoot().appendingPathComponent("persist-token.json")
+        let library = FakeScreenshotsLibrary()
+        library.status = .full
+        let seed = Self.asset("seed", age: -3_600, uti: "public.png")
+        library.assets = [seed]
+        library.exports = ["seed": .bytes(Data("seed".utf8), uniformTypeIdentifier: "public.png")]
+        library.token = Data("tok-0".utf8)
+        let sender = FakeScreenshotsSender()
+        let store = ScreenshotsStore(fileURL: url)
+        let engine = ScreenshotsSourceEngine(
+            library: library, store: store, sender: sender,
+            timeZone: TimeZone(identifier: "America/Denver")!
+        )
+        engine.isPaired = { true }
+        await engine.turnOn()
+        await engine.confirm()
+
+        func persistedToken() throws -> Data? {
+            let data = try Data(contentsOf: url)
+            return try JSONDecoder().decode(ScreenshotsDocument.self, from: data).changeToken
+        }
+
+        XCTAssertEqual(try persistedToken(), Data("tok-0".utf8))
+
+        // 1. Failed .expired rescan does NOT persist a new changeToken.
+        library.screenshotsError = SampleError.photoKitFailed
+        library.token = Data("tok-failed-rescan".utf8)
+        library.changeResult = .expired
+        await engine.libraryChanged()
+        XCTAssertEqual(try persistedToken(), Data("tok-0".utf8))
+
+        // 2. Successful .expired rescan DOES persist changeToken.
+        library.screenshotsError = nil
+        library.token = Data("tok-rescan-ok".utf8)
+        library.changeResult = .expired
+        await engine.libraryChanged()
+        XCTAssertEqual(try persistedToken(), Data("tok-rescan-ok".utf8))
+
+        // 3. Large delta (>=50 IDs) DOES persist changeToken even with zero new screenshots.
+        let nonScreenshots = (0..<50).map { "camera-photo-\($0)" }
+        library.changeResult = .delta(
+            inserted: nonScreenshots,
+            updated: [],
+            deleted: [],
+            token: Data("tok-large-delta".utf8)
+        )
+        await engine.libraryChanged()
+        XCTAssertEqual(try persistedToken(), Data("tok-large-delta".utf8))
+
+        // 4. Small delta does NOT rewrite disk, then background() DOES persist the advanced token.
+        library.changeResult = .delta(
+            inserted: ["camera-small-1"],
+            updated: [],
+            deleted: [],
+            token: Data("tok-bg".utf8)
+        )
+        await engine.libraryChanged()
+        XCTAssertEqual(try persistedToken(), Data("tok-large-delta".utf8))
+        engine.background()
+        XCTAssertEqual(try persistedToken(), Data("tok-bg".utf8))
+    }
+
+    private static func pngBytes(width: Int, height: Int) -> Data {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bytesPerRow = width * 4
+        var raw = Data(count: bytesPerRow * height)
+        let image: CGImage = raw.withUnsafeMutableBytes { ptr in
+            let context = CGContext(
+                data: ptr.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )!
+            return context.makeImage()!
+        }
+        let mutable = NSMutableData()
+        let dest = CGImageDestinationCreateWithData(mutable, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, image, nil)
+        CGImageDestinationFinalize(dest)
+        return mutable as Data
+    }
 }
 
-private final class FakeScreenshotsLibrary: ScreenshotsLibrary, @unchecked Sendable {
-    var status: ScreenshotsAccess = .notDetermined
-    var assets: [ScreenshotsAsset] = []
-    var exports: [String: ScreenshotsExportResult] = [:]
-    var changeResult: ScreenshotsChanges = .delta(inserted: [], updated: [], deleted: [], token: Data("token".utf8))
-    var token = Data("token".utf8)
+private nonisolated final class AsyncGate: @unchecked Sendable {
+    private struct State {
+        var opened = false
+        var waiters: [CheckedContinuation<Void, Never>] = []
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func open() {
+        let waiters = self.state.withLock { s -> [CheckedContinuation<Void, Never>] in
+            guard !s.opened else { return [] }
+            s.opened = true
+            let copy = s.waiters
+            s.waiters.removeAll()
+            return copy
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeNow = self.state.withLock { s -> Bool in
+                if s.opened { return true }
+                s.waiters.append(continuation)
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+}
+
+private nonisolated final class FakeScreenshotsLibrary: ScreenshotsLibrary, @unchecked Sendable {
+    private struct State {
+        var status: ScreenshotsAccess = .notDetermined
+        var assets: [ScreenshotsAsset] = []
+        var exports: [String: ScreenshotsExportResult] = [:]
+        var changeResult: ScreenshotsChanges = .delta(inserted: [], updated: [], deleted: [], token: Data("token".utf8))
+        var token = Data("token".utf8)
+        var screenshotsError: (any Error)?
+        var assetsBatchCalls: [[String]] = []
+        var singleAssetCalls: [String] = []
+        var currentTokenAsyncCalls = 0
+        var changesCallCount = 0
+        var onChanges: (@Sendable (Data?) async -> ScreenshotsChanges)?
+        var onAssetsBatch: (@Sendable ([String]) async -> [ScreenshotsAsset])?
+        var onCurrentTokenAsync: (@Sendable () async -> Data?)?
+        var onExport: (@Sendable (String) async -> ScreenshotsExportResult)?
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    var status: ScreenshotsAccess {
+        get { self.state.withLock { $0.status } }
+        set { self.state.withLock { $0.status = newValue } }
+    }
+    var assets: [ScreenshotsAsset] {
+        get { self.state.withLock { $0.assets } }
+        set { self.state.withLock { $0.assets = newValue } }
+    }
+    var exports: [String: ScreenshotsExportResult] {
+        get { self.state.withLock { $0.exports } }
+        set { self.state.withLock { $0.exports = newValue } }
+    }
+    var changeResult: ScreenshotsChanges {
+        get { self.state.withLock { $0.changeResult } }
+        set { self.state.withLock { $0.changeResult = newValue } }
+    }
+    var token: Data {
+        get { self.state.withLock { $0.token } }
+        set { self.state.withLock { $0.token = newValue } }
+    }
+    var screenshotsError: (any Error)? {
+        get { self.state.withLock { $0.screenshotsError } }
+        set { self.state.withLock { $0.screenshotsError = newValue } }
+    }
+    var assetsBatchCalls: [[String]] { self.state.withLock { $0.assetsBatchCalls } }
+    var singleAssetCalls: [String] { self.state.withLock { $0.singleAssetCalls } }
+    var currentTokenAsyncCalls: Int { self.state.withLock { $0.currentTokenAsyncCalls } }
+    var changesCallCount: Int { self.state.withLock { $0.changesCallCount } }
+    var onChanges: (@Sendable (Data?) async -> ScreenshotsChanges)? {
+        get { self.state.withLock { $0.onChanges } }
+        set { self.state.withLock { $0.onChanges = newValue } }
+    }
+    var onAssetsBatch: (@Sendable ([String]) async -> [ScreenshotsAsset])? {
+        get { self.state.withLock { $0.onAssetsBatch } }
+        set { self.state.withLock { $0.onAssetsBatch = newValue } }
+    }
+    var onCurrentTokenAsync: (@Sendable () async -> Data?)? {
+        get { self.state.withLock { $0.onCurrentTokenAsync } }
+        set { self.state.withLock { $0.onCurrentTokenAsync = newValue } }
+    }
+    var onExport: (@Sendable (String) async -> ScreenshotsExportResult)? {
+        get { self.state.withLock { $0.onExport } }
+        set { self.state.withLock { $0.onExport = newValue } }
+    }
+
+    func resetCallTracking() {
+        self.state.withLock {
+            $0.assetsBatchCalls = []
+            $0.singleAssetCalls = []
+            $0.currentTokenAsyncCalls = 0
+            $0.changesCallCount = 0
+        }
+    }
 
     func access() -> ScreenshotsAccess { self.status }
     func requestAccess() async -> ScreenshotsAccess {
-        if self.status == .notDetermined { self.status = .full }
-        return self.status
+        self.state.withLock { state in
+            if state.status == .notDetermined { state.status = .full }
+            return state.status
+        }
     }
     func screenshots(onOrAfter start: Date) async throws -> [ScreenshotsAsset] {
-        self.assets.filter { $0.created >= start }
+        let (error, assets) = self.state.withLock { ($0.screenshotsError, $0.assets) }
+        if let error { throw error }
+        return assets.filter { $0.created >= start }
     }
     func asset(localIdentifier: String) async -> ScreenshotsAsset? {
-        self.assets.first { $0.localIdentifier == localIdentifier }
+        self.state.withLock { state in
+            state.singleAssetCalls.append(localIdentifier)
+            return state.assets.first { $0.localIdentifier == localIdentifier }
+        }
     }
-    func changes(since token: Data?) async -> ScreenshotsChanges { self.changeResult }
+    func assets(localIdentifiers: [String]) async -> [ScreenshotsAsset] {
+        guard !localIdentifiers.isEmpty else { return [] }
+        let hook = self.state.withLock { state -> (@Sendable ([String]) async -> [ScreenshotsAsset])? in
+            state.assetsBatchCalls.append(localIdentifiers)
+            return state.onAssetsBatch
+        }
+        if let hook {
+            return await hook(localIdentifiers)
+        }
+        let wanted = Set(localIdentifiers)
+        return self.state.withLock { state in
+            state.assets.filter { wanted.contains($0.localIdentifier) }
+        }
+    }
+    func changes(since token: Data?) async -> ScreenshotsChanges {
+        let (hook, fallback) = self.state.withLock { state -> ((@Sendable (Data?) async -> ScreenshotsChanges)?, ScreenshotsChanges) in
+            state.changesCallCount += 1
+            return (state.onChanges, state.changeResult)
+        }
+        if let hook {
+            return await hook(token)
+        }
+        return fallback
+    }
     func currentToken() -> Data? { self.token }
+    func currentTokenAsync() async -> Data? {
+        let (hook, fallback) = self.state.withLock { state -> ((@Sendable () async -> Data?)?, Data) in
+            state.currentTokenAsyncCalls += 1
+            return (state.onCurrentTokenAsync, state.token)
+        }
+        if let hook {
+            return await hook()
+        }
+        return fallback
+    }
     func export(localIdentifier: String) async -> ScreenshotsExportResult {
-        self.exports[localIdentifier] ?? .missing
+        let (hook, fallback) = self.state.withLock { ($0.onExport, $0.exports[localIdentifier] ?? .missing) }
+        if let hook {
+            return await hook(localIdentifier)
+        }
+        return fallback
     }
     func setObserving(_ on: Bool) {}
 }
 
-private final class FakeScreenshotsSender: ScreenshotsSending, @unchecked Sendable {
-    var sent: [ScreenshotsUpload] = []
+private nonisolated final class FakeScreenshotsSender: ScreenshotsSending, @unchecked Sendable {
+    private let storage = OSAllocatedUnfairLock<[ScreenshotsUpload]>(initialState: [])
+
+    var sent: [ScreenshotsUpload] {
+        get { self.storage.withLock { $0 } }
+        set { self.storage.withLock { $0 = newValue } }
+    }
 
     func send(_ upload: ScreenshotsUpload) async throws {
-        self.sent.append(upload)
+        self.storage.withLock { $0.append(upload) }
     }
 }

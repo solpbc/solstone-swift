@@ -2,7 +2,9 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import CoreLocation
 import Foundation
+import os
 import XCTest
 
 nonisolated final class LocationManagerTests: XCTestCase {
@@ -1303,6 +1305,217 @@ nonisolated final class LocationManagerTests: XCTestCase {
         XCTAssertNil(bundle.watch)
     }
 
+    // MARK: - Phase 1 Startup & Foreground Unblock Tests
+
+    @MainActor
+    func testLiveLocationProviderOffMainServicesEnabledGenerationOrderingAndDelegateEmission() async throws {
+        // 1. currentCapability() never invokes servicesEnabled synchronously; refreshServicesEnabled() runs off-main
+        //    and updates LocationManager.sharingGrant == .servicesDisabled + .error(.capabilityInsufficient)
+        //    on both resumeIfEnabled() and start(tier:).
+        let calls = OSAllocatedUnfairLock<(count: Int, offMain: [Bool])>(initialState: (0, []))
+        let liveProvider = LiveLocationProvider(
+            servicesEnabled: {
+                calls.withLock {
+                    $0.count += 1
+                    $0.offMain.append(!Thread.isMainThread)
+                }
+                return false
+            },
+            refreshOnInit: false
+        )
+
+        _ = liveProvider.currentCapability()
+        XCTAssertEqual(calls.withLock { $0.count }, 0, "currentCapability() must not call servicesEnabled synchronously")
+
+        self.defaults.set(true, forKey: "location.enabled")
+        self.defaults.set(false, forKey: "location.paused")
+        let resumeManager = LocationManager(
+            provider: liveProvider,
+            mobileSegmentEngine: self.mobileSegmentEngine,
+            clock: self.clock,
+            defaults: self.defaults
+        )
+        XCTAssertEqual(calls.withLock { $0.count }, 0)
+        await resumeManager.resumeIfEnabled()
+        XCTAssertEqual(resumeManager.sharingGrant, .servicesDisabled)
+        XCTAssertEqual(resumeManager.state, .error(.capabilityInsufficient))
+        XCTAssertGreaterThanOrEqual(calls.withLock { $0.count }, 1)
+        XCTAssertTrue(calls.withLock { $0.offMain.allSatisfy { $0 } })
+
+        let callsBeforeStart = calls.withLock { $0.count }
+        let startManager = LocationManager(
+            provider: liveProvider,
+            mobileSegmentEngine: self.mobileSegmentEngine,
+            clock: self.clock,
+            defaults: self.defaults
+        )
+        await startManager.start(tier: .balanced)
+        XCTAssertEqual(startManager.sharingGrant, .servicesDisabled)
+        XCTAssertEqual(startManager.state, .error(.capabilityInsufficient))
+        XCTAssertGreaterThan(calls.withLock { $0.count }, callsBeforeStart)
+        XCTAssertTrue(calls.withLock { $0.offMain.allSatisfy { $0 } })
+
+        // 2. Drops stale out-of-order refreshServicesEnabled() results.
+        let slowEntered = DispatchSemaphore(value: 0)
+        let slowRelease = DispatchSemaphore(value: 0)
+        let orderIndex = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let orderedProvider = LiveLocationProvider(
+            servicesEnabled: {
+                let n = orderIndex.withLock { v -> Int in v += 1; return v }
+                if n == 1 {
+                    slowEntered.signal()
+                    slowRelease.wait()
+                    return false
+                }
+                return true
+            },
+            refreshOnInit: false
+        )
+        let slowRefresh = Task { await orderedProvider.refreshServicesEnabled() }
+        let entered = await TestSemaphore.wait(slowEntered, timeout: .now() + 5)
+        XCTAssertEqual(entered, .success)
+        let newerCapability = await orderedProvider.refreshServicesEnabled()
+        XCTAssertNotEqual(newerCapability, .servicesDisabled)
+        slowRelease.signal()
+        _ = await slowRefresh.value
+        XCTAssertNotEqual(orderedProvider.currentCapability(), .servicesDisabled, "stale false must not overwrite newer true")
+
+        // 3. locationManagerDidChangeAuthorization still emits onAuthorizationChanged even when servicesEnabled stays true.
+        let emitted = OSAllocatedUnfairLock<[LocationCapability]>(initialState: [])
+        let delegateProvider = LiveLocationProvider(
+            servicesEnabled: { true },
+            refreshOnInit: false
+        )
+        // Drain CLLocationManager's automatic initial delegate callback before installing the test observer.
+        await self.yieldToMainActor()
+        _ = await delegateProvider.refreshServicesEnabled()
+        delegateProvider.onAuthorizationChanged = { cap in
+            emitted.withLock { $0.append(cap) }
+        }
+        delegateProvider.locationManagerDidChangeAuthorization(CLLocationManager())
+        for _ in 0..<50 where emitted.withLock({ $0.isEmpty }) {
+            await self.yieldToMainActor()
+        }
+        XCTAssertEqual(emitted.withLock { $0.count }, 1)
+    }
+
+    @MainActor
+    func testLocationManagerLifecycleGenerationGuardsMidAwaitInterruptions() async {
+        // Negative twin: uninterrupted resumeIfEnabled() starts observation once.
+        do {
+            self.defaults.set(true, forKey: "location.enabled")
+            self.defaults.set(false, forKey: "location.paused")
+            let provider = SuspendingLocationProvider(capability: .always(accuracy: .full))
+            let manager = LocationManager(
+                provider: provider,
+                mobileSegmentEngine: self.mobileSegmentEngine,
+                clock: self.clock,
+                defaults: self.defaults
+            )
+            await manager.resumeIfEnabled()
+            XCTAssertEqual(provider.startCallCount, 1)
+            guard case .active = manager.state else { return XCTFail("expected active state") }
+            await manager.stop()
+        }
+
+        // Interrupting resumeIfEnabled() mid-refresh with stop() or pause() prevents observation from starting.
+        for action in ["stop", "pause"] {
+            self.defaults.set(true, forKey: "location.enabled")
+            self.defaults.set(false, forKey: "location.paused")
+            let provider = SuspendingLocationProvider(capability: .always(accuracy: .full))
+            let manager = LocationManager(
+                provider: provider,
+                mobileSegmentEngine: self.mobileSegmentEngine,
+                clock: self.clock,
+                defaults: self.defaults
+            )
+            let entered = LocationAsyncGate()
+            let release = LocationAsyncGate()
+            provider.onRefresh = {
+                entered.open()
+                await release.wait()
+                return .always(accuracy: .full)
+            }
+
+            let resumeTask = Task { await manager.resumeIfEnabled() }
+            await entered.wait()
+            if action == "stop" {
+                await manager.stop()
+            } else {
+                await manager.pause()
+            }
+            release.open()
+            await resumeTask.value
+            XCTAssertEqual(provider.startCallCount, 0, "\(action) during resumeIfEnabled() must prevent observation start")
+            XCTAssertEqual(manager.state, .idle)
+        }
+
+        // Concurrent start(tier:) arriving mid-resumeIfEnabled() supersedes resumeIfEnabled() cleanly (starts once, not twice).
+        do {
+            self.defaults.set(true, forKey: "location.enabled")
+            self.defaults.set(false, forKey: "location.paused")
+            let provider = SuspendingLocationProvider(capability: .always(accuracy: .full))
+            let manager = LocationManager(
+                provider: provider,
+                mobileSegmentEngine: self.mobileSegmentEngine,
+                clock: self.clock,
+                defaults: self.defaults
+            )
+            let entered = LocationAsyncGate()
+            let release = LocationAsyncGate()
+            let callIndex = OSAllocatedUnfairLock<Int>(initialState: 0)
+            provider.onRefresh = {
+                let n = callIndex.withLock { c -> Int in c += 1; return c }
+                if n == 1 {
+                    entered.open()
+                    await release.wait()
+                }
+                return .always(accuracy: .full)
+            }
+
+            let resumeTask = Task { await manager.resumeIfEnabled() }
+            await entered.wait()
+            // Concurrent start(tier: .light) bumps lifecycleGeneration and activates immediately.
+            await manager.start(tier: .light)
+            XCTAssertEqual(provider.startCallCount, 1)
+            XCTAssertEqual(manager.tier, .light)
+            release.open()
+            await resumeTask.value
+            XCTAssertEqual(provider.startCallCount, 1, "superseded resumeIfEnabled() must not double-start observation")
+            await manager.stop()
+        }
+
+        // Interrupting start(tier:) mid-refresh with stop() or pause() prevents observation from starting.
+        for action in ["stop", "pause"] {
+            let provider = SuspendingLocationProvider(capability: .always(accuracy: .full))
+            let manager = LocationManager(
+                provider: provider,
+                mobileSegmentEngine: self.mobileSegmentEngine,
+                clock: self.clock,
+                defaults: self.defaults
+            )
+            let entered = LocationAsyncGate()
+            let release = LocationAsyncGate()
+            provider.onRefresh = {
+                entered.open()
+                await release.wait()
+                return .always(accuracy: .full)
+            }
+
+            let startTask = Task { await manager.start(tier: .balanced) }
+            await entered.wait()
+            if action == "stop" {
+                await manager.stop()
+            } else {
+                await manager.pause()
+            }
+            release.open()
+            await startTask.value
+            XCTAssertEqual(provider.startCallCount, 0, "\(action) during start(tier:) must prevent observation start")
+            XCTAssertEqual(manager.state, .idle)
+        }
+    }
+
     @MainActor
     private func makeManager() -> LocationManager {
         LocationManager(
@@ -1395,4 +1608,68 @@ nonisolated final class LocationManagerTests: XCTestCase {
 
 private enum LocationManagerTestError: Error {
     case restartFailed
+}
+
+private nonisolated final class LocationAsyncGate: @unchecked Sendable {
+    private struct State {
+        var opened = false
+        var waiters: [CheckedContinuation<Void, Never>] = []
+    }
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    func open() {
+        let waiters = self.state.withLock { s -> [CheckedContinuation<Void, Never>] in
+            guard !s.opened else { return [] }
+            s.opened = true
+            let copy = s.waiters
+            s.waiters.removeAll()
+            return copy
+        }
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func wait() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resumeNow = self.state.withLock { s -> Bool in
+                if s.opened { return true }
+                s.waiters.append(continuation)
+                return false
+            }
+            if resumeNow { continuation.resume() }
+        }
+    }
+}
+
+@MainActor
+private final class SuspendingLocationProvider: LocationProviding {
+    var onAuthorizationChanged: (@Sendable (LocationCapability) -> Void)?
+    var onFix: (@Sendable (LocationFix) -> Void)?
+    var onVisit: (@Sendable (LocationVisit) -> Void)?
+    var onGap: (@Sendable (LocationGapReason) -> Void)?
+
+    var capability: LocationCapability
+    var startCallCount = 0
+    var onRefresh: (@Sendable () async -> LocationCapability)?
+
+    init(capability: LocationCapability) {
+        self.capability = capability
+    }
+
+    func currentCapability() -> LocationCapability { self.capability }
+
+    func refreshServicesEnabled() async -> LocationCapability {
+        if let onRefresh = self.onRefresh {
+            let cap = await onRefresh()
+            self.capability = cap
+            return cap
+        }
+        return self.capability
+    }
+
+    func requestWhenInUseAuthorization() {}
+    func requestAlwaysAuthorization() {}
+    func startObservation(modes: Set<LocationObservationMode>) async throws { self.startCallCount += 1 }
+    func stopObservation() async {}
+    func beginBackgroundSustain() async {}
+    func endBackgroundSustain() async {}
 }

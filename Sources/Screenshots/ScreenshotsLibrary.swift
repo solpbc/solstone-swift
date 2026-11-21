@@ -25,22 +25,39 @@ nonisolated enum ScreenshotsChanges: Equatable, Sendable {
 }
 
 /// The photo library as this source uses it. Tests stand in for PhotoKit.
-protocol ScreenshotsLibrary: AnyObject, Sendable {
+nonisolated protocol ScreenshotsLibrary: AnyObject, Sendable {
     func access() -> ScreenshotsAccess
     func requestAccess() async -> ScreenshotsAccess
     func screenshots(onOrAfter start: Date) async throws -> [ScreenshotsAsset]
     func asset(localIdentifier: String) async -> ScreenshotsAsset?
+    func assets(localIdentifiers: [String]) async -> [ScreenshotsAsset]
     func changes(since token: Data?) async -> ScreenshotsChanges
     func currentToken() -> Data?
+    func currentTokenAsync() async -> Data?
     func export(localIdentifier: String) async -> ScreenshotsExportResult
     func setObserving(_ on: Bool)
 }
 
-extension ScreenshotsLibrary {
+nonisolated extension ScreenshotsLibrary {
     func setObserving(_ on: Bool) {}
+
+    func assets(localIdentifiers: [String]) async -> [ScreenshotsAsset] {
+        var found: [ScreenshotsAsset] = []
+        found.reserveCapacity(localIdentifiers.count)
+        for id in localIdentifiers {
+            if let asset = await self.asset(localIdentifier: id) {
+                found.append(asset)
+            }
+        }
+        return found
+    }
+
+    func currentTokenAsync() async -> Data? {
+        self.currentToken()
+    }
 }
 
-struct ScreenshotsUpload: Equatable, Sendable {
+nonisolated struct ScreenshotsUpload: Equatable, Sendable {
     var localIdentifier: String
     var itemID: UUID
     var bytes: Data

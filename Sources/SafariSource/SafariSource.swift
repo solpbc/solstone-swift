@@ -155,22 +155,32 @@ nonisolated enum SafariSetUpChoice: String, Sendable {
 @MainActor
 @Observable
 final class SafariSourceModel {
-    /// `nil` when the shared store could not be read.
+    /// `nil` when the shared store could not be read or before a deferred initial load completes.
     private(set) var snapshot: SafariBrowserSnapshot?
+    /// `false` only while a deferred initial load has not yet completed.
+    private(set) var hasLoaded: Bool
     /// `nil` where the system can't say.
     private(set) var extensionOn: Bool?
     private var transferMirror: TransferStatusMirror?
-    @ObservationIgnored private let load: () throws -> SafariBrowserSnapshot
+    @ObservationIgnored private let syncLoad: (() throws -> SafariBrowserSnapshot)?
+    @ObservationIgnored private let asyncLoad: (@Sendable () async throws -> SafariBrowserSnapshot)?
     @ObservationIgnored private let readExtensionOn: () async -> Bool?
     @ObservationIgnored private let openSettings: () async -> Bool
+    @ObservationIgnored private var loadGeneration: UInt64 = 0
 
-    init(load: @escaping () throws -> SafariBrowserSnapshot = { try SafariBrowserStore().snapshot() },
+    init(load: (() throws -> SafariBrowserSnapshot)? = nil,
+         loadAsync: (@Sendable () async throws -> SafariBrowserSnapshot)? = nil,
          readExtensionOn: @escaping () async -> Bool? = { await SafariExtensionControl.isOn() },
-         openSettings: @escaping () async -> Bool = { await SafariExtensionControl.openSettings() }) {
-        self.load = load
+         openSettings: @escaping () async -> Bool = { await SafariExtensionControl.openSettings() },
+         deferInitialLoad: Bool = false) {
+        self.syncLoad = load
+        self.asyncLoad = loadAsync
         self.readExtensionOn = readExtensionOn
         self.openSettings = openSettings
-        self.refresh()
+        self.hasLoaded = !deferInitialLoad
+        if !deferInitialLoad {
+            self.refresh()
+        }
     }
 
     func bindTransferMirror(_ mirror: TransferStatusMirror) { self.transferMirror = mirror }
@@ -195,8 +205,39 @@ final class SafariSourceModel {
     }
 
     func refresh() {
-        let next = try? self.load()
+        self.loadGeneration &+= 1
+        let next: SafariBrowserSnapshot?
+        if let syncLoad = self.syncLoad {
+            next = try? syncLoad()
+        } else {
+            next = try? SafariBrowserStore().snapshot()
+        }
         if next != self.snapshot { self.snapshot = next }
+        if !self.hasLoaded { self.hasLoaded = true }
+    }
+
+    func refreshAsync() async {
+        self.loadGeneration &+= 1
+        let generation = self.loadGeneration
+        let next: SafariBrowserSnapshot?
+        if let asyncLoad = self.asyncLoad {
+            next = try? await asyncLoad()
+        } else if let syncLoad = self.syncLoad {
+            next = try? syncLoad()
+        } else {
+            next = await Self.loadSnapshotOffMain()
+        }
+        guard generation == self.loadGeneration else { return }
+        if next != self.snapshot { self.snapshot = next }
+        if !self.hasLoaded { self.hasLoaded = true }
+    }
+
+    nonisolated static func loadSnapshotOffMain(
+        read: @escaping @Sendable () throws -> SafariBrowserSnapshot = { try SafariBrowserStore().snapshot() }
+    ) async -> SafariBrowserSnapshot? {
+        await Task.detached(priority: .userInitiated) {
+            try? read()
+        }.value
     }
 
     /// Whether the extension has ever answered.
@@ -223,10 +264,15 @@ nonisolated struct SafariSourceStatus: Equatable, Sendable {
         }
     }
 
-    init(snapshot: SafariBrowserSnapshot?, extensionOn: Bool? = nil) {
+    init(snapshot: SafariBrowserSnapshot?, extensionOn: Bool? = nil, hasLoaded: Bool = true) {
         guard let snapshot else {
-            self.sourceState = .needsAttention
-            self.attention = SafariVocabulary.unreadable
+            if !hasLoaded {
+                self.sourceState = .checking
+                self.attention = nil
+            } else {
+                self.sourceState = .needsAttention
+                self.attention = SafariVocabulary.unreadable
+            }
             return
         }
         if snapshot.lastContact == nil {
@@ -252,8 +298,13 @@ nonisolated struct SafariSourceStatus: Equatable, Sendable {
     }
 }
 
-nonisolated func safariSourceModel(snapshot: SafariBrowserSnapshot?, extensionOn: Bool? = nil, isJournalPaired: Bool) -> Source {
-    let status = SafariSourceStatus(snapshot: snapshot, extensionOn: extensionOn)
+nonisolated func safariSourceModel(
+    snapshot: SafariBrowserSnapshot?,
+    extensionOn: Bool? = nil,
+    isJournalPaired: Bool,
+    hasLoaded: Bool = true
+) -> Source {
+    let status = SafariSourceStatus(snapshot: snapshot, extensionOn: extensionOn, hasLoaded: hasLoaded)
     var subtext = status.compactAttention
     if subtext == nil, status.sourceState == .off {
         subtext = extensionOn == false ? SafariVocabulary.extensionOff

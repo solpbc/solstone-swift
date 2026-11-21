@@ -5,12 +5,12 @@ import CryptoKit
 import Foundation
 import os
 
-private let problemReportStoreLog = Logger(subsystem: "app.solstone.swift", category: "diagnostics")
+private nonisolated let problemReportStoreLog = Logger(subsystem: "app.solstone.swift", category: "diagnostics")
 
 @MainActor
 final class ProblemReportStore {
-    static let maxReportCount = 50
-    static let maxReportAge: TimeInterval = 90 * 24 * 60 * 60
+    nonisolated static let maxReportCount = 50
+    nonisolated static let maxReportAge: TimeInterval = 90 * 24 * 60 * 60
 
     static var defaultRootURL: URL {
         FileManager.default
@@ -83,10 +83,51 @@ final class ProblemReportStore {
         self.rotate()
     }
 
+    var testDecodeObserver: (@Sendable (String) -> Void)?
+
     func all() -> [ProblemReport] {
         let reports = self.loadReports()
-        self.rotate(reports: reports)
-        return self.loadReports(reportFailures: false)
+        return self.rotate(reports: reports)
+    }
+
+    func reportDecodeFailures(count: Int) {
+        guard count > 0 else { return }
+        self.appendFailure(
+            stage: "decode",
+            severity: .warning,
+            kind: .unknown("stored"),
+            count: count,
+            message: AppStrings.ios_problemreports_problemreportcouldnotberead()
+        )
+    }
+
+    nonisolated static func loadAndRotate(
+        rootURL: URL,
+        now: Date,
+        onDecode: (@Sendable (String) -> Void)? = nil
+    ) -> (reports: [ProblemReport], failedDecodeCount: Int) {
+        let fileManager = FileManager()
+        let loaded = Self.readReports(
+            rootURL: rootURL,
+            fileManager: fileManager,
+            onDecode: onDecode
+        )
+        let surviving = Self.rotateReports(
+            loaded.reports,
+            rootURL: rootURL,
+            now: now,
+            fileManager: fileManager
+        )
+        return (surviving, loaded.failedDecodeCount)
+    }
+
+    func loadSnapshotOffMain() async -> (reports: [ProblemReport], failedDecodeCount: Int) {
+        let rootURL = self.rootURL
+        let now = self.now()
+        let onDecode = self.testDecodeObserver
+        return await Task.detached(priority: .utility) {
+            Self.loadAndRotate(rootURL: rootURL, now: now, onDecode: onDecode)
+        }.value
     }
 
     func report(id: UUID) -> ProblemReport? {
@@ -226,56 +267,95 @@ private extension ProblemReportStore {
     }
 
     func loadReports(reportFailures: Bool = true) -> [ProblemReport] {
-        guard let filenames = try? self.fileManager.contentsOfDirectory(atPath: self.rootURL.path) else {
-            return []
+        let loaded = Self.readReports(
+            rootURL: self.rootURL,
+            fileManager: self.fileManager,
+            onDecode: self.testDecodeObserver
+        )
+        if reportFailures && loaded.failedDecodeCount > 0 {
+            self.reportDecodeFailures(count: loaded.failedDecodeCount)
+        }
+        return loaded.reports
+    }
+
+    @discardableResult
+    func rotate(reports providedReports: [ProblemReport]? = nil) -> [ProblemReport] {
+        let reports = providedReports ?? self.loadReports()
+        return Self.rotateReports(
+            reports,
+            rootURL: self.rootURL,
+            now: self.now(),
+            fileManager: self.fileManager
+        )
+    }
+
+    nonisolated static func readReports(
+        rootURL: URL,
+        fileManager: FileManager,
+        onDecode: (@Sendable (String) -> Void)?
+    ) -> (reports: [ProblemReport], failedDecodeCount: Int) {
+        guard let filenames = try? fileManager.contentsOfDirectory(atPath: rootURL.path) else {
+            return ([], 0)
         }
 
         var reports: [ProblemReport] = []
         var failedDecodeCount = 0
         let decoder = Self.decoder()
         for filename in filenames where filename.hasSuffix(".json") {
-            let url = self.rootURL.appendingPathComponent(filename, isDirectory: false)
+            let url = rootURL.appendingPathComponent(filename, isDirectory: false)
+            // Fires once per file enumerated before read+decode (supports single-pass & concurrent-ENOENT tests).
+            onDecode?(filename)
+            let data: Data
             do {
-                let data = try Data(contentsOf: url)
+                data = try Data(contentsOf: url)
+            } catch {
+                if Self.isMissingFileError(error) {
+                    continue
+                }
+                failedDecodeCount += 1
+                continue
+            }
+            do {
                 reports.append(try decoder.decode(ProblemReport.self, from: data))
             } catch {
                 failedDecodeCount += 1
             }
         }
-        if reportFailures && failedDecodeCount > 0 {
-            self.appendFailure(
-                stage: "decode",
-                severity: .warning,
-                kind: .unknown("stored"),
-                count: failedDecodeCount,
-                message: AppStrings.ios_problemreports_problemreportcouldnotberead()
-            )
-        }
-        return self.sorted(reports)
+        return (Self.sorted(reports), failedDecodeCount)
     }
 
-    func rotate(reports providedReports: [ProblemReport]? = nil) {
-        let reports = providedReports ?? self.loadReports()
-        guard !reports.isEmpty else { return }
+    @discardableResult
+    nonisolated static func rotateReports(
+        _ reports: [ProblemReport],
+        rootURL: URL,
+        now: Date,
+        fileManager: FileManager
+    ) -> [ProblemReport] {
+        guard !reports.isEmpty else { return [] }
 
-        let cutoff = self.now().addingTimeInterval(-Self.maxReportAge)
+        let cutoff = now.addingTimeInterval(-Self.maxReportAge)
         let sortedOldestFirst = reports.sorted {
             if $0.date == $1.date {
                 return $0.filename < $1.filename
             }
             return $0.date < $1.date
         }
-        let newest = self.sorted(reports)
+        let newest = Self.sorted(reports)
         let overflowIDs = Set(newest.dropFirst(Self.maxReportCount).map(\.id))
         let expiredIDs = Set(reports.filter { $0.date < cutoff }.map(\.id))
         let deleteIDs = overflowIDs.union(expiredIDs)
 
+        var deletedIDs = Set<UUID>()
         for report in sortedOldestFirst where deleteIDs.contains(report.id) {
-            self.deleteFile(named: report.filename)
+            if Self.deleteFile(named: report.filename, in: rootURL, fileManager: fileManager) {
+                deletedIDs.insert(report.id)
+            }
         }
+        guard !deletedIDs.isEmpty else { return newest }
+        return newest.filter { !deletedIDs.contains($0.id) }
     }
 
-    func sorted(_ reports: [ProblemReport]) -> [ProblemReport] {
+    nonisolated static func sorted(_ reports: [ProblemReport]) -> [ProblemReport] {
         reports.sorted {
             if $0.filename == $1.filename {
                 return $0.date > $1.date
@@ -291,14 +371,49 @@ private extension ProblemReportStore {
         return filenames.contains { $0.contains("-\(hash)-") }
     }
 
-    func deleteFile(named filename: String) {
-        let url = self.rootURL.appendingPathComponent(filename, isDirectory: false)
-        guard self.fileManager.fileExists(atPath: url.path) else { return }
+    @discardableResult
+    func deleteFile(named filename: String) -> Bool {
+        Self.deleteFile(named: filename, in: self.rootURL, fileManager: self.fileManager)
+    }
+
+    @discardableResult
+    nonisolated static func deleteFile(named filename: String, in rootURL: URL, fileManager: FileManager) -> Bool {
+        let url = rootURL.appendingPathComponent(filename, isDirectory: false)
+        guard fileManager.fileExists(atPath: url.path) else { return true }
         do {
-            try self.fileManager.removeItem(at: url)
+            try fileManager.removeItem(at: url)
+            return true
         } catch {
+            if Self.isMissingFileError(error) {
+                return true
+            }
             problemReportStoreLog.error("problem report delete failed: \(String(describing: error), privacy: .public)")
+            return false
         }
+    }
+
+    nonisolated static func isMissingFileError(_ error: any Error) -> Bool {
+        if let cocoa = error as? CocoaError,
+           cocoa.code == .fileNoSuchFile || cocoa.code == .fileReadNoSuchFile {
+            return true
+        }
+        if let posix = error as? POSIXError, posix.code == .ENOENT {
+            return true
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain,
+           nsError.code == CocoaError.fileNoSuchFile.rawValue
+            || nsError.code == CocoaError.fileReadNoSuchFile.rawValue {
+            return true
+        }
+        if nsError.domain == NSPOSIXErrorDomain,
+           nsError.code == Int(POSIXErrorCode.ENOENT.rawValue) {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying !== nsError {
+            return Self.isMissingFileError(underlying)
+        }
+        return false
     }
 
     func appendFailure(stage: String, severity: DiagnosticSeverity, kind: ProblemReportKind, count: Int, message: String) {
@@ -317,7 +432,7 @@ private extension ProblemReportStore {
         return encoder
     }
 
-    static func decoder() -> JSONDecoder {
+    nonisolated static func decoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder

@@ -92,12 +92,24 @@ nonisolated enum FinalizeFailureResolution: Equatable, Sendable {
     case deferred
 }
 
+nonisolated struct MobileSegmentStoreCounts: Sendable, Equatable {
+    var pendingCount = 0
+    var failedCount = 0
+    var finalizeFailedCount = 0
+    var facetPending: [MobileSegmentSource: Int] = [:]
+    var facetFailed: [MobileSegmentSource: Int] = [:]
+
+    static let empty = MobileSegmentStoreCounts()
+}
+
 @MainActor
 @Observable
 final class MobileSegmentUploader {
     private(set) var pendingCount = 0
     private(set) var failedCount = 0
     private(set) var finalizeFailedCount = 0
+    private(set) var facetPendingCounts: [MobileSegmentSource: Int] = [:]
+    private(set) var facetFailedCounts: [MobileSegmentSource: Int] = [:]
     /// Unseen losses inside the notice window. The pill and the widgets follow this value.
     private(set) var journalGapNotice: JournalGapNotice = .absent
     var lastUploadAt: Date?
@@ -105,7 +117,7 @@ final class MobileSegmentUploader {
     /// collapse interval, and a recurrence after it shows with a current time.
     @ObservationIgnored private var errorLoggedAt: [String: Date] = [:]
     static let errorLogCollapseInterval: TimeInterval = 60 * 60
-    static let finalizeFailureStages: Set<String> = [
+    nonisolated static let finalizeFailureStages: Set<String> = [
         "source-finalize",
         "segment-finalize",
         "schedule-gate",
@@ -122,11 +134,24 @@ final class MobileSegmentUploader {
     @ObservationIgnored private var enqueuingSegmentIDs: Set<UUID> = []
     @ObservationIgnored private var isReconcilingActive = false
     @ObservationIgnored private var needsFollowUpReconcileActive = false
+    @ObservationIgnored private var isResumingFromDisk = false
+    @ObservationIgnored private var resumeWaiters: [(id: UUID, continuation: CheckedContinuation<Bool, Never>)] = []
+    @ObservationIgnored private var countsGeneration: UInt64 = 0
+    @ObservationIgnored private var countsRefreshTask: Task<Void, Never>?
+    @ObservationIgnored private var deferredCountRefreshDepth = 0
+    @ObservationIgnored private var hasDeferredCountRefresh = false
     @ObservationIgnored var onReconcileStep: (@Sendable () async -> Void)?
+    @ObservationIgnored var onResumeSlotHandedOff: (@MainActor () -> Void)?
     @ObservationIgnored var heldScreencastAdoptionSkipSegmentID: (@MainActor @Sendable () -> UUID?)?
     /// Reads the notice off the main thread. Tests replace it to show the refresh does not wait.
     @ObservationIgnored var noticeRead: @Sendable (JournalEventStore, Date) -> JournalGapNotice = { store, now in
         JournalGapNotice.read(store: store, now: now)
+    }
+    /// Scans pending/failed counts and facet summaries off the main thread. Tests may inject a seam.
+    @ObservationIgnored var scanCounts: @Sendable (URL) -> MobileSegmentStoreCounts = MobileSegmentUploader.scanStoreCounts
+    /// Prunes journal events off the main thread. Tests may inject a seam to verify thread and call count.
+    @ObservationIgnored var pruneJournalEvents: @Sendable (JournalEventStore, Date) -> Void = { store, now in
+        store.pruneForPass(now: now)
     }
     @ObservationIgnored private var journalGapNoticeGeneration = 0
     @ObservationIgnored private var journalGapNoticeTask: Task<Void, Never>?
@@ -141,7 +166,8 @@ final class MobileSegmentUploader {
         storageDisabledReason: String? = nil,
         cooperator: MaintenanceCooperator = MaintenanceCooperator(),
         diagnosticLog: DiagnosticLog? = nil,
-        audioInspector: PhoneAudioInspector = .live
+        audioInspector: PhoneAudioInspector = .live,
+        deferInitialCountScan: Bool = false
     ) {
         self.transferEngine = transferEngine
         self.store = store
@@ -159,7 +185,9 @@ final class MobileSegmentUploader {
             return
         }
         try? self.store.ensureRoot()
-        self.refreshCounts()
+        if !deferInitialCountScan {
+            self.refreshCounts()
+        }
     }
 
     func openSegment(
@@ -809,35 +837,62 @@ final class MobileSegmentUploader {
 
     func resumeFromDisk() async {
         guard self.guardStorageAvailable() else { return }
+        guard await self.acquireResumeSlot() else { return }
+        defer { self.releaseResumeSlot() }
+        guard !Task.isCancelled else { return }
+
+        self.deferredCountRefreshDepth += 1
+        var exitedDeferredScope = false
+        func finishDeferredExit() async {
+            if !exitedDeferredScope {
+                exitedDeferredScope = true
+                self.deferredCountRefreshDepth -= 1
+            }
+            await self.refreshJournalGapNotice()
+        }
+        defer {
+            if !exitedDeferredScope {
+                exitedDeferredScope = true
+                self.deferredCountRefreshDepth -= 1
+                if self.deferredCountRefreshDepth == 0 && self.hasDeferredCountRefresh {
+                    self.scheduleRefreshCounts()
+                }
+            }
+        }
+
         do {
             try self.store.ensureRoot()
-            self.journalEvents.pruneForPass(now: self.clock.now())
+            await self.pruneJournalEventsOffMain()
+            if Task.isCancelled {
+                await finishDeferredExit()
+                return
+            }
             if await self.importLegacyJournalEvents() == .cancelled {
-                await self.refreshJournalGapNotice()
+                await finishDeferredExit()
                 return
             }
             self.sweepStaleTransferEnqueueTemps()
             try self.retireDeliveredResidue()
             await self.retireTransferOwnedResidue()
-            try await self.reconcileActiveSegments()
+            try await self.reconcileActiveSegments(pruneJournalEvents: false)
             if Task.isCancelled {
-                await self.refreshJournalGapNotice()
+                await finishDeferredExit()
                 return
             }
             await self.resolveFinalizeFailurePile()
             if Task.isCancelled {
-                await self.refreshJournalGapNotice()
+                await finishDeferredExit()
                 return
             }
             let pending = try self.store.list(.pending)
             for directory in pending {
                 if Task.isCancelled {
-                    await self.refreshJournalGapNotice()
+                    await finishDeferredExit()
                     return
                 }
                 await self.cooperator.step()
                 if Task.isCancelled {
-                    await self.refreshJournalGapNotice()
+                    await finishDeferredExit()
                     return
                 }
                 guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { continue }
@@ -849,12 +904,11 @@ final class MobileSegmentUploader {
             mobileSegmentUploadLog.error("\(diagnostic, privacy: .public)")
         }
         if Task.isCancelled {
-            await self.refreshJournalGapNotice()
+            await finishDeferredExit()
             return
         }
-        self.refreshCounts()
         self.openJournalGate()
-        await self.waitForJournalGapNotice()
+        await finishDeferredExit()
     }
 
     /// Whether this segment is still in the finalize-failure pile.
@@ -1748,62 +1802,166 @@ final class MobileSegmentUploader {
                 lastUploadAt: self.lastUploadAt
             )
         }
-        var pending = 0
-        var failed = 0
-        for lifecycle in [MobileSegmentLifecycle.pending, .failed] {
-            guard let directories = try? self.store.list(lifecycle) else { continue }
-            for directory in directories where !self.isDeliveredResidue(directory: directory) {
-                guard let manifest = try? self.store.readManifest(in: directory) else { continue }
-                let resolution = manifest.resolution(for: source)
-                guard resolution.state == .finalizedArtifact || resolution.state == .failedToFinalize else { continue }
-                switch lifecycle {
-                case .pending:
-                    pending += 1
-                case .failed:
-                    failed += 1
-                case .active:
-                    break
-                }
-            }
-        }
         return MobileSegmentSourceSummary(
-            pendingCount: pending,
-            failedCount: failed,
+            pendingCount: self.facetPendingCounts[source] ?? 0,
+            failedCount: self.facetFailedCounts[source] ?? 0,
             lastUploadAt: self.lastUploadAt
         )
     }
 
+    nonisolated static func scanStoreCounts(rootURL: URL) -> MobileSegmentStoreCounts {
+        let fileManager = FileManager()
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let uploadedTombstonesDir = rootURL
+            .appendingPathComponent("tombstones", isDirectory: true)
+            .appendingPathComponent("uploaded", isDirectory: true)
+
+        func listDirectories(for lifecycle: MobileSegmentLifecycle) -> [URL] {
+            let directory = rootURL.appendingPathComponent(lifecycle.rawValue, isDirectory: true)
+            guard fileManager.fileExists(atPath: directory.path) else { return [] }
+            guard let entries = try? fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else { return [] }
+            return entries.filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        }
+
+        func isDeliveredResidue(_ directory: URL) -> Bool {
+            guard let segmentID = UUID(uuidString: directory.lastPathComponent) else { return false }
+            let tombstoneURL = uploadedTombstonesDir.appendingPathComponent("\(segmentID.uuidString).json", isDirectory: false)
+            return fileManager.fileExists(atPath: tombstoneURL.path)
+        }
+
+        var counts = MobileSegmentStoreCounts()
+        for lifecycle in [MobileSegmentLifecycle.pending, .failed] {
+            for directory in listDirectories(for: lifecycle) where !isDeliveredResidue(directory) {
+                switch lifecycle {
+                case .pending:
+                    counts.pendingCount += 1
+                case .failed:
+                    counts.failedCount += 1
+                    let failureURL = directory.appendingPathComponent("failure.json", isDirectory: false)
+                    if fileManager.fileExists(atPath: failureURL.path),
+                       let data = try? Data(contentsOf: failureURL),
+                       let failure = try? decoder.decode(MobileSegmentFailureSidecar.self, from: data),
+                       Self.finalizeFailureStages.contains(failure.stage)
+                    {
+                        counts.finalizeFailedCount += 1
+                    }
+                case .active:
+                    break
+                }
+
+                let manifestURL = directory.appendingPathComponent("manifest.json", isDirectory: false)
+                guard let manifestData = try? Data(contentsOf: manifestURL),
+                      let manifest = try? decoder.decode(MobileSegmentManifest.self, from: manifestData)
+                else { continue }
+                for source in MobileSegmentSource.allCases {
+                    let resolution = manifest.resolution(for: source)
+                    guard resolution.state == .finalizedArtifact || resolution.state == .failedToFinalize else { continue }
+                    switch lifecycle {
+                    case .pending:
+                        counts.facetPending[source, default: 0] += 1
+                    case .failed:
+                        counts.facetFailed[source, default: 0] += 1
+                    case .active:
+                        break
+                    }
+                }
+            }
+        }
+        return counts
+    }
+
+    private func applyStoreCounts(_ counts: MobileSegmentStoreCounts) {
+        self.pendingCount = counts.pendingCount
+        self.failedCount = counts.failedCount
+        self.finalizeFailedCount = counts.finalizeFailedCount
+        self.facetPendingCounts = counts.facetPending
+        self.facetFailedCounts = counts.facetFailed
+    }
+
+    private func resetDisabledCounts() {
+        self.countsGeneration &+= 1
+        self.journalGapNoticeGeneration += 1
+        self.applyStoreCounts(.empty)
+        self.journalGapNotice = .absent
+    }
+
     func refreshCounts() {
         guard self.storageDisabledReason == nil else {
-            self.journalGapNoticeGeneration += 1
-            self.pendingCount = 0
-            self.failedCount = 0
-            self.finalizeFailedCount = 0
-            self.journalGapNotice = .absent
+            self.resetDisabledCounts()
             return
         }
+        if self.deferredCountRefreshDepth > 0 {
+            self.hasDeferredCountRefresh = true
+            return
+        }
+        self.countsGeneration &+= 1
+        self.hasDeferredCountRefresh = false
         self.publishJournalGapNotice()
-        self.pendingCount = ((try? self.store.list(.pending)) ?? []).filter { !self.isDeliveredResidue(directory: $0) }.count
-        let failed = ((try? self.store.list(.failed)) ?? []).filter { !self.isDeliveredResidue(directory: $0) }
-        self.failedCount = failed.count
-        self.finalizeFailedCount = failed.reduce(into: 0) { count, directory in
-            guard let failure = self.store.loadFailure(in: directory),
-                  Self.finalizeFailureStages.contains(failure.stage)
-            else {
-                return
-            }
-            count += 1
+        self.applyStoreCounts(self.scanCounts(self.store.rootURL))
+    }
+
+    /// Recomputes cached store counts and the journal gap notice off the main thread without blocking the caller.
+    func scheduleRefreshCounts() {
+        guard self.storageDisabledReason == nil else {
+            self.resetDisabledCounts()
+            return
+        }
+        self.countsGeneration &+= 1
+        let generation = self.countsGeneration
+        self.hasDeferredCountRefresh = false
+        self.publishJournalGapNotice()
+        let rootURL = self.store.rootURL
+        let scan = self.scanCounts
+        self.countsRefreshTask = Task { @MainActor [weak self] in
+            let counts = await Task.detached(priority: .userInitiated) {
+                scan(rootURL)
+            }.value
+            guard let self, generation == self.countsGeneration else { return }
+            self.applyStoreCounts(counts)
         }
     }
 
-    /// Recomputes the notice and waits until that result is published. A newer read wins.
+    /// Recomputes cached store counts and schedules the journal gap notice off the main thread,
+    /// waiting until the counts scan finishes. Runs even when the caller task is cancelled.
+    func refreshCountsAsync() async {
+        guard self.storageDisabledReason == nil else {
+            self.resetDisabledCounts()
+            return
+        }
+        self.countsGeneration &+= 1
+        let generation = self.countsGeneration
+        self.hasDeferredCountRefresh = false
+        self.publishJournalGapNotice()
+        let rootURL = self.store.rootURL
+        let scan = self.scanCounts
+        let task = Task { @MainActor [weak self] in
+            let counts = await Task.detached(priority: .userInitiated) {
+                scan(rootURL)
+            }.value
+            guard let self, generation == self.countsGeneration else { return }
+            self.applyStoreCounts(counts)
+        }
+        self.countsRefreshTask = task
+        await task.value
+    }
+
+    /// Recomputes cached store counts and the notice off-main, waiting until both results are published.
     func refreshJournalGapNotice() async {
-        self.refreshCounts()
+        await self.refreshCountsAsync()
         await self.waitForJournalGapNotice()
     }
 
     func waitForJournalGapNotice() async {
         await self.journalGapNoticeTask?.value
+    }
+
+    func waitForCountsRefreshForTesting() async {
+        await self.countsRefreshTask?.value
     }
 
     private func publishJournalGapNotice() {
@@ -1822,22 +1980,101 @@ final class MobileSegmentUploader {
         self.journalGapNoticeTask = task
     }
 
+    private func pruneJournalEventsOffMain() async {
+        let events = self.journalEvents
+        let now = self.clock.now()
+        let prune = self.pruneJournalEvents
+        await Task.detached(priority: .utility) {
+            prune(events, now)
+        }.value
+    }
+
+    private func acquireResumeSlot() async -> Bool {
+        if Task.isCancelled { return false }
+        if !self.isResumingFromDisk {
+            self.isResumingFromDisk = true
+            return true
+        }
+        let waiterID = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                if Task.isCancelled {
+                    continuation.resume(returning: false)
+                    return
+                }
+                if !self.isResumingFromDisk {
+                    self.isResumingFromDisk = true
+                    continuation.resume(returning: true)
+                    return
+                }
+                self.resumeWaiters.append((id: waiterID, continuation: continuation))
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.cancelResumeWaiter(id: waiterID)
+            }
+        }
+    }
+
+    private func cancelResumeWaiter(id: UUID) {
+        guard let index = self.resumeWaiters.firstIndex(where: { $0.id == id }) else { return }
+        let waiter = self.resumeWaiters.remove(at: index)
+        waiter.continuation.resume(returning: false)
+    }
+
+    private func releaseResumeSlot() {
+        if !self.resumeWaiters.isEmpty {
+            let next = self.resumeWaiters.removeFirst()
+            next.continuation.resume(returning: true)
+            self.onResumeSlotHandedOff?()
+        } else {
+            self.isResumingFromDisk = false
+        }
+    }
+
     func migrateLegacyMobileItems(
         locationCacheRootURL: URL? = nil
     ) async {
         guard self.guardStorageAvailable() else { return }
+        self.deferredCountRefreshDepth += 1
+        var exitedDeferredScope = false
+        defer {
+            if !exitedDeferredScope {
+                exitedDeferredScope = true
+                self.deferredCountRefreshDepth -= 1
+                if self.deferredCountRefreshDepth == 0 && self.hasDeferredCountRefresh {
+                    self.scheduleRefreshCounts()
+                }
+            }
+        }
         let fileManager = FileManager.default
         let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
         let locationRoot = locationCacheRootURL ?? caches?.appendingPathComponent("Location", isDirectory: true)
 
         if let locationRoot {
             await self.migrateLegacyLocationItems(root: locationRoot, fileManager: fileManager)
-            guard !Task.isCancelled else { return }
+            if Task.isCancelled {
+                exitedDeferredScope = true
+                self.deferredCountRefreshDepth -= 1
+                if self.deferredCountRefreshDepth == 0 && self.hasDeferredCountRefresh {
+                    await self.refreshCountsAsync()
+                }
+                return
+            }
         }
+        exitedDeferredScope = true
+        self.deferredCountRefreshDepth -= 1
         await self.resumeFromDisk()
+        if self.deferredCountRefreshDepth == 0 && self.hasDeferredCountRefresh {
+            await self.refreshCountsAsync()
+        }
     }
 
     func reconcileActiveSegments() async throws {
+        try await self.reconcileActiveSegments(pruneJournalEvents: true)
+    }
+
+    private func reconcileActiveSegments(pruneJournalEvents: Bool) async throws {
         guard self.guardStorageAvailable() else { return }
         if self.isReconcilingActive {
             self.needsFollowUpReconcileActive = true
@@ -1846,9 +2083,11 @@ final class MobileSegmentUploader {
         self.isReconcilingActive = true
         defer { self.isReconcilingActive = false }
 
+        var shouldPrune = pruneJournalEvents
         repeat {
             self.needsFollowUpReconcileActive = false
-            try await self.performReconcileActiveSegments()
+            try await self.performReconcileActiveSegments(pruneJournalEvents: shouldPrune)
+            shouldPrune = true
         } while self.needsFollowUpReconcileActive && !Task.isCancelled
     }
 }
@@ -2651,8 +2890,11 @@ private extension MobileSegmentUploader {
         try? FileManager.default.removeItem(at: leasesDirectory)
     }
 
-    private func performReconcileActiveSegments() async throws {
-        self.journalEvents.pruneForPass(now: self.clock.now())
+    private func performReconcileActiveSegments(pruneJournalEvents: Bool = true) async throws {
+        if pruneJournalEvents {
+            await self.pruneJournalEventsOffMain()
+            guard !Task.isCancelled else { return }
+        }
         self.sweepLegacyScreencastLeases()
         let active = try self.store.list(.active)
 

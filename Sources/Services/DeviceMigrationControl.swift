@@ -154,9 +154,14 @@ final class SPLMigrationControlExchange: MigrationControlExchanging {
     typealias SessionFactory = @Sendable (StoredPairing) -> any TunnelSessioning & MuxStreamOpening
 
     private let makeSession: SessionFactory
+    private let orphanPurgeBarrier: InnerTLSOrphanPurgeBarrier
 
-    init(makeSession: @escaping SessionFactory = CFTunnelTransport.makeProductionSession) {
+    init(
+        makeSession: @escaping SessionFactory = CFTunnelTransport.makeProductionSession,
+        orphanPurgeBarrier: InnerTLSOrphanPurgeBarrier = .shared
+    ) {
         self.makeSession = makeSession
+        self.orphanPurgeBarrier = orphanPurgeBarrier
     }
 
     func postRekey(
@@ -166,6 +171,9 @@ final class SPLMigrationControlExchange: MigrationControlExchanging {
         shouldContinue: @MainActor @Sendable () -> Bool,
         afterResponse: @MainActor @Sendable (Data) async throws -> Void
     ) async throws {
+        try await self.orphanPurgeBarrier.waitIfStarted()
+        try Task.checkCancellation()
+        guard shouldContinue() else { throw CancellationError() }
         let session = self.makeSession(pairing)
         do {
             _ = try await session.connect(endpoints: candidates)

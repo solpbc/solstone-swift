@@ -86,8 +86,71 @@ final class SafariPassGate {
     }
 }
 
-@MainActor
-enum SafariBrowserDelivery {
+/// Serializes Safari extension capture authority writes across synchronous revocations
+/// (unpair / re-pair) and off-main enable/periodic syncs, using a monotonic epoch so a
+/// slow off-main `true` write can never overwrite a newer synchronous `false` revocation.
+nonisolated final class SafariAuthorityCoordinator: @unchecked Sendable {
+    private let epochLock = OSAllocatedUnfairLock<UInt64>(initialState: 0)
+    private let writeLock = NSLock()
+    private let writeConfirmed: @Sendable (Bool) throws -> Void
+    private let beforeAcquireWriteLock: (@Sendable () -> Void)?
+
+    init(
+        writeConfirmed: @escaping @Sendable (Bool) throws -> Void = { confirmed in
+            try SafariBrowserStore().setConfirmed(confirmed)
+        },
+        beforeAcquireWriteLock: (@Sendable () -> Void)? = nil
+    ) {
+        self.writeConfirmed = writeConfirmed
+        self.beforeAcquireWriteLock = beforeAcquireWriteLock
+    }
+
+    func publishSync(_ confirmed: Bool) throws {
+        let myEpoch = self.epochLock.withLock { epoch -> UInt64 in
+            epoch &+= 1
+            return epoch
+        }
+        self.writeLock.lock()
+        defer { self.writeLock.unlock() }
+        guard self.epochLock.withLock({ $0 == myEpoch }) else { return }
+        try self.writeConfirmed(confirmed)
+    }
+
+    /// Bumps the epoch synchronously before returning the detached write task, so a
+    /// synchronous revocation arriving before the task runs always receives a higher epoch.
+    @discardableResult
+    func enqueuePublish(_ confirmed: Bool) -> Task<Bool, Never> {
+        let myEpoch = self.epochLock.withLock { epoch -> UInt64 in
+            epoch &+= 1
+            return epoch
+        }
+        return Task.detached(priority: .userInitiated) { [weak self] in
+            guard let self else { return false }
+            self.beforeAcquireWriteLock?()
+            return self.writeIfCurrent(epoch: myEpoch, confirmed: confirmed)
+        }
+    }
+
+    private func writeIfCurrent(epoch myEpoch: UInt64, confirmed: Bool) -> Bool {
+        self.writeLock.lock()
+        defer { self.writeLock.unlock() }
+        guard self.epochLock.withLock({ $0 == myEpoch }) else { return false }
+        do {
+            try self.writeConfirmed(confirmed)
+            return true
+        } catch {
+            Logger(subsystem: "app.solstone.swift", category: "app-config")
+                .error("Safari authority write failed; retried on next sync")
+            return false
+        }
+    }
+
+    func publishAsync(_ confirmed: Bool) async -> Bool {
+        await self.enqueuePublish(confirmed).value
+    }
+}
+
+nonisolated enum SafariBrowserDelivery {
     /// What the send queue still holds for Safari.
     static func queuedBytes(engine: TransferEngine) async -> Int {
         await engine.itemSnapshots(sourceKey: "browser")
@@ -97,47 +160,49 @@ enum SafariBrowserDelivery {
     /// Returns false when the store could not be read or written, so the caller tries again.
     @discardableResult
     static func drain(engine: TransferEngine, store suppliedStore: SafariBrowserStore? = nil,
-                      beforeAdoption: (() throws -> Void)? = nil) async -> Bool {
-        do {
-            let store = try suppliedStore ?? SafariBrowserStore()
-            for period in try store.prepareHandoffs() {
-                guard let id = UUID(uuidString: period.id) else { throw SafariBrowserError.storage }
-                let zone = TimeZone(identifier: period.zone) ?? TimeZone(secondsFromGMT: 0)!
-                let start = Date(timeIntervalSince1970: period.started.rounded(.down))
-                let duration = max(1, Int(ceil(period.ended - start.timeIntervalSince1970)))
-                let dayFormat = DateFormatter()
-                dayFormat.locale = Locale(identifier: "en_US_POSIX")
-                dayFormat.calendar = Calendar(identifier: .gregorian)
-                dayFormat.timeZone = zone
-                dayFormat.dateFormat = "yyyyMMdd"
-                let day = dayFormat.string(from: start)
-                dayFormat.dateFormat = "HHmmss"
-                let segment = "\(dayFormat.string(from: start))_\(duration)"
-                let filename = "browser_pages.jsonl"
-                let sha = SHA256.hash(data: period.payload).map { String(format: "%02x", $0) }.joined()
-                let manifest = TransferManifest(itemID: id, source: "browser", createdAt: start,
-                    priority: TransferPriorityInputs(basePriority: .low, sourceKey: "browser"),
-                    payloadParts: [TransferPayloadPartDescriptor(partID: "browser", kind: .file,
-                        relativePath: filename, filename: filename, contentType: "application/x-ndjson",
-                        byteCount: period.payload.count, contentHash: sha)],
-                    endpoint: TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/app/devices/ingest"),
-                    observerIngest: TransferObserverIngestMetadata(platform: "ios", segment: segment,
-                        day: day, startedAt: start, durationS: Double(duration), sources: ["browser"],
-                        ingestProtocolVersion: 3, tz: zone.identifier, utcOffsetSeconds: zone.secondsFromGMT(for: start)))
-                let stage = store.root.appendingPathComponent("handoff-\(period.id).jsonl")
-                try period.payload.write(to: stage, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-                defer { try? FileManager.default.removeItem(at: stage) }
-                _ = try await engine.enqueueIfAbsent(manifest: manifest, payloadFileURLs: ["browser": stage])
-                try beforeAdoption?()
-                try store.adopt(id: period.id)
+                      beforeAdoption: (@Sendable () throws -> Void)? = nil) async -> Bool {
+        await Task.detached(priority: .utility) {
+            do {
+                let store = try suppliedStore ?? SafariBrowserStore()
+                for period in try store.prepareHandoffs() {
+                    guard let id = UUID(uuidString: period.id) else { throw SafariBrowserError.storage }
+                    let zone = TimeZone(identifier: period.zone) ?? TimeZone(secondsFromGMT: 0)!
+                    let start = Date(timeIntervalSince1970: period.started.rounded(.down))
+                    let duration = max(1, Int(ceil(period.ended - start.timeIntervalSince1970)))
+                    let dayFormat = DateFormatter()
+                    dayFormat.locale = Locale(identifier: "en_US_POSIX")
+                    dayFormat.calendar = Calendar(identifier: .gregorian)
+                    dayFormat.timeZone = zone
+                    dayFormat.dateFormat = "yyyyMMdd"
+                    let day = dayFormat.string(from: start)
+                    dayFormat.dateFormat = "HHmmss"
+                    let segment = "\(dayFormat.string(from: start))_\(duration)"
+                    let filename = "browser_pages.jsonl"
+                    let sha = SHA256.hash(data: period.payload).map { String(format: "%02x", $0) }.joined()
+                    let manifest = TransferManifest(itemID: id, source: "browser", createdAt: start,
+                        priority: TransferPriorityInputs(basePriority: .low, sourceKey: "browser"),
+                        payloadParts: [TransferPayloadPartDescriptor(partID: "browser", kind: .file,
+                            relativePath: filename, filename: filename, contentType: "application/x-ndjson",
+                            byteCount: period.payload.count, contentHash: sha)],
+                        endpoint: TransferEndpointDescriptor(destinationKind: .observerIngest, path: "/app/devices/ingest"),
+                        observerIngest: TransferObserverIngestMetadata(platform: "ios", segment: segment,
+                            day: day, startedAt: start, durationS: Double(duration), sources: ["browser"],
+                            ingestProtocolVersion: 3, tz: zone.identifier, utcOffsetSeconds: zone.secondsFromGMT(for: start)))
+                    let stage = store.root.appendingPathComponent("handoff-\(period.id).jsonl")
+                    try period.payload.write(to: stage, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    defer { try? FileManager().removeItem(at: stage) }
+                    _ = try await engine.enqueueIfAbsent(manifest: manifest, payloadFileURLs: ["browser": stage])
+                    try beforeAdoption?()
+                    try store.adopt(id: period.id)
+                }
+                await engine.kick()
+                // Status only: what the send queue still holds for this source.
+                try store.setQueuedBytes(await self.queuedBytes(engine: engine))
+                return true
+            } catch {
+                Logger(subsystem: "app.solstone.swift", category: "safari").error("Safari handoff waits for storage recovery")
+                return false
             }
-            await engine.kick()
-            // Status only: what the send queue still holds for this source.
-            try store.setQueuedBytes(await self.queuedBytes(engine: engine))
-            return true
-        } catch {
-            Logger(subsystem: "app.solstone.swift", category: "safari").error("Safari handoff waits for storage recovery")
-            return false
-        }
+        }.value
     }
 }

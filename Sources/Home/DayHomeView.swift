@@ -90,6 +90,7 @@ private struct AppGroupSnapshotInputs: Equatable {
     let bundle: HomeSourceBundle
     let backlogCount: WatchAwareBacklog
     let backlogKnown: Bool
+    let safariHasLoaded: Bool
     let pairing: AppGroupMirror.PairingSnapshot
     let microphonePermission: AppGroupMirror.MicrophonePermissionSnapshot
     let awaitingMarkConfirmation: Bool
@@ -271,6 +272,7 @@ struct DayHomeView: View {
         .background(SunArcContentBackground().ignoresSafeArea())
         .task { await refreshNowPeriodically { self.now = Date() } }
         .task(id: self.appGroupSnapshotInputs) {
+            guard self.safariSource?.hasLoaded != false else { return }
             _ = writeObserverWidgetSnapshot(
                 mirror: self.appGroupMirror,
                 pairing: self.appGroupPairing,
@@ -304,6 +306,7 @@ private extension DayHomeView {
             bundle: self.bundle,
             backlogCount: self.backlogCount,
             backlogKnown: self.safariSource?.waitingIsKnown != false,
+            safariHasLoaded: self.safariSource?.hasLoaded != false,
             pairing: self.appGroupPairing,
             microphonePermission: self.appGroupMicrophonePermission,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
@@ -462,7 +465,7 @@ private extension DayHomeView {
             }
             if let safari = self.safariSource {
                 let source = safariSourceModel(snapshot: safari.snapshot, extensionOn: safari.extensionOn,
-                                               isJournalPaired: self.appConfig.isPaired)
+                                               isJournalPaired: self.appConfig.isPaired, hasLoaded: safari.hasLoaded)
                 if self.isOnHome(source.id) {
                     HomeSourceTile(
                         source: source,

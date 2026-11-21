@@ -60,6 +60,8 @@ final class LocationManager {
     @ObservationIgnored private var currentSegmentIndex = 0
     @ObservationIgnored private var hasRequestedAlwaysForCurrentStart = false
     @ObservationIgnored private var alwaysDeclineWait: Task<Void, Never>?
+    @ObservationIgnored private var lifecycleGeneration: UInt64 = 0
+    @ObservationIgnored private var isRefreshingForStart = false
     private var lastCapability: LocationCapability
 
     private enum Key {
@@ -140,15 +142,28 @@ final class LocationManager {
             return
         }
 
+        self.lifecycleGeneration &+= 1
+        let generation = self.lifecycleGeneration
         self.clearSunArcPresentationCoordinate()
         self.persistTier(tier)
         self.paused = false
         self.state = .starting
         self.hasRequestedAlwaysForCurrentStart = false
-        await self.advanceStartFlow(with: self.provider.currentCapability())
+        self.isRefreshingForStart = true
+        let capability = await self.provider.refreshServicesEnabled()
+        if self.lifecycleGeneration == generation {
+            self.isRefreshingForStart = false
+        }
+        self.lastCapability = capability
+        guard self.lifecycleGeneration == generation, case .starting = self.state, !self.paused else {
+            return
+        }
+        await self.advanceStartFlow(with: capability)
     }
 
     func stop() async {
+        self.lifecycleGeneration &+= 1
+        self.isRefreshingForStart = false
         self.clearSunArcPresentationCoordinate()
         switch self.state {
         case .idle:
@@ -168,6 +183,7 @@ final class LocationManager {
     }
 
     func pause() async {
+        self.lifecycleGeneration &+= 1
         self.paused = true
         self.persistPaused(true)
         await self.stop()
@@ -184,7 +200,19 @@ final class LocationManager {
         case .idle, .error:
             break
         case .starting:
-            await self.advanceStartFlow(with: self.effectiveCapability())
+            guard !self.isRefreshingForStart else { return }
+            self.lifecycleGeneration &+= 1
+            let generation = self.lifecycleGeneration
+            self.isRefreshingForStart = true
+            let capability = await self.provider.refreshServicesEnabled()
+            if self.lifecycleGeneration == generation {
+                self.isRefreshingForStart = false
+            }
+            self.lastCapability = capability
+            guard self.lifecycleGeneration == generation, case .starting = self.state, !self.paused else {
+                return
+            }
+            await self.advanceStartFlow(with: capability)
             return
         case .active, .stopping:
             return
@@ -204,8 +232,18 @@ final class LocationManager {
             return
         }
 
+        self.lifecycleGeneration &+= 1
+        let generation = self.lifecycleGeneration
         self.paused = false
-        let capability = self.effectiveCapability()
+        let capability = await self.provider.refreshServicesEnabled()
+        self.lastCapability = capability
+        guard self.lifecycleGeneration == generation else { return }
+        switch self.state {
+        case .idle, .error:
+            break
+        case .starting, .active, .stopping:
+            return
+        }
         guard self.tier.isSatisfied(by: capability) else {
             self.clearSunArcPresentationCoordinate()
             self.state = .error(.capabilityInsufficient)
@@ -346,7 +384,9 @@ private extension LocationManager {
 
         switch self.state {
         case .starting:
-            await self.advanceStartFlow(with: capability)
+            if !self.isRefreshingForStart {
+                await self.advanceStartFlow(with: capability)
+            }
         case .error:
             if self.tier.isSatisfied(by: capability) {
                 await self.activateSessionIfAllowed(capability: capability)

@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import os
 import XCTest
 
 nonisolated final class ProblemReportStoreTests: XCTestCase {
@@ -180,6 +181,62 @@ nonisolated final class ProblemReportStoreTests: XCTestCase {
         XCTAssertFalse(event?.detail?.contains("abc123TOKEN") ?? true)
     }
 
+    // MARK: - Phase 1 Startup & Foreground Unblock Tests
+
+    @MainActor
+    func testAllDecodesEachFileOnceRetainsFailedDeletesAndTreatsConcurrentENOENTAsAbsent() throws {
+        // 1. Single-pass all() decodes each stored file exactly once (not twice).
+        let store = self.makeStore()
+        store.ingest([
+            Self.input(Self.crashJSON(), source: .diagnostic, date: Self.date(10)),
+            Self.input(Self.hangJSON(), source: .diagnostic, date: Self.date(20)),
+        ])
+        let decodedFiles = OSAllocatedUnfairLock<[String]>(initialState: [])
+        store.testDecodeObserver = { name in decodedFiles.withLock { $0.append(name) } }
+        let loaded = store.all()
+        XCTAssertEqual(loaded.count, 2)
+        XCTAssertEqual(decodedFiles.withLock { $0.count }, 2, "all() must decode each report file exactly once")
+
+        // 2. Rotation retains expired reports whose deleteFile failed.
+        let farFuture = Self.date(10).addingTimeInterval(ProblemReportStore.maxReportAge + 3_600)
+        let failingFM = ProblemReportRemoveOverrideFileManager(mode: .failPermission)
+        let failingStore = ProblemReportStore(rootURL: self.tempDirectory, fileManager: failingFM, now: { farFuture })
+        let retained = failingStore.all()
+        XCTAssertEqual(retained.count, 2, "failed delete must retain report in returned list")
+
+        // 3. Concurrent ENOENT in deleteFile is treated as already absent (omits rotated report).
+        let enoentFM = ProblemReportRemoveOverrideFileManager(mode: .throwENOENT)
+        let enoentStore = ProblemReportStore(rootURL: self.tempDirectory, fileManager: enoentFM, now: { farFuture })
+        let afterENOENTDelete = enoentStore.all()
+        XCTAssertEqual(afterENOENTDelete.count, 0, "ENOENT in deleteFile means file is already absent")
+
+        // 4. Concurrent ENOENT in Data(contentsOf:) logs zero decode failures; negative twin: corrupt JSON logs once.
+        let suiteName = "ProblemReportStoreTests.ENOENT.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let log = DiagnosticLog(defaults: defaults)
+        let concurrentDir = self.tempDirectory.appendingPathComponent("concurrent-enoent", isDirectory: true)
+        let enoentReadStore = ProblemReportStore(
+            rootURL: concurrentDir,
+            diagnosticLog: log,
+            now: { Self.date(100) }
+        )
+        enoentReadStore.ingest([Self.input(Self.crashJSON(), source: .diagnostic, date: Self.date(50))])
+        enoentReadStore.testDecodeObserver = { filename in
+            // Simulate another thread deleting the file between contentsOfDirectory and Data(contentsOf:).
+            try? FileManager().removeItem(at: concurrentDir.appendingPathComponent(filename))
+        }
+        XCTAssertEqual(enoentReadStore.all().count, 0)
+        XCTAssertTrue(log.events.isEmpty, "concurrent ENOENT in Data(contentsOf:) must not log a false decode warning")
+
+        // Negative twin: corrupt JSON on disk logs a decode failure once.
+        enoentReadStore.testDecodeObserver = nil
+        try Data("{not-json".utf8).write(to: concurrentDir.appendingPathComponent("corrupt.json"))
+        XCTAssertEqual(enoentReadStore.all().count, 0)
+        XCTAssertEqual(log.events.count, 1)
+        XCTAssertEqual(log.events.first?.detail, "kind=unknown count=1 stage=decode")
+    }
+
     @MainActor
     private func makeStore(
         log: DiagnosticLog? = nil,
@@ -230,5 +287,22 @@ private extension ProblemReportStoreTests {
 
     static func appExitJSON(normalCount: Int) -> String {
         #"{"timeStampBegin":"2026-07-02 00:00:00 +0000","timeStampEnd":"2026-07-03 00:00:00 +0000","appVersion":"0.1.0","applicationExitMetrics":{"foregroundExitData":{"cumulativeNormalAppExitCount":\#(normalCount)},"backgroundExitData":{"cumulativeNormalAppExitCount":0}}}"#
+    }
+}
+
+private nonisolated final class ProblemReportRemoveOverrideFileManager: FileManager, @unchecked Sendable {
+    enum Mode { case failPermission, throwENOENT }
+    let mode: Mode
+    init(mode: Mode) {
+        self.mode = mode
+        super.init()
+    }
+    override func removeItem(at URL: URL) throws {
+        switch self.mode {
+        case .failPermission:
+            throw CocoaError(.fileWriteNoPermission)
+        case .throwENOENT:
+            throw CocoaError(.fileNoSuchFile)
+        }
     }
 }

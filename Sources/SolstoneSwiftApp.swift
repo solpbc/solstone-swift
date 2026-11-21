@@ -267,8 +267,8 @@ struct SolstoneSwiftApp: App {
 #endif
         SPLLogging.configure(subsystem: "app.solstone.swift")
         ShellFont.applyNavigationBarAppearance()
-        Self.purgeLegacyKeychainEntries()
-        InnerTLS.purgeOrphanedIdentities()
+        Self.scheduleLegacyKeychainPurgeIfNeeded()
+        InnerTLSOrphanPurgeBarrier.shared.start()
 #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--integration-test-onboarding") {
             Self.resetOnboardingIntegrationState()
@@ -279,8 +279,7 @@ struct SolstoneSwiftApp: App {
         let appConfig = AppConfig(store: SPLRuntime.pairingStore, appGroupMirror: appGroupMirror)
         // Only a build that carries the Safari extension keeps its store.
         if SafariSourceModel.isBundled {
-            appConfig.safariAuthority = { confirmed in try SafariBrowserStore().setConfirmed(confirmed) }
-            appConfig.syncSafariAuthority()
+            appConfig.safariAuthorityCoordinator = SafariAuthorityCoordinator()
         }
         let observerClock = SystemObserverClock()
         let onboardingFlow = OnboardingFlow()
@@ -292,6 +291,7 @@ struct SolstoneSwiftApp: App {
         let problemReportStore = ProblemReportStore(diagnosticLog: log)
         let problemReports = ProblemReportsManager(
             store: problemReportStore,
+            deferInitialLoad: true,
             makeSubscriber: { ingest in
                 Self.makeMetricSubscriber(ingest: ingest)
             }
@@ -576,9 +576,9 @@ struct SolstoneSwiftApp: App {
         calendarBackgroundRefresh.screenshotsEngine = screenshotsSource
         let screenshotsSourceHandle = ScreenshotsSourceHandle(source: screenshotsSource)
 #if DEBUG
-        let safariSource = SafariUITestSource.seeded() ?? (SafariSourceModel.isBundled ? SafariSourceModel() : nil)
+        let safariSource = SafariUITestSource.seeded() ?? (SafariSourceModel.isBundled ? SafariSourceModel(deferInitialLoad: true) : nil)
 #else
-        let safariSource = SafariSourceModel.isBundled ? SafariSourceModel() : nil
+        let safariSource = SafariSourceModel.isBundled ? SafariSourceModel(deferInitialLoad: true) : nil
 #endif
         safariSource?.bindTransferMirror(transferStatusMirror)
         let mobileSegmentUploader = MobileSegmentUploader(
@@ -586,7 +586,8 @@ struct SolstoneSwiftApp: App {
             store: mobileSegmentStore,
             clock: observerClock,
             storageDisabledReason: mobileSegmentStorageDisabledReason,
-            diagnosticLog: log
+            diagnosticLog: log,
+            deferInitialCountScan: true
         )
         if let migrationDiagnostic = mobileSegmentMigrationDiagnostics.first {
             mobileSegmentUploader.noteError(migrationDiagnostic)
@@ -915,7 +916,7 @@ struct SolstoneSwiftApp: App {
         self._transferEngine = State(initialValue: transferEngine)
         self._transferEnqueuer = State(initialValue: transferEnqueuer)
         self._shareImportStore = State(initialValue: shareImportStore)
-        self._sourceIntakeModel = State(initialValue: SourceIntakeModel(store: sourceIntakeStore))
+        self._sourceIntakeModel = State(initialValue: SourceIntakeModel(store: sourceIntakeStore, deferInitialLoad: true))
         self._shareTransferHolder = State(initialValue: shareTransferHolder)
         self._calendarSource = State(initialValue: calendarSource)
         self._calendarSourceHandle = State(initialValue: calendarSourceHandle)
@@ -1041,6 +1042,18 @@ struct SolstoneSwiftApp: App {
                     await self.integrationGateDriver?.run()
                 }
 #endif
+                .task(priority: .userInitiated) {
+                    self.sourceIntakeModel.reload()
+                    self.mobileSegmentUploader.scheduleRefreshCounts()
+                    let problemReportsTask = Task {
+                        await self.problemReportsManager.refreshAsync()
+                    }
+                    if SafariSourceModel.isBundled {
+                        _ = await self.appConfig.syncSafariAuthorityAsync()
+                        await self.safariSource?.refreshAsync()
+                    }
+                    await problemReportsTask.value
+                }
                 .task {
                     await self.bootstrapTransfer()
                     self.safariTransferReady = SafariSourceModel.isBundled
@@ -1050,9 +1063,9 @@ struct SolstoneSwiftApp: App {
                         if self.safariTransferReady {
                             let queued = await SafariBrowserDelivery.queuedBytes(engine: self.transferEngine)
                             if self.safariPassGate.shouldRun(confirmed: self.appConfig.journalSendConfirmed, queued: queued) {
-                                let published = self.appConfig.syncSafariAuthority()
+                                let published = await self.appConfig.syncSafariAuthorityAsync()
                                 let drained = await SafariBrowserDelivery.drain(engine: self.transferEngine)
-                                self.safariSource?.refresh()
+                                await self.safariSource?.refreshAsync()
                                 if !(published && drained) { self.safariPassGate.forget() }
                             } else {
                                 await self.transferEngine.kick()
@@ -1134,8 +1147,9 @@ struct SolstoneSwiftApp: App {
             switch newPhase {
             case .active:
                 self.mobileSegmentTransferHolder.refreshJournalGap()
-                self.safariSource?.refresh()
+                self.sourceIntakeModel.reload()
                 if let safariSource = self.safariSource {
+                    Task { await safariSource.refreshAsync() }
                     Task { await safariSource.refreshExtensionState() }
                 }
                 self.backgroundDrainTask?.cancel()
@@ -1193,6 +1207,7 @@ struct SolstoneSwiftApp: App {
                     await self.screencastManager.prepareForBackground()
                 }
                 self.calendarBackgroundRefresh.schedule()
+                self.screenshotsSource.background()
                 self.launchMaintenanceCoordinator.cancel()
                 self.integrationObserverStartTask?.cancel()
                 self.integrationObserverStartTask = nil
@@ -1439,7 +1454,21 @@ struct SolstoneSwiftApp: App {
 }
 
 private extension SolstoneSwiftApp {
-    static func purgeLegacyKeychainEntries() {
+    static let legacyKeychainPurgeDoneKey = "didPurgeLegacyKeychainEntriesV1"
+
+    static func scheduleLegacyKeychainPurgeIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.legacyKeychainPurgeDoneKey) else { return }
+        let key = Self.legacyKeychainPurgeDoneKey
+        Task.detached(priority: .utility) {
+            if Self.purgeLegacyKeychainEntries() {
+                UserDefaults.standard.set(true, forKey: key)
+            }
+        }
+    }
+
+    @discardableResult
+    nonisolated static func purgeLegacyKeychainEntries() -> Bool {
+        var allSucceeded = true
         for account in [
             "solstone-swift-identity-key",
             "solstone-swift-host-key",
@@ -1455,9 +1484,17 @@ private extension SolstoneSwiftApp {
                 kSecAttrService as String: "app.solstone.swift",
                 kSecAttrAccount as String: account,
             ]
-            SecItemDelete(query as CFDictionary)
+            let status = SecItemDelete(query as CFDictionary)
+            if status != errSecSuccess && status != errSecItemNotFound {
+                allSucceeded = false
+            }
         }
-        Logger(subsystem: "app.solstone.swift", category: "app-config").debug("legacy keychain entries purged")
+        if allSucceeded {
+            Logger(subsystem: "app.solstone.swift", category: "app-config").debug("legacy keychain entries purged")
+        } else {
+            Logger(subsystem: "app.solstone.swift", category: "app-config").warning("legacy keychain purge incomplete; will retry next launch")
+        }
+        return allSucceeded
     }
 
     static func resetOnboardingIntegrationState() {

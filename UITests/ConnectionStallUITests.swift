@@ -110,7 +110,7 @@ nonisolated final class ConnectionStallUITests: XCTestCase {
         try XCTSkipIf(self.isPadShapedWindow(app), "the phone shell's presentation; iPad routes this opener to the pane root")
 
         let pairAgain = app.descendants(matching: .any)["shell.pane.status.stall.pairAgain"]
-        self.scrollToElement(pairAgain, in: app)
+        self.scrollToElement(pairAgain, in: app, requireHittable: true)
         XCTAssertTrue(pairAgain.waitForExistence(timeout: 5))
         pairAgain.tap()
 
@@ -177,8 +177,18 @@ nonisolated final class ConnectionStallUITests: XCTestCase {
         XCTAssertEqual(count, 1, "Expected '42' to appear exactly once in combined label and value: '\(combined)'")
     }
 
-    func scrollToElement(_ element: XCUIElement, in app: XCUIApplication) {
-        if element.waitForExistence(timeout: 2) {
+    @MainActor
+    func scrollToElement(_ element: XCUIElement, in app: XCUIApplication, requireHittable: Bool = false) {
+        func isReady() -> Bool {
+            guard !requireHittable else {
+                guard element.isHittable else { return false }
+                let windowFrame = app.windows.firstMatch.frame
+                let center = CGPoint(x: element.frame.midX, y: element.frame.midY)
+                return windowFrame.insetBy(dx: 0, dy: 16).contains(center)
+            }
+            return true
+        }
+        if element.waitForExistence(timeout: 2), isReady() {
             return
         }
         let scrollContainer = app.collectionViews.firstMatch.exists
@@ -189,7 +199,7 @@ nonisolated final class ConnectionStallUITests: XCTestCase {
         let end = scrollContainer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         for _ in 1...10 {
             start.press(forDuration: 0.05, thenDragTo: end)
-            if element.waitForExistence(timeout: 1) {
+            if element.waitForExistence(timeout: 1), isReady() {
                 return
             }
         }

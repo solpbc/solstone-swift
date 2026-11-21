@@ -10,18 +10,34 @@ import Observation
 @Observable
 final class SourceIntakeModel {
     private let store: SourceIntakeStore?
+    private let loader: (@Sendable () -> SourceIntakeLoad)?
     private let showsSample: Bool
     private(set) var load: SourceIntakeLoad
     @ObservationIgnored private var changes: SourceIntakeChanges?
+    @ObservationIgnored private var reloadGeneration: UInt64 = 0
 
-    init(store: SourceIntakeStore?, showsSample: Bool? = nil) {
+    init(
+        store: SourceIntakeStore?,
+        showsSample: Bool? = nil,
+        load: (@Sendable () -> SourceIntakeLoad)? = nil,
+        deferInitialLoad: Bool = false
+    ) {
         let sample = showsSample ?? Self.argumentsRequestSample()
         self.showsSample = sample
         self.store = sample ? nil : store
         if sample {
+            self.loader = nil
             self.load = .ready(SourceIntakeSample.snapshot())
         } else {
-            self.load = store?.load() ?? .ready(.empty)
+            let effectiveLoader: (@Sendable () -> SourceIntakeLoad)? = load ?? store.map { s in
+                { @Sendable in s.load() }
+            }
+            self.loader = effectiveLoader
+            if deferInitialLoad {
+                self.load = .unreadable
+            } else {
+                self.load = effectiveLoader?() ?? .ready(.empty)
+            }
         }
         // Every source's count moves through the one store, so one listener keeps every row and
         // page that shows a count current while it is on screen, whichever process wrote it.
@@ -36,7 +52,26 @@ final class SourceIntakeModel {
 
     func reload() {
         guard !self.showsSample else { return }
-        self.load = self.store?.load() ?? .ready(.empty)
+        Task { @MainActor [weak self] in
+            await self?.reloadAsync()
+        }
+    }
+
+    func reloadAsync() async {
+        guard !self.showsSample else { return }
+        self.reloadGeneration &+= 1
+        let generation = self.reloadGeneration
+        guard let loader = self.loader else {
+            if self.reloadGeneration == generation {
+                self.load = .ready(.empty)
+            }
+            return
+        }
+        let result = await Task.detached(priority: .utility) {
+            loader()
+        }.value
+        guard self.reloadGeneration == generation else { return }
+        self.load = result
     }
 
     func statusRows(includeSafari: Bool, includeWatch: Bool, locale: Locale, calendar: Calendar) -> [SourceIntakeStatusRow]? {

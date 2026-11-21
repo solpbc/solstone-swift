@@ -48,8 +48,17 @@ final class SafariSourceShotTests: XCTestCase {
         let row = app.descendants(matching: .any)["shell.pane.status.waiting.import"]
         XCTAssertTrue(row.waitForExistence(timeout: 15))
         let lead = app.descendants(matching: .any)["shell.pane.status.lead"].firstMatch
-        XCTAssertEqual(lead.label.components(separatedBy: ",").first, "1")
+        let leadHasCount = self.expectation(
+            for: NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "1", "1,"),
+            evaluatedWith: lead
+        )
         let pill = app.buttons.matching(identifier: "dayHome.statusPill").firstMatch
+        let pillHasCount = self.expectation(
+            for: NSPredicate(format: "label MATCHES %@ OR value MATCHES %@", ".*\\b1\\b.*", ".*\\b1\\b.*"),
+            evaluatedWith: pill
+        )
+        self.wait(for: [leadHasCount, pillHasCount], timeout: 10)
+        XCTAssertEqual(lead.label.components(separatedBy: ",").first, "1")
         let pillCount = pill.label + " " + ((pill.value as? String) ?? "")
         XCTAssertNotNil(pillCount.range(of: "\\b1\\b", options: .regularExpression))
         let shot = XCTAttachment(screenshot: app.screenshot())

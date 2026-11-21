@@ -97,6 +97,97 @@ nonisolated protocol KeepaliveCadenceAdjusting: Sendable {
 
 extension TunnelSession: KeepaliveCadenceAdjusting {}
 
+/// Runs `InnerTLS.purgeOrphanedIdentities()` once off the main thread at launch and
+/// gates TLS session assembly until the purge finishes, so startup never blocks
+/// `SolstoneSwiftApp.init()` and the purge can never delete a live handshake identity.
+nonisolated final class InnerTLSOrphanPurgeBarrier: @unchecked Sendable {
+    static let shared = InnerTLSOrphanPurgeBarrier()
+
+    private struct State {
+        var started = false
+        var finished = false
+        var waiters: [(id: UUID, continuation: CheckedContinuation<Void, any Error>)] = []
+    }
+
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init() {}
+
+    /// Strictly once-only idempotent. Subsequent calls are no-ops.
+    func start(purge: @escaping @Sendable () -> Void = { InnerTLS.purgeOrphanedIdentities() }) {
+        let shouldStart = self.state.withLock { state -> Bool in
+            guard !state.started else { return false }
+            state.started = true
+            return true
+        }
+        guard shouldStart else { return }
+        Task.detached(priority: .utility) { [weak self] in
+            purge()
+            self?.finish()
+        }
+    }
+
+    /// Waits for an already-started purge to finish. Returns immediately if `start()` was
+    /// never called or already finished. Throws `CancellationError` immediately if the
+    /// caller task is cancelled while waiting, without cancelling the shared purge.
+    func waitIfStarted() async throws {
+        let fastReturn = self.state.withLock { state -> Bool in
+            !state.started || state.finished
+        }
+        if fastReturn {
+            try Task.checkCancellation()
+            return
+        }
+        try Task.checkCancellation()
+        let waiterID = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                enum Action { case resumeSuccess, resumeCancelled, queued }
+                let action: Action = self.state.withLock { state in
+                    if !state.started || state.finished {
+                        return .resumeSuccess
+                    }
+                    if Task.isCancelled {
+                        return .resumeCancelled
+                    }
+                    state.waiters.append((id: waiterID, continuation: continuation))
+                    return .queued
+                }
+                switch action {
+                case .resumeSuccess:
+                    continuation.resume()
+                case .resumeCancelled:
+                    continuation.resume(throwing: CancellationError())
+                case .queued:
+                    break
+                }
+            }
+        } onCancel: { [weak self] in
+            self?.cancelWaiter(id: waiterID)
+        }
+    }
+
+    private func finish() {
+        let waiters = self.state.withLock { state -> [(id: UUID, continuation: CheckedContinuation<Void, any Error>)] in
+            state.finished = true
+            let copy = state.waiters
+            state.waiters.removeAll()
+            return copy
+        }
+        for waiter in waiters {
+            waiter.continuation.resume()
+        }
+    }
+
+    private func cancelWaiter(id: UUID) {
+        let removed = self.state.withLock { state -> CheckedContinuation<Void, any Error>? in
+            guard let index = state.waiters.firstIndex(where: { $0.id == id }) else { return nil }
+            return state.waiters.remove(at: index).continuation
+        }
+        removed?.resume(throwing: CancellationError())
+    }
+}
+
 @MainActor
 @Observable
 final class CFTunnelTransport: Transporting {
@@ -140,6 +231,8 @@ final class CFTunnelTransport: Transporting {
     @ObservationIgnored
     private let origins: JournalWebOriginStore
     @ObservationIgnored
+    private let orphanPurgeBarrier: InnerTLSOrphanPurgeBarrier
+    @ObservationIgnored
     private var inBackground = false
 
     init(
@@ -148,7 +241,8 @@ final class CFTunnelTransport: Transporting {
         loadPairing: @escaping @Sendable () throws -> StoredPairing? = { try SPLRuntime.keychainStore.load() },
         makeSession: @escaping @Sendable (StoredPairing) -> any TunnelSessioning & MuxStreamOpening = CFTunnelTransport.makeProductionSession,
         attemptUpdatesDrainDeadline: Duration = CFTunnelTransport.defaultAttemptUpdatesDrainDeadline,
-        origins: JournalWebOriginStore = .shared
+        origins: JournalWebOriginStore = .shared,
+        orphanPurgeBarrier: InnerTLSOrphanPurgeBarrier = .shared
     ) {
         self.appConfig = appConfig
         self.diagnosticLog = diagnosticLog
@@ -156,6 +250,7 @@ final class CFTunnelTransport: Transporting {
         self.makeSession = makeSession
         self.attemptUpdatesDrainDeadline = attemptUpdatesDrainDeadline
         self.origins = origins
+        self.orphanPurgeBarrier = orphanPurgeBarrier
     }
 
     public func connect(
@@ -165,6 +260,8 @@ final class CFTunnelTransport: Transporting {
     ) async throws -> Int {
         self.sessionEpoch &+= 1
         let epoch = self.sessionEpoch
+        try await self.orphanPurgeBarrier.waitIfStarted()
+        try self.checkCurrent(epoch)
         onStageChange(.preparingCandidates)
         guard let pairing = try loadPairing() else {
             onStageChange(.failed(AppStrings.ios_services_connect()))

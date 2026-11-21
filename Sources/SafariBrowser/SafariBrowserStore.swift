@@ -42,7 +42,7 @@ nonisolated struct SafariBrowserSnapshot: Sendable, Equatable {
 /// and Settings' job. An older store's `paused` column is ignored. Held pages
 /// carry no journal binding: they wait while unpaired and go to whichever
 /// journal the app is confirmed with when it next runs.
-nonisolated final class SafariBrowserStore {
+nonisolated final class SafariBrowserStore: @unchecked Sendable {
     let root: URL
     private var db: OpaquePointer?
 

@@ -96,7 +96,7 @@ struct AddMoreView: View {
             screencast: bundle.screencast,
             watch: bundle.watch,
             calendar: self.calendarSourceHandle.map { makeCalendarSource($0.source, isJournalPaired: self.appConfig.isPaired) },
-            safari: self.safariSource.map { safariSourceModel(snapshot: $0.snapshot, extensionOn: $0.extensionOn, isJournalPaired: self.appConfig.isPaired) },
+            safari: self.safariSource.map { safariSourceModel(snapshot: $0.snapshot, extensionOn: $0.extensionOn, isJournalPaired: self.appConfig.isPaired, hasLoaded: $0.hasLoaded) },
             obsidian: self.obsidianSourceHandle.map { makeObsidianSource($0.source, isJournalPaired: self.appConfig.isPaired) },
             screenshots: self.screenshotsSourceHandle.map { makeScreenshotsSource($0.source) },
             hiddenIDs: UserSettings.decodeHiddenHomeSourceIDs(self.hiddenHomeSourceIDsData)

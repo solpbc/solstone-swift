@@ -75,9 +75,16 @@ final class ScreenshotsTransferDelivery: ScreenshotsSending {
     }
 
     func send(_ upload: ScreenshotsUpload) async throws {
-        try self.fileManager.createDirectory(at: self.stagingURL, withIntermediateDirectories: true)
-        let url = self.stagingURL.appendingPathComponent(upload.itemID.uuidString)
-        try upload.bytes.write(to: url, options: .atomic)
+        let stagingURL = self.stagingURL
+        let bytes = upload.bytes
+        let filename = upload.itemID.uuidString
+        let url = try await Task.detached(priority: .utility) {
+            let fileManager = FileManager()
+            try fileManager.createDirectory(at: stagingURL, withIntermediateDirectories: true)
+            let destination = stagingURL.appendingPathComponent(filename)
+            try bytes.write(to: destination, options: .atomic)
+            return destination
+        }.value
         defer { try? self.fileManager.removeItem(at: url) }
         _ = try await self.engine.enqueueIfAbsent(
             manifest: ScreenshotsTransfer.manifest(for: upload),

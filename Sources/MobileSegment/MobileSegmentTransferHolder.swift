@@ -64,9 +64,10 @@ final class MobileSegmentTransferHolder {
         self.uploader.journalEvents
     }
 
-    /// Recomputes the notice window. A scene becoming active calls this even when no file changed.
+    /// Recomputes the notice window and cached counts off the main thread.
+    /// A scene becoming active calls this even when no file changed.
     func refreshJournalGap() {
-        self.uploader.refreshCounts()
+        self.uploader.scheduleRefreshCounts()
     }
 
     /// Recomputes the notice and waits until the result is on the holder.

@@ -455,6 +455,104 @@ nonisolated final class CFTunnelTransportTests: XCTestCase {
         await transport.disconnect()
     }
 
+    // MARK: - Phase 1 Startup & Foreground Unblock Tests
+
+    @MainActor
+    func testInnerTLSOrphanPurgeBarrierIdempotencyGatingCancellationAndDisconnectSafety() async throws {
+        // (a) Once-only idempotent start()
+        let barrier = InnerTLSOrphanPurgeBarrier()
+        let purgeCalls = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let purgeEntered = DispatchSemaphore(value: 0)
+        let purgeRelease = DispatchSemaphore(value: 0)
+        barrier.start {
+            purgeCalls.withLock { $0 += 1 }
+            purgeEntered.signal()
+            purgeRelease.wait()
+        }
+        barrier.start {
+            purgeCalls.withLock { $0 += 1 }
+        }
+        let entered = await TestSemaphore.wait(purgeEntered, timeout: .now() + 5)
+        XCTAssertEqual(entered, .success)
+
+        // (b) Holding purge open delays CFTunnelTransport.connect() before makeSession.
+        let makeSessionCount = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let session = FakeTunnelSession()
+        let transport = CFTunnelTransport(
+            loadPairing: { Self.fixturePairing() },
+            makeSession: { _ in
+                makeSessionCount.withLock { $0 += 1 }
+                return session
+            },
+            orphanPurgeBarrier: barrier
+        )
+
+        // (c) Cancelling connect() while waiting throws CancellationError IMMEDIATELY before purge finishes,
+        //     without calling makeSession.
+        let cancelledConnect = Task {
+            try await transport.connect(
+                candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+                onDisconnect: { _ in },
+                onStageChange: { _ in }
+            )
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        XCTAssertEqual(makeSessionCount.withLock { $0 }, 0)
+        cancelledConnect.cancel()
+        do {
+            _ = try await cancelledConnect.value
+            XCTFail("cancelled connect waiting on orphan purge barrier must throw")
+        } catch is CancellationError {
+            // Expected immediately while purgeRelease is still held!
+        }
+        XCTAssertEqual(makeSessionCount.withLock { $0 }, 0)
+
+        // (d1) disconnect() while waiting skips makeSession without clobbering session.
+        let disconnectedConnect = Task {
+            try await transport.connect(
+                candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+                onDisconnect: { _ in },
+                onStageChange: { _ in }
+            )
+        }
+        try await Task.sleep(for: .milliseconds(30))
+        await transport.disconnect()
+
+        // (d2) Superseding connect() while waiting skips stale connect's makeSession and lets newer connect win.
+        let supersededConnect = Task {
+            try await transport.connect(
+                candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+                onDisconnect: { _ in },
+                onStageChange: { _ in }
+            )
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        let winningConnect = Task {
+            try await transport.connect(
+                candidates: [.lan(host: "127.0.0.1", port: 8676, scope: "")],
+                onDisconnect: { _ in },
+                onStageChange: { _ in }
+            )
+        }
+        try await Task.sleep(for: .milliseconds(20))
+        XCTAssertEqual(makeSessionCount.withLock { $0 }, 0)
+
+        // Release purge: disconnected & superseded connects throw CancellationError; winning connect calls makeSession once!
+        purgeRelease.signal()
+        do {
+            _ = try await disconnectedConnect.value
+            XCTFail("disconnected connect must not succeed")
+        } catch is CancellationError {}
+        do {
+            _ = try await supersededConnect.value
+            XCTFail("superseded connect must not succeed")
+        } catch is CancellationError {}
+        let port = try await winningConnect.value
+        XCTAssertGreaterThan(port, 0)
+        XCTAssertEqual(makeSessionCount.withLock { $0 }, 1)
+        XCTAssertEqual(purgeCalls.withLock { $0 }, 1)
+        await transport.disconnect()
+    }
 }
 
 private enum DisconnectEvent: Equatable, Sendable {

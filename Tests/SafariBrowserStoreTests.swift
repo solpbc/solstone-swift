@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import Foundation
+import SPLTunnel
 import XCTest
 
 nonisolated final class SafariBrowserStoreTests: XCTestCase {
@@ -302,4 +303,220 @@ nonisolated final class SafariBrowserStoreTests: XCTestCase {
         XCTAssertEqual(periods.count, 1)
         XCTAssertEqual(Double(try XCTUnwrap(periods.first).payload.count), held)
     }
+
+    // MARK: - Phase 1 Startup & Foreground Unblock Tests
+
+    func testSafariAuthorityCoordinatorPreLockRevocationSupersedesAsyncTrue() async throws {
+        let confirmedBox = NSLockBox<Bool>(false)
+        let enteredBeforeLock = DispatchSemaphore(value: 0)
+        let releaseBeforeLock = DispatchSemaphore(value: 0)
+        let coordinator = SafariAuthorityCoordinator(
+            writeConfirmed: { value in confirmedBox.set(value) },
+            beforeAcquireWriteLock: {
+                enteredBeforeLock.signal()
+                releaseBeforeLock.wait()
+            }
+        )
+
+        let asyncTask = coordinator.enqueuePublish(true)
+        let entered = await TestSemaphore.wait(enteredBeforeLock, timeout: .now() + 5)
+        XCTAssertEqual(entered, .success)
+
+        // Synchronous revocation arrives while the detached task is suspended before acquiring writeLock.
+        try coordinator.publishSync(false)
+        releaseBeforeLock.signal()
+
+        let published = await asyncTask.value
+        XCTAssertFalse(published)
+        XCTAssertFalse(confirmedBox.get())
+    }
+
+    func testSafariAuthorityCoordinatorInWriteRevocationSerializesAfterAsyncTrue() async throws {
+        let confirmedBox = NSLockBox<Bool>(false)
+        let writesBox = NSLockBox<[Bool]>([])
+        let enteredTrueWrite = DispatchSemaphore(value: 0)
+        let releaseTrueWrite = DispatchSemaphore(value: 0)
+        let coordinator = SafariAuthorityCoordinator(
+            writeConfirmed: { value in
+                if value {
+                    enteredTrueWrite.signal()
+                    releaseTrueWrite.wait()
+                }
+                confirmedBox.set(value)
+                writesBox.mutate { $0.append(value) }
+            }
+        )
+
+        let asyncTask = coordinator.enqueuePublish(true)
+        let entered = await TestSemaphore.wait(enteredTrueWrite, timeout: .now() + 5)
+        XCTAssertEqual(entered, .success)
+
+        let syncFinished = DispatchSemaphore(value: 0)
+        let syncQueue = DispatchQueue(label: "test.safari.authority.sync")
+        syncQueue.async {
+            try? coordinator.publishSync(false)
+            syncFinished.signal()
+        }
+        // Give sync revocation a moment to block on writeLock after bumping epoch.
+        let blocked = await TestSemaphore.wait(syncFinished, timeout: .now() + 0.05)
+        XCTAssertEqual(blocked, .timedOut)
+        releaseTrueWrite.signal()
+
+        let done = await TestSemaphore.wait(syncFinished, timeout: .now() + 5)
+        XCTAssertEqual(done, .success)
+        _ = await asyncTask.value
+        XCTAssertFalse(confirmedBox.get())
+        XCTAssertEqual(writesBox.get(), [true, false])
+    }
+
+    @MainActor
+    func testAppConfigJournalSendConfirmedRacesWithRevocationAndRequiresActiveOwner() async throws {
+        let pairing = StoredPairing(
+            instanceID: "inst-safari",
+            homeLabel: "sol",
+            relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:\(String(repeating: "b", count: 64))",
+            clientCertPEM: "cert",
+            clientKeyPEM: "key",
+            caChainPEM: CertlessTrustConstants.caPEM,
+            relayEnrollment: .enrolled(deviceToken: "token", expiresAt: nil),
+            localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 8676, scope: "")],
+            pairedAt: Date(timeIntervalSince1970: 1_776_144_000)
+        )
+        let otherPairing = StoredPairing(
+            instanceID: "inst-safari-2",
+            homeLabel: "sol-2",
+            relayEndpoint: "wss://relay.example.com",
+            fingerprint: "sha256:\(String(repeating: "c", count: 64))",
+            clientCertPEM: "cert",
+            clientKeyPEM: "key",
+            caChainPEM: CertlessTrustConstants.caPEM,
+            relayEnrollment: .enrolled(deviceToken: "token-2", expiresAt: nil),
+            localEndpoints: [LocalEndpoint(host: "127.0.0.1", port: 8677, scope: "")],
+            pairedAt: Date(timeIntervalSince1970: 1_776_144_100)
+        )
+
+        enum RevocationPath { case clearPairing, applyPairing, setFalse, none }
+        for path in [RevocationPath.clearPairing, .applyPairing, .setFalse, .none] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let storedBox = NSLockBox<StoredPairing?>(pairing)
+            let confirmation = JournalSendConfirmationStore.memory()
+            let credentialStore = PairingCredentialStore(
+                confirmationStore: confirmation,
+                migrationStore: .memory(),
+                loadPairing: { storedBox.get() },
+                savePairing: { storedBox.set($0) },
+                deletePairing: { storedBox.set(nil) }
+            )
+            let config = AppConfig(
+                loadPairing: { storedBox.get() },
+                savePairing: { storedBox.set($0) },
+                deletePairing: { storedBox.set(nil) },
+                confirmationStore: confirmation,
+                store: credentialStore,
+                appGroupMirror: AppGroupMirror(rootURLProvider: { root })
+            )
+            let confirmedBox = NSLockBox<Bool>(false)
+            let enteredBeforeLock = DispatchSemaphore(value: 0)
+            let releaseBeforeLock = DispatchSemaphore(value: 0)
+            let gateEnabled = NSLockBox<Bool>(path != .none)
+            config.safariAuthorityCoordinator = SafariAuthorityCoordinator(
+                writeConfirmed: { confirmedBox.set($0) },
+                beforeAcquireWriteLock: {
+                    if gateEnabled.get() {
+                        gateEnabled.set(false)
+                        enteredBeforeLock.signal()
+                        releaseBeforeLock.wait()
+                    }
+                }
+            )
+
+            config.journalSendConfirmed = true
+            if path != .none {
+                let entered = await TestSemaphore.wait(enteredBeforeLock, timeout: .now() + 5)
+                XCTAssertEqual(entered, .success)
+            }
+            switch path {
+            case .clearPairing:
+                XCTAssertTrue(config.clearPairing())
+            case .applyPairing:
+                try config.applyPairing(otherPairing)
+            case .setFalse:
+                config.journalSendConfirmed = false
+            case .none:
+                break
+            }
+            if path != .none {
+                releaseBeforeLock.signal()
+            }
+            await config.waitForPendingSafariAuthorityForTesting()
+            if path == .none {
+                XCTAssertTrue(confirmedBox.get(), "negative twin: without revocation confirmed becomes true")
+            } else {
+                XCTAssertFalse(confirmedBox.get(), "revocation \(path) must leave confirmed == false")
+            }
+        }
+
+        // Setting journalSendConfirmed = true without an active owner stays false.
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let emptyBox = NSLockBox<StoredPairing?>(nil)
+        let confirmation = JournalSendConfirmationStore.memory()
+        let emptyStore = PairingCredentialStore(
+            confirmationStore: confirmation,
+            migrationStore: .memory(),
+            loadPairing: { emptyBox.get() },
+            savePairing: { emptyBox.set($0) },
+            deletePairing: { emptyBox.set(nil) }
+        )
+        let config = AppConfig(
+            loadPairing: { emptyBox.get() },
+            savePairing: { emptyBox.set($0) },
+            deletePairing: { emptyBox.set(nil) },
+            confirmationStore: confirmation,
+            store: emptyStore,
+            appGroupMirror: AppGroupMirror(rootURLProvider: { root })
+        )
+        let confirmedBox = NSLockBox<Bool>(true)
+        config.safariAuthorityCoordinator = SafariAuthorityCoordinator(writeConfirmed: { confirmedBox.set($0) })
+        XCTAssertFalse(emptyStore.hasActiveOwner)
+        config.journalSendConfirmed = true
+        await config.waitForPendingSafariAuthorityForTesting()
+        XCTAssertFalse(config.journalSendConfirmed)
+        XCTAssertFalse(confirmedBox.get())
+    }
+
+    @MainActor
+    func testSafariBrowserDeliveryDrainRunsOffMainThread() async throws {
+        let (root, projection) = try self.rig()
+        let spoolRoot = root.appendingPathComponent("engine")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try SafariBrowserStore(root: root)
+        try store.setConfirmed(true)
+        let generation = try XCTUnwrap(self.hello(store, projection)["destination_generation"] as? String)
+        _ = try store.exchange(connection: "test", frame: self.batch(generation: generation), projection: projection)
+        let harness = makeTransferCutoverHarness(rootURL: spoolRoot)
+        try await harness.engine.initialize()
+
+        let ranOffMain = NSLockBox<Bool>(false)
+        let drained = await SafariBrowserDelivery.drain(
+            engine: harness.engine,
+            store: store,
+            beforeAdoption: {
+                ranOffMain.set(!Thread.isMainThread)
+            }
+        )
+        XCTAssertTrue(drained)
+        XCTAssertTrue(ranOffMain.get(), "SafariBrowserDelivery.drain must execute off @MainActor")
+    }
+}
+
+private nonisolated final class NSLockBox<T>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: T
+    init(_ value: T) { self.value = value }
+    func get() -> T { self.lock.lock(); defer { self.lock.unlock() }; return self.value }
+    func set(_ value: T) { self.lock.lock(); self.value = value; self.lock.unlock() }
+    func mutate(_ body: (inout T) -> Void) { self.lock.lock(); body(&self.value); self.lock.unlock() }
 }

@@ -350,7 +350,6 @@ struct StatusPane: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(SourceIntakeModel.self) private var sourceIntake: SourceIntakeModel?
     @WatchPipelineInputReader private var watchPipelineInputs
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(PairFlowRouter.self) private var pairFlowRouter
     @Environment(JournalSendRelease.self) private var journalSendRelease
@@ -585,10 +584,6 @@ struct StatusPane: View {
                     .foregroundStyle(.secondary)
                     .textCase(nil)
                 }
-            }
-            .onAppear { model.reload() }
-            .onChange(of: self.scenePhase) { _, phase in
-                if phase == .active { model.reload() }
             }
         }
     }
@@ -987,7 +982,10 @@ struct StatusPane: View {
             UITestStateProbe(identifier: "shell.pane.status.leadState.\(self.pillState.uiTestStateName)")
         }
 #endif
-        .onAppear { self.headingFocused = true }
+        .onAppear {
+            self.headingFocused = true
+            self.sourceIntake?.reload()
+        }
         .onDisappear { self.snapshotCopyTask?.cancel() }
         .task { await self.refreshTransferRate() }
     }

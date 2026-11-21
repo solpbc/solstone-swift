@@ -81,13 +81,15 @@ final class ScreenshotsStore {
     }
 
     /// Photos reports a change for every edit, sync and new photo, and each one moves the
-    /// check time and the change token. Neither needs the file rewritten: the check time is
-    /// shown from memory, and a relaunch that reads an older token replays changes this
-    /// source already handled, which changes nothing. Both are written with the next real change.
-    func save() {
+    /// check time and the change token. Routine small deltas keep the token in memory so
+    /// live library chatter does not rewrite the file; expiry rescans, large deltas, and
+    /// app backgrounding pass `persistingToken: true` so the advanced token survives relaunch.
+    func save(persistingToken: Bool = false) {
         if var unchanged = self.persisted {
             unchanged.lastChecked = self.document.lastChecked
-            unchanged.changeToken = self.document.changeToken
+            if !persistingToken {
+                unchanged.changeToken = self.document.changeToken
+            }
             if unchanged == self.document { return }
         }
         do {

@@ -38,12 +38,19 @@ protocol LocationProviding: AnyObject {
     var onGap: (@Sendable (LocationGapReason) -> Void)? { get set }
 
     func currentCapability() -> LocationCapability
+    func refreshServicesEnabled() async -> LocationCapability
     func requestWhenInUseAuthorization()
     func requestAlwaysAuthorization()
     func startObservation(modes: Set<LocationObservationMode>) async throws
     func stopObservation() async
     func beginBackgroundSustain() async
     func endBackgroundSustain() async
+}
+
+extension LocationProviding {
+    func refreshServicesEnabled() async -> LocationCapability {
+        self.currentCapability()
+    }
 }
 
 @MainActor
@@ -54,18 +61,37 @@ final class LiveLocationProvider: NSObject, LocationProviding, CLLocationManager
     var onGap: (@Sendable (LocationGapReason) -> Void)?
 
     private let manager: CLLocationManager
+    private let servicesEnabled: @Sendable () -> Bool
+    private var cachedServicesEnabled: Bool?
+    private var servicesEnabledGeneration: UInt64 = 0
+    private var appliedServicesEnabledGeneration: UInt64 = 0
     private var liveUpdatesTask: Task<Void, Never>?
     private var backgroundSession: CLBackgroundActivitySession?
     private var serviceSession: CLServiceSession?
 
-    init(manager: CLLocationManager = CLLocationManager()) {
+    init(
+        manager: CLLocationManager = CLLocationManager(),
+        servicesEnabled: @escaping @Sendable () -> Bool = { CLLocationManager.locationServicesEnabled() },
+        refreshOnInit: Bool = true
+    ) {
         self.manager = manager
+        self.servicesEnabled = servicesEnabled
         super.init()
         self.manager.delegate = self
+        if refreshOnInit {
+            let initial = self.currentCapability()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let updated = await self.refreshServicesEnabled()
+                if updated != initial {
+                    self.onAuthorizationChanged?(updated)
+                }
+            }
+        }
     }
 
     func currentCapability() -> LocationCapability {
-        guard CLLocationManager.locationServicesEnabled() else {
+        if self.cachedServicesEnabled == false {
             return .servicesDisabled
         }
 
@@ -84,6 +110,20 @@ final class LiveLocationProvider: NSObject, LocationProviding, CLLocationManager
         @unknown default:
             return .denied
         }
+    }
+
+    func refreshServicesEnabled() async -> LocationCapability {
+        self.servicesEnabledGeneration &+= 1
+        let generation = self.servicesEnabledGeneration
+        let check = self.servicesEnabled
+        let enabled = await Task.detached(priority: .utility) {
+            check()
+        }.value
+        if generation > self.appliedServicesEnabledGeneration {
+            self.appliedServicesEnabledGeneration = generation
+            self.cachedServicesEnabled = enabled
+        }
+        return self.currentCapability()
     }
 
     func requestWhenInUseAuthorization() {
@@ -148,7 +188,8 @@ final class LiveLocationProvider: NSObject, LocationProviding, CLLocationManager
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            self.onAuthorizationChanged?(self.currentCapability())
+            let capability = await self.refreshServicesEnabled()
+            self.onAuthorizationChanged?(capability)
         }
     }
 
