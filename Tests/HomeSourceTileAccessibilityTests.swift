@@ -13,6 +13,8 @@ nonisolated final class HomeSourceTileAccessibilityTests: XCTestCase {
 
     func testHomeSourceTileUsesStateLabelAsAccessibilityValue() throws {
         let text = try Self.contents("Sources/Home/HomeSourceTile.swift")
+        // The tile can speak a remote device. Its switch always describes the local source.
+        XCTAssertTrue(text.contains(".accessibilityValue(self.tileAccessibilityValue)"))
         XCTAssertTrue(text.contains(".accessibilityValue(Self.accessibilityValue(for: self.source))"))
         XCTAssertFalse(text.contains("homeSourceTileAccessibilityFacts"))
 

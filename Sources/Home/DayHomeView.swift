@@ -430,7 +430,9 @@ private extension DayHomeView {
                         source: calendar,
                         route: .calendar,
                         control: calendarTileControl(CalendarSourceStatus(state: handle.source.state)),
-                        isOn: self.calendarIsOn(handle.source)
+                        isOn: self.calendarIsOn(handle.source),
+                        otherDevices: calendar.offersRemoteSourceCard ? self.appConfig.sharedSources.others("calendar") : [],
+                        now: self.now
                     )
                 }
             }
@@ -441,7 +443,9 @@ private extension DayHomeView {
                         source: obsidian,
                         route: .obsidian,
                         control: obsidianTileControl(handle.source.status),
-                        isOn: self.obsidianIsOn(handle.source)
+                        isOn: self.obsidianIsOn(handle.source),
+                        otherDevices: obsidian.offersRemoteSourceCard && self.obsidianTransferHolder?.choosingVault != true ? self.appConfig.sharedSources.others("obsidian") : [],
+                        now: self.now
                     )
                 }
             }

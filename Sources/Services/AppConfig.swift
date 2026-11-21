@@ -51,6 +51,7 @@ final class AppConfig {
             return false
         }
     }
+    let sharedSources: SharedSources
     let journalVersion: JournalVersionMetadata
 
     @ObservationIgnored let store: PairingCredentialStore
@@ -84,6 +85,7 @@ final class AppConfig {
             savePairing: savePairing,
             deletePairing: deletePairing
         )
+        self.sharedSources = SharedSources(credentials: effectiveStore)
         self.store = effectiveStore
         self.confirmationStore = effectiveConfirmationStore
         self.deviceMigrationStore = effectiveStore.migrationStore

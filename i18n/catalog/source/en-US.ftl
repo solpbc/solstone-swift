@@ -3150,3 +3150,18 @@ ios.pairing.generic.your = your
 ios.pairing.generic.spoken = your journal, not set up yet
 
 ios.pairing.confirmed.generic = this is your journal
+
+ios.sharedsources.heading = { $count ->
+    [one] from another device
+   *[other] from { $count } other devices
+}
+
+ios.sharedsources.also = also on
+
+ios.sharedsources.pair = { $first } · { $second }
+
+ios.sharedsources.triple = { $first } · { $second } · { $third }
+
+ios.sharedsources.spokenpair = { $first }, { $second }
+
+ios.sharedsources.spokentriple = { $first }, { $second }, { $third }

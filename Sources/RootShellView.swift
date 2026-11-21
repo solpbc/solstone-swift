@@ -215,6 +215,7 @@ struct RootShellView: View {
         // Injected here, above every sheet and presentation the shell declares, so a
         // source screen opened from inside one of them finds it too. Injected lower,
         // the status sheet's audio screen could not find it and the app stopped.
+        .modifier(SharedSourceLifecycle())
         .environment(self.observerSourcePauseState)
         .environment(self.journalGapVisit)
         .task(id: self.appConfig.deviceID) {

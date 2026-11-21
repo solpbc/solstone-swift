@@ -11,6 +11,7 @@ struct AddMoreView: View {
     @Environment(LocationManager.self) private var locationManager
     @Environment(ScreencastManager.self) private var screencastManager
     @Environment(CalendarSourceHandle.self) private var calendarSourceHandle: CalendarSourceHandle?
+    @Environment(ObsidianTransferHolder.self) private var obsidianTransfer: ObsidianTransferHolder?
     @Environment(ObsidianSourceHandle.self) private var obsidianSourceHandle: ObsidianSourceHandle?
     @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
@@ -59,7 +60,9 @@ struct AddMoreView: View {
                     .padding(.leading, 4)
                 VStack(alignment: .leading, spacing: ShellMetrics.gutter) {
                     ForEach(rows) { row in
-                        SourceRowView(source: row.source) {
+                        let choosing = row.source.kind == .obsidian && obsidianTransfer?.choosingVault == true
+                        let count = row.source.offersRemoteSourceCard && !choosing ? appConfig.sharedSources.others(row.source.id).count : 0
+                        SourceRowView(source: row.source, otherDeviceCount: count) {
                             self.onSelect(row.route)
                         }
                     }

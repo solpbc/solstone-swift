@@ -172,7 +172,10 @@ actor ObsidianCapabilityGate: TransferSourceGate {
     private var capability: Capability = .unknown
     private var generation: UInt64 = 0
     private var readingStatus = false
-    private var fetchingSameName = false
+    private var publishChecking: (@Sendable (Bool) -> Void)?
+    private var fetchingSameName = false {
+        didSet { if oldValue != fetchingSameName { publishChecking?(fetchingSameName) } }
+    }
     private var retryScheduled = false
     private var journal: (identity: String?, version: String?) = (nil, nil)
 
@@ -210,6 +213,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
         recordAcceptance: @escaping @Sendable (String, TransferResolvedEndpoint) async -> Bool = { _, _ in false },
         turnSourceOff: @escaping @Sendable () async -> Void = {},
         wake: @escaping @Sendable () async -> Void,
+        publishChecking: @escaping @Sendable (Bool) -> Void = { _ in },
         publishCapability: @escaping @Sendable (Capability) -> Void,
         publishAdvisory: @escaping @Sendable (ObsidianSameNameAdvisory?) -> Void
     ) {
@@ -220,6 +224,7 @@ actor ObsidianCapabilityGate: TransferSourceGate {
         self.recordAcceptance = recordAcceptance
         self.turnSourceOff = turnSourceOff
         self.wake = wake
+        self.publishChecking = publishChecking
         self.publishCapability = publishCapability
         self.publishAdvisory = publishAdvisory
     }
@@ -442,6 +447,8 @@ final class ObsidianTransferHolder {
     private let transferEngine: TransferEngine
     private let mirror: TransferStatusMirror
     var capability: ObsidianCapabilityGate.Capability = .unknown
+    var checkingVaultName = false
+    var choosingVault: Bool { checkingVaultName || sameNameAdvisory != nil }
     var sameNameAdvisory: ObsidianSameNameAdvisory?
     var continueSameNameAction: (@MainActor () async -> Void)?
     var cancelSameNameAction: (@MainActor () async -> Void)?

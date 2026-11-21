@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct ObsidianSourceDetailView: View {
+    @Environment(AppConfig.self) private var config
     @Environment(ObsidianSourceHandle.self) private var handle
     @Environment(ObsidianTransferHolder.self) private var transferHolder: ObsidianTransferHolder?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -18,6 +19,9 @@ struct ObsidianSourceDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 let status = self.handle.source.status
 
+                let source = makeObsidianSource(handle.source, isJournalPaired: config.isPaired)
+                let choosing = transferHolder?.choosingVault == true
+                SharedSourceDetails(source: source, setupInProgress: choosing)
                 if status.selectedVaultID == nil {
                     self.setupBlock
                 } else {
@@ -56,6 +60,10 @@ struct ObsidianSourceDetailView: View {
             }
         }
         .task {
+            if makeObsidianSource(handle.source, isJournalPaired: config.isPaired).offersRemoteSourceCard,
+               transferHolder?.choosingVault != true {
+                config.sharedSources.refresh(detail: true)
+            }
             await self.transferHolder?.refreshNoteCounts()
         }
     }
@@ -179,6 +187,8 @@ struct ObsidianSourceDetailView: View {
                         LabeledContent(ObsidianVocabulary.VAULT_FACT, value: vaultName)
                     }
 
+                    SharedSourceDetails(source: makeObsidianSource(handle.source, isJournalPaired: config.isPaired),
+                        facts: true, setupInProgress: transferHolder?.choosingVault == true)
                     let checkedStr: String = {
                         if let lastChecked = status.lastChecked {
                             let fmt = DateFormatter()

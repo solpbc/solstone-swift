@@ -24,6 +24,8 @@ struct HomeSourceTile: View {
     let route: SourceRoute
     let control: HomeSourceTileControl
     var isOn: Binding<Bool> = .constant(false)
+    var otherDevices: [KnownSources.Device] = []
+    var now = Date.distantPast
     var switchDisabled: Bool = false
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -51,7 +53,7 @@ struct HomeSourceTile: View {
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel(self.source.displayName)
-        .accessibilityValue(Self.accessibilityValue(for: self.source))
+        .accessibilityValue(self.tileAccessibilityValue)
         .accessibilityIdentifier("dayHome.tile.\(self.source.id)")
         .background(Color.deckSurface, in: ShellMetrics.tileShape)
         .overlay {
@@ -69,6 +71,12 @@ struct HomeSourceTile: View {
             return AppStrings.ios_frame_homesourcetile_n66("\(source.state.label)", "\(subtextOverride)")
         }
         return source.state.label
+    }
+
+    private var tileAccessibilityValue: String {
+        guard let device = otherDevices.first, let entry = device.sources.first else { return Self.accessibilityValue(for: source) }
+        return AppStrings.ios_frame_homesourcetile_n66(SharedSourceCopy.heading(otherDevices.count),
+            SharedSourceCopy.line(device: device, entry: entry, spoken: true, now: now))
     }
 
     /// Glyph and control share the top line. At accessibility sizes the control drops
@@ -116,18 +124,23 @@ struct HomeSourceTile: View {
                 .font(ShellFont.tileName)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 6) {
-                HomeSourceStateDot(state: self.source.state)
-                Text(self.source.state.label)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(self.stateLabelColor)
-            }
-            if self.source.showsSubtext, let subtext = self.subtext {
-                Text(subtext)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let device = otherDevices.first, let entry = device.sources.first {
+                SharedSourceHeading(count: otherDevices.count)
+                SharedSourceTileLine(device: device, entry: entry, now: now)
+            } else {
+                HStack(spacing: 6) {
+                    HomeSourceStateDot(state: self.source.state)
+                    Text(self.source.state.label)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(self.stateLabelColor)
+                }
+                if self.source.showsSubtext, let subtext = self.subtext {
+                    Text(subtext)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .accessibilityHidden(true)

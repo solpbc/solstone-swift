@@ -237,7 +237,11 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
 
     private let sessionFactory: @Sendable (Duration) -> URLSession
 
-    init(sessionFactory: (@Sendable (Duration) -> URLSession)? = nil) {
+    private let statusReads = InFlightStatusReads()
+    private let pairingGeneration: @Sendable () -> UInt64
+
+    init(pairingGeneration: @escaping @Sendable () -> UInt64 = { 0 }, sessionFactory: (@Sendable (Duration) -> URLSession)? = nil) {
+        self.pairingGeneration = pairingGeneration
         self.sessionFactory = sessionFactory ?? Self.defaultSessionFactory
     }
 
@@ -266,37 +270,59 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         return (data, httpResponse)
     }
 
-    func fetchStatus(localPort: Int, timeout: Duration = .seconds(5)) async -> String? {
+    func sourceRequest(localPort: Int, path: String, timeout: Duration = .seconds(5)) async throws -> (Data, Int) {
         guard (1...65535).contains(localPort),
-              let url = URL(string: "http://127.0.0.1:\(localPort)/api/system/status") else { return nil }
+              let url = URL(string: "http://127.0.0.1:\(localPort)\(path)") else { throw URLError(.badURL) }
         let session = self.sessionFactory(timeout)
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.timeInterval(for: timeout))
         request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        do {
-            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
-            guard httpResponse.statusCode == 200,
-                  let status = try? JSONDecoder().decode(StatusEnvelope.self, from: data) else {
-                return nil
+        let (data, response) = try await Self.fetchCappedData(for: request, in: session)
+        return (data, response.statusCode)
+    }
+
+    /// Resume the PUT inside the same ownership lock that admits the other paired uploads.
+    @MainActor
+    func declareSources(localPort: Int, body: Data, admit: (@Sendable () -> Void) -> Bool) async throws -> Int {
+        guard (1...65535).contains(localPort),
+              let url = URL(string: "http://127.0.0.1:\(localPort)/app/network/api/clients/self/sources") else { throw URLError(.badURL) }
+        let session = sessionFactory(.seconds(5))
+        defer { session.invalidateAndCancel() }
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        request.attachLoopbackCapability()
+        let outbound = request
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let started = admit {
+                    session.dataTask(with: outbound) { _, response, error in
+                        if let http = response as? HTTPURLResponse { continuation.resume(returning: http.statusCode) }
+                        else { continuation.resume(throwing: error ?? URLError(.badServerResponse)) }
+                    }.resume()
+                }
+                if !started { continuation.resume(throwing: CancellationError()) }
             }
-            return sanitizedJournalVersion(status.version.current)
-        } catch {
-            return nil
+        } onCancel: { session.invalidateAndCancel() }
+    }
+
+    func statusResponse(localPort: Int, timeout: Duration = .seconds(5)) async throws -> (Data, Int) {
+        let generation = self.pairingGeneration()
+        return try await self.statusReads.read(port: localPort, generation: generation) {
+            try await self.sourceRequest(localPort: localPort, path: "/api/system/status", timeout: timeout)
         }
     }
 
-    /// The status response's version and the capabilities it lists. A capabilities value that
-    /// is missing or is not an array of strings reads as `nil`; the version is still read.
+    func fetchStatus(localPort: Int, timeout: Duration = .seconds(5)) async -> String? {
+        guard case let .read(version, _) = await self.fetchStatusReport(localPort: localPort, timeout: timeout) else { return nil }
+        return version
+    }
+
     func fetchStatusReport(localPort: Int, timeout: Duration = .seconds(5)) async -> JournalStatusReport {
-        guard (1...65535).contains(localPort),
-              let url = URL(string: "http://127.0.0.1:\(localPort)/api/system/status") else { return .failed }
-        let session = self.sessionFactory(timeout)
-        defer { session.invalidateAndCancel() }
-        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: Self.timeInterval(for: timeout))
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
         do {
-            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
-            guard httpResponse.statusCode == 200,
+            let (data, code) = try await self.statusResponse(localPort: localPort, timeout: timeout)
+            guard code == 200,
                   let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             else {
                 return .failed
@@ -492,11 +518,6 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
         }
     }
 
-    private struct StatusEnvelope: Decodable {
-        struct Version: Decodable { let current: String }
-        let version: Version
-    }
-
     private struct JournalAboutResource: Decodable {
         let protocolVersion: Int
         let version: String
@@ -519,5 +540,20 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
 
     private struct RevisionContainer: Decodable {
         let revision: UInt64?
+    }
+}
+
+/// Only concurrent readers on the same pairing and port share a response.
+private actor InFlightStatusReads {
+    private struct Key: Hashable { let port: Int; let generation: UInt64 }
+    private var reads: [Key: Task<(Data, Int), Error>] = [:]
+
+    func read(port: Int, generation: UInt64, fetch: @escaping @Sendable () async throws -> (Data, Int)) async throws -> (Data, Int) {
+        let key = Key(port: port, generation: generation)
+        if let flight = reads[key] { return try await flight.value }
+        let flight = Task { try await fetch() }
+        reads[key] = flight
+        defer { reads[key] = nil }
+        return try await flight.value
     }
 }

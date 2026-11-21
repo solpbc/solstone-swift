@@ -337,10 +337,12 @@ struct SolstoneSwiftApp: App {
             credentials: appConfig.store,
             confirmation: SPLRuntime.confirmationStore
         )
+        appConfig.sharedSources.admitted = { [weak appConfig] in appConfig?.journalSendConfirmed == true }
+        let homeClient = appConfig.sharedSources.client
         let calendarGate = CalendarCapabilityGate(
             read: { endpoint in
                 guard let port = endpoint.port else { return .failed }
-                return await AuthenticatedHomeClient().fetchStatusReport(localPort: port)
+                return await homeClient.fetchStatusReport(localPort: port)
             },
             isCurrent: { endpoint in
                 await transferEndpointResolver.isCurrent(endpoint)
@@ -349,7 +351,7 @@ struct SolstoneSwiftApp: App {
         let obsidianGate = ObsidianCapabilityGate(
             readStatus: { endpoint in
                 guard let port = endpoint.port else { return .failed }
-                return await AuthenticatedHomeClient().fetchStatusReport(localPort: port)
+                return await homeClient.fetchStatusReport(localPort: port)
             },
             fetchVaults: { endpoint in
                 guard let port = endpoint.port else { return nil }
@@ -362,7 +364,7 @@ struct SolstoneSwiftApp: App {
         let screenshotsGate = ScreenshotsCapabilityGate(
             read: { endpoint in
                 guard let port = endpoint.port else { return .failed }
-                return await AuthenticatedHomeClient().fetchStatusReport(localPort: port)
+                return await homeClient.fetchStatusReport(localPort: port)
             },
             isCurrent: { endpoint in
                 await transferEndpointResolver.isCurrent(endpoint)
@@ -522,6 +524,9 @@ struct SolstoneSwiftApp: App {
                     await MainActor.run { obsidianSource?.turnOff() }
                 },
                 wake: { await transferEngine.kick() },
+                publishChecking: { checking in
+                    Task { @MainActor in obsidianTransferHolder.checkingVaultName = checking }
+                },
                 publishCapability: { capability in
                     Task { @MainActor in
                         obsidianTransferHolder.capability = capability
@@ -650,6 +655,7 @@ struct SolstoneSwiftApp: App {
         let homeJobs = HomeAuthenticatedJobs(
             store: appConfig.store,
             journalVersion: appConfig.journalVersion,
+            client: homeClient,
             isSendAdmissionAllowed: {
                 SPLRuntime.pairingStore.hasActiveOwner
                     && SPLRuntime.confirmationStore.allowsSend(pairing: SPLRuntime.pairingStore.snapshot().pairing)
@@ -1244,6 +1250,7 @@ struct SolstoneSwiftApp: App {
             }
         }
         .onChange(of: self.tunnelManager.state) { _, newState in
+            if case .error(.revoked) = newState { self.appConfig.sharedSources.revoke() }
             switch newState {
             case .connected(let port, _):
                 let connection = self.tunnelManager.activeConnection

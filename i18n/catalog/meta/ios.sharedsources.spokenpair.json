@@ -1,0 +1,25 @@
+{
+  "description": "Other paired devices with this source",
+  "context": "Shared Obsidian and calendar source on a paired device. The heading counts distinct other devices. Formatted parts are the device or vault, optional state and time, in that order. Spoken forms separate the parts for VoiceOver.",
+  "surfaces": [
+    "native-app"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "first",
+      "type": "string"
+    },
+    {
+      "name": "second",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 1000,
+  "source_revision": "3647e9baf4f28c6626fa2ead2997406812441d6baaa3d3361c3058ab6ff29e8f",
+  "risk": "routine",
+  "auto_merge": true
+}

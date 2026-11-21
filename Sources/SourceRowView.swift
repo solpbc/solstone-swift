@@ -5,6 +5,7 @@ import SwiftUI
 
 struct SourceRowView: View {
     let source: Source
+    var otherDeviceCount = 0
     let onTap: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
@@ -19,7 +20,7 @@ struct SourceRowView: View {
                 // icon and the list read as one repeated thing.
                 Image(systemName: self.source.kind.glyph)
                     .font(.system(size: 20, weight: .medium))
-                    .foregroundStyle(self.indicatorColor)
+                    .foregroundStyle(otherDeviceCount > 0 ? Color.secondary : self.indicatorColor)
                     .symbolRenderingMode(.hierarchical)
                     .frame(width: 28, height: 24, alignment: .center)
 
@@ -29,16 +30,20 @@ struct SourceRowView: View {
                         .foregroundStyle(.primary)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            HomeSourceStateDot(state: self.source.state)
-                            Text(self.source.state.label)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(self.stateLabelColor)
-                        }
-                        if let rowSubtext = self.source.rowSubtext {
-                            Text(rowSubtext)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                        if otherDeviceCount > 0 {
+                            SharedSourceHeading(count: otherDeviceCount)
+                        } else {
+                            HStack(spacing: 6) {
+                                HomeSourceStateDot(state: self.source.state)
+                                Text(self.source.state.label)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(self.stateLabelColor)
+                            }
+                            if let rowSubtext = self.source.rowSubtext {
+                                Text(rowSubtext)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -60,7 +65,7 @@ struct SourceRowView: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(AppStrings.ios_frame_sourcerowview_n63("\(self.source.displayName)", "\(self.source.voiceOverText)"))
+        .accessibilityLabel(AppStrings.ios_frame_sourcerowview_n63("\(self.source.displayName)", "\(otherDeviceCount > 0 ? SharedSourceCopy.heading(otherDeviceCount) : self.source.voiceOverText)"))
         .accessibilityIdentifier("source.row.\(self.source.id)")
         .accessibilityAction {
             self.onTap()

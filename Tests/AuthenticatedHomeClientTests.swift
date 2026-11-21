@@ -615,3 +615,163 @@ final class AuthenticatedHomeClientTests: XCTestCase {
 
 }
 
+
+extension AuthenticatedHomeClientTests {
+    @MainActor
+    func testSharedSourceWireAndPairingLifetime() async throws {
+        let pairing = StoredPairing(instanceID: "journal", homeLabel: "Desk",
+            relayEndpoint: "wss://example.test", fingerprint: "device",
+            clientCertPEM: CertlessTrustFixtures.leafPEM, clientKeyPEM: "test", caChainPEM: CertlessTrustFixtures.caPEM,
+            relayEnrollment: .unavailable, localEndpoints: [], pairedAt: Date())
+        let store = PairingCredentialStore(confirmationStore: .memory(), migrationStore: .memory(),
+            loadPairing: { pairing }, savePairing: { _ in }, deletePairing: {})
+        let suite = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let client = makeTestClient()
+        let service = SharedSources(credentials: store, defaults: defaults, client: client)
+        service.admitted = { true }
+        let identity = try XCTUnwrap(service.currentIdentity)
+        let link = SharedSources.Connection(identity: identity, port: 7071, epoch: 1)
+        let item = try XCTUnwrap(SourceDeclaration(makeAudioSource(state: .paused, attention: nil, isJournalPaired: true)))
+        let written = expectation(description: "local paused source declared")
+        @Sendable nonisolated func reply(_ request: URLRequest, _ code: Int, _ body: String) -> (HTTPURLResponse, Data) {
+            (HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil, headerFields: nil)!, Data(body.utf8))
+        }
+        let doc = """
+        {"sources_rev":"v1","self_cid":"this","devices":[
+        {"cid":"this","display_label":"same name","sources":[{"source":"calendar","origin":"declared","state":"on"}]},
+        {"cid":"older","display_label":"same name","device_last_seen_at":"2026-11-20T12:05:00Z",
+         "sources":[{"source":"calendar","origin":"observed","last_synced_at":"2026-11-01T12:00:00Z"}]},
+        {"cid":"recent","display_label":"work laptop","device_last_seen_at":"2026-11-20T12:00:00.123Z",
+         "sources":[{"source":"calendar","origin":"declared","state":"paused","declared_at":"2026-11-19T00:00:00Z"}]}]}
+        """
+        let initialResponse: @Sendable (URLRequest) throws -> (HTTPURLResponse, Data) = { request in
+            switch request.url?.path {
+            case "/api/system/status": return reply(request, 200, #"{"capabilities":["shared_sources"],"sources_rev":"v1"}"#)
+            case "/app/network/api/sources": return reply(request, 200, doc)
+            case "/app/network/api/clients/self/sources":
+                XCTAssertEqual(request.httpMethod, "PUT")
+                let body = try XCTUnwrap(Self.extractBody(from: request))
+                XCTAssertEqual(try JSONDecoder().decode([SourceDeclaration].self, from: body), [item])
+                return reply(request, 204, "")
+            default: throw URLError(.badURL)
+            }
+        }
+        MockURLProtocol.requestHandler = { request in
+            let response = try initialResponse(request)
+            if request.httpMethod == "PUT" { written.fulfill() }
+            return response
+        }
+        service.update(identity: identity, connection: link, declarations: [item])
+        await service.task?.value
+        await fulfillment(of: [written], timeout: 2)
+        let firstWrite = expectation(description: "changed declaration is on the wire")
+        let latestWrite = expectation(description: "empty declaration follows the first write")
+        let releaseFirst = DispatchSemaphore(value: 0)
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.httpMethod, "PUT")
+            let bytes = try XCTUnwrap(Self.extractBody(from: request))
+            let sent = try JSONDecoder().decode([SourceDeclaration].self, from: bytes)
+            if sent.isEmpty {
+                latestWrite.fulfill()
+            } else {
+                XCTAssertEqual(sent.first?.state, "on")
+                firstWrite.fulfill()
+                XCTAssertEqual(releaseFirst.wait(timeout: .now() + 5), .success)
+                return reply(request, 503, "")
+            }
+            return reply(request, 204, "")
+        }
+        let active = try XCTUnwrap(SourceDeclaration(makeAudioSource(state: .active, attention: nil, isJournalPaired: true)))
+        service.update(identity: identity, connection: link, declarations: [active])
+        await fulfillment(of: [firstWrite], timeout: 3)
+        service.update(identity: identity, connection: link, declarations: [])
+        releaseFirst.signal()
+        await service.task?.value
+        await fulfillment(of: [latestWrite], timeout: 3)
+        service.update(identity: identity, connection: nil, declarations: [])
+        let devices = service.others("calendar")
+        XCTAssertEqual(devices.map(\.cid), ["recent", "older"])
+        let device = try XCTUnwrap(devices.first)
+        let entry = try XCTUnwrap(device.sources.first)
+        let seen = try XCTUnwrap(device.latest)
+        XCTAssertEqual(SharedSourceCopy.line(device: device, entry: entry, now: seen.addingTimeInterval(240)),
+                       "work laptop · paused · 4 min ago")
+        XCTAssertEqual(SharedSourceCopy.line(device: device, entry: entry, spoken: true, now: seen.addingTimeInterval(480)),
+                       "work laptop, paused, 8 minutes ago")
+        service.admitted = { false }
+        XCTAssertTrue(service.others("calendar").isEmpty)
+        service.admitted = { true }
+
+        let offline = SharedSources(credentials: store, defaults: defaults, client: client)
+        offline.admitted = { true }
+        offline.update(identity: identity, connection: nil, declarations: [])
+        XCTAssertEqual(offline.others("calendar").map(\.cid), ["recent", "older"])
+
+        MockURLProtocol.requestHandler = { request in reply(request, 503, "") }
+        offline.update(identity: identity, connection: link, declarations: [])
+        await offline.task?.value
+        XCTAssertEqual(offline.others("calendar").count, 2)
+        MockURLProtocol.requestHandler = { request in reply(request, 403, "") }
+        offline.refresh(detail: true)
+        await offline.task?.value
+        XCTAssertTrue(offline.others("calendar").isEmpty)
+        XCTAssertNil(defaults.data(forKey: "pairedKnownSources"))
+
+        // A revoked pairing cannot discover or publish again, including on a later connection.
+        offline.update(identity: identity, connection: link, declarations: [item])
+        XCTAssertNil(offline.task)
+        offline.forget()
+        MockURLProtocol.requestHandler = initialResponse
+        offline.update(identity: identity, connection: link, declarations: [item])
+        await offline.task?.value
+        XCTAssertEqual(offline.others("calendar").count, 2)
+
+        // A new owner-initiated pairing flow also wipes an existing snapshot for identical credentials.
+        let lease = try store.beginPairingFlow()
+        try store.applyPairing(pairing, ifPairingFlowLease: lease)
+        XCTAssertNil(defaults.data(forKey: "pairedKnownSources"))
+        XCTAssertTrue(offline.others("calendar").isEmpty)
+        offline.update(identity: identity, connection: link, declarations: [item])
+        await offline.task?.value
+        XCTAssertEqual(offline.others("calendar").count, 2)
+
+        // Unpair invalidates a populated cache synchronously, even without a SwiftUI view.
+        try store.clearPairing()
+        XCTAssertNil(defaults.data(forKey: "pairedKnownSources"))
+        XCTAssertTrue(offline.others("calendar").isEmpty)
+        try store.applyPairing(pairing)
+        let sameJournal = try XCTUnwrap(offline.currentIdentity)
+        offline.update(identity: sameJournal, connection: nil, declarations: [])
+        XCTAssertTrue(offline.others("calendar").isEmpty)
+
+        let nextLink = SharedSources.Connection(identity: sameJournal, port: 7071, epoch: 2)
+        MockURLProtocol.requestHandler = initialResponse
+        offline.update(identity: sameJournal, connection: nextLink, declarations: [item])
+        await offline.task?.value
+        XCTAssertEqual(offline.others("calendar").count, 2)
+        let rejected = expectation(description: "invalid declaration is sent only once")
+        MockURLProtocol.requestHandler = { request in
+            if request.httpMethod == "PUT" {
+                rejected.fulfill()
+                return reply(request, 400, "")
+            }
+            return try initialResponse(request)
+        }
+        offline.update(identity: sameJournal, connection: nextLink, declarations: [])
+        await offline.task?.value
+        offline.refresh(detail: true)
+        await offline.task?.value
+        await fulfillment(of: [rejected], timeout: 3)
+
+        MockURLProtocol.requestHandler = { request in
+            XCTAssertEqual(request.url?.path, "/api/system/status")
+            return reply(request, 200, #"{"capabilities":[]}"#)
+        }
+        offline.refresh(detail: true)
+        await offline.task?.value
+        XCTAssertTrue(offline.others("calendar").isEmpty)
+        XCTAssertNil(defaults.data(forKey: "pairedKnownSources"))
+    }
+}

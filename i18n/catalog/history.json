@@ -23785,6 +23785,165 @@
       "selector": null
     },
     {
+      "id": "ios.sharedsources.also",
+      "resource": "m696f732e736861726564736f75726365732e616c736f",
+      "namespace": "ios.sharedsources",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.sharedsources.heading",
+      "resource": "m696f732e736861726564736f75726365732e68656164696e67",
+      "namespace": "ios.sharedsources",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.sharedsources.pair",
+      "resource": "m696f732e736861726564736f75726365732e70616972",
+      "namespace": "ios.sharedsources",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "first",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "second",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.sharedsources.spokenpair",
+      "resource": "m696f732e736861726564736f75726365732e73706f6b656e70616972",
+      "namespace": "ios.sharedsources",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "first",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "second",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.sharedsources.spokentriple",
+      "resource": "m696f732e736861726564736f75726365732e73706f6b656e747269706c65",
+      "namespace": "ios.sharedsources",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "first",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "second",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "third",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.sharedsources.triple",
+      "resource": "m696f732e736861726564736f75726365732e747269706c65",
+      "namespace": "ios.sharedsources",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "first",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "second",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "third",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.shareimportcoordinator.saved",
       "resource": "m696f732e7368617265696d706f7274636f6f7264696e61746f722e7361766564",
       "namespace": "ios.shareimportcoordinator",

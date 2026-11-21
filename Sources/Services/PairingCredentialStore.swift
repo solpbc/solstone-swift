@@ -108,7 +108,7 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
     }
 
     private var onApplyPairingHook: (@MainActor @Sendable () -> Void)?
-    private var onCredentialInvalidationHook: (@MainActor @Sendable () -> Void)?
+    private var onCredentialInvalidationHooks: [@MainActor @Sendable () -> Void] = []
     private var onCredentialReplacementHooks: [@MainActor @Sendable () -> Void] = []
     private var onNewPairingHooks: [@MainActor @Sendable () -> Void] = []
 
@@ -120,7 +120,7 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
 
     func registerOnCredentialInvalidation(_ hook: (@MainActor @Sendable () -> Void)?) {
         self.lock.withLock {
-            self.onCredentialInvalidationHook = hook
+            if let hook { self.onCredentialInvalidationHooks.append(hook) }
         }
     }
 
@@ -681,8 +681,8 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
                 self.state.pairingGeneration &+= 1
                 self.state.accessMutationGeneration &+= 1
             }
-            let hook = self.lock.withLock { self.onCredentialInvalidationHook }
-            self.runOnMain(hook)
+            let hooks = self.lock.withLock { self.onCredentialInvalidationHooks }
+            hooks.forEach(self.runOnMain)
             try self.deletePairingClosure()
             try self.clearOwnedState(lease)
             self.publishClearedPairing()
@@ -757,8 +757,8 @@ nonisolated final class PairingCredentialStore: @unchecked Sendable {
             }
             return lease
         }
-        let hook = self.lock.withLock { self.onCredentialInvalidationHook }
-        self.runOnMain(hook)
+        let hooks = self.lock.withLock { self.onCredentialInvalidationHooks }
+        hooks.forEach(self.runOnMain)
         return lease
     }
 

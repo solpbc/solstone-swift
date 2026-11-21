@@ -2067,6 +2067,13 @@ nonisolated enum AppStrings {
     static func ios_share_plainreason4_resource() -> LocalizedStringResource { resource("m696f732e73686172652e706c61696e726561736f6e34") }
     static func ios_share_plainreason5() -> String { render("m696f732e73686172652e706c61696e726561736f6e35", []) }
     static func ios_share_plainreason5_resource() -> LocalizedStringResource { resource("m696f732e73686172652e706c61696e726561736f6e35") }
+    static func ios_sharedsources_also() -> String { render("m696f732e736861726564736f75726365732e616c736f", []) }
+    static func ios_sharedsources_also_resource() -> LocalizedStringResource { resource("m696f732e736861726564736f75726365732e616c736f") }
+    static func ios_sharedsources_heading(_ count: Int) -> String { render("m696f732e736861726564736f75726365732e68656164696e67", [Int64(count), String(count)]) }
+    static func ios_sharedsources_pair(_ first: String, _ second: String) -> String { render("m696f732e736861726564736f75726365732e70616972", [first, second]) }
+    static func ios_sharedsources_spokenpair(_ first: String, _ second: String) -> String { render("m696f732e736861726564736f75726365732e73706f6b656e70616972", [first, second]) }
+    static func ios_sharedsources_spokentriple(_ first: String, _ second: String, _ third: String) -> String { render("m696f732e736861726564736f75726365732e73706f6b656e747269706c65", [first, second, third]) }
+    static func ios_sharedsources_triple(_ first: String, _ second: String, _ third: String) -> String { render("m696f732e736861726564736f75726365732e747269706c65", [first, second, third]) }
     static func ios_shareimportcoordinator_saved() -> String { render("m696f732e7368617265696d706f7274636f6f7264696e61746f722e7361766564", []) }
     static func ios_shareimportcoordinator_saved_resource() -> LocalizedStringResource { resource("m696f732e7368617265696d706f7274636f6f7264696e61746f722e7361766564") }
     static func ios_shelfpane_unpaired() -> String { render("m696f732e7368656c6670616e652e756e706169726564", []) }

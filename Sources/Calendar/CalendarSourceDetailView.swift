@@ -28,6 +28,8 @@ private struct CalendarSourcePageView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                let source = makeCalendarSource(model.source, isJournalPaired: appConfig.isPaired)
+                SharedSourceDetails(source: source)
                 if self.model.state.everOn {
                     self.onContent
                 } else {
@@ -49,6 +51,9 @@ private struct CalendarSourcePageView: View {
         .navigationTitle(CalendarVocabulary.label)
         .navigationBarTitleDisplayMode(.inline)
         .task {
+            if makeCalendarSource(model.source, isJournalPaired: appConfig.isPaired).offersRemoteSourceCard {
+                appConfig.sharedSources.refresh(detail: true)
+            }
             await self.model.enter()
         }
         .onChange(of: self.scenePhase) { _, phase in
@@ -246,6 +251,7 @@ private struct CalendarSourcePageView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .accessibilityIdentifier("calendar.page.followed")
+            SharedSourceDetails(source: makeCalendarSource(model.source, isJournalPaired: appConfig.isPaired), facts: true)
             Text(CalendarVocabulary.honestyLine)
                 .font(.footnote)
                 .foregroundStyle(.secondary)

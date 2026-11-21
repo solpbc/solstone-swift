@@ -102,6 +102,8 @@ final class LocationManager {
         }
     }
 
+    var isEnabled: Bool { Self.readEnabled(defaults: defaults) }
+
     var sourceState: SourceState {
         self.sourcePresentation.state
     }

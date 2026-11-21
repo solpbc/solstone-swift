@@ -12155,6 +12155,88 @@
         }
       }
     },
+    "m696f732e736861726564736f75726365732e616c736f": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "also on"
+          }
+        }
+      }
+    },
+    "m696f732e736861726564736f75726365732e68656164696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "from another device"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "from %2$@ other devices"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e736861726564736f75726365732e70616972": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
+    "m696f732e736861726564736f75726365732e73706f6b656e70616972": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@"
+          }
+        }
+      }
+    },
+    "m696f732e736861726564736f75726365732e73706f6b656e747269706c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, %2$@, %3$@"
+          }
+        }
+      }
+    },
+    "m696f732e736861726564736f75726365732e747269706c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ · %3$@"
+          }
+        }
+      }
+    },
     "m696f732e7368617265696d706f7274636f6f7264696e61746f722e7361766564": {
       "localizations": {
         "en-US": {

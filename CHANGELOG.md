@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Added
+
+- when another device brings Obsidian notes or calendar events into your journal, your iphone or ipad shows which device they come from.
+
 ## [2.0.14 (165)] - 2026-11-20
 
 ### Fixed
