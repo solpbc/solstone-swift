@@ -12,6 +12,16 @@
         }
       }
     },
+    "CFBundleName": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "solstone"
+          }
+        }
+      }
+    },
     "NSMicrophoneUsageDescription": {
       "localizations": {
         "en-US": {

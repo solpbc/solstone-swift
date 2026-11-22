@@ -9,7 +9,7 @@
   "Localization/Metadata/SolstoneShareExtension/InfoPlist.xcstrings": "458ede3be857d3e38c3b4ee09edbf7049682e7750270df8096c48a7f5685ab03",
   "Localization/Metadata/SolstoneWatch/InfoPlist.xcstrings": "7f51542a93959ffbfa25b758352591ccc7043e672770119d6d823f1131ea3c6d",
   "Localization/Metadata/SolstoneWatchComplication/InfoPlist.xcstrings": "458ede3be857d3e38c3b4ee09edbf7049682e7750270df8096c48a7f5685ab03",
-  "Localization/Metadata/solstone-swift/InfoPlist.xcstrings": "1a30a6a1a2029063774eeb973de1a0b2a5016948e898369ce23b3965d6d46fe6",
+  "Localization/Metadata/solstone-swift/InfoPlist.xcstrings": "c1e1e494f37f672591ef8946a99ac18d01f3907c12d5a299db4880e183dd5d9b",
   "Sources/AppIntents/SolstoneAppShortcuts.swift": "80d30dbd32214bff17996ea8e8d432577ba453192d4405458d2be0d627193884",
   "i18n/catalog/catalog.json": "e581ef0e646aaf6d0a27ad6f87d7466a126aa54c50c3fdb9f4611f12519d121b",
   "i18n/catalog/history.json": "d3df9be5dcee47b9c086bf111c9a3482aefd18e4614e1e62dbec55d8075c913b",
@@ -1532,7 +1532,7 @@
   "i18n/catalog/source-lock.json": "b0f25029c58f5892f0d37f255edbc1beec0d753b0796ea0300a8ae1875eb6d16",
   "i18n/compiler.json": "0034802d1695a42247186c9f2c64d896777f9d226fccf73d8371e4cd0a119a63",
   "i18n/generated/locales.json": "ebdecb468907e4848289e5c1994bf8a7e36f63e2a5c3794346fd62a3a6736ede",
-  "i18n/generated/project.yml": "48bbbab621efd96d7512ac2a705db5ccb653f3e6c0d96300f78fb5fc18017b90",
-  "i18n/targets.json": "76b3b7ff311850ea640002eec8744e7a661aaafd5786384b4451673666798970",
+  "i18n/generated/project.yml": "6001907bd971a83868fd5b72f0620925982457bde351f765e9805edb67ec165e",
+  "i18n/targets.json": "d2bb7b3302da9b96a04db0d8a849d5bce1d21817a54733f59155a05676dfab63",
   "scripts/i18n.py": "9d87741eb3a0096e581eefab61a0def0adbe9e931fb6073d5a50b2162a1a7dd9"
 }

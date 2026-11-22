@@ -10,6 +10,7 @@ targets:
     settings:
       base:
         INFOPLIST_KEY_CFBundleDisplayName: solstone
+        INFOPLIST_KEY_CFBundleName: solstone
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in."
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "connect this iphone or ipad directly to your journal when they're on the same network."
         INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."
@@ -22,6 +23,7 @@ targets:
         CFBundleDevelopmentRegion: en-US
         CFBundleLocalizations: ["en-US"]
         CFBundleDisplayName: solstone
+        CFBundleName: solstone
         NSMicrophoneUsageDescription: "the solstone app takes in the audio from the meetings and voice memos you start. what you share stays on this device until you connect a journal for it to land in."
         NSLocalNetworkUsageDescription: "connect this iphone or ipad directly to your journal when they're on the same network."
         NSLocationWhenInUseUsageDescription: "the solstone app takes in where you are, as part of what you share with it. what you share stays on this device until you connect a journal for it to land in. you choose how much, and you can change that any time."

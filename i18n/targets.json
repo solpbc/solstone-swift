@@ -5,6 +5,10 @@
         "id": "ios.metadata.solstoneswift.cfbundledisplayname",
         "where": "settings"
       },
+      "CFBundleName": {
+        "id": "ios.metadata.solstoneswift.cfbundledisplayname",
+        "where": "properties"
+      },
       "NSMicrophoneUsageDescription": {
         "id": "ios.metadata.solstoneswift.nsmicrophoneusagedescription",
         "where": "settings"
