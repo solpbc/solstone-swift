@@ -343,7 +343,7 @@ struct JournalWebView: UIViewRepresentable {
 }
 
 /// The open pane owns this location across web view lifetimes. The attachment is
-/// weak, so the waiting state can still release WebKit while the tunnel is down.
+/// weak so it does not keep an old WebKit view alive after the origin changes.
 @MainActor
 final class JournalWebReconnectLocation {
     private weak var webView: WKWebView?
@@ -392,6 +392,16 @@ final class JournalWebReconnectLocation {
 }
 
 nonisolated enum InAppJournalPresentation {
+    struct WebMount: Equatable, Hashable {
+        let url: URL
+        let ownerID: UUID?
+        let path: String
+
+        func canWaitForReconnect(confirmed: Bool, ownerID: UUID?, path: String) -> Bool {
+            confirmed && ownerID != nil && self.ownerID == ownerID && self.path == path
+        }
+    }
+
     enum Content: Equatable, Sendable {
         case web
         case awaitingMarkConfirmation
@@ -441,12 +451,36 @@ struct InAppJournalView: View {
     @State private var loadState: JournalWebPresentation.LoadState = .loading
     @State private var reloadToken = 0
     @State private var reconnectLocation = JournalWebReconnectLocation()
+    @State private var previousWebMount: InAppJournalPresentation.WebMount?
 
     private var resolvedURL: URL? {
         JournalWebPresentation.resolvedURL(
             activeLocalPort: self.tunnelManager.activeConnection?.port,
             path: self.path
         )
+    }
+
+    private var pairingOwnerID: UUID? { self.appConfig.store.snapshot().deviceOwnerID }
+
+    /// iPad split navigation can recreate the pane independently of the tunnel.
+    private var keepsWebViewWhileReconnecting: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+    }
+
+    private var activeWebMount: InAppJournalPresentation.WebMount? {
+        guard self.appConfig.isPaired, self.appConfig.journalSendConfirmed, let url = self.resolvedURL else { return nil }
+        return .init(url: url, ownerID: self.pairingOwnerID, path: self.path)
+    }
+
+    private var webMount: InAppJournalPresentation.WebMount? {
+        if let activeWebMount = self.activeWebMount { return activeWebMount }
+        guard self.keepsWebViewWhileReconnecting, let previousWebMount = self.previousWebMount,
+              previousWebMount.canWaitForReconnect(
+                confirmed: self.appConfig.journalSendConfirmed,
+                ownerID: self.pairingOwnerID,
+                path: self.path
+              ) else { return nil }
+        return previousWebMount
     }
 
     private var importIntake: (any JournalImportIntake)? {
@@ -534,13 +568,26 @@ struct InAppJournalView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("shell.pane.journal")
         .onAppear { self.headingFocused = true }
-        .onChange(of: self.tunnelManager.activeConnection?.port) { _, newPort in
-            // A new port means a new page load: the drop it replaces is no longer true.
-            self.loadState = newPort == nil ? JournalWebPresentation.connectionLostState : .loading
+        .onChange(of: self.activeWebMount, initial: true) { _, mount in
+            guard self.keepsWebViewWhileReconnecting else {
+                self.loadState = mount == nil ? JournalWebPresentation.connectionLostState : .loading
+                return
+            }
+            // The journal can briefly lose its tunnel while Safari is in front.
+            // Keep the same document and session storage if that origin returns.
+            guard let mount, mount != self.previousWebMount else { return }
+            self.loadState = .loading
+            self.previousWebMount = mount
+        }
+        .onChange(of: self.pairingOwnerID) { _, ownerID in
+            if self.previousWebMount?.ownerID != ownerID {
+                self.previousWebMount = nil
+            }
         }
         .onChange(of: self.appConfig.journalSendConfirmed) { _, confirmed in
             if !confirmed {
                 self.reconnectLocation = JournalWebReconnectLocation()
+                self.previousWebMount = nil
             }
         }
     }
@@ -576,23 +623,28 @@ struct InAppJournalView: View {
                 status: self.connectionSyncModel.status,
                 isStalled: self.connectionStallMonitor.isStalled
             ) {
-            case .web:
-                if let url = self.resolvedURL {
+            case .web, .connectionLost:
+                if let mount = self.webMount {
+                    let connected = self.activeWebMount != nil
                     ZStack {
                         JournalWebView(
-                            url: url,
+                            url: mount.url,
                             reloadToken: self.reloadToken,
                             journalInstanceID: self.appConfig.deviceID,
-                            pairingOwnerID: self.appConfig.store.snapshot().deviceOwnerID,
+                            pairingOwnerID: mount.ownerID,
                             reconnectLocation: self.reconnectLocation,
                             loadState: self.$loadState,
                             diagnosticLog: self.diagnosticLog,
                             importIntake: self.importIntake
                         )
-                        // A changed origin needs a new document. A page that
-                        // stayed mounted through a same-port reconnect can keep it.
-                        .id(url)
-                        self.stateOverlay
+                        .id(mount)
+                        .allowsHitTesting(connected)
+                        .accessibilityHidden(!connected)
+                        if connected {
+                            self.stateOverlay
+                        } else {
+                            self.waitingView
+                        }
                     }
                 } else {
                     self.waitingView
@@ -610,8 +662,6 @@ struct InAppJournalView: View {
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .connectionLost:
-                self.waitingView
             }
         }
     }
@@ -685,7 +735,7 @@ struct InAppJournalView: View {
 
     private func retry() {
         guard self.resolvedURL != nil else {
-            self.loadState = JournalWebPresentation.connectionLostState
+            if self.webMount == nil { self.loadState = JournalWebPresentation.connectionLostState }
             Task { await self.tunnelManager.retryNow() }
             return
         }

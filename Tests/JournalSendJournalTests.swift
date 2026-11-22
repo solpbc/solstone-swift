@@ -29,6 +29,20 @@ nonisolated final class JournalSendJournalTests: XCTestCase {
         XCTAssertFalse(InAppJournalPresentation.shouldLoadWebView(journalSendConfirmed: false, resolvedURL: nil))
     }
 
+    func testJournalWebMountCanWaitOnlyForTheSameConfirmedPairingAndPath() throws {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:7071/"))
+        let owner = UUID()
+        let mount = InAppJournalPresentation.WebMount(url: url, ownerID: owner, path: "/")
+
+        XCTAssertTrue(mount.canWaitForReconnect(confirmed: true, ownerID: owner, path: "/"))
+        XCTAssertFalse(mount.canWaitForReconnect(confirmed: false, ownerID: owner, path: "/"))
+        XCTAssertFalse(mount.canWaitForReconnect(confirmed: true, ownerID: UUID(), path: "/"))
+        XCTAssertFalse(mount.canWaitForReconnect(confirmed: true, ownerID: nil, path: "/"))
+        XCTAssertFalse(mount.canWaitForReconnect(confirmed: true, ownerID: owner, path: "/app/network/"))
+        let otherURL = try XCTUnwrap(URL(string: "http://127.0.0.1:7072/"))
+        XCTAssertNotEqual(mount, .init(url: otherURL, ownerID: owner, path: "/"))
+    }
+
     @MainActor
     func testAppConfigConfirmationTransitionsForJournalWebView() throws {
         let pairing = StoredPairing(

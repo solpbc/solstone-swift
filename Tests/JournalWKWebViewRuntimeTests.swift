@@ -68,14 +68,11 @@ final class JournalWKWebViewRuntimeTests: XCTestCase {
         XCTAssertEqual(previous.title, "journal-ready")
 
         tunnel.forceDisconnectedForUITest()
-        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-        while !log.events.contains(where: { $0.message == "teardown" }) && ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        XCTAssertTrue(log.events.contains { $0.message == "teardown" })
+        XCTAssertNil(tunnel.activeConnection)
 
         tunnel.forceConnected(port: Int(secondPort), via: .lan)
         let current = try await self.waitForDocumentReport(from: second)
+        XCTAssertTrue(log.events.contains { $0.message == "teardown" })
         XCTAssertEqual(current.address, address)
         XCTAssertEqual(current.title, "journal-recovered")
         XCTAssertGreaterThan(current.timeOrigin, previous.timeOrigin)
