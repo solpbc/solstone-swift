@@ -390,6 +390,7 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
 
     let contract: JournalImportHostContract
     private let contractJSON: String
+    private(set) var authHost: JournalAuthHost?
     private let origin: JournalWebNavigationPolicy.Authority
     private let intake: any JournalImportIntake
     private let presentPicker: @MainActor (UIViewController) -> Bool
@@ -410,7 +411,8 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
         entryURL: URL,
         intake: any JournalImportIntake,
         bundle: Bundle = Bundle(for: AppDelegate.self),
-        presentPicker: (@MainActor (UIViewController) -> Bool)? = nil
+        presentPicker: (@MainActor (UIViewController) -> Bool)? = nil,
+        authRunner: (any JournalAuthSessionRunning)? = nil
     ) {
         guard let loaded = JournalImportHostContract.load(bundle: bundle),
               let origin = JournalWebNavigationPolicy.authority(for: entryURL),
@@ -422,6 +424,14 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
         self.intake = intake
         self.presentPicker = presentPicker ?? { _ in false }
         super.init()
+        if let loadedAuth = JournalAuthHostContract.load(bundle: bundle) {
+            self.authHost = JournalAuthHost(
+                contract: loadedAuth.contract,
+                contractJSON: loadedAuth.json,
+                runner: authRunner ?? LiveJournalAuthSessionRunner(),
+                anchorProvider: { [weak self] in self?.webView?.window }
+            )
+        }
     }
 
     var originString: String {
@@ -484,6 +494,7 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
         self.dropView = nil
         self.dropInteraction = nil
         self.clearPendingDrop()
+        self.authHost?.tearDown()
         self.finishPicker(nil)
     }
 
@@ -542,6 +553,7 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
             self.documentGeneration += 1
             self.pageReady = false
             self.clearPendingDrop()
+            self.authHost?.tearDown()
         }
         let type = message["type"] as? String
         switch type {
@@ -563,6 +575,9 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
             reply["type"] = self.contract.reply
             return .success(Self.json(reply))
         default:
+            if let type, let authHost = self.authHost, authHost.handles(type: type) {
+                return .success(Self.json(await authHost.handle(message, type: type)))
+            }
             var reply: [String: Any] = ["type": self.contract.unsupported]
             if let id = message["id"] as? String { reply["id"] = id }
             return .success(Self.json(reply))
@@ -743,13 +758,16 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
     /// progress while the document is open and raises the contract's status event.
     var adapterScript: String {
         let origin = (try? JSONEncoder().encode(self.originString)).flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+        let authJSON = self.authHost?.contractJSON ?? "null"
         return """
-        ((contract, origin) => {
+        ((contract, origin, auth) => {
           if (window !== window.top || location.origin !== origin) return;
           const native = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(Self.handlerName);
           if (!native) return;
           const documentId = crypto.randomUUID();
           const post = async message => JSON.parse(await native.postMessage(JSON.stringify({documentId, message})));
+          const authTypes = auth ? [auth.prepare, auth.authorize, auth.cancel] : [];
+          const types = Object.freeze([contract.pick, ...authTypes]);
           const items = {};
           let timer;
           async function update() {
@@ -769,9 +787,10 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
             timer = Object.keys(items).length ? setTimeout(update, 400) : undefined;
           }
           Object.defineProperty(window, contract.capability, {value:Object.freeze({
-            version:contract.version, types:Object.freeze([contract.pick]),
+            version:contract.version, types,
             async send(message) {
               if (!message || typeof message.id !== 'string' || typeof message.type !== 'string') throw new TypeError();
+              if (authTypes.includes(message.type)) return await post(message);
               if (message.type !== contract.pick) return {type:contract.unsupported, id:message.id};
               const reply = await post(message);
               for (const item of reply.items || []) items[item.item] = {id:message.id, name:item.name};
@@ -792,7 +811,7 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
               post({type:'host.ready'}).catch(() => {});
           };
           document.addEventListener('DOMContentLoaded', ready, {once:true});
-        })(\(self.contractJSON.trimmingCharacters(in: .whitespacesAndNewlines)), \(origin));
+        })(\(self.contractJSON.trimmingCharacters(in: .whitespacesAndNewlines)), \(origin), \(authJSON));
         """
     }
 

@@ -335,6 +335,7 @@ struct JournalWebView: UIViewRepresentable {
 
         nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             Task { @MainActor in
+                self.importHost?.authHost?.tearDown()
                 self.existingSession?.webContentProcessDidTerminate()
             }
         }

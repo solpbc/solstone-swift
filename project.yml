@@ -107,6 +107,7 @@ targets:
           - CFBundleURLName: app.solstone.swift
             CFBundleURLSchemes:
               - solstone
+              - app.solstone
         UILaunchStoryboardName: LaunchScreen
         UIBackgroundModes:
           - audio

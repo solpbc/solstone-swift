@@ -48,6 +48,11 @@ extension ExternalPairLinkIntake {
         pendingObserverCommand: PendingObserverCommandState = PendingObserverCommandState(),
         pendingJournalOpen: PendingJournalOpenState = PendingJournalOpenState()
     ) {
+        // OAuth callbacks are intercepted by ASWebAuthenticationSession; ignore any stray
+        // delivery without mutating pairing or journal-link state and without logging the URL.
+        if JournalAuthValidation.isOAuthCallbackURL(url) {
+            return
+        }
         // Journal links remain available while pairing is presented; the shell
         // delivers the pending target once that presentation has ended.
         if let route = JournalLink.route(url) {

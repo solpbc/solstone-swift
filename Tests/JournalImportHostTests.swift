@@ -241,7 +241,7 @@ final class JournalImportHostTests: XCTestCase {
         let version = try await webView.evaluateJavaScript("window.solstoneJournalHost.version") as? Int
         XCTAssertEqual(version, 2)
         let types = try await webView.evaluateJavaScript("window.solstoneJournalHost.types.join()") as? String
-        XCTAssertEqual(types, "import.pick")
+        XCTAssertEqual(types, "import.pick,auth.prepare,auth.authorize,auth.cancel")
         let unsupported = try await webView.callAsyncJavaScript(
             "return JSON.stringify(await window.solstoneJournalHost.send({type:'future.example', id:'unknown-1'}))",
             contentWorld: .page
