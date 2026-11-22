@@ -18,6 +18,7 @@ final class AgeSignalProofPlatform: AgeSignalPlatform {
     enum Scenario: String {
         case notEligible = "not-eligible"
         case adult
+        case adultUpdate = "adult-update"
         case teen
         case under13
         case teenUpdate = "teen-update"
@@ -44,7 +45,7 @@ final class AgeSignalProofPlatform: AgeSignalPlatform {
     func requestCategory() async throws -> AgeSignalCategory? {
         switch self.scenario {
         case .notEligible: nil
-        case .adult: AgeSignalCategory(lowerBound: 18, upperBound: nil)
+        case .adult, .adultUpdate: AgeSignalCategory(lowerBound: 18, upperBound: nil)
         case .teen, .teenUpdate: AgeSignalCategory(lowerBound: 13, upperBound: 17)
         case .under13: AgeSignalCategory(lowerBound: nil, upperBound: 12)
         }
@@ -52,6 +53,10 @@ final class AgeSignalProofPlatform: AgeSignalPlatform {
 
     func requiresParentalConsentForSignificantChange() async throws -> Bool {
         self.scenario == .teenUpdate
+    }
+
+    func requiresAdultNotificationForSignificantChange() async throws -> Bool {
+        self.scenario == .adultUpdate
     }
 
     func currentRatingCode() async -> Int? { 13 }
@@ -72,6 +77,10 @@ final class AgeSignalProofPlatform: AgeSignalPlatform {
 
     func parentAnswers() -> AsyncStream<Bool> {
         AsyncStream { self.continuation = $0 }
+    }
+
+    func acknowledgeSignificantChange() async -> Bool {
+        self.scenario == .adultUpdate
     }
 }
 #endif

@@ -186,10 +186,12 @@ final class UnavailableAgeSignalPlatform: AgeSignalPlatform {
     func isEligible() async throws -> Bool { false }
     func requestCategory() async throws -> AgeSignalCategory? { nil }
     func requiresParentalConsentForSignificantChange() async throws -> Bool { false }
+    func requiresAdultNotificationForSignificantChange() async throws -> Bool { false }
     func currentRatingCode() async -> Int? { nil }
     func installedThisBuild() async throws -> Bool { true }
     func askParent() async throws {}
     func parentAnswers() -> AsyncStream<Bool> { AsyncStream { $0.finish() } }
+    func acknowledgeSignificantChange() async -> Bool { false }
 }
 
 /// Shows the app's content, or in its place the one plain screen a check calls for. The app

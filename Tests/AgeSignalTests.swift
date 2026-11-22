@@ -15,6 +15,9 @@ final class FakeAgeSignalPlatform: AgeSignalPlatform {
     var category: AgeSignalCategory? = .adultOrUnknown
     var categoryFails = false
     var consentRequired = false
+    var adultNotificationRequired = false
+    var adultNotificationFails = false
+    var acknowledgmentSucceeds = true
     var ratingCode: Int? = 13
     var installedHere = false
     var installedFails = false
@@ -25,11 +28,16 @@ final class FakeAgeSignalPlatform: AgeSignalPlatform {
     private(set) var eligibilityCalls = 0
     private(set) var categoryCalls = 0
     private(set) var consentCalls = 0
+    private(set) var adultNotificationCalls = 0
     private(set) var ratingCalls = 0
     private(set) var asks = 0
+    private(set) var acknowledgments = 0
     private var continuation: AsyncStream<Bool>.Continuation?
 
-    var totalCalls: Int { self.eligibilityCalls + self.categoryCalls + self.consentCalls + self.ratingCalls + self.asks }
+    var totalCalls: Int {
+        self.eligibilityCalls + self.categoryCalls + self.consentCalls + self.adultNotificationCalls
+            + self.ratingCalls + self.asks + self.acknowledgments
+    }
 
     func isEligible() async throws -> Bool {
         self.eligibilityCalls += 1
@@ -48,6 +56,12 @@ final class FakeAgeSignalPlatform: AgeSignalPlatform {
     func requiresParentalConsentForSignificantChange() async throws -> Bool {
         self.consentCalls += 1
         return self.consentRequired
+    }
+
+    func requiresAdultNotificationForSignificantChange() async throws -> Bool {
+        self.adultNotificationCalls += 1
+        if self.adultNotificationFails { throw Failure() }
+        return self.adultNotificationRequired
     }
 
     func currentRatingCode() async -> Int? {
@@ -70,6 +84,11 @@ final class FakeAgeSignalPlatform: AgeSignalPlatform {
 
     func parentAnswers(_ approved: Bool) {
         self.continuation?.yield(approved)
+    }
+
+    func acknowledgeSignificantChange() async -> Bool {
+        self.acknowledgments += 1
+        return self.acknowledgmentSucceeds
     }
 }
 
@@ -124,13 +143,97 @@ nonisolated final class AgeSignalTests: XCTestCase {
         let platform = FakeAgeSignalPlatform()
         let adultOutcome = await self.check(platform).run()
         XCTAssertEqual(adultOutcome, .run)
+        XCTAssertEqual(platform.adultNotificationCalls, 1)
+        XCTAssertEqual(platform.ratingCalls, 0)
+        XCTAssertEqual(platform.acknowledgments, 0)
         platform.category = nil
         let declinedOutcome = await self.check(platform).run()
         XCTAssertEqual(declinedOutcome, .run)
+        XCTAssertEqual(platform.adultNotificationCalls, 1, "declined sharing skips adult notification")
         platform.category = .under13
         let under13Outcome = await self.check(platform).run()
         XCTAssertEqual(under13Outcome, .stopped)
         XCTAssertEqual(platform.consentCalls, 0, "only a teen's answer leads to the consent question")
+        XCTAssertEqual(platform.adultNotificationCalls, 1, "under 13 skips adult notification")
+    }
+
+    @MainActor
+    func testAnAdultSeesOneTimeAcknowledgmentForAnUnacknowledgedRatingChange() async {
+        let platform = FakeAgeSignalPlatform()
+        platform.category = .adultOrUnknown
+        platform.adultNotificationRequired = true
+        platform.installedHere = false
+
+        let first = await self.check(platform).run()
+        XCTAssertEqual(first, .run)
+        XCTAssertEqual(platform.acknowledgments, 1)
+        XCTAssertEqual(self.store.approvedRatingCode(), 13)
+        let kept = UserDefaults(suiteName: self.suiteName)?.persistentDomain(forName: self.suiteName) ?? [:]
+        XCTAssertEqual(kept.count, 1, "only the rating code is kept, never an age or outcome")
+        XCTAssertEqual(kept[AgeSignalStore.approvedRatingKey] as? Int, 13)
+
+        let second = await self.check(platform).run()
+        XCTAssertEqual(second, .run)
+        XCTAssertEqual(platform.acknowledgments, 1, "already acknowledged rating is not shown again")
+
+        platform.ratingCode = 16
+        let changed = await self.check(platform).run()
+        XCTAssertEqual(changed, .run)
+        XCTAssertEqual(platform.acknowledgments, 2, "a later rating change asks for acknowledgment again")
+        XCTAssertEqual(self.store.approvedRatingCode(), 16)
+    }
+
+    @MainActor
+    func testAnAdultOnAFirstInstallOfThisBuildBaselinesWithoutAcknowledgment() async {
+        let platform = FakeAgeSignalPlatform()
+        platform.category = .adultOrUnknown
+        platform.adultNotificationRequired = true
+        platform.installedHere = true
+
+        let outcome = await self.check(platform).run()
+        XCTAssertEqual(outcome, .run)
+        XCTAssertEqual(platform.acknowledgments, 0)
+        XCTAssertEqual(self.store.approvedRatingCode(), 13)
+    }
+
+    @MainActor
+    func testFailedAdultAcknowledgmentDoesNotBlockOrRecordCompletion() async {
+        let platform = FakeAgeSignalPlatform()
+        platform.category = .adultOrUnknown
+        platform.adultNotificationRequired = true
+        platform.installedHere = false
+        platform.acknowledgmentSucceeds = false
+
+        let first = await self.check(platform).run()
+        XCTAssertEqual(first, .run, "a failed or unavailable acknowledgment never blocks")
+        XCTAssertEqual(platform.acknowledgments, 1)
+        XCTAssertNil(self.store.approvedRatingCode())
+
+        platform.acknowledgmentSucceeds = true
+        let next = await self.check(platform).run()
+        XCTAssertEqual(next, .run)
+        XCTAssertEqual(platform.acknowledgments, 2)
+        XCTAssertEqual(self.store.approvedRatingCode(), 13)
+    }
+
+    @MainActor
+    func testAdultNotificationFailureRetriesAndUnavailableRatingSkipsAcknowledgment() async {
+        let failing = FakeAgeSignalPlatform()
+        failing.category = .adultOrUnknown
+        failing.adultNotificationFails = true
+        let afterRetries = await self.check(failing).run()
+        XCTAssertEqual(afterRetries, .run)
+        XCTAssertEqual(failing.adultNotificationCalls, 3)
+        XCTAssertEqual(failing.acknowledgments, 0)
+
+        let noRating = FakeAgeSignalPlatform()
+        noRating.category = .adultOrUnknown
+        noRating.adultNotificationRequired = true
+        noRating.ratingCode = nil
+        let skipped = await self.check(noRating).run()
+        XCTAssertEqual(skipped, .run)
+        XCTAssertEqual(noRating.acknowledgments, 0)
+        XCTAssertNil(self.store.approvedRatingCode())
     }
 
     @MainActor

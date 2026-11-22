@@ -23,8 +23,8 @@ nonisolated enum AgeSignalOutcome: String, Sendable, Equatable {
 
 /// The outcome of the last check, kept in the App Group so that work iOS starts in a fresh
 /// process, and the app's extensions, stay stopped until the next launch check replaces it.
-/// The only other value kept is the App Store rating code a parent last approved, which is a
-/// rating, not an age.
+/// The only other value kept is the App Store rating code cleared by a parent's approval, an
+/// adult's acknowledgment, or a first install, which is a rating, not an age.
 nonisolated struct AgeSignalStore: Sendable {
     static let appGroup = AgeSignalStore(suiteName: AppGroupContainer.identifier)
 

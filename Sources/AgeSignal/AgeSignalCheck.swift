@@ -37,6 +37,8 @@ protocol AgeSignalPlatform: AnyObject {
     func requestCategory() async throws -> AgeSignalCategory?
     /// Whether a significant change needs a parent's consent before a teen keeps using the app.
     func requiresParentalConsentForSignificantChange() async throws -> Bool
+    /// Whether a significant change needs an adult's one-time acknowledgment.
+    func requiresAdultNotificationForSignificantChange() async throws -> Bool
     /// The App Store's current age rating code for the app, nil when it is unavailable.
     func currentRatingCode() async -> Int?
     /// Whether this install began on this very build, so it never ran under an earlier rating.
@@ -45,6 +47,8 @@ protocol AgeSignalPlatform: AnyObject {
     func askParent() async throws
     /// Each parent's answer to that request as it arrives: true approves.
     func parentAnswers() -> AsyncStream<Bool>
+    /// Shows the system's significant-update acknowledgment sheet; returns true when acknowledged.
+    func acknowledgeSignificantChange() async -> Bool
 }
 
 /// The decision a launch check makes from the store's answers.
@@ -82,7 +86,10 @@ struct AgeSignalCheck {
             return .run
         }
         switch answer {
-        case nil, .adultOrUnknown?:
+        case nil:
+            return .run
+        case .adultOrUnknown?:
+            await self.acknowledgeAsAdultIfNeeded()
             return .run
         case .under13?:
             return .stopped
@@ -99,21 +106,43 @@ struct AgeSignalCheck {
             try await self.platform.requiresParentalConsentForSignificantChange()
         }) else { return .run }
         guard consent else { return .run }
+        guard await self.unacknowledgedRatingCode() != nil else { return .run }
+        return .held
+    }
+
+    /// An adult in a region requiring a significant-change notification sees the system's
+    /// one-time acknowledgment sheet when this install ran under an earlier rating. An error
+    /// never blocks the app.
+    private func acknowledgeAsAdultIfNeeded() async {
+        guard let required = await self.retrying(timed: true, {
+            try await self.platform.requiresAdultNotificationForSignificantChange()
+        }), required else { return }
+        guard let current = await self.unacknowledgedRatingCode() else { return }
+        if await self.platform.acknowledgeSignificantChange() {
+            self.store.saveApprovedRatingCode(current)
+        }
+    }
+
+    /// The current App Store rating code when this install ran under an earlier rating and has
+    /// not yet cleared the current one; nil when nothing shows an unacknowledged change.
+    private func unacknowledgedRatingCode() async -> Int? {
         guard let current = await self.retrying(timed: true, { await self.platform.currentRatingCode() }) else {
-            return .run
+            return nil
         }
         // No rating to compare: nothing shows a change.
-        guard let current else { return .run }
+        guard let current else { return nil }
         if let approved = self.store.approvedRatingCode() {
-            return approved == current ? .run : .held
+            return approved == current ? nil : current
         }
         guard let installedHere = await self.retrying(timed: true, { try await self.platform.installedThisBuild() }) else {
-            return .run
+            return nil
         }
-        guard installedHere else { return .held }
-        // A first install never saw an earlier rating, so this one is the baseline.
-        self.store.saveApprovedRatingCode(current)
-        return .run
+        if installedHere {
+            // A first install never saw an earlier rating, so this one is the baseline.
+            self.store.saveApprovedRatingCode(current)
+            return nil
+        }
+        return current
     }
 
     /// At most `attempts` tries, a second then two seconds apart; nil once they all fail.

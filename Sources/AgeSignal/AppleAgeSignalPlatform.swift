@@ -67,6 +67,17 @@ final class AppleAgeSignalPlatform: AgeSignalPlatform {
         return self.answerRequiresApproval
     }
 
+    func requiresAdultNotificationForSignificantChange() async throws -> Bool {
+        if #available(iOS 26.4, *) {
+            do {
+                return try await Self.adultNotificationRequired()
+            } catch let error as AgeRangeService.Error where Self.settlesNothing(error) {
+                return false
+            }
+        }
+        return false
+    }
+
     func currentRatingCode() async -> Int? {
         await AppStore.ageRatingCode
     }
@@ -96,6 +107,23 @@ final class AppleAgeSignalPlatform: AgeSignalPlatform {
         }
     }
 
+    func acknowledgeSignificantChange() async -> Bool {
+        guard #available(iOS 26.4, *) else { return false }
+        guard let scene = Self.windowScene() else { return false }
+        do {
+            try await AgeRangeService.shared.showSignificantUpdateAcknowledgment(
+                in: scene,
+                updateDescription: AppStrings.ios_app_agesignalupdatedescription()
+            )
+            return true
+        } catch let error as AgeRangeService.Error {
+            _ = Self.settlesNothing(error)
+            return false
+        } catch {
+            return false
+        }
+    }
+
     // The service is not Sendable, so its nonisolated properties are read off the main actor.
     @concurrent
     private nonisolated static func eligibility() async throws -> Bool {
@@ -106,6 +134,12 @@ final class AppleAgeSignalPlatform: AgeSignalPlatform {
     @concurrent
     private nonisolated static func parentalConsentRequired() async throws -> Bool {
         try await AgeRangeService.shared.requiredRegulatoryFeatures.contains(.significantAppChangeRequiresParentalConsent)
+    }
+
+    @available(iOS 26.4, *)
+    @concurrent
+    private nonisolated static func adultNotificationRequired() async throws -> Bool {
+        try await AgeRangeService.shared.requiredRegulatoryFeatures.contains(.significantAppChangeRequiresAdultNotification)
     }
 
     /// Answers that retrying cannot change: the system has nothing for this person or refused
@@ -129,10 +163,13 @@ final class AppleAgeSignalPlatform: AgeSignalPlatform {
         return range.activeParentalControls.contains(.significantAppChangeApprovalRequired)
     }
 
-    private static func presenter() -> UIViewController? {
+    private static func windowScene() -> UIWindowScene? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-        var top = scene?.keyWindow?.rootViewController
+        return scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+    }
+
+    private static func presenter() -> UIViewController? {
+        var top = Self.windowScene()?.keyWindow?.rootViewController
         while let presented = top?.presentedViewController {
             top = presented
         }
