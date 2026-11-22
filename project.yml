@@ -26,11 +26,10 @@ settings:
     TARGETED_DEVICE_FAMILY: "1,2"
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
-    # The store age check (Sources/AgeSignal). NO for every build a published binary is cut
-    # from: the check is not compiled in and no age API is called. A proof build passes
-    # AGE_SIGNAL=YES to make. Turning it on for publication is this one line, together with
-    # the com.apple.developer.declared-age-range entitlement on the app target.
-    SOLSTONE_AGE_SIGNAL: NO
+    # The store age check (Sources/AgeSignal). On for builds cut from main, paired with the
+    # com.apple.developer.declared-age-range entitlement on the app target. Pass AGE_SIGNAL=NO
+    # to make for a build with the check compiled out.
+    SOLSTONE_AGE_SIGNAL: YES
     SOLSTONE_AGE_SIGNAL_SWIFT_FLAG_YES: -DSOLSTONE_AGE_SIGNAL
     SOLSTONE_AGE_SIGNAL_SWIFT_FLAG_NO: ""
     OTHER_SWIFT_FLAGS: $(inherited) $(SOLSTONE_AGE_SIGNAL_SWIFT_FLAG_$(SOLSTONE_AGE_SIGNAL))
@@ -72,6 +71,7 @@ targets:
         aps-environment: development
         com.apple.developer.associated-domains:
           - applinks:go.solstone.app
+        com.apple.developer.declared-age-range: true
         com.apple.developer.device-information.user-assigned-device-name: true
         keychain-access-groups:
           - $(AppIdentifierPrefix)app.solstone.swift

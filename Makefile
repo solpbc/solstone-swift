@@ -70,8 +70,8 @@ CI_IPAD_SIM_DEVICETYPE   ?= com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-in
 CI_ATTEMPT_TIMEOUT ?= 3600
 CI_MAX_ATTEMPTS    ?= 2
 
-# A proof build turns the store age check on with AGE_SIGNAL=YES. Left empty, the build
-# takes project.yml's setting, which is off.
+# Override the store age check for a build (AGE_SIGNAL=NO compiles it out). Left empty, the
+# build takes project.yml's setting, which is on.
 AGE_SIGNAL ?=
 AGE_SIGNAL_SETTING = $(if $(strip $(AGE_SIGNAL)),SOLSTONE_AGE_SIGNAL=$(AGE_SIGNAL))
 

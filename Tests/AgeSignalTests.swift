@@ -397,10 +397,17 @@ nonisolated final class AgeSignalTests: XCTestCase {
         XCTAssertEqual(model.presentation, .content)
     }
 
-#if !SOLSTONE_AGE_SIGNAL
-    /// What every build cut from main runs: no check, the content as before.
+#if SOLSTONE_AGE_SIGNAL
+    /// What every build cut from main runs: the launch check is compiled in and enabled.
     @MainActor
-    func testTheShippedSettingCarriesNoCheck() {
+    func testTheShippedSettingCarriesTheCheck() {
+        XCTAssertTrue(AgeSignalBuild.isEnabled)
+        XCTAssertTrue(AgeSignalModel.live().isEnabled)
+    }
+#else
+    /// When compiled with SOLSTONE_AGE_SIGNAL=NO: no check, the content as before.
+    @MainActor
+    func testTheFlagOffSettingCarriesNoCheck() {
         XCTAssertFalse(AgeSignalBuild.isEnabled)
         XCTAssertEqual(AgeSignalModel.live().presentation, .content)
         XCTAssertTrue(AgeSignalGate.live.allowsActivity())
