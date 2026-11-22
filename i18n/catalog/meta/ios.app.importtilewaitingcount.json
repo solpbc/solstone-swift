@@ -1,0 +1,27 @@
+{
+  "description": "Import home tile sub-line showing count of waiting imports.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 40,
+  "source_revision": "7947ca7c7e30549a4102b6c387dc776d7d189f16639aa4833746714ecb6912cf",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

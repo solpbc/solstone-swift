@@ -1,0 +1,16 @@
+{
+  "description": "Primary button to re-upload an expired waiting import for review.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 40,
+  "source_revision": "b9780ef2c9a44800b1ec3086de82a537484b2401fda08f97e1534164b1728942",
+  "risk": "routine",
+  "auto_merge": true
+}

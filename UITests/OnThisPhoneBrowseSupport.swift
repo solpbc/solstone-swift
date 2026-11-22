@@ -6,10 +6,21 @@ import XCTest
 @MainActor
 extension XCTestCase {
     func openStandaloneOnThisPhoneBrowse(in app: XCUIApplication) {
-        self.tapDayHomeImportEntry(in: app)
-        XCTAssertTrue(app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 5))
-        let onThisDevice = app.buttons["import.onThisDeviceEntry"]
-        XCTAssertTrue(onThisDevice.waitForExistence(timeout: 5))
+        let statusPill = app.buttons["dayHome.statusPill"]
+        XCTAssertTrue(statusPill.waitForExistence(timeout: 10), "status pill missing")
+        statusPill.tap()
+        let statusPane = app.descendants(matching: .any)["shell.pane.status"]
+        XCTAssertTrue(statusPane.waitForExistence(timeout: 5), "status pane missing")
+        let onThisDevice = app.buttons["status.onThisDeviceEntry"]
+        for _ in 0..<10 {
+            if onThisDevice.exists && onThisDevice.isHittable {
+                onThisDevice.tap()
+                XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
+                return
+            }
+            statusPane.swipeUp()
+        }
+        XCTAssertTrue(onThisDevice.waitForExistence(timeout: 5), "on this device entry missing in status pane")
         onThisDevice.tap()
         XCTAssertTrue(app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 5))
     }

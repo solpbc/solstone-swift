@@ -1,0 +1,16 @@
+{
+  "description": "Status pane sub-line when imports need attention.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "9fb1b863852ee507f198d89887c2bc1b415f883d48463563bc8a01dc929ccef7",
+  "risk": "routine",
+  "auto_merge": true
+}

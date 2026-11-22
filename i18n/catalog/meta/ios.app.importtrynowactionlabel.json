@@ -1,0 +1,21 @@
+{
+  "description": "Accessible label for retrying a named failed import.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "name",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 100,
+  "source_revision": "75e6601fac886055b372d7f54bc27927f4f756285019bfa5e1dd8cd1d99b2d32",
+  "risk": "routine",
+  "auto_merge": true
+}

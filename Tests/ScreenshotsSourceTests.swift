@@ -133,7 +133,7 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
     func testImportScreenCopy() {
         XCTAssertEqual(
             SourceVocabulary.importerWhatItAdds,
-            "adds PDFs, audio and text you choose here, and the photos and files you send from the share sheet."
+            "adds any file you choose here or send from the share sheet. your journal works out what it is."
         )
         XCTAssertEqual(SourceVocabulary.importSubline, "photos and files")
         XCTAssertEqual(ScreenshotsVocabulary.importLine, "screenshots come in on their own.")

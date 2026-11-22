@@ -859,6 +859,26 @@
         }
       }
     },
+    "m696f732e6170702e696d706f7274616c6c686973746f7279": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "all import history in your journal"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727465787069726564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "expired"
+          }
+        }
+      }
+    },
     "m696f732e6170702e696d706f727466696c657368696e74": {
       "localizations": {
         "en-US": {
@@ -879,6 +899,360 @@
         }
       }
     },
+    "m696f732e6170702e696d706f7274686f6c646d61726b": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "imports wait until you confirm your journal's mark."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274686f6c646f66666c696e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting for your journal to reconnect."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274686f6c6472656675736564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "your journal stopped accepting this device. imports wait here until you pair again."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274686f6c64756e706169726564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "imports wait on this device until you connect a journal."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274686f6c64757064617465": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "imports wait until your journal is updated."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72746d6f7265696d706f72747364657461696c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "guides, options, and import history in your journal"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72746e65656473617474656e74696f6e66616c6c6261636b": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "couldn't send to your journal."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274726563656e7464657461696c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "in your journal · %1$@"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274726563656e74656d707479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nothing yet."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274726563656e74726f776c6162656c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, in your journal, %2$@."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274726563656e74726f776c6162656c6f70656e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@, in your journal, %2$@. open in your journal."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472656d6f7665616374696f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remove"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472656d6f7665616374696f6e6c6162656c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remove %1$@"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472656d6f7665626f64796c6f63616c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this removes the copy on this device, so it won't reach your journal."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472656d6f7665626f64796d697373696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the copy is already gone, so this only clears it from here."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472656d6f7665626f6479726576696577": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this removes the copy on this device. the waiting copy in your journal stays there until you discard it or it expires."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472656d6f766563616e63656c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cancel"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472656d6f76657469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remove %1$@?"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274726576696577616374696f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "review in your journal"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274726576696577616374696f6e6c6162656c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "review %1$@ in your journal"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472657669657764657461696c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saved in your journal. preview and confirm to start."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472657669657764657461696c657870697279": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "saved in your journal. review within an hour before your journal removes the waiting copy."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727472657669657765787069726564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the waiting copy in your journal expired. this device still holds the file."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727473656e64616761696e616374696f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "send again to review"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727473656e64616761696e616374696f6e6c6162656c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "send %1$@ again to review"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727473656e64696e6764657461696c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sending to your journal…"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72747374617475736c656164617474656e74696f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "imports need you"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72747374617475736c656164617474656e74696f6e7375626c696e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "open import to see why."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72747374617475736c6561647265616479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ import ready to review"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ imports ready to review"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72747374617475736c65616472656164797375626c696e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "open import to review and start."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727473746174757370696c6c7265616479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ ready to review"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ ready to review"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "m696f732e6170702e696d706f72747375626c696e65": {
       "localizations": {
         "en-US": {
@@ -889,12 +1263,210 @@
         }
       }
     },
+    "m696f732e6170702e696d706f727474696c6566696c6573636f756e74": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ file"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ files"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c656974656d73636f756e74": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ item"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ items"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c657265616479636f756e74": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ ready in your journal"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ ready in your journal"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c657265616479746f726576696577": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ready to review"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c6573706f6b656e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "import, %1$@. %2$@."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c6577616974696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c6577616974696e67636f756e74": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ waiting"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ waiting"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c6577616974696e67666f726a6f75726e616c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting for your journal"
+          }
+        }
+      }
+    },
     "m696f732e6170702e696d706f72747469746c65": {
       "localizations": {
         "en-US": {
           "stringUnit": {
             "state": "translated",
             "value": "import"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72747472796e6f77616374696f6e6c6162656c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "try %1$@ again"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727477616974696e6764657461696c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting to go to your journal"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727477616974696e67666f7272657669657768656164696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "waiting for your review"
           }
         }
       }
@@ -12602,7 +13174,7 @@
         "en-US": {
           "stringUnit": {
             "state": "translated",
-            "value": "adds PDFs, audio and text you choose here, and the photos and files you send from the share sheet."
+            "value": "adds any file you choose here or send from the share sheet. your journal works out what it is."
           }
         }
       }

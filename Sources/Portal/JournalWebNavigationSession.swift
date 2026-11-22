@@ -16,6 +16,7 @@ final class JournalWebNavigationSession {
     private struct LastRequest: Equatable {
         let url: URL
         let reloadToken: Int
+        let navigationToken: Int
     }
 
     private enum AttemptPhase {
@@ -71,9 +72,9 @@ final class JournalWebNavigationSession {
         self.diagnosticLog = diagnosticLog
     }
 
-    func requestLoad(url: URL, reloadToken: Int) {
+    func requestLoad(url: URL, reloadToken: Int, navigationToken: Int = 0) {
         guard !self.isTornDown else { return }
-        let request = LastRequest(url: url, reloadToken: reloadToken)
+        let request = LastRequest(url: url, reloadToken: reloadToken, navigationToken: navigationToken)
         guard self.lastRequest != request else { return }
 
         self.retire(self.currentNavigation)

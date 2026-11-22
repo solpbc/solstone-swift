@@ -1,0 +1,25 @@
+{
+  "description": "VoiceOver spoken value for the import home tile when active, awaiting review, or needing attention.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "status",
+      "type": "string"
+    },
+    {
+      "name": "detail",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 120,
+  "source_revision": "74e72d0ab40a679b6aa6fc5132313bb55e622fcedbdd50f936f9231d41c5f965",
+  "risk": "routine",
+  "auto_merge": true
+}

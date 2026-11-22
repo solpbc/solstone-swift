@@ -255,6 +255,30 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
                 journalGapDayLine: gapDayLine
             )
         }
+        if case .importsReadyToReview(let count) = pillState, waitingTotal == 0 {
+            return StatusPaneLead(
+                lead: .headline(AppStrings.ios_app_importstatusleadready(count)),
+                subline: AppStrings.ios_app_importstatusleadreadysubline(),
+                region: .status(
+                    title: SourceVocabulary.connectedLabel,
+                    identifier: "shell.pane.status.connected",
+                    accessibilityValue: SourceVocabulary.connectedLabel
+                ),
+                showsStandingSyncFootnote: showsConnectionDetails
+            )
+        }
+        if pillState == .importsNeedAttention, waitingTotal == 0 {
+            return StatusPaneLead(
+                lead: .headline(AppStrings.ios_app_importstatusleadattention()),
+                subline: AppStrings.ios_app_importstatusleadattentionsubline(),
+                region: .status(
+                    title: SourceVocabulary.connectedLabel,
+                    identifier: "shell.pane.status.connected",
+                    accessibilityValue: SourceVocabulary.connectedLabel
+                ),
+                showsStandingSyncFootnote: showsConnectionDetails
+            )
+        }
         if pillState == .awaitingMarkConfirmation {
             let lead: Lead = waitingTotal > 0
                 ? .count(
@@ -280,7 +304,10 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
         if pillState == .stalled {
             region = .stalled
         } else {
-            let identifier = (pillState == .caughtUp || pillState == .syncing)
+            let identifier = (pillState == .caughtUp || pillState == .syncing || pillState == .importsNeedAttention || {
+                if case .importsReadyToReview = pillState { return true }
+                return false
+            }())
                 ? "shell.pane.status.connected"
                 : "shell.pane.status.degraded"
             region = .status(
@@ -294,7 +321,7 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
         if waitingTotal > 0 {
             let statusLine: String = switch pillState {
             case .syncing: SourceVocabulary.syncingToYourJournal
-            case .caughtUp, .journalGap: SourceVocabulary.connectedLabel
+            case .caughtUp, .journalGap, .importsReadyToReview, .importsNeedAttention: SourceVocabulary.connectedLabel
             case .connecting: SourceVocabulary.statusConnectingLabel
             case .offline: SourceVocabulary.heldOnThisDevice
             case .notPaired: SourceVocabulary.dayLocalityNoJournal
@@ -312,6 +339,8 @@ nonisolated struct StatusPaneLead: Equatable, Sendable {
             case .offline: SourceVocabulary.heldOnThisDevice
             case .connecting: SourceVocabulary.statusConnectingLabel
             case .caughtUp, .syncing: SourceVocabulary.syncedHeadline
+            case .importsReadyToReview(let count): AppStrings.ios_app_importstatusleadready(count)
+            case .importsNeedAttention: AppStrings.ios_app_importstatusleadattention()
             case .journalGap: SourceVocabulary.journalGapHeadline
             case .stalled: SourceVocabulary.stallCantReachYourJournal
             case .awaitingMarkConfirmation: SourceVocabulary.awaitingMarkConfirmationLine
@@ -351,10 +380,12 @@ struct StatusPane: View {
     @Environment(SourceIntakeModel.self) private var sourceIntake: SourceIntakeModel?
     @WatchPipelineInputReader private var watchPipelineInputs
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(PairFlowRouter.self) private var pairFlowRouter
     @Environment(JournalSendRelease.self) private var journalSendRelease
     @Environment(\.dismiss) private var dismiss
     @AccessibilityFocusState private var headingFocused: Bool
+    @ScaledMetric(relativeTo: .largeTitle) private var heroCountSize: CGFloat = 44
     @State private var justCopiedSnapshot = false
     @State private var snapshotCopyTask: Task<Void, Never>?
     @State private var isProbing = false
@@ -458,7 +489,7 @@ struct StatusPane: View {
                 switch self.leadModel.lead {
                 case .count(let count, let caption, let statusLine):
                     Text("\(count)")
-                        .font(.system(size: 44, weight: .bold, design: .rounded))
+                        .font(.system(size: self.heroCountSize, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .foregroundStyle(.primary)
                     Text(caption)
@@ -514,9 +545,11 @@ struct StatusPane: View {
     /// which is the only number (mobile-shell contract § 2.2; Android's rows match).
     @ViewBuilder
     private var whatIsWaitingSection: some View {
-        if !self.waitingRows.isEmpty {
+        let nonImportRows = self.waitingRows.filter { $0.source != .import }
+        let importSubline = self.importStatusRowSubline
+        if !nonImportRows.isEmpty || importSubline != nil {
             Section {
-                ForEach(self.waitingRows, id: \.id) { row in
+                ForEach(nonImportRows, id: \.id) { row in
                     NavigationLink(value: row.destination) {
                         HStack(spacing: 14) {
                             Image(systemName: row.glyph)
@@ -535,11 +568,52 @@ struct StatusPane: View {
                     .accessibilityIdentifier("shell.pane.status.waiting.\(row.id)")
                     .hoverEffect(.highlight)
                 }
+                if let importSubline {
+                    NavigationLink(value: ShellDestination.import) {
+                        HStack(spacing: 14) {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(Color.solOrangeAdaptive)
+                                .frame(width: 26)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(SourceVocabulary.importTitle)
+                                    .font(ShellFont.tileName)
+                                Text(importSubline)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 8)
+                        }
+                        .frame(minHeight: 44)
+                        .accessibilityLabel(SourceVocabulary.importTitle)
+                        .accessibilityValue(importSubline)
+                    }
+                    .accessibilityIdentifier("shell.pane.status.waiting.import")
+                    .hoverEffect(.highlight)
+                }
             } header: {
                 Text(SourceVocabulary.whatIsWaitingSection)
                     .foregroundStyle(Color(uiColor: .label))
             }
         }
+    }
+
+    private var importStatusRowSubline: String? {
+        if self.shareTransferHolder.failedCount > 0 {
+            return AppStrings.ios_app_importstatusleadattention()
+        }
+        let reviewTotal = self.shareTransferHolder.readyToReviewCount + self.shareTransferHolder.reviewExpiredCount
+        if reviewTotal > 0 {
+            return AppStrings.ios_app_importstatuspillready(reviewTotal)
+        }
+        if self.shareTransferHolder.inFlightCount > 0 {
+            return AppStrings.ios_app_importsendingdetail()
+        }
+        if self.shareTransferHolder.pendingCount > 0 {
+            return AppStrings.ios_app_importwaitingdetail()
+        }
+        return nil
     }
 
     @ViewBuilder
@@ -640,7 +714,9 @@ struct StatusPane: View {
             hasBacklog: self.waitingTotal > 0 || self.connectionSyncModel.syncingLingers,
             isStalled: self.connectionStallMonitor.isStalled,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-            hasJournalGap: self.displayedJournalGap.isShowing
+            hasJournalGap: self.displayedJournalGap.isShowing,
+            importReadyToReviewCount: self.shareTransferHolder.readyToReviewCount + self.shareTransferHolder.reviewExpiredCount,
+            importNeedsAttentionCount: self.shareTransferHolder.failedCount
         )
     }
 
@@ -674,7 +750,8 @@ struct StatusPane: View {
             obsidianCount: (self.obsidianTransferHolder?.pendingCount ?? 0) + (self.obsidianTransferHolder?.failedCount ?? 0),
             screenshotsCount: self.screenshotsSource?.waitingCount ?? 0,
             safariCount: self.safariSource?.waitingCount ?? 0,
-            importCount: self.shareTransferHolder.pendingCount + self.shareTransferHolder.failedCount
+            // Import failures and ready-to-review items are never lumped into "waiting to sync".
+            importCount: self.shareTransferHolder.pendingCount
         )
     }
 
@@ -949,6 +1026,13 @@ struct StatusPane: View {
                     .hoverEffect(.highlight)
                 }
 
+                NavigationLink(value: ShellDestination.onThisDevice) {
+                    Text(SourceVocabulary.onThisPhone)
+                }
+                .accessibilityIdentifier("status.onThisDeviceEntry")
+                .accessibilityHint(AppStrings.ios_home_body())
+                .hoverEffect(.highlight)
+
                 NavigationLink(value: ShellDestination.diagnostics) {
                     Text(AppStrings.ios_home_panecontent())
                 }
@@ -1033,12 +1117,12 @@ struct StatusPane: View {
             if UserSettings.haptics {
                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
             }
-            withAnimation(.easeInOut) {
+            withAnimation(self.reduceMotion ? nil : .easeInOut) {
                 self.justCopiedSnapshot = true
             }
             try? await Task.sleep(for: .seconds(2))
             if !Task.isCancelled {
-                withAnimation(.easeInOut) {
+                withAnimation(self.reduceMotion ? nil : .easeInOut) {
                     self.justCopiedSnapshot = false
                 }
             }

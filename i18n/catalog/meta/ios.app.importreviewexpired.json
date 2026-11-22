@@ -1,0 +1,16 @@
+{
+  "description": "Detail text when a staged copy in the journal expired while this device still holds the file.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 120,
+  "source_revision": "9da0a1ab2586616f753a76e83acc6b4802da444f54509b65ba146a52adc6941d",
+  "risk": "routine",
+  "auto_merge": true
+}

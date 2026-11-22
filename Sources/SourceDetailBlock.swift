@@ -5,18 +5,32 @@ import SwiftUI
 
 struct SourceDetailBlock<Content: View>: View {
     let title: String
+    let titleIdentifier: String?
     private let content: Content
 
-    init(title: String, @ViewBuilder content: () -> Content) {
+    init(
+        title: String,
+        titleIdentifier: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
         self.title = title
+        self.titleIdentifier = titleIdentifier
         self.content = content()
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(self.title)
-                .font(ShellFont.sectionTitle)
-                .foregroundStyle(.primary)
+            if let titleIdentifier = self.titleIdentifier {
+                Text(self.title)
+                    .font(ShellFont.sectionTitle)
+                    .foregroundStyle(.primary)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier(titleIdentifier)
+            } else {
+                Text(self.title)
+                    .font(ShellFont.sectionTitle)
+                    .foregroundStyle(.primary)
+            }
 
             self.content
                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -19,15 +19,80 @@ nonisolated struct ImportFailureRecord: Codable, Sendable {
     let failedAt: Date
 }
 
+nonisolated enum ShareImportID {
+    /// Validates a journal import timestamp ID against strict ASCII `^[0-9]{8}_[0-9]{6}$`.
+    /// Never accepts Unicode digits, slashes, dots, whitespace, or query/fragment characters.
+    static func validated(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let bytes = Array(raw.utf8)
+        guard bytes.count == 15, bytes[8] == UInt8(ascii: "_") else { return nil }
+        let zero = UInt8(ascii: "0")
+        let nine = UInt8(ascii: "9")
+        for index in 0..<8 where bytes[index] < zero || bytes[index] > nine {
+            return nil
+        }
+        for index in 9..<15 where bytes[index] < zero || bytes[index] > nine {
+            return nil
+        }
+        return raw
+    }
+
+    static func detailPath(for raw: String?) -> String? {
+        self.validated(raw).map { "/app/import/\($0)" }
+    }
+
+    /// True ONLY for explicit confirmation-required `409 import_preview_required` kinds.
+    static func isConfirmationRequiredKind(_ kind: String?) -> Bool {
+        guard let kind, !kind.isEmpty else { return false }
+        if kind == "body_confirmation_required" || kind == "confirmation_required" {
+            return true
+        }
+        return kind.hasSuffix("_confirmation_required") && kind.count > "_confirmation_required".count
+    }
+}
+
+/// Lightweight 24-hour delivered receipt persisted for the inline `recent` section on `ImportView`.
+/// Separate from `ledger.json` (which retains the high-cap delivery lookup).
+nonisolated struct ImportRecentReceipt: Codable, Equatable, Identifiable, Sendable {
+    let id: String
+    let filename: String
+    let importID: String?
+    let instanceID: String
+    let deliveredAtEpochMs: Int64
+
+    var deliveredAt: Date {
+        Date(timeIntervalSince1970: Double(self.deliveredAtEpochMs) / 1000.0)
+    }
+
+    var validatedImportID: String? {
+        ShareImportID.validated(self.importID)
+    }
+
+    var journalDetailPath: String? {
+        ShareImportID.detailPath(for: self.importID)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case filename
+        case importID = "import_id"
+        case instanceID = "instance_id"
+        case deliveredAtEpochMs = "delivered_at_epoch_ms"
+    }
+}
+
 @MainActor
 @Observable
 final class ShareImportStore {
     nonisolated static let ledgerLimit = 500
+    nonisolated static let recentReceiptCap = 5
+    nonisolated static let recentReceiptTTL: TimeInterval = 24 * 60 * 60
 
     var pendingCount = 0
     var failedCount = 0
     var lastDeliveredAt: Date?
     var lastError: String?
+    private(set) var storedRecentReceipts: [ImportRecentReceipt] = []
 
     @ObservationIgnored let fileManager: FileManager
     @ObservationIgnored let payloadIO: any ShareImportPayloadIO
@@ -57,6 +122,7 @@ final class ShareImportStore {
         try? self.ensureRootDirectories()
         self.refreshCounts()
         self.lastDeliveredAt = (try? self.loadLedger().values.map(\.deliveredAt).max()) ?? nil
+        self.storedRecentReceipts = self.loadAndPruneRecentReceipts(now: self.now(), persistIfChanged: false)
     }
 
     func beginEnqueue() throws -> ShareImportEnqueueHandle {
@@ -167,6 +233,11 @@ final class ShareImportStore {
         let itemIDString = Self.itemIDString(itemID)
         try? self.fileManager.removeItem(at: self.pendingItemDirectoryURL(itemID: itemIDString))
         try? self.fileManager.removeItem(at: self.failedItemDirectoryURL(itemID: itemIDString))
+        if var ledger = try? self.loadLedger(), ledger.removeValue(forKey: itemIDString) != nil {
+            try? self.saveLedger(ledger)
+            self.lastDeliveredAt = ledger.values.map(\.deliveredAt).max()
+        }
+        self.removeRecentReceipt(id: itemIDString)
         self.refreshCounts()
         shareImportLog.info("share import item dropped \(itemIDString, privacy: .public)")
     }
@@ -210,10 +281,13 @@ final class ShareImportStore {
         serverTimestamp: String?,
         filename: String?,
         originApp: String?,
-        itemTime: String?
+        itemTime: String?,
+        instanceID: String? = nil,
+        recordReceipt: Bool = true
     ) throws {
         var ledger = try self.loadLedger()
         let deliveredAt = self.now()
+        let normalizedInstanceID = instanceID.flatMap { $0.isEmpty ? nil : $0 }
         ledger[itemID] = LedgerEntry(
             itemID: itemID,
             basis: basis,
@@ -224,12 +298,73 @@ final class ShareImportStore {
             deliveredAt: deliveredAt,
             filename: filename,
             originApp: originApp,
-            itemTime: itemTime
+            itemTime: itemTime,
+            instanceID: normalizedInstanceID
         )
         ledger = self.rotatedLedger(ledger)
         try self.saveLedger(ledger)
         self.lastDeliveredAt = deliveredAt
         self.lastError = nil
+        if recordReceipt, let normalizedInstanceID {
+            let displayName = filename.flatMap { $0.isEmpty ? nil : $0 } ?? AppStrings.ios_app_onthisphonefilelabel()
+            try self.recordRecentReceipt(
+                itemID: itemID,
+                filename: displayName,
+                importID: ShareImportID.validated(serverTimestamp),
+                instanceID: normalizedInstanceID,
+                deliveredAt: deliveredAt
+            )
+        }
+    }
+
+    /// Persists a 24-hour delivered receipt durably to `recent-receipts.json`, pruning stale entries
+    /// (>24h) and capping to 5 newest receipts per journal instance.
+    func recordRecentReceipt(
+        itemID: String,
+        filename: String,
+        importID: String?,
+        instanceID: String,
+        deliveredAt: Date? = nil
+    ) throws {
+        guard !instanceID.isEmpty else { return }
+        try self.ensureRootDirectories()
+        let now = self.now()
+        let stamp = deliveredAt ?? now
+        let epochMs = Int64((stamp.timeIntervalSince1970 * 1000.0).rounded())
+        var receipts = self.loadAndPruneRecentReceipts(now: now, persistIfChanged: false)
+        receipts.removeAll { $0.id == itemID }
+        receipts.append(ImportRecentReceipt(
+            id: itemID,
+            filename: filename.isEmpty ? AppStrings.ios_app_onthisphonefilelabel() : filename,
+            importID: ShareImportID.validated(importID),
+            instanceID: instanceID,
+            deliveredAtEpochMs: epochMs
+        ))
+        let pruned = Self.prunedRecentReceipts(receipts, now: now)
+        try self.saveRecentReceipts(pruned)
+        self.storedRecentReceipts = pruned
+    }
+
+    /// Returns up to 5 newest receipts from the last 24 hours for `instanceID`.
+    /// Always empty when unpaired, mark-unconfirmed, or paired to a different journal.
+    func recentReceipts(
+        forInstanceID instanceID: String,
+        isPaired: Bool,
+        markConfirmed: Bool,
+        now: Date? = nil
+    ) -> [ImportRecentReceipt] {
+        guard isPaired, markConfirmed, !instanceID.isEmpty else { return [] }
+        let reference = now ?? self.now()
+        let cutoffMs = Self.recentCutoffEpochMs(now: reference)
+        return self.storedRecentReceipts
+            .filter { $0.instanceID == instanceID && $0.deliveredAtEpochMs >= cutoffMs }
+            .sorted(by: Self.recentReceiptSort)
+            .prefix(Self.recentReceiptCap)
+            .map { $0 }
+    }
+
+    func reloadRecentReceiptsFromDisk() {
+        self.storedRecentReceipts = self.loadAndPruneRecentReceipts(now: self.now(), persistIfChanged: true)
     }
 
     nonisolated static func itemIDString(_ itemID: UUID) -> String {
@@ -293,7 +428,7 @@ extension ShareImportStore {
         }
     }
 
-    struct LedgerEntry: Codable, Equatable, Sendable {
+    nonisolated struct LedgerEntry: Codable, Equatable, Sendable {
         let itemID: String
         let basis: String
         let contentType: String
@@ -304,6 +439,33 @@ extension ShareImportStore {
         let filename: String?
         let originApp: String?
         let itemTime: String?
+        let instanceID: String?
+
+        nonisolated init(
+            itemID: String,
+            basis: String,
+            contentType: String,
+            targetJournal: String,
+            serverPath: String?,
+            serverTimestamp: String?,
+            deliveredAt: Date,
+            filename: String?,
+            originApp: String?,
+            itemTime: String?,
+            instanceID: String? = nil
+        ) {
+            self.itemID = itemID
+            self.basis = basis
+            self.contentType = contentType
+            self.targetJournal = targetJournal
+            self.serverPath = serverPath
+            self.serverTimestamp = serverTimestamp
+            self.deliveredAt = deliveredAt
+            self.filename = filename
+            self.originApp = originApp
+            self.itemTime = itemTime
+            self.instanceID = instanceID
+        }
 
         enum CodingKeys: String, CodingKey {
             case itemID = "item_id"
@@ -316,6 +478,7 @@ extension ShareImportStore {
             case filename
             case originApp = "origin_app"
             case itemTime = "item_time"
+            case instanceID = "instance_id"
         }
     }
 }
@@ -347,6 +510,10 @@ extension ShareImportStore {
 
     func ledgerURL() -> URL {
         self.cacheRootURL.appendingPathComponent("ledger.json", isDirectory: false)
+    }
+
+    func recentReceiptsURL() -> URL {
+        self.cacheRootURL.appendingPathComponent("recent-receipts.json", isDirectory: false)
     }
 
     func itemDirectoryURL(itemID: String, status: ItemStatus) -> URL {
@@ -447,6 +614,76 @@ extension ShareImportStore {
         try data.write(to: self.ledgerURL(), options: .atomic)
     }
 
+    func loadRecentReceiptsRaw() -> [ImportRecentReceipt] {
+        let url = self.recentReceiptsURL()
+        guard self.fileManager.fileExists(atPath: url.path),
+              let data = try? self.payloadIO.readWholeFile(at: url),
+              let decoded = try? self.decoder.decode([ImportRecentReceipt].self, from: data)
+        else {
+            return []
+        }
+        return decoded
+    }
+
+    func loadAndPruneRecentReceipts(now: Date, persistIfChanged: Bool) -> [ImportRecentReceipt] {
+        let raw = self.loadRecentReceiptsRaw()
+        let pruned = Self.prunedRecentReceipts(raw, now: now)
+        if persistIfChanged && pruned != raw {
+            try? self.saveRecentReceipts(pruned)
+        }
+        return pruned
+    }
+
+    func saveRecentReceipts(_ receipts: [ImportRecentReceipt]) throws {
+        let data = try self.encoder.encode(receipts)
+        try data.write(to: self.recentReceiptsURL(), options: .atomic)
+    }
+
+    func removeRecentReceipt(id: String) {
+        let now = self.now()
+        var receipts = self.loadAndPruneRecentReceipts(now: now, persistIfChanged: false)
+        let before = receipts.count
+        receipts.removeAll { $0.id == id }
+        if receipts.count != before {
+            try? self.saveRecentReceipts(receipts)
+            self.storedRecentReceipts = receipts
+        }
+    }
+
+    nonisolated static func recentCutoffEpochMs(now: Date) -> Int64 {
+        Int64((now.addingTimeInterval(-Self.recentReceiptTTL).timeIntervalSince1970 * 1000.0).rounded())
+    }
+
+    nonisolated static func recentReceiptSort(_ lhs: ImportRecentReceipt, _ rhs: ImportRecentReceipt) -> Bool {
+        if lhs.deliveredAtEpochMs == rhs.deliveredAtEpochMs {
+            return lhs.id < rhs.id
+        }
+        return lhs.deliveredAtEpochMs > rhs.deliveredAtEpochMs
+    }
+
+    nonisolated static func prunedRecentReceipts(_ receipts: [ImportRecentReceipt], now: Date) -> [ImportRecentReceipt] {
+        let cutoffMs = Self.recentCutoffEpochMs(now: now)
+        var dedupedByID: [String: ImportRecentReceipt] = [:]
+        for receipt in receipts where !receipt.instanceID.isEmpty && receipt.deliveredAtEpochMs >= cutoffMs {
+            if let existing = dedupedByID[receipt.id] {
+                if receipt.deliveredAtEpochMs > existing.deliveredAtEpochMs {
+                    dedupedByID[receipt.id] = receipt
+                }
+            } else {
+                dedupedByID[receipt.id] = receipt
+            }
+        }
+        var byInstance: [String: [ImportRecentReceipt]] = [:]
+        for receipt in dedupedByID.values {
+            byInstance[receipt.instanceID, default: []].append(receipt)
+        }
+        var kept: [ImportRecentReceipt] = []
+        for instanceReceipts in byInstance.values {
+            kept.append(contentsOf: instanceReceipts.sorted(by: Self.recentReceiptSort).prefix(Self.recentReceiptCap))
+        }
+        return kept.sorted(by: Self.recentReceiptSort)
+    }
+
     func writeData(_ data: Data, to url: URL) throws {
         guard self.fileManager.createFile(atPath: url.path, contents: data) else {
             throw ShareImportStoreError.writeFailed(path: url.path)
@@ -536,7 +773,8 @@ extension ShareImportStore {
             day: Self.dayString(fromServerTimestamp: entry.serverTimestamp),
             segment: nil,
             deliveredAt: entry.deliveredAt,
-            rawFileURL: nil
+            rawFileURL: nil,
+            importID: ShareImportID.validated(entry.serverTimestamp)
         )
     }
 

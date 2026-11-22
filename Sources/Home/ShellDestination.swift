@@ -153,7 +153,6 @@ struct ShellDestinationView: View {
             StatusPane(presentation: .detail, journalMark: self.journalMark)
         case .journal:
             InAppJournalView(mark: self.journalMark, presentation: .detail, path: self.journalPath)
-                .id(self.journalOpenID)
         case .journalSetup:
             JournalLivesPane()
         case .addMore:

@@ -177,14 +177,87 @@ nonisolated enum AppStrings {
     static func ios_app_greetingmorning_resource() -> LocalizedStringResource { resource("m696f732e6170702e6772656574696e676d6f726e696e67") }
     static func ios_app_hidingthisneverturnsitoff() -> String { render("m696f732e6170702e686964696e67746869736e657665727475726e7369746f6666", []) }
     static func ios_app_hidingthisneverturnsitoff_resource() -> LocalizedStringResource { resource("m696f732e6170702e686964696e67746869736e657665727475726e7369746f6666") }
+    static func ios_app_importallhistory() -> String { render("m696f732e6170702e696d706f7274616c6c686973746f7279", []) }
+    static func ios_app_importallhistory_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f7274616c6c686973746f7279") }
+    static func ios_app_importexpired() -> String { render("m696f732e6170702e696d706f727465787069726564", []) }
+    static func ios_app_importexpired_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727465787069726564") }
     static func ios_app_importfileshint() -> String { render("m696f732e6170702e696d706f727466696c657368696e74", []) }
     static func ios_app_importfileshint_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727466696c657368696e74") }
     static func ios_app_importfilesrow() -> String { render("m696f732e6170702e696d706f727466696c6573726f77", []) }
     static func ios_app_importfilesrow_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727466696c6573726f77") }
+    static func ios_app_importholdmark() -> String { render("m696f732e6170702e696d706f7274686f6c646d61726b", []) }
+    static func ios_app_importholdmark_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f7274686f6c646d61726b") }
+    static func ios_app_importholdoffline() -> String { render("m696f732e6170702e696d706f7274686f6c646f66666c696e65", []) }
+    static func ios_app_importholdoffline_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f7274686f6c646f66666c696e65") }
+    static func ios_app_importholdrefused() -> String { render("m696f732e6170702e696d706f7274686f6c6472656675736564", []) }
+    static func ios_app_importholdrefused_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f7274686f6c6472656675736564") }
+    static func ios_app_importholdunpaired() -> String { render("m696f732e6170702e696d706f7274686f6c64756e706169726564", []) }
+    static func ios_app_importholdunpaired_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f7274686f6c64756e706169726564") }
+    static func ios_app_importholdupdate() -> String { render("m696f732e6170702e696d706f7274686f6c64757064617465", []) }
+    static func ios_app_importholdupdate_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f7274686f6c64757064617465") }
+    static func ios_app_importmoreimportsdetail() -> String { render("m696f732e6170702e696d706f72746d6f7265696d706f72747364657461696c", []) }
+    static func ios_app_importmoreimportsdetail_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f72746d6f7265696d706f72747364657461696c") }
+    static func ios_app_importneedsattentionfallback() -> String { render("m696f732e6170702e696d706f72746e65656473617474656e74696f6e66616c6c6261636b", []) }
+    static func ios_app_importneedsattentionfallback_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f72746e65656473617474656e74696f6e66616c6c6261636b") }
+    static func ios_app_importrecentdetail(_ relative: String) -> String { render("m696f732e6170702e696d706f7274726563656e7464657461696c", [relative]) }
+    static func ios_app_importrecentempty() -> String { render("m696f732e6170702e696d706f7274726563656e74656d707479", []) }
+    static func ios_app_importrecentempty_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f7274726563656e74656d707479") }
+    static func ios_app_importrecentrowlabel(_ name: String, _ relative: String) -> String { render("m696f732e6170702e696d706f7274726563656e74726f776c6162656c", [name, relative]) }
+    static func ios_app_importrecentrowlabelopen(_ name: String, _ relative: String) -> String { render("m696f732e6170702e696d706f7274726563656e74726f776c6162656c6f70656e", [name, relative]) }
+    static func ios_app_importremoveaction() -> String { render("m696f732e6170702e696d706f727472656d6f7665616374696f6e", []) }
+    static func ios_app_importremoveaction_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727472656d6f7665616374696f6e") }
+    static func ios_app_importremoveactionlabel(_ name: String) -> String { render("m696f732e6170702e696d706f727472656d6f7665616374696f6e6c6162656c", [name]) }
+    static func ios_app_importremovebodylocal() -> String { render("m696f732e6170702e696d706f727472656d6f7665626f64796c6f63616c", []) }
+    static func ios_app_importremovebodylocal_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727472656d6f7665626f64796c6f63616c") }
+    static func ios_app_importremovebodymissing() -> String { render("m696f732e6170702e696d706f727472656d6f7665626f64796d697373696e67", []) }
+    static func ios_app_importremovebodymissing_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727472656d6f7665626f64796d697373696e67") }
+    static func ios_app_importremovebodyreview() -> String { render("m696f732e6170702e696d706f727472656d6f7665626f6479726576696577", []) }
+    static func ios_app_importremovebodyreview_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727472656d6f7665626f6479726576696577") }
+    static func ios_app_importremovecancel() -> String { render("m696f732e6170702e696d706f727472656d6f766563616e63656c", []) }
+    static func ios_app_importremovecancel_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727472656d6f766563616e63656c") }
+    static func ios_app_importremovetitle(_ name: String) -> String { render("m696f732e6170702e696d706f727472656d6f76657469746c65", [name]) }
+    static func ios_app_importreviewaction() -> String { render("m696f732e6170702e696d706f7274726576696577616374696f6e", []) }
+    static func ios_app_importreviewaction_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f7274726576696577616374696f6e") }
+    static func ios_app_importreviewactionlabel(_ name: String) -> String { render("m696f732e6170702e696d706f7274726576696577616374696f6e6c6162656c", [name]) }
+    static func ios_app_importreviewdetail() -> String { render("m696f732e6170702e696d706f727472657669657764657461696c", []) }
+    static func ios_app_importreviewdetail_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727472657669657764657461696c") }
+    static func ios_app_importreviewdetailexpiry() -> String { render("m696f732e6170702e696d706f727472657669657764657461696c657870697279", []) }
+    static func ios_app_importreviewdetailexpiry_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727472657669657764657461696c657870697279") }
+    static func ios_app_importreviewexpired() -> String { render("m696f732e6170702e696d706f727472657669657765787069726564", []) }
+    static func ios_app_importreviewexpired_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727472657669657765787069726564") }
+    static func ios_app_importsendagainaction() -> String { render("m696f732e6170702e696d706f727473656e64616761696e616374696f6e", []) }
+    static func ios_app_importsendagainaction_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727473656e64616761696e616374696f6e") }
+    static func ios_app_importsendagainactionlabel(_ name: String) -> String { render("m696f732e6170702e696d706f727473656e64616761696e616374696f6e6c6162656c", [name]) }
+    static func ios_app_importsendingdetail() -> String { render("m696f732e6170702e696d706f727473656e64696e6764657461696c", []) }
+    static func ios_app_importsendingdetail_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727473656e64696e6764657461696c") }
+    static func ios_app_importstatusleadattention() -> String { render("m696f732e6170702e696d706f72747374617475736c656164617474656e74696f6e", []) }
+    static func ios_app_importstatusleadattention_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f72747374617475736c656164617474656e74696f6e") }
+    static func ios_app_importstatusleadattentionsubline() -> String { render("m696f732e6170702e696d706f72747374617475736c656164617474656e74696f6e7375626c696e65", []) }
+    static func ios_app_importstatusleadattentionsubline_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f72747374617475736c656164617474656e74696f6e7375626c696e65") }
+    static func ios_app_importstatusleadready(_ count: Int) -> String { render("m696f732e6170702e696d706f72747374617475736c6561647265616479", [Int64(count), String(count)]) }
+    static func ios_app_importstatusleadreadysubline() -> String { render("m696f732e6170702e696d706f72747374617475736c65616472656164797375626c696e65", []) }
+    static func ios_app_importstatusleadreadysubline_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f72747374617475736c65616472656164797375626c696e65") }
+    static func ios_app_importstatuspillready(_ count: Int) -> String { render("m696f732e6170702e696d706f727473746174757370696c6c7265616479", [Int64(count), String(count)]) }
     static func ios_app_importsubline() -> String { render("m696f732e6170702e696d706f72747375626c696e65", []) }
     static func ios_app_importsubline_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f72747375626c696e65") }
+    static func ios_app_importtilefilescount(_ count: Int) -> String { render("m696f732e6170702e696d706f727474696c6566696c6573636f756e74", [Int64(count), String(count)]) }
+    static func ios_app_importtileitemscount(_ count: Int) -> String { render("m696f732e6170702e696d706f727474696c656974656d73636f756e74", [Int64(count), String(count)]) }
+    static func ios_app_importtilereadycount(_ count: Int) -> String { render("m696f732e6170702e696d706f727474696c657265616479636f756e74", [Int64(count), String(count)]) }
+    static func ios_app_importtilereadytoreview() -> String { render("m696f732e6170702e696d706f727474696c657265616479746f726576696577", []) }
+    static func ios_app_importtilereadytoreview_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727474696c657265616479746f726576696577") }
+    static func ios_app_importtilespoken(_ status: String, _ detail: String) -> String { render("m696f732e6170702e696d706f727474696c6573706f6b656e", [status, detail]) }
+    static func ios_app_importtilewaiting() -> String { render("m696f732e6170702e696d706f727474696c6577616974696e67", []) }
+    static func ios_app_importtilewaiting_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727474696c6577616974696e67") }
+    static func ios_app_importtilewaitingcount(_ count: Int) -> String { render("m696f732e6170702e696d706f727474696c6577616974696e67636f756e74", [Int64(count), String(count)]) }
+    static func ios_app_importtilewaitingforjournal() -> String { render("m696f732e6170702e696d706f727474696c6577616974696e67666f726a6f75726e616c", []) }
+    static func ios_app_importtilewaitingforjournal_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727474696c6577616974696e67666f726a6f75726e616c") }
     static func ios_app_importtitle() -> String { render("m696f732e6170702e696d706f72747469746c65", []) }
     static func ios_app_importtitle_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f72747469746c65") }
+    static func ios_app_importtrynowactionlabel(_ name: String) -> String { render("m696f732e6170702e696d706f72747472796e6f77616374696f6e6c6162656c", [name]) }
+    static func ios_app_importwaitingdetail() -> String { render("m696f732e6170702e696d706f727477616974696e6764657461696c", []) }
+    static func ios_app_importwaitingdetail_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727477616974696e6764657461696c") }
+    static func ios_app_importwaitingforreviewheading() -> String { render("m696f732e6170702e696d706f727477616974696e67666f7272657669657768656164696e67", []) }
+    static func ios_app_importwaitingforreviewheading_resource() -> LocalizedStringResource { resource("m696f732e6170702e696d706f727477616974696e67666f7272657669657768656164696e67") }
     static func ios_app_init() -> String { render("m696f732e6170702e696e6974", []) }
     static func ios_app_init_resource() -> LocalizedStringResource { resource("m696f732e6170702e696e6974") }
     static func ios_app_inyourjournal() -> String { render("m696f732e6170702e696e796f75726a6f75726e616c", []) }

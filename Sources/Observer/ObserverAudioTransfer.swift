@@ -53,7 +53,8 @@ actor LoopbackTransferEndpointResolver: TransferEndpointResolver {
                 pairingGeneration: snapshot.pairingGeneration,
                 ownerID: ownerID,
                 credentialCID: pairing.fingerprint,
-                admissionGeneration: self.admissionGeneration
+                admissionGeneration: self.admissionGeneration,
+                journalInstanceID: pairing.instanceID
             )
         ))
     }

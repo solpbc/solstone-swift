@@ -1,0 +1,16 @@
+{
+  "description": "Detail text for an import waiting for review in the journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 96,
+  "source_revision": "8296da31d7ac410d832c807d57f0a434a400db586898e53e69c53ab27f35b90e",
+  "risk": "routine",
+  "auto_merge": true
+}

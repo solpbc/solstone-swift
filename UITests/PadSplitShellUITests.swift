@@ -141,12 +141,15 @@ final class PadSplitShellUITests: XCTestCase {
     @MainActor
     func testInPaneLinkPushes() throws {
         let app = try self.launchPad()
-        self.tapDeck("dayHome.importEntry", in: app)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 10)
-        )
+        self.tapDeck("dayHome.statusPill", in: app)
+        let statusPane = app.descendants(matching: .any)["shell.pane.status"]
+        XCTAssertTrue(statusPane.waitForExistence(timeout: 10))
 
-        let onThisDevice = app.buttons["import.onThisDeviceEntry"]
+        let onThisDevice = app.buttons["status.onThisDeviceEntry"]
+        for _ in 0..<8 {
+            if onThisDevice.exists && onThisDevice.isHittable { break }
+            statusPane.swipeUp()
+        }
         XCTAssertTrue(onThisDevice.waitForExistence(timeout: 10), "in-pane link missing")
         onThisDevice.tap()
         XCTAssertTrue(
@@ -159,7 +162,7 @@ final class PadSplitShellUITests: XCTestCase {
         XCTAssertTrue(back.waitForExistence(timeout: 5))
         back.tap()
         XCTAssertTrue(
-            app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 10)
+            app.descendants(matching: .any)["shell.pane.status"].waitForExistence(timeout: 10)
         )
     }
 

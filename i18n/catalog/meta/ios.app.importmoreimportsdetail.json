@@ -1,0 +1,16 @@
+{
+  "description": "Sub-line under more imports on the import pane.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 80,
+  "source_revision": "b2f76083a4313147697f91208578b967c7855fc235f6f3f3fdc2fd846c1ffd57",
+  "risk": "routine",
+  "auto_merge": true
+}

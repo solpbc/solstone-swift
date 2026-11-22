@@ -1,0 +1,16 @@
+{
+  "description": "Queue hold message when paired and offline.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 80,
+  "source_revision": "8d27a89b42c01f542f85abcdef4f83f160ad167c36e2617363af6c999ff30280",
+  "risk": "routine",
+  "auto_merge": true
+}

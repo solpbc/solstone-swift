@@ -6,21 +6,21 @@ import Foundation
 import XCTest
 
 nonisolated final class ImportRecentPresentationTests: XCTestCase {
-    func testPendingCountUsesSendingProgressAndWinsOverFailures() {
+    func testFailuresWinOverPendingAndLastDeliveredAt() {
         XCTAssertEqual(
             ImportRecentPresentation.recentText(
                 pendingCount: 1,
-                lastDeliveredAt: nil,
+                lastDeliveredAt: Date(timeIntervalSince1970: 1_800_000_000),
                 failedCount: 1,
                 awaitingMarkConfirmation: false,
                 connectionStatus: .connectedIdle,
                 isStalled: false
             ),
-            SourceVocabulary.shareSendingProgress
+            AppStrings.ios_app_importstatusleadattention()
         )
     }
 
-    func testLastDeliveredAtUsesDeliveredProgressAndWinsOverFailures() {
+    func testLastDeliveredAtNeverShadowsFailures() {
         XCTAssertEqual(
             ImportRecentPresentation.recentText(
                 pendingCount: 0,
@@ -30,24 +30,54 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
                 connectionStatus: .connectedIdle,
                 isStalled: false
             ),
+            AppStrings.ios_app_importstatusleadattention()
+        )
+    }
+
+    func testLastDeliveredAtNeverShadowsReadyToReview() {
+        XCTAssertEqual(
+            ImportRecentPresentation.recentText(
+                pendingCount: 0,
+                lastDeliveredAt: Date(timeIntervalSince1970: 1_800_000_000),
+                failedCount: 0,
+                readyToReviewCount: 1,
+                awaitingMarkConfirmation: false,
+                connectionStatus: .connectedIdle,
+                isStalled: false
+            ),
+            AppStrings.ios_app_importtilereadytoreview()
+        )
+    }
+
+    func testPendingUsesSendingProgressWhenNoFailuresOrReview() {
+        XCTAssertEqual(
+            ImportRecentPresentation.recentText(
+                pendingCount: 1,
+                lastDeliveredAt: Date(timeIntervalSince1970: 1_800_000_000),
+                failedCount: 0,
+                awaitingMarkConfirmation: false,
+                connectionStatus: .connectedIdle,
+                isStalled: false
+            ),
+            SourceVocabulary.shareSendingProgress
+        )
+    }
+
+    func testLastDeliveredAtShowsDeliveredOnlyWhenIdle() {
+        XCTAssertEqual(
+            ImportRecentPresentation.recentText(
+                pendingCount: 0,
+                lastDeliveredAt: Date(timeIntervalSince1970: 1_800_000_000),
+                failedCount: 0,
+                awaitingMarkConfirmation: false,
+                connectionStatus: .connectedIdle,
+                isStalled: false
+            ),
             SourceVocabulary.shareDeliveredProgress
         )
     }
 
-    func testFailedCountUsesWaitingCopyNotNeedsAttention() {
-        let text = ImportRecentPresentation.recentText(
-            pendingCount: 0,
-            lastDeliveredAt: nil,
-            failedCount: 1,
-            awaitingMarkConfirmation: false,
-            connectionStatus: .connectedIdle,
-            isStalled: false
-        )
-
-        XCTAssertEqual(text, SourceVocabulary.onThisPhoneWaitingExplain)
-    }
-
-    func testEmptyRecentTextUsesRecentEmpty() {
+    func testEmptyRecentTextUsesImportRecentEmpty() {
         XCTAssertEqual(
             ImportRecentPresentation.recentText(
                 pendingCount: 0,
@@ -57,11 +87,11 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
                 connectionStatus: .connectedIdle,
                 isStalled: false
             ),
-            SourceVocabulary.recentEmpty
+            AppStrings.ios_app_importrecentempty()
         )
     }
 
-    func testAwaitingMarkConfirmationRecentText() {
+    func testAwaitingMarkConfirmationNeverShadowsFailuresOrReview() {
         // Pending > 0
         XCTAssertEqual(
             ImportRecentPresentation.recentText(
@@ -75,20 +105,7 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
             SourceVocabulary.awaitingMarkConfirmationLine
         )
 
-        // Failed > 0 (without lastDeliveredAt)
-        XCTAssertEqual(
-            ImportRecentPresentation.recentText(
-                pendingCount: 0,
-                lastDeliveredAt: nil,
-                failedCount: 1,
-                awaitingMarkConfirmation: true,
-                connectionStatus: .connectedIdle,
-                isStalled: false
-            ),
-            SourceVocabulary.awaitingMarkConfirmationLine
-        )
-
-        // Last delivered wins when pending is 0
+        // Failed > 0 even when lastDeliveredAt != nil
         XCTAssertEqual(
             ImportRecentPresentation.recentText(
                 pendingCount: 0,
@@ -98,7 +115,21 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
                 connectionStatus: .connectedIdle,
                 isStalled: false
             ),
-            SourceVocabulary.shareDeliveredProgress
+            SourceVocabulary.awaitingMarkConfirmationLine
+        )
+
+        // Ready to review even when lastDeliveredAt != nil
+        XCTAssertEqual(
+            ImportRecentPresentation.recentText(
+                pendingCount: 0,
+                lastDeliveredAt: Date(timeIntervalSince1970: 1_800_000_000),
+                failedCount: 0,
+                readyToReviewCount: 1,
+                awaitingMarkConfirmation: true,
+                connectionStatus: .connectedIdle,
+                isStalled: false
+            ),
+            SourceVocabulary.awaitingMarkConfirmationLine
         )
 
         // Empty
@@ -111,7 +142,7 @@ nonisolated final class ImportRecentPresentationTests: XCTestCase {
                 connectionStatus: .connectedIdle,
                 isStalled: false
             ),
-            SourceVocabulary.recentEmpty
+            AppStrings.ios_app_importrecentempty()
         )
     }
 }

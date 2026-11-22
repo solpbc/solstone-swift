@@ -8,6 +8,8 @@ nonisolated enum ImportRecentPresentation {
         pendingCount: Int,
         lastDeliveredAt: Date?,
         failedCount: Int,
+        readyToReviewCount: Int = 0,
+        reviewExpiredCount: Int = 0,
         awaitingMarkConfirmation: Bool,
         connectionStatus: ConnectionSyncStatus,
         isStalled: Bool
@@ -17,25 +19,26 @@ nonisolated enum ImportRecentPresentation {
             status: connectionStatus,
             isStalled: isStalled
         )
+        let hasReview = readyToReviewCount > 0 || reviewExpiredCount > 0
         if showsAwaiting {
-            if pendingCount > 0 {
+            if failedCount > 0 || pendingCount > 0 || hasReview {
                 return SourceVocabulary.awaitingMarkConfirmationLine
             } else if lastDeliveredAt != nil {
                 return SourceVocabulary.shareDeliveredProgress
-            } else if failedCount > 0 {
-                return SourceVocabulary.awaitingMarkConfirmationLine
             } else {
-                return SourceVocabulary.recentEmpty
+                return AppStrings.ios_app_importrecentempty()
             }
         } else {
-            if pendingCount > 0 {
+            if failedCount > 0 {
+                return AppStrings.ios_app_importstatusleadattention()
+            } else if hasReview {
+                return AppStrings.ios_app_importtilereadytoreview()
+            } else if pendingCount > 0 {
                 return SourceVocabulary.shareSendingProgress
             } else if lastDeliveredAt != nil {
                 return SourceVocabulary.shareDeliveredProgress
-            } else if failedCount > 0 {
-                return SourceVocabulary.onThisPhoneWaitingExplain
             } else {
-                return SourceVocabulary.recentEmpty
+                return AppStrings.ios_app_importrecentempty()
             }
         }
     }

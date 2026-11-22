@@ -159,6 +159,8 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
     /// The journal turned this away and it is not sent again on every reconnect: the transfer
     /// engine's own decision, carried through unchanged.
     let refusalPaced: Bool
+    /// Validated ASCII `YYYYMMDD_HHMMSS` journal import ID for share items, when known.
+    let importID: String?
 
     init(
         id: String,
@@ -184,7 +186,8 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         sourceLabel: String? = nil,
         retryAvailable: Bool = false,
         lastAttemptAt: Date? = nil,
-        refusalPaced: Bool = false
+        refusalPaced: Bool = false,
+        importID: String? = nil
     ) {
         self.id = id
         self.dropGroupID = dropGroupID
@@ -210,6 +213,7 @@ nonisolated struct OnThisPhoneItem: Identifiable, Sendable, Equatable {
         self.retryAvailable = retryAvailable
         self.lastAttemptAt = lastAttemptAt
         self.refusalPaced = refusalPaced
+        self.importID = ShareImportID.validated(importID)
     }
 
     var hasLocalRaw: Bool {

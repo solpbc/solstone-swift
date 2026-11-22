@@ -118,6 +118,8 @@ struct OnThisPhoneMomentsView: View {
     @Environment(FinishSyncingCoordinator.self) private var finishSyncingCoordinator
     @Environment(LocationManager.self) private var locationManager
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .largeTitle) private var heroCountSize: CGFloat = 56
     @AppStorage(AudioStorageKey.enrolled) private var audioEnrolled = false
     @AppStorage(AudioStorageKey.magicMomentFirstSeen) private var magicMomentFirstSeen = false
     let onTurnOnSource: () -> Void
@@ -220,7 +222,7 @@ struct OnThisPhoneMomentsView: View {
             } message: { item in
                 Text(SourceVocabulary.onThisPhoneDropConfirmMessage(sendState: item.sendState))
             }
-            .animation(.snappy(duration: 0.2), value: self.dropController.surfaced?.id)
+            .animation(self.reduceMotion ? nil : .snappy(duration: 0.2), value: self.dropController.surfaced?.id)
             .accessibilityIdentifier("onThisPhone.surface")
             .onAppear {
                 self.backlogNudgeDismissed = UserSettings.onThisPhoneBacklogNudgeDismissed
@@ -423,7 +425,7 @@ private extension OnThisPhoneMomentsView {
     func statusHero(count: Int) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("\(count)")
-                .font(.system(size: 56, weight: .bold))
+                .font(.system(size: self.heroCountSize, weight: .bold))
                 .foregroundStyle(.primary)
                 .accessibilityIdentifier("onThisPhone.status.headline")
             Text(SourceVocabulary.migrationStageOnThisPhone)
@@ -744,7 +746,7 @@ private extension OnThisPhoneMomentsView {
                     .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
             }
             .padding()
-            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .transition(self.reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             .accessibilityElement(children: .contain)
         }
     }
@@ -922,6 +924,7 @@ private struct SwipeToDropRow: View {
     let onRequestRetry: @MainActor (OnThisPhoneItem) async -> Bool
     let onRequestDrop: @MainActor (OnThisPhoneItem) -> Void
     let onDrop: @MainActor (OnThisPhoneItem) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var offset: CGFloat = 0
     @State private var dragStartOffset: CGFloat?
 
@@ -929,8 +932,8 @@ private struct SwipeToDropRow: View {
     private var maxPull: CGFloat { self.actionWidth * 1.3 }
     private var halfThreshold: CGFloat { self.actionWidth / 2 }
     private var fullSwipeThreshold: CGFloat { self.actionWidth * 1.1 }
-    private var spring: Animation {
-        .spring(response: 0.26, dampingFraction: 0.88, blendDuration: 0)
+    private var spring: Animation? {
+        self.reduceMotion ? nil : .spring(response: 0.26, dampingFraction: 0.88, blendDuration: 0)
     }
 
     var body: some View {

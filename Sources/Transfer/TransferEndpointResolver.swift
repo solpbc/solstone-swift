@@ -62,4 +62,5 @@ nonisolated struct TransferDispatchOwner: Equatable, Sendable {
     let ownerID: UUID
     let credentialCID: String
     var admissionGeneration: UInt64 = 0
+    var journalInstanceID: String? = nil
 }

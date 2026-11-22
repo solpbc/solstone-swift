@@ -1,0 +1,16 @@
+{
+  "description": "Fallback row detail when an import needs attention and no specific refusal text is present.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 64,
+  "source_revision": "10e4f4fd43c4e42b7b44f02e2be96178efbb7753fc367a7818a1d5726d7a9f69",
+  "risk": "routine",
+  "auto_merge": true
+}

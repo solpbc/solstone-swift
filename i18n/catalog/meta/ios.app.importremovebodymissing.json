@@ -1,0 +1,16 @@
+{
+  "description": "Confirmation dialog body when clearing an import whose local file is already missing.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 100,
+  "source_revision": "66b139afe15ad2432ee3c51b6b82aa3ed184e31192f21ae1ea242da241fb3b1f",
+  "risk": "routine",
+  "auto_merge": true
+}

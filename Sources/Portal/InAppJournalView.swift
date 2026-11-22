@@ -13,6 +13,7 @@ import WebKit
 struct JournalWebView: UIViewRepresentable {
     let url: URL
     let reloadToken: Int
+    var navigationToken: Int = 0
     /// The paired journal; its pages live in that pairing's own data store.
     var journalInstanceID: String? = nil
     let pairingOwnerID: UUID?
@@ -21,6 +22,16 @@ struct JournalWebView: UIViewRepresentable {
     let diagnosticLog: DiagnosticLog
     /// The app's import queue, offered to the journal's own pages; `nil` offers nothing.
     var importIntake: (any JournalImportIntake)? = nil
+
+    /// Stable identity keyed on origin + journal instance so navigating between paths on the
+    /// same journal (e.g. `/app/import/` -> `/app/import/<id>`) reuses the existing `WKWebView`
+    /// in place instead of destroying and recreating it.
+    nonisolated static func webViewIdentity(for url: URL, journalInstanceID: String?) -> String {
+        let origin = JournalWebNavigationPolicy.authority(for: url)
+            .map { "\($0.scheme)://\($0.host):\($0.port)" } ?? url.absoluteString
+        let instance = journalInstanceID ?? ""
+        return "\(origin)|\(instance)"
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(diagnosticLog: self.diagnosticLog, reconnectLocation: self.reconnectLocation) { state in
@@ -44,13 +55,22 @@ struct JournalWebView: UIViewRepresentable {
         context.coordinator.observeForeground(of: webView)
         let resumeURL = self.reconnectLocation.attach(webView, entryURL: self.url, ownerID: self.pairingOwnerID)
         context.coordinator.requestLoad(
-            url: self.url, reloadToken: self.reloadToken, webView: webView, resumeURL: resumeURL
+            url: self.url,
+            reloadToken: self.reloadToken,
+            navigationToken: self.navigationToken,
+            webView: webView,
+            resumeURL: resumeURL
         )
         return webView
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {
-        context.coordinator.requestLoad(url: self.url, reloadToken: self.reloadToken, webView: uiView)
+        context.coordinator.requestLoad(
+            url: self.url,
+            reloadToken: self.reloadToken,
+            navigationToken: self.navigationToken,
+            webView: uiView
+        )
     }
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
@@ -70,7 +90,7 @@ struct JournalWebView: UIViewRepresentable {
         let reconnectLocation: JournalWebReconnectLocation?
         @MainActor private var session: JournalWebNavigationSession?
         @MainActor private var activationRouter: JournalWebActivationRouter?
-        @MainActor private var latestLoad: (url: URL, reloadToken: Int)?
+        @MainActor private var latestLoad: (url: URL, reloadToken: Int, navigationToken: Int)?
         @MainActor private var isTornDown = false
         @MainActor private var foregroundObserver: (any NSObjectProtocol)?
         @MainActor var importHost: JournalImportHost?
@@ -95,11 +115,19 @@ struct JournalWebView: UIViewRepresentable {
         /// its page makes carry it. Re-setting per load, not once, recovers a
         /// cookie lost with the WebKit network process on the next reload.
         @MainActor
-        func requestLoad(url: URL, reloadToken: Int, webView: WKWebView, resumeURL: URL? = nil) {
+        func requestLoad(
+            url: URL,
+            reloadToken: Int,
+            navigationToken: Int = 0,
+            webView: WKWebView,
+            resumeURL: URL? = nil
+        ) {
             guard !self.isTornDown,
-                  self.latestLoad?.url != url || self.latestLoad?.reloadToken != reloadToken
+                  self.latestLoad?.url != url
+                    || self.latestLoad?.reloadToken != reloadToken
+                    || self.latestLoad?.navigationToken != navigationToken
             else { return }
-            self.latestLoad = (url, reloadToken)
+            self.latestLoad = (url, reloadToken, navigationToken)
             let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
             Task { @MainActor [weak self, weak webView] in
                 if url.host == "127.0.0.1", let cookie = LoopbackCapability.process.httpCookie() {
@@ -108,9 +136,15 @@ struct JournalWebView: UIViewRepresentable {
                 // A newer load or a teardown may have arrived while the cookie
                 // was being set; only the latest request proceeds.
                 guard let self, let webView, !self.isTornDown,
-                      self.latestLoad?.url == url, self.latestLoad?.reloadToken == reloadToken
+                      self.latestLoad?.url == url,
+                      self.latestLoad?.reloadToken == reloadToken,
+                      self.latestLoad?.navigationToken == navigationToken
                 else { return }
-                self.creatingSession(for: webView).requestLoad(url: resumeURL ?? url, reloadToken: reloadToken)
+                self.creatingSession(for: webView).requestLoad(
+                    url: resumeURL ?? url,
+                    reloadToken: reloadToken,
+                    navigationToken: navigationToken
+                )
             }
         }
 
@@ -443,6 +477,8 @@ struct InAppJournalView: View {
     @Environment(ConnectionStallMonitor.self) private var connectionStallMonitor
     @Environment(DiagnosticLog.self) private var diagnosticLog
     @Environment(PairFlowRouter.self) private var pairFlowRouter
+    @Environment(JournalSendRelease.self) private var journalSendRelease: JournalSendRelease?
+    @Environment(PendingJournalOpenState.self) private var pendingJournalOpen: PendingJournalOpenState?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder: ShareTransferHolder?
     @Environment(ForegroundDrainGate.self) private var foregroundDrainGate: ForegroundDrainGate?
     @Environment(\.dismiss) private var dismiss
@@ -630,6 +666,7 @@ struct InAppJournalView: View {
                         JournalWebView(
                             url: mount.url,
                             reloadToken: self.reloadToken,
+                            navigationToken: self.pendingJournalOpen?.navigationToken ?? 0,
                             journalInstanceID: self.appConfig.deviceID,
                             pairingOwnerID: mount.ownerID,
                             reconnectLocation: self.reconnectLocation,
@@ -637,7 +674,13 @@ struct InAppJournalView: View {
                             diagnosticLog: self.diagnosticLog,
                             importIntake: self.importIntake
                         )
-                        .id(mount)
+                        // A changed origin, paired journal, or owner needs a new document. Navigating
+                        // between paths on the same journal reuses the existing WKWebView in place,
+                        // and staying mounted through a same-port reconnect keeps the document alive.
+                        .id(
+                            "\(JournalWebView.webViewIdentity(for: mount.url, journalInstanceID: self.appConfig.deviceID))|"
+                                + "\(mount.ownerID?.uuidString ?? "")"
+                        )
                         .allowsHitTesting(connected)
                         .accessibilityHidden(!connected)
                         if connected {
@@ -650,7 +693,7 @@ struct InAppJournalView: View {
                     self.waitingView
                 }
             case .awaitingMarkConfirmation:
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     Text(SourceVocabulary.awaitingMarkConfirmationLine)
                         .font(.body.weight(.medium))
                         .foregroundStyle(.primary)
@@ -659,10 +702,35 @@ struct InAppJournalView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
+                    Button(SourceVocabulary.confirmTheMarkAction) {
+                        self.confirmMarkTapped()
+                    }
+                    .buttonStyle(BrandProminentButtonStyle())
+                    .accessibilityIdentifier("journal.awaitingMarkConfirmation.action")
                 }
                 .padding(24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+    }
+
+    private func confirmMarkTapped() {
+        let decision = AwaitingMarkConfirmationPrompt.decide(
+            retrySettled: self.appConfig.retrySettleIfNeeded(),
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
+        )
+        if decision.kickConfirmedSend {
+            self.journalSendRelease?.kickConfirmedSend()
+        }
+        guard decision.present else { return }
+        if self.presentation.isPhoneModal {
+            let router = self.pairFlowRouter
+            self.dismiss()
+            Task { @MainActor in
+                router.present(.confirmHeldJournal)
+            }
+        } else {
+            self.pairFlowRouter.present(.confirmHeldJournal)
         }
     }
 

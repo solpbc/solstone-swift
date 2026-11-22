@@ -1,0 +1,16 @@
+{
+  "description": "Confirmation dialog body when removing an import that already has a waiting copy in the journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 160,
+  "source_revision": "08ce8b8d493997d6c962e942363bbd51aa56c48403981ef3c63c3a14204ecc1e",
+  "risk": "routine",
+  "auto_merge": true
+}

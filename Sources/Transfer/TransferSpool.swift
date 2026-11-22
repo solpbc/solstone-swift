@@ -503,6 +503,11 @@ nonisolated struct TransferSpool: Sendable {
         detail: String,
         journalReasonCode: String? = nil,
         refusedUnder: TransferRefusalConditions? = nil,
+        importReviewState: TransferImportReviewState? = nil,
+        importPreviewKind: String? = nil,
+        importID: String? = nil,
+        savedInstanceID: String? = nil,
+        retryable: Bool? = nil,
         now: Date
     ) throws -> TransferStoredItem {
         try self.ensureRootDirectories()
@@ -513,7 +518,12 @@ nonisolated struct TransferSpool: Sendable {
             shortDetail: detail,
             movedAt: now,
             journalReasonCode: journalReasonCode,
-            refusedUnder: refusedUnder
+            refusedUnder: refusedUnder,
+            importReviewState: importReviewState,
+            importPreviewKind: importPreviewKind,
+            importID: importID,
+            savedInstanceID: savedInstanceID,
+            retryable: retryable
         )
         try self.writeManifestAtomically(manifest, in: item.directoryURL)
         let destinationURL = self.attentionDirectoryURL.appendingPathComponent(manifest.itemID.uuidString, isDirectory: true)
@@ -528,7 +538,11 @@ nonisolated struct TransferSpool: Sendable {
     /// next is rebuilt from the manifest and payloads as they are now, never from the body an
     /// earlier attempt sent. If the cache cannot be deleted this throws and the item stays in
     /// attention, untouched.
-    func moveAttentionItemToQueued(_ item: TransferStoredItem, now: Date) throws -> TransferStoredItem {
+    func moveAttentionItemToQueued(
+        _ item: TransferStoredItem,
+        resetSaveThenStart: Bool = false,
+        now: Date
+    ) throws -> TransferStoredItem {
         try self.ensureRootDirectories()
         let normalized: TransferManifest
         do {
@@ -550,6 +564,9 @@ nonisolated struct TransferSpool: Sendable {
         var manifest = normalized.replacingDiskState(.queued)
         manifest.attention = nil
         manifest.nextAttemptAt = nil
+        if resetSaveThenStart && manifest.endpoint.destinationKind == .saveThenStart {
+            manifest.saveThenStart = TransferSaveThenStartState(phase: .savePending)
+        }
         manifest.retryCount += 1
         manifest.lastRetriedAt = now
         try self.writeManifestAtomically(manifest, in: item.directoryURL)
@@ -563,6 +580,12 @@ nonisolated struct TransferSpool: Sendable {
 
     func updateQueuedManifest(_ manifest: TransferManifest, directoryURL: URL) throws -> TransferStoredItem {
         let updated = manifest.replacingDiskState(.queued)
+        try self.writeManifestAtomically(updated, in: directoryURL)
+        return TransferStoredItem(manifest: updated, directoryURL: directoryURL)
+    }
+
+    func updateAttentionManifest(_ manifest: TransferManifest, directoryURL: URL) throws -> TransferStoredItem {
+        let updated = manifest.replacingDiskState(.attention)
         try self.writeManifestAtomically(updated, in: directoryURL)
         return TransferStoredItem(manifest: updated, directoryURL: directoryURL)
     }

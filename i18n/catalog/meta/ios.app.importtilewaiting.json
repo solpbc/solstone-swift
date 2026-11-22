@@ -1,0 +1,16 @@
+{
+  "description": "Import home tile status word when imports are waiting.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 24,
+  "source_revision": "adea58b92480187ce7b817fbf69623672e6b89b3ed6c5ee77bbf4dc4b0d68689",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -336,10 +336,16 @@ nonisolated enum TransferDiskState: String, Codable, Equatable, Sendable {
     case attention
 }
 
+nonisolated enum TransferImportReviewState: String, Codable, Equatable, Sendable {
+    case readyToReview = "ready_to_review"
+    case reviewExpired = "review_expired"
+}
+
 nonisolated struct TransferSaveThenStartState: Codable, Equatable, Sendable {
     var phase: TransferSaveThenStartPhase
     var savedPath: String?
     var savedTimestamp: String?
+    var savedInstanceID: String?
     var recommendedAction: String?
     var serverSource: String?
     var lastStartReasonCode: String?
@@ -348,6 +354,7 @@ nonisolated struct TransferSaveThenStartState: Codable, Equatable, Sendable {
         phase: TransferSaveThenStartPhase,
         savedPath: String? = nil,
         savedTimestamp: String? = nil,
+        savedInstanceID: String? = nil,
         recommendedAction: String? = nil,
         serverSource: String? = nil,
         lastStartReasonCode: String? = nil
@@ -355,6 +362,7 @@ nonisolated struct TransferSaveThenStartState: Codable, Equatable, Sendable {
         self.phase = phase
         self.savedPath = savedPath
         self.savedTimestamp = savedTimestamp
+        self.savedInstanceID = savedInstanceID
         self.recommendedAction = recommendedAction
         self.serverSource = serverSource
         self.lastStartReasonCode = lastStartReasonCode
@@ -385,6 +393,17 @@ nonisolated struct TransferAttentionInfo: Codable, Equatable, Sendable {
     /// while all of it still holds the round on each new connection skips the item for a day.
     /// `nil` for every other attention, and for refusals stored before this field existed.
     var refusedUnder: TransferRefusalConditions?
+    /// Non-nil when a saved import is waiting for owner preview & confirmation in the journal
+    /// (`.readyToReview`) or when that staged copy expired (`.reviewExpired`).
+    var importReviewState: TransferImportReviewState?
+    /// The `kind` returned with `409 import_preview_required` (e.g. `body_confirmation_required`, `plan_failed`).
+    var importPreviewKind: String?
+    /// Validated ASCII `YYYYMMDD_HHMMSS` journal import ID when known.
+    var importID: String?
+    /// Journal instance ID where the waiting copy was saved, used to scope reconciliation safely.
+    var savedInstanceID: String?
+    /// Explicit retryability hint for journal refusals. `nil` falls back to default attention retryability.
+    var retryable: Bool?
 
     enum CodingKeys: String, CodingKey {
         case reason
@@ -392,6 +411,11 @@ nonisolated struct TransferAttentionInfo: Codable, Equatable, Sendable {
         case movedAt
         case journalReasonCode
         case refusedUnder
+        case importReviewState
+        case importPreviewKind
+        case importID
+        case savedInstanceID
+        case retryable
     }
 
     /// A `refusedUnder` that cannot be read is dropped rather than failing the record: an
@@ -404,6 +428,11 @@ nonisolated struct TransferAttentionInfo: Codable, Equatable, Sendable {
         self.movedAt = try container.decode(Date.self, forKey: .movedAt)
         self.journalReasonCode = try container.decodeIfPresent(String.self, forKey: .journalReasonCode)
         self.refusedUnder = (try? container.decodeIfPresent(TransferRefusalConditions.self, forKey: .refusedUnder)) ?? nil
+        self.importReviewState = (try? container.decodeIfPresent(TransferImportReviewState.self, forKey: .importReviewState)) ?? nil
+        self.importPreviewKind = try container.decodeIfPresent(String.self, forKey: .importPreviewKind)
+        self.importID = try container.decodeIfPresent(String.self, forKey: .importID)
+        self.savedInstanceID = try container.decodeIfPresent(String.self, forKey: .savedInstanceID)
+        self.retryable = try container.decodeIfPresent(Bool.self, forKey: .retryable)
     }
 
     init(
@@ -411,23 +440,66 @@ nonisolated struct TransferAttentionInfo: Codable, Equatable, Sendable {
         shortDetail: String,
         movedAt: Date,
         journalReasonCode: String? = nil,
-        refusedUnder: TransferRefusalConditions? = nil
+        refusedUnder: TransferRefusalConditions? = nil,
+        importReviewState: TransferImportReviewState? = nil,
+        importPreviewKind: String? = nil,
+        importID: String? = nil,
+        savedInstanceID: String? = nil,
+        retryable: Bool? = nil
     ) {
         self.reason = reason
         self.shortDetail = shortDetail
         self.movedAt = movedAt
         self.journalReasonCode = journalReasonCode
         self.refusedUnder = refusedUnder
+        self.importReviewState = importReviewState
+        self.importPreviewKind = importPreviewKind
+        self.importID = importID
+        self.savedInstanceID = savedInstanceID
+        self.retryable = retryable
     }
 }
 
 nonisolated extension TransferAttentionInfo {
+    var isReadyToReview: Bool {
+        self.importReviewState == .readyToReview
+    }
+
+    var isReviewExpired: Bool {
+        self.importReviewState == .reviewExpired
+    }
+
+    var isImportReview: Bool {
+        self.importReviewState != nil
+    }
+
+    /// True when the item must NEVER be auto-retried on reconnect, 24h elapsed, or version bump.
+    var suppressesAutoRetry: Bool {
+        self.isImportReview
+            || self.journalReasonCode == TransferReasonCodes.importPreviewRequired
+            || self.retryable == false
+    }
+
+    /// True when an owner-initiated retry (`try now` / `send again to review`) makes sense.
+    var isRetryableAttention: Bool {
+        if self.isReadyToReview { return false }
+        if self.isReviewExpired { return true }
+        if let retryable = self.retryable { return retryable }
+        if self.journalReasonCode == TransferReasonCodes.importPreviewRequired {
+            return self.importPreviewKind == "source_changed" || self.importPreviewKind == "already_running"
+        }
+        return true
+    }
+
     /// The "why" an owner reads. A journal refusal reads as the journal's own words, without the
     /// internal reason token in front of it; an item stored before refusals were parsed can still
     /// carry the journal's JSON envelope, so its `error` sentence is shown instead of the JSON.
     /// Stored JSON is never shown: a body cut short, or one with no `error`, reads as the generic
     /// line, because its other fields can carry the journal's view of this device.
     var ownerFailureReason: String {
+        if self.reason == TransferAttentionReason.importReviewRequiredCode || self.isImportReview {
+            return self.shortDetail
+        }
         guard self.reason != self.shortDetail else { return self.reason }
         guard self.reason == TransferAttentionReason.httpClientErrorCode else {
             return "\(self.reason): \(self.shortDetail)"

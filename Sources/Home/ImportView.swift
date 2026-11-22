@@ -3,6 +3,62 @@
 
 import SwiftUI
 
+nonisolated enum ImportQueueHoldPresentation {
+    static func holdLine(
+        isPaired: Bool,
+        isPairingRefused: Bool,
+        awaitingMarkConfirmation: Bool,
+        journalTooOld: Bool = false,
+        isConnected: Bool
+    ) -> String? {
+        if !isPaired {
+            return AppStrings.ios_app_importholdunpaired()
+        }
+        if isPairingRefused {
+            return AppStrings.ios_app_importholdrefused()
+        }
+        if awaitingMarkConfirmation {
+            return AppStrings.ios_app_importholdmark()
+        }
+        if journalTooOld {
+            return AppStrings.ios_app_importholdupdate()
+        }
+        if !isConnected {
+            return AppStrings.ios_app_importholdoffline()
+        }
+        return nil
+    }
+}
+
+nonisolated enum ImportRemoveDialogPresentation {
+    static func title(for item: ShareImportActiveItem) -> String {
+        AppStrings.ios_app_importremovetitle(item.filename)
+    }
+
+    static func body(for item: ShareImportActiveItem) -> String {
+        if !item.hasLocalCopy {
+            return AppStrings.ios_app_importremovebodymissing()
+        }
+        if case .readyToReview = item.phase {
+            return AppStrings.ios_app_importremovebodyreview()
+        }
+        return AppStrings.ios_app_importremovebodylocal()
+    }
+}
+
+nonisolated enum ImportRecentTimeFormatter {
+    static func relative(from date: Date, now: Date) -> String {
+        let elapsed = max(0, Int(now.timeIntervalSince(date)))
+        if elapsed < 60 {
+            return AppStrings.ios_about_relative_second(max(1, elapsed))
+        }
+        if elapsed < 3600 {
+            return AppStrings.ios_about_relative_minute(elapsed / 60)
+        }
+        return AppStrings.ios_about_relative_hour(max(1, elapsed / 3600))
+    }
+}
+
 struct ImportView: View {
     @Environment(AppConfig.self) private var appConfig
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
@@ -14,17 +70,58 @@ struct ImportView: View {
     @Environment(PendingJournalOpenState.self) private var pendingJournalOpen: PendingJournalOpenState?
     @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @AccessibilityFocusState private var sectionFocused: Bool
 
     static let journalImportPath = "/app/import/"
 
     @State private var isPickingFiles = false
     @State private var isDropTargeted = false
     @State private var intake: Intake = .idle
+    @State private var pendingRemoveItem: ShareImportActiveItem?
+    @State private var now = Date()
 
     private enum Intake: Equatable {
         case idle
         case working
         case finished(String)
+    }
+
+    private var canOpenJournal: Bool {
+        self.appConfig.isPaired && self.appConfig.journalSendConfirmed
+    }
+
+    private var reviewItems: [ShareImportActiveItem] {
+        self.shareTransferHolder.reviewItems
+    }
+
+    private var onDeviceItems: [ShareImportActiveItem] {
+        self.shareTransferHolder.onDeviceItems
+    }
+
+    private var recentReceipts: [ImportRecentReceipt] {
+        self.shareTransferHolder.recentReceipts(
+            instanceID: self.appConfig.deviceID,
+            isPaired: self.appConfig.isPaired,
+            markConfirmed: self.appConfig.journalSendConfirmed,
+            now: self.now
+        )
+    }
+
+    private var queueHoldLine: String? {
+        ImportQueueHoldPresentation.holdLine(
+            isPaired: self.appConfig.isPaired,
+            isPairingRefused: self.shareTransferHolder.isPairingRefused,
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
+            isConnected: self.tunnelManager.state.isConnected && !self.connectionStallMonitor.isStalled
+        )
+    }
+
+    private var isPresentingRemoveConfirm: Binding<Bool> {
+        Binding(
+            get: { self.pendingRemoveItem != nil },
+            set: { if !$0 { self.pendingRemoveItem = nil } }
+        )
     }
 
     var body: some View {
@@ -35,24 +132,29 @@ struct ImportView: View {
                         Text(SourceVocabulary.importerWhatItAdds)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityFocused(self.$sectionFocused)
 
                         // The picker is the way in; a drop onto this pane is the shortcut, never the only path.
                         self.pickRow(
                             title: SourceVocabulary.importFilesRow,
+                            detail: nil,
                             systemImage: "folder",
                             hint: SourceVocabulary.importFilesHint,
                             identifier: "import.pickFiles"
                         ) {
                             self.isPickingFiles = true
                         }
-                        // Every other kind of import lives on the journal's own import page.
-                        self.pickRow(
-                            title: AppStrings.ios_app_moreimportsrow(),
-                            systemImage: "square.and.arrow.down.on.square",
-                            hint: AppStrings.ios_app_moreimportshint(),
-                            identifier: "import.moreImports"
-                        ) {
-                            self.pendingJournalOpen?.open(path: Self.journalImportPath)
+                        if self.canOpenJournal {
+                            self.pickRow(
+                                title: AppStrings.ios_app_moreimportsrow(),
+                                detail: AppStrings.ios_app_importmoreimportsdetail(),
+                                systemImage: "square.and.arrow.down.on.square",
+                                hint: AppStrings.ios_app_moreimportshint(),
+                                identifier: "import.moreImports"
+                            ) {
+                                self.pendingJournalOpen?.open(path: Self.journalImportPath)
+                            }
                         }
                         self.screenshotsLine
                         self.intakeLine
@@ -61,53 +163,15 @@ struct ImportView: View {
 
                 SourceIntakeFacts(source: .imports)
 
-                SourceDetailBlock(title: AppStrings.ios_app_recent()) {
-                    Text(ImportRecentPresentation.recentText(
-                        pendingCount: self.shareTransferHolder.pendingCount,
-                        lastDeliveredAt: self.shareTransferHolder.lastUploadAt,
-                        failedCount: self.shareTransferHolder.failedCount,
-                        awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-                        connectionStatus: self.connectionSyncModel.status,
-                        isStalled: self.connectionStallMonitor.isStalled
-                    ))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                if !self.reviewItems.isEmpty {
+                    self.waitingForReviewSection
                 }
 
-                SourceDetailBlock(title: SourceVocabulary.onThisPhone) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        let showsAwaiting = MarkConfirmationDisplay.showsAwaitingWords(
-                            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-                            status: self.connectionSyncModel.status,
-                            isStalled: self.connectionStallMonitor.isStalled
-                        )
-                        if !showsAwaiting {
-                            Text(SourceVocabulary.onThisPhoneScope(
-                                isJournalPaired: self.appConfig.isPaired,
-                                isConnected: self.tunnelManager.state.isConnected
-                            ))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        // The action names what it opens rather than restating the
-                        // heading it sits under: a button reading `on this device`
-                        // inside a block titled `on this device` says nothing twice.
-                        NavigationLink(value: ShellDestination.onThisDevice) {
-                            HStack {
-                                Text(SourceVocabulary.onThisPhoneOpenAction)
-                                Spacer(minLength: 8)
-                                Image(systemName: "chevron.right")
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                        }
-                        .accessibilityLabel(SourceVocabulary.onThisPhoneOpenAction)
-                        .accessibilityIdentifier("import.onThisDeviceEntry")
-                        .accessibilityHint(AppStrings.ios_home_body())
-                    }
+                if !self.onDeviceItems.isEmpty {
+                    self.onThisDeviceSection
                 }
+
+                self.recentSection
             }
             .frame(maxWidth: self.horizontalSizeClass == .regular ? 560 : .infinity, alignment: .leading)
             .padding(ShellMetrics.screenMargin)
@@ -143,10 +207,412 @@ struct ImportView: View {
                 self.finish(ShareImportFailure.unreadable.message)
             }
         }
+        .confirmationDialog(
+            self.pendingRemoveItem.map(ImportRemoveDialogPresentation.title(for:)) ?? "",
+            isPresented: self.isPresentingRemoveConfirm,
+            titleVisibility: .visible,
+            presenting: self.pendingRemoveItem
+        ) { item in
+            Button(AppStrings.ios_app_importremoveaction(), role: .destructive) {
+                self.pendingRemoveItem = nil
+                Task {
+                    await self.shareTransferHolder.dropShare(itemID: item.id)
+                }
+            }
+            .accessibilityIdentifier("import.remove.confirm")
+
+            Button(AppStrings.ios_app_importremovecancel(), role: .cancel) {
+                self.pendingRemoveItem = nil
+            }
+        } message: { item in
+            Text(ImportRemoveDialogPresentation.body(for: item))
+        }
+        .onAppear {
+            self.now = Date()
+            self.shareImportStore.reloadRecentReceiptsFromDisk()
+            Task {
+                await self.shareTransferHolder.refreshActiveItems()
+                await self.shareTransferHolder.reconcileReadyToReview(
+                    localPort: self.tunnelManager.activeConnection?.port,
+                    instanceID: self.appConfig.deviceID,
+                    isPaired: self.appConfig.isPaired,
+                    markConfirmed: self.appConfig.journalSendConfirmed
+                )
+            }
+        }
+        .onChange(of: self.pendingJournalOpen?.dismissCount) { _, _ in
+            self.sectionFocused = true
+            Task {
+                await self.shareTransferHolder.refreshActiveItems()
+            }
+        }
+        .task {
+            await refreshNowPeriodically { self.now = Date() }
+        }
         .background(Color.deckGround.ignoresSafeArea())
         .navigationTitle(SourceVocabulary.importTitle)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("shell.pane.import")
+    }
+
+    // MARK: - Waiting for your review
+
+    private var waitingForReviewSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(AppStrings.ios_app_importwaitingforreviewheading())
+                .font(ShellFont.sectionTitle)
+                .foregroundStyle(.primary)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("import.section.waitingForReview")
+
+            ForEach(Array(self.reviewItems.enumerated()), id: \.element.id) { index, item in
+                if index > 0 {
+                    Divider()
+                }
+                self.reviewRow(item)
+            }
+        }
+        .padding(ShellMetrics.surfacePadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.deckSurface, in: ShellMetrics.cardShape)
+        .overlay {
+            ShellMetrics.cardShape
+                .stroke(Color.solOrange.opacity(0.65), lineWidth: 1.5)
+        }
+    }
+
+    private func reviewRow(_ item: ShareImportActiveItem) -> some View {
+        let itemID = item.id.uuidString.lowercased()
+        let isExpired: Bool
+        let detail: String
+        let statusWord: String
+        let markerSignal: HomeImportTileSignal
+        let statusColor: Color
+        switch item.phase {
+        case .readyToReview(let kind, _):
+            isExpired = false
+            detail = kind == "body_confirmation_required"
+                ? AppStrings.ios_app_importreviewdetailexpiry()
+                : AppStrings.ios_app_importreviewdetail()
+            statusWord = AppStrings.ios_app_importtilereadytoreview()
+            markerSignal = .readyToReview(detail: item.filename)
+            statusColor = Color.solOrangeAdaptive
+        case .reviewExpired:
+            isExpired = true
+            detail = AppStrings.ios_app_importreviewexpired()
+            statusWord = AppStrings.ios_app_importexpired()
+            markerSignal = .waiting(detail: item.filename)
+            statusColor = .secondary
+        default:
+            isExpired = false
+            detail = AppStrings.ios_app_importreviewdetail()
+            statusWord = AppStrings.ios_app_importtilereadytoreview()
+            markerSignal = .readyToReview(detail: item.filename)
+            statusColor = Color.solOrangeAdaptive
+        }
+
+        return VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.filename)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("import.review.row.\(itemID)")
+                HStack(spacing: 6) {
+                    HomeImportStateMarker(signal: markerSignal)
+                    Text(statusWord)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(statusColor)
+                }
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            self.actionButtonsLayout {
+                if isExpired {
+                    Button {
+                        Task {
+                            _ = await self.shareTransferHolder.sendAgain(itemID: item.id)
+                            await self.foregroundDrainGate.requestDrain()
+                        }
+                    } label: {
+                        Text(AppStrings.ios_app_importsendagainaction())
+                            .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
+                    }
+                    .buttonStyle(BrandProminentButtonStyle())
+                    .accessibilityLabel(AppStrings.ios_app_importsendagainactionlabel(item.filename))
+                    .accessibilityIdentifier("import.review.sendAgain.\(itemID)")
+                } else if case .readyToReview(_, let importID) = item.phase,
+                          let path = ShareImportID.detailPath(for: importID)
+                {
+                    Button {
+                        self.pendingJournalOpen?.open(path: path)
+                    } label: {
+                        Text(AppStrings.ios_app_importreviewaction())
+                            .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
+                    }
+                    .buttonStyle(BrandProminentButtonStyle())
+                    .disabled(!self.canOpenJournal)
+                    .accessibilityLabel(AppStrings.ios_app_importreviewactionlabel(item.filename))
+                    .accessibilityIdentifier("import.review.open.\(itemID)")
+                }
+
+                Button {
+                    self.pendingRemoveItem = item
+                } label: {
+                    Text(AppStrings.ios_app_importremoveaction())
+                        .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
+                }
+                .buttonStyle(BrandQuietButtonStyle())
+                .accessibilityLabel(AppStrings.ios_app_importremoveactionlabel(item.filename))
+                .accessibilityIdentifier("import.review.remove.\(itemID)")
+            }
+        }
+    }
+
+    // MARK: - On this device
+
+    private var onThisDeviceSection: some View {
+        SourceDetailBlock(
+            title: SourceVocabulary.onThisPhone,
+            titleIdentifier: "import.section.onThisDevice"
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                if let holdLine = self.queueHoldLine {
+                    Text(holdLine)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("import.onDevice.holdLine")
+                }
+
+                ForEach(Array(self.onDeviceItems.enumerated()), id: \.element.id) { index, item in
+                    if index > 0 {
+                        Divider()
+                    }
+                    self.onDeviceRow(item)
+                }
+            }
+        }
+    }
+
+    private func onDeviceRow(_ item: ShareImportActiveItem) -> some View {
+        let itemID = item.id.uuidString.lowercased()
+        return VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.filename)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("import.onDevice.row.\(itemID)")
+
+                switch item.phase {
+                case .sending:
+                    HStack(spacing: 6) {
+                        HomeImportStateMarker(signal: .sending(detail: item.filename))
+                        Text(AppStrings.ios_app_sending())
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(Color.solOrangeAdaptive)
+                    }
+                    Text(AppStrings.ios_app_importsendingdetail())
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                case .waiting:
+                    HStack(spacing: 6) {
+                        HomeImportStateMarker(signal: .waiting(detail: item.filename))
+                        Text(AppStrings.ios_app_importtilewaiting())
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(AppStrings.ios_app_importwaitingdetail())
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                case .needsAttention(_, let reason):
+                    HStack(spacing: 6) {
+                        HomeImportStateMarker(signal: .needsAttention(detail: item.filename))
+                        Text(AppStrings.ios_transfer_needsattention())
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.red)
+                    }
+                    Text(reason)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                case .readyToReview, .reviewExpired:
+                    EmptyView()
+                }
+            }
+
+            switch item.phase {
+            case .sending:
+                // No buttons while actively uploading.
+                EmptyView()
+            case .waiting:
+                self.actionButtonsLayout {
+                    Button {
+                        self.pendingRemoveItem = item
+                    } label: {
+                        Text(AppStrings.ios_app_importremoveaction())
+                            .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
+                    }
+                    .buttonStyle(BrandQuietButtonStyle())
+                    .accessibilityLabel(AppStrings.ios_app_importremoveactionlabel(item.filename))
+                    .accessibilityIdentifier("import.onDevice.remove.\(itemID)")
+                }
+            case .needsAttention(let retryable, _):
+                self.actionButtonsLayout {
+                    if retryable && !item.isUnadopted {
+                        Button {
+                            Task {
+                                _ = await self.shareTransferHolder.retryShare(itemID: item.id)
+                                await self.foregroundDrainGate.requestDrain()
+                            }
+                        } label: {
+                            Text(AppStrings.ios_app_trynow())
+                                .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
+                        }
+                        .buttonStyle(BrandProminentButtonStyle())
+                        .accessibilityLabel(AppStrings.ios_app_importtrynowactionlabel(item.filename))
+                        .accessibilityIdentifier("import.onDevice.tryNow.\(itemID)")
+                    }
+                    Button {
+                        self.pendingRemoveItem = item
+                    } label: {
+                        Text(AppStrings.ios_app_importremoveaction())
+                            .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
+                    }
+                    .buttonStyle(BrandQuietButtonStyle())
+                    .accessibilityLabel(AppStrings.ios_app_importremoveactionlabel(item.filename))
+                    .accessibilityIdentifier("import.onDevice.remove.\(itemID)")
+                }
+            case .readyToReview, .reviewExpired:
+                EmptyView()
+            }
+        }
+    }
+
+    // MARK: - Recent (24h, max 5)
+
+    private var recentSection: some View {
+        let receipts = self.recentReceipts
+        return SourceDetailBlock(
+            title: AppStrings.ios_app_recent(),
+            titleIdentifier: "import.section.recent"
+        ) {
+            VStack(alignment: .leading, spacing: 10) {
+                if receipts.isEmpty {
+                    Text(AppStrings.ios_app_importrecentempty())
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("import.recent.empty")
+                } else {
+                    ForEach(Array(receipts.enumerated()), id: \.element.id) { index, receipt in
+                        if index > 0 {
+                            Divider()
+                        }
+                        self.recentReceiptRow(receipt)
+                    }
+                }
+
+                if self.canOpenJournal {
+                    Button {
+                        self.pendingJournalOpen?.open(path: Self.journalImportPath)
+                    } label: {
+                        Text(AppStrings.ios_app_importallhistory())
+                            .font(.subheadline)
+                            .underline()
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("import.recent.allHistory")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func recentReceiptRow(_ receipt: ImportRecentReceipt) -> some View {
+        let relative = ImportRecentTimeFormatter.relative(from: receipt.deliveredAt, now: self.now)
+        let detailText = AppStrings.ios_app_importrecentdetail(relative)
+        if let path = receipt.journalDetailPath {
+            Button {
+                self.pendingJournalOpen?.open(path: path)
+            } label: {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(receipt.filename)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.footnote)
+                                .foregroundStyle(Color.solSavedGreen)
+                                .accessibilityHidden(true)
+                            Text(detailText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(AppStrings.ios_app_importrecentrowlabelopen(receipt.filename, relative))
+            .accessibilityIdentifier("import.recent.row.\(receipt.id)")
+        } else {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(receipt.filename)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.footnote)
+                        .foregroundStyle(Color.solSavedGreen)
+                        .accessibilityHidden(true)
+                    Text(detailText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(AppStrings.ios_app_importrecentrowlabel(receipt.filename, relative))
+            .accessibilityIdentifier("import.recent.row.\(receipt.id)")
+        }
+    }
+
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func actionButtonsLayout<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        if self.dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 8) {
+                content()
+            }
+        } else {
+            HStack(spacing: 10) {
+                content()
+            }
+        }
     }
 
     /// Open once the source has been on, including when photo access later needs attention.
@@ -169,6 +635,7 @@ struct ImportView: View {
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.tertiary)
+                        .accessibilityHidden(true)
                 }
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
@@ -179,16 +646,40 @@ struct ImportView: View {
 
     private func pickRow(
         title: String,
+        detail: String?,
         systemImage: String,
         hint: String,
         identifier: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(Color.solOrangeAdaptive)
+                    .frame(width: 24, alignment: .center)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                    if let detail {
+                        Text(detail)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .disabled(self.intake == .working)
         .accessibilityHint(hint)
         .accessibilityIdentifier(identifier)
@@ -225,6 +716,7 @@ struct ImportView: View {
                 self.intake = .idle
             }
             await drainGate.requestDrain()
+            await self.shareTransferHolder.refreshActiveItems()
         }
     }
 

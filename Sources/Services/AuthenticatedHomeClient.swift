@@ -543,6 +543,120 @@ nonisolated final class AuthenticatedHomeClient: Sendable {
     }
 }
 
+nonisolated struct ImportStatusPollPayload: Equatable, Sendable {
+    let status: String?
+    let savedStartActive: Bool?
+    let savedStartState: String?
+}
+
+nonisolated enum ImportStatusFetchResult: Equatable, Sendable {
+    case ok(ImportStatusPollPayload)
+    case notFound
+    case pairingRefused(Int)
+    case transientOrUnexpected(Int?)
+}
+
+nonisolated enum ImportReconciliationAction: Equatable, Sendable {
+    case confirmed
+    case keepReadyToReview
+    case expired
+    case pairingRefused(Int)
+    case unchanged
+}
+
+nonisolated enum ImportReconciliationClassifier {
+    static let confirmedStatuses: Set<String> = [
+        "running",
+        "success",
+        "failed",
+        "unconfirmed",
+        "noted",
+        "unavailable",
+    ]
+
+    static func parsePayload(data: Data) -> ImportStatusPollPayload? {
+        guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        let status = parsed["status"] as? String
+        let savedStart = parsed["saved_start"] as? [String: Any]
+        let savedStartActive = savedStart?["active"] as? Bool
+        let savedStartState = savedStart?["state"] as? String
+        return ImportStatusPollPayload(
+            status: status,
+            savedStartActive: savedStartActive,
+            savedStartState: savedStartState
+        )
+    }
+
+    static func classify(_ result: ImportStatusFetchResult) -> ImportReconciliationAction {
+        switch result {
+        case .ok(let payload):
+            if let status = payload.status, Self.confirmedStatuses.contains(status) {
+                return .confirmed
+            }
+            if payload.savedStartActive == true || payload.savedStartState == "consumed" {
+                return .confirmed
+            }
+            if payload.status == "pending",
+               payload.savedStartState == nil
+                || payload.savedStartState == "eligible"
+                || payload.savedStartState == "unknown"
+            {
+                return .keepReadyToReview
+            }
+            return .unchanged
+        case .notFound:
+            return .expired
+        case .pairingRefused(let code):
+            return .pairingRefused(code)
+        case .transientOrUnexpected:
+            return .unchanged
+        }
+    }
+}
+
+extension AuthenticatedHomeClient {
+    func fetchImportStatus(
+        localPort: Int,
+        importID: String,
+        timeout: Duration = .seconds(5)
+    ) async -> ImportStatusFetchResult {
+        guard (1...65535).contains(localPort),
+              let validID = ShareImportID.validated(importID),
+              let url = URL(string: "http://127.0.0.1:\(localPort)/app/import/api/\(validID)")
+        else {
+            return .transientOrUnexpected(nil)
+        }
+        let session = self.sessionFactory(timeout)
+        defer { session.invalidateAndCancel() }
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: Self.timeInterval(for: timeout)
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        do {
+            let (data, httpResponse) = try await Self.fetchCappedData(for: request, in: session)
+            switch httpResponse.statusCode {
+            case 200:
+                guard let payload = ImportReconciliationClassifier.parsePayload(data: data) else {
+                    return .transientOrUnexpected(200)
+                }
+                return .ok(payload)
+            case 404:
+                return .notFound
+            case 401, 403:
+                return .pairingRefused(httpResponse.statusCode)
+            default:
+                return .transientOrUnexpected(httpResponse.statusCode)
+            }
+        } catch {
+            return .transientOrUnexpected(nil)
+        }
+    }
+}
+
 /// Only concurrent readers on the same pairing and port share a response.
 private actor InFlightStatusReads {
     private struct Key: Hashable { let port: Int; let generation: UInt64 }

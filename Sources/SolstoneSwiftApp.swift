@@ -627,13 +627,6 @@ struct SolstoneSwiftApp: App {
             obsidianGate: obsidianGate,
             screenshotsGate: screenshotsGate
         )
-        // A new pairing gives the journal each source's first setup again. What is held still
-        // goes, to the journal paired now.
-        appConfig.store.registerOnNewPairing { [weak obsidianSource, weak calendarSource, weak screenshotsSource] in
-            obsidianSource?.restartFirstSetup()
-            calendarSource?.restartFirstSetup()
-            screenshotsSource?.restartFirstSetup()
-        }
         let shareImportStore = ShareImportStore(
             ledgerDropSink: { droppedCount in
                 log.append(
@@ -650,6 +643,18 @@ struct SolstoneSwiftApp: App {
             mirror: transferStatusMirror,
             store: shareImportStore
         )
+        // A new pairing gives the journal each source's first setup again. What is held still
+        // goes, to the journal paired now.
+        appConfig.store.registerOnNewPairing { [weak obsidianSource, weak calendarSource, weak screenshotsSource, weak shareTransferHolder, weak appConfig] in
+            obsidianSource?.restartFirstSetup()
+            calendarSource?.restartFirstSetup()
+            screenshotsSource?.restartFirstSetup()
+            if let shareTransferHolder, let currentID = appConfig?.deviceID {
+                Task { @MainActor in
+                    await shareTransferHolder.handlePairingChange(currentInstanceID: currentID)
+                }
+            }
+        }
         let deviceMigrationOwner = DeviceMigrationOwnerModel(
             credentials: appConfig.store,
             confirmation: appConfig.confirmationStore
@@ -1137,6 +1142,7 @@ struct SolstoneSwiftApp: App {
                 .task {
                     // Initial connected state needs the same transfer edge handling because
                     // onChange does not fire for its initial value.
+                    await self.shareTransferHolder.refreshActiveItems()
                     guard let connection = self.tunnelManager.activeConnection else { return }
                     let pairingIdentity = self.tunnelManager.dialedPairingIdentity
                     await self.transferEndpointResolver.update(
@@ -1145,6 +1151,30 @@ struct SolstoneSwiftApp: App {
                     )
                     await self.transferEngine.noteNewConnectionEstablished(pairingIdentity: pairingIdentity)
                     await self.transferEngine.endpointAvailabilityChanged()
+                    await self.shareTransferHolder.reconcileReadyToReview(
+                        localPort: connection.port,
+                        instanceID: self.appConfig.deviceID,
+                        isPaired: self.appConfig.isPaired,
+                        markConfirmed: self.appConfig.journalSendConfirmed
+                    )
+                }
+                .onChange(of: self.transferStatusMirror.applyCount) { _, _ in
+                    Task { await self.shareTransferHolder.refreshActiveItems() }
+                }
+                .onChange(of: self.appConfig.deviceID) { prior, current in
+                    guard !current.isEmpty, prior != current else { return }
+                    Task { await self.shareTransferHolder.handlePairingChange(currentInstanceID: current) }
+                }
+                .onChange(of: self.appConfig.journalSendConfirmed) { _, confirmed in
+                    guard confirmed else { return }
+                    Task {
+                        await self.shareTransferHolder.reconcileReadyToReview(
+                            localPort: self.tunnelManager.activeConnection?.port,
+                            instanceID: self.appConfig.deviceID,
+                            isPaired: self.appConfig.isPaired,
+                            markConfirmed: confirmed
+                        )
+                    }
                 }
                 // Last, so a stopped or held app builds none of the above.
                 .modifier(AgeSignalGateModifier(model: self.ageSignal))
@@ -1167,6 +1197,7 @@ struct SolstoneSwiftApp: App {
             case .connected(let port, _):
                 let connection = self.tunnelManager.activeConnection
                 let pairingIdentity = self.tunnelManager.dialedPairingIdentity
+                self.shareTransferHolder.clearPairingRefused()
                 Task {
                     await self.transferEndpointResolver.update(
                         activeLocalPort: connection?.port ?? port,
@@ -1174,6 +1205,12 @@ struct SolstoneSwiftApp: App {
                     )
                     await self.transferEngine.noteNewConnectionEstablished(pairingIdentity: pairingIdentity)
                     await self.transferEngine.endpointAvailabilityChanged()
+                    await self.shareTransferHolder.reconcileReadyToReview(
+                        localPort: connection?.port ?? port,
+                        instanceID: self.appConfig.deviceID,
+                        isPaired: self.appConfig.isPaired,
+                        markConfirmed: self.appConfig.journalSendConfirmed
+                    )
                 }
                 Task { await self.foregroundDrainGate.requestDrain() }
 
@@ -1270,6 +1307,15 @@ struct SolstoneSwiftApp: App {
             self.calendarSource.foreground()
             Task { await self.screenshotsSource.foreground() }
             Task { await self.obsidianSource.checkNow() }
+            Task {
+                await self.shareTransferHolder.refreshActiveItems()
+                await self.shareTransferHolder.reconcileReadyToReview(
+                    localPort: self.tunnelManager.activeConnection?.port,
+                    instanceID: self.appConfig.deviceID,
+                    isPaired: self.appConfig.isPaired,
+                    markConfirmed: self.appConfig.journalSendConfirmed
+                )
+            }
             if Self.isIntegrationMode || Self.isUITest {
                 return
             }
@@ -1380,10 +1426,18 @@ struct SolstoneSwiftApp: App {
                 try mobileSegmentUploader?.writeUploadedTombstone(segmentID: segmentID)
             }
         }
-        await self.transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { [weak shareImportStore = self.shareImportStore] manifest, successKind in
+        await self.transferEngine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { [weak shareImportStore = self.shareImportStore, weak shareTransferHolder = self.shareTransferHolder, weak appConfig = self.appConfig] manifest, successKind in
             try await MainActor.run {
-                try shareImportStore?.recordDelivered(manifest: manifest, successKind: successKind)
+                try shareImportStore?.recordDelivered(
+                    manifest: manifest,
+                    successKind: successKind,
+                    fallbackInstanceID: appConfig?.deviceID
+                )
             }
+            await shareTransferHolder?.refreshActiveItems()
+        }
+        await self.transferEngine.registerAttentionHook(sourceKey: ObserverAudioTransferSource.share) { [weak shareTransferHolder = self.shareTransferHolder] _ in
+            await shareTransferHolder?.refreshActiveItems()
         }
         // A calendar file reaching the journal, or one the owner removed there, leaves room for
         // an import's next files.

@@ -1,0 +1,21 @@
+{
+  "description": "Confirmation dialog title when removing an import from this device.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "name",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 96,
+  "source_revision": "80462bad3cf9fec9e89a89f36ab4fa236e8ac14e6eb9c474f741f26e33161266",
+  "risk": "routine",
+  "auto_merge": true
+}

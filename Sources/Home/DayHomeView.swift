@@ -223,7 +223,10 @@ struct DayHomeView: View {
     @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
     @Environment(SafariSourceModel.self) private var safariSource: SafariSourceModel?
     @Environment(ShareTransferHolder.self) private var shareTransferHolder
+    @Environment(PendingJournalOpenState.self) private var pendingJournalOpen: PendingJournalOpenState?
+    @Environment(ShellNavModel.self) private var nav: ShellNavModel?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @AccessibilityFocusState private var journalPillFocused: Bool
     @AppStorage(UserSettings.hiddenHomeSourceIDsKey) private var hiddenHomeSourceIDsData = Data()
     /// The full width of the column the deck occupies, including the deck's own
     /// padding. Measured on the scroll view so the value cannot depend on which
@@ -271,6 +274,11 @@ struct DayHomeView: View {
         // each receive a clipped piece of the root host's one global SunArc scene.
         .background(SunArcContentBackground().ignoresSafeArea())
         .task { await refreshNowPeriodically { self.now = Date() } }
+        .onChange(of: self.pendingJournalOpen?.dismissCount) { _, _ in
+            if self.nav?.paneRoot == nil && (self.nav?.paneStack.isEmpty ?? true) {
+                self.journalPillFocused = true
+            }
+        }
         .task(id: self.appGroupSnapshotInputs) {
             guard self.safariSource?.hasLoaded != false else { return }
             _ = writeObserverWidgetSnapshot(
@@ -613,7 +621,9 @@ private extension DayHomeView {
             safari: self.safariSource,
             obsidian: self.obsidianTransferHolder
         )
-        return .known(totals.pending + totals.failed)
+        // Import failures and awaiting-review items are NOT "waiting to sync".
+        let waiting = totals.pending + max(0, totals.failed - self.shareTransferHolder.failedCount)
+        return .known(waiting)
     }
 
     var statusPillState: HomeStatusPillState {
@@ -623,7 +633,9 @@ private extension DayHomeView {
             hasBacklog: self.backlogCount.knownCount > 0 || self.connectionSyncModel.syncingLingers,
             isStalled: self.connectionStallMonitor.isStalled,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
-            hasJournalGap: self.mobileSegmentTransferHolder.journalGapNotice.isShowing
+            hasJournalGap: self.mobileSegmentTransferHolder.journalGapNotice.isShowing,
+            importReadyToReviewCount: self.shareTransferHolder.readyToReviewCount + self.shareTransferHolder.reviewExpiredCount,
+            importNeedsAttentionCount: self.shareTransferHolder.failedCount
         )
     }
 
@@ -710,6 +722,7 @@ private extension DayHomeView {
         // a rendering defect against everything else that keeps this inset.
         .padding(.horizontal, ShellMetrics.screenMargin)
         .accessibilityLabel(self.journalIdentity.spokenValue)
+        .accessibilityFocused(self.$journalPillFocused)
         .accessibilityIdentifier(
             self.journalState.opensJournal ? "dayHome.openInJournal" : "dayHome.journalSetup"
         )

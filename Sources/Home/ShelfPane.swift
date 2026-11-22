@@ -475,6 +475,12 @@ struct ThisDevicePane: View {
             }
 
             Section(AppStrings.ios_home_watchdiagnosticsblocktitle()) {
+                NavigationLink(value: ShellDestination.onThisDevice) {
+                    Text(SourceVocabulary.onThisPhone)
+                }
+                .accessibilityIdentifier("shelf.thisDevice.onThisDeviceEntry")
+                .accessibilityHint(AppStrings.ios_home_body())
+
                 Toggle(AppStrings.ios_home_body58(), isOn: Binding(
                     get: { UserSettings.verboseErrors },
                     set: { UserSettings.verboseErrors = $0 }

@@ -1961,7 +1961,7 @@ ios.sourcevocabularyconnectionprobe.checked = checked{ $slot0 }{ $value0 }{ $slo
 
 ios.sourcevocabularyfinishsyncing.thesolstoneappsyncstoyourjournalwhileitsopena = the solstone app syncs to your journal while it's open, and keeps going in the background for as long as ios allows. with location on, that lasts longer.
 
-ios.sourcevocabularyswift.addspdfsaudioandtext = adds PDFs, audio and text you choose here, and the photos and files you send from the share sheet.
+ios.sourcevocabularyswift.addspdfsaudioandtext = adds any file you choose here or send from the share sheet. your journal works out what it is.
 
 ios.sourcevocabularyswift.beforeiosasks = before ios asks
 
@@ -3177,3 +3177,109 @@ ios.sharedsources.triple = { $first } · { $second } · { $third }
 ios.sharedsources.spokenpair = { $first }, { $second }
 
 ios.sharedsources.spokentriple = { $first }, { $second }, { $third }
+
+ios.app.importmoreimportsdetail = guides, options, and import history in your journal
+
+ios.app.importtilewaiting = waiting
+
+ios.app.importtilereadytoreview = ready to review
+
+ios.app.importtilewaitingcount = { $count ->
+    [one] { $count } waiting
+   *[other] { $count } waiting
+}
+
+ios.app.importtilewaitingforjournal = waiting for your journal
+
+ios.app.importtilefilescount = { $count ->
+    [one] { $count } file
+   *[other] { $count } files
+}
+
+ios.app.importtilereadycount = { $count ->
+    [one] { $count } ready in your journal
+   *[other] { $count } ready in your journal
+}
+
+ios.app.importtileitemscount = { $count ->
+    [one] { $count } item
+   *[other] { $count } items
+}
+
+ios.app.importtilespoken = import, { $status }. { $detail }.
+
+ios.app.importwaitingforreviewheading = waiting for your review
+
+ios.app.importexpired = expired
+
+ios.app.importreviewdetail = saved in your journal. preview and confirm to start.
+
+ios.app.importreviewdetailexpiry = saved in your journal. review within an hour before your journal removes the waiting copy.
+
+ios.app.importreviewexpired = the waiting copy in your journal expired. this device still holds the file.
+
+ios.app.importreviewaction = review in your journal
+
+ios.app.importreviewactionlabel = review { $name } in your journal
+
+ios.app.importsendagainaction = send again to review
+
+ios.app.importsendagainactionlabel = send { $name } again to review
+
+ios.app.importremoveaction = remove
+
+ios.app.importremoveactionlabel = remove { $name }
+
+ios.app.importtrynowactionlabel = try { $name } again
+
+ios.app.importholdunpaired = imports wait on this device until you connect a journal.
+
+ios.app.importholdmark = imports wait until you confirm your journal's mark.
+
+ios.app.importholdrefused = your journal stopped accepting this device. imports wait here until you pair again.
+
+ios.app.importholdupdate = imports wait until your journal is updated.
+
+ios.app.importholdoffline = waiting for your journal to reconnect.
+
+ios.app.importsendingdetail = sending to your journal…
+
+ios.app.importwaitingdetail = waiting to go to your journal
+
+ios.app.importneedsattentionfallback = couldn't send to your journal.
+
+ios.app.importrecentempty = nothing yet.
+
+ios.app.importrecentdetail = in your journal · { $relative }
+
+ios.app.importrecentrowlabelopen = { $name }, in your journal, { $relative }. open in your journal.
+
+ios.app.importrecentrowlabel = { $name }, in your journal, { $relative }.
+
+ios.app.importallhistory = all import history in your journal
+
+ios.app.importremovetitle = remove { $name }?
+
+ios.app.importremovebodylocal = this removes the copy on this device, so it won't reach your journal.
+
+ios.app.importremovebodyreview = this removes the copy on this device. the waiting copy in your journal stays there until you discard it or it expires.
+
+ios.app.importremovebodymissing = the copy is already gone, so this only clears it from here.
+
+ios.app.importremovecancel = cancel
+
+ios.app.importstatuspillready = { $count ->
+    [one] { $count } ready to review
+   *[other] { $count } ready to review
+}
+
+ios.app.importstatusleadready = { $count ->
+    [one] { $count } import ready to review
+   *[other] { $count } imports ready to review
+}
+
+ios.app.importstatusleadreadysubline = open import to review and start.
+
+ios.app.importstatusleadattention = imports need you
+
+ios.app.importstatusleadattentionsubline = open import to see why.

@@ -148,7 +148,10 @@ private extension OnThisPhoneItemDetailView {
                 .accessibilityLabel(SourceVocabulary.openJournalLink)
                 .accessibilityHint(AppStrings.ios_home_opensyourjournalinsidethesolstoneapp())
                 .sheet(isPresented: self.$showingJournal) {
-                    InAppJournalView(mark: RootShellView.storedJournalMark())
+                    InAppJournalView(
+                        mark: RootShellView.storedJournalMark(),
+                        path: OnThisPhoneItemDetailPresentation.journalPath(for: self.item)
+                    )
                 }
             }
         }

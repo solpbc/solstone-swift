@@ -1,0 +1,21 @@
+{
+  "description": "Row sub-line for a recently delivered import receipt.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "relative",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 64,
+  "source_revision": "7a8b88a1e8ada60dc2f5f68b5889ed722bdf46662a6d4ec128047e2863b3d9bc",
+  "risk": "routine",
+  "auto_merge": true
+}

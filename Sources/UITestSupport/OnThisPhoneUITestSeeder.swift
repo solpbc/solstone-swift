@@ -12,6 +12,8 @@ private let onThisPhoneUITestSeedLog = Logger(subsystem: "app.solstone.swift", c
 enum OnThisPhoneUITestSeeder {
     private static let defaultSeedFlag = "--ui-test-seed-on-this-phone"
     private static let waitingImportSeedFlag = "--ui-test-seed-waiting-import"
+    private static let importOXSeedFlag = "--ui-test-seed-import-ox"
+    private static let importOXReviewOnlySeedFlag = "--ui-test-seed-import-ox-review-only"
     private static let agedBacklogSeedFlag = "--ui-test-seed-aged-backlog"
     private static let audioMagicSeedFlag = "--ui-test-seed-audio-magic"
     private static let audioMagicDurationPrefix = "--ui-test-seed-audio-magic-duration="
@@ -46,6 +48,8 @@ enum OnThisPhoneUITestSeeder {
 
         let seedDefault = arguments.contains(Self.defaultSeedFlag)
         let seedWaitingImport = arguments.contains(Self.waitingImportSeedFlag)
+        let seedImportOX = arguments.contains(Self.importOXSeedFlag)
+        let seedImportOXReviewOnly = arguments.contains(Self.importOXReviewOnlySeedFlag)
         let seedAgedBacklog = arguments.contains(Self.agedBacklogSeedFlag)
         let seedAudioMagic = arguments.contains(Self.audioMagicSeedFlag)
         let seedLargeBacklog = arguments.contains(Self.largeBacklogSeedFlag)
@@ -54,18 +58,26 @@ enum OnThisPhoneUITestSeeder {
         let seedMixedBacklog = !mixedBacklogSources.isEmpty
         let resetOnThisPhone = arguments.contains(Self.resetOnThisPhoneFlag)
         let seedJournalLoss = arguments.contains(Self.journalLossSeedFlag)
-        guard resetOnThisPhone || seedDefault || seedWaitingImport || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
+        guard resetOnThisPhone || seedDefault || seedWaitingImport || seedImportOX || seedImportOXReviewOnly
+            || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
             || seedMixedBacklog || seedJournalLoss else { return }
 
         do {
             let roots = try Self.roots(fileManager: fileManager)
             try Self.reset(roots: roots, fileManager: fileManager)
-            guard seedDefault || seedWaitingImport || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
+            guard seedDefault || seedWaitingImport || seedImportOX || seedImportOXReviewOnly
+                || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
                 || seedMixedBacklog else {
                 onThisPhoneUITestSeedLog.info("on-this-phone ui-test reset complete")
                 return
             }
-            if seedWaitingImport {
+            if seedImportOX || seedImportOXReviewOnly {
+                try Self.seedImportOX(
+                    roots: roots,
+                    reviewOnly: seedImportOXReviewOnly,
+                    fileManager: fileManager
+                )
+            } else if seedWaitingImport {
                 let store = ShareImportStore(cacheRootURL: roots.importQueue, fileManager: fileManager)
                 let handle = try store.beginEnqueue()
                 let payload = Data("waiting import".utf8)
@@ -686,6 +698,229 @@ extension OnThisPhoneUITestSeeder {
         formatter.timeZone = .current
         formatter.dateFormat = "yyyyMMdd"
         return formatter.string(from: date)
+    }
+
+    static func seedImportOX(
+        roots: Roots,
+        reviewOnly: Bool,
+        fileManager: FileManager
+    ) throws {
+        let now = Date()
+        let spool = TransferSpool(rootURL: roots.transfer)
+        _ = try spool.initialize(now: now)
+        let instanceID = "ui-test-device"
+
+        func enqueueShareAttention(
+            id: UUID,
+            filename: String,
+            contentType: String,
+            createdAt: Date,
+            saveState: TransferSaveThenStartState,
+            reason: String,
+            detail: String,
+            journalReasonCode: String?,
+            reviewState: TransferImportReviewState?,
+            previewKind: String?,
+            importID: String?,
+            retryable: Bool?
+        ) throws {
+            let fields = ShareImportTransferMetadata.Fields(
+                basis: "file",
+                contentType: contentType,
+                targetJournal: "",
+                filename: filename,
+                originApp: nil,
+                itemTime: ShareImportStore.iso8601String(for: createdAt),
+                bytes: 2048,
+                requestSource: "file"
+            )
+            let manifest = TransferManifest(
+                itemID: id,
+                source: ObserverAudioTransferSource.share,
+                createdAt: createdAt,
+                priority: TransferPriorityInputs(basePriority: .normal, sourceKey: ObserverAudioTransferSource.share),
+                payloadParts: [
+                    TransferPayloadPartDescriptor(
+                        partID: "file",
+                        kind: .file,
+                        relativePath: "raw.bin",
+                        filename: filename,
+                        contentType: contentType,
+                        byteCount: 2048
+                    ),
+                ],
+                endpoint: TransferEndpointDescriptor(
+                    destinationKind: .saveThenStart,
+                    path: ImporterServerURL.savePath,
+                    startPath: ImporterServerURL.startPath
+                ),
+                meta: ShareImportTransferMetadata.meta(fields: fields),
+                saveThenStart: saveState
+            )
+            let staged = try spool.stage(manifest: manifest, payloads: ["file": Data(repeating: 0x42, count: 64)])
+            let committed = try spool.commitStagedItem(itemID: staged.item.manifest.itemID, now: createdAt)
+            _ = try spool.moveQueuedItemToAttention(
+                committed,
+                reason: reason,
+                detail: detail,
+                journalReasonCode: journalReasonCode,
+                importReviewState: reviewState,
+                importPreviewKind: previewKind,
+                importID: importID,
+                savedInstanceID: instanceID,
+                retryable: retryable,
+                now: createdAt
+            )
+        }
+
+        // 1. Ready to review (Apple Health 1-hour expiry note)
+        try enqueueShareAttention(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000090001")!,
+            filename: "export.zip",
+            contentType: "application/zip",
+            createdAt: now.addingTimeInterval(-120),
+            saveState: TransferSaveThenStartState(
+                phase: .startPending,
+                savedPath: "/imports/20261122_140500/export.zip",
+                savedTimestamp: "20261122_140500",
+                savedInstanceID: instanceID
+            ),
+            reason: TransferAttentionReason.importReviewRequiredCode,
+            detail: AppStrings.ios_app_importreviewdetailexpiry(),
+            journalReasonCode: TransferReasonCodes.importPreviewRequired,
+            reviewState: .readyToReview,
+            previewKind: "body_confirmation_required",
+            importID: "20261122_140500",
+            retryable: false
+        )
+
+        if !reviewOnly {
+            // 2. Expired waiting copy
+            try enqueueShareAttention(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000090002")!,
+                filename: "evernote-notes.enex",
+                contentType: "application/octet-stream",
+                createdAt: now.addingTimeInterval(-4200),
+                saveState: TransferSaveThenStartState(
+                    phase: .startPending,
+                    savedPath: "/imports/20261122_125500/evernote-notes.enex",
+                    savedTimestamp: "20261122_125500",
+                    savedInstanceID: instanceID
+                ),
+                reason: TransferAttentionReason.importReviewRequiredCode,
+                detail: AppStrings.ios_app_importreviewexpired(),
+                journalReasonCode: TransferReasonCodes.importPreviewRequired,
+                reviewState: .reviewExpired,
+                previewKind: "confirmation_required",
+                importID: "20261122_125500",
+                retryable: true
+            )
+
+            // 3. Non-retryable needs attention (plan_failed — remove only, no try now)
+            try enqueueShareAttention(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000090003")!,
+                filename: "corrupt-archive.zip",
+                contentType: "application/zip",
+                createdAt: now.addingTimeInterval(-300),
+                saveState: TransferSaveThenStartState(
+                    phase: .startPending,
+                    savedPath: "/imports/20261122_140000/corrupt-archive.zip",
+                    savedTimestamp: "20261122_140000",
+                    savedInstanceID: instanceID
+                ),
+                reason: TransferAttentionReason.httpClientErrorCode,
+                detail: "this archive couldn't be read.",
+                journalReasonCode: TransferReasonCodes.importPreviewRequired,
+                reviewState: nil,
+                previewKind: "plan_failed",
+                importID: nil,
+                retryable: false
+            )
+
+            // 4. Retryable needs attention (409 already_running — does NOT auto-retry, DOES show try now + remove)
+            try enqueueShareAttention(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000090004")!,
+                filename: "meeting-notes.pdf",
+                contentType: "application/pdf",
+                createdAt: now.addingTimeInterval(-600),
+                saveState: TransferSaveThenStartState(
+                    phase: .startPending,
+                    savedPath: "/imports/20261122_135500/meeting-notes.pdf",
+                    savedTimestamp: "20261122_135500",
+                    savedInstanceID: instanceID
+                ),
+                reason: TransferAttentionReason.httpClientErrorCode,
+                detail: "another import is already running in your journal.",
+                journalReasonCode: TransferReasonCodes.importPreviewRequired,
+                reviewState: nil,
+                previewKind: "already_running",
+                importID: nil,
+                retryable: true
+            )
+
+            // 5. Waiting share item in `on this device`
+            let waitingID = UUID(uuidString: "00000000-0000-0000-0000-000000090005")!
+            let waitingCreatedAt = now.addingTimeInterval(-60)
+            let waitingFields = ShareImportTransferMetadata.Fields(
+                basis: "file",
+                contentType: "text/markdown",
+                targetJournal: "",
+                filename: "field-notes.md",
+                originApp: nil,
+                itemTime: ShareImportStore.iso8601String(for: waitingCreatedAt),
+                bytes: 512,
+                requestSource: "file"
+            )
+            let waitingManifest = TransferManifest(
+                itemID: waitingID,
+                source: ObserverAudioTransferSource.share,
+                createdAt: waitingCreatedAt,
+                priority: TransferPriorityInputs(basePriority: .normal, sourceKey: ObserverAudioTransferSource.share),
+                payloadParts: [
+                    TransferPayloadPartDescriptor(
+                        partID: "file",
+                        kind: .file,
+                        relativePath: "raw.bin",
+                        filename: "field-notes.md",
+                        contentType: "text/markdown",
+                        byteCount: 512
+                    ),
+                ],
+                endpoint: TransferEndpointDescriptor(
+                    destinationKind: .saveThenStart,
+                    path: ImporterServerURL.savePath,
+                    startPath: ImporterServerURL.startPath
+                ),
+                meta: ShareImportTransferMetadata.meta(fields: waitingFields),
+                saveThenStart: TransferSaveThenStartState(phase: .savePending)
+            )
+            let waitingStaged = try spool.stage(manifest: waitingManifest, payloads: ["file": Data("# notes\n".utf8)])
+            _ = try spool.commitStagedItem(itemID: waitingStaged.item.manifest.itemID, now: waitingCreatedAt)
+        }
+
+        // 5. Persisted 24-hour recent receipts for the paired UI-test journal
+        let store = ShareImportStore(cacheRootURL: roots.importQueue, fileManager: fileManager, now: { now })
+        try store.recordRecentReceipt(
+            itemID: "00000000-0000-0000-0000-000000090101",
+            filename: "chatgpt-export.zip",
+            importID: "20261122_140100",
+            instanceID: instanceID,
+            deliveredAt: now.addingTimeInterval(-240)
+        )
+        try store.recordRecentReceipt(
+            itemID: "00000000-0000-0000-0000-000000090102",
+            filename: "tax-receipt.pdf",
+            importID: "20261122_120000",
+            instanceID: instanceID,
+            deliveredAt: now.addingTimeInterval(-7200)
+        )
+        try store.recordRecentReceipt(
+            itemID: "00000000-0000-0000-0000-000000090103",
+            filename: "voice-memo.m4a",
+            importID: nil,
+            instanceID: instanceID,
+            deliveredAt: now.addingTimeInterval(-18_000)
+        )
     }
 }
 #endif

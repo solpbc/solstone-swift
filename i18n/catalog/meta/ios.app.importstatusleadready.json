@@ -1,0 +1,27 @@
+{
+  "description": "Status pane headline when waiting is zero and imports await review.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 48,
+  "source_revision": "e7819dc7641a73c50fe1cc92eee3b2baeee3d8bafc7dc70ae0298ab30e6d208a",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

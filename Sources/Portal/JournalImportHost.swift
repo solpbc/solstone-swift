@@ -32,22 +32,51 @@ nonisolated struct JournalImportHostContract: Decodable, Equatable, Sendable {
 
 /// Where a handed-off item stands, as the page hears it.
 nonisolated enum JournalImportItemState: Equatable, Sendable {
-    case waiting
-    case uploading
-    case attention(reason: String?, importID: String?)
+    case waiting(deviceNoun: String? = nil, sizeBytes: Int64? = nil)
+    case uploading(deviceNoun: String? = nil, sizeBytes: Int64? = nil)
+    case attention(
+        reason: String?,
+        importID: String?,
+        reviewRequired: Bool = false,
+        reviewExpired: Bool = false,
+        reasonCode: String? = nil,
+        kind: String? = nil,
+        retryable: Bool? = nil
+    )
     case delivered(importID: String?)
     case gone
 
+    static var waiting: JournalImportItemState {
+        .waiting(deviceNoun: nil, sizeBytes: nil)
+    }
+
+    static var uploading: JournalImportItemState {
+        .uploading(deviceNoun: nil, sizeBytes: nil)
+    }
+
     var reply: [String: Any] {
         switch self {
-        case .waiting:
-            return ["state": "waiting"]
-        case .uploading:
-            return ["state": "uploading"]
-        case .attention(let reason, let importID):
-            var object: [String: Any] = ["state": "attention"]
+        case .waiting(let deviceNoun, let sizeBytes):
+            var object: [String: Any] = ["state": "waiting"]
+            if let deviceNoun, !deviceNoun.isEmpty { object["device_noun"] = deviceNoun }
+            if let sizeBytes { object["size_bytes"] = sizeBytes }
+            return object
+        case .uploading(let deviceNoun, let sizeBytes):
+            var object: [String: Any] = ["state": "uploading"]
+            if let deviceNoun, !deviceNoun.isEmpty { object["device_noun"] = deviceNoun }
+            if let sizeBytes { object["size_bytes"] = sizeBytes }
+            return object
+        case .attention(let reason, let importID, let reviewRequired, let reviewExpired, let reasonCode, let kind, let retryable):
+            var object: [String: Any] = [
+                "state": "attention",
+                "review_required": reviewRequired,
+            ]
+            if reviewExpired { object["review_expired"] = true }
             if let reason { object["reason"] = reason }
             if let importID { object["import_id"] = importID }
+            if let reasonCode { object["reason_code"] = reasonCode }
+            if let kind { object["kind"] = kind }
+            if let retryable { object["retryable"] = retryable }
             return object
         case .delivered(let importID):
             var object: [String: Any] = ["state": "delivered"]
@@ -88,10 +117,20 @@ protocol JournalImportIntake: AnyObject {
 final class JournalImportQueueIntake: JournalImportIntake {
     private let holder: ShareTransferHolder
     private let drainGate: ForegroundDrainGate
+    private let deviceNounProvider: @MainActor () -> String
 
-    init(holder: ShareTransferHolder, drainGate: ForegroundDrainGate) {
+    init(
+        holder: ShareTransferHolder,
+        drainGate: ForegroundDrainGate,
+        deviceNounProvider: @escaping @MainActor () -> String = { JournalImportQueueIntake.currentDeviceNoun() }
+    ) {
         self.holder = holder
         self.drainGate = drainGate
+        self.deviceNounProvider = deviceNounProvider
+    }
+
+    static func currentDeviceNoun(idiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom) -> String {
+        idiom == .pad ? "ipad" : "iphone"
     }
 
     func take(_ providers: [any ShareItemProvider], names: [String], handoff: ShareImportHandoff) async -> JournalImportIntakeResult {
@@ -123,29 +162,73 @@ final class JournalImportQueueIntake: JournalImportIntake {
     func state(of item: UUID) async -> JournalImportItemState {
         let store = self.holder.store
         let itemID = ShareImportStore.itemIDString(item)
+        let deviceNoun = self.deviceNounProvider()
         if let entry = try? store.loadLedger()[itemID] {
-            return .delivered(importID: entry.serverTimestamp)
+            return .delivered(importID: ShareImportID.validated(entry.serverTimestamp))
         }
         if let snapshot = await self.holder.transferEngine.itemSnapshot(itemID: item) {
-            let importID = snapshot.manifest.saveThenStart?.savedTimestamp
+            let attention = snapshot.manifest.attention
+            let importID = ShareImportID.validated(attention?.importID ?? snapshot.manifest.saveThenStart?.savedTimestamp)
+            let fields = try? ShareImportTransferMetadata.fields(from: snapshot.manifest)
+            let sizeBytes = fields?.bytes ?? snapshot.manifest.payloadParts.first?.byteCount.map(Int64.init)
             switch snapshot.state {
             case .dispatching:
-                return .uploading
+                return .uploading(deviceNoun: deviceNoun, sizeBytes: sizeBytes)
             case .attention:
-                return .attention(reason: snapshot.manifest.attention?.ownerFailureReason, importID: importID)
+                if let attention, attention.isReadyToReview {
+                    return .attention(
+                        reason: AppStrings.ios_app_importreviewdetail(),
+                        importID: importID,
+                        reviewRequired: true,
+                        reviewExpired: false,
+                        reasonCode: TransferReasonCodes.importPreviewRequired,
+                        kind: attention.importPreviewKind,
+                        retryable: false
+                    )
+                }
+                if let attention, attention.isReviewExpired {
+                    return .attention(
+                        reason: AppStrings.ios_app_importreviewexpired(),
+                        importID: importID,
+                        reviewRequired: false,
+                        reviewExpired: true,
+                        reasonCode: attention.journalReasonCode,
+                        kind: attention.importPreviewKind,
+                        retryable: true
+                    )
+                }
+                return .attention(
+                    reason: attention?.ownerFailureReason,
+                    importID: importID,
+                    reviewRequired: false,
+                    reviewExpired: false,
+                    reasonCode: attention?.journalReasonCode,
+                    kind: attention?.importPreviewKind,
+                    retryable: attention?.isRetryableAttention ?? true
+                )
             case .delivered:
                 return .delivered(importID: importID)
             case .dropped:
                 return .gone
             case .queued, .held, .paused, .salvaged, .staged:
-                return .waiting
+                return .waiting(deviceNoun: deviceNoun, sizeBytes: sizeBytes)
             }
         }
         if store.fileManager.fileExists(atPath: store.pendingItemDirectoryURL(itemID: itemID).path) {
-            return .waiting
+            let sizeBytes = (store.readNoteObject(itemID: itemID, status: .pending)?["bytes"] as? NSNumber)?.int64Value
+            return .waiting(deviceNoun: deviceNoun, sizeBytes: sizeBytes)
         }
         if store.fileManager.fileExists(atPath: store.failedItemDirectoryURL(itemID: itemID).path) {
-            return .attention(reason: nil, importID: nil)
+            let failure = store.loadFailureRecordIfPresent(itemID: itemID, status: .failed)
+            return .attention(
+                reason: failure?.reason,
+                importID: nil,
+                reviewRequired: false,
+                reviewExpired: false,
+                reasonCode: nil,
+                kind: nil,
+                retryable: failure?.classification != .terminal
+            )
         }
         return .gone
     }
@@ -781,10 +864,20 @@ final class JournalImportHost: NSObject, WKScriptMessageHandlerWithReply, UIDocu
                     ...status, type:contract.status, item, name:record.name, id:record.id,
                   }}));
                 }
-                if (['attention', 'delivered', 'gone'].includes(status.state)) delete items[item];
+                const holdForReview = status.state === 'attention' && status.review_required === true;
+                record.reviewWaiting = holdForReview;
+                if (['delivered', 'gone'].includes(status.state) || (status.state === 'attention' && !holdForReview)) {
+                  delete items[item];
+                }
               } catch (_) { /* Read again while the document is open. */ }
             }
-            timer = Object.keys(items).length ? setTimeout(update, 400) : undefined;
+            const remaining = Object.values(items);
+            if (remaining.length) {
+              const onlyReview = remaining.every(r => r.reviewWaiting);
+              timer = setTimeout(update, onlyReview ? 2000 : 400);
+            } else {
+              timer = undefined;
+            }
           }
           Object.defineProperty(window, contract.capability, {value:Object.freeze({
             version:contract.version, types,

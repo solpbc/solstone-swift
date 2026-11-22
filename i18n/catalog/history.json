@@ -1410,6 +1410,30 @@
       "selector": null
     },
     {
+      "id": "ios.app.importallhistory",
+      "resource": "m696f732e6170702e696d706f7274616c6c686973746f7279",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importexpired",
+      "resource": "m696f732e6170702e696d706f727465787069726564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.app.importfileshint",
       "resource": "m696f732e6170702e696d706f727466696c657368696e74",
       "namespace": "ios.app",
@@ -1434,6 +1458,474 @@
       "selector": null
     },
     {
+      "id": "ios.app.importholdmark",
+      "resource": "m696f732e6170702e696d706f7274686f6c646d61726b",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importholdoffline",
+      "resource": "m696f732e6170702e696d706f7274686f6c646f66666c696e65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importholdrefused",
+      "resource": "m696f732e6170702e696d706f7274686f6c6472656675736564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importholdunpaired",
+      "resource": "m696f732e6170702e696d706f7274686f6c64756e706169726564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importholdupdate",
+      "resource": "m696f732e6170702e696d706f7274686f6c64757064617465",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importmoreimportsdetail",
+      "resource": "m696f732e6170702e696d706f72746d6f7265696d706f72747364657461696c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importneedsattentionfallback",
+      "resource": "m696f732e6170702e696d706f72746e65656473617474656e74696f6e66616c6c6261636b",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importrecentdetail",
+      "resource": "m696f732e6170702e696d706f7274726563656e7464657461696c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "relative",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importrecentempty",
+      "resource": "m696f732e6170702e696d706f7274726563656e74656d707479",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importrecentrowlabel",
+      "resource": "m696f732e6170702e696d706f7274726563656e74726f776c6162656c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "relative",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importrecentrowlabelopen",
+      "resource": "m696f732e6170702e696d706f7274726563656e74726f776c6162656c6f70656e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "relative",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importremoveaction",
+      "resource": "m696f732e6170702e696d706f727472656d6f7665616374696f6e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importremoveactionlabel",
+      "resource": "m696f732e6170702e696d706f727472656d6f7665616374696f6e6c6162656c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importremovebodylocal",
+      "resource": "m696f732e6170702e696d706f727472656d6f7665626f64796c6f63616c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importremovebodymissing",
+      "resource": "m696f732e6170702e696d706f727472656d6f7665626f64796d697373696e67",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importremovebodyreview",
+      "resource": "m696f732e6170702e696d706f727472656d6f7665626f6479726576696577",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importremovecancel",
+      "resource": "m696f732e6170702e696d706f727472656d6f766563616e63656c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importremovetitle",
+      "resource": "m696f732e6170702e696d706f727472656d6f76657469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importreviewaction",
+      "resource": "m696f732e6170702e696d706f7274726576696577616374696f6e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importreviewactionlabel",
+      "resource": "m696f732e6170702e696d706f7274726576696577616374696f6e6c6162656c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importreviewdetail",
+      "resource": "m696f732e6170702e696d706f727472657669657764657461696c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importreviewdetailexpiry",
+      "resource": "m696f732e6170702e696d706f727472657669657764657461696c657870697279",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importreviewexpired",
+      "resource": "m696f732e6170702e696d706f727472657669657765787069726564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importsendagainaction",
+      "resource": "m696f732e6170702e696d706f727473656e64616761696e616374696f6e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importsendagainactionlabel",
+      "resource": "m696f732e6170702e696d706f727473656e64616761696e616374696f6e6c6162656c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importsendingdetail",
+      "resource": "m696f732e6170702e696d706f727473656e64696e6764657461696c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importstatusleadattention",
+      "resource": "m696f732e6170702e696d706f72747374617475736c656164617474656e74696f6e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importstatusleadattentionsubline",
+      "resource": "m696f732e6170702e696d706f72747374617475736c656164617474656e74696f6e7375626c696e65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importstatusleadready",
+      "resource": "m696f732e6170702e696d706f72747374617475736c6561647265616479",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.app.importstatusleadreadysubline",
+      "resource": "m696f732e6170702e696d706f72747374617475736c65616472656164797375626c696e65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importstatuspillready",
+      "resource": "m696f732e6170702e696d706f727473746174757370696c6c7265616479",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
       "id": "ios.app.importsubline",
       "resource": "m696f732e6170702e696d706f72747375626c696e65",
       "namespace": "ios.app",
@@ -1446,8 +1938,215 @@
       "selector": null
     },
     {
+      "id": "ios.app.importtilefilescount",
+      "resource": "m696f732e6170702e696d706f727474696c6566696c6573636f756e74",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.app.importtileitemscount",
+      "resource": "m696f732e6170702e696d706f727474696c656974656d73636f756e74",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.app.importtilereadycount",
+      "resource": "m696f732e6170702e696d706f727474696c657265616479636f756e74",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.app.importtilereadytoreview",
+      "resource": "m696f732e6170702e696d706f727474696c657265616479746f726576696577",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importtilespoken",
+      "resource": "m696f732e6170702e696d706f727474696c6573706f6b656e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "status",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "detail",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importtilewaiting",
+      "resource": "m696f732e6170702e696d706f727474696c6577616974696e67",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importtilewaitingcount",
+      "resource": "m696f732e6170702e696d706f727474696c6577616974696e67636f756e74",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.app.importtilewaitingforjournal",
+      "resource": "m696f732e6170702e696d706f727474696c6577616974696e67666f726a6f75726e616c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.app.importtitle",
       "resource": "m696f732e6170702e696d706f72747469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importtrynowactionlabel",
+      "resource": "m696f732e6170702e696d706f72747472796e6f77616374696f6e6c6162656c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importwaitingdetail",
+      "resource": "m696f732e6170702e696d706f727477616974696e6764657461696c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importwaitingforreviewheading",
+      "resource": "m696f732e6170702e696d706f727477616974696e67666f7272657669657768656164696e67",
       "namespace": "ios.app",
       "owner": "ios",
       "tombstone": false,

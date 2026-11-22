@@ -1,0 +1,16 @@
+{
+  "description": "Detail text for a waiting import with a one-hour staging window (such as Apple Health).",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 140,
+  "source_revision": "bbff647e10bbc0973f26c10260caa090cffc3942ff041087d38a2142923712ec",
+  "risk": "routine",
+  "auto_merge": true
+}

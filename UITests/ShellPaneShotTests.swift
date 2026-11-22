@@ -335,13 +335,15 @@ private extension ShellPaneShotTests {
         )
         self.attach(app, "25-import-\(suffix)")
 
-        let onThisDevice = app.buttons["import.onThisDeviceEntry"]
-        XCTAssertTrue(onThisDevice.waitForExistence(timeout: 10), "on this device door missing")
-        onThisDevice.tap()
-        XCTAssertTrue(
-            app.descendants(matching: .any)["onThisPhone.surface"].waitForExistence(timeout: 10),
-            "on this device surface missing"
-        )
+        if !UITestsIsPadShapedWindow(app) {
+            self.popNavigation(in: app)
+            XCTAssertTrue(
+                app.descendants(matching: .any)["shell.pane.import"].waitForNonExistence(timeout: 10),
+                "import still present after pop to deck"
+            )
+        }
+
+        self.openStandaloneOnThisPhoneBrowse(in: app)
         let row = app.descendants(matching: .any).matching(NSPredicate(
             format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@",
             "onThisPhone.row.transfer:mobile-segment:",
@@ -363,14 +365,21 @@ private extension ShellPaneShotTests {
         )
         self.popNavigation(in: app)
         XCTAssertTrue(
-            app.descendants(matching: .any)["shell.pane.import"].waitForExistence(timeout: 10),
-            "import missing after on-this-device pop"
+            app.descendants(matching: .any)["shell.pane.status"].waitForExistence(timeout: 10),
+            "status pane missing after on-this-device pop"
         )
-        self.popNavigation(in: app)
-        XCTAssertTrue(
-            app.descendants(matching: .any)["shell.pane.import"].waitForNonExistence(timeout: 10),
-            "import still present after pop to deck"
-        )
+        if !UITestsIsPadShapedWindow(app) {
+            let doneButton = app.navigationBars.buttons["done"]
+            if doneButton.waitForExistence(timeout: 3) {
+                doneButton.tap()
+            } else {
+                self.dismissSheet(in: app, untilMissing: "shell.pane.status")
+            }
+            XCTAssertTrue(
+                app.descendants(matching: .any)["shell.pane.status"].waitForNonExistence(timeout: 10),
+                "status sheet still present after dismiss"
+            )
+        }
 
         self.tapDayHomeSourcesEntry(in: app)
         XCTAssertTrue(

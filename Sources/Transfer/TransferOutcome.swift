@@ -5,6 +5,7 @@ import Foundation
 
 nonisolated enum TransferReasonCodes {
     static let invalidOperationForState = "invalid_operation_for_state"
+    static let importPreviewRequired = "import_preview_required"
 }
 
 nonisolated enum TransferEndpointPhase: Equatable, Sendable {
@@ -49,6 +50,10 @@ nonisolated enum TransferSuccessKind: Equatable, Sendable {
 nonisolated enum TransferAttentionReason: Equatable, Sendable {
     /// A journal refusal. `journalReasonCode` is the refusal body's `reason_code`, when it has one.
     case httpClientError(statusCode: Int, detail: String?, journalReasonCode: String? = nil)
+    /// The journal saved the import and requires owner preview & confirmation on `/app/import/<id>`.
+    case importReviewRequired(kind: String, importID: String, detail: String)
+    /// The journal answered `409 import_preview_required` with a non-confirmation kind (or invalid `import_id`).
+    case importPreviewRefused(statusCode: Int, kind: String?, importID: String?, detail: String?, retryable: Bool)
     case decodeFailed(String)
     case missingPayload(String)
     case malformedManifest(String)
@@ -119,11 +124,59 @@ nonisolated extension TransferTransientReason {
 nonisolated extension TransferAttentionReason {
     /// The stored reason token for a journal refusal (a 4xx).
     static let httpClientErrorCode = "http_client_error"
+    /// The stored reason token for an import saved in the journal awaiting owner review & confirmation.
+    static let importReviewRequiredCode = "import_review_required"
 
     /// The journal's own reason code, for a refusal that carried one.
     var journalReasonCode: String? {
-        guard case .httpClientError(_, _, let code) = self else { return nil }
-        return code
+        switch self {
+        case .httpClientError(_, _, let code):
+            code
+        case .importReviewRequired, .importPreviewRefused:
+            TransferReasonCodes.importPreviewRequired
+        case .decodeFailed, .missingPayload, .malformedManifest:
+            nil
+        }
+    }
+
+    var importReviewState: TransferImportReviewState? {
+        if case .importReviewRequired = self {
+            return .readyToReview
+        }
+        return nil
+    }
+
+    var importPreviewKind: String? {
+        switch self {
+        case .importReviewRequired(let kind, _, _):
+            kind
+        case .importPreviewRefused(_, let kind, _, _, _):
+            kind
+        default:
+            nil
+        }
+    }
+
+    var importID: String? {
+        switch self {
+        case .importReviewRequired(_, let importID, _):
+            importID
+        case .importPreviewRefused(_, _, let importID, _, _):
+            importID
+        default:
+            nil
+        }
+    }
+
+    var retryable: Bool? {
+        switch self {
+        case .importReviewRequired:
+            false
+        case .importPreviewRefused(_, _, _, _, let retryable):
+            retryable
+        default:
+            nil
+        }
     }
 
     /// Detail retained for a terminal attention state.
@@ -134,6 +187,10 @@ nonisolated extension TransferAttentionReason {
     var ownerSafeDetail: String {
         switch self {
         case .httpClientError(let statusCode, let detail, _):
+            Self.boundedRuntimeDetail(detail, fallback: "http \(statusCode)")
+        case .importReviewRequired(_, _, let detail):
+            Self.boundedRuntimeDetail(detail, fallback: AppStrings.ios_app_importreviewdetail())
+        case .importPreviewRefused(let statusCode, _, _, let detail, _):
             Self.boundedRuntimeDetail(detail, fallback: "http \(statusCode)")
         case .decodeFailed(let detail):
             detail
@@ -186,6 +243,8 @@ nonisolated enum TransferHTTPClassifier {
         let error: String?
         let reasonCode: String?
         let detail: String?
+        let kind: String?
+        let importID: String?
 
         /// `nil` when the body is not JSON. A JSON array is JSON, and has no fields to read.
         init?(body: Data) {
@@ -194,6 +253,8 @@ nonisolated enum TransferHTTPClassifier {
             self.error = object?["error"] as? String
             self.reasonCode = object?["reason_code"] as? String
             self.detail = object?["detail"] as? String
+            self.kind = object?["kind"] as? String
+            self.importID = object?["import_id"] as? String
         }
     }
 
@@ -269,6 +330,36 @@ nonisolated enum TransferHTTPClassifier {
            refusal?.detail?.hasPrefix(Self.contentAlreadyImportedDetail) == true
         {
             return .terminalSuccess(.alreadyStartedOrComplete(serverPath: nil, serverTimestamp: nil))
+        }
+
+        if statusCode == 409,
+           case .start(let saveResult) = endpointPhase,
+           refusal?.reasonCode == TransferReasonCodes.importPreviewRequired
+        {
+            let kind = refusal?.kind.flatMap { $0.isEmpty ? nil : $0 }
+            let resolvedImportID = ShareImportID.validated(refusal?.importID)
+                ?? ShareImportID.validated(saveResult?.savedTimestamp)
+            let sentence = refusal?.error.flatMap { $0.isEmpty ? nil : $0 }
+            if ShareImportID.isConfirmationRequiredKind(kind), let kind, let importID = resolvedImportID {
+                let detail = kind == "body_confirmation_required"
+                    ? AppStrings.ios_app_importreviewdetailexpiry()
+                    : AppStrings.ios_app_importreviewdetail()
+                return .terminalAttention(.importReviewRequired(
+                    kind: kind,
+                    importID: importID,
+                    detail: detail
+                ))
+            }
+            let retryable = kind == "source_changed" || kind == "already_running"
+            let reasonCodeDetail = "reason_code=\(TransferReasonCodes.importPreviewRequired)"
+            let detail = sentence ?? reasonCodeDetail
+            return .terminalAttention(.importPreviewRefused(
+                statusCode: statusCode,
+                kind: kind,
+                importID: resolvedImportID,
+                detail: detail,
+                retryable: retryable
+            ))
         }
 
         if 400..<500 ~= statusCode {

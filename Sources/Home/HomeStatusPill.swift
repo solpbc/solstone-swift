@@ -12,6 +12,10 @@ import SwiftUI
 nonisolated enum HomeStatusPillState: Equatable, Sendable {
     /// A journal, reachable, nothing waiting.
     case caughtUp
+    /// A journal, reachable, nothing waiting, and 1+ saved imports await owner review.
+    case importsReadyToReview(Int)
+    /// A journal, reachable, nothing waiting, and 1+ imports need attention (avoids green `connected`).
+    case importsNeedAttention
     /// A journal, reachable, nothing waiting, but something shared will not reach it.
     case journalGap
     /// Material is moving or queued to move.
@@ -33,7 +37,9 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
         hasBacklog: Bool,
         isStalled: Bool,
         awaitingMarkConfirmation: Bool,
-        hasJournalGap: Bool = false
+        hasJournalGap: Bool = false,
+        importReadyToReviewCount: Int = 0,
+        importNeedsAttentionCount: Int = 0
     ) -> HomeStatusPillState {
         guard isPaired else { return .notPaired }
         if isStalled { return .stalled }
@@ -47,7 +53,10 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
                 return .awaitingMarkConfirmation
             }
             if hasBacklog { return .syncing }
-            return hasJournalGap ? .journalGap : .caughtUp
+            if hasJournalGap { return .journalGap }
+            if importNeedsAttentionCount > 0 { return .importsNeedAttention }
+            if importReadyToReviewCount > 0 { return .importsReadyToReview(importReadyToReviewCount) }
+            return .caughtUp
         }
     }
 
@@ -71,6 +80,8 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
     func label(hasBacklog: Bool) -> String {
         switch self {
         case .caughtUp: SourceVocabulary.connectedLabel
+        case .importsReadyToReview(let count): AppStrings.ios_app_importstatuspillready(count)
+        case .importsNeedAttention: SourceVocabulary.connectedLabel
         case .journalGap: SourceVocabulary.journalGapHeadline
         case .syncing: SourceVocabulary.syncingLabel
         case .connecting: SourceVocabulary.statusConnectingLabel
@@ -92,6 +103,8 @@ nonisolated enum HomeStatusPillState: Equatable, Sendable {
     var uiTestStateName: String {
         switch self {
         case .caughtUp: "caughtUp"
+        case .importsReadyToReview: "importsReadyToReview"
+        case .importsNeedAttention: "importsNeedAttention"
         case .journalGap: "journalGap"
         case .syncing: "syncing"
         case .connecting: "connecting"
@@ -114,18 +127,42 @@ struct HomeStatusDot: View {
     @ScaledMetric(relativeTo: .subheadline) private var size: CGFloat = 8
 
     var body: some View {
-        Circle()
-            .fill(self.tint)
+        self.dotShape
             .frame(width: self.size, height: self.size)
             .opacity(self.shouldPulse && self.pulsing ? 0.35 : 1)
             .animation(
                 self.shouldPulse
                     ? .easeInOut(duration: 1.1).repeatForever(autoreverses: true)
-                    : .default,
+                    : nil,
                 value: self.pulsing
             )
             .onAppear { if self.shouldPulse { self.pulsing = true } }
+            .onChange(of: self.shouldPulse) { _, should in
+                self.pulsing = should
+            }
             .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var dotShape: some View {
+        switch self.state {
+        case .importsReadyToReview:
+            ZStack {
+                Circle().strokeBorder(Color.solOrange, lineWidth: 1.5)
+                Circle()
+                    .fill(Color.solOrange)
+                    .frame(width: self.size * 0.42, height: self.size * 0.42)
+            }
+        case .importsNeedAttention:
+            ZStack {
+                Circle().strokeBorder(Color.secondary, lineWidth: 1.5)
+                Capsule()
+                    .fill(Color.secondary)
+                    .frame(width: self.size * 0.65, height: 1.5)
+            }
+        default:
+            Circle().fill(self.tint)
+        }
     }
 
     private var shouldPulse: Bool {
@@ -135,8 +172,8 @@ struct HomeStatusDot: View {
     private var tint: Color {
         switch self.state {
         case .caughtUp: .solSavedGreen
-        case .syncing: .solOrange
-        case .journalGap, .connecting, .offline, .notPaired, .stalled, .awaitingMarkConfirmation: .secondary
+        case .syncing, .importsReadyToReview: .solOrange
+        case .importsNeedAttention, .journalGap, .connecting, .offline, .notPaired, .stalled, .awaitingMarkConfirmation: .secondary
         }
     }
 }

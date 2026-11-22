@@ -1,0 +1,16 @@
+{
+  "description": "Queue hold message when awaiting journal mark confirmation.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 96,
+  "source_revision": "e49899e9879e9e241925ce79c59b08f15d07660534328453ddc5c7e88b0e56a6",
+  "risk": "routine",
+  "auto_merge": true
+}

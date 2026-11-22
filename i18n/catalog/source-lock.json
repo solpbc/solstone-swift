@@ -541,6 +541,20 @@
       "locales": []
     },
     {
+      "id": "ios.app.importallhistory",
+      "source": "c6a2f1c801f821a3f133465688943056da9de68e008adb87ec8afd8609a3b8ff",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importexpired",
+      "source": "66955023749c19d861e677c73ac155f49a57546420c7453839ca69f7dda345b6",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
       "id": "ios.app.importfileshint",
       "source": "c6f6028c53d65efd1f4bf63e92a502f5cd226f999b2e61885686dcba4a83abe5",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
@@ -555,6 +569,223 @@
       "locales": []
     },
     {
+      "id": "ios.app.importholdmark",
+      "source": "e49899e9879e9e241925ce79c59b08f15d07660534328453ddc5c7e88b0e56a6",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importholdoffline",
+      "source": "8d27a89b42c01f542f85abcdef4f83f160ad167c36e2617363af6c999ff30280",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importholdrefused",
+      "source": "cea99f832598070e0233a06b3da37ae43727c0405cab4dfe92aec26ebaa91fc9",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importholdunpaired",
+      "source": "eb5e57ca2fd02d16d96c53cacb1d2beba1bba7153f7778264a4433395a09064f",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importholdupdate",
+      "source": "4f6a53939aedfab18bb1a37f96b87c43d59fa5eb0df641519d41e3d2df555c71",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importmoreimportsdetail",
+      "source": "b2f76083a4313147697f91208578b967c7855fc235f6f3f3fdc2fd846c1ffd57",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importneedsattentionfallback",
+      "source": "10e4f4fd43c4e42b7b44f02e2be96178efbb7753fc367a7818a1d5726d7a9f69",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importrecentdetail",
+      "source": "7a8b88a1e8ada60dc2f5f68b5889ed722bdf46662a6d4ec128047e2863b3d9bc",
+      "contract": "6979d4d46857d915950df394a8566197077b1e1a3e797b2be0cb5523bc6d69a3",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importrecentempty",
+      "source": "05b6cfed46539237aef77b330e54cfb43485240497b5663d2abad4100582a607",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importrecentrowlabel",
+      "source": "61741b59672800d4d5bc652ad885fac7cfb828066a1ea0a482287cdb9e31caee",
+      "contract": "280ccf478734c1fff73a859c22526a7d5742bbf5d59793eb511068584c163548",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importrecentrowlabelopen",
+      "source": "e4277ee17270df29b6d7d5053bc2733bd955ce44884468232a49529dfb85a890",
+      "contract": "280ccf478734c1fff73a859c22526a7d5742bbf5d59793eb511068584c163548",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importremoveaction",
+      "source": "d257dacfdc4ab27815b38826a31678bbb77e1a516b0c365afa7277a9515652a1",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importremoveactionlabel",
+      "source": "13a02e2eb3fbcb1cc64f8cb1107a9c5b8e0e50171b6ef27574affbe9c73d4c07",
+      "contract": "85053d723b7e1f28ae28297c665d0d09f73ecf55449bd50a1109e25a8c40f725",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importremovebodylocal",
+      "source": "a0738d4b0613e43d450447fc30dad814e7ac92ae5fa53c7b3df2508a797efe1c",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importremovebodymissing",
+      "source": "66b139afe15ad2432ee3c51b6b82aa3ed184e31192f21ae1ea242da241fb3b1f",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importremovebodyreview",
+      "source": "08ce8b8d493997d6c962e942363bbd51aa56c48403981ef3c63c3a14204ecc1e",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importremovecancel",
+      "source": "2fb1b0b4511f744f1f8617c9484ba0385da245221e9a958f185c1f0a1c255879",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importremovetitle",
+      "source": "80462bad3cf9fec9e89a89f36ab4fa236e8ac14e6eb9c474f741f26e33161266",
+      "contract": "85053d723b7e1f28ae28297c665d0d09f73ecf55449bd50a1109e25a8c40f725",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importreviewaction",
+      "source": "c2bebf641190076c985e116ddc61bb39a58fc0b45d52c225afd1728a61634f73",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importreviewactionlabel",
+      "source": "3599f7010c4b07f95ead133dcf180da2d239a199c8d99a205b66d7be037308a8",
+      "contract": "85053d723b7e1f28ae28297c665d0d09f73ecf55449bd50a1109e25a8c40f725",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importreviewdetail",
+      "source": "8296da31d7ac410d832c807d57f0a434a400db586898e53e69c53ab27f35b90e",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importreviewdetailexpiry",
+      "source": "bbff647e10bbc0973f26c10260caa090cffc3942ff041087d38a2142923712ec",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importreviewexpired",
+      "source": "9da0a1ab2586616f753a76e83acc6b4802da444f54509b65ba146a52adc6941d",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importsendagainaction",
+      "source": "b9780ef2c9a44800b1ec3086de82a537484b2401fda08f97e1534164b1728942",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importsendagainactionlabel",
+      "source": "b45f29ad663c514f157606db365cce4b6fccd7b9fbc0ab9f77703db91519e855",
+      "contract": "85053d723b7e1f28ae28297c665d0d09f73ecf55449bd50a1109e25a8c40f725",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importsendingdetail",
+      "source": "34597557dc2c2c015053f1c47749a0545cec827bafa7065176c790f2a833ca34",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importstatusleadattention",
+      "source": "916fb76ec8ae9602c0a1a55e8ffd28fc4db1d0c72890a43c57ddcfbfb2bc0450",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importstatusleadattentionsubline",
+      "source": "9fb1b863852ee507f198d89887c2bc1b415f883d48463563bc8a01dc929ccef7",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importstatusleadready",
+      "source": "e7819dc7641a73c50fe1cc92eee3b2baeee3d8bafc7dc70ae0298ab30e6d208a",
+      "contract": "e22d6d7545584e9888c94fe309dd2b067b8abd37839d85dba255137f1d1e2c91",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importstatusleadreadysubline",
+      "source": "e4e08e1c000af2959f97ccdecc04c047df15eba54535e2e5db036641bb582026",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importstatuspillready",
+      "source": "8193d74b5b9160b4fb2646fddebd65d74225a96046c2dbe7934938d470292b2b",
+      "contract": "e22d6d7545584e9888c94fe309dd2b067b8abd37839d85dba255137f1d1e2c91",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
       "id": "ios.app.importsubline",
       "source": "fd236d4a86f99de0618d988963c248ea709bd3f8a034633fe75a6e561197764b",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
@@ -562,8 +793,85 @@
       "locales": []
     },
     {
+      "id": "ios.app.importtilefilescount",
+      "source": "57ce8f2fd33b2170f78a9ec94e6912384d43845c320a3da80a7378d38950f4eb",
+      "contract": "e22d6d7545584e9888c94fe309dd2b067b8abd37839d85dba255137f1d1e2c91",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importtileitemscount",
+      "source": "cab03722fa36a5da752e22b19597b13325108e5fecedd916d7c360fd163c5923",
+      "contract": "e22d6d7545584e9888c94fe309dd2b067b8abd37839d85dba255137f1d1e2c91",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importtilereadycount",
+      "source": "9619ae4c778a16bf594752fe8714da0df28e489b45d6b3ed18431b66dbc74471",
+      "contract": "e22d6d7545584e9888c94fe309dd2b067b8abd37839d85dba255137f1d1e2c91",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importtilereadytoreview",
+      "source": "0cb39d259ccc43fe91a45900235280447458a9d04d867c4cbac6a04fea1a44fd",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importtilespoken",
+      "source": "74e72d0ab40a679b6aa6fc5132313bb55e622fcedbdd50f936f9231d41c5f965",
+      "contract": "5022c60d57226b479a3426c4bf5c6cf0a9e26483434fe0bf26efbdda32df3328",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importtilewaiting",
+      "source": "adea58b92480187ce7b817fbf69623672e6b89b3ed6c5ee77bbf4dc4b0d68689",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importtilewaitingcount",
+      "source": "7947ca7c7e30549a4102b6c387dc776d7d189f16639aa4833746714ecb6912cf",
+      "contract": "e22d6d7545584e9888c94fe309dd2b067b8abd37839d85dba255137f1d1e2c91",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importtilewaitingforjournal",
+      "source": "aed7b9720bdbea424dadfcc1eded216c855d92d0700f24a19d1d2cbc53aceb35",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
       "id": "ios.app.importtitle",
       "source": "108227e44552117a92d828981cbd635ddd25dd90680552baf9b2855002ae70fa",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importtrynowactionlabel",
+      "source": "75e6601fac886055b372d7f54bc27927f4f756285019bfa5e1dd8cd1d99b2d32",
+      "contract": "85053d723b7e1f28ae28297c665d0d09f73ecf55449bd50a1109e25a8c40f725",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importwaitingdetail",
+      "source": "364835adb846e149608d4ca75b3e6f5f7f974e57b68f83f933140c8abc06667a",
+      "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
+      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
+      "locales": []
+    },
+    {
+      "id": "ios.app.importwaitingforreviewheading",
+      "source": "fefe8601870a9f024b1f7a0c41ed823a1d0bc2d35eb4568dd6d765911be017fd",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
       "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
       "locales": []
@@ -8158,7 +8466,7 @@
     },
     {
       "id": "ios.sourcevocabularyswift.addspdfsaudioandtext",
-      "source": "dfedf914004c24fee4e66d70365c0fc5870175e9919c00a3876f6a658e77b00c",
+      "source": "11f5fdb32b3a82ca7372579339d3277d152e07d4263a821fde854e85ab1186e7",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
       "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
       "locales": []

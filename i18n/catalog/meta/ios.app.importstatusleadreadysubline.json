@@ -1,0 +1,16 @@
+{
+  "description": "Status pane sub-line when imports await review.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 64,
+  "source_revision": "e4e08e1c000af2959f97ccdecc04c047df15eba54535e2e5db036641bb582026",
+  "risk": "routine",
+  "auto_merge": true
+}

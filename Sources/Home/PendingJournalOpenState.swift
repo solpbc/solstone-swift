@@ -14,9 +14,23 @@ final class PendingJournalOpenState {
 
     var request: Request?
     var showsInvalidLinkNotice = false
+    /// Monotonic token incremented on every explicit journal open so an already-mounted
+    /// `WKWebView` navigates in place even when reopening the same URL after in-page browsing.
+    private(set) var navigationToken = 0
+    /// Monotonic counter incremented when the phone journal sheet or iPad journal pane closes
+    /// so the underlying screen can restore VoiceOver focus via `@AccessibilityFocusState`.
+    private(set) var dismissCount = 0
 
     func open(path: String = "/") {
         self.request = Request(path: path)
+    }
+
+    func noteNavigation() {
+        self.navigationToken &+= 1
+    }
+
+    func noteDismissal() {
+        self.dismissCount &+= 1
     }
 
     func consume(pairingPresented: Bool) -> Request? {

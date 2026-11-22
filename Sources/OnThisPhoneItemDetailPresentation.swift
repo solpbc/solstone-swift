@@ -41,6 +41,13 @@ nonisolated struct OnThisPhoneDetailRow: Identifiable, Equatable, Sendable {
 }
 
 nonisolated enum OnThisPhoneItemDetailPresentation {
+    static func journalPath(for item: OnThisPhoneItem) -> String {
+        if item.sourceKind == .share, let path = ShareImportID.detailPath(for: item.importID) {
+            return path
+        }
+        return "/"
+    }
+
     static func navigationTitle(
         for item: OnThisPhoneItem,
         locale: Locale = .current,

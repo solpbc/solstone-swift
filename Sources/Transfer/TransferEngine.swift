@@ -73,6 +73,13 @@ nonisolated enum TransferEnqueueIfAbsentError: Error, Equatable, Sendable {
     case unverifiedOwnership(TransferOwnershipVerdict)
 }
 
+nonisolated struct TransferImportReviewCandidate: Equatable, Sendable {
+    let itemID: UUID
+    let importID: String
+    let savedInstanceID: String
+    let filename: String
+}
+
 nonisolated enum DefaultTransferBodyBuilder {
     static func build(item: TransferStoredItem, spool: TransferSpool) throws -> TransferBodyPayload {
         switch item.manifest.endpoint.destinationKind {
@@ -774,7 +781,8 @@ actor TransferEngine {
                 self.attentionItems.values
                     .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
                     .filter { $0.manifest.attention?.reason != Self.removedInJournalReason }
-                    .sorted(by: self.itemSort)
+                    .sorted(by: self.itemSort),
+                resetSaveThenStart: true
             )
         } catch {
             moveError = error
@@ -873,7 +881,11 @@ actor TransferEngine {
     }
 
     private func isAttentionItemEligibleForBulkRetry(_ item: TransferStoredItem, now: Date) -> Bool {
-        guard let reason = item.manifest.attention?.reason else { return true }
+        guard let attention = item.manifest.attention else { return true }
+        if attention.suppressesAutoRetry {
+            return false
+        }
+        let reason = attention.reason
         if reason == Self.removedInJournalReason {
             return false
         }
@@ -910,21 +922,186 @@ actor TransferEngine {
             self.scheduleWork()
             return true
         }
-        try self.moveAttentionItemsToQueued([item])
+        let resetSaveThenStart = item.manifest.attention?.isReviewExpired == true
+            || item.manifest.attention?.importPreviewKind == "source_changed"
+        try self.moveAttentionItemsToQueued([item], resetSaveThenStart: resetSaveThenStart)
         return true
+    }
+
+    /// Resets a held save-then-start import (such as `.reviewExpired`) back to `.savePending`,
+    /// drops any cached upload body, and queues it for a clean `/save` + `/start`.
+    @discardableResult
+    func sendAgain(itemID: UUID) throws -> Bool {
+        guard !self.conflictedItemIDs.contains(itemID) else { return false }
+        guard let item = self.attentionItems[itemID] else {
+            return false
+        }
+        try self.moveAttentionItemsToQueued([item], resetSaveThenStart: true)
+        return true
+    }
+
+    /// Lists `.readyToReview` items for `sourceKey` whose saved copy belongs to `instanceID`.
+    /// Items saved to another journal instance (or lacking a validated ASCII `import_id`) are skipped.
+    func readyToReviewCandidates(sourceKey: String, instanceID: String) -> [TransferImportReviewCandidate] {
+        guard !instanceID.isEmpty else { return [] }
+        return self.attentionItems.values
+            .filter { item in
+                item.manifest.sourceKey == sourceKey
+                    && !self.conflictedItemIDs.contains(item.manifest.itemID)
+                    && !self.droppedItemIDs.contains(item.manifest.itemID)
+            }
+            .sorted(by: self.itemSort)
+            .compactMap { item in
+                guard let attention = item.manifest.attention,
+                      attention.isReadyToReview,
+                      attention.savedInstanceID == instanceID,
+                      let importID = ShareImportID.validated(attention.importID ?? item.manifest.saveThenStart?.savedTimestamp)
+                else {
+                    return nil
+                }
+                let filename = item.manifest.payloadParts.first?.filename ?? AppStrings.ios_app_onthisphonefilelabel()
+                return TransferImportReviewCandidate(
+                    itemID: item.manifest.itemID,
+                    importID: importID,
+                    savedInstanceID: instanceID,
+                    filename: filename
+                )
+            }
+    }
+
+    /// Confirms that a `.readyToReview` item has been accepted or retired in the journal.
+    /// Persists the 24-hour receipt durably via `persistReceipt` BEFORE deleting local payload bytes,
+    /// re-verifying `(itemID, expectedImportID, expectedInstanceID)` under actor isolation both before
+    /// and after the async receipt write so a concurrent `sendAgain` or `drop` never loses local data.
+    @discardableResult
+    func confirmReadyToReviewItem(
+        itemID: UUID,
+        expectedImportID: String,
+        expectedInstanceID: String,
+        persistReceipt: @Sendable (TransferManifest, String) async throws -> Void
+    ) async throws -> Bool {
+        guard let initial = self.matchingReadyToReviewItem(
+            itemID: itemID,
+            expectedImportID: expectedImportID,
+            expectedInstanceID: expectedInstanceID
+        ) else {
+            return false
+        }
+        try await persistReceipt(initial.manifest, expectedImportID)
+        guard let current = self.matchingReadyToReviewItem(
+            itemID: itemID,
+            expectedImportID: expectedImportID,
+            expectedInstanceID: expectedInstanceID
+        ) else {
+            return false
+        }
+        try self.spool.removeCommittedItem(current)
+        self.attentionItems.removeValue(forKey: itemID)
+        self.counters.attentionCount -= 1
+        self.counters.deliveredCount += 1
+        let deliveredAt = self.clock.wallNow()
+        self.updateSourceState(current.manifest.sourceKey) { state in
+            state.counters.attentionCount -= 1
+            state.counters.deliveredCount += 1
+            state.noteDelivered(bytes: 0, at: deliveredAt)
+        }
+        self.emit(
+            item: current,
+            previousState: .attention,
+            nextState: .delivered,
+            outcome: .delivered,
+            attempt: self.attemptCountByItemID[itemID, default: 0],
+            detail: "delivered"
+        )
+        self.firstAttemptAtByItemID.removeValue(forKey: itemID)
+        self.scheduleStatusUpdate(summary: "delivered")
+        return true
+    }
+
+    /// Marks a `.readyToReview` item as `.reviewExpired` (keeping all local payload bytes intact)
+    /// when `GET /app/import/api/<id>` returns `404`. Discards stale responses if the item changed.
+    @discardableResult
+    func markReviewExpired(
+        itemID: UUID,
+        expectedImportID: String,
+        expectedInstanceID: String
+    ) throws -> Bool {
+        guard let current = self.matchingReadyToReviewItem(
+            itemID: itemID,
+            expectedImportID: expectedImportID,
+            expectedInstanceID: expectedInstanceID
+        ) else {
+            return false
+        }
+        var manifest = current.manifest
+        manifest.attention?.importReviewState = .reviewExpired
+        manifest.attention?.shortDetail = AppStrings.ios_app_importreviewexpired()
+        manifest.attention?.retryable = true
+        let updated = try self.spool.updateAttentionManifest(manifest, directoryURL: current.directoryURL)
+        self.attentionItems[itemID] = updated
+        self.scheduleStatusUpdate(summary: AppStrings.ios_app_importexpired())
+        return true
+    }
+
+    /// When paired to a different journal instance, resets any `.readyToReview` or `.reviewExpired`
+    /// items saved on an earlier journal back to queued with `.savePending` (clearing saved fields
+    /// and cached upload body) so they deliver cleanly to the new journal.
+    @discardableResult
+    func resetImportReviewItemsForPairingChange(currentInstanceID: String) throws -> Int {
+        guard !currentInstanceID.isEmpty else { return 0 }
+        let items = self.attentionItems.values
+            .filter { item in
+                guard !self.conflictedItemIDs.contains(item.manifest.itemID),
+                      let attention = item.manifest.attention,
+                      attention.isImportReview
+                else {
+                    return false
+                }
+                let savedInstanceID = attention.savedInstanceID ?? item.manifest.saveThenStart?.savedInstanceID
+                return savedInstanceID != currentInstanceID
+            }
+            .sorted(by: self.itemSort)
+        guard !items.isEmpty else { return 0 }
+        try self.moveAttentionItemsToQueued(items, resetSaveThenStart: true)
+        return items.count
+    }
+
+    private func matchingReadyToReviewItem(
+        itemID: UUID,
+        expectedImportID: String,
+        expectedInstanceID: String
+    ) -> TransferStoredItem? {
+        guard !self.conflictedItemIDs.contains(itemID),
+              !self.droppedItemIDs.contains(itemID),
+              let item = self.attentionItems[itemID],
+              let attention = item.manifest.attention,
+              attention.isReadyToReview,
+              attention.savedInstanceID == expectedInstanceID,
+              ShareImportID.validated(attention.importID ?? item.manifest.saveThenStart?.savedTimestamp) == expectedImportID
+        else {
+            return nil
+        }
+        return item
     }
 
     /// An item that cannot be moved (its cached body cannot be dropped, say) stays in attention
     /// and the rest still move. The first failure is thrown once all are tried, so a caller that
     /// must finish everything (a pairing change) tries again later.
-    private func moveAttentionItemsToQueued(_ items: [TransferStoredItem]) throws {
+    private func moveAttentionItemsToQueued(
+        _ items: [TransferStoredItem],
+        resetSaveThenStart: Bool = false
+    ) throws {
         let now = self.clock.wallNow()
         var firstError: (any Error)?
         for item in items {
             guard !self.conflictedItemIDs.contains(item.manifest.itemID) else { continue }
             let moved: TransferStoredItem
             do {
-                moved = try self.spool.moveAttentionItemToQueued(item, now: now)
+                moved = try self.spool.moveAttentionItemToQueued(
+                    item,
+                    resetSaveThenStart: resetSaveThenStart,
+                    now: now
+                )
             } catch {
                 transferLog.error(
                     "transfer attention item stays held \(item.manifest.itemID.uuidString, privacy: .public) \(String(describing: error), privacy: .public)"
@@ -1525,19 +1702,42 @@ actor TransferEngine {
             )
             self.firstAttemptAtByItemID.removeValue(forKey: itemID)
             transferLog.notice("transfer item delivered \(itemID.uuidString, privacy: .public)")
+            var deliveredManifest = item.manifest
+            if deliveredManifest.endpoint.destinationKind == .saveThenStart,
+               let instanceID = endpoint.dispatchOwner?.journalInstanceID,
+               !instanceID.isEmpty
+            {
+                var saveState = deliveredManifest.saveThenStart ?? TransferSaveThenStartState(phase: .savePending)
+                if saveState.savedInstanceID == nil {
+                    saveState.savedInstanceID = instanceID
+                    deliveredManifest.saveThenStart = saveState
+                }
+            }
             self.launchDeliveredHook(
-                for: item.manifest,
+                for: deliveredManifest,
                 successKind: successKind,
                 attempt: self.attemptCountByItemID[itemID, default: 0]
             )
         case .terminalAttention(let reason):
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             let detail = self.shortDetail(for: reason)
-            self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
+            if case .importReviewRequired = reason {
+                // Waiting for owner confirmation is a normal hold, not an error.
+            } else {
+                self.noteError(sourceKey: item.manifest.sourceKey, detail: detail)
+            }
             let refusedUnder = TransferRefusalPacing.isSettled(reason, phase: phase)
                 ? self.currentRefusalConditions(for: item.manifest)
                 : nil
-            self.moveToAttention(item: item, reason: reason, detail: detail, refusedUnder: refusedUnder)
+            let savedInstanceID = endpoint.dispatchOwner?.journalInstanceID
+                ?? item.manifest.saveThenStart?.savedInstanceID
+            self.moveToAttention(
+                item: item,
+                reason: reason,
+                detail: detail,
+                refusedUnder: refusedUnder,
+                savedInstanceID: savedInstanceID
+            )
             transferLog.notice("transfer item needs attention \(itemID.uuidString, privacy: .public)")
         case .transientRetry(let reason):
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
@@ -1576,7 +1776,9 @@ actor TransferEngine {
         case .continueWithStart(let state):
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             var manifest = item.manifest.replacingNextAttemptAt(nil)
-            manifest.saveThenStart = state
+            var saveState = state
+            saveState.savedInstanceID = endpoint.dispatchOwner?.journalInstanceID ?? state.savedInstanceID
+            manifest.saveThenStart = saveState
             self.spool.removeBodyCache(for: item)
             if let updated = try? self.spool.updateQueuedManifest(manifest, directoryURL: item.directoryURL) {
                 self.queuedItems[itemID] = updated
@@ -1809,7 +2011,8 @@ actor TransferEngine {
         item: TransferStoredItem,
         reason: TransferAttentionReason,
         detail: String,
-        refusedUnder: TransferRefusalConditions? = nil
+        refusedUnder: TransferRefusalConditions? = nil,
+        savedInstanceID: String? = nil
     ) {
         guard self.queuedItems[item.manifest.itemID] != nil else { return }
         if let moved = try? self.spool.moveQueuedItemToAttention(
@@ -1818,6 +2021,11 @@ actor TransferEngine {
             detail: detail,
             journalReasonCode: reason.journalReasonCode,
             refusedUnder: refusedUnder,
+            importReviewState: reason.importReviewState,
+            importPreviewKind: reason.importPreviewKind,
+            importID: reason.importID,
+            savedInstanceID: savedInstanceID,
+            retryable: reason.retryable,
             now: self.clock.wallNow()
         ) {
             self.queuedItems.removeValue(forKey: item.manifest.itemID)
@@ -1901,13 +2109,30 @@ private extension TransferEngine {
 
     func sourceSnapshots(now: Date) -> [String: TransferSourceStatusSnapshot] {
         var pacedBySource: [String: Int] = [:]
-        for item in self.attentionItems.values
-        where item.manifest.attention?.refusedUnder != nil && self.refusalVerdict(for: item, now: now) == .paced {
-            pacedBySource[item.manifest.sourceKey, default: 0] += 1
+        var readyToReviewBySource: [String: Int] = [:]
+        var reviewExpiredBySource: [String: Int] = [:]
+        for item in self.attentionItems.values {
+            let sourceKey = item.manifest.sourceKey
+            if let reviewState = item.manifest.attention?.importReviewState {
+                switch reviewState {
+                case .readyToReview:
+                    readyToReviewBySource[sourceKey, default: 0] += 1
+                case .reviewExpired:
+                    reviewExpiredBySource[sourceKey, default: 0] += 1
+                }
+                continue
+            }
+            if item.manifest.attention?.suppressesAutoRetry == true
+                || (item.manifest.attention?.refusedUnder != nil && self.refusalVerdict(for: item, now: now) == .paced)
+            {
+                pacedBySource[sourceKey, default: 0] += 1
+            }
         }
         return Dictionary(uniqueKeysWithValues: self.sourceStates.map { sourceKey, state in
             var snapshot = state.snapshot(now: now)
             snapshot.refusalPacedCount = pacedBySource[sourceKey, default: 0]
+            snapshot.readyToReviewCount = readyToReviewBySource[sourceKey, default: 0]
+            snapshot.reviewExpiredCount = reviewExpiredBySource[sourceKey, default: 0]
             return (sourceKey, snapshot)
         })
     }
@@ -2298,8 +2523,10 @@ private extension TransferEngine {
 
     func reasonCode(for reason: TransferAttentionReason) -> String {
         switch reason {
-        case .httpClientError:
+        case .httpClientError, .importPreviewRefused:
             return TransferAttentionReason.httpClientErrorCode
+        case .importReviewRequired:
+            return TransferAttentionReason.importReviewRequiredCode
         case .decodeFailed:
             return "decode_failed"
         case .missingPayload:

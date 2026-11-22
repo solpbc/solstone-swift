@@ -36,6 +36,10 @@ nonisolated struct TransferSourceStatusSnapshot: Codable, Equatable, Sendable {
     /// connection's round offers them again, so a drain has nothing to wait for on their account.
     /// They stay in `attentionCount`, which is what the owner sees as held.
     var refusalPacedCount = 0
+    /// Of `attentionCount`, saved imports waiting for owner preview & confirmation in the journal.
+    var readyToReviewCount = 0
+    /// Of `attentionCount`, saved imports whose waiting copy in the journal expired while local bytes remain.
+    var reviewExpiredCount = 0
     /// When `lastErrorDetail` happened, and the times of the errors since the source's last delivery.
     var lastErrorAt: Date?
     var errorTimesSinceDelivery: [Date]?

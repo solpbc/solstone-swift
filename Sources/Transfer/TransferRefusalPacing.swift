@@ -141,18 +141,33 @@ nonisolated enum TransferRefusalPacing {
     /// status a proxy or a later journal chose) did not come from the envelope alone.
     static let settledStatusCode = 400
 
-    /// Whether a refusal is settled, decided where it is received: an observer-ingest 400 (not a
-    /// 2xx carrying a failed status, and not any other refusal status) whose reason code is one
-    /// the journal derives only from the envelope.
+    /// Whether a refusal is settled, decided where it is received:
+    /// - an observer-ingest 400 whose reason code is one the journal derives only from the envelope, or
+    /// - an import preview refusal (`import_preview_required`, whether confirmation-required or another 409 kind),
+    ///   which must never auto-retry on reconnect.
     static func isSettled(_ reason: TransferAttentionReason, phase: TransferEndpointPhase) -> Bool {
-        guard phase == .observerIngest,
-              case .httpClientError(let statusCode, _, let journalReasonCode) = reason,
-              statusCode == Self.settledStatusCode,
-              let journalReasonCode
-        else {
+        switch reason {
+        case .importReviewRequired:
+            return true
+        case .importPreviewRefused:
+            return true
+        case .httpClientError(let statusCode, _, let journalReasonCode):
+            if case .start = phase,
+               statusCode == 409,
+               journalReasonCode == TransferReasonCodes.importPreviewRequired
+            {
+                return true
+            }
+            guard phase == .observerIngest,
+                  statusCode == Self.settledStatusCode,
+                  let journalReasonCode
+            else {
+                return false
+            }
+            return Self.settledReasonCodes.contains(journalReasonCode)
+        case .decodeFailed, .missingPayload, .malformedManifest:
             return false
         }
-        return Self.settledReasonCodes.contains(journalReasonCode)
     }
 
     nonisolated enum Verdict: Equatable, Sendable {
@@ -169,6 +184,9 @@ nonisolated enum TransferRefusalPacing {
         current: TransferRefusalConditions?,
         now: Date
     ) -> Verdict {
+        if attention.suppressesAutoRetry {
+            return .paced
+        }
         guard let recorded = attention.refusedUnder else { return .unsettled }
         var reasons: [TransferRefusalReoffer] = []
         if let current {

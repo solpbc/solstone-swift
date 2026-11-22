@@ -293,17 +293,259 @@ struct HomeAddMoreTile: View {
     }
 }
 
-struct HomeImportTile: View {
-    @Environment(ShellNavModel.self) private var nav
+nonisolated enum HomeImportTileSignal: Equatable, Sendable {
+    case idle
+    case waiting(detail: String)
+    case sending(detail: String)
+    case readyToReview(detail: String)
+    case needsAttention(detail: String)
+
+    var statusWord: String? {
+        switch self {
+        case .idle: nil
+        case .waiting: AppStrings.ios_app_importtilewaiting()
+        case .sending: AppStrings.ios_app_sending()
+        case .readyToReview: AppStrings.ios_app_importtilereadytoreview()
+        case .needsAttention: AppStrings.ios_transfer_needsattention()
+        }
+    }
+
+    var detailText: String {
+        switch self {
+        case .idle: SourceVocabulary.importSubline
+        case .waiting(let detail), .sending(let detail), .readyToReview(let detail), .needsAttention(let detail):
+            detail
+        }
+    }
+
+    var accessibilityLabel: String {
+        guard let statusWord = self.statusWord else {
+            return SourceVocabulary.importTitle
+        }
+        return AppStrings.ios_app_importtilespoken(statusWord, self.detailText)
+    }
+
+    var accessibilityValue: String {
+        self.statusWord == nil ? SourceVocabulary.importSubline : ""
+    }
+
+    var uiTestSignalName: String {
+        switch self {
+        case .idle: "idle"
+        case .waiting: "waiting"
+        case .sending: "sending"
+        case .readyToReview: "readyToReview"
+        case .needsAttention: "needsAttention"
+        }
+    }
+
+    /// Worst-signal-wins resolution for the Home `import` tile:
+    /// `needs attention` > `ready to review` > `sending` > `waiting` > `idle`.
+    static func resolve(
+        failedCount: Int,
+        readyToReviewCount: Int,
+        reviewExpiredCount: Int,
+        inFlightCount: Int,
+        pendingCount: Int,
+        activeItems: [ShareImportActiveItem],
+        isOfflineOrUnpaired: Bool
+    ) -> HomeImportTileSignal {
+        if failedCount > 0 {
+            let matching = activeItems.filter {
+                if case .needsAttention = $0.phase { return true }
+                return false
+            }
+            let detail = failedCount == 1
+                ? (matching.first?.filename ?? AppStrings.ios_app_importtileitemscount(1))
+                : AppStrings.ios_app_importtileitemscount(failedCount)
+            return .needsAttention(detail: detail)
+        }
+        let reviewTotal = readyToReviewCount + reviewExpiredCount
+        if reviewTotal > 0 {
+            let matching = activeItems.filter(\.isReviewCardItem)
+            let detail = reviewTotal == 1
+                ? (matching.first?.filename ?? AppStrings.ios_app_importtilereadycount(1))
+                : AppStrings.ios_app_importtilereadycount(reviewTotal)
+            return .readyToReview(detail: detail)
+        }
+        if inFlightCount > 0 {
+            let matching = activeItems.filter {
+                if case .sending = $0.phase { return true }
+                return false
+            }
+            let detail = inFlightCount == 1
+                ? (matching.first?.filename ?? AppStrings.ios_app_importtilefilescount(1))
+                : AppStrings.ios_app_importtilefilescount(inFlightCount)
+            return .sending(detail: detail)
+        }
+        if pendingCount > 0 {
+            let detail = isOfflineOrUnpaired
+                ? AppStrings.ios_app_importtilewaitingforjournal()
+                : AppStrings.ios_app_importtilewaitingcount(pendingCount)
+            return .waiting(detail: detail)
+        }
+        return .idle
+    }
+}
+
+/// Distinct shape + color marker for each active import tile state (never color alone).
+struct HomeImportStateMarker: View {
+    let signal: HomeImportTileSignal
+    @ScaledMetric(relativeTo: .caption) private var size: CGFloat = 10
 
     var body: some View {
-        HomeDestinationTile(
-            glyph: "square.and.arrow.down",
-            title: SourceVocabulary.importTitle,
-            subline: SourceVocabulary.importSubline,
-            badgeVisible: false,
-            identifier: "dayHome.importEntry",
-            action: { self.nav.selectFromDeck(ShellDestination.import) }
+        self.shape
+            .frame(width: self.size, height: self.size)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var shape: some View {
+        switch self.signal {
+        case .idle:
+            EmptyView()
+        case .waiting:
+            Circle().strokeBorder(.secondary, lineWidth: 1.5)
+        case .sending:
+            Circle().fill(Color.solOrange)
+        case .readyToReview:
+            ZStack {
+                Circle().strokeBorder(Color.solOrange, lineWidth: 1.5)
+                Circle()
+                    .fill(Color.solOrange)
+                    .frame(width: self.size * 0.42, height: self.size * 0.42)
+            }
+        case .needsAttention:
+            ZStack {
+                Circle().strokeBorder(Color.red, lineWidth: 1.5)
+                Capsule()
+                    .fill(Color.red)
+                    .frame(width: self.size * 0.7, height: 1.5)
+            }
+        }
+    }
+}
+
+struct HomeImportTile: View {
+    @Environment(ShellNavModel.self) private var nav
+    @Environment(ShareTransferHolder.self) private var shareTransferHolder: ShareTransferHolder?
+    @Environment(AppConfig.self) private var appConfig: AppConfig?
+    @Environment(TunnelManager.self) private var tunnelManager: TunnelManager?
+    @ScaledMetric(relativeTo: .headline) private var glyphSize: CGFloat = 20
+
+    private var signal: HomeImportTileSignal {
+        guard let holder = self.shareTransferHolder else { return .idle }
+        let isOfflineOrUnpaired = !(self.appConfig?.isPaired ?? false)
+            || !(self.tunnelManager?.state.isConnected ?? false)
+            || (self.appConfig?.awaitingMarkConfirmation ?? false)
+        return HomeImportTileSignal.resolve(
+            failedCount: holder.failedCount,
+            readyToReviewCount: holder.readyToReviewCount,
+            reviewExpiredCount: holder.reviewExpiredCount,
+            inFlightCount: holder.inFlightCount,
+            pendingCount: holder.pendingCount,
+            activeItems: holder.activeItems,
+            isOfflineOrUnpaired: isOfflineOrUnpaired
         )
+    }
+
+    var body: some View {
+        let resolved = self.signal
+        if resolved == .idle {
+            HomeDestinationTile(
+                glyph: "square.and.arrow.down",
+                title: SourceVocabulary.importTitle,
+                subline: SourceVocabulary.importSubline,
+                badgeVisible: false,
+                identifier: "dayHome.importEntry",
+                action: { self.nav.selectFromDeck(ShellDestination.import) }
+            )
+        } else {
+            self.activeTile(resolved)
+        }
+    }
+
+    private func activeTile(_ resolved: HomeImportTileSignal) -> some View {
+        Button {
+            self.nav.selectFromDeck(ShellDestination.import)
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                Image(systemName: "square.and.arrow.down")
+                    .font(.system(size: self.glyphSize, weight: .medium))
+                    .foregroundStyle(self.glyphTint(for: resolved))
+                    .frame(minHeight: ShellMetrics.tileTopLineHeight, alignment: .top)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(SourceVocabulary.importTitle)
+                        .font(ShellFont.tileName)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let statusWord = resolved.statusWord {
+                        HStack(spacing: 6) {
+                            HomeImportStateMarker(signal: resolved)
+                            Text(statusWord)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(self.wordColor(for: resolved))
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Text(resolved.detailText)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .accessibilityHidden(true)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(ShellMetrics.tilePadding)
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(ShellMetrics.tileShape)
+        }
+        .buttonStyle(.plain)
+        .background(Color.deckSurface, in: ShellMetrics.tileShape)
+        .overlay {
+            ShellMetrics.tileShape.stroke(self.borderColor(for: resolved), lineWidth: self.borderWidth(for: resolved))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(resolved.accessibilityLabel)
+        .accessibilityValue(resolved.accessibilityValue)
+        .accessibilityIdentifier("dayHome.importEntry")
+        .hoverEffect(.highlight)
+    }
+
+    private func glyphTint(for signal: HomeImportTileSignal) -> Color {
+        switch signal {
+        case .needsAttention: .red
+        case .readyToReview, .sending: Color.solOrangeAdaptive
+        case .waiting, .idle: .secondary
+        }
+    }
+
+    private func wordColor(for signal: HomeImportTileSignal) -> Color {
+        switch signal {
+        case .needsAttention: .red
+        case .readyToReview, .sending: Color.solOrangeAdaptive
+        case .waiting, .idle: .secondary
+        }
+    }
+
+    private func borderColor(for signal: HomeImportTileSignal) -> Color {
+        switch signal {
+        case .readyToReview: Color.solOrange.opacity(0.6)
+        case .needsAttention: Color.red.opacity(0.45)
+        case .idle, .waiting, .sending: Color.deckHairline
+        }
+    }
+
+    private func borderWidth(for signal: HomeImportTileSignal) -> CGFloat {
+        switch signal {
+        case .readyToReview, .needsAttention: 1
+        case .idle, .waiting, .sending: 0.5
+        }
     }
 }

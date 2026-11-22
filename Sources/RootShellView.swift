@@ -60,11 +60,13 @@ struct RootShellView: View {
     @Environment(ShellNavModel.self) private var nav
     @Environment(ShellStatusContext.self) private var shellStatusContext
     @Environment(MobileSegmentTransferHolder.self) private var mobileSegmentTransferHolder
+    @Environment(ShareTransferHolder.self) private var shareTransferHolder: ShareTransferHolder?
     @Environment(\.scenePhase) private var scenePhase
     @Namespace private var homeChrome
     @State private var preferredCompactColumn = NavigationSplitViewColumn.sidebar
     @State private var showingJournalLives = false
     @State private var presentedPane: PresentedShellPane?
+    @State private var pendingJournalPathAfterStatusDismiss: String?
     @State private var journalInitialPath: String = "/"
     @State private var journalOpenID = UUID()
     /// Seeded from the store so the owner's own mark is on screen in the **first frame**,
@@ -168,7 +170,6 @@ struct RootShellView: View {
         self.shellLayers
         .sheet(isPresented: self.isJournalPresented) {
             InAppJournalView(mark: self.journalMark, presentation: .phoneModal, path: self.journalInitialPath)
-                .id(self.journalOpenID)
                 // Full height — the largest system detent, so the pane's top reaches
                 // the top of the screen instead of leaving the deck readable above it.
                 .presentationDetents([.large])
@@ -181,7 +182,14 @@ struct RootShellView: View {
         .sheet(isPresented: self.$showingJournalLives) {
             JournalLivesSheet(isPresented: self.$showingJournalLives)
         }
-        .sheet(isPresented: self.isStatusPresented) {
+        .sheet(isPresented: self.isStatusPresented, onDismiss: {
+            if let path = self.pendingJournalPathAfterStatusDismiss {
+                self.pendingJournalPathAfterStatusDismiss = nil
+                self.journalInitialPath = path
+                self.pendingJournalOpen.noteNavigation()
+                self.presentedPane = .journal
+            }
+        }) {
             self.statusSheet
         }
     }
@@ -275,13 +283,25 @@ struct RootShellView: View {
         .onChange(of: self.statusPath.count) { _, count in
             self.statusDetent = count > 0 ? .large : .medium
         }
-        .onChange(of: self.presentedPane) { _, pane in
+        .onChange(of: self.presentedPane) { previous, pane in
+            if previous == .journal && pane != .journal {
+                self.journalInitialPath = "/"
+                self.pendingJournalOpen.noteDismissal()
+                self.reconcileImportsAfterJournalClose()
+            }
             if pane != .status {
                 self.statusPath = NavigationPath()
                 self.statusDetent = .medium
                 if !self.journalGapSurfaceVisible {
                     self.journalGapVisit.end()
                 }
+            }
+        }
+        .onChange(of: self.nav.paneRoot) { previous, next in
+            if previous == .journal && next != .journal {
+                self.journalInitialPath = "/"
+                self.pendingJournalOpen.noteDismissal()
+                self.reconcileImportsAfterJournalClose()
             }
         }
     }
@@ -560,12 +580,32 @@ struct RootShellView: View {
     /// seed and the real opener cannot drift.
     private func openJournal(path: String = "/") {
         self.journalInitialPath = path
-        // An explicit open is a new navigation even when its target is unchanged.
-        self.journalOpenID = UUID()
+        self.pendingJournalOpen.noteNavigation()
         if self.isPhoneShell {
-            self.presentedPane = .journal
+            if self.presentedPane == .status {
+                self.pendingJournalPathAfterStatusDismiss = path
+                self.presentedPane = nil
+            } else {
+                self.presentedPane = .journal
+            }
         } else {
             self.nav.selectFromDeck(.journal)
+        }
+    }
+
+    private func reconcileImportsAfterJournalClose() {
+        guard let holder = self.shareTransferHolder else { return }
+        let port = self.tunnelManager.activeConnection?.port
+        let instanceID = self.appConfig.deviceID
+        let isPaired = self.appConfig.isPaired
+        let markConfirmed = self.appConfig.journalSendConfirmed
+        Task {
+            await holder.reconcileReadyToReview(
+                localPort: port,
+                instanceID: instanceID,
+                isPaired: isPaired,
+                markConfirmed: markConfirmed
+            )
         }
     }
 

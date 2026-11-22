@@ -1,0 +1,27 @@
+{
+  "description": "Import home tile sub-line showing multiple imports ready to review in the journal.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 0
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 48,
+  "source_revision": "9619ae4c778a16bf594752fe8714da0df28e489b45d6b3ed18431b66dbc74471",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

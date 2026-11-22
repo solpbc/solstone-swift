@@ -1,0 +1,16 @@
+{
+  "description": "Queue hold message when the journal refused this device's pairing.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 120,
+  "source_revision": "cea99f832598070e0233a06b3da37ae43727c0405cab4dfe92aec26ebaa91fc9",
+  "risk": "routine",
+  "auto_merge": true
+}

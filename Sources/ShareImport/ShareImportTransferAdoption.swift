@@ -113,9 +113,15 @@ extension ShareImportStore {
         return unresolved
     }
 
-    func recordDelivered(manifest: TransferManifest, successKind: TransferSuccessKind) throws {
+    func recordDelivered(
+        manifest: TransferManifest,
+        successKind: TransferSuccessKind,
+        fallbackInstanceID: String? = nil
+    ) throws {
         let fields = try ShareImportTransferMetadata.fields(from: manifest)
         let receipt = Self.receipt(successKind)
+        let instanceID = manifest.saveThenStart?.savedInstanceID
+            ?? fallbackInstanceID.flatMap { $0.isEmpty ? nil : $0 }
         try self.recordDelivered(
             itemID: manifest.itemID.uuidString.lowercased(),
             basis: fields.basis,
@@ -125,7 +131,37 @@ extension ShareImportStore {
             serverTimestamp: receipt.serverTimestamp,
             filename: fields.filename,
             originApp: fields.originApp,
-            itemTime: fields.itemTime
+            itemTime: fields.itemTime,
+            instanceID: instanceID
+        )
+    }
+
+    func recordConfirmedImport(
+        manifest: TransferManifest,
+        importID: String,
+        instanceID: String
+    ) throws {
+        let fields = try ShareImportTransferMetadata.fields(from: manifest)
+        let validImportID = ShareImportID.validated(importID)
+        let filename = fields.filename ?? manifest.payloadParts.first?.filename ?? AppStrings.ios_app_onthisphonefilelabel()
+        try self.recordRecentReceipt(
+            itemID: manifest.itemID.uuidString.lowercased(),
+            filename: filename,
+            importID: validImportID,
+            instanceID: instanceID
+        )
+        try self.recordDelivered(
+            itemID: manifest.itemID.uuidString.lowercased(),
+            basis: fields.basis,
+            contentType: fields.contentType,
+            targetJournal: fields.targetJournal,
+            serverPath: manifest.saveThenStart?.savedPath,
+            serverTimestamp: validImportID ?? manifest.saveThenStart?.savedTimestamp,
+            filename: filename,
+            originApp: fields.originApp,
+            itemTime: fields.itemTime,
+            instanceID: instanceID,
+            recordReceipt: false
         )
     }
 

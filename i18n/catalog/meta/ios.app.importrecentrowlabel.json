@@ -1,0 +1,25 @@
+{
+  "description": "VoiceOver label for a recent import receipt row without a deep link.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "name",
+      "type": "string"
+    },
+    {
+      "name": "relative",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 140,
+  "source_revision": "61741b59672800d4d5bc652ad885fac7cfb828066a1ea0a482287cdb9e31caee",
+  "risk": "routine",
+  "auto_merge": true
+}
