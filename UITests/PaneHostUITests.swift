@@ -465,8 +465,16 @@ private extension PaneHostUITests {
         )
     }
 
+    /// A sighting counts only once it holds. The pane can still settle after it opens (a
+    /// longer lead arriving a beat later), which pushes a row seen on the first frame below
+    /// the fold and out of the accessibility tree.
+    func sightingHolds(_ element: XCUIElement) -> Bool {
+        let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: element)
+        return XCTWaiter().wait(for: [gone], timeout: 2) == .timedOut
+    }
+
     func scrollToElement(_ element: XCUIElement, in app: XCUIApplication) {
-        if element.waitForExistence(timeout: 2) {
+        if element.waitForExistence(timeout: 2), self.sightingHolds(element) {
             return
         }
         let scrollContainer = app.collectionViews.firstMatch.exists
@@ -477,7 +485,7 @@ private extension PaneHostUITests {
         let end = scrollContainer.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
         for _ in 1...10 {
             start.press(forDuration: 0.05, thenDragTo: end)
-            if element.waitForExistence(timeout: 1) {
+            if element.waitForExistence(timeout: 1), self.sightingHolds(element) {
                 return
             }
         }
