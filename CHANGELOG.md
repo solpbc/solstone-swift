@@ -6,9 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.14 (167)] - 2026-11-22
+
 ### Changed
 
-- on iphone and ipad, where the law requires it, the solstone app now asks the App Store for your age range when it starts. your age range is never saved or sent anywhere. if the answer is under 13, the app stops. when you update from a version before this one, or when the app's age rating changes, the app waits if a parent must approve the update for ages 13 to 17. in the same cases, Apple may show adults a one-time notice.
+- on iphone and ipad, where the law requires it, the solstone app now asks the App Store for your age range when it starts. your age range is never saved or sent anywhere. if the answer is under 13, the app stops. if you're 13 to 17 and a parent must approve an update, the app waits for their approval. this happens when you update from a version before this one, or when the app's age rating changes. in the same cases, Apple may show adults a one-time notice.
 
 ### Fixed
 
