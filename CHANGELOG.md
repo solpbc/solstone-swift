@@ -6,6 +6,19 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.14 (168)] - 2026-11-23
+
+### Changed
+
+- on iphone and ipad, the import screen now shows each file waiting on this device and where it stands, and you can remove one from there. under that, your latest files to reach your journal in the last day are listed, and a tap opens one in your journal.
+- when your journal saves an import that needs you to look it over before it starts, like an Apple Health export, the solstone app now says it's ready to review, and its "review in your journal" button opens it there. before, it showed as needing attention.
+- the import tile on home now shows when files are waiting, ready to review or need you.
+
+### Fixed
+
+- on iphone, when the connection to your journal drops for a moment and comes back, the journal page stays as you left it. before, it loaded again and lost what you were in the middle of.
+- the permission prompts your iphone or ipad shows now name the app solstone. before, some of them said "solstone-swift".
+
 ## [2.0.14 (167)] - 2026-11-22
 
 ### Changed
