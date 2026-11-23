@@ -3982,11 +3982,10 @@ final class WatchCaptureTests: XCTestCase {
         )
     }
 
-    func testRolloverOpeningFailurePreservesConfirmedUndecodableAudio() async throws {
+    func testRolloverOpeningFailureDiscardsConfirmedUndecodableAudio() async throws {
         let harness = try self.makeHarness(locationAuthorization: .denied)
         harness.engine.start(); await harness.engine.settled()
         await self.drain(until: { self.pendingSleeperCount(in: harness.clock) >= 2 })
-        let successorStartedAt = harness.clock.now().addingTimeInterval(WatchCaptureTiming.segmentDurationSeconds)
         let successorDirectory = self.successorDirectory(in: harness)
         let successorAudioURL = harness.storage.audioURL(directory: successorDirectory)
         await harness.audioProbe.setDuration(nil, forPath: successorAudioURL.path)
@@ -3998,17 +3997,123 @@ final class WatchCaptureTests: XCTestCase {
         await harness.engine.settled()
 
         let entries = await self.catalogEntries(for: harness.storage)
-        XCTAssertEqual(entries.count, 2)
-        let successor = try XCTUnwrap(entries.first { $0.manifest.startedAt == successorStartedAt })
-        XCTAssertEqual(successor.manifest.state, .queued)
-        XCTAssertTrue(successor.manifest.partial)
-        XCTAssertFalse(successor.manifest.lost)
-        XCTAssertEqual(successor.manifest.sensors, [.audio])
-        XCTAssertEqual(
-            try Data(contentsOf: harness.storage.audioURL(directory: successor.directoryURL)),
-            Data("audio".utf8)
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: successorDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: successorAudioURL.path))
+    }
+
+    func testOpeningFailureConfirmedUndecodableAudioWithLocationQueuesLocationOnly() async throws {
+        let harness = try self.makeHarness(locationAuthorization: .authorized)
+        let startedAt = harness.clock.now()
+        let directory = self.initialDirectory(in: harness)
+        let audioURL = harness.storage.audioURL(directory: directory)
+        let locationURL = harness.storage.locationURL(directory: directory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        // Exact 28-byte M4A ftyp header stub alongside a valid location fix.
+        let headerStub = Data([
+            0x00, 0x00, 0x00, 0x1C, 0x66, 0x74, 0x79, 0x70,
+            0x4D, 0x34, 0x41, 0x20, 0x00, 0x00, 0x00, 0x00,
+            0x4D, 0x34, 0x41, 0x20, 0x6D, 0x70, 0x34, 0x32,
+            0x69, 0x73, 0x6F, 0x6D,
+        ])
+        try headerStub.write(to: audioURL)
+        try Data("{\"ts\":\"2026-11-22T18:03:02Z\",\"lat\":40.0,\"lon\":-105.0}\n".utf8).write(to: locationURL)
+        let manifest = WatchSegmentManifest(
+            id: UUID(),
+            day: harness.storage.dayString(for: startedAt),
+            segment: harness.storage.provisionalSegmentString(for: startedAt),
+            startedAt: startedAt,
+            duration: 0,
+            sensors: [.audio, .location],
+            partial: false,
+            lost: false,
+            gap: false,
+            fixCount: 0,
+            state: .captured,
+            failureReason: nil
         )
-        XCTAssertEqual(entries.filter { $0.manifest.startedAt != successorStartedAt }.count, 1)
+        try await harness.storageActor.writeManifest(
+            manifest,
+            ensuringDirectory: false,
+            transactionClass: .captureSafety
+        )
+        await harness.audioProbe.setDuration(nil, forPath: audioURL.path)
+
+        harness.engine.reconcileOnLaunch(); await harness.engine.settled()
+
+        let entries = await self.catalogEntries(for: harness.storage)
+        XCTAssertEqual(entries.count, 1)
+        let queued = try XCTUnwrap(entries.first)
+        XCTAssertEqual(queued.manifest.state, .queued)
+        XCTAssertFalse(queued.manifest.lost)
+        XCTAssertEqual(queued.manifest.sensors, [.location])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: harness.storage.audioURL(directory: queued.directoryURL).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: harness.storage.locationURL(directory: queued.directoryURL).path))
+    }
+
+    func testLiveAudioProbeClassifiesHeaderOnlyAndZeroByteStubsAsConfirmedUndecodable() async throws {
+        let probe = LiveWatchAudioProbe()
+
+        let stubURL = self.tempDirectory.appendingPathComponent("header-stub.m4a")
+        let headerStub = Data([
+            0x00, 0x00, 0x00, 0x1C, 0x66, 0x74, 0x79, 0x70,
+            0x4D, 0x34, 0x41, 0x20, 0x00, 0x00, 0x00, 0x00,
+            0x4D, 0x34, 0x41, 0x20, 0x6D, 0x70, 0x34, 0x32,
+            0x69, 0x73, 0x6F, 0x6D,
+        ])
+        try headerStub.write(to: stubURL)
+        let stubResult = await probe.probe(at: stubURL)
+        XCTAssertEqual(stubResult, .confirmedUndecodable)
+
+        let zeroByteURL = self.tempDirectory.appendingPathComponent("zero-byte.m4a")
+        try Data().write(to: zeroByteURL)
+        let zeroResult = await probe.probe(at: zeroByteURL)
+        XCTAssertEqual(zeroResult, .confirmedUndecodable)
+    }
+
+    func testLiveWatchAudioRecorderDeletesHeaderStubWhenRecordReturnsFalse() throws {
+        final class FailingRecordAudioRecorder: AVAudioRecorder {
+            let stubBytes: Data
+            var deleteRecordingCalled = false
+
+            init(url: URL, settings: [String: Any], stubBytes: Data) throws {
+                self.stubBytes = stubBytes
+                try super.init(url: url, settings: settings)
+            }
+
+            override func record() -> Bool {
+                try? self.stubBytes.write(to: self.url)
+                return false
+            }
+
+            override func deleteRecording() -> Bool {
+                self.deleteRecordingCalled = true
+                try? FileManager.default.removeItem(at: self.url)
+                return true
+            }
+        }
+
+        let stubBytes = Data([
+            0x00, 0x00, 0x00, 0x1C, 0x66, 0x74, 0x79, 0x70,
+            0x4D, 0x34, 0x41, 0x20, 0x00, 0x00, 0x00, 0x00,
+            0x4D, 0x34, 0x41, 0x20, 0x6D, 0x70, 0x34, 0x32,
+            0x69, 0x73, 0x6F, 0x6D,
+        ])
+        let audioURL = self.tempDirectory.appendingPathComponent("failed-start.m4a")
+        var createdRecorder: FailingRecordAudioRecorder?
+        let recorder = LiveWatchAudioRecorder(
+            recorderFactory: { url, settings in
+                let fake = try FailingRecordAudioRecorder(url: url, settings: settings, stubBytes: stubBytes)
+                createdRecorder = fake
+                return fake
+            },
+            microphonePermissionProvider: { .granted }
+        )
+
+        XCTAssertThrowsError(try recorder.start(url: audioURL, source: WatchCaptureSourceToken(sessionID: "test")))
+        XCTAssertEqual(createdRecorder?.deleteRecordingCalled, true)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audioURL.path))
     }
 
     func testLiveAudioProbeSeparatesReadableCorruptionFromMissingMedia() async throws {

@@ -1577,6 +1577,44 @@ nonisolated final class ScreencastBroadcastSessionTests: XCTestCase {
         }
     }
 
+    func testAudioWriterFinishWithZeroAcceptedSamplesDoesNotPublishFinalFile() throws {
+        let writer = ScreencastBroadcastAudioWriter()
+        let sessionID = UUID()
+        let segmentID = UUID()
+        let now = Date()
+        let handoff = MobileSegmentScreencastHandoffRecord(
+            revision: 1,
+            eventID: UUID(),
+            sessionID: sessionID,
+            segmentID: segmentID,
+            sourceSetVersion: 1,
+            sourceSet: [.screencast],
+            startedAt: now,
+            segmentDirectoryRelativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: segmentID),
+            screenPartRelativePath: MobileSegmentScreencastPaths.screenPartRelativePath(segmentID: segmentID),
+            screenFinalRelativePath: MobileSegmentScreencastPaths.screenRelativePath(segmentID: segmentID),
+            desiredState: .writing,
+            scheduleAnchorMs: 0,
+            schedulePeriodSeconds: 300,
+            lastHostUpdateAt: now
+        )
+
+        try writer.open(rootURL: self.tempDir, handoff: handoff, now: now)
+        let segmentDir = MobileSegmentScreencastPaths.url(
+            root: self.tempDir,
+            relativePath: MobileSegmentScreencastPaths.activeSegmentRelativeDirectory(segmentID: segmentID)
+        )
+        let partURL = MobileSegmentScreencastPaths.screenAudioPartURL(inSegmentDirectory: segmentDir)
+        let finalURL = MobileSegmentScreencastPaths.screenAudioURL(inSegmentDirectory: segmentDir)
+        try Data().write(to: partURL)
+
+        writer.finish(now: now.addingTimeInterval(1))
+
+        XCTAssertEqual(writer.acceptedSampleCount, 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: finalURL.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: partURL.path))
+    }
+
     private func makeDummySampleBuffer() -> CMSampleBuffer {
         var formatDescription: CMFormatDescription?
         CMFormatDescriptionCreate(

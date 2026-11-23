@@ -106,6 +106,25 @@ nonisolated final class ScreencastBroadcastAudioWriter: ScreencastBroadcastAudio
         guard self.isOpen else { return }
         self.isOpen = false
 
+        guard self.acceptedSampleCount > 0 else {
+            self.writer?.cancelWriting()
+            if let partURL = self.partURL, let rootURL = self.rootURL, let handoff = self.handoff {
+                try? JournalPartRemoval.removeExisting(
+                    at: partURL,
+                    source: .screenAudio,
+                    reason: "screencast_audio_no_samples",
+                    segmentID: handoff.segmentID,
+                    captureAt: handoff.startedAt,
+                    now: now,
+                    eventsRoot: JournalEventStore.directory(inAppGroupRoot: rootURL),
+                    fileManager: self.fileManager
+                )
+            }
+            self.writer = nil
+            self.audioInput = nil
+            return
+        }
+
         guard let writer = self.writer,
               let audioInput = self.audioInput,
               let partURL = self.partURL,

@@ -879,6 +879,10 @@ extension WatchCaptureEngine {
             _ = try? self.audioRecorder.stop()
         }
         if let segment {
+            if let audioURL = segment.audioURL,
+               await self.audioProbeResult(at: audioURL) == .confirmedUndecodable {
+                try? await self.storageActor.removeItem(at: audioURL, transactionClass: .captureSafety)
+            }
             _ = await self.removeSegmentDirectoryIfMediaIsProvablyEmpty(segment.directoryURL)
         }
         if persistenceFailed {
@@ -1261,7 +1265,7 @@ extension WatchCaptureEngine {
             directory: segment.directoryURL,
             requirePositiveSize: openingFailure
         )
-        let declaredSensors = declaredSensorEvidence.sensors
+        var declaredSensors = declaredSensorEvidence.sensors
         var hasUncertainMedia = !declaredSensorEvidence.unknownPresence.isEmpty
         var duration = openingFailure
             ? max(manifest.duration, 0)
@@ -1283,6 +1287,13 @@ extension WatchCaptureEngine {
                     manifest.partial = true
                     if openingFailure {
                         manifest.lost = false
+                        do {
+                            try await self.storageActor.removeItem(at: audioURL, transactionClass: .captureSafety)
+                            declaredSensors.removeAll { $0 == .audio }
+                            manifest.sensors = declaredSensors
+                        } catch {
+                            hasUncertainMedia = true
+                        }
                     } else {
                         manifest.lost = true
                         manifest.failureReason = WatchCaptureTerminalReason.audioUndecodable.observerError.message

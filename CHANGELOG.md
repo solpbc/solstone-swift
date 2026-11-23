@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- on apple watch, when a recording fails right as it starts, the app now discards the empty audio file so it doesn't go into your journal, while any location from that stretch still does. screen sharing on iphone and ipad no longer saves empty audio files either.
+
 ## [2.0.14 (168)] - 2026-11-23
 
 ### Changed

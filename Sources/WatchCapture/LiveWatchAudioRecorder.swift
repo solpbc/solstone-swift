@@ -86,6 +86,7 @@ final class LiveWatchAudioRecorder: NSObject, WatchAudioRecording {
         self.terminalRetention.enroll(recorder: recorder, source: source, sink: self.eventSink)
         guard recorder.record() else {
             _ = self.terminalRetention.stopCurrent()
+            _ = recorder.deleteRecording()
             throw ObserverError.unavailable(reason: AppStrings.ios_watch_start())
         }
     }
@@ -135,6 +136,9 @@ nonisolated struct LiveWatchAudioProbe: WatchAudioProbing {
     }
 
     func probe(at url: URL) async -> WatchAudioProbeResult {
+        if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, fileSize == 0 {
+            return .confirmedUndecodable
+        }
         do {
             let file = try AVAudioFile(forReading: url)
             guard file.fileFormat.sampleRate > 0 else {
