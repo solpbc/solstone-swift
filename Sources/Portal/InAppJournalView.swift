@@ -22,6 +22,7 @@ struct JournalWebView: UIViewRepresentable {
     let diagnosticLog: DiagnosticLog
     /// The app's import queue, offered to the journal's own pages; `nil` offers nothing.
     var importIntake: (any JournalImportIntake)? = nil
+    var localeLanguage: @Sendable () -> String = { AppStrings.language }
 
     /// Stable identity keyed on origin + journal instance so navigating between paths on the
     /// same journal (e.g. `/app/import/` -> `/app/import/<id>`) reuses the existing `WKWebView`
@@ -34,15 +35,33 @@ struct JournalWebView: UIViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(diagnosticLog: self.diagnosticLog, reconnectLocation: self.reconnectLocation) { state in
-            self.loadState = state
-        }
+        Coordinator(
+            diagnosticLog: self.diagnosticLog,
+            reconnectLocation: self.reconnectLocation,
+            localeLanguage: self.localeLanguage,
+            setState: { state in
+                self.loadState = state
+            }
+        )
     }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = JournalWebHostContractConfiguration.make(diagnosticLog: self.diagnosticLog)
         if let journalInstanceID, !journalInstanceID.isEmpty {
             configuration.websiteDataStore = JournalWebDataStore.store(for: journalInstanceID)
+        }
+        if let authority = JournalWebNavigationPolicy.authority(for: self.url),
+           let localeScript = JournalRequestLocale.fetchLocaleScript(
+               origin: "\(authority.scheme)://\(authority.host):\(authority.port)",
+               language: self.localeLanguage()
+           ) {
+            configuration.userContentController.addUserScript(
+                WKUserScript(
+                    source: localeScript,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true
+                )
+            )
         }
         let importHost = self.importIntake.flatMap { JournalImportHost(entryURL: self.url, intake: $0) }
         importHost?.install(in: configuration.userContentController)
@@ -87,6 +106,7 @@ struct JournalWebView: UIViewRepresentable {
     nonisolated final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, @unchecked Sendable {
         private let setState: @MainActor (JournalWebPresentation.LoadState) -> Void
         private let diagnosticLog: DiagnosticLog
+        private let localeLanguage: @Sendable () -> String
         let reconnectLocation: JournalWebReconnectLocation?
         @MainActor private var session: JournalWebNavigationSession?
         @MainActor private var activationRouter: JournalWebActivationRouter?
@@ -98,11 +118,13 @@ struct JournalWebView: UIViewRepresentable {
         init(
             diagnosticLog: DiagnosticLog,
             reconnectLocation: JournalWebReconnectLocation? = nil,
+            localeLanguage: @escaping @Sendable () -> String = { AppStrings.language },
             setState: @escaping @MainActor (JournalWebPresentation.LoadState) -> Void,
             opener: @escaping JournalWebActivationRouter.Opener = JournalSystemOpen.live
         ) {
             self.diagnosticLog = diagnosticLog
             self.reconnectLocation = reconnectLocation
+            self.localeLanguage = localeLanguage
             self.setState = setState
             self.opener = opener
         }
@@ -196,7 +218,8 @@ struct JournalWebView: UIViewRepresentable {
                     webView?.load(request)
                 },
                 setState: self.setState,
-                diagnosticLog: self.diagnosticLog
+                diagnosticLog: self.diagnosticLog,
+                localeLanguage: self.localeLanguage
             )
             self.session = session
             self.activationRouter = JournalWebActivationRouter(session: session, opener: self.opener)

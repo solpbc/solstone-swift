@@ -45,6 +45,10 @@ final class JournalWebActivationRouter {
             decisionHandler(.cancel)
             self.isHandlingActivation = false
             self.session.loadInCurrentView(request)
+        case .allow where self.session.needsLocaleReload(for: request, frame: frame):
+            decisionHandler(.cancel)
+            self.isHandlingActivation = false
+            self.session.loadInCurrentView(request)
         case .allow:
             decisionHandler(.allow)
             self.isHandlingActivation = false

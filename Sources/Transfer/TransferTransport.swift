@@ -10,6 +10,7 @@ nonisolated final class TransferTransport: @unchecked Sendable {
         TransferResolvedEndpoint,
         @Sendable () -> Void
     ) async -> Bool
+    private let localeLanguage: @Sendable () -> String
 
     init(
         sessionConfiguration: URLSessionConfiguration = .ephemeral,
@@ -17,7 +18,8 @@ nonisolated final class TransferTransport: @unchecked Sendable {
         requestAdmission: @escaping @Sendable (
             TransferResolvedEndpoint,
             @Sendable () -> Void
-        ) async -> Bool = { _, start in start(); return true }
+        ) async -> Bool = { _, start in start(); return true },
+        localeLanguage: @escaping @Sendable () -> String = { AppStrings.language }
     ) {
         // A stalled request gives up after 60 seconds without data. A whole upload keeps the
         // system's own limit of days, so a long Apple Health export that keeps moving finishes.
@@ -25,6 +27,7 @@ nonisolated final class TransferTransport: @unchecked Sendable {
         self.session = URLSession(configuration: sessionConfiguration)
         self.admission = admission
         self.requestAdmission = requestAdmission
+        self.localeLanguage = localeLanguage
     }
 
     func send(
@@ -74,6 +77,7 @@ nonisolated final class TransferTransport: @unchecked Sendable {
                             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                         }
                         request.attachLoopbackCapability()
+                        request.attachJournalLocale(language: self.localeLanguage())
                         let task = self.session.uploadTask(with: request, fromFile: bodyURL) { data, response, error in
                             upload.finish(Self.result(data: data, response: response, error: error))
                         }

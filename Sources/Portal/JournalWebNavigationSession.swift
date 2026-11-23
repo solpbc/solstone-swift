@@ -36,6 +36,7 @@ final class JournalWebNavigationSession {
     private let load: @MainActor (URLRequest) -> AnyObject?
     private let setState: @MainActor (JournalWebPresentation.LoadState) -> Void
     private let diagnosticLog: DiagnosticLog?
+    private let localeLanguage: @Sendable () -> String
 
     private var boundTask: Task<Void, Never>?
     private var generation = 0
@@ -61,7 +62,8 @@ final class JournalWebNavigationSession {
         restoreLoopbackCookie: @escaping @MainActor () async -> Void = { },
         load: @escaping @MainActor (URLRequest) -> AnyObject?,
         setState: @escaping @MainActor (JournalWebPresentation.LoadState) -> Void,
-        diagnosticLog: DiagnosticLog? = nil
+        diagnosticLog: DiagnosticLog? = nil,
+        localeLanguage: @escaping @Sendable () -> String = { AppStrings.language }
     ) {
         self.timeout = timeout
         self.sleep = sleep
@@ -70,6 +72,7 @@ final class JournalWebNavigationSession {
         self.load = load
         self.setState = setState
         self.diagnosticLog = diagnosticLog
+        self.localeLanguage = localeLanguage
     }
 
     func requestLoad(url: URL, reloadToken: Int, navigationToken: Int = 0) {
@@ -202,7 +205,23 @@ final class JournalWebNavigationSession {
 
     func loadInCurrentView(_ request: URLRequest) {
         guard !self.isTornDown else { return }
+        self.retire(self.currentNavigation)
+        self.retire(self.expectedNavigation)
         self.issueProgrammaticLoad(request)
+    }
+
+    func needsLocaleReload(
+        for request: URLRequest,
+        frame: JournalWebNavigationPolicy.Frame
+    ) -> Bool {
+        guard frame == .main,
+              let tag = JournalRequestLocale.headerValue(for: self.localeLanguage()),
+              JournalWebNavigationPolicy.hostPortMatches(requestURL: request.url, liveAuthority: self.liveAuthority),
+              JournalWebNavigationPolicy.isRewritableMethod(request.httpMethod)
+        else {
+            return false
+        }
+        return request.value(forHTTPHeaderField: JournalRequestLocale.headerName) != tag
     }
 
     func noteOpenRejected() {
@@ -381,8 +400,13 @@ final class JournalWebNavigationSession {
     }
 
     private func issueProgrammaticLoad(_ request: URLRequest) {
-        let schemeClass = JournalWebNavigationPolicy.schemeClass(for: request.url).rawValue
-        let port = request.url?.port.map { String($0) } ?? "none"
+        var taggedRequest = request
+        taggedRequest.attachJournalLocale(
+            matching: self.liveAuthority,
+            language: self.localeLanguage()
+        )
+        let schemeClass = JournalWebNavigationPolicy.schemeClass(for: taggedRequest.url).rawValue
+        let port = taggedRequest.url?.port.map { String($0) } ?? "none"
         self.emit(
             "load_requested",
             detail: AppStrings.ios_portal_issueprogrammaticload("\(schemeClass)", "\(port)", "\(self.generation)")
@@ -391,7 +415,7 @@ final class JournalWebNavigationSession {
         self.unkeyedCallbacksSealed = true
         self.setState(JournalWebPresentation.loadState(for: .started))
         self.armBound(generation: self.generation)
-        self.expectedNavigation = self.load(request)
+        self.expectedNavigation = self.load(taggedRequest)
     }
 
     private func acceptsTerminalSuccess(navigation: AnyObject?) -> Bool {

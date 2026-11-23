@@ -136,7 +136,7 @@ nonisolated enum JournalWebNavigationPolicy {
         host == "127.0.0.1" || host == "localhost" || host == "::1"
     }
 
-    private static func isRewritableMethod(_ method: String?) -> Bool {
+    static func isRewritableMethod(_ method: String?) -> Bool {
         let normalized = (method ?? "get").lowercased()
         return normalized == "get" || normalized == "head"
     }

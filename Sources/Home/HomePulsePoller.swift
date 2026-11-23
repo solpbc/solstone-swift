@@ -17,6 +17,12 @@ private nonisolated struct HomePulseResponse: Decodable {
 }
 
 nonisolated struct HomePulsePoller {
+    private let localeLanguage: @Sendable () -> String
+
+    init(localeLanguage: @escaping @Sendable () -> String = { AppStrings.language }) {
+        self.localeLanguage = localeLanguage
+    }
+
     func fetch(localPort: Int) async -> String? {
         let log = Logger(subsystem: "app.solstone.swift", category: "home")
         guard let url = ConveyURL.url(localPort: localPort, path: "/app/home/api/pulse") else {
@@ -27,6 +33,7 @@ nonisolated struct HomePulsePoller {
         var request = URLRequest(url: url)
         request.timeoutInterval = 2
         request.attachLoopbackCapability()
+        request.attachJournalLocale(language: self.localeLanguage())
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
