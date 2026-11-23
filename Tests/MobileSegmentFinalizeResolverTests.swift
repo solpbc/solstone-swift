@@ -474,6 +474,8 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
             """
             try Data(receiptJSON.utf8).write(to: pendingDir.appendingPathComponent("audio-writer.json"), options: .atomic)
 
+            // Inspect recovery metadata before successful delivery removes the queue entry.
+            await harness.engine.pause()
             await harness.uploader.resumeFromDisk()
 
             let snapshots = await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment)
@@ -485,6 +487,11 @@ final class MobileSegmentFinalizeResolverTests: XCTestCase {
             XCTAssertEqual(snapshot.manifest.observerIngest?.day, dayString)
             XCTAssertEqual(snapshot.manifest.observerIngest?.tz, "Asia/Tokyo")
             XCTAssertEqual(snapshot.manifest.observerIngest?.utcOffsetSeconds, utcOffset)
+
+            await harness.engine.resume()
+            try await transferTestWaitFor("recovered segment delivered") {
+                await harness.engine.itemSnapshots(sourceKey: ObserverAudioTransferSource.mobileSegment).isEmpty
+            }
         }
     }
 
