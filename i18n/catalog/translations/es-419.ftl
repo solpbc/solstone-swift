@@ -42,7 +42,7 @@ ios.app.agesignalhold = un padre, una madre o un tutor tiene que aprobar esta ve
 
 ios.app.agesignalunder13 = solstone es para personas de 13 años o más.
 
-ios.app.agesignalupdatedescription = la clasificación de edad de solstone en App Store cambió.
+ios.app.agesignalupdatedescription = la clasificación de edad de solstone en el App Store cambió.
 
 ios.app.at = { $relativeDay } a las { $shortTime }
 
@@ -1436,7 +1436,7 @@ ios.home.statustext = no se pudo activar. vuelve a intentarlo en un momento.
 
 ios.home.statustext2 = activando…
 
-ios.home.statustext3 = esperando tu diario
+ios.home.statustext3 = en espera de tu diario
 
 ios.home.taptotestconnectionhealth = toca para probar el estado de la conexión
 
@@ -1804,7 +1804,7 @@ ios.lookup.unknown.journal.slot.word.n1 = no
 
 ios.lookup.unknown.journal.slot.word.n2 = presentado
 
-ios.metadata.solstonebroadcastextension.cfbundledisplayname = pantalla
+ios.metadata.solstonebroadcastextension.cfbundledisplayname = screen
 
 ios.metadata.solstoneliveactivitywidget.cfbundledisplayname = SolstoneLiveActivityWidget
 
@@ -2948,7 +2948,7 @@ ios.tunnel.probeconnection = latencia: { $elapsed }; { $detail }; { $hole3 }
 
 ios.tunnel.probeconnection2.native = sonda disponible
 
-ios.tunnel.probefailed = falló la sonda
+ios.tunnel.probefailed = no se pudo sondear
 
 ios.tunnel.probenotreachable = sonda no alcanzable
 
