@@ -6041,9 +6041,14 @@ final class WatchCaptureTests: XCTestCase {
 
     /// Polls the serializer's exact settled state without creating a losing task
     /// or continuation that a bounded test failure could leave suspended.
+    ///
+    /// Yields first, then keeps polling on the wall clock until `timeout`: the
+    /// serializer's work hops to the storage actor, and on a loaded host those
+    /// hops can outlast a yield count alone while the engine is still correct.
     func settleCaptureEngine(
         _ engine: WatchCaptureEngine,
         maxYields: Int = 10_000,
+        timeout: Duration = .seconds(30),
         file: StaticString = #filePath,
         line: UInt = #line
     ) async {
@@ -6053,9 +6058,14 @@ final class WatchCaptureTests: XCTestCase {
             await Task.yield()
             yields += 1
         }
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if engine.lifecycleSerializer.isSettled { return }
+            try? await Task.sleep(for: .milliseconds(2))
+        }
         if engine.lifecycleSerializer.isSettled { return }
         XCTFail(
-            "settleCaptureEngine exhausted \(maxYields) yields without settlement",
+            "settleCaptureEngine exhausted \(maxYields) yields and \(timeout) without settlement",
             file: file,
             line: line
         )

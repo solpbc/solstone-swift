@@ -305,10 +305,13 @@ nonisolated final class JournalSendGrandfatherTests: XCTestCase {
         // Then kickConfirmedSend()
         release.kickConfirmedSend()
 
-        // Wait for both items to POST and push registration to occur
-        let deadline = ContinuousClock.now + .seconds(3)
+        // Wait for both items to POST, both deliveries to be recorded and push registration to
+        // occur. The URLProtocol sees a request before the engine records its delivery, so
+        // waiting on the request count alone races the delivered counter on a loaded host.
+        let deadline = ContinuousClock.now + .seconds(10)
         while ContinuousClock.now < deadline {
-            if TransferURLProtocol.requests.count >= 2 && PushManagerURLProtocol.callCount >= 1 {
+            if TransferURLProtocol.requests.count >= 2 && PushManagerURLProtocol.callCount >= 1,
+               await engine.snapshot().counters.deliveredCount >= 2 {
                 break
             }
             try await Task.sleep(for: .milliseconds(20))
