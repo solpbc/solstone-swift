@@ -24,7 +24,7 @@ ios.about.relative.second = { $count ->
 
 ios.app.addmorealreadyonhome = ya en inicio
 
-ios.app.addmorefooter = abre cualquier fuente para cambiar lo que hace y para agregar o quitar su ficha.
+ios.app.addmorefooter = abre cualquier fuente para cambiar lo que hace, y para agregar o quitar su mosaico.
 
 ios.app.addmorenotonhome = no en inicio
 
@@ -38,7 +38,7 @@ ios.app.addmoretitle = agregar más
 
 ios.app.agesignalaskagain = preguntar de nuevo
 
-ios.app.agesignalhold = un padre, una madre o un tutor tiene que aprobar esta versión de solstone para que puedas seguir usándola.
+ios.app.agesignalhold = un padre, una madre o un tutor debe aprobar esta versión de solstone antes de que puedas seguir usándola.
 
 ios.app.agesignalunder13 = solstone es para personas de 13 años o más.
 
@@ -70,7 +70,7 @@ ios.app.audioplaybackplaylabel = reproducir audio
 
 ios.app.audiostoppeditself = el audio se detuvo solo
 
-ios.app.awaitingmarkconfirmationline = esperando a que confirmes la marca de tu diario
+ios.app.awaitingmarkconfirmationline = en espera de que confirmes la marca de tu diario
 
 ios.app.awaitingmarkconfirmationsubline = nada en espera entra a tu diario hasta que lo hagas.
 
@@ -114,7 +114,7 @@ ios.app.diagnostic = almacenamiento de segmentos del móvil no disponible source
 
 ios.app.diagnostic2 = cola de transferencia no disponible source=app-group
 
-ios.app.dismiss = cerrar
+ios.app.dismiss = descartar
 
 ios.app.drop = quitar
 
@@ -158,7 +158,7 @@ ios.app.gethelp = obtener ayuda
 
 ios.app.gettingready = preparando…
 
-ios.app.givethisatileonhome = ponerle una ficha en inicio
+ios.app.givethisatileonhome = ponerle un mosaico en inicio
 
 ios.app.greetingafternoon = buenas tardes
 
@@ -178,7 +178,7 @@ ios.app.importfilesrow = archivos
 
 ios.app.importholdmark = las importaciones esperan hasta que confirmes la marca de tu diario.
 
-ios.app.importholdoffline = en espera de que tu diario se reconecte.
+ios.app.importholdoffline = en espera de que tu diario vuelva a conectarse.
 
 ios.app.importholdrefused = tu diario dejó de aceptar este dispositivo. las importaciones esperan aquí hasta que vuelvas a vincular.
 
@@ -230,7 +230,7 @@ ios.app.importsendingdetail = enviando a tu diario…
 
 ios.app.importstatusleadattention = las importaciones te necesitan
 
-ios.app.importstatusleadattentionsubline = abre importar para ver por qué.
+ios.app.importstatusleadattentionsubline = abre la importación para ver por qué.
 
 ios.app.importstatusleadready = { $count ->
     [one] { $count } importación lista para revisar
@@ -238,7 +238,7 @@ ios.app.importstatusleadready = { $count ->
    *[other] { $count } importaciones listas para revisar
 }
 
-ios.app.importstatusleadreadysubline = abre importar para revisar y empezar.
+ios.app.importstatusleadreadysubline = abre la importación para revisar y empezar.
 
 ios.app.importstatuspillready = { $count ->
     [one] { $count } lista para revisar
@@ -298,19 +298,19 @@ ios.app.journalgapheadline = hay un hueco en tu diario
 
 ios.app.journalgapon = algo de lo que compartiste el { $weekday } no le llegó.
 
-ios.app.journalgapsince = algo de lo que compartiste desde { $earliest } no le llegó.
+ios.app.journalgapsince = parte de lo que compartiste desde el { $earliest } no le llegó.
 
-ios.app.journalgaptoday = algo de lo que compartiste hoy no le llegó.
+ios.app.journalgaptoday = parte de lo que compartiste hoy no le llegó.
 
-ios.app.journalgapundated = algo de lo que compartiste no le llegó.
+ios.app.journalgapundated = parte de lo que compartiste no le llegó.
 
-ios.app.journalgapyesterday = algo de lo que compartiste ayer no le llegó.
+ios.app.journalgapyesterday = parte de lo que compartiste ayer no le llegó.
 
 ios.app.journallivesconnectaction = conectar
 
 ios.app.journallivesownbody = vincula con tu diario en tu computadora. entra todo lo que compartiste hasta ahora.
 
-ios.app.journallivestitle = dónde está tu diario
+ios.app.journallivestitle = dónde vive tu diario
 
 ios.app.journalmarkconfirmbutton = sí, este es mi diario
 
@@ -318,7 +318,7 @@ ios.app.journalmarkconfirmquestion = ¿esto coincide con tu diario?
 
 ios.app.journalmarkconfirmsubtext = tu diario muestra esta misma marca en su app de red. debe coincidir, exactamente.
 
-ios.app.journalmarkcouldnotverifybody = la revisión de la marca de tu diario no terminó. eso no quiere decir que las marcas discrepen.
+ios.app.journalmarkcouldnotverifybody = la revisión de la marca de tu diario no terminó. eso no significa que las marcas discrepen.
 
 ios.app.journalmarkcouldnotverifycancel = cancelar la vinculación
 
@@ -344,7 +344,7 @@ ios.app.lastactiveline = última actividad · { $relative }
 
 ios.app.lastsyncedlabel = última sincronización
 
-ios.app.loadfailuremessage = no se pudo llegar a tu diario. mantén abierta la app de solstone y vuelve a intentarlo.
+ios.app.loadfailuremessage = no se pudo conectar con tu diario. mantén abierta la app de solstone y vuelve a intentarlo.
 
 ios.app.magicmomentpendingbody = cuando detengas, va a estar en este dispositivo.
 
@@ -374,7 +374,7 @@ ios.app.notconnectedrowaffordancepaired = se abre cuando tu diario se reconecte.
 
 ios.app.notconnectedrowaffordanceunpaired = conecta un diario primero.
 
-ios.app.notpaired = no vinculado
+ios.app.notpaired = sin vincular
 
 ios.app.notreachable = no alcanzable
 
@@ -488,7 +488,7 @@ ios.app.pairinglinked = diario conectado
 
 ios.app.pairingreconnected = conexión del diario actualizada
 
-ios.app.pairingstilltrying = todavía intentando llegar a tu diario.
+ios.app.pairingstilltrying = todavía intentando conectar con tu diario.
 
 ios.app.pausedsubtext = pausaste esto. reanuda para volver a recibir.
 
@@ -662,7 +662,7 @@ ios.app.transferratelabel = tasa de transferencia
 
 ios.app.trustlineconfigured = sincroniza solo con tu diario
 
-ios.app.trynow = probar ya
+ios.app.trynow = intentar ahora
 
 ios.app.turnitonanytime = actívalo en cualquier momento.
 
@@ -836,7 +836,7 @@ ios.app.watchobservingsentencebase = recibiendo audio en tu reloj
 
 ios.app.watchpairedwithphonelabel = vinculado con este dispositivo
 
-ios.app.watchpanelrunning = en marcha
+ios.app.watchpanelrunning = en ejecución
 
 ios.app.watchpipelineabandoned = nunca llegó a tu iphone
 
@@ -1014,7 +1014,7 @@ ios.calendar.span.native = los últimos 30 días
 
 ios.calendar.spanfootnote = vas a ver cuántos eventos hay antes de que entre alguno.
 
-ios.calendar.spanheader = desde antes de hoy
+ios.calendar.spanheader = de antes de hoy
 
 ios.calendar.startfromtoday = empezar desde hoy
 
@@ -1056,7 +1056,7 @@ ios.contentview.connectedthroughtherelay = conectado a través del servidor de r
 
 ios.contentview.copythefulllinkfromyourchatandopenitagain = copia el enlace completo de tu chat y ábrelo de nuevo.
 
-ios.contentview.thisjournallinkisntvalid = este enlace al diario no es válido.
+ios.contentview.thisjournallinkisntvalid = este enlace del diario no es válido.
 
 ios.delivery.audio.attention = { $count ->
     [one] { $count } grabación necesita atención.
@@ -1102,7 +1102,7 @@ ios.diagnostics.body5 = gravedad: { $severityText }
 
 ios.diagnostics.body7.native = toca para contraer
 
-ios.diagnostics.copied = se copió
+ios.diagnostics.copied = copiado
 
 ios.diagnostics.detail = se rechazó una solicitud porque tu diario estaba atendiendo demasiadas solicitudes a la vez. el envío se reintenta automáticamente. si una página no cargó, intenta abrirla de nuevo.
 
@@ -1244,7 +1244,7 @@ ios.diagnosticsview.taptoexpanddetails = toca para ampliar los detalles
 
 ios.diagnosticsview.warning = advertencia
 
-ios.display.diagnosticcategory.diagnostics = diagnóstico
+ios.display.diagnosticcategory.diagnostics = diagnósticos
 
 ios.display.diagnosticcategory.journal = diario
 
@@ -1444,7 +1444,7 @@ ios.home.throughtherelay = por el servidor de retransmisión
 
 ios.home.unpairthisdevice = desvincular este dispositivo
 
-ios.home.watchdiagnosticsblocktitle = diagnóstico
+ios.home.watchdiagnosticsblocktitle = diagnósticos
 
 ios.intake.count.events = { $count ->
     [one] 1 evento
@@ -1478,9 +1478,9 @@ ios.intake.count.screenshots = { $count ->
 
 ios.intake.date.day = { $month } { $day }
 
-ios.intake.date.year = { $month } { $day }, { $year }
+ios.intake.date.year = { $day } { $month } { $year }
 
-ios.integrationgate.unreachable = inalcanzable
+ios.integrationgate.unreachable = no conecta
 
 ios.intents.connectajournal = conectar un diario
 
@@ -1700,7 +1700,7 @@ ios.lookup.migration.decision.refused.title = la elección necesita atención
 
 ios.lookup.migration.decision.unknown.action = revisar de nuevo
 
-ios.lookup.migration.decision.unknown.body = tu diario todavía no ha confirmado el resultado.
+ios.lookup.migration.decision.unknown.body = tu diario todavía no confirmó el resultado.
 
 ios.lookup.migration.decision.unknown.title = revisando tu elección
 
@@ -1712,15 +1712,15 @@ ios.lookup.migration.key.refused.title = vincular de nuevo
 
 ios.lookup.migration.list.unavailable.action = reintentar
 
-ios.lookup.migration.list.unavailable.body = no se pudieron cargar los dispositivos de tu diario. vuelve a intentarlo cuando tu diario esté al alcance.
+ios.lookup.migration.list.unavailable.body = no se pudieron cargar los dispositivos en tu diario. vuelve a intentarlo cuando se pueda conectar con tu diario.
 
 ios.lookup.migration.list.unavailable.title = dispositivos no disponibles
 
 ios.lookup.migration.offline.action = reintentar
 
-ios.lookup.migration.offline.body = lo que está en espera de enviarse se queda en este dispositivo. vuelve a intentarlo cuando tu diario esté al alcance.
+ios.lookup.migration.offline.body = todo lo que espera enviarse se queda en este dispositivo. vuelve a intentarlo cuando se pueda conectar con tu diario.
 
-ios.lookup.migration.offline.title = no se puede alcanzar tu diario
+ios.lookup.migration.offline.title = no se puede conectar con tu diario
 
 ios.lookup.migration.pending.row = elección de dispositivo
 
@@ -1736,7 +1736,7 @@ ios.lookup.migration.preparing.body = lo que está en espera de enviarse se qued
 
 ios.lookup.migration.preparing.title = preparando este dispositivo
 
-ios.lookup.migration.replace.confirm.body = este dispositivo continúa su nombre y su historial. el dispositivo elegido va a perder el acceso a tu diario.
+ios.lookup.migration.replace.confirm.body = este dispositivo continúa con su nombre y su historial. el dispositivo seleccionado perderá el acceso a tu diario.
 
 ios.lookup.migration.replace.confirm.cancel = cancelar
 
@@ -1744,7 +1744,7 @@ ios.lookup.migration.replace.confirm.replace = reemplazar dispositivo
 
 ios.lookup.migration.replace.confirm.title.arguments = ¿reemplazar "{ $selected_device_label }"?
 
-ios.lookup.migration.replace.confirm.title.fallback = ¿reemplazar el dispositivo elegido?
+ios.lookup.migration.replace.confirm.title.fallback = ¿reemplazar el dispositivo seleccionado?
 
 ios.lookup.migration.replace.offer.body = puedes conservar ambos, o elegir un dispositivo para que este lo reemplace.
 
@@ -1764,7 +1764,7 @@ ios.lookup.migration.storage.unavailable.title = conexión guardada no disponibl
 
 ios.lookup.migration.target.missing.action = elegir un dispositivo
 
-ios.lookup.migration.target.missing.body = ese dispositivo ya no está en la lista de tu diario. elige otro dispositivo, o conserva ambos.
+ios.lookup.migration.target.missing.body = ese dispositivo ya no aparece en tu diario. elige otro dispositivo, o conserva ambos.
 
 ios.lookup.migration.target.missing.title = dispositivo ya no disponible
 
@@ -1784,7 +1784,7 @@ ios.lookup.unknown.journal.body.relay = algo respondió a este dispositivo por e
 
 ios.lookup.unknown.journal.caption.claimed = declarado, sin verificar
 
-ios.lookup.unknown.journal.caption.no.identity = no se presentó identidad
+ios.lookup.unknown.journal.caption.no.identity = ninguna identidad presentada
 
 ios.lookup.unknown.journal.expand = ver detalles
 
@@ -1796,9 +1796,9 @@ ios.lookup.unknown.journal.label.your.journal = tu diario
 
 ios.lookup.unknown.journal.row.direct.arguments = diario desconocido visto en { $address }
 
-ios.lookup.unknown.journal.row.relay = diario desconocido visto por el servidor de retransmisión
+ios.lookup.unknown.journal.row.relay = diario desconocido visto a través del servidor de retransmisión
 
-ios.lookup.unknown.journal.slot.spoken = no se presentó identidad
+ios.lookup.unknown.journal.slot.spoken = ninguna identidad presentada
 
 ios.lookup.unknown.journal.slot.word.n1 = no
 
@@ -1844,7 +1844,7 @@ ios.migration.keyrefused.title = vincular de nuevo
 
 ios.migration.offline.action = reintentar
 
-ios.migration.offline.title = no se puede alcanzar tu diario
+ios.migration.offline.title = no se puede conectar con tu diario
 
 ios.migration.picker.cancel = cancelar
 
@@ -1960,7 +1960,7 @@ ios.obsidian.waslastsharedoncontinue = { $vault } se compartió por última vez 
 
 ios.onboarding.body2 = abre tu día sin conectar un diario
 
-ios.onboarding.body5 = la app de solstone recibe lo que compartes con ella, y todo entra a tu diario.
+ios.onboarding.body5 = la app de solstone recibe lo que compartes con ella, y todo va a tu diario.
 
 ios.onboarding.body7 = te damos la bienvenida a solstone.
 
@@ -1988,7 +1988,7 @@ ios.pairing.mark = marca
 
 ios.pairing.message.native.bytes = este dispositivo y tu diario están en redes distintas.{ $slot0 }este dispositivo:{ $slot1 }{ $value0 }{ $slot2 }tu diario:{ $slot3 }{ $value1 }{ $slot4 }conecta ambos a la misma wi-fi y luego vuelve a intentarlo.{ $slot5 }activar la red privada en tu diario permite que tus dispositivos lleguen a él desde cualquier lugar.
 
-ios.pairing.message10 = se cerró la ventana de vinculación. muestra un código de vinculación nuevo en tu diario y luego vuelve a intentarlo.
+ios.pairing.message10 = la ventana de vinculación se cerró. muestra un código de vinculación nuevo en tu diario y luego vuelve a intentarlo.
 
 ios.pairing.message11 = el servidor de retransmisión se conectó al diario equivocado.
 
@@ -2002,15 +2002,15 @@ ios.pairing.message15 = este enlace de vinculación usa un formato de dirección
 
 ios.pairing.message16 = este enlace de vinculación usa un formato de verificación no admitido.
 
-ios.pairing.message17 = no se puede llegar a tu diario desde aquí. estás en datos celulares, y la vinculación tiene que llegar directamente a tu diario. conéctate a la misma wi-fi que tu diario, o vuelve a intentarlo cuando estés en casa. todo lo que la app de solstone ha recibido está en este dispositivo y se sincroniza cuando vuelvas a conectar.
+ios.pairing.message17 = no se puede conectar con tu diario desde aquí. estás en datos celulares, y la vinculación tiene que conectar directamente con tu diario. conéctate a la misma wi-fi que tu diario, o vuelve a intentarlo cuando estés en casa. todo lo que la app de solstone ha recibido está en este dispositivo y se sincroniza cuando vuelvas a conectar.
 
-ios.pairing.message2 = no se pudo llegar a tu diario en { $targetAddress }. asegúrate de que esté en ejecución y en la misma wi-fi, luego vuelve a intentarlo. algunas redes impiden que los dispositivos se conecten directamente. activar la red privada en tu diario permite que tus dispositivos lleguen a él desde cualquier lugar.
+ios.pairing.message2 = no se pudo conectar con tu diario en { $targetAddress }. asegúrate de que esté en ejecución y en la misma wi-fi, luego vuelve a intentarlo. algunas redes impiden que los dispositivos se conecten directamente. activar la red privada en tu diario permite que tus dispositivos conecten con él desde cualquier lugar.
 
-ios.pairing.message3 = no se pudo llegar a tu diario en { $targetAddress }. asegúrate de que esté en ejecución, luego vuelve a intentarlo.
+ios.pairing.message3 = no se pudo conectar con tu diario en { $targetAddress }. asegúrate de que esté en ejecución, luego vuelve a intentarlo.
 
-ios.pairing.message4 = no se pudo llegar a tu diario. asegúrate de que esté en ejecución y en la misma wi-fi, luego vuelve a intentarlo. activar la red privada en tu diario permite que tus dispositivos lleguen a él desde cualquier lugar.
+ios.pairing.message4 = no se pudo conectar con tu diario. asegúrate de que esté en ejecución y en la misma wi-fi, luego vuelve a intentarlo. activar la red privada en tu diario permite que tus dispositivos conecten con él desde cualquier lugar.
 
-ios.pairing.message5 = no se pudo llegar a tu diario. asegúrate de que esté en ejecución, luego vuelve a intentarlo.
+ios.pairing.message5 = no se pudo conectar con tu diario. asegúrate de que esté en ejecución, luego vuelve a intentarlo.
 
 ios.pairing.message6 = se perdió la conexión con tu diario antes de que respondiera. vuelve a intentarlo.
 
@@ -2044,7 +2044,7 @@ ios.pairing.subtitleformode = en tu computadora, abre el panel de tu diario, ve 
 
 ios.pairing.subtitleformode2 = en tu computadora, abre el panel de tu diario, ve a la app de red, elige "vincular un dispositivo" y luego copia el enlace.
 
-ios.pairing.unavailablespokenvalue = la marca de tu diario, no disponible ahora mismo
+ios.pairing.unavailablespokenvalue = la marca de tu diario, no disponible ahora
 
 ios.pairing.yourjournalmarknotconfirmed = tu diario, marca todavía sin confirmar
 
@@ -2268,7 +2268,7 @@ ios.presentation.tunnelmanager.n82 = { $value0 }
 
 ios.presentation.tunnelmanager.n94 = candidato de servidor de retransmisión en espera del home
 
-ios.presentation.tunnelmanager.n96 = no se pudo llegar a tu diario
+ios.presentation.tunnelmanager.n96 = no se pudo conectar con tu diario
 
 ios.presentation.watchhomeview.n8 = { $value0 }, { $value1 }
 
@@ -2428,15 +2428,15 @@ ios.screencast.agestr = { $hole1 } edad={ $now_timeIntervalSince_0 }s
 
 ios.screencast.body = grabación de pantalla
 
-ios.screenshots.addsthescreenshotsyoutake = agrega las capturas de pantalla que tomas a tu diario mientras esto está activado.
+ios.screenshots.addsthescreenshotsyoutake = agrega a tu diario las capturas de pantalla que tomas mientras esto está activado.
 
 ios.screenshots.ascreenshotalreadyinyour = una captura de pantalla que ya está en tu diario se queda ahí si la eliminas de Fotos.
 
 ios.screenshots.asksiosforaccessto = pide a ios acceso a tus fotos.
 
-ios.screenshots.choosehowfarbackto = elige desde cuándo empezar y luego tráelas.
+ios.screenshots.choosehowfarbackto = elige qué tan atrás empezar y luego tráelas.
 
-ios.screenshots.couldntcountyourscreenshots = no se pudo contar tus capturas de pantalla.
+ios.screenshots.couldntcountyourscreenshots = no se pudieron contar tus capturas de pantalla.
 
 ios.screenshots.iosissharingonlythe = ios solo está compartiendo las fotos que elegiste, así que no pueden entrar capturas de pantalla nuevas. permite el acceso completo en la configuración de ios para activar esto.
 
@@ -2480,13 +2480,13 @@ ios.screenshots.thisscreenshotistoobig = esta captura de pantalla es demasiado g
 
 ios.screenshots.turnonscreenshots = activar capturas de pantalla
 
-ios.screenshots.waitingforajournalupdate = esperando una actualización del diario. tus capturas de pantalla esperan en este dispositivo.
+ios.screenshots.waitingforajournalupdate = en espera de una actualización del diario. tus capturas de pantalla esperan en este dispositivo.
 
 ios.screenshots.whatsalreadyinyourjournal = lo que ya está en tu diario se queda cuando pausas o desactivas esto.
 
 ios.screenshots.whilethisisonthe = mientras esto está activado, la app de solstone recibe solo las capturas de pantalla que tomas, y tu diario conserva cada una en el minuto en que la tomaste.
 
-ios.screenshots.youllseehowmanyscreenshots = vas a ver cuántas capturas de pantalla hay antes de que entre alguna.
+ios.screenshots.youllseehowmanyscreenshots = verás cuántas capturas de pantalla hay antes de que entre alguna.
 
 ios.screenshots.youpausedthisscreenshotsyou = pausaste esto. las capturas de pantalla que tomas mientras está en pausa no entran.
 
@@ -2590,7 +2590,7 @@ ios.sourceintakeformatting.march = marzo
 
 ios.sourceintakeformatting.may = mayo
 
-ios.sourceintakeformatting.minago = { $value0 }{ $slot0 }min atrás
+ios.sourceintakeformatting.minago = hace { $value0 }{ $slot0 }min
 
 ios.sourceintakeformatting.november = noviembre
 
@@ -2886,7 +2886,7 @@ ios.tunnel.diagnosticsnapshotlines7.native = servidor de retransmisión:{ $slot0
 
 ios.tunnel.diagnosticsnapshotlines8 = fase de escena: { $rawValue }
 
-ios.tunnel.disconnected = sin conexión
+ios.tunnel.disconnected = desconectado
 
 ios.tunnel.exportlabel = falló la conexión
 
@@ -2970,7 +2970,7 @@ ios.tunnel.startlivenessprobe2 = sonda no alcanzable durante subidas activas
 
 ios.tunnel.transportclosed = transporte cerrado
 
-ios.tunnel.usermessage = no se puede alcanzar este diario ahora.
+ios.tunnel.usermessage = no se puede conectar con este diario ahora.
 
 ios.tunnel.usermessage2 = falló la conexión — { $detail }
 
@@ -3068,7 +3068,7 @@ ios.watch.lastfactrows6 = último ACK duradero
 
 ios.watch.lastfactrows7 = última conciliación de la cola
 
-ios.watch.lastfactrows8 = todavía nada
+ios.watch.lastfactrows8 = todavía no hay nada
 
 ios.watch.lastfacts = últimos datos
 
