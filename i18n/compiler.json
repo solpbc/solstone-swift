@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/solpbc/solstone-journal.git",
-  "commit": "f261db6bce4533578b6f5c752bf4e474c8e80446",
-  "registry_sha256": "6e03e3f4d319a24064c01d00a7385c8d22b7e4f93d37e6b02eeb270912461b87",
+  "commit": "1e4c16bf15e00112ddce282da8d871786d0efc39",
+  "registry_sha256": "802cf9998855efad01e990e7c63ee3ebd01a0c4a0609c7033398392351d5c815",
   "target": "apple",
   "channel": "production"
 }
