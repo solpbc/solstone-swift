@@ -10,8 +10,19 @@
 # a hard failure, not a warning.
 set -euo pipefail
 
-APPSTORE_IPA="${1:-build/ipa-appstore/solstone-swift.ipa}"
-DEVICE_IPA="${2:-build/ipa-device/solstone-swift.ipa}"
+single_ipa() {
+  # $1 = export dir. Echoes its one .ipa. The exported file name follows the built
+  # CFBundleName (solstone.ipa since 566af05), so the default is not a fixed name.
+  local ipas=("$1"/*.ipa)
+  if [ "${#ipas[@]}" -ne 1 ] || [ ! -f "${ipas[0]}" ]; then
+    echo "error: expected exactly one .ipa in $1" >&2
+    exit 1
+  fi
+  printf '%s\n' "${ipas[0]}"
+}
+
+if [ $# -ge 1 ]; then APPSTORE_IPA="$1"; else APPSTORE_IPA="$(single_ipa build/ipa-appstore)"; fi
+if [ $# -ge 2 ]; then DEVICE_IPA="$2"; else DEVICE_IPA="$(single_ipa build/ipa-device)"; fi
 
 for f in "$APPSTORE_IPA" "$DEVICE_IPA"; do
   [ -f "$f" ] || { echo "error: not found: $f" >&2; exit 1; }

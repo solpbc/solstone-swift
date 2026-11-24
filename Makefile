@@ -875,9 +875,13 @@ verify-ipa-parity:
 	@scripts/verify-ipa-parity.sh
 
 # Install the device-signed release IPA on the wired device. Unlike `deploy`,
-# which installs the Debug build, this installs the exact bytes that ship.
+# which installs the Debug build, this installs the exact bytes that ship. The export's
+# file name follows the built CFBundleName, so take the one .ipa there, not a fixed name.
 deploy-ipa-device: verify-ipa-parity
-	xcrun devicectl device install app --device $(DEVICE) build/ipa-device/solstone-swift.ipa
+	@set -- build/ipa-device/*.ipa; \
+	if [ $$# -ne 1 ] || [ ! -f "$$1" ]; then echo "error: expected exactly one .ipa in build/ipa-device" >&2; exit 1; fi; \
+	echo "xcrun devicectl device install app --device $(DEVICE) $$1"; \
+	xcrun devicectl device install app --device $(DEVICE) "$$1"
 
 # One command for the whole device-gate artifact path: export, prove parity,
 # install on the wired device, launch it.
