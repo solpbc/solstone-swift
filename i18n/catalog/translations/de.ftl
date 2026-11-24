@@ -34,7 +34,7 @@ ios.app.addmoretitle = mehr hinzufügen
 
 ios.app.agesignalaskagain = erneut fragen
 
-ios.app.agesignalhold = ein Elternteil oder eine erziehungsberechtigte Person muss diese Version von solstone genehmigen, bevor du solstone weiter nutzen kannst.
+ios.app.agesignalhold = ein Elternteil oder ein Vormund muss diese Version von solstone genehmigen, bevor du sie weiter nutzen kannst.
 
 ios.app.agesignalunder13 = solstone ist für Personen ab 13.
 
@@ -66,7 +66,7 @@ ios.app.audioplaybackplaylabel = Audio abspielen
 
 ios.app.audiostoppeditself = Audio hat sich selbst angehalten
 
-ios.app.awaitingmarkconfirmationline = wartet darauf, dass du die mark deines Journals bestätigst.
+ios.app.awaitingmarkconfirmationline = wartet darauf, dass du die mark deines Journals bestätigst
 
 ios.app.awaitingmarkconfirmationsubline = nichts, was wartet, geht in dein Journal, bis du es tust.
 
@@ -154,7 +154,7 @@ ios.app.gethelp = Hilfe holen
 
 ios.app.gettingready = wird vorbereitet…
 
-ios.app.givethisatileonhome = dafür eine Kachel auf Start geben
+ios.app.givethisatileonhome = gib dem eine Kachel auf Start
 
 ios.app.greetingafternoon = guten Nachmittag
 
@@ -174,9 +174,9 @@ ios.app.importfilesrow = Dateien
 
 ios.app.importholdmark = Importe warten, bis du die mark deines Journals bestätigst.
 
-ios.app.importholdoffline = wartet, bis dein Journal sich wieder verbindet.
+ios.app.importholdoffline = wartet, bis dein Journal wieder verbunden ist.
 
-ios.app.importholdrefused = dein Journal hat aufgehört, dieses Gerät anzunehmen. Importe warten hier, bis du erneut koppelst.
+ios.app.importholdrefused = dein Journal nimmt dieses Gerät nicht mehr an. Importe warten hier, bis du erneut koppelst.
 
 ios.app.importholdunpaired = Importe warten auf diesem Gerät, bis du ein Journal verbindest.
 
@@ -198,9 +198,9 @@ ios.app.importremoveaction = entfernen
 
 ios.app.importremoveactionlabel = { $name } entfernen
 
-ios.app.importremovebodylocal = das entfernt die Kopie auf diesem Gerät, damit sie dein Journal nicht erreicht.
+ios.app.importremovebodylocal = das entfernt die Kopie auf diesem Gerät, also erreicht sie dein Journal nicht.
 
-ios.app.importremovebodymissing = die Kopie ist schon weg, also entfernt das sie nur noch von hier.
+ios.app.importremovebodymissing = die Kopie ist schon weg, also wird sie nur von hier entfernt.
 
 ios.app.importremovebodyreview = das entfernt die Kopie auf diesem Gerät. die wartende Kopie in deinem Journal bleibt dort, bis du sie verwirfst oder sie abläuft.
 
@@ -212,7 +212,7 @@ ios.app.importreviewaction = in deinem Journal prüfen
 
 ios.app.importreviewactionlabel = { $name } in deinem Journal prüfen
 
-ios.app.importreviewdetail = in deinem Journal gespeichert. zeig die Vorschau an und bestätige, um zu starten.
+ios.app.importreviewdetail = in deinem Journal gespeichert. Vorschau anzeigen und bestätigen, um zu starten.
 
 ios.app.importreviewdetailexpiry = in deinem Journal gespeichert. prüfe innerhalb einer Stunde, bevor dein Journal die wartende Kopie entfernt.
 
@@ -284,7 +284,7 @@ ios.app.inyourjournal = in deinem Journal
 
 ios.app.journalconnected = dein Journal · verbunden
 
-ios.app.journalgapheadline = es gibt eine Lücke in deinem Journal
+ios.app.journalgapheadline = in deinem Journal ist eine Lücke
 
 ios.app.journalgapon = einiges von dem, was du am { $weekday } geteilt hast, hat es nicht erreicht.
 
@@ -316,9 +316,9 @@ ios.app.journalmarkcouldnotverifycancelaccessibility = Kopplung abbrechen und di
 
 ios.app.journalmarkcouldnotverifycontinue = trotzdem fortfahren
 
-ios.app.journalmarkcouldnotverifycontinueaccessibility = mit der Kopplung fortfahren, ohne die mark des Journals zu überprüfen
+ios.app.journalmarkcouldnotverifycontinueaccessibility = Kopplung fortsetzen, ohne die mark des Journals zu prüfen
 
-ios.app.journalmarkcouldnotverifytitle = die Überprüfung ist nicht gelungen
+ios.app.journalmarkcouldnotverifytitle = konnte nicht überprüfen
 
 ios.app.journalmarkmismatchbutton = das stimmt nicht überein
 
@@ -452,7 +452,7 @@ ios.app.onthisphonesharesummary2 = von { $origin } · { $datePhrase }
 
 ios.app.onthisphonetruthline = deine Erinnerungen sind auf diesem Gerät und werden nicht verarbeitet, bis du ein Journal verbindest.
 
-ios.app.onthisphonetrynowfailed = erneut versuchen ist nicht gelungen. es ist noch auf diesem Gerät.
+ios.app.onthisphonetrynowfailed = das konnte nicht erneut versucht werden. es ist noch auf diesem Gerät.
 
 ios.app.onthisphoneturnonsourcebutton = eine Quelle einschalten
 
@@ -570,7 +570,7 @@ ios.app.relativedaylabel = gestern
 
 ios.app.repairline = dein Journal hat dieses Gerät gebeten, sich wieder zu verbinden.
 
-ios.app.reportaproblem = ein Problem melden
+ios.app.reportaproblem = Problem melden
 
 ios.app.savedonyourwatch = auf deiner Uhr gespeichert
 
@@ -640,11 +640,11 @@ ios.app.stop = stoppen
 
 ios.app.syncedbody = alles ist in deinem Journal
 
-ios.app.syncedheadline = auf dem neuesten Stand
+ios.app.syncedheadline = alles auf dem neuesten Stand
 
 ios.app.syncinglabel = wird abgeglichen
 
-ios.app.syncingtoyourjournal = wird zu deinem Journal abgeglichen…
+ios.app.syncingtoyourjournal = wird mit deinem Journal abgeglichen…
 
 ios.app.transferrateidle = im Leerlauf
 
@@ -1046,7 +1046,7 @@ ios.contentview.connectedthroughtherelay = verbunden über das Relay
 
 ios.contentview.copythefulllinkfromyourchatandopenitagain = kopiere den vollständigen Link aus deinem Chat und öffne ihn erneut.
 
-ios.contentview.thisjournallinkisntvalid = dieser Journallink ist nicht gültig.
+ios.contentview.thisjournallinkisntvalid = dieser Journal-Link ist nicht gültig.
 
 ios.delivery.audio.attention = { $count ->
     [one] { $count } Aufnahme braucht Aufmerksamkeit.
@@ -1327,7 +1327,7 @@ ios.home.body50 = aus, bis du es einschaltest. dein Journal verschlüsselt jede 
 
 ios.home.body51 = an · { $hole1 }
 
-ios.home.body52 = ein neues Journal koppeln
+ios.home.body52 = neues Journal koppeln
 
 ios.home.body53 = ein neues Journal koppeln?
 
@@ -1351,7 +1351,7 @@ ios.home.body62 = dieses Gerät entkoppeln?
 
 ios.home.body63 = Version
 
-ios.home.body64 = wenn etwas einen Blick lohnt
+ios.home.body64 = wenn etwas einen Blick wert ist
 
 ios.home.body7 = kopieren
 
@@ -1682,7 +1682,7 @@ ios.lookup.migration.decision.unknown.title = deine Auswahl wird geprüft
 
 ios.lookup.migration.key.refused.action = erneut koppeln
 
-ios.lookup.migration.key.refused.body = dieses Gerät konnte seine gespeicherte Verbindung zu deinem Journal nicht öffnen. was auf das Senden wartet, ist noch hier. kopple erneut, um wieder zu verbinden.
+ios.lookup.migration.key.refused.body = dieses Gerät konnte seine gespeicherte Verbindung zu deinem Journal nicht öffnen. alles, was aufs Senden wartet, ist noch hier. kopple erneut, um wieder zu verbinden.
 
 ios.lookup.migration.key.refused.title = erneut koppeln
 
@@ -1706,13 +1706,13 @@ ios.lookup.migration.picker.cancel = abbrechen
 
 ios.lookup.migration.picker.empty = keine anderen gekoppelten Geräte
 
-ios.lookup.migration.picker.title = ein Gerät wählen
+ios.lookup.migration.picker.title = Gerät wählen
 
-ios.lookup.migration.preparing.body = was auf das Senden wartet, bleibt auf diesem Gerät, bis es bereit ist.
+ios.lookup.migration.preparing.body = alles, was aufs Senden wartet, bleibt auf diesem Gerät, bis es bereit ist.
 
 ios.lookup.migration.preparing.title = dieses Gerät wird bereit gemacht
 
-ios.lookup.migration.replace.confirm.body = dieses Gerät setzt seinen Namen und seinen Verlauf fort. das gewählte Gerät wird den Zugriff auf dein Journal verlieren.
+ios.lookup.migration.replace.confirm.body = dieses Gerät führt seinen Namen und seinen Verlauf fort. das gewählte Gerät verliert den Zugriff auf dein Journal.
 
 ios.lookup.migration.replace.confirm.cancel = abbrechen
 
@@ -1728,7 +1728,7 @@ ios.lookup.migration.replace.offer.defer = nicht jetzt
 
 ios.lookup.migration.replace.offer.keep = beide behalten
 
-ios.lookup.migration.replace.offer.pick = ein Gerät wählen
+ios.lookup.migration.replace.offer.pick = Gerät wählen
 
 ios.lookup.migration.replace.offer.title = ersetzt das eines deiner Geräte?
 
@@ -1738,15 +1738,15 @@ ios.lookup.migration.storage.unavailable.body = dieses Gerät konnte seine gespe
 
 ios.lookup.migration.storage.unavailable.title = gespeicherte Verbindung nicht verfügbar
 
-ios.lookup.migration.target.missing.action = ein Gerät wählen
+ios.lookup.migration.target.missing.action = Gerät wählen
 
-ios.lookup.migration.target.missing.body = jenes Gerät steht nicht mehr in deinem Journal. wähle ein anderes Gerät, oder behalte beide.
+ios.lookup.migration.target.missing.body = das Gerät steht nicht mehr in deinem Journal. wähle ein anderes Gerät, oder behalte beide.
 
 ios.lookup.migration.target.missing.title = Gerät nicht mehr verfügbar
 
 ios.lookup.migration.unsupported.action = erneut versuchen
 
-ios.lookup.migration.unsupported.body = dein Journal unterstützt diesen Umzug noch nicht. was auf das Senden wartet, bleibt auf diesem Gerät. aktualisiere dein Journal und versuch es dann noch einmal.
+ios.lookup.migration.unsupported.body = dein Journal unterstützt diesen Umzug noch nicht. alles, was aufs Senden wartet, bleibt auf diesem Gerät. aktualisiere dein Journal und versuch es dann noch einmal.
 
 ios.lookup.migration.unsupported.title = Journalaktualisierung nötig
 
@@ -1770,7 +1770,7 @@ ios.lookup.unknown.journal.label.what.answered = was geantwortet hat
 
 ios.lookup.unknown.journal.label.your.journal = dein Journal
 
-ios.lookup.unknown.journal.row.direct.arguments = unbekanntes Journal unter { $address } gesehen
+ios.lookup.unknown.journal.row.direct.arguments = unbekanntes Journal gesehen bei { $address }
 
 ios.lookup.unknown.journal.row.relay = unbekanntes Journal über das Relay gesehen
 
@@ -1886,7 +1886,7 @@ ios.obsidian.checknow = jetzt prüfen
 
 ios.obsidian.checkswhilethisappis = prüft, solange diese App offen ist. iOS kann eine Prüfung auch im Hintergrund erlauben.
 
-ios.obsidian.chooseavault = einen Tresor wählen
+ios.obsidian.chooseavault = Tresor wählen
 
 ios.obsidian.chooseavaultinon = wähle einen Tresor in "Auf meinem iPhone". iCloud und andere Dateianbieter werden noch nicht unterstützt.
 
@@ -1936,7 +1936,7 @@ ios.obsidian.waslastsharedoncontinue = { $vault } wurde zuletzt am { $date } get
 
 ios.onboarding.body2 = öffnet deinen Tag, ohne ein Journal zu verbinden
 
-ios.onboarding.body5 = die solstone-App nimmt entgegen, was du mit ihr teilst, und alles davon geht in dein Journal.
+ios.onboarding.body5 = die solstone-App nimmt entgegen, was du mit ihr teilst, und all das geht in dein Journal.
 
 ios.onboarding.body7 = willkommen bei solstone.
 
@@ -2386,7 +2386,7 @@ ios.screenshots.asksiosforaccessto = fragt iOS nach Zugriff auf deine Fotos.
 
 ios.screenshots.choosehowfarbackto = wähle, wie weit zurück du anfängst, und hol sie dann herein.
 
-ios.screenshots.couldntcountyourscreenshots = das Zählen deiner Bildschirmfotos ist nicht gelungen.
+ios.screenshots.couldntcountyourscreenshots = deine Bildschirmfotos konnten nicht gezählt werden.
 
 ios.screenshots.iosissharingonlythe = iOS teilt nur die Fotos, die du ausgewählt hast, deshalb können neue Bildschirmfotos nicht ankommen. erlaube vollen Zugriff in den iOS-Einstellungen, um das einzuschalten.
 
@@ -2410,7 +2410,7 @@ ios.screenshots.photosareturnedofffor = Fotos sind für die solstone-App durch e
 
 ios.screenshots.screenshotsalreadyinyourjournal = Bildschirmfotos, die schon in deinem Journal sind, werden nicht erneut hereingeholt.
 
-ios.screenshots.screenshotscomeinontheir = Bildschirmfotos kommen von selbst an.
+ios.screenshots.screenshotscomeinontheir = Bildschirmfotos kommen von selbst herein.
 
 ios.screenshots.setupscreenshots = Bildschirmfotos einrichten
 
@@ -2436,9 +2436,9 @@ ios.screenshots.whatsalreadyinyourjournal = was schon in deinem Journal ist, ble
 
 ios.screenshots.whilethisisonthe = solange das an ist, nimmt die solstone-App nur die Bildschirmfotos, die du machst, entgegen, und dein Journal behält jedes in der Minute, in der du es gemacht hast.
 
-ios.screenshots.youllseehowmanyscreenshots = du wirst sehen, wie viele Bildschirmfotos es gibt, bevor welche ankommen.
+ios.screenshots.youllseehowmanyscreenshots = du siehst, wie viele Bildschirmfotos es gibt, bevor welche hereinkommen.
 
-ios.screenshots.youpausedthisscreenshotsyou = du hast das pausiert. Bildschirmfotos, die du, solange es pausiert ist, machst, kommen nicht an.
+ios.screenshots.youpausedthisscreenshotsyou = du hast das pausiert. Bildschirmfotos, die du machst, solange es pausiert ist, kommen nicht herein.
 
 ios.services.connect = Kopplung fehlt
 
@@ -2567,7 +2567,7 @@ ios.sourcevocabularyswift.beforeiosasks = bevor iOS fragt
 
 ios.sourcevocabularyswift.couldntdisconnectthisdeviceyet = das Trennen dieses Geräts ist noch nicht gelungen. nichts, was es behalten hat, ging über diesen Link an jenes Journal. versuch es noch einmal.
 
-ios.sourcevocabularyswift.couldntsaveyouranswertry = das Speichern deiner Antwort ist nicht gelungen. versuch es noch einmal.
+ios.sourcevocabularyswift.couldntsaveyouranswertry = deine Antwort konnte nicht gespeichert werden. versuch es noch einmal.
 
 ios.sourcevocabularyswift.ialreadyhaveone = ich habe schon eins
 
