@@ -708,7 +708,7 @@ final class ScreencastManager {
         }
 
         let newestLiveness = if case .observed(let newest, _, _) = scanResult { newest } else { nil as Date? }
-        let ageStr = newestLiveness.map { AppStrings.ios_screencast_agestr("\($0)", "\(now.timeIntervalSince($0))") } ?? "none"
+        let ageStr = newestLiveness.map { "\($0) age=\(now.timeIntervalSince($0))s" } ?? "none"
         let lastSeenStr = runtime.map { "\($0.lastSeenAt)" } ?? "none"
         screencastLog.info("screencast dead session concluded session=\(sessionID.uuidString, privacy: .public) newestLiveness=\(ageStr, privacy: .public) runtimeLastSeen=\(lastSeenStr, privacy: .public)")
 

@@ -12227,16 +12227,6 @@
         }
       }
     },
-    "m696f732e73637265656e636173742e616765737472": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ age=%2$@s"
-          }
-        }
-      }
-    },
     "m696f732e73637265656e636173742e626f6479": {
       "localizations": {
         "en-US": {
@@ -15927,26 +15917,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "matched %1$@, app-active-not-in-apple-queue %2$@, duplicate %3$@, orphaned %4$@, unparseable %5$@"
-          }
-        }
-      }
-    },
-    "m696f732e77617463682e7265636f726464726f70706564": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "watch ledger drop-after-hand id=%1$@"
-          }
-        }
-      }
-    },
-    "m696f732e77617463682e7265636f726468616e646564": {
-      "localizations": {
-        "en-US": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "watch ledger hand-after-drop id=%1$@"
           }
         }
       }

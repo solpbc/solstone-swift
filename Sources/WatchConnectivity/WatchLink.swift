@@ -281,7 +281,7 @@ private extension WatchLink {
         self.isReachable = isReachable
         if !isReachable { self.journalVersionNonce = nil }
         self.publishJournalVersion()
-        let detail = isReachable ? "reachable" : AppStrings.ios_app_notreachable()
+        let detail = isReachable ? "reachable" : "not reachable"
         watchLog.info("watch: reachability \(detail, privacy: .public)")
     }
 }

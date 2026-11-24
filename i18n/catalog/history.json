@@ -23237,7 +23237,7 @@
       "resource": "m696f732e73637265656e636173742e616765737472",
       "namespace": "ios.screencast",
       "owner": "ios",
-      "tombstone": false,
+      "tombstone": true,
       "replacement": null,
       "format_intent": "text",
       "arguments": [
@@ -31727,7 +31727,7 @@
       "resource": "m696f732e77617463682e7265636f726464726f70706564",
       "namespace": "ios.watch",
       "owner": "ios",
-      "tombstone": false,
+      "tombstone": true,
       "replacement": null,
       "format_intent": "text",
       "arguments": [
@@ -31747,7 +31747,7 @@
       "resource": "m696f732e77617463682e7265636f726468616e646564",
       "namespace": "ios.watch",
       "owner": "ios",
-      "tombstone": false,
+      "tombstone": true,
       "replacement": null,
       "format_intent": "text",
       "arguments": [

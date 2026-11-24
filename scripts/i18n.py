@@ -18,8 +18,9 @@ def generate(compiler,channel):
  config=json.loads((ROOT/'i18n/targets.json').read_text())
  with tempfile.TemporaryDirectory(prefix='ios-catalog-') as tmp:
   tmp=Path(tmp)
-  subprocess.run([compiler,'emit',str(ROOT/'i18n/catalog'),'--channel',channel,'--out',str(tmp/'ir.json')],check=True)
-  subprocess.run([compiler,'targets',str(ROOT/'i18n/catalog'),'--channel',channel,'--target','apple','--out',str(tmp/'out')],check=True)
+  extra=['--fallback-stale'] if channel=='development' else []
+  subprocess.run([compiler,'emit',str(ROOT/'i18n/catalog'),'--channel',channel,*extra,'--out',str(tmp/'ir.json')],check=True)
+  subprocess.run([compiler,'targets',str(ROOT/'i18n/catalog'),'--channel',channel,*extra,'--target','apple','--out',str(tmp/'out')],check=True)
   ir=json.loads((tmp/'ir.json').read_text());messages={m['id']:m for m in ir['messages']};xc=json.loads((tmp/'out/apple/ios.xcstrings').read_text())
   def clean(value):
    if isinstance(value,dict):
@@ -101,7 +102,7 @@ nonisolated enum AppStrings {
   for id in config.get('shortcuts',[]):
    entry=copy.deepcopy(xc['strings'][messages[id]['resource']])
    for localization in entry['localizations'].values():
-    localization['stringUnit']['value']=localization['stringUnit']['value'].replace('%1$@','${applicationName}').replace('%%','%')
+    localization['stringUnit']['value']=localization['stringUnit']['value'].replace('\u2068','').replace('\u2069','').replace('%1$@','${applicationName}').replace('%%','%')
    key=entry['localizations']['en-US']['stringUnit']['value']
    shortcuts['strings'][key]=entry
    phrase_literals.append(json.dumps(key,ensure_ascii=False).replace('${applicationName}',r'\(.applicationName)'))
@@ -127,7 +128,7 @@ nonisolated enum AppStrings {
   (ROOT/'i18n/generated').mkdir(exist_ok=True)
   (ROOT/'i18n/generated/project.yml').write_text('\n'.join(lines)+'\n')
   write(ROOT/'i18n/generated/locales.json',ir['locales'])
- write(ROOT/'i18n/generated-lock.json',snapshot())
+ if channel=='production':write(ROOT/'i18n/generated-lock.json',snapshot())
  print('Generated Apple resources for '+', '.join(config['info']))
 if __name__=='__main__':
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--check',action='store_true');p.add_argument('--compiler');p.add_argument('--channel',default='production');a=p.parse_args()

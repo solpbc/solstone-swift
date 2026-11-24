@@ -2051,7 +2051,6 @@ nonisolated enum AppStrings {
     static func ios_safarisource_withallowextensiononset_resource() -> LocalizedStringResource { resource("m696f732e736166617269736f757263652e77697468616c6c6f77657874656e73696f6e6f6e736574") }
     static func ios_safarisource_yourfirstpagejustcame() -> String { render("m696f732e736166617269736f757263652e796f75726669727374706167656a75737463616d65", []) }
     static func ios_safarisource_yourfirstpagejustcame_resource() -> LocalizedStringResource { resource("m696f732e736166617269736f757263652e796f75726669727374706167656a75737463616d65") }
-    static func ios_screencast_agestr(_ hole1: String, _ now_timeIntervalSince_0: String) -> String { render("m696f732e73637265656e636173742e616765737472", [hole1, now_timeIntervalSince_0]) }
     static func ios_screencast_body() -> String { render("m696f732e73637265656e636173742e626f6479", []) }
     static func ios_screencast_body_resource() -> LocalizedStringResource { resource("m696f732e73637265656e636173742e626f6479") }
     static func ios_screenshots_addsthescreenshotsyoutake() -> String { render("m696f732e73637265656e73686f74732e6164647374686573637265656e73686f7473796f7574616b65", []) }
@@ -2627,8 +2626,6 @@ nonisolated enum AppStrings {
     static func ios_watch_pruneandpersist(_ String_describing_error: String) -> String { render("m696f732e77617463682e7072756e65616e6470657273697374", [String_describing_error]) }
     static func ios_watch_queuereconciliationtext(_ hole1: String, _ hole2: String, _ observedFileTransferCount: String, _ activeManifestCount: String) -> String { render("m696f732e77617463682e71756575657265636f6e63696c696174696f6e74657874", [hole1, hole2, observedFileTransferCount, activeManifestCount]) }
     static func ios_watch_reconciliationtext(_ matched: String, _ appActiveNotObserved: String, _ duplicate: String, _ orphaned: String, _ unparseable: String) -> String { render("m696f732e77617463682e7265636f6e63696c696174696f6e74657874", [matched, appActiveNotObserved, duplicate, orphaned, unparseable]) }
-    static func ios_watch_recorddropped(_ uuidString: String) -> String { render("m696f732e77617463682e7265636f726464726f70706564", [uuidString]) }
-    static func ios_watch_recordhanded(_ uuidString: String) -> String { render("m696f732e77617463682e7265636f726468616e646564", [uuidString]) }
     static func ios_watch_recordrelaybackgroundwake() -> String { render("m696f732e77617463682e7265636f726472656c61796261636b67726f756e6477616b65", []) }
     static func ios_watch_recordrelaybackgroundwake_resource() -> LocalizedStringResource { resource("m696f732e77617463682e7265636f726472656c61796261636b67726f756e6477616b65") }
     static func ios_watch_recordrelaydurableack() -> String { render("m696f732e77617463682e7265636f726472656c617964757261626c6561636b", []) }

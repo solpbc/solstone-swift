@@ -1797,7 +1797,6 @@ ios.safarisource.withallowextensiononset = with Allow Extension on, set All Webs
 
 ios.safarisource.yourfirstpagejustcame = your first page just came in. it's on its way to your journal.
 
-ios.screencast.agestr = { $hole1 } age={ $now_timeIntervalSince_0 }s
 
 ios.screencast.body = screencast
 
@@ -2467,9 +2466,7 @@ ios.watch.queuereconciliationtext = { $hole1 }; { $hole2 }; in Apple's queue { $
 
 ios.watch.reconciliationtext = matched { $matched }, app-active-not-in-apple-queue { $appActiveNotObserved }, duplicate { $duplicate }, orphaned { $orphaned }, unparseable { $unparseable }
 
-ios.watch.recorddropped = watch ledger drop-after-hand id={ $uuidString }
 
-ios.watch.recordhanded = watch ledger hand-after-drop id={ $uuidString }
 
 ios.watch.recordrelaybackgroundwake = background wake
 

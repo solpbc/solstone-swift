@@ -15640,20 +15640,6 @@
       ]
     },
     {
-      "id": "ios.screencast.agestr",
-      "source": "69edbfeb85b86af02478a833a773e7bb00e4f556843ee228709ed593760f1e0a",
-      "contract": "c8795c5425cf407c1d41260df814c5a68005f44f2048f8bf8814095acafb11a8",
-      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
-      "locales": [
-        {
-          "locale": "es-419",
-          "source": "69edbfeb85b86af02478a833a773e7bb00e4f556843ee228709ed593760f1e0a",
-          "contract": "c8795c5425cf407c1d41260df814c5a68005f44f2048f8bf8814095acafb11a8",
-          "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"
-        }
-      ]
-    },
-    {
       "id": "ios.screencast.body",
       "source": "5992d6761351d6a4584cbee160ec8a9af5e14ef4aa3dd74c5e6eae8b852c205b",
       "contract": "8a5ccf516e1ddd1e6845a51578bf3090e7732eef71f84117434e952b20202586",
@@ -20605,34 +20591,6 @@
           "locale": "es-419",
           "source": "64796484d57a2e0a69a01cdbea309a7b97ded4e9c4736542b2665661e5397ce9",
           "contract": "cf1ef6e13a1fdb17b2d4f40577f351d1ec8a37d182b4c50eeb40da7005a151a0",
-          "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"
-        }
-      ]
-    },
-    {
-      "id": "ios.watch.recorddropped",
-      "source": "2734e77db768a28c7d73ded0567ffe92a218cc2f33342eb91afcf9fbaaa227e3",
-      "contract": "bae2b3ebc9872ffd54dcf5c0b476ff4c61e1c9d737c10bc3cfbef37ab9a5d7c3",
-      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
-      "locales": [
-        {
-          "locale": "es-419",
-          "source": "2734e77db768a28c7d73ded0567ffe92a218cc2f33342eb91afcf9fbaaa227e3",
-          "contract": "bae2b3ebc9872ffd54dcf5c0b476ff4c61e1c9d737c10bc3cfbef37ab9a5d7c3",
-          "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"
-        }
-      ]
-    },
-    {
-      "id": "ios.watch.recordhanded",
-      "source": "2351c22b4ad0677c91f90e557aa58e17a5ea31d132de954aadc4bc9b2f66446f",
-      "contract": "bae2b3ebc9872ffd54dcf5c0b476ff4c61e1c9d737c10bc3cfbef37ab9a5d7c3",
-      "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc",
-      "locales": [
-        {
-          "locale": "es-419",
-          "source": "2351c22b4ad0677c91f90e557aa58e17a5ea31d132de954aadc4bc9b2f66446f",
-          "contract": "bae2b3ebc9872ffd54dcf5c0b476ff4c61e1c9d737c10bc3cfbef37ab9a5d7c3",
           "protected": "af5570f5a1810b7af78caf4bc70a660f0df51e42baf91d4de5b2328de0e83dfc"
         }
       ]

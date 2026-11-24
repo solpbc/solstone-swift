@@ -104,7 +104,8 @@ build-metadata: build-metadata-bootstrap
 		printf 'SOLSTONE_SPL_SWIFT_REVISION = %s\n' "$$revision"; \
 	} > "$(BUILD_METADATA)"
 
-generate: check-versions build-metadata-bootstrap i18n-check
+I18N_CHANNEL ?= production
+generate: check-versions build-metadata-bootstrap $(if $(filter production,$(I18N_CHANNEL)),i18n-check)
 	xcodegen generate
 
 install: deps
@@ -1086,10 +1087,46 @@ push-catalog:
 	python3 scripts/embed-push-catalog.py; \
 	echo "push-catalog updated successfully"
 
+.PHONY: push-catalog-dev
+push-catalog-dev:
+	@set -eu; \
+	if [ -z "$${PUSH_CATALOG_COMPILER:-}" ]; then \
+		echo "error: PUSH_CATALOG_COMPILER is required" >&2; \
+		exit 1; \
+	fi; \
+	binary="$$PUSH_CATALOG_COMPILER/tools/i18n/target/debug/i18n-catalog"; \
+	if [ ! -x "$$binary" ]; then \
+		echo "error: i18n-catalog binary not found or not executable at $$binary" >&2; \
+		exit 1; \
+	fi; \
+	work=$$(mktemp -d /var/tmp/push-catalog-dev.XXXXXX); \
+	trap 'rm -rf "$$work"' EXIT INT TERM; \
+	import_dir="$$work/import"; \
+	apple_dir="$$work/apple"; \
+	mkdir "$$apple_dir"; \
+	"$$binary" import "$$PUSH_CATALOG_COMPILER/contracts/push-i18n/r3" --dest "$$import_dir"; \
+	"$$binary" compile "$$import_dir" --channel development --fallback-stale --locale en-US --locale es-419; \
+	"$$binary" emit "$$import_dir" --channel development --fallback-stale --locale en-US --locale es-419 --out "$$import_dir/ir.json"; \
+	"$$binary" targets "$$import_dir" --channel development --fallback-stale --locale en-US --locale es-419 --target apple --out "$$apple_dir"; \
+	sh "$$PUSH_CATALOG_COMPILER/tools/i18n/verify-apple-isolation.sh" "$$apple_dir/apple/PushMessages.swift"; \
+	rm -rf PushCatalog/imported; \
+	mkdir -p PushCatalog/imported PushCatalog/contract Sources/Push; \
+	cp -R "$$import_dir"/* PushCatalog/imported/; \
+	rm -f PushCatalog/imported/ir.json; \
+	cp "$$import_dir/ir.json" PushCatalog/contract/ir.json; \
+	cp "$$apple_dir/cases.json" PushCatalog/contract/cases.json; \
+	cp "$$apple_dir/apple/PushMessages.swift" Sources/Push/PushMessages.swift; \
+	cp "$$apple_dir/apple/PushMessages.xcstrings" Sources/Push/PushMessages.xcstrings; \
+	python3 scripts/embed-push-catalog.py; \
+	echo "push-catalog-dev updated (en-US, es-419)"
+
 # Catalog source is canonical; normal builds consume committed generated resources.
-.PHONY: i18n-check i18n-generate
+.PHONY: i18n-check i18n-generate i18n-dev
 i18n-check:
 	python3 scripts/i18n.py --check
 
 i18n-generate:
-	python3 scripts/i18n.py --compiler "$(I18N_COMPILER)"
+	python3 scripts/i18n.py --compiler "$(I18N_COMPILER)" --channel "$(I18N_CHANNEL)"
+
+i18n-dev:
+	@$(MAKE) i18n-generate I18N_CHANNEL=development

@@ -2424,7 +2424,6 @@ ios.safarisource.withallowextensiononset = con Permitir extensión activado, pon
 
 ios.safarisource.yourfirstpagejustcame = acaba de entrar tu primera página. va camino a tu diario.
 
-ios.screencast.agestr = { $hole1 } edad={ $now_timeIntervalSince_0 }s
 
 ios.screencast.body = grabación de pantalla
 
@@ -3162,9 +3161,7 @@ ios.watch.queuereconciliationtext = { $hole1 }; { $hole2 }; en la cola de Apple 
 
 ios.watch.reconciliationtext = emparejados { $matched }, app-active-not-in-apple-queue { $appActiveNotObserved }, duplicados { $duplicate }, huérfanos { $orphaned }, no analizables { $unparseable }
 
-ios.watch.recorddropped = registro del reloj drop-after-hand id={ $uuidString }
 
-ios.watch.recordhanded = registro del reloj hand-after-drop id={ $uuidString }
 
 ios.watch.recordrelaybackgroundwake = activación en segundo plano
 

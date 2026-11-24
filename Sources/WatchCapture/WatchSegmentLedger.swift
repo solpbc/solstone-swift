@@ -209,7 +209,7 @@ final class WatchSegmentLedger {
         var entry = self.store.entries[key] ?? WatchSegmentLedgerStore.Entry()
 
         if entry.droppedAt != nil && entry.handedAt == nil {
-            self.logConflict(AppStrings.ios_watch_recordhanded("\(id.uuidString)"))
+            self.logConflict("watch ledger hand-after-drop id=\(id.uuidString)")
             self.store.entries[key] = entry
             self.pruneAndPersist(from: before)
             return
@@ -236,7 +236,7 @@ final class WatchSegmentLedger {
         let wasUnknown = self.store.entries[key] == nil
 
         if entry.handedAt != nil {
-            self.logConflict(AppStrings.ios_watch_recorddropped("\(id.uuidString)"))
+            self.logConflict("watch ledger drop-after-hand id=\(id.uuidString)")
             self.store.entries[key] = entry
             self.pruneAndPersist(from: before)
             return
