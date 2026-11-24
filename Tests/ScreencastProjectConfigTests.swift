@@ -96,6 +96,37 @@ nonisolated final class ScreencastProjectConfigTests: XCTestCase {
         XCTAssertFalse(block.contains("        CURRENT_PROJECT_VERSION:"), "inherit the project build number")
         XCTAssertFalse(block.contains("        MARKETING_VERSION:"), "inherit the project marketing version")
     }
+
+    func testAppBuiltInfoPlistSetsCFBundleNameToSolstoneAndKeepsRequiredKeys() throws {
+        // Read the raw built Info.plist on disk rather than Bundle.main.infoDictionary
+        // so neither en-US InfoPlist.strings nor device-modifier filtering (~ipad) masks keys.
+        let plistURL = Bundle.main.bundleURL.appendingPathComponent("Info.plist", isDirectory: false)
+        let data = try Data(contentsOf: plistURL)
+        let raw = try PropertyListSerialization.propertyList(from: data, options: [], format: nil)
+        let info = try XCTUnwrap(raw as? [String: Any])
+        XCTAssertEqual(info["CFBundleName"] as? String, "solstone")
+        XCTAssertEqual(info["CFBundleDisplayName"] as? String, "solstone")
+        XCTAssertEqual(info["LSRequiresIPhoneOS"] as? Bool, true)
+        XCTAssertEqual(info["NSSupportsLiveActivities"] as? Bool, true)
+        XCTAssertNotNil(info["UIApplicationSceneManifest"])
+        XCTAssertEqual(
+            info["UISupportedInterfaceOrientations~iphone"] as? [String],
+            [
+                "UIInterfaceOrientationPortrait",
+                "UIInterfaceOrientationLandscapeLeft",
+                "UIInterfaceOrientationLandscapeRight",
+            ]
+        )
+        XCTAssertEqual(
+            info["UISupportedInterfaceOrientations~ipad"] as? [String],
+            [
+                "UIInterfaceOrientationPortrait",
+                "UIInterfaceOrientationPortraitUpsideDown",
+                "UIInterfaceOrientationLandscapeLeft",
+                "UIInterfaceOrientationLandscapeRight",
+            ]
+        )
+    }
 }
 
 private extension ScreencastProjectConfigTests {

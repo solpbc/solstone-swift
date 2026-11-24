@@ -384,3 +384,59 @@ extension TransferCutoverDispatchTests {
         }
     }
 }
+
+@MainActor
+final class TransferCutoverHarnessTeardownTests: XCTestCase {
+    private var tempDirectory: URL!
+    private var createdEngine: TransferEngine?
+
+    override func setUp() {
+        super.setUp()
+        TransferURLProtocol.reset()
+        self.tempDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("TransferCutoverHarnessTeardownTests-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: self.tempDirectory, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() async throws {
+        // addTeardownBlock registered by makeTransferCutoverHarness runs before tearDown(),
+        // so the engine must already be paused and drained with zero in-flight requests here.
+        if let engine = self.createdEngine {
+            let snapshot = await engine.snapshot()
+            XCTAssertTrue(snapshot.paused, "Harness teardown should have paused the engine before tearDown()")
+            XCTAssertEqual(snapshot.counters.inFlightCount, 0, "Harness teardown should have drained in-flight requests before tearDown()")
+        }
+        let requestsBeforeReset = TransferURLProtocol.requests.count
+        TransferURLProtocol.reset()
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(TransferURLProtocol.requests.count, 0, "No late requests may arrive after harness teardown (saw \(requestsBeforeReset) before reset)")
+        self.createdEngine = nil
+        if let tempDirectory = self.tempDirectory {
+            try? FileManager.default.removeItem(at: tempDirectory)
+            self.tempDirectory = nil
+        }
+        try await super.tearDown()
+    }
+
+    func testHarnessTeardownPausesAndDrainsUnpausedEngineWithHeldRequest() async throws {
+        TransferURLProtocol.handler = { request, _ in
+            TransferURLProtocol.hold(request)
+        }
+        let harness = makeTransferCutoverHarness(
+            rootURL: self.tempDirectory.appendingPathComponent("teardown-transfer", isDirectory: true),
+            sessionConfiguration: makeTransferTestURLSessionConfiguration(),
+            endpointResolver: TransferEndpointResolverStub(.available(TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:7071")!))),
+            bodyBuilder: TransferCutoverDispatchTests.shareBodyBuilder
+        )
+        self.createdEngine = harness.engine
+        try await harness.engine.start()
+        _ = try await harness.engine.enqueue(
+            manifest: TransferCutoverDispatchTests.shareManifest(itemID: UUID(), index: 1),
+            payloads: ["text": Data("held".utf8)]
+        )
+        try await transferTestWaitFor("held request in flight") {
+            await harness.engine.snapshot().counters.inFlightCount == 1
+        }
+        // Deliberately do NOT pause or completeHeld; harness teardown must own both before tearDown().
+    }
+}

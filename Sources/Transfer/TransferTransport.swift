@@ -114,6 +114,10 @@ nonisolated final class TransferTransport: @unchecked Sendable {
     static func boundary(for itemID: UUID) -> String {
         "Boundary-\(itemID.uuidString)"
     }
+
+    func invalidateAndCancel() {
+        self.session.invalidateAndCancel()
+    }
 }
 
 /// Bridges Foundation's resumable upload task to the async transport API. The

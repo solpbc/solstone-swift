@@ -99,43 +99,58 @@ nonisolated struct TransferCutoverEndpointResolver: TransferEndpointResolver {
     }
 }
 
-@MainActor
-func makeTransferCutoverHarness(
-    rootURL: URL,
-    fileSystem: (any TransferFileSystem)? = nil,
-    sessionConfiguration: URLSessionConfiguration? = nil,
-    endpointResolver: any TransferEndpointResolver = TransferCutoverEndpointResolver(),
-    clock: any TransferClock = LiveTransferClock(),
-    diagnosticsSink: @escaping TransferDiagnosticSink = { _ in },
-    maxConcurrent: Int = 3,
-    bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build
-) -> (
-    engine: TransferEngine,
-    mirror: TransferStatusMirror,
-    enqueuer: ObserverAudioTransferEnqueuer,
-    watch: WatchUploaderHolder
-) {
-    let mirror = TransferStatusMirror()
-    let transport = sessionConfiguration.map {
-        TransferTransport(sessionConfiguration: $0)
-    } ?? TransferTransport()
-    let engine = TransferEngine(
-        spool: TransferSpool(rootURL: rootURL, fileSystem: fileSystem ?? FoundationTransferFileSystem()),
-        transport: transport,
-        endpointResolver: endpointResolver,
-        clock: clock,
-        diagnosticsSink: diagnosticsSink,
-        statusMirror: mirror,
-        maxConcurrent: maxConcurrent,
-        bodyBuilder: bodyBuilder
-    )
-    let enqueuer = ObserverAudioTransferEnqueuer(engine: engine)
-    return (
-        engine,
-        mirror,
-        enqueuer,
-        WatchUploaderHolder(transferEngine: engine, mirror: mirror)
-    )
+extension XCTestCase {
+    @MainActor
+    @nonobjc
+    func makeTransferCutoverHarness(
+        rootURL: URL,
+        fileSystem: (any TransferFileSystem)? = nil,
+        sessionConfiguration: URLSessionConfiguration? = nil,
+        endpointResolver: any TransferEndpointResolver = TransferCutoverEndpointResolver(),
+        clock: any TransferClock = LiveTransferClock(),
+        diagnosticsSink: @escaping TransferDiagnosticSink = { _ in },
+        maxConcurrent: Int = 3,
+        bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build
+    ) -> (
+        engine: TransferEngine,
+        mirror: TransferStatusMirror,
+        enqueuer: ObserverAudioTransferEnqueuer,
+        watch: WatchUploaderHolder
+    ) {
+        let mirror = TransferStatusMirror()
+        let transport = sessionConfiguration.map {
+            TransferTransport(sessionConfiguration: $0)
+        } ?? TransferTransport()
+        let engine = TransferEngine(
+            spool: TransferSpool(rootURL: rootURL, fileSystem: fileSystem ?? FoundationTransferFileSystem()),
+            transport: transport,
+            endpointResolver: endpointResolver,
+            clock: clock,
+            diagnosticsSink: diagnosticsSink,
+            statusMirror: mirror,
+            maxConcurrent: maxConcurrent,
+            bodyBuilder: bodyBuilder
+        )
+        // Own engine teardown on the harness so unpaused engines cannot leak in-flight
+        // requests across tearDown() (URLProtocol reset / temp-dir cleanup) into later tests.
+        self.addTeardownBlock {
+            await engine.pause()
+            transport.invalidateAndCancel()
+            let deadline = ContinuousClock.now + .seconds(5)
+            while await engine.snapshot().counters.inFlightCount > 0, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            let remaining = await engine.snapshot().counters.inFlightCount
+            XCTAssertEqual(remaining, 0, "Transfer requests did not finish before teardown")
+        }
+        let enqueuer = ObserverAudioTransferEnqueuer(engine: engine)
+        return (
+            engine,
+            mirror,
+            enqueuer,
+            WatchUploaderHolder(transferEngine: engine, mirror: mirror)
+        )
+    }
 }
 
 func makeTransferTestURLSessionConfiguration() -> URLSessionConfiguration {
