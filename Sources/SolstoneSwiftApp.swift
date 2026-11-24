@@ -1388,7 +1388,12 @@ struct SolstoneSwiftApp: App {
                 backoff: {
                     uploadBackoff(mirror: self.transferStatusMirror)
                 },
-                isSustaining: { self.locationManager.isSustainingBackground },
+                isSustaining: {
+                    isBackgroundTunnelSustained(
+                        locationSustaining: self.locationManager.isSustainingBackground,
+                        finishSyncingActive: self.finishSyncingCoordinator.isFinishing
+                    )
+                },
                 isConnected: { self.tunnelManager.state.isConnected },
                 drive: {
                     await driveUploadDrain(

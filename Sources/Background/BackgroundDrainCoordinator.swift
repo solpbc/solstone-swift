@@ -80,6 +80,15 @@ func resumeShareImports(
     }
 }
 
+/// Returns whether another background owner (location-Always sustain or an active
+/// continued-processing sync) is already keeping the tunnel alive in the background.
+nonisolated func isBackgroundTunnelSustained(
+    locationSustaining: Bool,
+    finishSyncingActive: Bool
+) -> Bool {
+    locationSustaining || finishSyncingActive
+}
+
 @MainActor
 final class BackgroundDrainCoordinator {
     private let totals: () -> (failed: Int, pending: Int)
@@ -121,9 +130,9 @@ final class BackgroundDrainCoordinator {
     }
 
     func run() async {
-        // Outcome 1: sustain-and-survive - location-Always background sustain is live. Keep tunnel + port.
+        // Outcome 1: sustain-and-survive - location-Always or finish-syncing sustain is live. Keep tunnel + port.
         if self.isSustaining() {
-            backgroundLog.info("background: location-always sustain active; keeping tunnel connected")
+            backgroundLog.info("background: sustain active; keeping tunnel connected")
             return
         }
 
@@ -173,6 +182,10 @@ final class BackgroundDrainCoordinator {
         self.endAssertion()
         // Foreground takeover cancelled us - leave the tunnel as-is for the .active branch to manage.
         if Task.isCancelled { return }
+        if self.isSustaining() {
+            backgroundLog.info("background: sustain became active; keeping tunnel connected")
+            return
+        }
         let exitInFlight = self.inFlight()
         if self.expired {
             backgroundLog.info("background: stopped at expiration with \(exitInFlight, privacy: .public) in-flight")

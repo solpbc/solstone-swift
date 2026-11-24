@@ -685,6 +685,21 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
     }
 
     @MainActor
+    func testAppInfoPlistDeclaresProcessingModeAndFinishSyncingIdentifier() throws {
+        let info = Bundle(for: FinishSyncingCoordinator.self)
+        let modes = info.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
+        XCTAssertTrue(
+            modes?.contains("processing") == true,
+            "BGContinuedProcessingTask requires `processing` in UIBackgroundModes"
+        )
+        let permitted = info.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") as? [String]
+        XCTAssertTrue(
+            permitted?.contains(FinishSyncingCoordinator.taskIdentifierPrefix + ".*") == true,
+            "FinishSyncingCoordinator wildcard identifier must be in BGTaskSchedulerPermittedIdentifiers"
+        )
+    }
+
+    @MainActor
     private func drain(until condition: () -> Bool, maxYields: Int = 10_000) async {
         var yields = 0
         while !condition() && yields < maxYields {

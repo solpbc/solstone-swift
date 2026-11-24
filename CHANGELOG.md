@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- on iphone and ipad, when you tap "enable background for this sync" for waiting items, ios can now let it run and the app keeps the connection to your journal open while it runs after you switch away. before, the app dropped the connection shortly after.
+
 ## [2.0.14 (169)] - 2026-11-24
 
 ### Fixed

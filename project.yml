@@ -125,6 +125,7 @@ targets:
           - audio
           - fetch
           - location
+          - processing
           - remote-notification
         BGTaskSchedulerPermittedIdentifiers:
           - app.solstone.swift.finish-syncing.*
