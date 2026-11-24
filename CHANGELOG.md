@@ -6,9 +6,11 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+## [2.0.14 (169)] - 2026-11-24
+
 ### Fixed
 
-- on ipad, when you switch to another app and come back, or when the connection to your journal drops for a moment and comes back, the journal page stays as you left it. before, switching away or reconnecting could reload the page or go back to the start of your journal and lose what you were in the middle of.
+- on ipad, when you switch to another app and come back, or when the connection to your journal drops for a moment and comes back, the journal page stays as you left it. before, switching away or reconnecting could reload the page and lose what you were in the middle of.
 - on apple watch, when a recording fails right as it starts, the app now discards the empty audio file so it doesn't go into your journal, while any location from that stretch still does. screen sharing on iphone and ipad no longer saves empty audio files either.
 
 ## [2.0.14 (168)] - 2026-11-23
