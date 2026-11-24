@@ -3,6 +3,7 @@
 
 @testable import solstone_swift
 import SPLTunnel
+import SwiftUI
 import XCTest
 
 nonisolated final class JournalSendJournalTests: XCTestCase {
@@ -41,6 +42,117 @@ nonisolated final class JournalSendJournalTests: XCTestCase {
         XCTAssertFalse(mount.canWaitForReconnect(confirmed: true, ownerID: owner, path: "/app/network/"))
         let otherURL = try XCTUnwrap(URL(string: "http://127.0.0.1:7072/"))
         XCTAssertNotEqual(mount, .init(url: otherURL, ownerID: owner, path: "/"))
+    }
+
+    func testActiveMountChangeActionKeepsLoadedDocumentAndRetriesFailedSamePort() throws {
+        let url = try XCTUnwrap(URL(string: "http://127.0.0.1:7071/"))
+        let otherURL = try XCTUnwrap(URL(string: "http://127.0.0.1:7072/"))
+        let owner = UUID()
+        let mount = InAppJournalPresentation.WebMount(url: url, ownerID: owner, path: "/")
+        let otherMount = InAppJournalPresentation.WebMount(url: otherURL, ownerID: owner, path: "/")
+
+        // First mount or changed origin always mounts the new origin.
+        XCTAssertEqual(
+            InAppJournalPresentation.activeMountChangeAction(
+                previousActive: nil, nextActive: mount, mounted: nil, loadState: .loading
+            ),
+            .mountNew
+        )
+        XCTAssertEqual(
+            InAppJournalPresentation.activeMountChangeAction(
+                previousActive: nil, nextActive: otherMount, mounted: mount, loadState: .loaded
+            ),
+            .mountNew
+        )
+        // Disconnecting keeps the mounted view in place while waiting for reconnect.
+        XCTAssertEqual(
+            InAppJournalPresentation.activeMountChangeAction(
+                previousActive: mount, nextActive: nil, mounted: mount, loadState: .loaded
+            ),
+            .keepCurrent
+        )
+        // Same origin returning while loaded preserves the live document and sessionStorage.
+        XCTAssertEqual(
+            InAppJournalPresentation.activeMountChangeAction(
+                previousActive: nil, nextActive: mount, mounted: mount, loadState: .loaded
+            ),
+            .keepCurrent
+        )
+        // Same origin returning after an error or incomplete load retries automatically.
+        XCTAssertEqual(
+            InAppJournalPresentation.activeMountChangeAction(
+                previousActive: nil, nextActive: mount, mounted: mount, loadState: .error(message: "failed")
+            ),
+            .retryCurrent
+        )
+        XCTAssertEqual(
+            InAppJournalPresentation.activeMountChangeAction(
+                previousActive: nil, nextActive: mount, mounted: mount, loadState: .loading
+            ),
+            .retryCurrent
+        )
+        // A steady connected error without a disconnect does not spin-reload.
+        XCTAssertEqual(
+            InAppJournalPresentation.activeMountChangeAction(
+                previousActive: mount, nextActive: mount, mounted: mount, loadState: .error(message: "failed")
+            ),
+            .keepCurrent
+        )
+    }
+
+    @MainActor
+    func testResolvedShellIsPhoneHoldsForegroundShapeDuringBackgroundSnapshots() {
+        XCTAssertFalse(
+            RootShellView.resolvedShellIsPhone(
+                horizontalSizeClass: .regular,
+                dynamicTypeSize: .large,
+                scenePhase: .active,
+                lastForegroundIsPhone: nil
+            )
+        )
+        // Transient compact snapshot while backgrounded keeps the iPad split mounted.
+        XCTAssertFalse(
+            RootShellView.resolvedShellIsPhone(
+                horizontalSizeClass: .compact,
+                dynamicTypeSize: .large,
+                scenePhase: .background,
+                lastForegroundIsPhone: false
+            )
+        )
+        // Transient regular snapshot while backgrounded keeps the compact stack mounted.
+        XCTAssertTrue(
+            RootShellView.resolvedShellIsPhone(
+                horizontalSizeClass: .regular,
+                dynamicTypeSize: .large,
+                scenePhase: .background,
+                lastForegroundIsPhone: true
+            )
+        )
+        // Leaving background immediately honors the live size class again.
+        XCTAssertTrue(
+            RootShellView.resolvedShellIsPhone(
+                horizontalSizeClass: .compact,
+                dynamicTypeSize: .large,
+                scenePhase: .inactive,
+                lastForegroundIsPhone: false
+            )
+        )
+        XCTAssertTrue(
+            RootShellView.resolvedShellIsPhone(
+                horizontalSizeClass: .compact,
+                dynamicTypeSize: .large,
+                scenePhase: .active,
+                lastForegroundIsPhone: false
+            )
+        )
+        XCTAssertTrue(
+            RootShellView.resolvedShellIsPhone(
+                horizontalSizeClass: .compact,
+                dynamicTypeSize: .large,
+                scenePhase: .background,
+                lastForegroundIsPhone: nil
+            )
+        )
     }
 
     @MainActor

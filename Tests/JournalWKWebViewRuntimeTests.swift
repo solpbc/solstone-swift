@@ -78,6 +78,165 @@ final class JournalWKWebViewRuntimeTests: XCTestCase {
         XCTAssertGreaterThan(current.timeOrigin, previous.timeOrigin)
     }
 
+    func testOpenPanePreservesDocumentAndSessionStorageAcrossSamePortReconnect() async throws {
+        let address = "/app/thinking/#byo-setup"
+        let fixture = try LoopbackJournalFixture(reportDocument: true, pushAddress: address)
+        let port = try await fixture.start()
+        defer { fixture.stop() }
+
+        let confirmation = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            loadPairing: { nil },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        let appConfig = AppConfig(confirmationStore: confirmation, store: credentials)
+        appConfig.seedUITestPairing(deviceID: "journal-same-port-reconnect-test")
+
+        let tunnel = TunnelManager(transport: MockCFTunnelTransport(), store: credentials)
+        tunnel.forceConnected(port: Int(port), via: .lan)
+        let log = DiagnosticLog()
+        let pane = InAppJournalView(presentation: .detail)
+            .environment(appConfig)
+            .environment(tunnel)
+            .environment(PairFlowRouter())
+            .environment(log)
+            .environment(ConnectionSyncModel(clock: SystemObserverClock()) {
+                ConnectionSyncInputs(
+                    tunnelState: tunnel.state, reconnectCountdown: nil, isNetworkSatisfied: true,
+                    confirmedTransferCount: 0, recentBytesPerSecond: 0, backlogPending: 0, backlogFailed: 0
+                )
+            })
+            .environment(ConnectionStallMonitor(
+                store: InMemoryConnectionStallStore(),
+                clock: SystemConnectionStallClock(),
+                credentials: credentials
+            ))
+        let controller = UIHostingController(rootView: pane)
+        let window: UIWindow
+        if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+            window = UIWindow(windowScene: scene)
+        } else {
+            window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1180))
+        }
+        window.frame = CGRect(x: 0, y: 0, width: 820, height: 1180)
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        controller.loadViewIfNeeded()
+        controller.view.frame = window.bounds
+        window.layoutIfNeeded()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        let initial = try await self.waitForDocumentReport(from: fixture)
+        XCTAssertEqual(initial.address, address)
+        XCTAssertEqual(initial.title, "journal-ready")
+
+        let originalWebView = try XCTUnwrap(
+            Self.findWKWebView(in: controller.view) ?? Self.findWKWebView(in: window)
+        )
+        _ = try await originalWebView.evaluateJavaScript("window.sessionStorage.setItem('oauth_pending', 'keep-me')")
+
+        tunnel.forceDisconnectedForUITest()
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(tunnel.activeConnection)
+
+        tunnel.forceConnected(port: Int(port), via: .lan)
+        try await Task.sleep(for: .milliseconds(100))
+
+        let currentWebView = try XCTUnwrap(
+            Self.findWKWebView(in: controller.view) ?? Self.findWKWebView(in: window)
+        )
+        XCTAssertTrue(currentWebView === originalWebView, "same-port reconnect must keep the existing WKWebView mounted")
+        XCTAssertFalse(log.events.contains { $0.message == "teardown" })
+        XCTAssertEqual(fixture.requestedPaths.filter { $0 == "/" }.count, 1)
+        let stored = try await currentWebView.evaluateJavaScript("window.sessionStorage.getItem('oauth_pending')") as? String
+        XCTAssertEqual(stored, "keep-me")
+        let timeOrigin = try await currentWebView.evaluateJavaScript("performance.timeOrigin") as? Double
+        XCTAssertEqual(timeOrigin ?? -1, initial.timeOrigin, accuracy: 0.001)
+    }
+
+    func testOpenPaneRecoversWhenSamePortReturnsAfterTransientLoadFailure() async throws {
+        let probe = try LoopbackJournalFixture()
+        let port = try await probe.start()
+        probe.stop()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let confirmation = JournalSendConfirmationStore.memory()
+        let credentials = PairingCredentialStore(
+            confirmationStore: confirmation,
+            loadPairing: { nil },
+            savePairing: { _ in },
+            deletePairing: {}
+        )
+        let appConfig = AppConfig(confirmationStore: confirmation, store: credentials)
+        appConfig.seedUITestPairing(deviceID: "journal-same-port-recovery-test")
+
+        let tunnel = TunnelManager(transport: MockCFTunnelTransport(), store: credentials)
+        tunnel.forceConnected(port: Int(port), via: .lan)
+        let log = DiagnosticLog()
+        let pane = InAppJournalView(presentation: .detail)
+            .environment(appConfig)
+            .environment(tunnel)
+            .environment(PairFlowRouter())
+            .environment(log)
+            .environment(ConnectionSyncModel(clock: SystemObserverClock()) {
+                ConnectionSyncInputs(
+                    tunnelState: tunnel.state, reconnectCountdown: nil, isNetworkSatisfied: true,
+                    confirmedTransferCount: 0, recentBytesPerSecond: 0, backlogPending: 0, backlogFailed: 0
+                )
+            })
+            .environment(ConnectionStallMonitor(
+                store: InMemoryConnectionStallStore(),
+                clock: SystemConnectionStallClock(),
+                credentials: credentials
+            ))
+        let controller = UIHostingController(rootView: pane)
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 820, height: 1180))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+
+        let failureDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !log.events.contains(where: { $0.message == "failure" }) && ContinuousClock.now < failureDeadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        XCTAssertTrue(log.events.contains { $0.message == "failure" }, "initial load should fail against closed port")
+
+        tunnel.forceDisconnectedForUITest()
+        try await Task.sleep(for: .milliseconds(100))
+
+        let recovered = try LoopbackJournalFixture(
+            reportDocument: true,
+            port: try XCTUnwrap(NWEndpoint.Port(rawValue: port))
+        )
+        let reboundPort = try await recovered.start()
+        defer { recovered.stop() }
+        XCTAssertEqual(reboundPort, port)
+
+        tunnel.forceConnected(port: Int(port), via: .lan)
+        let report = try await self.waitForDocumentReport(from: recovered)
+        XCTAssertEqual(report.title, "journal-ready")
+    }
+
+    private static func findWKWebView(in view: UIView) -> WKWebView? {
+        if let webView = view as? WKWebView {
+            return webView
+        }
+        for subview in view.subviews {
+            if let found = Self.findWKWebView(in: subview) {
+                return found
+            }
+        }
+        return nil
+    }
+
     private func waitForDocumentReport(from fixture: LoopbackJournalFixture) async throws -> LoopbackJournalFixture.DocumentReport {
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
         while ContinuousClock.now < deadline {
@@ -546,11 +705,12 @@ private final class LoopbackJournalFixture: @unchecked Sendable {
         self.admissions.withLock { $0 }
     }
 
-    init(reportDocument: Bool = false, pushAddress: String? = nil) throws {
+    init(reportDocument: Bool = false, pushAddress: String? = nil, port: NWEndpoint.Port = .any) throws {
         self.reportDocument = reportDocument
         self.pushAddress = pushAddress
         let parameters = NWParameters.tcp
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        parameters.allowLocalEndpointReuse = true
+        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
         self.listener = try NWListener(using: parameters)
         self.listener.newConnectionHandler = { [weak self] connection in
             self?.handle(connection)

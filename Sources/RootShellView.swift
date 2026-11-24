@@ -84,6 +84,7 @@ struct RootShellView: View {
     /// one disturbed layout and presentation across surfaces that have nothing to do
     /// with the shelf.
     @State private var shellWidth: CGFloat = 0
+    @State private var lastForegroundIsPhoneShell: Bool?
 #if DEBUG
     @State private var sunArcDebugOverride: SunArcBackgroundDebugOverride?
 #endif
@@ -233,6 +234,7 @@ struct RootShellView: View {
             self.journalChanged(from: priorInstanceID, to: currentInstanceID)
         }
         .onAppear {
+            self.syncForegroundShellShapeIfVisible()
             if let route = self.pendingRoute.route {
                 self.apply(route)
             }
@@ -246,7 +248,11 @@ struct RootShellView: View {
         .onChange(of: self.journalGapSurfaceTransition) { prior, next in
             self.applyJournalGapSurfaceChange(from: prior, to: next)
         }
+        .onChange(of: self.liveIsPhoneShell, initial: true) { _, _ in
+            self.syncForegroundShellShapeIfVisible()
+        }
         .onChange(of: self.scenePhase) { _, phase in
+            self.syncForegroundShellShapeIfVisible()
             guard phase == .active else {
                 self.journalGapVisit.background()
                 return
@@ -358,14 +364,30 @@ struct RootShellView: View {
         self.isPhoneShell ? AnyView(self.phoneStack) : AnyView(self.padSplit)
     }
 
+    private var liveIsPhoneShell: Bool {
+        Self.shellIsPhone(horizontalSizeClass: self.horizontalSizeClass, dynamicTypeSize: self.dynamicTypeSize)
+    }
+
     /// Whether the shell is the phone's single stack rather than the split.
     ///
     /// Compact width, or a pinned deck column that cannot hold two tiles. The deck
     /// is never degenerated to one column inside a split: at an accessibility text
     /// size, and past the text size the column band was derived for, the split
-    /// collapses and the shell behaves as compact.
+    /// collapses and the shell behaves as compact. While the scene is in the
+    /// background, hold the last foreground shell shape so iPadOS multitasking
+    /// snapshots do not tear down live detail state (such as an open journal sign-in).
     private var isPhoneShell: Bool {
-        Self.shellIsPhone(horizontalSizeClass: self.horizontalSizeClass, dynamicTypeSize: self.dynamicTypeSize)
+        Self.resolvedShellIsPhone(
+            horizontalSizeClass: self.horizontalSizeClass,
+            dynamicTypeSize: self.dynamicTypeSize,
+            scenePhase: self.scenePhase,
+            lastForegroundIsPhone: self.lastForegroundIsPhoneShell
+        )
+    }
+
+    private func syncForegroundShellShapeIfVisible() {
+        guard self.scenePhase != .background else { return }
+        self.lastForegroundIsPhoneShell = self.liveIsPhoneShell
     }
 
     private var padSplit: some View {
@@ -384,6 +406,11 @@ struct RootShellView: View {
             self.paneColumn
         }
         .navigationSplitViewStyle(.balanced)
+        // `padSplit` only mounts in the foreground when `horizontalSizeClass == .regular`.
+        // Pinning `.regular` here prevents `NavigationSplitView` from collapsing its
+        // detail column if iPadOS sweeps a compact trait collection during background
+        // snapshotting while `isPhoneShell` holds the foreground shape.
+        .environment(\.horizontalSizeClass, .regular)
 #if DEBUG
         .overlay(alignment: .topLeading) {
             if self.showsColumnVisibilityProbe {
@@ -747,6 +774,19 @@ struct RootShellView: View {
             return true
         }
         return splitCollapses(dynamicTypeSize: dynamicTypeSize)
+    }
+
+    static func resolvedShellIsPhone(
+        horizontalSizeClass: UserInterfaceSizeClass?,
+        dynamicTypeSize: DynamicTypeSize,
+        scenePhase: ScenePhase,
+        lastForegroundIsPhone: Bool?
+    ) -> Bool {
+        let live = Self.shellIsPhone(horizontalSizeClass: horizontalSizeClass, dynamicTypeSize: dynamicTypeSize)
+        if scenePhase == .background, let lastForegroundIsPhone {
+            return lastForegroundIsPhone
+        }
+        return live
     }
 
     private func applyJournalGapSurfaceChange(

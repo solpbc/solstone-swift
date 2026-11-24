@@ -459,6 +459,31 @@ nonisolated enum InAppJournalPresentation {
         }
     }
 
+    enum ActiveMountChangeAction: Equatable, Sendable {
+        case keepCurrent
+        case mountNew
+        case retryCurrent
+    }
+
+    static func activeMountChangeAction(
+        previousActive: WebMount?,
+        nextActive: WebMount?,
+        mounted: WebMount?,
+        loadState: JournalWebPresentation.LoadState
+    ) -> ActiveMountChangeAction {
+        guard let nextActive else { return .keepCurrent }
+        if nextActive != mounted {
+            return .mountNew
+        }
+        // Same origin returned after a disconnect: if the document never finished
+        // loading (for example, it hit -1004 while the previous proxy closed),
+        // retry the load against the live proxy instead of leaving an error stuck.
+        if previousActive == nil, loadState != .loaded {
+            return .retryCurrent
+        }
+        return .keepCurrent
+    }
+
     enum Content: Equatable, Sendable {
         case web
         case awaitingMarkConfirmation
@@ -521,11 +546,6 @@ struct InAppJournalView: View {
 
     private var pairingOwnerID: UUID? { self.appConfig.store.snapshot().deviceOwnerID }
 
-    /// iPad split navigation can recreate the pane independently of the tunnel.
-    private var keepsWebViewWhileReconnecting: Bool {
-        UIDevice.current.userInterfaceIdiom == .phone
-    }
-
     private var activeWebMount: InAppJournalPresentation.WebMount? {
         guard self.appConfig.isPaired, self.appConfig.journalSendConfirmed, let url = self.resolvedURL else { return nil }
         return .init(url: url, ownerID: self.pairingOwnerID, path: self.path)
@@ -533,7 +553,7 @@ struct InAppJournalView: View {
 
     private var webMount: InAppJournalPresentation.WebMount? {
         if let activeWebMount = self.activeWebMount { return activeWebMount }
-        guard self.keepsWebViewWhileReconnecting, let previousWebMount = self.previousWebMount,
+        guard let previousWebMount = self.previousWebMount,
               previousWebMount.canWaitForReconnect(
                 confirmed: self.appConfig.journalSendConfirmed,
                 ownerID: self.pairingOwnerID,
@@ -627,16 +647,25 @@ struct InAppJournalView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("shell.pane.journal")
         .onAppear { self.headingFocused = true }
-        .onChange(of: self.activeWebMount, initial: true) { _, mount in
-            guard self.keepsWebViewWhileReconnecting else {
-                self.loadState = mount == nil ? JournalWebPresentation.connectionLostState : .loading
-                return
-            }
+        .onChange(of: self.activeWebMount, initial: true) { previousActive, mount in
             // The journal can briefly lose its tunnel while Safari is in front.
-            // Keep the same document and session storage if that origin returns.
-            guard let mount, mount != self.previousWebMount else { return }
-            self.loadState = .loading
-            self.previousWebMount = mount
+            // Keep the same document and session storage if that origin returns,
+            // and retry automatically if the same origin came back after a failed load.
+            switch InAppJournalPresentation.activeMountChangeAction(
+                previousActive: previousActive,
+                nextActive: mount,
+                mounted: self.previousWebMount,
+                loadState: self.loadState
+            ) {
+            case .keepCurrent:
+                break
+            case .mountNew:
+                self.loadState = .loading
+                self.previousWebMount = mount
+            case .retryCurrent:
+                self.loadState = .loading
+                self.reloadToken += 1
+            }
         }
         .onChange(of: self.pairingOwnerID) { _, ownerID in
             if self.previousWebMount?.ownerID != ownerID {
