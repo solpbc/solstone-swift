@@ -714,7 +714,7 @@ ios.app.watchcomplicationunknowninline = non ha comunicato
 
 ios.app.watchdetailnone = nessuno
 
-ios.app.watchdiagnosticsactivebackloglabel = backlog attivo
+ios.app.watchdiagnosticsactivebackloglabel = arretrato attivo
 
 ios.app.watchdiagnosticsevidenceunavailablelabel = prova non disponibile
 
@@ -742,9 +742,9 @@ ios.app.watchdiagnosticsomittedobservationslabel = righe omesse
 
 ios.app.watchdiagnosticsphoneledgerdroppedlabel = registro del telefono scartato
 
-ios.app.watchdiagnosticsphoneledgerhandedanddroppedlabel = registro del telefono consegnato + scartato
+ios.app.watchdiagnosticsphoneledgerhandedanddroppedlabel = registro del telefono passato + scartato
 
-ios.app.watchdiagnosticsphoneledgerhandedlabel = registro del telefono consegnato
+ios.app.watchdiagnosticsphoneledgerhandedlabel = registro del telefono passato
 
 ios.app.watchdiagnosticsphoneledgerlabel = registro del telefono
 
@@ -772,7 +772,7 @@ ios.app.watchdiagnosticswatchuserinfoqueuelabel = Orologio → iPhone
 
 ios.app.watchgenericunavailable = qualcosa è andato storto
 
-ios.app.watchhandedtojournallabel = consegnato al tuo diario
+ios.app.watchhandedtojournallabel = passato al tuo diario
 
 ios.app.watchheadlineenrolling = configurazione in corso
 
@@ -1338,7 +1338,7 @@ ios.home.body4 = indirizzi
 
 ios.home.body49 = notifiche dal tuo diario
 
-ios.home.body5 = compilazione
+ios.home.body5 = build
 
 ios.home.body50 = disattivo finché non lo attivi. il tuo diario cifra ogni notifica per la chiave propria di questo dispositivo.
 
@@ -1872,7 +1872,7 @@ ios.observer.message = la sessione audio è cambiata mentre viene preso l'audio
 
 ios.observer.message2 = l'accesso al microfono è necessario per prendere l'audio
 
-ios.observer.message3 = lo spazio è esaurito
+ios.observer.message3 = lo spazio di archiviazione è pieno
 
 ios.observer.message4 = sincronizzato nel tuo diario
 
@@ -2944,11 +2944,11 @@ ios.tunnel.phase7 = in attesa del broker
 
 ios.tunnel.probeconnection = latenza: { $elapsed }; { $detail }; { $hole3 }
 
-ios.tunnel.probeconnection2.native = probe disponibile
+ios.tunnel.probeconnection2.native = sonda disponibile
 
 ios.tunnel.probefailed = sonda non riuscita
 
-ios.tunnel.probenotreachable = probe non raggiungibile
+ios.tunnel.probenotreachable = sonda non raggiungibile
 
 ios.tunnel.route = diretto fissato
 
@@ -2964,7 +2964,7 @@ ios.tunnel.shouldschedulereconnect2 = relay non autorizzato ripetuto
 
 ios.tunnel.startlivenessprobe = activeUploads={ $activeLocalTransfers } { $hole2 }
 
-ios.tunnel.startlivenessprobe2 = probe non raggiungibile durante gli upload attivi
+ios.tunnel.startlivenessprobe2 = sonda non raggiungibile durante i caricamenti attivi
 
 ios.tunnel.transportclosed = trasporto chiuso
 
