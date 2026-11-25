@@ -153,17 +153,14 @@ final class ImportBackgroundUploadCoordinator {
         return (clampedSent, totalKiB)
     }
 
+    /// Per iOS 26/27 `BGContinuedProcessingTask` semantics, `Info.plist` declares the wildcard
+    /// pattern (`app.solstone.swift.import-upload.*`), while each concrete dynamic identifier
+    /// (`app.solstone.swift.import-upload.<UUID>`) is registered right before `submit()` (exempt
+    /// from launch-time registration). Calling `register` with a literal `.*` wildcard fails on
+    /// real iOS devices.
     func registerLaunchHandler() {
-        let didRegister = self.scheduling.register(identifier: Self.taskIdentifierPrefix + ".*") { [weak self] handle in
-            guard let self else { return }
-            Task { @MainActor in
-                await self.runTask(handle)
-            }
-        }
-        if !didRegister {
-            self.isCapable = false
-            importBgLog.error("import-background: registration failed")
-        }
+        // Nothing to register with a literal `.*` wildcard at launch; concrete per-run identifiers
+        // are registered dynamically in `submit()`.
     }
 
     func submit() {
@@ -178,12 +175,25 @@ final class ImportBackgroundUploadCoordinator {
             subtitle = title
         }
         let identifier = Self.taskIdentifierPrefix + "." + UUID().uuidString
+        let didRegister = self.scheduling.register(identifier: identifier) { [weak self] handle in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.runTask(handle)
+            }
+        }
+        importBgLog.info("import-background: register id=\(identifier, privacy: .public) ok=\(didRegister, privacy: .public)")
+        guard didRegister else {
+            self.availability = .unavailable(reason: SourceVocabulary.finishSyncingUnavailableNotPermitted)
+            importBgLog.error("import-background: dynamic registration failed for \(identifier, privacy: .public)")
+            return
+        }
         do {
             try self.scheduling.submit(
                 identifier: identifier,
                 title: title,
                 subtitle: subtitle
             )
+            importBgLog.info("import-background: submitted id=\(identifier, privacy: .public)")
             self.isRunning = true
         } catch let error as BGTaskScheduler.Error {
             self.availability = .unavailable(reason: FinishSyncingCoordinator.unavailableReason(for: error.code))
@@ -214,6 +224,7 @@ final class ImportBackgroundUploadCoordinator {
     }
 
     func runTask(_ handle: any FinishSyncingTaskHandle) async {
+        importBgLog.info("import-background: runTask started")
         self.expired = false
         handle.setExpirationHandler { [weak self] in
             self?.expired = true

@@ -594,12 +594,14 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         )
 
         registrationCoordinator.registerLaunchHandler()
+        registrationCoordinator.submit()
 
-        XCTAssertFalse(registrationCoordinator.isCapable)
+        XCTAssertFalse(registrationCoordinator.isFinishing)
         XCTAssertEqual(
             registrationCoordinator.availability,
-            .ready
+            .unavailable(reason: SourceVocabulary.finishSyncingUnavailableNotPermitted)
         )
+        XCTAssertNil(failedScheduling.submitIdentifier)
 
         let submitScheduling = SpyFinishSyncingScheduling()
         submitScheduling.submitError = GenericFinishSyncingSubmitError()
@@ -676,6 +678,8 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         XCTAssertEqual(scheduling.submitTitle, SourceVocabulary.finishSyncingSystemTitle)
         XCTAssertEqual(scheduling.submitSubtitle, SourceVocabulary.finishSyncingSystemSubtitle(remaining: 1))
         XCTAssertTrue(scheduling.submitIdentifier?.hasPrefix(FinishSyncingCoordinator.taskIdentifierPrefix + ".") == true)
+        XCTAssertEqual(scheduling.registerIdentifier, scheduling.submitIdentifier)
+        XCTAssertFalse(scheduling.registerIdentifier?.hasSuffix(".*") == true)
 
         scheduling.launchHandler?(handle)
         await self.drain(until: { coordinator.isFinishing == false })

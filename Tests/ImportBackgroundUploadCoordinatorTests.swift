@@ -208,11 +208,14 @@ final class ImportBackgroundUploadCoordinatorTests: XCTestCase {
         )
         coordinatorRef = coordinator
 
-        // Submit alone does not claim background sustain (a783802 invariant).
+        // Submit registers the concrete dynamic identifier (never literal `.*`) and does not
+        // claim background sustain until `runTask` actually starts (a783802 invariant).
         coordinator.submit()
         XCTAssertTrue(coordinator.isRunning)
         XCTAssertFalse(coordinator.isSustainingBackground)
         XCTAssertTrue(scheduling.submitIdentifier?.hasPrefix(ImportBackgroundUploadCoordinator.taskIdentifierPrefix + ".") == true)
+        XCTAssertEqual(scheduling.registeredIdentifier, scheduling.submitIdentifier)
+        XCTAssertFalse(scheduling.registeredIdentifier?.hasSuffix(".*") == true)
 
         await coordinator.runTask(handle)
 
@@ -399,6 +402,38 @@ final class ImportBackgroundUploadCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.lastOutcome, .paused)
         XCTAssertEqual(handle.completedSuccess, false)
         XCTAssertEqual(handle.titleHistory.last?.title, "import paused")
+    }
+
+    func testDynamicRegistrationFailureMarksUnavailableWithoutSubmitting() {
+        let scheduling = SpyImportBgScheduling()
+        scheduling.shouldRegister = false
+        let coordinator = ImportBackgroundUploadCoordinator(
+            activeTarget: { nil },
+            filenameForItem: { _ in nil },
+            pendingSendableCount: { 1 },
+            inFlightCount: { 0 },
+            isPairingRefused: { false },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
+            drive: {},
+            setPacingMode: { _ in },
+            isConnected: { true },
+            shouldDisconnectOnExit: { false },
+            disconnect: {},
+            scheduling: scheduling,
+            clock: InstantImportBgClock(),
+            settleInterval: .zero
+        )
+
+        coordinator.submit()
+
+        XCTAssertFalse(coordinator.isRunning)
+        XCTAssertEqual(
+            coordinator.availability,
+            .unavailable(reason: SourceVocabulary.finishSyncingUnavailableNotPermitted)
+        )
+        XCTAssertNil(scheduling.submitIdentifier)
+        XCTAssertTrue(scheduling.registeredIdentifier?.hasPrefix(ImportBackgroundUploadCoordinator.taskIdentifierPrefix + ".") == true)
+        XCTAssertFalse(scheduling.registeredIdentifier?.hasSuffix(".*") == true)
     }
 }
 

@@ -28,7 +28,7 @@ protocol FinishSyncingScheduling {
 @MainActor
 final class BGTaskSchedulerAdapter: FinishSyncingScheduling {
     func register(identifier: String, launchHandler: @escaping @MainActor (any FinishSyncingTaskHandle) -> Void) -> Bool {
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: .main) { task in
             MainActor.assumeIsolated {
                 guard let continuedTask = task as? BGContinuedProcessingTask else {
                     task.setTaskCompleted(success: false)
@@ -77,8 +77,14 @@ final class BGContinuedProcessingTaskHandle: FinishSyncingTaskHandle {
 
     func setExpirationHandler(_ handler: @escaping @MainActor () -> Void) {
         self.task.expirationHandler = {
-            MainActor.assumeIsolated {
-                handler()
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    handler()
+                }
+            } else {
+                Task { @MainActor in
+                    handler()
+                }
             }
         }
     }
@@ -197,17 +203,12 @@ final class FinishSyncingCoordinator {
         }
     }
 
+    /// Per iOS 26/27 `BGContinuedProcessingTask` semantics, `Info.plist` declares the wildcard
+    /// pattern (`app.solstone.swift.finish-syncing.*`), while each concrete dynamic identifier
+    /// (`app.solstone.swift.finish-syncing.<UUID>`) is registered dynamically in `submit()`.
     func registerLaunchHandler() {
-        let didRegister = self.scheduling.register(identifier: Self.taskIdentifierPrefix + ".*") { [weak self] handle in
-            guard let self else { return }
-            Task { @MainActor in
-                await self.runTask(handle)
-            }
-        }
-        if !didRegister {
-            self.isCapable = false
-            finishSyncingLog.error("finish-syncing: registration failed")
-        }
+        // Nothing to register with a literal `.*` wildcard at launch; concrete per-run identifiers
+        // are registered dynamically in `submit()`.
     }
 
     func submit() {
@@ -216,6 +217,17 @@ final class FinishSyncingCoordinator {
         let remaining = self.totals()
         let backlog = remaining.failed + remaining.pending
         let identifier = Self.taskIdentifierPrefix + "." + UUID().uuidString
+        let didRegister = self.scheduling.register(identifier: identifier) { [weak self] handle in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.runTask(handle)
+            }
+        }
+        guard didRegister else {
+            self.availability = .unavailable(reason: SourceVocabulary.finishSyncingUnavailableNotPermitted)
+            finishSyncingLog.error("finish-syncing: dynamic registration failed for \(identifier, privacy: .public)")
+            return
+        }
         do {
             try self.scheduling.submit(
                 identifier: identifier,

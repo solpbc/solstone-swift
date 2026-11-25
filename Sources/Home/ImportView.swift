@@ -1004,7 +1004,6 @@ private struct ImportBackgroundUploadCard: View {
                 lineWidth: self.state == .idle || self.state == .inProgress ? 1 : 0.5
             )
         }
-        .accessibilityIdentifier("import.section.backgroundUpload")
     }
 
     private var dismissButton: some View {
