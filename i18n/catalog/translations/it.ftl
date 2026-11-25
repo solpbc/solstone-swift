@@ -22,7 +22,7 @@ ios.about.relative.second = { $count ->
    *[other] { $count } secondi fa
 }
 
-ios.app.addmorealreadyonhome = già in inizio
+ios.app.addmorealreadyonhome = già su inizio
 
 ios.app.addmorefooter = apri una fonte qualsiasi per cambiare ciò che fa, e per aggiungere o rimuovere il suo riquadro.
 
@@ -202,7 +202,7 @@ ios.app.importremoveaction = rimuovi
 
 ios.app.importremoveactionlabel = rimuovi { $name }
 
-ios.app.importremovebodylocal = questo rimuove la copia su questo dispositivo, così non arriverà nel tuo diario.
+ios.app.importremovebodylocal = questo rimuove la copia su questo dispositivo, quindi non arriverà nel tuo diario.
 
 ios.app.importremovebodymissing = la copia è già sparita, quindi questo la cancella solo da qui.
 
@@ -216,7 +216,7 @@ ios.app.importreviewaction = rivedi nel tuo diario
 
 ios.app.importreviewactionlabel = rivedi { $name } nel tuo diario
 
-ios.app.importreviewdetail = salvata nel tuo diario. mostra l'anteprima e conferma per iniziare.
+ios.app.importreviewdetail = salvato nel tuo diario. mostra l'anteprima e conferma per iniziare.
 
 ios.app.importreviewdetailexpiry = salvata nel tuo diario. rivedi entro un'ora prima che il tuo diario rimuova la copia in attesa.
 
@@ -224,9 +224,9 @@ ios.app.importreviewexpired = la copia in attesa nel tuo diario è scaduta. ques
 
 ios.app.importsendagainaction = invia di nuovo per rivedere
 
-ios.app.importsendagainactionlabel = invia { $name } di nuovo per rivedere
+ios.app.importsendagainactionlabel = invia di nuovo { $name } per rivedere
 
-ios.app.importsendingdetail = in invio al tuo diario…
+ios.app.importsendingdetail = invio al tuo diario in corso…
 
 ios.app.importstatusleadattention = le importazioni hanno bisogno di te
 
@@ -314,7 +314,7 @@ ios.app.journallivestitle = dove si trova il tuo diario
 
 ios.app.journalmarkconfirmbutton = sì, questo è il mio diario
 
-ios.app.journalmarkconfirmquestion = questo corrisponde al tuo diario?
+ios.app.journalmarkconfirmquestion = corrisponde al tuo diario?
 
 ios.app.journalmarkconfirmsubtext = il tuo diario mostra questa stessa marca nella sua app di rete. deve corrispondere, esattamente.
 
@@ -330,7 +330,7 @@ ios.app.journalmarkcouldnotverifycontinueaccessibility = continua l'accoppiament
 
 ios.app.journalmarkcouldnotverifytitle = non è stato possibile verificare
 
-ios.app.journalmarkmismatchbutton = quello non corrisponde
+ios.app.journalmarkmismatchbutton = non corrisponde
 
 ios.app.journalmarkmismatchemailsupport = email { $url1 }
 
@@ -382,7 +382,7 @@ ios.app.ofaudio = { $duration } di audio
 
 ios.app.off = disattivo
 
-ios.app.offsubtextpaired = l'ingresso è disattivo. attivalo in qualsiasi momento.
+ios.app.offsubtextpaired = l'ingresso è disattivo. attivalo quando vuoi.
 
 ios.app.on = attivo
 
@@ -612,7 +612,7 @@ ios.app.screencaststopbutton = ferma lo schermo
 
 ios.app.screencastsystemendedsubtext = condivisione dello schermo terminata
 
-ios.app.sending = in invio
+ios.app.sending = invio
 
 ios.app.sendstatecompactontheway = in arrivo
 
@@ -620,7 +620,7 @@ ios.app.settingstitle = impostazioni
 
 ios.app.sharedeliveredprogress = salvato nel tuo diario
 
-ios.app.sharesendingprogress = in invio al tuo diario…
+ios.app.sharesendingprogress = invio al tuo diario…
 
 ios.app.shelfdismisslabel = chiudi le impostazioni
 
@@ -650,11 +650,11 @@ ios.app.stop = ferma
 
 ios.app.syncedbody = è tutto nel tuo diario
 
-ios.app.syncedheadline = in pari
+ios.app.syncedheadline = tutto in pari
 
 ios.app.syncinglabel = in sincronizzazione
 
-ios.app.syncingtoyourjournal = in sincronizzazione verso il tuo diario…
+ios.app.syncingtoyourjournal = sincronizzazione verso il tuo diario…
 
 ios.app.transferrateidle = inattivo
 
@@ -664,7 +664,7 @@ ios.app.trustlineconfigured = sincronizza solo verso il tuo diario
 
 ios.app.trynow = prova ora
 
-ios.app.turnitonanytime = attiva in qualsiasi momento.
+ios.app.turnitonanytime = attivalo quando vuoi.
 
 ios.app.turnon = attiva
 
@@ -1746,7 +1746,7 @@ ios.lookup.migration.replace.confirm.title.arguments = sostituisci "{ $selected_
 
 ios.lookup.migration.replace.confirm.title.fallback = sostituisci il dispositivo selezionato?
 
-ios.lookup.migration.replace.offer.body = puoi tenere entrambi, oppure scegliere un dispositivo che questo sostituirà.
+ios.lookup.migration.replace.offer.body = puoi tenere entrambi, oppure scegliere un dispositivo che questo sostituisce.
 
 ios.lookup.migration.replace.offer.defer = non ora
 
@@ -1758,7 +1758,7 @@ ios.lookup.migration.replace.offer.title = questo sostituisce uno dei tuoi dispo
 
 ios.lookup.migration.storage.unavailable.action = dettagli tecnici
 
-ios.lookup.migration.storage.unavailable.body = non è stato possibile leggere la connessione salvata di questo dispositivo. non è stato rimosso nulla di ciò che è in attesa di invio.
+ios.lookup.migration.storage.unavailable.body = non è stato possibile leggere la connessione salvata di questo dispositivo. ciò che è in attesa di invio non è stato rimosso.
 
 ios.lookup.migration.storage.unavailable.title = connessione salvata non disponibile
 
@@ -1796,7 +1796,7 @@ ios.lookup.unknown.journal.label.your.journal = il tuo diario
 
 ios.lookup.unknown.journal.row.direct.arguments = diario sconosciuto visto a { $address }
 
-ios.lookup.unknown.journal.row.relay = diario sconosciuto visto tramite il relay
+ios.lookup.unknown.journal.row.relay = diario sconosciuto visto attraverso il relay
 
 ios.lookup.unknown.journal.slot.spoken = nessuna identità presentata
 
@@ -1872,7 +1872,7 @@ ios.observer.message = la sessione audio è cambiata mentre viene preso l'audio
 
 ios.observer.message2 = l'accesso al microfono è necessario per prendere l'audio
 
-ios.observer.message3 = lo spazio di archiviazione è pieno
+ios.observer.message3 = lo spazio è pieno
 
 ios.observer.message4 = sincronizzato nel tuo diario
 
@@ -2456,7 +2456,7 @@ ios.screenshots.photoaccessisoffin = l'accesso alle foto è disattivo nelle impo
 
 ios.screenshots.photosareturnedofffor = le foto sono disattivate per l'app di solstone da una restrizione su questo dispositivo.
 
-ios.screenshots.screenshotsalreadyinyourjournal = gli screenshot già nel tuo diario non vengono portati di nuovo.
+ios.screenshots.screenshotsalreadyinyourjournal = gli screenshot già nel tuo diario non vengono presi di nuovo.
 
 ios.screenshots.screenshotscomeinontheir = gli screenshot arrivano da soli.
 
@@ -2576,7 +2576,7 @@ ios.sourceintakeformatting.july = luglio
 
 ios.sourceintakeformatting.june = giugno
 
-ios.sourceintakeformatting.lasttakenin = preso l'ultima volta
+ios.sourceintakeformatting.lasttakenin = ultimo ingresso
 
 ios.sourceintakeformatting.lessthanakilometer = meno di un chilometro
 
