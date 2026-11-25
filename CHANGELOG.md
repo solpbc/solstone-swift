@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Added
+
+- on iphone and ipad, large files you import now go into your journal in pieces. they pick up where they left off after a network change, switching apps, or a lost connection, without sending finished pieces again. the import tile and import screen show progress as your journal receives the file and show when a transfer pauses to reconnect. from the import screen, you can keep a large import sending in the background or cancel it. smaller files, and imports to an older journal, still go in as before.
+
 ### Fixed
 
 - on iphone and ipad, if you delete a screenshot from Photos while it is waiting to sync, the solstone app now drops it and removes its waiting copy on this device. before, a waiting screenshot could still go into your journal later.

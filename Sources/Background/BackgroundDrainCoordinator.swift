@@ -80,13 +80,15 @@ func resumeShareImports(
     }
 }
 
-/// Returns whether another background owner (location-Always sustain or an active
-/// continued-processing sync) is already keeping the tunnel alive in the background.
+/// Returns whether another background owner (location-Always sustain, an active
+/// continued-processing sync, or an active large-import upload) is already keeping
+/// the tunnel alive in the background.
 nonisolated func isBackgroundTunnelSustained(
     locationSustaining: Bool,
-    finishSyncingActive: Bool
+    finishSyncingActive: Bool,
+    importUploadActive: Bool = false
 ) -> Bool {
-    locationSustaining || finishSyncingActive
+    locationSustaining || finishSyncingActive || importUploadActive
 }
 
 @MainActor

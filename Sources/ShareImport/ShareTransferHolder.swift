@@ -241,8 +241,13 @@ final class ShareTransferHolder {
     /// True when at least one active or queued import qualifies for a dedicated large-import
     /// background continued-processing run (either already resumable or at/above threshold).
     var hasLargeBackgroundImportCandidate: Bool {
+        self.primaryBackgroundImportTarget != nil
+    }
+
+    /// Primary active or queued large import for `ImportBackgroundUploadCoordinator` progress UI.
+    var primaryBackgroundImportTarget: ImportBackgroundUploadTarget? {
         let threshold = self.advertisedResumableThresholdBytes
-        return self.onDeviceItems.contains { item in
+        let candidates = self.onDeviceItems.filter { item in
             switch item.phase {
             case .sending, .waiting:
                 if item.resumableProgress != nil { return true }
@@ -252,6 +257,37 @@ final class ShareTransferHolder {
                 return false
             }
         }
+        guard !candidates.isEmpty else { return nil }
+        let chosen = candidates.first(where: {
+            if case .sending = $0.phase, $0.resumableProgress != nil { return true }
+            return false
+        }) ?? candidates.first(where: {
+            $0.resumableProgress != nil
+        }) ?? candidates.first(where: {
+            if case .sending = $0.phase { return true }
+            return false
+        }) ?? candidates[0]
+
+        if let progress = chosen.resumableProgress {
+            return ImportBackgroundUploadTarget(
+                itemID: chosen.id,
+                filename: chosen.filename,
+                bytesSent: progress.bytesSent,
+                bytesTotal: progress.bytesTotal,
+                phase: progress.phase
+            )
+        }
+        return ImportBackgroundUploadTarget(
+            itemID: chosen.id,
+            filename: chosen.filename,
+            bytesSent: 0,
+            bytesTotal: max(Int64(1), chosen.byteCount ?? threshold),
+            phase: chosen.phase == .sending ? .sending : .paused
+        )
+    }
+
+    func filename(forItemID itemID: UUID) -> String? {
+        self.liveActiveItems.first(where: { $0.id == itemID })?.filename
     }
 
     var reviewItems: [ShareImportActiveItem] {

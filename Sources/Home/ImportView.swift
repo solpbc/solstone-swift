@@ -141,6 +141,9 @@ struct ImportView: View {
     @Environment(ForegroundDrainGate.self) private var foregroundDrainGate
     @Environment(PendingJournalOpenState.self) private var pendingJournalOpen: PendingJournalOpenState?
     @Environment(ScreenshotsSourceHandle.self) private var screenshotsSourceHandle: ScreenshotsSourceHandle?
+    @Environment(ImportBackgroundUploadCoordinator.self) private var importBackgroundUploadCoordinator: ImportBackgroundUploadCoordinator?
+    @Environment(LocationManager.self) private var locationManager: LocationManager?
+    @Environment(FinishSyncingCoordinator.self) private var finishSyncingCoordinator: FinishSyncingCoordinator?
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @AccessibilityFocusState private var sectionFocused: Bool
@@ -187,6 +190,23 @@ struct ImportView: View {
             isPairingRefused: self.shareTransferHolder.isPairingRefused,
             awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation,
             isConnected: self.tunnelManager.state.isConnected && !self.connectionStallMonitor.isStalled
+        )
+    }
+
+    private var backgroundUploadCardState: ImportBackgroundUploadCoordinator.CardState {
+        guard let coordinator = self.importBackgroundUploadCoordinator else { return .hidden }
+        let isSustaining = (self.locationManager?.isSustainingBackground ?? false)
+            || (self.finishSyncingCoordinator?.isSustainingBackground ?? false)
+        return ImportBackgroundUploadCoordinator.cardState(
+            isPaired: self.appConfig.isPaired,
+            isConnected: self.tunnelManager.state.isConnected && !self.connectionStallMonitor.isStalled,
+            isSustaining: isSustaining,
+            isCapable: coordinator.isCapable,
+            hasLargeImport: self.shareTransferHolder.hasLargeBackgroundImportCandidate,
+            isPairingRefused: self.shareTransferHolder.isPairingRefused,
+            isRunning: coordinator.isRunning,
+            lastOutcome: coordinator.lastOutcome,
+            awaitingMarkConfirmation: self.appConfig.awaitingMarkConfirmation
         )
     }
 
@@ -245,6 +265,15 @@ struct ImportView: View {
 
                 if !self.reviewItems.isEmpty {
                     self.waitingForReviewSection
+                }
+
+                if let coordinator = self.importBackgroundUploadCoordinator,
+                   self.backgroundUploadCardState != .hidden
+                {
+                    ImportBackgroundUploadCard(
+                        coordinator: coordinator,
+                        state: self.backgroundUploadCardState
+                    )
                 }
 
                 if !self.onDeviceItems.isEmpty {
@@ -863,5 +892,131 @@ struct ImportView: View {
     private func finish(_ text: String) {
         self.intake = .finished(text)
         AccessibilityNotification.Announcement(text).post()
+    }
+}
+
+private struct ImportBackgroundUploadCard: View {
+    let coordinator: ImportBackgroundUploadCoordinator
+    let state: ImportBackgroundUploadCoordinator.CardState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch self.state {
+            case .hidden:
+                EmptyView()
+            case .idle:
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "arrow.up.circle")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Color.solOrangeAdaptive)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(AppStrings.ios_app_importbgcardheadline())
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(AppStrings.ios_app_importbgcardbody())
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                let unavailableReason: String? = {
+                    if case .unavailable(let reason) = self.coordinator.availability { return reason }
+                    return nil
+                }()
+                Button {
+                    self.coordinator.submit()
+                } label: {
+                    Text(AppStrings.ios_app_importbgbutton())
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(BrandProminentButtonStyle())
+                .disabled(unavailableReason != nil)
+                .accessibilityIdentifier("import.backgroundUpload.start")
+
+                if let unavailableReason {
+                    Text(unavailableReason)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("import.backgroundUpload.unavailable")
+                }
+
+            case .inProgress:
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Color.solOrangeAdaptive)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(AppStrings.ios_app_importbgcardheadline())
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(AppStrings.ios_app_importbginprogress())
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("import.backgroundUpload.inProgress")
+
+            case .completed:
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Color.solSavedGreen)
+                        .accessibilityHidden(true)
+                    Text(AppStrings.ios_app_importbgcompleted())
+                        .font(.subheadline)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    self.dismissButton
+                }
+                .accessibilityIdentifier("import.backgroundUpload.completed")
+
+            case .paused:
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "pause.circle")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Text(AppStrings.ios_app_importbgpaused())
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    self.dismissButton
+                }
+                .accessibilityIdentifier("import.backgroundUpload.paused")
+            }
+        }
+        .padding(ShellMetrics.surfacePadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.deckSurface, in: ShellMetrics.cardShape)
+        .overlay {
+            ShellMetrics.cardShape.stroke(
+                self.state == .idle || self.state == .inProgress ? Color.solOrange.opacity(0.45) : Color.deckHairline,
+                lineWidth: self.state == .idle || self.state == .inProgress ? 1 : 0.5
+            )
+        }
+        .accessibilityIdentifier("import.section.backgroundUpload")
+    }
+
+    private var dismissButton: some View {
+        Button {
+            self.coordinator.dismissOutcome()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.footnote.weight(.bold))
+                .frame(minWidth: 44, minHeight: 44)
+        }
+        .buttonStyle(BrandQuietButtonStyle())
+        .accessibilityLabel(AppStrings.ios_app_dismiss())
+        .accessibilityIdentifier("import.backgroundUpload.dismiss")
     }
 }

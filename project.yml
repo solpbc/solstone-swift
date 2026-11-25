@@ -129,6 +129,7 @@ targets:
           - remote-notification
         BGTaskSchedulerPermittedIdentifiers:
           - app.solstone.swift.finish-syncing.*
+          - app.solstone.swift.import-upload.*
           - app.solstone.swift.calendar-refresh
         solstoneSourceCommit: "$(SOLSTONE_SOURCE_COMMIT)"
         solstoneBuildConfiguration: "$(SOLSTONE_BUILD_CONFIGURATION)"

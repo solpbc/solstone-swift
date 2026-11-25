@@ -56,6 +56,7 @@ struct SolstoneSwiftApp: App {
     @State private var pairingHandoff = PairingHandoffState()
     @State private var shellNav = ShellNavModel()
     @State private var finishSyncingCoordinator: FinishSyncingCoordinator
+    @State private var importBackgroundUploadCoordinator: ImportBackgroundUploadCoordinator
     @State private var foregroundDrainGate: ForegroundDrainGate
     @State private var launchMaintenanceCoordinator: LaunchMaintenanceCoordinator
     @State private var journalSendRelease: JournalSendRelease
@@ -835,6 +836,53 @@ struct SolstoneSwiftApp: App {
                 await tunnel.disconnect()
             }
         )
+        let importBackgroundUpload = ImportBackgroundUploadCoordinator(
+            activeTarget: {
+                shareTransferHolder.primaryBackgroundImportTarget
+            },
+            filenameForItem: { itemID in
+                shareTransferHolder.filename(forItemID: itemID)
+            },
+            pendingSendableCount: {
+                max(0, shareTransferHolder.pendingCount - shareTransferHolder.unsendableCount)
+            },
+            inFlightCount: {
+                shareTransferHolder.inFlightCount
+            },
+            isPairingRefused: {
+                shareTransferHolder.isPairingRefused
+            },
+            backoff: {
+                uploadBackoff(mirror: transferStatusMirror)
+            },
+            drive: {
+                await resumeShareImports(
+                    shareImportStore: shareImportStore,
+                    transferEngine: transferEngine,
+                    diagnosticLog: log
+                )
+                if shareTransferHolder.pendingCount > 0 {
+                    await transferEngine.kick()
+                }
+            },
+            setPacingMode: { mode in
+                await transferEngine.setPacingMode(mode)
+            },
+            isConnected: {
+                tunnel.state.isConnected
+            },
+            shouldDisconnectOnExit: {
+                UIApplication.shared.applicationState == .background
+                    && !locationManager.isSustainingBackground
+                    && !finishSyncing.isSustainingBackground
+            },
+            disconnect: {
+                tunnel.cancelConnect()
+                tunnel.cancelReconnect()
+                tunnel.stopNetworkMonitoring()
+                await tunnel.disconnect()
+            }
+        )
         let foregroundDrainGate = ForegroundDrainGate(drive: {
             await driveUploadDrain(
                 mobileSegment: mobileSegmentUploader,
@@ -884,6 +932,7 @@ struct SolstoneSwiftApp: App {
         )
         if !Self.isIntegrationMode && !Self.isUITest && !Self.isUnitTest {
             finishSyncing.registerLaunchHandler()
+            importBackgroundUpload.registerLaunchHandler()
             calendarBackgroundRefresh.register()
         }
 #if DEBUG && targetEnvironment(simulator)
@@ -965,6 +1014,7 @@ struct SolstoneSwiftApp: App {
         self._observerManager = State(initialValue: observerManager)
         self._watchLink = State(initialValue: watchLink)
         self._finishSyncingCoordinator = State(initialValue: finishSyncing)
+        self._importBackgroundUploadCoordinator = State(initialValue: importBackgroundUpload)
         self._foregroundDrainGate = State(initialValue: foregroundDrainGate)
         self._launchMaintenanceCoordinator = State(initialValue: launchMaintenanceCoordinator)
         self._journalSendRelease = State(initialValue: journalSendRelease)
@@ -1009,6 +1059,7 @@ struct SolstoneSwiftApp: App {
                 .environment(self.connectionStallMonitor)
                 .environment(self.connectionSyncModel)
                 .environment(self.finishSyncingCoordinator)
+                .environment(self.importBackgroundUploadCoordinator)
                 .environment(self.foregroundDrainGate)
                 .environment(self.mobileSegmentTransferHolder)
                 .environment(self.watchUploaderHolder)
@@ -1395,7 +1446,8 @@ struct SolstoneSwiftApp: App {
                 isSustaining: {
                     isBackgroundTunnelSustained(
                         locationSustaining: self.locationManager.isSustainingBackground,
-                        finishSyncingActive: self.finishSyncingCoordinator.isSustainingBackground
+                        finishSyncingActive: self.finishSyncingCoordinator.isSustainingBackground,
+                        importUploadActive: self.importBackgroundUploadCoordinator.isSustainingBackground
                     )
                 },
                 isConnected: { self.tunnelManager.state.isConnected },
@@ -1447,6 +1499,11 @@ struct SolstoneSwiftApp: App {
         }
         await self.transferEngine.registerAttentionHook(sourceKey: ObserverAudioTransferSource.share) { [weak shareTransferHolder = self.shareTransferHolder] _ in
             await shareTransferHolder?.refreshActiveItems()
+        }
+        await self.transferEngine.setResumableProgressObserver { [weak coordinator = self.importBackgroundUploadCoordinator] itemID, progress in
+            await MainActor.run {
+                coordinator?.handleResumableProgress(itemID: itemID, progress: progress)
+            }
         }
         // A calendar file reaching the journal, or one the owner removed there, leaves room for
         // an import's next files.
