@@ -170,7 +170,7 @@ ios.app.importexpired = గడువు అయింది
 
 ios.app.importfileshint = ఇంపోర్ట్ చేయడానికి ఫైళ్లను ఎంచుకుంటుంది.
 
-ios.app.importfilesrow = ఫైళ్లు
+ios.app.importfilesrow = ఫైల్‌లు
 
 ios.app.importholdmark = మీరు మీ జర్నల్ మార్క్‌ను నిర్ధారించే వరకు ఇంపోర్ట్‌లు వేచి ఉంటాయి.
 
@@ -226,21 +226,21 @@ ios.app.importsendingdetail = మీ జర్నల్‌కు పంపిస
 
 ios.app.importstatusleadattention = ఇంపోర్ట్‌లకు మీరు కావాలి
 
-ios.app.importstatusleadattentionsubline = ఎందుకో చూడటానికి ఇంపోర్ట్‌ను తెరవండి.
+ios.app.importstatusleadattentionsubline = ఎందుకో చూడటానికి ఇంపోర్ట్ తెరవండి.
 
 ios.app.importstatusleadready = { $count ->
     [one] { $count } ఇంపోర్ట్ సమీక్షించడానికి సిద్ధంగా ఉంది
    *[other] { $count } ఇంపోర్ట్‌లు సమీక్షించడానికి సిద్ధంగా ఉన్నాయి
 }
 
-ios.app.importstatusleadreadysubline = సమీక్షించి ప్రారంభించడానికి ఇంపోర్ట్‌ను తెరవండి.
+ios.app.importstatusleadreadysubline = సమీక్షించి ప్రారంభించడానికి ఇంపోర్ట్ తెరవండి.
 
 ios.app.importstatuspillready = { $count ->
     [one] { $count } సమీక్షించడానికి సిద్ధంగా ఉంది
    *[other] { $count } సమీక్షించడానికి సిద్ధంగా ఉన్నాయి
 }
 
-ios.app.importsubline = ఫోటోలు, ఫైళ్లు
+ios.app.importsubline = ఫోటోలు, ఫైల్‌లు
 
 ios.app.importtilefilescount = { $count ->
     [one] { $count } ఫైల్
@@ -300,7 +300,7 @@ ios.app.journallivesconnectaction = కనెక్ట్ చేయండి
 
 ios.app.journallivesownbody = మీ కంప్యూటర్‌లోని మీ జర్నల్‌కు పెయిరింగ్ చేయండి. ఇప్పటి వరకు మీరు పంచుకున్నదంతా లోపలికి వస్తుంది.
 
-ios.app.journallivestitle = మీ జర్నల్ ఎక్కడ ఉంది
+ios.app.journallivestitle = మీ జర్నల్ ఎక్కడ ఉంటుంది
 
 ios.app.journalmarkconfirmbutton = అవును, ఇది నా జర్నల్
 
@@ -308,7 +308,7 @@ ios.app.journalmarkconfirmquestion = ఇది మీ జర్నల్‌త�
 
 ios.app.journalmarkconfirmsubtext = మీ జర్నల్ తన నెట్‌వర్క్ యాప్‌లో ఇదే మార్క్ చూపిస్తుంది. అది కచ్చితంగా సరిపోవాలి.
 
-ios.app.journalmarkcouldnotverifybody = మీ జర్నల్ మార్క్ సరిచూపు పూర్తి కాలేదు. మార్క్‌లు విభేదిస్తున్నాయని కాదు.
+ios.app.journalmarkcouldnotverifybody = మీ జర్నల్ మార్క్ సరిచూపు పూర్తి కాలేదు. మార్కు‌లు విభేదిస్తున్నాయని కాదు.
 
 ios.app.journalmarkcouldnotverifycancel = పెయిరింగ్ రద్దు చేయండి
 
@@ -660,7 +660,7 @@ ios.app.turnon = ఆన్ చేయండి
 
 ios.app.unavailable = అందుబాటులో లేదు
 
-ios.app.undo = అన్డూ చేయండి
+ios.app.undo = అన్‌డూ చేయండి
 
 ios.app.voiceovertext = ఆఫ్. { $hole1 }
 
@@ -1006,7 +1006,7 @@ ios.calendar.spanfootnote = ఏవీ లోపలికి రాకముం�
 
 ios.calendar.spanheader = ఈ రోజుకు ముందు నుండి
 
-ios.calendar.startfromtoday = ఈ రోజు నుండి స్టార్ట్ చేయండి
+ios.calendar.startfromtoday = ఈ రోజు నుండి ప్రారంభించండి
 
 ios.calendar.turnon = క్యాలెండర్ ఆన్ చేయండి
 
@@ -1044,9 +1044,9 @@ ios.contentview.close = మూసివేయండి
 
 ios.contentview.connectedthroughtherelay = రిలే ద్వారా కనెక్ట్ అయి ఉంది
 
-ios.contentview.copythefulllinkfromyourchatandopenitagain = మీ చాట్ నుండి పూర్తి లింక్‌ను కాపీ చేసి, దాన్ని మళ్ళీ తెరవండి.
+ios.contentview.copythefulllinkfromyourchatandopenitagain = మీ చాట్ నుండి పూర్తి లింక్ కాపీ చేసి మళ్ళీ తెరవండి.
 
-ios.contentview.thisjournallinkisntvalid = ఈ జర్నల్ లింక్ చెల్లుబాటు కాదు.
+ios.contentview.thisjournallinkisntvalid = ఈ జర్నల్ లింక్ చెల్లదు.
 
 ios.delivery.audio.attention = { $count ->
     [one] { $count } రికార్డింగ్‌కు శ్రద్ధ కావాలి.
@@ -1341,7 +1341,7 @@ ios.home.body58 = సాంకేతిక వివరాలు చూపండ
 
 ios.home.body59 = sol pbc · agpl-3.0
 
-ios.home.body6 = ద్వారా కనెక్ట్ అయి ఉంది
+ios.home.body6 = ద్వారా కనెక్ట్ అయింది
 
 ios.home.body60 = ఇది ముందు ప్రస్తుత జర్నల్‌ను మర్చిపోతుంది. ఇంకా వేచి ఉన్నదంతా మీరు తర్వాత పెయిరింగ్ చేసే జర్నల్‌కు వెళ్తుంది.
 
@@ -1440,8 +1440,8 @@ ios.intake.count.items = { $count ->
 }
 
 ios.intake.count.notes = { $count ->
-    [one] 1 గమనిక
-   *[other] { $display } గమనికలు
+    [one] 1 నోట్
+   *[other] { $display } నోట్‌లు
 }
 
 ios.intake.count.pages = { $count ->
@@ -1770,7 +1770,7 @@ ios.lookup.unknown.journal.label.what.answered = ఏది సమాధానం
 
 ios.lookup.unknown.journal.label.your.journal = మీ జర్నల్
 
-ios.lookup.unknown.journal.row.direct.arguments = { $address } వద్ద తెలియని జర్నల్ కనిపించింది
+ios.lookup.unknown.journal.row.direct.arguments = { $address } వద్ద తెలియని జర్నల్ కనబడింది
 
 ios.lookup.unknown.journal.row.relay = రిలే ద్వారా తెలియని జర్నల్ కనిపించింది
 
@@ -1876,7 +1876,7 @@ ios.observer.startsession2 = సెగ్మెంట్ ID లేదు
 
 ios.observer.title = మీ లైవ్ సెషన్ త్వరలో ముగుస్తుంది
 
-ios.obsidian.avaultwiththisname = ఈ పేరుతో ఒక వాల్ట్ ఇప్పటికే మీ జర్నల్‌లో ఉంది
+ios.obsidian.avaultwiththisname = ఈ పేరుతో వాల్ట్ మీ జర్నల్‌లో ఇప్పటికే ఉంది
 
 ios.obsidian.cantreadthisvaultchoose = ఈ వాల్ట్‌ను చదవలేకపోతోంది. యాక్సెస్ తిరిగి రావడానికి దాన్ని మళ్ళీ ఎంచుకోండి.
 
@@ -1988,7 +1988,7 @@ ios.pairing.message4 = మీ జర్నల్‌తో కనెక్ట్ 
 
 ios.pairing.message5 = మీ జర్నల్‌తో కనెక్ట్ కాలేకపోయింది. అది నడుస్తోందని నిర్ధారించుకుని, మళ్ళీ ప్రయత్నించండి.
 
-ios.pairing.message6 = మీ జర్నల్ సమాధానం ఇచ్చే ముందు దానితో కనెక్షన్ పోయింది. మళ్ళీ ప్రయత్నించండి.
+ios.pairing.message6 = అది సమాధానం ఇవ్వకముందే మీ జర్నల్‌తో కనెక్షన్ పోయింది. మళ్ళీ ప్రయత్నించండి.
 
 ios.pairing.message7 = పెయిరింగ్ జరగలేదు. మీ జర్నల్‌లో కొత్త పెయిరింగ్ కోడ్ చూపించి మళ్ళీ ప్రయత్నించండి.
 
@@ -2174,7 +2174,7 @@ ios.presentation.dayhomeview.n5 = { $value0 }, { $value1 } { $value2 }, { $value
 
 ios.presentation.diagnosticlog.n14 = (ఏదీ లేదు)
 
-ios.presentation.diagnosticlog.n18 = wifi
+ios.presentation.diagnosticlog.n18 = వై-ఫై
 
 ios.presentation.diagnosticlog.n19 = సెల్యులర్
 
@@ -2384,9 +2384,9 @@ ios.screenshots.ascreenshotalreadyinyour = Photos నుండి తొలగ�
 
 ios.screenshots.asksiosforaccessto = మీ ఫోటోలకు యాక్సెస్ కోసం iosను అడుగుతుంది.
 
-ios.screenshots.choosehowfarbackto = ఎంత వెనుక నుండి మొదలుపెట్టాలో ఎంచుకుని, వాటిని తీసుకురండి.
+ios.screenshots.choosehowfarbackto = ఎంత వెనక్కి మొదలు పెట్టాలో ఎంచుకుని, వాటిని తీసుకురండి.
 
-ios.screenshots.couldntcountyourscreenshots = మీ స్క్రీన్‌షాట్‌లను లెక్కించడం సాధ్యం కాలేదు.
+ios.screenshots.couldntcountyourscreenshots = మీ స్క్రీన్‌షాట్‌లను లెక్కించలేకపోయింది.
 
 ios.screenshots.iosissharingonlythe = ios మీరు ఎంచుకున్న ఫోటోలను మాత్రమే పంచుకుంటోంది, కాబట్టి కొత్త స్క్రీన్‌షాట్‌లు రాలేవు. దీన్ని ఆన్ చేయడానికి ios సెట్టింగ్‌లలో పూర్తి యాక్సెస్‌ను అనుమతించండి.
 
@@ -2410,9 +2410,9 @@ ios.screenshots.photosareturnedofffor = ఈ పరికరంలోని ఒ�
 
 ios.screenshots.screenshotsalreadyinyourjournal = మీ జర్నల్‌లో ఇప్పటికే ఉన్న స్క్రీన్‌షాట్‌లు మళ్ళీ తీసుకురాబడవు.
 
-ios.screenshots.screenshotscomeinontheir = స్క్రీన్‌షాట్‌లు అవే వస్తాయి.
+ios.screenshots.screenshotscomeinontheir = స్క్రీన్‌షాట్‌లు తమంతట తామే వస్తాయి.
 
-ios.screenshots.setupscreenshots = స్క్రీన్‌షాట్‌లను సెటప్ చేయండి
+ios.screenshots.setupscreenshots = స్క్రీన్‌షాట్‌లు సెటప్ చేయండి
 
 ios.screenshots.thescreenshotsyoutakewait = మీరు జర్నల్‌ను కనెక్ట్ చేసే వరకు, మీరు తీసిన స్క్రీన్‌షాట్‌లు ఈ పరికరంలో వేచి ఉంటాయి.
 
@@ -2432,11 +2432,11 @@ ios.screenshots.turnonscreenshots = స్క్రీన్‌షాట్‌�
 
 ios.screenshots.waitingforajournalupdate = జర్నల్ అప్‌డేట్ కోసం వేచి ఉంది. మీ స్క్రీన్‌షాట్‌లు ఈ పరికరంలో వేచి ఉంటాయి.
 
-ios.screenshots.whatsalreadyinyourjournal = మీరు దీన్ని పాజ్ చేసినా లేదా ఆఫ్ చేసినా, మీ జర్నల్‌లో ఇప్పటికే ఉన్నది అక్కడే ఉంటుంది.
+ios.screenshots.whatsalreadyinyourjournal = మీరు పాజ్ చేసినా, లేదా దీన్ని ఆఫ్ చేసినా, మీ జర్నల్‌లో ఇప్పటికే ఉన్నది అలాగే ఉంటుంది.
 
 ios.screenshots.whilethisisonthe = ఇది ఆన్‌లో ఉన్నప్పుడు, solstone యాప్ మీరు తీసిన స్క్రీన్‌షాట్‌లను మాత్రమే స్వీకరిస్తుంది, మరియు మీరు తీసిన నిమిషానికి మీ జర్నల్ ప్రతిదాన్ని ఉంచుకుంటుంది.
 
-ios.screenshots.youllseehowmanyscreenshots = ఏవీ రాకముందే ఎన్ని స్క్రీన్‌షాట్‌లు ఉన్నాయో మీరు చూస్తారు.
+ios.screenshots.youllseehowmanyscreenshots = ఏవీ లోపలికి రాకముందే, స్క్రీన్‌షాట్‌లు ఎన్ని ఉన్నాయో మీరు చూస్తారు.
 
 ios.screenshots.youpausedthisscreenshotsyou = మీరు దీన్ని పాజ్ చేశారు. పాజ్‌లో ఉన్నప్పుడు మీరు తీసిన స్క్రీన్‌షాట్‌లు రావు.
 
@@ -2448,7 +2448,7 @@ ios.services.journalline = journal
 
 ios.services.journalpagestartedfresh = జర్నల్ పేజీ తాజాగా మొదలైంది
 
-ios.services.lastknown = { $version } (చివరగా తెలిసినది)
+ios.services.lastknown = { $version } (చివరిగా తెలిసింది)
 
 ios.services.networkstatustext = సెల్యులార్ · ఆఫ్‌లైన్
 
@@ -2486,11 +2486,11 @@ ios.share.plainreason4 = రక్షించబడిన ఫైల్
 
 ios.share.plainreason5 = మద్దతు లేని ఫైల్ రకం
 
-ios.sharedsources.also = అక్కడ కూడా ఆన్
+ios.sharedsources.also = వీటిలో కూడా
 
 ios.sharedsources.heading = { $count ->
     [one] మరో పరికరం నుండి
-   *[other] ఇతర { $count } పరికరాల నుండి
+   *[other] { $count } ఇతర పరికరాల నుండి
 }
 
 ios.sharedsources.pair = { $first } · { $second }
@@ -2527,7 +2527,7 @@ ios.sourceintakeformatting.july = జూలై
 
 ios.sourceintakeformatting.june = జూన్
 
-ios.sourceintakeformatting.lasttakenin = చివరి తీసుకోలు
+ios.sourceintakeformatting.lasttakenin = చివరి స్వీకరణ
 
 ios.sourceintakeformatting.lessthanakilometer = ఒక కిలోమీటర్ కంటే తక్కువ
 
@@ -2547,7 +2547,7 @@ ios.sourceintakeformatting.october = అక్టోబర్
 
 ios.sourceintakeformatting.september = సెప్టెంబర్
 
-ios.sourceintakeformatting.since = { $value0 }, నుండి{ $slot0 }{ $value1 }
+ios.sourceintakeformatting.since = { $value0 },{ $slot0 }{ $value1 } నుండి
 
 ios.sourceintakeformatting.sofar = ఇప్పటి వరకు
 
@@ -2567,7 +2567,7 @@ ios.sourcevocabularyswift.beforeiosasks = ios అడిగే ముందు
 
 ios.sourcevocabularyswift.couldntdisconnectthisdeviceyet = ఈ పరికరాన్ని ఇంకా డిస్‌కనెక్ట్ చేయడం సాధ్యం కాలేదు. ఇది ఉంచినదేదీ ఈ లింక్ ద్వారా ఆ జర్నల్‌కు వెళ్లలేదు. మళ్ళీ ప్రయత్నించండి.
 
-ios.sourcevocabularyswift.couldntsaveyouranswertry = మీ సమాధానం సేవ్ చేయడం సాధ్యం కాలేదు. మళ్ళీ ప్రయత్నించండి.
+ios.sourcevocabularyswift.couldntsaveyouranswertry = మీ సమాధానాన్ని సేవ్ చేయలేకపోయింది. మళ్ళీ ప్రయత్నించండి.
 
 ios.sourcevocabularyswift.ialreadyhaveone = నాకు ఇప్పటికే ఒకటి ఉంది
 
@@ -2575,7 +2575,7 @@ ios.sourcevocabularyswift.memoriesareonthisdevice.native = { $value0 }{ $slot0 }
 
 ios.sourcevocabularyswift.nothingthisdevicehaskept = ఈ పరికరం ఉంచినదేదీ ఈ లింక్ ద్వారా ఆ జర్నల్‌కు వెళ్లలేదు. మీరు తప్పు కోడ్‌ను స్కాన్ చేసి ఉండవచ్చు, లేదా ఏదో సరిగా లేదు. మళ్ళీ ప్రయత్నించండి, లేదా మమ్మల్ని చేరండి. మేము సహాయం చేస్తాం.
 
-ios.sourcevocabularyswift.openthesetuppage = సెటప్ పేజీని తెరవండి
+ios.sourcevocabularyswift.openthesetuppage = సెటప్ పేజీ తెరవండి
 
 ios.sourcevocabularyswift.scanitspairingcode = దాని పెయిరింగ్ కోడ్‌ను స్కాన్ చేయండి
 
