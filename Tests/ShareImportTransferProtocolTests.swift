@@ -2,7 +2,9 @@
 // Copyright (c) 2026 sol pbc
 
 @testable import solstone_swift
+import Crypto
 import Foundation
+import Network
 import os
 import XCTest
 
@@ -366,6 +368,168 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
     }
 
     @MainActor
+    func testFileSaveAndRetryStreamFromCustodyWithoutCreatingBodySpool() async throws {
+        let itemID = Self.uuid(35)
+        let payload = Data((0..<(256 * 1024)).map { UInt8($0 & 0xFF) })
+        let spoolRoot = self.tempDirectory.appendingPathComponent("Transfers", isDirectory: true)
+        let bodyUploadURL = spoolRoot
+            .appendingPathComponent(TransferSpool.queuedDirectoryName, isDirectory: true)
+            .appendingPathComponent(itemID.uuidString, isDirectory: true)
+            .appendingPathComponent("body.upload", isDirectory: false)
+        let attempts = OSAllocatedUnfairLock<Int>(initialState: 0)
+        let bodySpoolSeenOnAttempt = OSAllocatedUnfairLock<[Bool]>(initialState: [])
+        let delivered = OSAllocatedUnfairLock<Int>(initialState: 0)
+
+        TransferURLProtocol.handler = { request, _ in
+            XCTAssertEqual(request.url?.path, "/imports/save")
+            bodySpoolSeenOnAttempt.withLock {
+                $0.append(FileManager.default.fileExists(atPath: bodyUploadURL.path))
+            }
+            let attempt = attempts.withLock { count in
+                count += 1
+                return count
+            }
+            if attempt == 1 {
+                return (Self.response(for: request, statusCode: 503), Data())
+            }
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"recommended_action":"do_not_start","path":"/imports/streamed","timestamp":"2026-07-09T00:00:05Z"}"#.utf8)
+            )
+        }
+
+        let engine = self.makeEngine(bodyBuilder: Self.shareBodyBuilder)
+        await engine.registerDeliveredHook(sourceKey: ObserverAudioTransferSource.share) { _, _ in
+            delivered.withLock { $0 += 1 }
+        }
+        try await engine.start()
+
+        _ = try await engine.enqueue(
+            manifest: self.shareManifest(itemID: itemID, kind: .file),
+            payloads: ["file": payload]
+        )
+
+        try await transferTestWaitFor("streamed file retry delivered") {
+            delivered.withLock { $0 == 1 }
+        }
+
+        XCTAssertEqual(attempts.withLock { $0 }, 2)
+        XCTAssertEqual(bodySpoolSeenOnAttempt.withLock { $0 }, [false, false])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bodyUploadURL.path))
+        XCTAssertEqual(TransferURLProtocol.requests.count, 2)
+        XCTAssertEqual(TransferURLProtocol.bodies.count, 2)
+        for (index, request) in TransferURLProtocol.requests.enumerated() {
+            let receivedBody = TransferURLProtocol.bodies[index]
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Content-Length"),
+                "\(receivedBody.count)"
+            )
+            XCTAssertTrue(receivedBody.range(of: payload) != nil)
+        }
+    }
+
+    @MainActor
+    func testLiveLoopbackStreamedUploadPreservesExactBytesContentLengthAndZeroSpoolCopy() async throws {
+        let itemID = Self.uuid(36)
+        // 4 MiB payload (64x the 64 KiB bound-stream buffer) exercises real kernel loopback flow control.
+        let byteCount = 4 * 1024 * 1024
+        var payload = Data(count: byteCount)
+        payload.withUnsafeMutableBytes { raw in
+            let bytes = raw.bindMemory(to: UInt8.self)
+            for idx in 0..<byteCount {
+                bytes[idx] = UInt8((idx &* 31 &+ 17) & 0xFF)
+            }
+        }
+        let expectedDigest = SHA256.hash(data: payload).map { String(format: "%02x", $0) }.joined()
+
+        let spool = self.makeSpool()
+        let staged = try spool.stage(
+            manifest: self.shareManifest(itemID: itemID, kind: .file),
+            payloads: ["file": payload]
+        )
+        let queued = try spool.commitStagedItem(itemID: staged.item.manifest.itemID)
+        let built = try ShareImportSaveBody.build(item: queued, spool: spool)
+        guard case .streamed(let streamed) = built else {
+            XCTFail("expected .streamed save body")
+            return
+        }
+        XCTAssertFalse(spool.bodyCacheExists(for: queued))
+
+        let server = try await LoopbackMultipartCaptureServer.start(
+            responseStatus: "200 OK",
+            responseBody: Data(#"{"recommended_action":"do_not_start","path":"/imports/live","timestamp":"2026-07-09T00:00:06Z"}"#.utf8)
+        )
+        defer { server.stop() }
+
+        let transport = TransferTransport(sessionConfiguration: .ephemeral)
+        defer { transport.invalidateAndCancel() }
+        let endpoint = TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:\(server.port)")!)
+
+        let result = await transport.send(
+            item: queued,
+            body: .streamed(streamed),
+            endpoint: endpoint,
+            phase: .save
+        )
+
+        XCTAssertEqual(result.statusCode, 200)
+        XCTAssertNil(result.issue)
+        XCTAssertFalse(spool.bodyCacheExists(for: queued))
+
+        let captured = try await server.capturedRequest()
+        XCTAssertEqual(captured.headers["content-length"], "\(streamed.contentLength)")
+        XCTAssertNil(captured.headers["transfer-encoding"])
+        XCTAssertEqual(Int64(captured.body.count), streamed.contentLength)
+        let expectedWire = try streamed.materialize()
+        XCTAssertEqual(captured.body.count, expectedWire.count)
+        let fileHeaderEnd = try XCTUnwrap(captured.body.range(of: Data("Content-Type: application/pdf\r\n\r\n".utf8))?.upperBound)
+        let fileRangeEnd = fileHeaderEnd + payload.count
+        XCTAssertLessThanOrEqual(fileRangeEnd, captured.body.count)
+        let receivedPayload = captured.body[fileHeaderEnd..<fileRangeEnd]
+        let actualDigest = SHA256.hash(data: receivedPayload).map { String(format: "%02x", $0) }.joined()
+        XCTAssertEqual(actualDigest, expectedDigest)
+    }
+
+    @MainActor
+    func testLiveLoopbackStreamedUploadCancellationUnblocksCleanly() async throws {
+        let itemID = Self.uuid(37)
+        let payload = Data(repeating: 0x5A, count: 4 * 1024 * 1024)
+        let spool = self.makeSpool()
+        let staged = try spool.stage(
+            manifest: self.shareManifest(itemID: itemID, kind: .file),
+            payloads: ["file": payload]
+        )
+        let queued = try spool.commitStagedItem(itemID: staged.item.manifest.itemID)
+        guard case .streamed(let streamed) = try ShareImportSaveBody.build(item: queued, spool: spool) else {
+            XCTFail("expected .streamed save body")
+            return
+        }
+
+        let server = try await LoopbackMultipartCaptureServer.startStalled()
+        defer { server.stop() }
+
+        let transport = TransferTransport(sessionConfiguration: .ephemeral)
+        defer { transport.invalidateAndCancel() }
+        let endpoint = TransferResolvedEndpoint(baseURL: URL(string: "http://127.0.0.1:\(server.port)")!)
+
+        let sendTask = Task {
+            await transport.send(
+                item: queued,
+                body: .streamed(streamed),
+                endpoint: endpoint,
+                phase: .save
+            )
+        }
+        try await server.waitForConnectionAccepted()
+        sendTask.cancel()
+        let result = await sendTask.value
+
+        XCTAssertNil(result.statusCode)
+        XCTAssertEqual(result.issue, .cancelled)
+        XCTAssertFalse(spool.bodyCacheExists(for: queued))
+    }
+
+    @MainActor
     private func makeEngine(
         resolver: TransferEndpointResolverStub = TransferEndpointResolverStub(.available(ShareImportTransferProtocolTests.endpoint)),
         bodyBuilder: @escaping TransferBodyBuilder
@@ -457,5 +621,212 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
 
     private static func uuid(_ value: Int) -> UUID {
         UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", value))!
+    }
+}
+
+private nonisolated struct CapturedLoopbackHTTPRequest: Sendable {
+    let headers: [String: String]
+    let body: Data
+}
+
+private nonisolated final class LoopbackMultipartCaptureServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue = DispatchQueue(label: "solstone.test.loopback-stream-server")
+    private let lock = NSLock()
+    private var connections: [NWConnection] = []
+    private var accepted = false
+    private var acceptedContinuations: [CheckedContinuation<Void, Error>] = []
+    private var captured: CapturedLoopbackHTTPRequest?
+    private var captureContinuations: [CheckedContinuation<CapturedLoopbackHTTPRequest, Error>] = []
+    private var portValue: UInt16 = 0
+    var port: UInt16 {
+        self.lock.withLock { self.portValue }
+    }
+
+    private init(listener: NWListener) {
+        self.listener = listener
+    }
+
+    static func start(
+        responseStatus: String,
+        responseBody: Data
+    ) async throws -> LoopbackMultipartCaptureServer {
+        try await self.startServer(stalled: false, responseStatus: responseStatus, responseBody: responseBody)
+    }
+
+    static func startStalled() async throws -> LoopbackMultipartCaptureServer {
+        try await self.startServer(stalled: true, responseStatus: "200 OK", responseBody: Data())
+    }
+
+    private static func startServer(
+        stalled: Bool,
+        responseStatus: String,
+        responseBody: Data
+    ) async throws -> LoopbackMultipartCaptureServer {
+        let params = NWParameters.tcp
+        params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: .any)
+        let listener = try NWListener(using: params)
+        let server = LoopbackMultipartCaptureServer(listener: listener)
+        let queue = DispatchQueue(label: "solstone.test.loopback-stream-listener")
+        listener.newConnectionHandler = { [weak server] connection in
+            server?.handle(
+                connection: connection,
+                stalled: stalled,
+                responseStatus: responseStatus,
+                responseBody: responseBody
+            )
+        }
+        let readyPort: UInt16 = try await withCheckedThrowingContinuation { continuation in
+            let resumed = OSAllocatedUnfairLock<Bool>(initialState: false)
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    if let port = listener.port?.rawValue,
+                       resumed.withLock({ let was = $0; $0 = true; return !was })
+                    {
+                        continuation.resume(returning: port)
+                    }
+                case .failed(let error):
+                    if resumed.withLock({ let was = $0; $0 = true; return !was }) {
+                        continuation.resume(throwing: error)
+                    }
+                default:
+                    break
+                }
+            }
+            listener.start(queue: queue)
+        }
+        server.lock.withLock { server.portValue = readyPort }
+        return server
+    }
+
+    func waitForConnectionAccepted() async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            let alreadyAccepted: Bool = self.lock.withLock {
+                if self.accepted { return true }
+                self.acceptedContinuations.append(continuation)
+                return false
+            }
+            if alreadyAccepted {
+                continuation.resume()
+            }
+        }
+    }
+
+    func capturedRequest() async throws -> CapturedLoopbackHTTPRequest {
+        try await withCheckedThrowingContinuation { continuation in
+            let existing: CapturedLoopbackHTTPRequest? = self.lock.withLock {
+                if let captured = self.captured { return captured }
+                self.captureContinuations.append(continuation)
+                return nil
+            }
+            if let existing {
+                continuation.resume(returning: existing)
+            }
+        }
+    }
+
+    func stop() {
+        let (conns, acceptWaiters, captureWaiters) = self.lock.withLock {
+            let conns = self.connections
+            let acceptWaiters = self.acceptedContinuations
+            let captureWaiters = self.captureContinuations
+            self.connections.removeAll()
+            self.acceptedContinuations.removeAll()
+            self.captureContinuations.removeAll()
+            return (conns, acceptWaiters, captureWaiters)
+        }
+        for connection in conns {
+            connection.cancel()
+        }
+        self.listener.cancel()
+        for waiter in acceptWaiters {
+            waiter.resume(throwing: CancellationError())
+        }
+        for waiter in captureWaiters {
+            waiter.resume(throwing: CancellationError())
+        }
+    }
+
+    private func handle(
+        connection: NWConnection,
+        stalled: Bool,
+        responseStatus: String,
+        responseBody: Data
+    ) {
+        let acceptWaiters: [CheckedContinuation<Void, Error>] = self.lock.withLock {
+            self.connections.append(connection)
+            self.accepted = true
+            let waiters = self.acceptedContinuations
+            self.acceptedContinuations.removeAll()
+            return waiters
+        }
+        for waiter in acceptWaiters {
+            waiter.resume()
+        }
+        connection.start(queue: self.queue)
+        if stalled {
+            return
+        }
+        let buffer = OSAllocatedUnfairLock<Data>(initialState: Data())
+        let headerSeparator = Data("\r\n\r\n".utf8)
+        func receiveNext() {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, isComplete, error in
+                guard let self else { return }
+                if let data, !data.isEmpty {
+                    buffer.withLock { $0.append(data) }
+                }
+                let current = buffer.withLock { $0 }
+                if let headerEnd = current.range(of: headerSeparator) {
+                    let headerText = String(decoding: current[..<headerEnd.lowerBound], as: UTF8.self)
+                    var headers: [String: String] = [:]
+                    for line in headerText.split(separator: "\r\n").dropFirst() {
+                        if let colon = line.firstIndex(of: ":") {
+                            let key = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
+                            let value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+                            headers[key] = value
+                        }
+                    }
+                    let expectedLength = headers["content-length"].flatMap(Int.init) ?? 0
+                    let bodyStart = headerEnd.upperBound
+                    let receivedBody = current[bodyStart...]
+                    if receivedBody.count >= expectedLength || isComplete || error != nil {
+                        let captured = CapturedLoopbackHTTPRequest(
+                            headers: headers,
+                            body: Data(receivedBody.prefix(expectedLength))
+                        )
+                        self.recordCaptured(captured)
+                        let reply = Data((
+                            "HTTP/1.1 \(responseStatus)\r\n"
+                                + "Content-Type: application/json\r\n"
+                                + "Content-Length: \(responseBody.count)\r\n"
+                                + "Connection: close\r\n\r\n"
+                        ).utf8) + responseBody
+                        connection.send(content: reply, completion: .contentProcessed { _ in
+                            connection.cancel()
+                        })
+                        return
+                    }
+                }
+                if isComplete || error != nil {
+                    connection.cancel()
+                    return
+                }
+                receiveNext()
+            }
+        }
+        receiveNext()
+    }
+
+    private func recordCaptured(_ request: CapturedLoopbackHTTPRequest) {
+        let waiters: [CheckedContinuation<CapturedLoopbackHTTPRequest, Error>] = self.lock.withLock {
+            self.captured = request
+            let waiters = self.captureContinuations
+            self.captureContinuations.removeAll()
+            return waiters
+        }
+        for waiter in waiters {
+            waiter.resume(returning: request)
+        }
     }
 }

@@ -68,6 +68,8 @@ final class ObserverIngestDeviceTimeZoneTests: XCTestCase {
             return data
         case .written(let url, _):
             return try Data(contentsOf: url)
+        case .streamed(let streamed):
+            return try streamed.materialize()
         }
     }
 

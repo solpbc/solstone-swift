@@ -71,12 +71,13 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
             item: item.item,
             spool: item.spool
         )
-        guard case .written(let url, let byteCount) = built else {
+        guard case .streamed(let streamed) = built else {
             XCTFail("expected streamed file body")
             return
         }
-        XCTAssertEqual(byteCount, wrapping + payload.count)
-        XCTAssertEqual(try Data(contentsOf: url).count, wrapping + payload.count)
+        XCTAssertEqual(streamed.contentLength, Int64(wrapping + payload.count))
+        XCTAssertEqual(try streamed.materialize().count, wrapping + payload.count)
+        XCTAssertFalse(item.spool.bodyCacheExists(for: item.item))
     }
 
     @MainActor
@@ -99,14 +100,15 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
             item: item,
             spool: spool
         )
-        guard case .written(_, let byteCount) = built else {
+        guard case .streamed(let streamed) = built else {
             XCTFail("expected streamed file body")
             return
         }
-        XCTAssertEqual(byteCount, wrapping + payload.count)
+        XCTAssertEqual(streamed.contentLength, Int64(wrapping + payload.count))
         XCTAssertEqual(fileSystem.payloadDataReads, 0)
         XCTAssertEqual(fileSystem.overBudgetAppends, 0)
-        XCTAssertGreaterThan(fileSystem.streamedPayloadAppends, 0)
+        XCTAssertEqual(fileSystem.streamedPayloadAppends, 0)
+        XCTAssertFalse(spool.bodyCacheExists(for: item))
     }
 
     @MainActor
@@ -264,6 +266,8 @@ nonisolated final class ShareImportSaveBodyTests: XCTestCase {
             return data
         case .written(let url, _):
             return try Data(contentsOf: url)
+        case .streamed(let streamed):
+            return try streamed.materialize()
         }
     }
 

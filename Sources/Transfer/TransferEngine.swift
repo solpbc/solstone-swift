@@ -10,6 +10,7 @@ nonisolated private let transferStatusCoalescingDelay: Duration = .milliseconds(
 nonisolated enum TransferBodyPayload: Sendable {
     case inMemory(Data)
     case written(url: URL, byteCount: Int)
+    case streamed(TransferStreamedBody)
 }
 
 typealias TransferBodyBuilder = @Sendable (TransferStoredItem, TransferSpool) async throws -> TransferBodyPayload
@@ -1478,7 +1479,7 @@ actor TransferEngine {
             return
         }
 
-        let bodyURL: URL
+        let uploadBody: TransferUploadBody
         do {
             let canUseBodyCache: Bool
             switch phase {
@@ -1489,18 +1490,20 @@ actor TransferEngine {
                 canUseBodyCache = true
             }
             if canUseBodyCache && self.spool.bodyCacheExists(for: item) {
-                bodyURL = self.spool.bodyCacheURL(for: item)
+                uploadBody = .file(self.spool.bodyCacheURL(for: item))
             } else {
                 let payload = try await self.bodyBuilder(item, self.spool)
                 switch payload {
                 case .inMemory(let body):
-                    bodyURL = try self.spool.writeBodyCache(body, for: item)
+                    uploadBody = .file(try self.spool.writeBodyCache(body, for: item))
                 case .written(let url, let byteCount):
                     let onDisk = try self.spool.byteCount(at: url)
                     guard onDisk == byteCount else {
                         throw TransferBodyBuildError.malformedManifest(AppStrings.ios_transfer_bodylengthmismatch())
                     }
-                    bodyURL = url
+                    uploadBody = .file(url)
+                case .streamed(let streamed):
+                    uploadBody = .streamed(streamed)
                 }
             }
         } catch {
@@ -1543,7 +1546,7 @@ actor TransferEngine {
             return
         }
         Task {
-            let result = await self.transport.send(item: item, bodyURL: bodyURL, endpoint: endpoint, phase: phase)
+            let result = await self.transport.send(item: item, body: uploadBody, endpoint: endpoint, phase: phase)
             await self.handleCompletion(
                 itemID: itemID,
                 result: result,

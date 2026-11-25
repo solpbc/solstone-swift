@@ -38,22 +38,18 @@ nonisolated enum ShareImportSaveBody {
             guard let payloadURL = try spool.existingPayloadURL(for: part, in: item) else {
                 throw TransferBodyBuildError.missingPayload(part.filename)
             }
-            let payloadLength = try spool.payloadByteCount(for: part, in: item)
+            let payloadLength = Int64(try spool.payloadByteCount(for: part, in: item))
             let wrapping = self.fileWrapping(
                 item: item,
                 part: part,
                 boundary: boundary
             )
-            let expected = wrapping.prefix.count + payloadLength + wrapping.suffix.count
-            let written = try spool.writeBodyStream(for: item) { sink in
-                try sink.append(wrapping.prefix)
-                try sink.append(contentsOf: payloadURL)
-                try sink.append(wrapping.suffix)
-            }
-            guard written.byteCount == expected else {
-                throw TransferBodyBuildError.malformedManifest("body length mismatch")
-            }
-            return .written(url: written.url, byteCount: written.byteCount)
+            return .streamed(TransferStreamedBody(
+                prefix: wrapping.prefix,
+                fileURL: payloadURL,
+                fileLength: payloadLength,
+                suffix: wrapping.suffix
+            ))
         case .audio, .location, .screen:
             throw TransferBodyBuildError.malformedManifest("unsupported save payload")
         }

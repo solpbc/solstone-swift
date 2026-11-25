@@ -4119,6 +4119,8 @@ private extension TransferTests {
             return data
         case .written(let url, _):
             return try Data(contentsOf: url)
+        case .streamed(let streamed):
+            return try streamed.materialize()
         }
     }
 
@@ -4899,6 +4901,7 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
     private static let requestsBox = OSAllocatedUnfairLock<[URLRequest]>(initialState: [])
     private static let bodiesBox = OSAllocatedUnfairLock<[Data]>(initialState: [])
     private static let heldBox = OSAllocatedUnfairLock<[TransferURLProtocol]>(initialState: [])
+    private var capturedBody = Data()
 
     static var handler: Handler? {
         get { self.handlerBox.withLock { $0 } }
@@ -4940,7 +4943,7 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
             if let data {
                 responseData = data
             } else {
-                let body = Self.bodyData(from: urlProtocol.request)
+                let body = urlProtocol.capturedBody
                 responseData = transferTestMatchingReceipt(
                     body: body,
                     contentType: urlProtocol.request.value(forHTTPHeaderField: "Content-Type"),
@@ -4962,6 +4965,7 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         Self.requestsBox.withLock { $0.append(self.request) }
         let body = Self.bodyData(from: self.request)
+        self.capturedBody = body
         Self.bodiesBox.withLock { $0.append(body) }
 
         guard let handler = Self.handler else {
@@ -5008,7 +5012,7 @@ final class TransferURLProtocol: URLProtocol, @unchecked Sendable {
         let bufferSize = 4_096
         let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
         defer { buffer.deallocate() }
-        while stream.hasBytesAvailable {
+        while true {
             let count = stream.read(buffer, maxLength: bufferSize)
             if count <= 0 { break }
             data.append(buffer, count: count)
