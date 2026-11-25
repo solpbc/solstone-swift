@@ -390,7 +390,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
     }
 
     @MainActor
-    func testFinishSyncingActiveWithoutLocationSustainKeepsTunnelAliveAcrossBackground() async {
+    func testSubmittedButUnlaunchedFinishSyncingDoesNotSkipDrainOrDisconnect() async {
         let totals = TotalsBox(failed: 0, pending: 2)
         let asserter = SpyBackgroundTaskAsserter()
         let counters = CountersBox()
@@ -409,6 +409,7 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
         finishSyncing.registerLaunchHandler()
         finishSyncing.submit()
         XCTAssertTrue(finishSyncing.isFinishing)
+        XCTAssertFalse(finishSyncing.isSustainingBackground)
 
         let coordinator = BackgroundDrainCoordinator(
             totals: { totals.snapshot },
@@ -417,7 +418,75 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
             isSustaining: {
                 isBackgroundTunnelSustained(
                     locationSustaining: false,
-                    finishSyncingActive: finishSyncing.isFinishing
+                    finishSyncingActive: finishSyncing.isSustainingBackground
+                )
+            },
+            isConnected: { true },
+            drive: {
+                counters.driveCount += 1
+                totals.pending = 0
+            },
+            disconnect: {
+                counters.disconnectCount += 1
+            },
+            asserter: asserter,
+            clock: MockObserverClock()
+        )
+
+        await coordinator.run()
+
+        XCTAssertEqual(counters.driveCount, 1)
+        XCTAssertEqual(counters.disconnectCount, 1)
+        XCTAssertEqual(asserter.beginCount, 1)
+        XCTAssertEqual(asserter.endCount, 1)
+    }
+
+    @MainActor
+    func testRunningFinishSyncingTaskSustainsBackgroundUntilRunTaskCompletes() async {
+        let totals = TotalsBox(failed: 0, pending: 2)
+        let asserter = SpyBackgroundTaskAsserter()
+        let counters = CountersBox()
+        let finishClock = MockObserverClock()
+        let scheduling = InlineFinishSyncingScheduling()
+        let handle = InlineFinishSyncingTaskHandle()
+        let finishDriveCount = CountersBox()
+        let finishSyncing = FinishSyncingCoordinator(
+            totals: { totals.snapshot },
+            inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
+            drive: {
+                finishDriveCount.driveCount += 1
+                if finishDriveCount.driveCount == 1 {
+                    totals.pending = 1
+                } else {
+                    totals.pending = 0
+                }
+            },
+            setPacingMode: { _ in },
+            isConnected: { true },
+            disconnect: {},
+            scheduling: scheduling,
+            clock: finishClock,
+            settleInterval: .milliseconds(1)
+        )
+        finishSyncing.registerLaunchHandler()
+        finishSyncing.submit()
+        XCTAssertFalse(finishSyncing.isSustainingBackground)
+
+        scheduling.launchHandler?(handle)
+        await self.drain(until: {
+            finishSyncing.isSustainingBackground && finishClock.pendingSleeperCount == 1
+        })
+        XCTAssertTrue(finishSyncing.isSustainingBackground)
+
+        let whileRunningCoordinator = BackgroundDrainCoordinator(
+            totals: { totals.snapshot },
+            inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
+            isSustaining: {
+                isBackgroundTunnelSustained(
+                    locationSustaining: false,
+                    finishSyncingActive: finishSyncing.isSustainingBackground
                 )
             },
             isConnected: { true },
@@ -431,12 +500,46 @@ nonisolated final class BackgroundDrainCoordinatorTests: XCTestCase {
             clock: MockObserverClock()
         )
 
-        await coordinator.run()
+        await whileRunningCoordinator.run()
 
         XCTAssertEqual(counters.driveCount, 0)
         XCTAssertEqual(counters.disconnectCount, 0)
         XCTAssertEqual(asserter.beginCount, 0)
         XCTAssertEqual(asserter.endCount, 0)
+
+        finishClock.advance(by: 1)
+        await self.drain(until: { !finishSyncing.isFinishing })
+        XCTAssertFalse(finishSyncing.isSustainingBackground)
+
+        totals.pending = 1
+        let afterCompletionCoordinator = BackgroundDrainCoordinator(
+            totals: { totals.snapshot },
+            inFlight: { 0 },
+            backoff: { TransferBackoffStatus(backoffPendingCount: 0, endpointHeld: false) },
+            isSustaining: {
+                isBackgroundTunnelSustained(
+                    locationSustaining: false,
+                    finishSyncingActive: finishSyncing.isSustainingBackground
+                )
+            },
+            isConnected: { true },
+            drive: {
+                counters.driveCount += 1
+                totals.pending = 0
+            },
+            disconnect: {
+                counters.disconnectCount += 1
+            },
+            asserter: asserter,
+            clock: MockObserverClock()
+        )
+
+        await afterCompletionCoordinator.run()
+
+        XCTAssertEqual(counters.driveCount, 1)
+        XCTAssertEqual(counters.disconnectCount, 1)
+        XCTAssertEqual(asserter.beginCount, 1)
+        XCTAssertEqual(asserter.endCount, 1)
     }
 
     @MainActor
@@ -727,12 +830,25 @@ private final class SpyBackgroundTaskAsserter: BackgroundTaskAsserting {
 
 @MainActor
 private final class InlineFinishSyncingScheduling: FinishSyncingScheduling {
+    private(set) var launchHandler: (@MainActor (any FinishSyncingTaskHandle) -> Void)?
+
     func register(
         identifier: String,
         launchHandler: @escaping @MainActor (any FinishSyncingTaskHandle) -> Void
     ) -> Bool {
-        true
+        self.launchHandler = launchHandler
+        return true
     }
 
     func submit(identifier: String, title: String, subtitle: String) throws {}
+}
+
+@MainActor
+private final class InlineFinishSyncingTaskHandle: FinishSyncingTaskHandle {
+    var isCancelled = false
+    func setProgressTotal(_ total: Int) {}
+    func setProgressCompleted(_ completed: Int) {}
+    func updateTitle(_ title: String, subtitle: String) {}
+    func setExpirationHandler(_ handler: @escaping @MainActor () -> Void) {}
+    func complete(success: Bool) {}
 }

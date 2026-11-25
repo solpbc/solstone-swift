@@ -1391,7 +1391,7 @@ struct SolstoneSwiftApp: App {
                 isSustaining: {
                     isBackgroundTunnelSustained(
                         locationSustaining: self.locationManager.isSustainingBackground,
-                        finishSyncingActive: self.finishSyncingCoordinator.isFinishing
+                        finishSyncingActive: self.finishSyncingCoordinator.isSustainingBackground
                     )
                 },
                 isConnected: { self.tunnelManager.state.isConnected },

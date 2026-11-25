@@ -672,6 +672,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         coordinator.submit()
 
         XCTAssertEqual(coordinator.isFinishing, true)
+        XCTAssertEqual(coordinator.isSustainingBackground, false)
         XCTAssertEqual(scheduling.submitTitle, SourceVocabulary.finishSyncingSystemTitle)
         XCTAssertEqual(scheduling.submitSubtitle, SourceVocabulary.finishSyncingSystemSubtitle(remaining: 1))
         XCTAssertTrue(scheduling.submitIdentifier?.hasPrefix(FinishSyncingCoordinator.taskIdentifierPrefix + ".") == true)
@@ -682,6 +683,7 @@ nonisolated final class FinishSyncingCoordinatorTests: XCTestCase {
         XCTAssertEqual(handle.completedSuccess, true)
         XCTAssertEqual(coordinator.lastOutcome, .completed)
         XCTAssertEqual(coordinator.isFinishing, false)
+        XCTAssertEqual(coordinator.isSustainingBackground, false)
     }
 
     @MainActor

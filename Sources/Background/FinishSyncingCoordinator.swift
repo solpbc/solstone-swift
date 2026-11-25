@@ -115,6 +115,10 @@ final class FinishSyncingCoordinator {
     private(set) var availability: Availability = .ready
     private(set) var isCapable: Bool = true
     private(set) var isFinishing = false
+    /// `true` only while iOS has actually launched `runTask` for a continued-processing request.
+    /// A `.queue` submission that has not launched (or was cancelled before launch) never sets this,
+    /// so `BackgroundDrainCoordinator` still drains and disconnects if the task never starts.
+    private(set) var isSustainingBackground = false
     private(set) var lastOutcome: Outcome?
 
     @ObservationIgnored private let totals: () -> (failed: Int, pending: Int)
@@ -234,6 +238,11 @@ final class FinishSyncingCoordinator {
             self?.expired = true
         }
         self.isFinishing = true
+        self.isSustainingBackground = true
+        defer {
+            self.isSustainingBackground = false
+            self.isFinishing = false
+        }
         await self.setPacingMode(.finishSyncing)
 
         let initial = self.totals()
@@ -295,6 +304,7 @@ final class FinishSyncingCoordinator {
         }
         handle.complete(success: success)
         await self.setPacingMode(.normal)
+        self.isSustainingBackground = false
         await self.disconnect()
         self.isFinishing = false
     }
