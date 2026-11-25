@@ -427,6 +427,9 @@ nonisolated final class JournalDropStaging: @unchecked Sendable {
                 sourceURL.stopAccessingSecurityScopedResource()
             }
         }
+        if let size = Self.fileByteCount(at: sourceURL), size > ShareImportFileSink.maxFileBytes {
+            return .refused(name: filename, reason: ShareImportFailure.tooLarge.message)
+        }
         let slotDirectory = directory.appendingPathComponent("\(index)", isDirectory: true)
         let destinationURL = slotDirectory.appendingPathComponent(filename)
         do {
@@ -437,6 +440,13 @@ nonisolated final class JournalDropStaging: @unchecked Sendable {
             let failure: ShareImportFailure = ShareImportNoRoom.matches(error) ? .noRoom : .unreadable
             return .refused(name: filename, reason: failure.message)
         }
+    }
+
+    private static func fileByteCount(at url: URL) -> Int64? {
+        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+            return Int64(size)
+        }
+        return (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value
     }
 
     static func stagedFilename(suggestedName: String?, sourceURL: URL, fallbackIndex: Int) -> String {

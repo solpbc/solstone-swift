@@ -1,0 +1,16 @@
+{
+  "description": "it's too large to import from this device (filled into ios.share.failuremessage when a file, converted image or shared text exceeds the 4 GiB upload limit)",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "shareimport"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "72e4e66ebba92c932bfefdfb1491508e0b119d90c3c92e1ef2a83ad08dbafc30",
+  "risk": "routine",
+  "auto_merge": true
+}

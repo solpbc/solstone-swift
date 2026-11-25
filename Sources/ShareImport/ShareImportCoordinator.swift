@@ -108,6 +108,7 @@ nonisolated enum ShareImportCopy {
 
 nonisolated enum ShareImportFailure: Equatable, Sendable {
     case noRoom
+    case tooLarge
     case unreadable
     case unsupported
     case protected
@@ -117,6 +118,8 @@ nonisolated enum ShareImportFailure: Equatable, Sendable {
         switch self {
         case .noRoom:
             AppStrings.ios_share_plainreason3()
+        case .tooLarge:
+            AppStrings.ios_share_plainreasontoolarge()
         case .unreadable:
             AppStrings.ios_share_plainreason()
         case .unsupported:
@@ -359,6 +362,9 @@ private extension ShareImportCoordinator {
                 }
             }
             let textData = Data(text.utf8)
+            guard Int64(textData.count) <= ShareImportFileSink.maxFileBytes else {
+                throw ShareImportStoreError.tooLarge
+            }
             try textData.write(to: handle.stagingRawURL, options: .atomic)
             let delivery = ShareFileDelivery(
                 byteCount: Int64(textData.count),
@@ -390,6 +396,8 @@ private extension ShareImportCoordinator {
             switch storeError {
             case .noRoom:
                 return .noRoom
+            case .tooLarge:
+                return .tooLarge
             case .protected:
                 return .protected
             case .undecodable:

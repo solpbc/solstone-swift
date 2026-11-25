@@ -24556,6 +24556,18 @@
       "selector": null
     },
     {
+      "id": "ios.share.plainreasontoolarge",
+      "resource": "m696f732e73686172652e706c61696e726561736f6e746f6f6c61726765",
+      "namespace": "ios.share",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.sharedsources.also",
       "resource": "m696f732e736861726564736f75726365732e616c736f",
       "namespace": "ios.sharedsources",

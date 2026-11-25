@@ -161,6 +161,36 @@ nonisolated final class ShareImportLandingTests: XCTestCase {
     }
 
     @MainActor
+    func testFileOverFourGiBIsRefusedAtIntakeBeforeReservingOrCopying() async throws {
+        let overCap = ShareImportFileSink.maxFileBytes + 1
+        let source = try self.makeSparseFile(named: "too-big.zip", size: overCap)
+        let io = SizeLimitRecordingPayloadIO(reportedSize: nil, capacity: overCap * 2)
+        try await self.assertLandingFailure(source: source, payloadIO: io, isInPlace: false, expected: .tooLarge)
+        XCTAssertEqual(io.requestedCapacities.count, 0, "oversized files must fail before space reservation")
+        XCTAssertEqual(io.copyCalls, 0, "oversized files must fail before copying bytes")
+        XCTAssertEqual(
+            ShareImportFailure.tooLarge.message,
+            "couldn't save this — it's too large to import from this device. nothing was added."
+        )
+    }
+
+    @MainActor
+    func testFileAtExactFourGiBBoundaryIsAcceptedAtIntake() async throws {
+        let exactCap = ShareImportFileSink.maxFileBytes
+        let source = try self.makeFile(named: "exact-cap.zip", data: Data("synthetic".utf8))
+        let io = SizeLimitRecordingPayloadIO(reportedSize: exactCap, capacity: exactCap * 2)
+        let landed = try await self.land(source: source, payloadIO: io, isInPlace: true)
+        XCTAssertEqual(io.requestedCapacities.count, 1)
+        XCTAssertEqual(io.copyCalls, 1)
+        let noteURL = landed.queueRoot
+            .appendingPathComponent("pending/\(landed.itemID.uuidString.lowercased())/item.json")
+        let note = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(contentsOf: noteURL)) as? [String: Any]
+        )
+        XCTAssertEqual((note["bytes"] as? NSNumber)?.int64Value, exactCap)
+    }
+
+    @MainActor
     private func assertLargeFixtureLeavesNothing(
         provider: StubLandingProvider,
         expectedFailure: ShareImportFailure
@@ -473,5 +503,60 @@ private final class ThrowingPayloadReadShareImportPayloadIO: ShareImportPayloadI
         self.readJSON = true
         self.lock.unlock()
         return try self.base.readWholeFile(at: url)
+    }
+}
+
+private final class SizeLimitRecordingPayloadIO: ShareImportPayloadIO, @unchecked Sendable {
+    private let base = FoundationShareImportPayloadIO()
+    private let reportedSize: Int64?
+    private let capacity: Int64?
+    private let lock = NSLock()
+    private var requested: [URL] = []
+    private var copies = 0
+
+    init(reportedSize: Int64?, capacity: Int64?) {
+        self.reportedSize = reportedSize
+        self.capacity = capacity
+    }
+
+    var requestedCapacities: [URL] {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.requested
+    }
+
+    var copyCalls: Int {
+        self.lock.lock()
+        defer { self.lock.unlock() }
+        return self.copies
+    }
+
+    func byteCount(at url: URL) throws -> Int64 {
+        if let reportedSize {
+            return reportedSize
+        }
+        return try self.base.byteCount(at: url)
+    }
+
+    func itemDates(at url: URL) throws -> (created: Date?, modified: Date?) {
+        try self.base.itemDates(at: url)
+    }
+
+    func importantUsageCapacity(at url: URL) throws -> Int64? {
+        self.lock.lock()
+        self.requested.append(url)
+        self.lock.unlock()
+        return self.capacity
+    }
+
+    func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
+        self.lock.lock()
+        self.copies += 1
+        self.lock.unlock()
+        try self.base.copyItem(at: sourceURL, to: destinationURL)
+    }
+
+    func readWholeFile(at url: URL) throws -> Data {
+        try self.base.readWholeFile(at: url)
     }
 }

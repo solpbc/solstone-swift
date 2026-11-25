@@ -52,6 +52,9 @@ nonisolated enum ShareImportNoRoom {
 }
 
 nonisolated struct ShareImportFileSink: ShareFileSink {
+    /// Matches the journal's `MAX_SAVE_FILE_BYTES` (4 GiB).
+    static let maxFileBytes: Int64 = 4 * 1024 * 1024 * 1024
+
     let stagingRawURL: URL
     let volumeURL: URL
     let payloadIO: any ShareImportPayloadIO
@@ -63,6 +66,9 @@ nonisolated struct ShareImportFileSink: ShareFileSink {
     func consume(sourceURL: URL, isInPlace: Bool) throws -> ShareFileDelivery {
         try self.checkReadable(sourceURL)
         let sourceSize = try self.payloadIO.byteCount(at: sourceURL)
+        guard sourceSize <= Self.maxFileBytes else {
+            throw ShareImportStoreError.tooLarge
+        }
         try self.reserve(sourceSize: sourceSize, isInPlace: isInPlace)
 
         do {
@@ -84,6 +90,9 @@ nonisolated struct ShareImportFileSink: ShareFileSink {
                 let stagedSize = try self.payloadIO.byteCount(at: self.stagingRawURL)
                 guard stagedSize > 0 else {
                     throw ShareImportStoreError.undecodable
+                }
+                guard stagedSize <= Self.maxFileBytes else {
+                    throw ShareImportStoreError.tooLarge
                 }
                 return try self.delivery(
                     byteCount: stagedSize,

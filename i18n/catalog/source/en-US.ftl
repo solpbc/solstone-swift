@@ -1908,6 +1908,8 @@ ios.share.plainreason4 = protected file
 
 ios.share.plainreason5 = unsupported file type
 
+ios.share.plainreasontoolarge = it's too large to import from this device
+
 ios.shareimportcoordinator.saved = saved
 
 ios.shelfpane.unpaired = unpaired

@@ -2151,6 +2151,8 @@ nonisolated enum AppStrings {
     static func ios_share_plainreason4_resource() -> LocalizedStringResource { resource("m696f732e73686172652e706c61696e726561736f6e34") }
     static func ios_share_plainreason5() -> String { render("m696f732e73686172652e706c61696e726561736f6e35", []) }
     static func ios_share_plainreason5_resource() -> LocalizedStringResource { resource("m696f732e73686172652e706c61696e726561736f6e35") }
+    static func ios_share_plainreasontoolarge() -> String { render("m696f732e73686172652e706c61696e726561736f6e746f6f6c61726765", []) }
+    static func ios_share_plainreasontoolarge_resource() -> LocalizedStringResource { resource("m696f732e73686172652e706c61696e726561736f6e746f6f6c61726765") }
     static func ios_sharedsources_also() -> String { render("m696f732e736861726564736f75726365732e616c736f", []) }
     static func ios_sharedsources_also_resource() -> LocalizedStringResource { resource("m696f732e736861726564736f75726365732e616c736f") }
     static func ios_sharedsources_heading(_ count: Int) -> String { render("m696f732e736861726564736f75726365732e68656164696e67", [Int64(count), String(count)]) }

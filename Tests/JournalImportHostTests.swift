@@ -154,6 +154,47 @@ final class JournalImportHostTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: stagingDir.path), "staging directory must be removed after intake")
     }
 
+    func testOfferDropRefusesOverFourGiBFileBeforeStagingCopy() async throws {
+        let intake = FakeImportIntake()
+        let (webView, host) = try self.makeWebView(intake: intake)
+        defer { host.teardown(controller: webView.configuration.userContentController) }
+        _ = try await self.send(["type": "host.ready"], to: host)
+
+        let sourceDir = FileManager.default.temporaryDirectory.appendingPathComponent("drop-oversized-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: sourceDir) }
+        let sourceFile = sourceDir.appendingPathComponent("huge.zip")
+        _ = FileManager.default.createFile(atPath: sourceFile.path, contents: Data())
+        let handle = try FileHandle(forWritingTo: sourceFile)
+        try handle.truncate(atOffset: UInt64(ShareImportFileSink.maxFileBytes + 1))
+        try handle.close()
+
+        let provider = NSItemProvider()
+        provider.suggestedName = "huge.zip"
+        provider.registerFileRepresentation(
+            forTypeIdentifier: UTType.zip.identifier,
+            fileOptions: [],
+            visibility: .all
+        ) { completion in
+            completion(sourceFile, false, nil)
+            return nil
+        }
+
+        let token = try XCTUnwrap(host.offerDrop([provider]))
+        let stagingDir = FileManager.default.temporaryDirectory.appendingPathComponent("journal-drop-\(token)", isDirectory: true)
+        var dropPick = self.pickCase
+        dropPick["drop"] = token
+        let reply = try await self.send(dropPick, to: host)
+
+        XCTAssertEqual(reply["outcome"] as? String, "refused")
+        let refused = try XCTUnwrap(reply["refused"] as? [[String: Any]])
+        XCTAssertEqual(refused.count, 1)
+        XCTAssertEqual(refused.first?["name"] as? String, "huge.zip")
+        XCTAssertEqual(refused.first?["reason"] as? String, ShareImportFailure.tooLarge.message)
+        XCTAssertTrue(intake.names.isEmpty, "oversized drop must be refused before staging or queue intake")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagingDir.path))
+    }
+
     func testAbandonedDropCleansUpStagedDirectoryOnDocumentChange() async throws {
         let intake = FakeImportIntake()
         let (webView, host) = try self.makeWebView(intake: intake)

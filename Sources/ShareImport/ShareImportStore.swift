@@ -891,6 +891,7 @@ enum ShareImportStoreError: Error, Equatable, Sendable {
     case noteDecodeFailed(itemID: String)
     case textDecodeFailed(itemID: String)
     case noRoom
+    case tooLarge
     case protected
     case undecodable
     case unreadable
