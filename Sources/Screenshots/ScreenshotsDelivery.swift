@@ -91,6 +91,10 @@ final class ScreenshotsTransferDelivery: ScreenshotsSending {
             payloadFileURLs: [ScreenshotsTransfer.partID: url]
         )
     }
+
+    func drop(itemID: UUID) async {
+        await self.engine.drop(itemID: itemID)
+    }
 }
 
 /// Holds screenshots until the paired journal lists the capability. A failed read is not

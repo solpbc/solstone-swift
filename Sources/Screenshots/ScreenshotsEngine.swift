@@ -375,7 +375,8 @@ final class ScreenshotsSourceEngine {
             let candidateIDs = Array(Set(inserted + updated)).filter { !knownIDs.contains($0) }
             let fetchedAssets = candidateIDs.isEmpty ? [] : await self.library.assets(localIdentifiers: candidateIDs)
             guard self.canApplyCatchUp(epoch: epoch) else { return }
-            self.apply(deleted: deleted)
+            await self.apply(deleted: deleted)
+            guard self.canApplyCatchUp(epoch: epoch) else { return }
             for asset in fetchedAssets {
                 self.considerLive(asset)
             }
@@ -392,7 +393,24 @@ final class ScreenshotsSourceEngine {
             ?? self.store.document.selectedSpan.start(now: Date(), timeZone: self.timeZone)
         guard let assets = try? await self.library.screenshots(onOrAfter: start) else { return false }
         let freshToken = await self.library.currentTokenAsync()
-        guard self.canApplyCatchUp(epoch: epoch) else { return false }
+        guard self.canApplyCatchUp(epoch: epoch), self.library.access() == .full else { return false }
+        let presentIDs = Set(assets.map(\.localIdentifier))
+        let absentWaitingIDs = self.store.document.items.compactMap { item -> String? in
+            guard (item.phase == .pending || item.phase == .queued), !presentIDs.contains(item.localIdentifier) else {
+                return nil
+            }
+            return item.localIdentifier
+        }
+        if !absentWaitingIDs.isEmpty {
+            let stillInLibrary = await self.library.assets(localIdentifiers: absentWaitingIDs)
+            guard self.canApplyCatchUp(epoch: epoch), self.library.access() == .full else { return false }
+            let foundIDs = Set(stillInLibrary.map(\.localIdentifier))
+            let confirmedDeleted = absentWaitingIDs.filter { !foundIDs.contains($0) }
+            if !confirmedDeleted.isEmpty {
+                await self.apply(deleted: confirmedDeleted)
+                guard self.canApplyCatchUp(epoch: epoch) else { return false }
+            }
+        }
         for asset in assets {
             if self.store.document.items.contains(where: { $0.localIdentifier == asset.localIdentifier && $0.phase != .pending }) {
                 continue
@@ -434,13 +452,34 @@ final class ScreenshotsSourceEngine {
         ))
     }
 
-    private func apply(deleted: [String]) {
+    private func apply(deleted: [String]) async {
+        var hashesToDrop: [String] = []
+        var changed = false
         for id in deleted {
             guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == id }) else { continue }
             let phase = self.store.document.items[index].phase
-            guard phase == .pending else { continue }
-            self.finish(index, .deleted)
+            guard phase == .pending || phase == .queued else { continue }
+            if phase == .queued, let hash = self.store.document.items[index].hash {
+                hashesToDrop.append(hash)
+            }
+            self.store.document.items[index].phase = .deleted
+            self.markProgress(at: index)
+            changed = true
         }
+        if changed {
+            self.store.save()
+            self.publish()
+        }
+        for hash in Set(hashesToDrop) {
+            await self.dropQueuedItemIfUnused(hash: hash)
+        }
+    }
+
+    private func dropQueuedItemIfUnused(hash: String?) async {
+        guard let hash else { return }
+        let stillQueued = self.store.document.items.contains { $0.phase == .queued && $0.hash == hash }
+        guard !stillQueued else { return }
+        await self.sender.drop(itemID: ScreenshotsWire.itemID(forHash: hash))
     }
 
     private func pump() async {
@@ -469,9 +508,13 @@ final class ScreenshotsSourceEngine {
         else { return }
         let found = await self.library.asset(localIdentifier: localIdentifier)
         // A new pairing may have dropped items while Photos was asked.
-        guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == localIdentifier }) else { return }
+        guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == localIdentifier }),
+              self.store.document.items[index].phase == .pending
+        else { return }
         guard let asset = found else {
-            self.finish(index, .deleted)
+            if self.library.access() == .full {
+                self.finish(index, .deleted)
+            }
             return
         }
         if ScreenshotsWire.exceedsLimits(byteCount: 0, pixelWidth: asset.pixelWidth, pixelHeight: asset.pixelHeight) {
@@ -479,10 +522,14 @@ final class ScreenshotsSourceEngine {
             return
         }
         let exported = await self.library.export(localIdentifier: localIdentifier)
-        guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == localIdentifier }) else { return }
+        guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == localIdentifier }),
+              self.store.document.items[index].phase == .pending
+        else { return }
         switch exported {
         case .missing:
-            self.finish(index, .deleted)
+            if self.library.access() == .full {
+                self.finish(index, .deleted)
+            }
         case .failed:
             self.store.document.items[index].exportAttempts += 1
             if self.store.document.items[index].exportAttempts >= ScreenshotsWire.exportAttempts {
@@ -567,7 +614,12 @@ final class ScreenshotsSourceEngine {
         )
         do {
             try await self.sender.send(upload)
-            guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }) else { return }
+            guard let index = self.store.document.items.firstIndex(where: { $0.localIdentifier == asset.localIdentifier }),
+                  self.store.document.items[index].phase == .pending
+            else {
+                await self.dropQueuedItemIfUnused(hash: hash)
+                return
+            }
             self.store.document.items[index].phase = .queued
             self.store.document.items[index].hash = hash
             self.intake?.recordScreenshot(hash: hash, now: Date())

@@ -74,4 +74,5 @@ nonisolated struct ScreenshotsUpload: Equatable, Sendable {
 
 protocol ScreenshotsSending: AnyObject, Sendable {
     func send(_ upload: ScreenshotsUpload) async throws
+    func drop(itemID: UUID) async
 }

@@ -699,6 +699,7 @@ actor TransferEngine {
             now: self.clock.wallNow()
         )
         self.legacyAudioIssues.removeValue(forKey: committed.manifest.itemID)
+        self.droppedItemIDs.remove(committed.manifest.itemID)
         self.queuedItems[committed.manifest.itemID] = committed
         self.counters.queuedCount += 1
         self.updateSourceState(committed.manifest.sourceKey) { state in
@@ -1664,6 +1665,10 @@ actor TransferEngine {
             self.scheduleStatusUpdate(summary: "held")
             return
         }
+        guard self.queuedItems[itemID] != nil, !self.droppedItemIDs.contains(itemID) else {
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+            return
+        }
         Task {
             let result = await self.transport.send(item: item, body: uploadBody, endpoint: endpoint, phase: phase)
             await self.handleCompletion(
@@ -1800,6 +1805,23 @@ actor TransferEngine {
                     self.scheduleWork()
                     return
                 }
+            }
+
+            guard self.queuedItems[itemID] != nil else {
+                self.droppedItemIDs.remove(itemID)
+                if let sourceKey = self.inFlightSourceKeys[itemID] {
+                    self.clearInFlight(itemID: itemID, sourceKey: sourceKey)
+                } else {
+                    self.counters.inFlightCount = self.inFlight.count
+                }
+                self.scheduleWork()
+                return
+            }
+            if self.droppedItemIDs.remove(itemID) != nil {
+                self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+                self.scheduleStatusUpdate(summary: "dropped")
+                self.scheduleWork()
+                return
             }
 
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)

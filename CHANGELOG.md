@@ -6,6 +6,10 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 ## [Unreleased]
 
+### Fixed
+
+- on iphone and ipad, if you delete a screenshot from Photos while it is waiting to sync, the solstone app now drops it and removes its waiting copy on this device. before, a waiting screenshot could still go into your journal later.
+
 ## [2.0.14 (170)] - 2026-11-25
 
 ### Fixed

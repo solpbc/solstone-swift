@@ -584,6 +584,105 @@ nonisolated final class ScreenshotsSourceTests: XCTestCase {
     }
 
     @MainActor
+    func testDeletingAQueuedScreenshotDropsItFromTransferEngineAndAdvancesBackfill() async throws {
+        let root = self.makeRoot()
+        let spool = TransferSpool(rootURL: root.appendingPathComponent("Transfers", isDirectory: true))
+        let transferEngine = TransferEngine(
+            spool: spool,
+            transport: TransferTransport(),
+            endpointResolver: TransferEndpointResolverStub(.unavailable("offline"))
+        )
+        try await transferEngine.initialize()
+        let delivery = ScreenshotsTransferDelivery(
+            engine: transferEngine,
+            stagingURL: root.appendingPathComponent("staging", isDirectory: true)
+        )
+        let png = Data("queued-then-deleted".utf8)
+        let hash = ScreenshotsWire.sha256Hex(png)
+        let expectedItemID = ScreenshotsWire.itemID(forHash: hash)
+        let expectedSpoolDir = spool.queuedDirectoryURL.appendingPathComponent(
+            expectedItemID.uuidString,
+            isDirectory: true
+        )
+
+        let library = FakeScreenshotsLibrary()
+        library.status = .full
+        library.assets = [Self.asset("shot-1", age: -60, uti: "public.png")]
+        library.exports = ["shot-1": .bytes(png, uniformTypeIdentifier: "public.png")]
+        let store = ScreenshotsStore(fileURL: root.appendingPathComponent("state.json"))
+        let engine = ScreenshotsSourceEngine(
+            library: library, store: store, sender: delivery, timeZone: TimeZone(identifier: "America/Denver")!
+        )
+        await engine.turnOn()
+        await engine.confirm()
+
+        XCTAssertEqual(engine.snapshot.waiting, 1)
+        XCTAssertEqual(engine.snapshot.progressDone, 0)
+        XCTAssertEqual(engine.snapshot.progressTotal, 1)
+        let before = await transferEngine.snapshot()
+        XCTAssertEqual(before.counters.queuedCount, 1)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: expectedSpoolDir.path))
+
+        // Delete locally in Photos before delivery.
+        library.assets = []
+        library.changeResult = .delta(
+            inserted: [], updated: [], deleted: ["shot-1"], token: Data("after-delete".utf8)
+        )
+        await engine.libraryChanged()
+
+        XCTAssertEqual(engine.snapshot.waiting, 0)
+        XCTAssertEqual(engine.snapshot.progressDone, 1)
+        XCTAssertEqual(engine.snapshot.progressTotal, 1)
+        XCTAssertFalse(engine.snapshot.backfillOpen)
+        let after = await transferEngine.snapshot()
+        XCTAssertEqual(after.counters.queuedCount, 0)
+        XCTAssertEqual(after.counters.droppedCount, 1)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: expectedSpoolDir.path))
+    }
+
+    @MainActor
+    func testExpiredRescanDropsDeletedWaitingShotsWhileFailuresAndLostAccessKeepThem() async {
+        let assets = (1...4).map { Self.asset("s\($0)", age: TimeInterval(-60 * $0), uti: "public.png") }
+        let exports = Dictionary(uniqueKeysWithValues: (1...4).map {
+            ("s\($0)", ScreenshotsExportResult.bytes(Data("shot-\($0)".utf8), uniformTypeIdentifier: "public.png"))
+        })
+        let rig = self.rig(assets: assets, exports: exports)
+        await rig.engine.turnOn()
+        await rig.engine.confirm()
+
+        // copyWindow is 3, so s1..s3 are queued and s4 stays pending.
+        XCTAssertEqual(rig.sender.sent.count, 3)
+        XCTAssertEqual(rig.engine.snapshot.waiting, 4)
+        let s1ItemID = rig.sender.sent[0].itemID
+
+        // A failed rescan never drops waiting screenshots.
+        rig.library.changeResult = .expired
+        rig.library.screenshotsError = NSError(domain: "test", code: 1)
+        await rig.engine.libraryChanged()
+        XCTAssertTrue(rig.sender.dropped.isEmpty)
+        XCTAssertEqual(rig.engine.snapshot.waiting, 4)
+        XCTAssertEqual(rig.engine.snapshot.progressDone, 0)
+
+        // Losing full access never drops waiting screenshots.
+        rig.library.screenshotsError = nil
+        rig.library.status = .limited
+        rig.library.assets = []
+        await rig.engine.libraryChanged()
+        XCTAssertTrue(rig.sender.dropped.isEmpty)
+        XCTAssertEqual(rig.engine.snapshot.waiting, 4)
+
+        // With full access restored and s1 (queued) + s4 (pending) gone, rescan drops both.
+        rig.library.status = .full
+        rig.library.assets = [assets[1], assets[2]]
+        rig.library.changeResult = .expired
+        await rig.engine.libraryChanged()
+        XCTAssertEqual(rig.sender.dropped, [s1ItemID])
+        XCTAssertEqual(rig.engine.snapshot.progressDone, 2)
+        XCTAssertEqual(rig.engine.snapshot.progressTotal, 4)
+        XCTAssertEqual(rig.engine.snapshot.waiting, 2)
+    }
+
+    @MainActor
     func testLimitedBeforeAndAfterFullAccess() async {
         let rig = self.rig(assets: [])
         rig.library.status = .limited
@@ -1389,14 +1488,23 @@ private nonisolated final class FakeScreenshotsLibrary: ScreenshotsLibrary, @unc
 }
 
 private nonisolated final class FakeScreenshotsSender: ScreenshotsSending, @unchecked Sendable {
-    private let storage = OSAllocatedUnfairLock<[ScreenshotsUpload]>(initialState: [])
+    private let storage = OSAllocatedUnfairLock<([ScreenshotsUpload], [UUID])>(initialState: ([], []))
 
     var sent: [ScreenshotsUpload] {
-        get { self.storage.withLock { $0 } }
-        set { self.storage.withLock { $0 = newValue } }
+        get { self.storage.withLock { $0.0 } }
+        set { self.storage.withLock { $0.0 = newValue } }
+    }
+
+    var dropped: [UUID] {
+        get { self.storage.withLock { $0.1 } }
+        set { self.storage.withLock { $0.1 = newValue } }
     }
 
     func send(_ upload: ScreenshotsUpload) async throws {
-        self.storage.withLock { $0.append(upload) }
+        self.storage.withLock { $0.0.append(upload) }
+    }
+
+    func drop(itemID: UUID) async {
+        self.storage.withLock { $0.1.append(itemID) }
     }
 }
