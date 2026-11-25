@@ -784,6 +784,76 @@ nonisolated final class ResumableImportUploadTests: XCTestCase {
         XCTAssertNil(decoded.saveThenStart?.resumable)
     }
 
+    func testResumableFileReaderPOSIXHashAndChunkReadsEdgeCases() async throws {
+        // Multi-buffer payload spanning several 64 KiB hash reads plus non-aligned tail.
+        let byteCount = (64 * 1024 * 5) + 12345
+        let payload = Self.deterministicData(count: byteCount, seed: 42)
+        let fileURL = self.tempDirectory.appendingPathComponent("posix reader sample.bin")
+        try payload.write(to: fileURL)
+
+        let expectedSHA = ResumableFileReader.sha256Hex(of: payload)
+        let actualSHA = try await ResumableFileReader.sha256Hex(at: fileURL)
+        XCTAssertEqual(actualSHA, expectedSHA)
+
+        // Exact slice from middle offset and tail offset up to EOF.
+        let midOffset = 100_003
+        let midLength = 70_000
+        let midChunk = try await ResumableFileReader.readChunk(
+            at: fileURL,
+            offset: Int64(midOffset),
+            length: midLength
+        )
+        XCTAssertEqual(midChunk, payload.subdata(in: midOffset..<(midOffset + midLength)))
+
+        let tailOffset = byteCount - 512
+        let tailChunk = try await ResumableFileReader.readChunk(
+            at: fileURL,
+            offset: Int64(tailOffset),
+            length: 512
+        )
+        XCTAssertEqual(tailChunk, payload.subdata(in: tailOffset..<byteCount))
+
+        // Reading past EOF throws unexpectedEOF with the partial byte count.
+        do {
+            _ = try await ResumableFileReader.readChunk(
+                at: fileURL,
+                offset: Int64(tailOffset),
+                length: 1024
+            )
+            XCTFail("Expected unexpectedEOF")
+        } catch let error as ResumableFileReaderError {
+            XCTAssertEqual(error, .unexpectedEOF(expected: 1024, actual: 512))
+        }
+
+        // Unreadable paths (missing file and directory) throw .unreadable.
+        let missingURL = self.tempDirectory.appendingPathComponent("does-not-exist.bin")
+        do {
+            _ = try await ResumableFileReader.sha256Hex(at: missingURL)
+            XCTFail("Expected unreadable for missing file")
+        } catch let error as ResumableFileReaderError {
+            XCTAssertEqual(error, .unreadable("does-not-exist.bin"))
+        }
+
+        do {
+            _ = try await ResumableFileReader.sha256Hex(at: self.tempDirectory)
+            XCTFail("Expected unreadable for directory")
+        } catch let error as ResumableFileReaderError {
+            XCTAssertEqual(error, .unreadable(self.tempDirectory.lastPathComponent))
+        }
+
+        // Cancelled task returns .cancelled.
+        let cancelledTask = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await ResumableFileReader.readChunk(at: fileURL, offset: 0, length: 64)
+        }
+        do {
+            _ = try await cancelledTask.value
+            XCTFail("Expected cancelled")
+        } catch let error as ResumableFileReaderError {
+            XCTAssertEqual(error, .cancelled)
+        }
+    }
+
     // MARK: - Helpers
 
     private static let baseDate = Date(timeIntervalSince1970: 1_795_520_000)

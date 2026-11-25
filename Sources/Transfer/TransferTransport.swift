@@ -31,14 +31,18 @@ nonisolated struct TransferStreamedBody: Equatable, Sendable {
         var sent: Int64 = 0
         while sent < self.fileLength {
             let want = Int(min(Int64(chunkSize), self.fileLength - sent))
-            guard let chunk = try? handle.read(upToCount: want),
-                  !chunk.isEmpty,
-                  chunk.count <= want
-            else {
-                return false
+            let written: Int? = autoreleasepool {
+                guard let chunk = try? handle.read(upToCount: want),
+                      !chunk.isEmpty,
+                      chunk.count <= want
+                else {
+                    return nil
+                }
+                guard write(chunk) else { return nil }
+                return chunk.count
             }
-            guard write(chunk) else { return false }
-            sent += Int64(chunk.count)
+            guard let written else { return false }
+            sent += Int64(written)
         }
         return write(self.suffix)
     }
@@ -203,30 +207,36 @@ nonisolated final class TransferTransport: @unchecked Sendable {
                 guard pending.install(continuation) else { return }
                 Task {
                     let admitted = await self.requestAdmission(endpoint) {
-                        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
-                        request.httpMethod = method
-                        for (name, value) in headers {
-                            let lower = name.lowercased()
-                            if lower == "expect" || lower == "transfer-encoding" {
-                                continue
+                        autoreleasepool {
+                            var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+                            request.httpMethod = method
+                            for (name, value) in headers {
+                                let lower = name.lowercased()
+                                if lower == "expect" || lower == "transfer-encoding" {
+                                    continue
+                                }
+                                request.setValue(value, forHTTPHeaderField: name)
                             }
-                            request.setValue(value, forHTTPHeaderField: name)
-                        }
-                        request.setValue(nil, forHTTPHeaderField: "Expect")
-                        request.setValue(nil, forHTTPHeaderField: "Transfer-Encoding")
-                        request.attachLoopbackCapability()
-                        request.attachJournalLocale(language: self.localeLanguage())
-                        if let body {
-                            request.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
-                            let task = self.session.uploadTask(with: request, from: body) { data, response, error in
-                                pending.finish(Self.result(data: data, response: response, error: error))
+                            request.setValue(nil, forHTTPHeaderField: "Expect")
+                            request.setValue(nil, forHTTPHeaderField: "Transfer-Encoding")
+                            request.attachLoopbackCapability()
+                            request.attachJournalLocale(language: self.localeLanguage())
+                            if let body {
+                                request.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
+                                let task = self.session.uploadTask(with: request, from: body) { data, response, error in
+                                    autoreleasepool {
+                                        pending.finish(Self.result(data: data, response: response, error: error))
+                                    }
+                                }
+                                pending.start(task)
+                            } else {
+                                let task = self.session.dataTask(with: request) { data, response, error in
+                                    autoreleasepool {
+                                        pending.finish(Self.result(data: data, response: response, error: error))
+                                    }
+                                }
+                                pending.start(task)
                             }
-                            pending.start(task)
-                        } else {
-                            let task = self.session.dataTask(with: request) { data, response, error in
-                                pending.finish(Self.result(data: data, response: response, error: error))
-                            }
-                            pending.start(task)
                         }
                     }
                     if !admitted { pending.finish(TransferHTTPResult(statusCode: nil, issue: .cancelled)) }

@@ -69,7 +69,9 @@ nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unche
     }
 
     func write(_ data: Data, to url: URL, options: Data.WritingOptions) throws {
-        try data.write(to: url, options: options)
+        try autoreleasepool {
+            try data.write(to: url, options: options)
+        }
     }
 
     func data(contentsOf url: URL) throws -> Data {
@@ -88,8 +90,12 @@ nonisolated final class FoundationTransferFileSystem: TransferFileSystem, @unche
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
         while true {
-            guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { return }
-            try consume(data)
+            let finished: Bool = try autoreleasepool {
+                guard let data = try handle.read(upToCount: chunkSize), !data.isEmpty else { return true }
+                try consume(data)
+                return false
+            }
+            if finished { return }
         }
     }
 

@@ -2,6 +2,7 @@
 // Copyright (c) 2026 sol pbc
 
 import Crypto
+import Darwin
 import Foundation
 import os
 
@@ -331,78 +332,110 @@ nonisolated enum ResumableFileReaderError: Error, Equatable, Sendable {
 }
 
 /// Off-MainActor streaming file hashing and bounded chunk reads directly from custody storage.
-/// Never copies the full file or buffers more than one chunk in memory.
+/// Uses POSIX `open`/`read`/`pread` into reusable/exact buffers so multi-gigabyte files stay
+/// O(1) in RAM without accumulating autoreleased `NSData` pages on cooperative Swift threads.
 nonisolated enum ResumableFileReader {
     static let hashBufferBytes = 64 * 1024
 
     static func sha256Hex(at url: URL) async throws -> String {
-        try await Task.detached(priority: .utility) {
-            let handle: FileHandle
-            do {
-                handle = try FileHandle(forReadingFrom: url)
-            } catch {
+        if Task.isCancelled {
+            throw ResumableFileReaderError.cancelled
+        }
+        let worker = Task.detached(priority: .utility) { () throws -> String in
+            let fd: Int32 = url.withUnsafeFileSystemRepresentation { rep in
+                guard let rep else { return -1 }
+                return Darwin.open(rep, O_RDONLY)
+            }
+            guard fd >= 0 else {
                 throw ResumableFileReaderError.unreadable(url.lastPathComponent)
             }
-            defer { try? handle.close() }
+            defer { _ = Darwin.close(fd) }
             var hasher = SHA256()
+            var buffer = [UInt8](repeating: 0, count: Self.hashBufferBytes)
             var iterations = 0
             while true {
                 if iterations & 0x0F == 0, Task.isCancelled {
                     throw ResumableFileReaderError.cancelled
                 }
                 iterations += 1
-                let chunk: Data?
-                do {
-                    chunk = try handle.read(upToCount: Self.hashBufferBytes)
-                } catch {
+                let bytesRead: Int = buffer.withUnsafeMutableBytes { raw in
+                    guard let base = raw.baseAddress else { return -1 }
+                    while true {
+                        let got = Darwin.read(fd, base, raw.count)
+                        if got < 0 && errno == EINTR { continue }
+                        return got
+                    }
+                }
+                if bytesRead < 0 {
                     throw ResumableFileReaderError.unreadable(url.lastPathComponent)
                 }
-                guard let chunk, !chunk.isEmpty else { break }
-                hasher.update(data: chunk)
+                if bytesRead == 0 {
+                    break
+                }
+                buffer.withUnsafeBytes { raw in
+                    hasher.update(bufferPointer: UnsafeRawBufferPointer(rebasing: raw.prefix(bytesRead)))
+                }
             }
             return Self.hexString(hasher.finalize())
-        }.value
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 
     static func readChunk(at url: URL, offset: Int64, length: Int) async throws -> Data {
         guard offset >= 0, length > 0 else {
             throw ResumableFileReaderError.unreadable(url.lastPathComponent)
         }
-        return try await Task.detached(priority: .utility) {
+        if Task.isCancelled {
+            throw ResumableFileReaderError.cancelled
+        }
+        let worker = Task.detached(priority: .utility) { () throws -> Data in
             if Task.isCancelled {
                 throw ResumableFileReaderError.cancelled
             }
-            let handle: FileHandle
-            do {
-                handle = try FileHandle(forReadingFrom: url)
-            } catch {
+            let fd: Int32 = url.withUnsafeFileSystemRepresentation { rep in
+                guard let rep else { return -1 }
+                return Darwin.open(rep, O_RDONLY)
+            }
+            guard fd >= 0 else {
                 throw ResumableFileReaderError.unreadable(url.lastPathComponent)
             }
-            defer { try? handle.close() }
-            do {
-                try handle.seek(toOffset: UInt64(offset))
-                var result = Data()
-                result.reserveCapacity(length)
-                while result.count < length {
-                    if Task.isCancelled {
-                        throw ResumableFileReaderError.cancelled
-                    }
-                    let want = length - result.count
-                    guard let piece = try handle.read(upToCount: want), !piece.isEmpty else {
-                        break
-                    }
-                    result.append(piece)
+            defer { _ = Darwin.close(fd) }
+            var result = Data(count: length)
+            var filled = 0
+            while filled < length {
+                if Task.isCancelled {
+                    throw ResumableFileReaderError.cancelled
                 }
-                guard result.count == length else {
-                    throw ResumableFileReaderError.unexpectedEOF(expected: length, actual: result.count)
+                let currentOffset = offset + Int64(filled)
+                let want = length - filled
+                let bytesRead: Int = result.withUnsafeMutableBytes { raw in
+                    guard let base = raw.baseAddress else { return -1 }
+                    let dst = base.advanced(by: filled)
+                    while true {
+                        let got = Darwin.pread(fd, dst, want, off_t(currentOffset))
+                        if got < 0 && errno == EINTR { continue }
+                        return got
+                    }
                 }
-                return result
-            } catch let readerError as ResumableFileReaderError {
-                throw readerError
-            } catch {
-                throw ResumableFileReaderError.unreadable(url.lastPathComponent)
+                if bytesRead < 0 {
+                    throw ResumableFileReaderError.unreadable(url.lastPathComponent)
+                }
+                if bytesRead == 0 {
+                    throw ResumableFileReaderError.unexpectedEOF(expected: length, actual: filled)
+                }
+                filled += bytesRead
             }
-        }.value
+            return result
+        }
+        return try await withTaskCancellationHandler {
+            try await worker.value
+        } onCancel: {
+            worker.cancel()
+        }
     }
 
     static func sha256Hex(of data: Data) -> String {
@@ -504,34 +537,74 @@ nonisolated struct ResumableUploadErrorBody: Equatable, Sendable {
     var availableBytes: Int64?
 
     static func parse(from data: Data) -> ResumableUploadErrorBody? {
-        guard !data.isEmpty,
-              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        else {
-            return nil
+        autoreleasepool {
+            guard !data.isEmpty,
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            else {
+                return nil
+            }
+            return ResumableUploadErrorBody(
+                error: object["error"] as? String,
+                reasonCode: object["reason_code"] as? String,
+                nextOffset: (object["next_offset"] as? NSNumber)?.int64Value,
+                totalBytes: (object["total_bytes"] as? NSNumber)?.int64Value,
+                requiredBytes: (object["required_bytes"] as? NSNumber)?.int64Value,
+                availableBytes: (object["available_bytes"] as? NSNumber)?.int64Value
+            )
         }
-        return ResumableUploadErrorBody(
-            error: object["error"] as? String,
-            reasonCode: object["reason_code"] as? String,
-            nextOffset: (object["next_offset"] as? NSNumber)?.int64Value,
-            totalBytes: (object["total_bytes"] as? NSNumber)?.int64Value,
-            requiredBytes: (object["required_bytes"] as? NSNumber)?.int64Value,
-            availableBytes: (object["available_bytes"] as? NSNumber)?.int64Value
-        )
     }
 }
 
 nonisolated enum ResumableUploadWireDecoder {
     static func decodeCreateResponse(from data: Data) -> ResumableUploadCreateResponse? {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let status = object["status"] as? String
-        else {
-            return nil
+        autoreleasepool {
+            guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let status = object["status"] as? String
+            else {
+                return nil
+            }
+            switch status {
+            case "open":
+                guard let uploadID = object["upload_id"] as? String,
+                      ResumableUploadIDValidator.isValid(uploadID),
+                      let clientItemID = object["client_item_id"] as? String,
+                      let nextOffset = (object["next_offset"] as? NSNumber)?.int64Value,
+                      let totalBytes = (object["total_bytes"] as? NSNumber)?.int64Value,
+                      nextOffset >= 0,
+                      totalBytes > 0,
+                      nextOffset <= totalBytes
+                else {
+                    return nil
+                }
+                return .open(ResumableUploadOpenResponse(
+                    uploadID: uploadID,
+                    clientItemID: clientItemID,
+                    nextOffset: nextOffset,
+                    totalBytes: totalBytes,
+                    chunkBytes: (object["chunk_bytes"] as? NSNumber)?.intValue,
+                    expiresAt: object["expires_at"] as? String
+                ))
+            case "already_staged":
+                guard let saveObject = object["save_response"] as? [String: Any],
+                      let saveData = try? JSONSerialization.data(withJSONObject: saveObject)
+                else {
+                    return nil
+                }
+                return .alreadyStaged(saveResponseData: saveData)
+            case "already_imported":
+                let importID = ShareImportID.validated(object["import_id"] as? String)
+                return .alreadyImported(importID: importID)
+            default:
+                return nil
+            }
         }
-        switch status {
-        case "open":
-            guard let uploadID = object["upload_id"] as? String,
+    }
+
+    static func decodeChunkResponse(from data: Data) -> ResumableUploadChunkResponse? {
+        autoreleasepool {
+            guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let uploadID = object["upload_id"] as? String,
                   ResumableUploadIDValidator.isValid(uploadID),
-                  let clientItemID = object["client_item_id"] as? String,
                   let nextOffset = (object["next_offset"] as? NSNumber)?.int64Value,
                   let totalBytes = (object["total_bytes"] as? NSNumber)?.int64Value,
                   nextOffset >= 0,
@@ -540,70 +613,38 @@ nonisolated enum ResumableUploadWireDecoder {
             else {
                 return nil
             }
-            return .open(ResumableUploadOpenResponse(
+            let complete = (object["complete"] as? Bool) ?? (nextOffset == totalBytes)
+            return ResumableUploadChunkResponse(
                 uploadID: uploadID,
-                clientItemID: clientItemID,
+                nextOffset: nextOffset,
+                totalBytes: totalBytes,
+                complete: complete,
+                expiresAt: object["expires_at"] as? String
+            )
+        }
+    }
+
+    static func decodeStatusResponse(from data: Data) -> ResumableUploadStatusResponse? {
+        autoreleasepool {
+            guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let uploadID = object["upload_id"] as? String,
+                  ResumableUploadIDValidator.isValid(uploadID),
+                  let nextOffset = (object["next_offset"] as? NSNumber)?.int64Value,
+                  let totalBytes = (object["total_bytes"] as? NSNumber)?.int64Value,
+                  nextOffset >= 0,
+                  totalBytes > 0,
+                  nextOffset <= totalBytes
+            else {
+                return nil
+            }
+            return ResumableUploadStatusResponse(
+                uploadID: uploadID,
                 nextOffset: nextOffset,
                 totalBytes: totalBytes,
                 chunkBytes: (object["chunk_bytes"] as? NSNumber)?.intValue,
                 expiresAt: object["expires_at"] as? String
-            ))
-        case "already_staged":
-            guard let saveObject = object["save_response"] as? [String: Any],
-                  let saveData = try? JSONSerialization.data(withJSONObject: saveObject)
-            else {
-                return nil
-            }
-            return .alreadyStaged(saveResponseData: saveData)
-        case "already_imported":
-            let importID = ShareImportID.validated(object["import_id"] as? String)
-            return .alreadyImported(importID: importID)
-        default:
-            return nil
+            )
         }
-    }
-
-    static func decodeChunkResponse(from data: Data) -> ResumableUploadChunkResponse? {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let uploadID = object["upload_id"] as? String,
-              ResumableUploadIDValidator.isValid(uploadID),
-              let nextOffset = (object["next_offset"] as? NSNumber)?.int64Value,
-              let totalBytes = (object["total_bytes"] as? NSNumber)?.int64Value,
-              nextOffset >= 0,
-              totalBytes > 0,
-              nextOffset <= totalBytes
-        else {
-            return nil
-        }
-        let complete = (object["complete"] as? Bool) ?? (nextOffset == totalBytes)
-        return ResumableUploadChunkResponse(
-            uploadID: uploadID,
-            nextOffset: nextOffset,
-            totalBytes: totalBytes,
-            complete: complete,
-            expiresAt: object["expires_at"] as? String
-        )
-    }
-
-    static func decodeStatusResponse(from data: Data) -> ResumableUploadStatusResponse? {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let uploadID = object["upload_id"] as? String,
-              ResumableUploadIDValidator.isValid(uploadID),
-              let nextOffset = (object["next_offset"] as? NSNumber)?.int64Value,
-              let totalBytes = (object["total_bytes"] as? NSNumber)?.int64Value,
-              nextOffset >= 0,
-              totalBytes > 0,
-              nextOffset <= totalBytes
-        else {
-            return nil
-        }
-        return ResumableUploadStatusResponse(
-            uploadID: uploadID,
-            nextOffset: nextOffset,
-            totalBytes: totalBytes,
-            chunkBytes: (object["chunk_bytes"] as? NSNumber)?.intValue,
-            expiresAt: object["expires_at"] as? String
-        )
     }
 
     static func commitBodyData(sha256: String) throws -> Data {
