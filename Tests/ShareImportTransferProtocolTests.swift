@@ -368,6 +368,285 @@ nonisolated final class ShareImportTransferProtocolTests: XCTestCase {
     }
 
     @MainActor
+    func testSave401And403HoldImportQueueWithoutMovingToAttentionAndResumeAfterReconnect() async throws {
+        for statusCode in [401, 403] {
+            TransferURLProtocol.reset()
+            let item1ID = Self.uuid(statusCode * 10 + 1)
+            let item2ID = Self.uuid(statusCode * 10 + 2)
+            let payload1 = Data("first-import-\(statusCode)".utf8)
+            let payload2 = Data("second-import-\(statusCode)".utf8)
+            let rejectAuth = OSAllocatedUnfairLock<Bool>(initialState: true)
+            let saveRequests = OSAllocatedUnfairLock<Int>(initialState: 0)
+
+            TransferURLProtocol.handler = { request, _ in
+                saveRequests.withLock { $0 += 1 }
+                if rejectAuth.withLock({ $0 }) {
+                    return (Self.response(for: request, statusCode: statusCode), Data("unauthorized".utf8))
+                }
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(#"{"recommended_action":"do_not_start","path":"/imports/ok","timestamp":"2026-07-09T00:00:10Z"}"#.utf8)
+                )
+            }
+
+            let root = self.tempDirectory.appendingPathComponent("auth-hold-\(statusCode)", isDirectory: true)
+            let mirror = TransferStatusMirror()
+            let engine = TransferEngine(
+                spool: TransferSpool(rootURL: root.appendingPathComponent("Transfers", isDirectory: true)),
+                transport: TransferTransport(sessionConfiguration: makeTransferTestURLSessionConfiguration()),
+                endpointResolver: TransferEndpointResolverStub(.available(Self.endpoint)),
+                pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
+                clock: FakeTransferClock(wall: Self.baseDate),
+                statusMirror: mirror,
+                maxConcurrent: 1,
+                bodyBuilder: Self.shareBodyBuilder
+            )
+            let store = ShareImportStore(cacheRootURL: root.appendingPathComponent("ImportQueue", isDirectory: true))
+            let holder = ShareTransferHolder(transferEngine: engine, mirror: mirror, store: store)
+            try await engine.start()
+
+            var firstManifest = self.shareManifest(itemID: item1ID, kind: .file)
+            firstManifest.createdAt = Self.baseDate
+            var secondManifest = self.shareManifest(itemID: item2ID, kind: .file)
+            secondManifest.createdAt = Self.baseDate.addingTimeInterval(1)
+
+            _ = try await engine.enqueue(manifest: firstManifest, payloads: ["file": payload1])
+            _ = try await engine.enqueue(manifest: secondManifest, payloads: ["file": payload2])
+
+            try await transferTestWaitFor("auth hold on \(statusCode)") {
+                await MainActor.run { holder.isPairingRefused }
+            }
+            // Give the actor a brief turn to verify item 2 is never dispatched while held.
+            try await Task.sleep(for: .milliseconds(80))
+
+            let heldSnapshot = await engine.snapshot()
+            XCTAssertEqual(saveRequests.withLock { $0 }, 1, "item 2 must not be attempted once \(statusCode) holds the queue")
+            XCTAssertEqual(heldSnapshot.counters.queuedCount, 2)
+            XCTAssertEqual(heldSnapshot.counters.attentionCount, 0)
+            XCTAssertEqual(heldSnapshot.counters.inFlightCount, 0)
+            XCTAssertEqual(heldSnapshot.sources[ObserverAudioTransferSource.share]?.authHeld, true)
+            let item1State = await engine.itemSnapshot(itemID: item1ID)?.state
+            let item2State = await engine.itemSnapshot(itemID: item2ID)?.state
+            XCTAssertEqual(item1State, .held)
+            XCTAssertEqual(item2State, .held)
+            XCTAssertTrue(holder.isPairingRefused)
+            XCTAssertEqual(holder.failedCount, 0)
+            XCTAssertEqual(holder.pendingCount, 2)
+            XCTAssertEqual(holder.unsendableCount, 2)
+            XCTAssertEqual(
+                ImportQueueHoldPresentation.holdLine(
+                    isPaired: true,
+                    isPairingRefused: holder.isPairingRefused,
+                    awaitingMarkConfirmation: false,
+                    isConnected: true
+                ),
+                AppStrings.ios_app_importholdrefused()
+            )
+            // Local bytes remain intact on disk.
+            let raw1URL = await engine.payloadFileURL(itemID: item1ID, partID: "file")
+            let raw2URL = await engine.payloadFileURL(itemID: item2ID, partID: "file")
+            let raw1 = try XCTUnwrap(raw1URL)
+            let raw2 = try XCTUnwrap(raw2URL)
+            XCTAssertEqual(try Data(contentsOf: raw1), payload1)
+            XCTAssertEqual(try Data(contentsOf: raw2), payload2)
+
+            // Re-pairing / reconnecting clears the hold and drains both queued imports.
+            rejectAuth.withLock { $0 = false }
+            holder.clearPairingRefused()
+            await engine.noteNewConnectionEstablished(pairingIdentity: "pairing-fixed")
+            await engine.endpointAvailabilityChanged()
+
+            try await transferTestWaitFor("auth hold resumed and drained \(statusCode)") {
+                await engine.snapshot().counters.deliveredCount == 2
+            }
+            XCTAssertFalse(holder.isPairingRefused)
+            let resumedAttention = await engine.snapshot().counters.attentionCount
+            XCTAssertEqual(resumedAttention, 0)
+            XCTAssertEqual(saveRequests.withLock { $0 }, 3)
+            await engine.pause()
+        }
+    }
+
+    @MainActor
+    func testStart401HoldsImportQueueWithSavedStateIntactAndResumesOnReconnect() async throws {
+        let item1ID = Self.uuid(411)
+        let item2ID = Self.uuid(412)
+        let startRejects = OSAllocatedUnfairLock<Bool>(initialState: true)
+        let pathsSeen = OSAllocatedUnfairLock<[String]>(initialState: [])
+
+        TransferURLProtocol.handler = { request, _ in
+            let path = request.url?.path ?? ""
+            pathsSeen.withLock { $0.append(path) }
+            switch path {
+            case "/imports/save":
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(#"{"recommended_action":"start","path":"/imports/saved","timestamp":"2026-07-09T00:00:11Z"}"#.utf8)
+                )
+            case "/imports/start":
+                if startRejects.withLock({ $0 }) {
+                    return (Self.response(for: request, statusCode: 401), Data("unauthorized".utf8))
+                }
+                return (
+                    Self.response(for: request, statusCode: 200),
+                    Data(#"{"status":"ok","task_id":"task-401"}"#.utf8)
+                )
+            default:
+                return (Self.response(for: request, statusCode: 404), Data())
+            }
+        }
+
+        let mirror = TransferStatusMirror()
+        let engine = TransferEngine(
+            spool: self.makeSpool(),
+            transport: TransferTransport(sessionConfiguration: makeTransferTestURLSessionConfiguration()),
+            endpointResolver: TransferEndpointResolverStub(.available(Self.endpoint)),
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
+            clock: FakeTransferClock(wall: Self.baseDate),
+            statusMirror: mirror,
+            maxConcurrent: 1,
+            bodyBuilder: Self.shareBodyBuilder
+        )
+        try await engine.start()
+
+        var m1 = self.shareManifest(itemID: item1ID, kind: .file)
+        m1.createdAt = Self.baseDate
+        var m2 = self.shareManifest(itemID: item2ID, kind: .file)
+        m2.createdAt = Self.baseDate.addingTimeInterval(1)
+        _ = try await engine.enqueue(manifest: m1, payloads: ["file": Data("one".utf8)])
+        _ = try await engine.enqueue(manifest: m2, payloads: ["file": Data("two".utf8)])
+
+        try await transferTestWaitFor("start 401 auth hold") {
+            await engine.snapshot().sources[ObserverAudioTransferSource.share]?.authHeld == true
+        }
+        try await Task.sleep(for: .milliseconds(80))
+
+        XCTAssertEqual(pathsSeen.withLock { $0 }, ["/imports/save", "/imports/start"])
+        let startHeldAttention = await engine.snapshot().counters.attentionCount
+        let item1Phase = await engine.itemSnapshot(itemID: item1ID)?.manifest.saveThenStart?.phase
+        XCTAssertEqual(startHeldAttention, 0)
+        XCTAssertEqual(item1Phase, .startPending)
+
+        startRejects.withLock { $0 = false }
+        await engine.noteNewConnectionEstablished(pairingIdentity: "same-pairing")
+        await engine.endpointAvailabilityChanged()
+
+        try await transferTestWaitFor("start 401 resumed and drained") {
+            await engine.snapshot().counters.deliveredCount == 2
+        }
+        await engine.pause()
+    }
+
+    @MainActor
+    func testSave413RemainsPerItemAttentionWithoutHoldingSiblingImport() async throws {
+        let oversizedID = Self.uuid(4131)
+        let normalID = Self.uuid(4132)
+        let attempts = OSAllocatedUnfairLock<Int>(initialState: 0)
+
+        TransferURLProtocol.handler = { request, _ in
+            let index = attempts.withLock { count -> Int in
+                count += 1
+                return count
+            }
+            if index == 1 {
+                return (
+                    Self.response(for: request, statusCode: 413),
+                    Data(#"{"error":"that file is too large to bring in.","reason_code":"multipart_part_too_large"}"#.utf8)
+                )
+            }
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"recommended_action":"do_not_start","path":"/imports/sibling","timestamp":"2026-07-09T00:00:12Z"}"#.utf8)
+            )
+        }
+
+        let mirror = TransferStatusMirror()
+        let engine = TransferEngine(
+            spool: self.makeSpool(),
+            transport: TransferTransport(sessionConfiguration: makeTransferTestURLSessionConfiguration()),
+            endpointResolver: TransferEndpointResolverStub(.available(Self.endpoint)),
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
+            clock: FakeTransferClock(wall: Self.baseDate),
+            statusMirror: mirror,
+            maxConcurrent: 1,
+            bodyBuilder: Self.shareBodyBuilder
+        )
+        try await engine.start()
+
+        var m1 = self.shareManifest(itemID: oversizedID, kind: .file)
+        m1.createdAt = Self.baseDate
+        var m2 = self.shareManifest(itemID: normalID, kind: .file)
+        m2.createdAt = Self.baseDate.addingTimeInterval(1)
+        _ = try await engine.enqueue(manifest: m1, payloads: ["file": Data("too-big".utf8)])
+        _ = try await engine.enqueue(manifest: m2, payloads: ["file": Data("fine".utf8)])
+
+        try await transferTestWaitFor("413 attention and sibling delivered") {
+            let counters = await engine.snapshot().counters
+            return counters.attentionCount == 1 && counters.deliveredCount == 1
+        }
+
+        let snap = await engine.snapshot()
+        XCTAssertEqual(snap.sources[ObserverAudioTransferSource.share]?.authHeld, false)
+        let oversizedState = await engine.itemSnapshot(itemID: oversizedID)?.state
+        XCTAssertEqual(oversizedState, .attention)
+        await engine.pause()
+    }
+
+    @MainActor
+    func testSave403FromLoopbackProxyRetriesWithoutTrippingPairingRefusal() async throws {
+        let itemID = Self.uuid(4039)
+        let attempts = OSAllocatedUnfairLock<Int>(initialState: 0)
+
+        TransferURLProtocol.handler = { request, _ in
+            let index = attempts.withLock { count -> Int in
+                count += 1
+                return count
+            }
+            if index == 1 {
+                let response = HTTPURLResponse(
+                    url: request.url!,
+                    statusCode: 403,
+                    httpVersion: nil,
+                    headerFields: ["X-SPL-Loopback-Refused": "missing"]
+                )!
+                return (response, Data("refused: missing local secret\n".utf8))
+            }
+            return (
+                Self.response(for: request, statusCode: 200),
+                Data(#"{"recommended_action":"do_not_start","path":"/imports/after-loopback","timestamp":"2026-07-09T00:00:13Z"}"#.utf8)
+            )
+        }
+
+        let mirror = TransferStatusMirror()
+        let engine = TransferEngine(
+            spool: self.makeSpool(),
+            transport: TransferTransport(sessionConfiguration: makeTransferTestURLSessionConfiguration()),
+            endpointResolver: TransferEndpointResolverStub(.available(Self.endpoint)),
+            pacer: TransferPacer(defaults: TransferPacerDefaults(ladderSeconds: [0], maxDelay: 300)),
+            clock: FakeTransferClock(wall: Self.baseDate),
+            statusMirror: mirror,
+            maxConcurrent: 1,
+            bodyBuilder: Self.shareBodyBuilder
+        )
+        try await engine.start()
+
+        _ = try await engine.enqueue(
+            manifest: self.shareManifest(itemID: itemID, kind: .file),
+            payloads: ["file": Data("loopback-retry".utf8)]
+        )
+
+        try await transferTestWaitFor("loopback 403 retried and delivered") {
+            await engine.snapshot().counters.deliveredCount == 1
+        }
+
+        let snap = await engine.snapshot()
+        XCTAssertEqual(attempts.withLock { $0 }, 2)
+        XCTAssertEqual(snap.counters.attentionCount, 0)
+        XCTAssertEqual(snap.sources[ObserverAudioTransferSource.share]?.authHeld, false)
+        await engine.pause()
+    }
+
+    @MainActor
     func testFileSaveAndRetryStreamFromCustodyWithoutCreatingBodySpool() async throws {
         let itemID = Self.uuid(35)
         let payload = Data((0..<(256 * 1024)).map { UInt8($0 & 0xFF) })

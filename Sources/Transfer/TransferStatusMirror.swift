@@ -40,6 +40,9 @@ nonisolated struct TransferSourceStatusSnapshot: Codable, Equatable, Sendable {
     var readyToReviewCount = 0
     /// Of `attentionCount`, saved imports whose waiting copy in the journal expired while local bytes remain.
     var reviewExpiredCount = 0
+    /// `true` when the journal refused this device's pairing (`401`/`403`) on this source,
+    /// holding queued items in place until a new connection or pairing change clears the hold.
+    var authHeld = false
     /// When `lastErrorDetail` happened, and the times of the errors since the source's last delivery.
     var lastErrorAt: Date?
     var errorTimesSinceDelivery: [Date]?

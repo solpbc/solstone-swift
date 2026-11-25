@@ -114,9 +114,22 @@ final class ShareTransferHolder {
     private let mirror: TransferStatusMirror
     private let sourceKey: String
     private(set) var activeItems: [ShareImportActiveItem] = []
-    private(set) var isPairingRefused = false
+    private var reconcilePairingRefused = false
     @ObservationIgnored private var isReconciling = false
     @ObservationIgnored private var reconcilePendingAgain = false
+
+    /// `true` when either upload delivery (`401`/`403` on `/save` or `/start`) or
+    /// ready-to-review reconciliation saw the journal refuse this device's pairing.
+    var isPairingRefused: Bool {
+        self.reconcilePairingRefused || self.status.authHeld
+    }
+
+    /// Queued share items held while the journal is refusing this device's pairing.
+    /// Excluded from `sendableUploadTotals` so background drains quiesce while `uploadTotals`
+    /// keeps reporting the waiting count.
+    var unsendableCount: Int {
+        self.isPairingRefused ? self.pendingCount : 0
+    }
 
     init(
         transferEngine: TransferEngine,
@@ -286,11 +299,12 @@ final class ShareTransferHolder {
     }
 
     func clearPairingRefused() {
-        self.isPairingRefused = false
+        self.reconcilePairingRefused = false
     }
 
     func handlePairingChange(currentInstanceID: String) async {
-        self.isPairingRefused = false
+        self.reconcilePairingRefused = false
+        await self.transferEngine.clearAuthHold(sourceKey: self.sourceKey)
         guard !currentInstanceID.isEmpty else { return }
         _ = try? await self.transferEngine.resetImportReviewItemsForPairingChange(currentInstanceID: currentInstanceID)
         await self.refreshActiveItems()
@@ -391,7 +405,8 @@ final class ShareTransferHolder {
                         expectedInstanceID: candidate.savedInstanceID
                     )
                 case .pairingRefused:
-                    self.isPairingRefused = true
+                    self.reconcilePairingRefused = true
+                    await self.transferEngine.markAuthHeld(sourceKey: self.sourceKey)
                     haltedForAuth = true
                 case .keepReadyToReview, .unchanged:
                     break

@@ -10,6 +10,7 @@ All notable changes to the solstone app for iphone and ipad, including its embed
 
 - on iphone and ipad, when you tap "enable background for this sync" for waiting items, ios can now let it run and the app keeps the connection to your journal open while it runs after you switch away. before, the app dropped the connection shortly after.
 - on iphone and ipad, a waiting import file now goes into your journal straight from the copy already on your device, with no second copy written first. before, each upload attempt needed extra free space equal to the file's size.
+- on iphone and ipad, if your journal stops accepting this device while imports are waiting, the import queue now pauses and stays waiting until you pair again. before, waiting imports failed one by one as needing attention.
 
 ## [2.0.14 (169)] - 2026-11-24
 

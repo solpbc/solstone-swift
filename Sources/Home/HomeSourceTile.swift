@@ -438,6 +438,7 @@ struct HomeImportTile: View {
         let isOfflineOrUnpaired = !(self.appConfig?.isPaired ?? false)
             || !(self.tunnelManager?.state.isConnected ?? false)
             || (self.appConfig?.awaitingMarkConfirmation ?? false)
+            || holder.isPairingRefused
         return HomeImportTileSignal.resolve(
             failedCount: holder.failedCount,
             readyToReviewCount: holder.readyToReviewCount,

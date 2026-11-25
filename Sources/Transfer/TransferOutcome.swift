@@ -18,11 +18,20 @@ nonisolated struct TransferHTTPResult: Equatable, Sendable {
     var statusCode: Int?
     var data: Data
     var issue: TransferTransportIssue?
+    /// `true` when the response carries `X-SPL-Loopback-Refused`, meaning the local loopback
+    /// proxy refused the request rather than the journal refusing this device's pairing.
+    var loopbackRefused: Bool
 
-    init(statusCode: Int?, data: Data = Data(), issue: TransferTransportIssue? = nil) {
+    init(
+        statusCode: Int?,
+        data: Data = Data(),
+        issue: TransferTransportIssue? = nil,
+        loopbackRefused: Bool = false
+    ) {
         self.statusCode = statusCode
         self.data = data
         self.issue = issue
+        self.loopbackRefused = loopbackRefused
     }
 }
 
@@ -37,6 +46,9 @@ nonisolated enum TransferOutcome: Equatable, Sendable {
     case terminalAttention(TransferAttentionReason)
     case transientRetry(TransferTransientReason)
     case continueWithStart(TransferSaveThenStartState)
+    /// Journal refused this device's pairing (`401` or unmarked `403` on an import save/start).
+    /// Holds the source queue in place without moving items to attention or deleting local bytes.
+    case authHold(statusCode: Int)
 }
 
 nonisolated enum TransferSuccessKind: Equatable, Sendable {
@@ -360,6 +372,18 @@ nonisolated enum TransferHTTPClassifier {
                 detail: detail,
                 retryable: retryable
             ))
+        }
+
+        switch endpointPhase {
+        case .save, .start:
+            if statusCode == 403, result.loopbackRefused {
+                return .transientRetry(.transport("loopback refused"))
+            }
+            if statusCode == 401 || statusCode == 403 {
+                return .authHold(statusCode: statusCode)
+            }
+        case .observerIngest:
+            break
         }
 
         if 400..<500 ~= statusCode {

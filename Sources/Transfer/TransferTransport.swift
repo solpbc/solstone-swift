@@ -191,7 +191,13 @@ nonisolated final class TransferTransport: @unchecked Sendable {
             }
             return TransferHTTPResult(statusCode: nil, issue: .transport(String(describing: error)))
         }
-        return TransferHTTPResult(statusCode: (response as? HTTPURLResponse)?.statusCode, data: data ?? Data())
+        let httpResponse = response as? HTTPURLResponse
+        let loopbackRefused = httpResponse?.value(forHTTPHeaderField: "X-SPL-Loopback-Refused") != nil
+        return TransferHTTPResult(
+            statusCode: httpResponse?.statusCode,
+            data: data ?? Data(),
+            loopbackRefused: loopbackRefused
+        )
     }
 
     static func boundary(for itemID: UUID) -> String {

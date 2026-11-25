@@ -277,6 +277,7 @@ actor TransferEngine {
     private var pacingMode: TransferPacingMode = .normal
     private var policyPaused = false
     private var endpointHeld = false
+    private var authHeldSources: Set<String> = []
     private var counters = TransferCounters.empty
     private var sourceStates: [String: TransferSourceRuntimeState] = [:]
     private var aggregateByteWindow = TransferByteWindow()
@@ -723,13 +724,50 @@ actor TransferEngine {
 
     /// `pairingIdentity` names the pairing this connection was dialed for; nil
     /// when it is not known, which leaves held items as they are.
-    func noteNewConnectionEstablished(pairingIdentity: String? = nil) {
+    func noteNewConnectionEstablished(pairingIdentity: String? = nil) async {
+        let clearedAuthHold = !self.authHeldSources.isEmpty
+        if clearedAuthHold {
+            self.authHeldSources.removeAll()
+        }
         if let pairingIdentity {
             self.connectedPairingIdentity = pairingIdentity
             self.followPairingIfChanged()
         }
         self.attentionRetryArmed = true
         transferLog.notice("transfer attention retry armed")
+        if clearedAuthHold {
+            self.lastEventSummary = "resumed"
+            self.pendingStatusSnapshot = self.snapshot()
+            await self.flushStatusUpdate()
+        }
+    }
+
+    func markAuthHeld(sourceKey: String) async {
+        let inserted = self.authHeldSources.insert(sourceKey).inserted
+        if self.sourceStates[sourceKey] == nil {
+            self.sourceStates[sourceKey] = TransferSourceRuntimeState()
+        }
+        guard inserted else { return }
+        transferLog.notice("transfer source held for auth \(sourceKey, privacy: .public)")
+        self.lastEventSummary = "held"
+        self.pendingStatusSnapshot = self.snapshot()
+        await self.flushStatusUpdate()
+    }
+
+    func clearAuthHold(sourceKey: String? = nil) async {
+        let changed: Bool
+        if let sourceKey {
+            changed = self.authHeldSources.remove(sourceKey) != nil
+        } else {
+            changed = !self.authHeldSources.isEmpty
+            self.authHeldSources.removeAll()
+        }
+        guard changed else { return }
+        transferLog.notice("transfer auth hold cleared")
+        self.lastEventSummary = "resumed"
+        self.pendingStatusSnapshot = self.snapshot()
+        await self.flushStatusUpdate()
+        self.scheduleWork()
     }
 
     /// The journal's version, forwarded whenever the app's record of it changes. `nil` (not
@@ -1371,6 +1409,7 @@ actor TransferEngine {
         let waiting = self.queuedItems.values
             .filter { !self.droppedItemIDs.contains($0.manifest.itemID) }
             .filter { !self.conflictedItemIDs.contains($0.manifest.itemID) }
+            .filter { !self.authHeldSources.contains($0.manifest.sourceKey) }
         var candidates: [TransferStoredItem] = []
         for lane in Dictionary(grouping: waiting, by: { self.laneKey(for: $0.manifest) }).values {
             let ordered = lane.sorted(by: self.itemSort)
@@ -1776,6 +1815,35 @@ actor TransferEngine {
                 detail: retryDetail
             )
             transferLog.notice("transfer item retrying \(itemID.uuidString, privacy: .public)")
+        case .authHold(let statusCode):
+            self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+            let currentAttempts = self.attemptCountByItemID[itemID, default: 0]
+            if currentAttempts > 1 {
+                self.attemptCountByItemID[itemID] = currentAttempts - 1
+            } else {
+                self.attemptCountByItemID.removeValue(forKey: itemID)
+                self.firstAttemptAtByItemID.removeValue(forKey: itemID)
+            }
+            self.authHeldSources.insert(item.manifest.sourceKey)
+            if self.sourceStates[item.manifest.sourceKey] == nil {
+                self.sourceStates[item.manifest.sourceKey] = TransferSourceRuntimeState()
+            }
+            self.emit(
+                item: item,
+                previousState: .dispatching,
+                nextState: .held,
+                outcome: .held,
+                attempt: self.attemptCountByItemID[itemID, default: 0],
+                detail: "http \(statusCode)"
+            )
+            transferLog.notice(
+                "transfer source held for auth \(item.manifest.sourceKey, privacy: .public) status=\(statusCode, privacy: .public)"
+            )
+            self.lastEventSummary = "held"
+            self.pendingStatusSnapshot = self.snapshot()
+            await self.flushStatusUpdate()
+            self.scheduleWork()
+            return
         case .continueWithStart(let state):
             self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
             var manifest = item.manifest.replacingNextAttemptAt(nil)
@@ -2131,11 +2199,14 @@ private extension TransferEngine {
                 pacedBySource[sourceKey, default: 0] += 1
             }
         }
-        return Dictionary(uniqueKeysWithValues: self.sourceStates.map { sourceKey, state in
+        let allSourceKeys = Set(self.sourceStates.keys).union(self.authHeldSources)
+        return Dictionary(uniqueKeysWithValues: allSourceKeys.map { sourceKey in
+            let state = self.sourceStates[sourceKey] ?? TransferSourceRuntimeState()
             var snapshot = state.snapshot(now: now)
             snapshot.refusalPacedCount = pacedBySource[sourceKey, default: 0]
             snapshot.readyToReviewCount = readyToReviewBySource[sourceKey, default: 0]
             snapshot.reviewExpiredCount = reviewExpiredBySource[sourceKey, default: 0]
+            snapshot.authHeld = self.authHeldSources.contains(sourceKey)
             return (sourceKey, snapshot)
         })
     }
@@ -2244,6 +2315,8 @@ private extension TransferEngine {
             state = .attention
         } else if self.inFlight.contains(item.manifest.itemID) {
             state = .dispatching
+        } else if self.authHeldSources.contains(item.manifest.sourceKey) {
+            state = .held
         } else {
             state = .queued
         }

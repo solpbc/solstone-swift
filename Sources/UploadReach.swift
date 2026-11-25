@@ -44,7 +44,7 @@ func sendableUploadTotals(
     )
     let paced = mobileSegment.refusalPacedCount + watch.refusalPacedCount + share.refusalPacedCount
         + (calendar?.refusalPacedCount ?? 0) + (obsidian?.refusalPacedCount ?? 0)
-    let held = (calendar?.unsendableCount ?? 0) + (obsidian?.unsendableCount ?? 0) + screenshotsUnsendable
+    let held = share.unsendableCount + (calendar?.unsendableCount ?? 0) + (obsidian?.unsendableCount ?? 0) + screenshotsUnsendable
     return (failed: max(0, totals.failed - paced), pending: max(0, totals.pending - held))
 }
 
