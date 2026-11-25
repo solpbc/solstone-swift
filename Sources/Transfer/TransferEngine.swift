@@ -235,11 +235,11 @@ nonisolated struct TransferSourceRuntimeState: Equatable, Sendable {
 }
 
 actor TransferEngine {
-    private let spool: TransferSpool
-    private let transport: TransferTransport
-    private let endpointResolver: any TransferEndpointResolver
-    private let pacer: TransferPacer
-    private let clock: any TransferClock
+    let spool: TransferSpool
+    let transport: TransferTransport
+    let endpointResolver: any TransferEndpointResolver
+    let pacer: TransferPacer
+    let clock: any TransferClock
     private let diagnosticsSink: TransferDiagnosticSink
     private let statusMirror: TransferStatusMirror?
     private let conditions: (any TransferConditionsProviding)?
@@ -251,35 +251,44 @@ actor TransferEngine {
     private let maxConcurrent: Int
     private let bodyBuilder: TransferBodyBuilder
     private let heardReporter: ConnectionHeardReporter
-    private let sourceGate: (any TransferSourceGate)?
+    let sourceGate: (any TransferSourceGate)?
+    let resumableImportProbe: (any ResumableImportCapabilityProbing)?
+    let resumableRetryLadder: ResumableRetryLadder
+    let deviceNoun: String
     /// This app's build, recorded with a settled refusal. `nil` when not known.
     private let appBuild: String?
     /// The journal's last known version, recorded with a settled refusal. An unknown value
     /// never replaces a known one.
-    private var journalVersion: String?
+    var journalVersion: String?
     /// The pairing the spool last followed, read at launch and kept current, so the pairing a
     /// refusal was made under is known even before a connection names its own.
     private var followedPairingIdentity: String?
 
-    private var queuedItems: [UUID: TransferStoredItem] = [:]
+    var queuedItems: [UUID: TransferStoredItem] = [:]
     private var attentionItems: [UUID: TransferStoredItem] = [:]
-    private var inFlight: Set<UUID> = []
+    var inFlight: Set<UUID> = []
     private var inFlightSourceKeys: [UUID: String] = [:]
-    private var droppedItemIDs: Set<UUID> = []
+    var droppedItemIDs: Set<UUID> = []
     private var conflictedItemIDs: Set<UUID> = []
-    private var attemptCountByItemID: [UUID: Int] = [:]
-    private var firstAttemptAtByItemID: [UUID: Date] = [:]
+    var attemptCountByItemID: [UUID: Int] = [:]
+    var firstAttemptAtByItemID: [UUID: Date] = [:]
+    var resumableUploadTasks: [UUID: (token: UUID, task: Task<Void, Never>)] = [:]
+    var resumableTaskEndpointByItemID: [UUID: TransferResolvedEndpoint] = [:]
+    var resumableRetryAttemptByItemID: [UUID: Int] = [:]
+    var resumableResumingItemIDs: Set<UUID> = []
+    var advertisedResumableThresholdBytes: Int64 = ResumableImportDefaults.thresholdBytes
+    var resumableProgressObserver: (@Sendable (UUID, TransferResumableProgress?) async -> Void)?
     private var attentionRetryArmed = false
     private var connectedPairingIdentity: String?
     private var sourceCursorByBand: [TransferPriorityBand: Int] = [:]
     private var retrySleepTask: Task<Void, Never>?
-    private var paused = false
+    var paused = false
     private var pacingMode: TransferPacingMode = .normal
-    private var policyPaused = false
+    var policyPaused = false
     private var endpointHeld = false
-    private var authHeldSources: Set<String> = []
-    private var counters = TransferCounters.empty
-    private var sourceStates: [String: TransferSourceRuntimeState] = [:]
+    var authHeldSources: Set<String> = []
+    var counters = TransferCounters.empty
+    var sourceStates: [String: TransferSourceRuntimeState] = [:]
     private var aggregateByteWindow = TransferByteWindow()
     private var deliveredHooks: [String: TransferDeliveredHook] = [:]
     private var obsidianAcknowledgementCommit: ObsidianAcknowledgementCommit?
@@ -291,9 +300,9 @@ actor TransferEngine {
     private var legacyRepairTask: Task<Void, Never>?
     private let audioInspector: PhoneAudioInspector
     private var legacyAudioIssues: [UUID: (item: TransferStoredItem, issue: TransferSegmentRepair.AudioIssue)] = [:]
-    private var lastEventSummary: String?
+    var lastEventSummary: String?
     private var lastLoggedDispatchDecision: TransferDispatchLogState?
-    private var pendingStatusSnapshot: TransferStatusSnapshot?
+    var pendingStatusSnapshot: TransferStatusSnapshot?
     private var statusUpdateScheduled = false
 
     init(
@@ -310,6 +319,9 @@ actor TransferEngine {
         bodyBuilder: @escaping TransferBodyBuilder = DefaultTransferBodyBuilder.build,
         heardReporter: ConnectionHeardReporter = ConnectionHeardReporter(),
         sourceGate: (any TransferSourceGate)? = nil,
+        resumableImportProbe: (any ResumableImportCapabilityProbing)? = nil,
+        resumableRetryLadder: ResumableRetryLadder = ResumableRetryLadder(),
+        deviceNoun: String = "iphone",
         appBuild: String? = nil,
         journalVersion: String? = nil,
         audioInspector: PhoneAudioInspector = .live
@@ -327,9 +339,16 @@ actor TransferEngine {
         self.bodyBuilder = bodyBuilder
         self.heardReporter = heardReporter
         self.sourceGate = sourceGate
+        self.resumableImportProbe = resumableImportProbe
+        self.resumableRetryLadder = resumableRetryLadder
+        self.deviceNoun = deviceNoun
         self.appBuild = appBuild.flatMap { $0.isEmpty ? nil : $0 }
         self.journalVersion = TransferRefusalConditions.normalizedJournalVersion(journalVersion)
         self.audioInspector = audioInspector
+    }
+
+    func setResumableProgressObserver(_ observer: (@Sendable (UUID, TransferResumableProgress?) async -> Void)?) {
+        self.resumableProgressObserver = observer
     }
 
     func initialize() throws {
@@ -704,6 +723,9 @@ actor TransferEngine {
         self.paused = true
         self.retrySleepTask?.cancel()
         self.retrySleepTask = nil
+        for (_, entry) in self.resumableUploadTasks {
+            entry.task.cancel()
+        }
         self.emitEngineEvent(outcome: .paused, detail: "paused")
         transferLog.notice("transfer engine paused")
         self.scheduleStatusUpdate(summary: "paused")
@@ -729,6 +751,9 @@ actor TransferEngine {
         if clearedAuthHold {
             self.authHeldSources.removeAll()
         }
+        await self.resumableImportProbe?.invalidate()
+        self.resumableRetryAttemptByItemID.removeAll()
+        await self.wakeResumableItemsForNewConnection()
         if let pairingIdentity {
             self.connectedPairingIdentity = pairingIdentity
             self.followPairingIfChanged()
@@ -739,6 +764,7 @@ actor TransferEngine {
             self.lastEventSummary = "resumed"
             self.pendingStatusSnapshot = self.snapshot()
             await self.flushStatusUpdate()
+            self.scheduleWork()
         }
     }
 
@@ -781,6 +807,9 @@ actor TransferEngine {
             return
         }
         self.journalVersion = version
+        if let probe = self.resumableImportProbe {
+            Task { await probe.invalidate() }
+        }
         self.attentionRetryArmed = true
         transferLog.notice("transfer journal version changed; attention retry armed")
         self.scheduleWork()
@@ -827,7 +856,11 @@ actor TransferEngine {
             moveError = error
         }
         do {
-            for item in self.queuedItems.values where item.manifest.saveThenStart?.phase == .startPending {
+            for (_, entry) in self.resumableUploadTasks {
+                entry.task.cancel()
+            }
+            self.resumableRetryAttemptByItemID.removeAll()
+            for item in self.queuedItems.values where item.manifest.saveThenStart?.phase == .startPending || item.manifest.saveThenStart?.resumable != nil {
                 var manifest = item.manifest.replacingNextAttemptAt(nil)
                 manifest.saveThenStart = TransferSaveThenStartState(phase: .savePending)
                 self.queuedItems[item.manifest.itemID] = try self.spool.updateQueuedManifest(
@@ -1179,6 +1212,14 @@ actor TransferEngine {
 
     func drop(itemID: UUID) {
         guard !self.conflictedItemIDs.contains(itemID) else { return }
+        let existingItem = self.queuedItems[itemID] ?? self.attentionItems[itemID]
+        let resumableToAbort = existingItem?.manifest.saveThenStart?.resumable
+        let endpointToAbort = existingItem?.manifest.endpoint
+        self.resumableUploadTasks.removeValue(forKey: itemID)?.task.cancel()
+        self.resumableTaskEndpointByItemID.removeValue(forKey: itemID)
+        self.resumableRetryAttemptByItemID.removeValue(forKey: itemID)
+        self.resumableResumingItemIDs.remove(itemID)
+        self.notifyResumableProgressObserver(itemID: itemID, progress: nil)
         self.legacyAudioIssues.removeValue(forKey: itemID)
         self.droppedItemIDs.insert(itemID)
         if let item = self.queuedItems.removeValue(forKey: itemID) {
@@ -1219,6 +1260,16 @@ actor TransferEngine {
             self.firstAttemptAtByItemID.removeValue(forKey: itemID)
             transferLog.notice("transfer item dropped \(itemID.uuidString, privacy: .public)")
         }
+        if let uploadID = resumableToAbort?.uploadID,
+           ResumableUploadIDValidator.isValid(uploadID),
+           let endpointToAbort
+        {
+            self.launchBestEffortResumableDelete(
+                uploadID: uploadID,
+                expectedInstanceID: resumableToAbort?.uploadInstanceID,
+                endpointDescriptor: endpointToAbort
+            )
+        }
         self.scheduleStatusUpdate(summary: "dropped")
         self.scheduleWork()
     }
@@ -1226,6 +1277,12 @@ actor TransferEngine {
     func snapshot() -> TransferStatusSnapshot {
         let now = self.clock.wallNow()
         let backoff = self.backoffPending(now: now)
+        var resumableProgressByItemID: [UUID: TransferResumableProgress] = [:]
+        for item in self.queuedItems.values {
+            if let progress = self.resumableProgress(for: item) {
+                resumableProgressByItemID[item.manifest.itemID] = progress
+            }
+        }
         return TransferStatusSnapshot(
             counters: self.counters,
             paused: self.paused,
@@ -1237,7 +1294,9 @@ actor TransferEngine {
             lastUpdatedAt: now,
             sources: self.sourceSnapshots(now: now),
             aggregateBytesPerSecond: self.aggregateByteWindow.bytesPerSecond(now: now),
-            heldItemIDs: Set(self.queuedItems.keys).union(self.attentionItems.keys)
+            heldItemIDs: Set(self.queuedItems.keys).union(self.attentionItems.keys),
+            resumableProgressByItemID: resumableProgressByItemID,
+            advertisedResumableThresholdBytes: self.advertisedResumableThresholdBytes
         )
     }
 
@@ -1311,7 +1370,7 @@ actor TransferEngine {
         return try? self.spool.existingPayloadURL(for: part, in: item)
     }
 
-    private func scheduleWork() {
+    func scheduleWork() {
         guard !self.paused else { return }
         guard !self.dispatchSuspendedForLaunch else { return }
         guard !self.workPassScheduled else { return }
@@ -1517,6 +1576,27 @@ actor TransferEngine {
             self.handleBodyBuildFailure(error, item: item)
             return
         }
+
+        if phase == .save,
+           self.resumableImportProbe != nil,
+           item.manifest.payloadParts.first?.kind == .file
+        {
+            let handledResumable = await self.tryDispatchResumableSave(item: item, attempt: attempt)
+            if handledResumable {
+                return
+            }
+            // Item fell back to single-POST `/save`; verify it is still queued & in-flight.
+            guard self.queuedItems[itemID] != nil,
+                  self.inFlight.contains(itemID),
+                  !self.droppedItemIDs.contains(itemID),
+                  !self.paused
+            else {
+                self.clearInFlight(itemID: itemID, sourceKey: item.manifest.sourceKey)
+                self.scheduleWork()
+                return
+            }
+        }
+        let item = self.queuedItems[itemID] ?? item
 
         let uploadBody: TransferUploadBody
         do {
@@ -2078,7 +2158,7 @@ actor TransferEngine {
         }
     }
 
-    private func moveToAttention(
+    func moveToAttention(
         item: TransferStoredItem,
         reason: TransferAttentionReason,
         detail: String,
@@ -2119,7 +2199,7 @@ actor TransferEngine {
         }
     }
 
-    private func scheduleRetryTimer() {
+    func scheduleRetryTimer() {
         self.retrySleepTask?.cancel()
         self.retrySleepTask = nil
         guard !self.paused else { return }
@@ -2155,7 +2235,7 @@ actor TransferEngine {
     }
 }
 
-private extension TransferEngine {
+extension TransferEngine {
     func updateSourceState(_ sourceKey: String, _ update: (inout TransferSourceRuntimeState) -> Void) {
         var state = self.sourceStates[sourceKey, default: TransferSourceRuntimeState()]
         update(&state)
@@ -2215,7 +2295,7 @@ private extension TransferEngine {
         self.currentDispatchAssessment().decision
     }
 
-    func currentDispatchAssessment() -> TransferDispatchAssessment {
+    private func currentDispatchAssessment() -> TransferDispatchAssessment {
         guard let conditions else {
             return TransferDispatchAssessment(decision: TransferDispatchDecision(
                 maxConcurrent: self.maxConcurrent,
@@ -2238,7 +2318,7 @@ private extension TransferEngine {
         )
     }
 
-    func logDispatchDecisionIfChanged(_ logState: TransferDispatchLogState?) {
+    private func logDispatchDecisionIfChanged(_ logState: TransferDispatchLogState?) {
         guard let logState else { return }
         if self.lastLoggedDispatchDecision?.decision == logState.decision {
             self.lastLoggedDispatchDecision = logState
@@ -2326,7 +2406,8 @@ private extension TransferEngine {
             manifest: item.manifest,
             state: state,
             attempts: self.attemptCountByItemID[item.manifest.itemID, default: 0],
-            refusalPaced: refusalPaced
+            refusalPaced: refusalPaced,
+            resumableProgress: state == .attention ? nil : self.resumableProgress(for: item)
         )
     }
 
@@ -2603,6 +2684,8 @@ private extension TransferEngine {
             return TransferAttentionReason.httpClientErrorCode
         case .importReviewRequired:
             return TransferAttentionReason.importReviewRequiredCode
+        case .resumableFault:
+            return TransferAttentionReason.resumableFaultCode
         case .decodeFailed:
             return "decode_failed"
         case .missingPayload:

@@ -48,6 +48,29 @@ nonisolated struct TransferSourceStatusSnapshot: Codable, Equatable, Sendable {
     var errorTimesSinceDelivery: [Date]?
 }
 
+/// Live confirmed progress for a resumable import upload.
+nonisolated struct TransferResumableProgress: Codable, Equatable, Sendable {
+    var bytesSent: Int64
+    var bytesTotal: Int64
+    var phase: TransferResumablePhase
+    var isResuming: Bool
+    var chunkBytes: Int
+
+    init(
+        bytesSent: Int64,
+        bytesTotal: Int64,
+        phase: TransferResumablePhase,
+        isResuming: Bool = false,
+        chunkBytes: Int = ResumableImportDefaults.chunkBytes
+    ) {
+        self.bytesSent = bytesSent
+        self.bytesTotal = bytesTotal
+        self.phase = phase
+        self.isResuming = isResuming
+        self.chunkBytes = chunkBytes
+    }
+}
+
 /// In-memory status for one queued, attention, or in-flight item. The manifest
 /// is the stable item contract; convenience properties forward common fields.
 nonisolated struct TransferItemSnapshot: Codable, Equatable, Sendable {
@@ -59,6 +82,8 @@ nonisolated struct TransferItemSnapshot: Codable, Equatable, Sendable {
     /// journal is updated, or the owner retries it. Decided by the engine; screens read it and
     /// never work it out themselves.
     var refusalPaced: Bool
+    /// Live confirmed resumable progress for queued/in-flight resumable import items.
+    var resumableProgress: TransferResumableProgress? = nil
 
     var itemID: UUID {
         self.manifest.itemID
@@ -95,6 +120,8 @@ nonisolated struct TransferStatusSnapshot: Codable, Equatable, Sendable {
     var sources: [String: TransferSourceStatusSnapshot]
     var aggregateBytesPerSecond: Double
     var heldItemIDs: Set<UUID> = []
+    var resumableProgressByItemID: [UUID: TransferResumableProgress] = [:]
+    var advertisedResumableThresholdBytes: Int64 = ResumableImportDefaults.thresholdBytes
 }
 
 @MainActor
@@ -116,6 +143,8 @@ final class TransferStatusMirror {
     private(set) var aggregateBytesPerSecond = 0.0
     private(set) var applyCount = 0
     private(set) var heldItemIDs: Set<UUID> = []
+    private(set) var resumableProgressByItemID: [UUID: TransferResumableProgress] = [:]
+    private(set) var advertisedResumableThresholdBytes: Int64 = ResumableImportDefaults.thresholdBytes
 
     func apply(snapshot: TransferStatusSnapshot) {
         self.queuedCount = snapshot.counters.queuedCount
@@ -133,6 +162,8 @@ final class TransferStatusMirror {
         self.sources = snapshot.sources
         self.aggregateBytesPerSecond = snapshot.aggregateBytesPerSecond
         self.heldItemIDs = snapshot.heldItemIDs
+        self.resumableProgressByItemID = snapshot.resumableProgressByItemID
+        self.advertisedResumableThresholdBytes = snapshot.advertisedResumableThresholdBytes
         self.applyCount += 1
     }
 }

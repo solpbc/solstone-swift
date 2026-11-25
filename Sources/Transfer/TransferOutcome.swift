@@ -6,6 +6,14 @@ import Foundation
 nonisolated enum TransferReasonCodes {
     static let invalidOperationForState = "invalid_operation_for_state"
     static let importPreviewRequired = "import_preview_required"
+    static let uploadNotFound = "upload_not_found"
+    static let insufficientJournalSpace = "insufficient_journal_space"
+    static let wholeFileChecksumMismatch = "whole_file_checksum_mismatch"
+    static let chunkChecksumMismatch = "chunk_checksum_mismatch"
+    static let offsetMismatch = "offset_mismatch"
+    static let incompleteUpload = "incomplete_upload"
+    static let journalBusy = "journal_busy"
+    static let localFileUnreadable = "local_file_unreadable"
 }
 
 nonisolated enum TransferEndpointPhase: Equatable, Sendable {
@@ -66,6 +74,9 @@ nonisolated enum TransferAttentionReason: Equatable, Sendable {
     case importReviewRequired(kind: String, importID: String, detail: String)
     /// The journal answered `409 import_preview_required` with a non-confirmation kind (or invalid `import_id`).
     case importPreviewRefused(statusCode: Int, kind: String?, importID: String?, detail: String?, retryable: Bool)
+    /// A real resumable import fault (journal full `507`, whole-file integrity mismatch `422`,
+    /// expired upload `404`, or unreadable local file).
+    case resumableFault(journalReasonCode: String, detail: String?, retryable: Bool)
     case decodeFailed(String)
     case missingPayload(String)
     case malformedManifest(String)
@@ -138,6 +149,8 @@ nonisolated extension TransferAttentionReason {
     static let httpClientErrorCode = "http_client_error"
     /// The stored reason token for an import saved in the journal awaiting owner review & confirmation.
     static let importReviewRequiredCode = "import_review_required"
+    /// The stored reason token for a real resumable import upload fault.
+    static let resumableFaultCode = "resumable_upload_fault"
 
     /// The journal's own reason code, for a refusal that carried one.
     var journalReasonCode: String? {
@@ -146,6 +159,8 @@ nonisolated extension TransferAttentionReason {
             code
         case .importReviewRequired, .importPreviewRefused:
             TransferReasonCodes.importPreviewRequired
+        case .resumableFault(let code, _, _):
+            TransferHTTPClassifier.storedJournalReasonCode(code)
         case .decodeFailed, .missingPayload, .malformedManifest:
             nil
         }
@@ -186,6 +201,8 @@ nonisolated extension TransferAttentionReason {
             false
         case .importPreviewRefused(_, _, _, _, let retryable):
             retryable
+        case .resumableFault(_, _, let retryable):
+            retryable
         default:
             nil
         }
@@ -204,6 +221,8 @@ nonisolated extension TransferAttentionReason {
             Self.boundedRuntimeDetail(detail, fallback: AppStrings.ios_app_importreviewdetail())
         case .importPreviewRefused(let statusCode, _, _, let detail, _):
             Self.boundedRuntimeDetail(detail, fallback: "http \(statusCode)")
+        case .resumableFault(let code, let detail, _):
+            Self.boundedRuntimeDetail(detail, fallback: "reason_code=\(code)")
         case .decodeFailed(let detail):
             detail
         case .missingPayload(let detail):
@@ -449,6 +468,12 @@ nonisolated enum TransferHTTPClassifier {
         default:
             return .terminalAttention(.decodeFailed(AppStrings.ios_transfer_classifyobserveringestsuccess2("\(response.status)")))
         }
+    }
+
+    /// Classifies a `200 OK` save/commit response payload carrying `recommended_action`, `path`,
+    /// `timestamp`, and optional `source`.
+    static func classifySaveSuccessData(_ data: Data) -> TransferOutcome {
+        self.classifySaveSuccess(data: data)
     }
 
     private static func classifySaveSuccess(data: Data) -> TransferOutcome {

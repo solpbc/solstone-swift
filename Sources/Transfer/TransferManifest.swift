@@ -341,6 +341,43 @@ nonisolated enum TransferImportReviewState: String, Codable, Equatable, Sendable
     case reviewExpired = "review_expired"
 }
 
+nonisolated enum TransferResumablePhase: String, Codable, Equatable, Sendable {
+    case sending
+    case paused
+    case checking
+}
+
+nonisolated struct TransferResumableUploadState: Codable, Equatable, Sendable {
+    var uploadID: String?
+    var remoteOffset: Int64
+    var totalBytes: Int64
+    var chunkBytes: Int?
+    var uploadInstanceID: String?
+    var wholeFileSHA256: String?
+    var phase: TransferResumablePhase
+    var expiresAt: String?
+
+    init(
+        uploadID: String? = nil,
+        remoteOffset: Int64 = 0,
+        totalBytes: Int64,
+        chunkBytes: Int? = nil,
+        uploadInstanceID: String? = nil,
+        wholeFileSHA256: String? = nil,
+        phase: TransferResumablePhase = .sending,
+        expiresAt: String? = nil
+    ) {
+        self.uploadID = uploadID
+        self.remoteOffset = remoteOffset
+        self.totalBytes = totalBytes
+        self.chunkBytes = chunkBytes
+        self.uploadInstanceID = uploadInstanceID
+        self.wholeFileSHA256 = wholeFileSHA256
+        self.phase = phase
+        self.expiresAt = expiresAt
+    }
+}
+
 nonisolated struct TransferSaveThenStartState: Codable, Equatable, Sendable {
     var phase: TransferSaveThenStartPhase
     var savedPath: String?
@@ -349,6 +386,7 @@ nonisolated struct TransferSaveThenStartState: Codable, Equatable, Sendable {
     var recommendedAction: String?
     var serverSource: String?
     var lastStartReasonCode: String?
+    var resumable: TransferResumableUploadState?
 
     init(
         phase: TransferSaveThenStartPhase,
@@ -357,7 +395,8 @@ nonisolated struct TransferSaveThenStartState: Codable, Equatable, Sendable {
         savedInstanceID: String? = nil,
         recommendedAction: String? = nil,
         serverSource: String? = nil,
-        lastStartReasonCode: String? = nil
+        lastStartReasonCode: String? = nil,
+        resumable: TransferResumableUploadState? = nil
     ) {
         self.phase = phase
         self.savedPath = savedPath
@@ -366,6 +405,7 @@ nonisolated struct TransferSaveThenStartState: Codable, Equatable, Sendable {
         self.recommendedAction = recommendedAction
         self.serverSource = serverSource
         self.lastStartReasonCode = lastStartReasonCode
+        self.resumable = resumable
     }
 }
 
@@ -477,6 +517,10 @@ nonisolated extension TransferAttentionInfo {
     var suppressesAutoRetry: Bool {
         self.isImportReview
             || self.journalReasonCode == TransferReasonCodes.importPreviewRequired
+            || self.journalReasonCode == TransferReasonCodes.insufficientJournalSpace
+            || self.journalReasonCode == TransferReasonCodes.wholeFileChecksumMismatch
+            || self.journalReasonCode == TransferReasonCodes.uploadNotFound
+            || self.journalReasonCode == TransferReasonCodes.chunkChecksumMismatch
             || self.retryable == false
     }
 
@@ -499,6 +543,13 @@ nonisolated extension TransferAttentionInfo {
     var ownerFailureReason: String {
         if self.reason == TransferAttentionReason.importReviewRequiredCode || self.isImportReview {
             return self.shortDetail
+        }
+        if self.reason == TransferAttentionReason.resumableFaultCode {
+            let detail = self.shortDetail.trimmingCharacters(in: Self.storedBodyPadding)
+            guard !detail.isEmpty, !detail.hasPrefix("reason_code=") else {
+                return SourceVocabulary.onThisPhoneFailureReasonServer
+            }
+            return detail
         }
         guard self.reason != self.shortDetail else { return self.reason }
         guard self.reason == TransferAttentionReason.httpClientErrorCode else {

@@ -4,4 +4,6 @@
 nonisolated enum ImporterServerURL {
     static let savePath = "/app/import/api/save"
     static let startPath = "/app/import/api/start"
+    static let uploadsPath = "/app/import/api/uploads"
+    static let sourcesPath = "/app/import/api/sources"
 }

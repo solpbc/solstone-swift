@@ -151,6 +151,8 @@ nonisolated enum TransferRefusalPacing {
             return true
         case .importPreviewRefused:
             return true
+        case .resumableFault:
+            return true
         case .httpClientError(let statusCode, _, let journalReasonCode):
             if case .start = phase,
                statusCode == 409,

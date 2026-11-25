@@ -48,11 +48,14 @@ nonisolated struct TransferResolvedEndpoint: Equatable, Sendable {
         self.dispatchOwner = dispatchOwner
     }
 
-    func url(path: String) -> URL? {
+    func url(path: String, queryItems: [URLQueryItem] = []) -> URL? {
         guard var components = URLComponents(url: self.baseURL, resolvingAgainstBaseURL: false) else {
             return nil
         }
         components.path = path.hasPrefix("/") ? path : "/\(path)"
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
         return components.url
     }
 }

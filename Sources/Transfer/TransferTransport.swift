@@ -125,7 +125,7 @@ nonisolated final class TransferTransport: @unchecked Sendable {
         guard await self.admission(endpoint) else {
             return TransferHTTPResult(statusCode: nil, issue: .cancelled)
         }
-        let upload = TransferUploadContinuation()
+        let upload = TransferTaskContinuation()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
                 guard upload.install(continuation) else { return }
@@ -177,6 +177,66 @@ nonisolated final class TransferTransport: @unchecked Sendable {
         }
     }
 
+    /// Sends a bounded HTTP request through the same endpoint admission, loopback capability,
+    /// and locale headers used for item transfers. When `body` is non-nil, sends exact
+    /// `Content-Length` framing without `Transfer-Encoding: chunked` or `Expect: 100-continue`.
+    func sendRawRequest(
+        method: String,
+        path: String,
+        queryItems: [URLQueryItem] = [],
+        headers: [String: String] = [:],
+        body: Data? = nil,
+        endpoint: TransferResolvedEndpoint
+    ) async -> TransferHTTPResult {
+        guard await self.admission(endpoint) else {
+            return TransferHTTPResult(statusCode: nil, issue: .cancelled)
+        }
+        guard let url = endpoint.url(path: path, queryItems: queryItems) else {
+            return TransferHTTPResult(statusCode: nil, issue: .transport("invalid url"))
+        }
+        guard await self.admission(endpoint) else {
+            return TransferHTTPResult(statusCode: nil, issue: .cancelled)
+        }
+        let pending = TransferTaskContinuation()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard pending.install(continuation) else { return }
+                Task {
+                    let admitted = await self.requestAdmission(endpoint) {
+                        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData)
+                        request.httpMethod = method
+                        for (name, value) in headers {
+                            let lower = name.lowercased()
+                            if lower == "expect" || lower == "transfer-encoding" {
+                                continue
+                            }
+                            request.setValue(value, forHTTPHeaderField: name)
+                        }
+                        request.setValue(nil, forHTTPHeaderField: "Expect")
+                        request.setValue(nil, forHTTPHeaderField: "Transfer-Encoding")
+                        request.attachLoopbackCapability()
+                        request.attachJournalLocale(language: self.localeLanguage())
+                        if let body {
+                            request.setValue("\(body.count)", forHTTPHeaderField: "Content-Length")
+                            let task = self.session.uploadTask(with: request, from: body) { data, response, error in
+                                pending.finish(Self.result(data: data, response: response, error: error))
+                            }
+                            pending.start(task)
+                        } else {
+                            let task = self.session.dataTask(with: request) { data, response, error in
+                                pending.finish(Self.result(data: data, response: response, error: error))
+                            }
+                            pending.start(task)
+                        }
+                    }
+                    if !admitted { pending.finish(TransferHTTPResult(statusCode: nil, issue: .cancelled)) }
+                }
+            }
+        } onCancel: {
+            pending.cancel()
+        }
+    }
+
     fileprivate static func result(data: Data?, response: URLResponse?, error: Error?) -> TransferHTTPResult {
         if let error {
             if let urlError = error as? URLError {
@@ -222,7 +282,7 @@ private nonisolated final class TransferTransportSessionDelegate: NSObject, URLS
 
     private struct StreamedTaskEntry {
         let body: TransferStreamedBody
-        let upload: TransferUploadContinuation
+        let upload: TransferTaskContinuation
         var handedOver = false
         var inputStream: InputStream?
         var response: URLResponse?
@@ -233,7 +293,7 @@ private nonisolated final class TransferTransportSessionDelegate: NSObject, URLS
     private let lock = NSLock()
     private var streamedTasks: [Int: StreamedTaskEntry] = [:]
 
-    func register(taskID: Int, body: TransferStreamedBody, upload: TransferUploadContinuation) {
+    func register(taskID: Int, body: TransferStreamedBody, upload: TransferTaskContinuation) {
         self.lock.withLock {
             self.streamedTasks[taskID] = StreamedTaskEntry(body: body, upload: upload)
         }
@@ -368,13 +428,13 @@ private nonisolated final class TransferTransportSessionDelegate: NSObject, URLS
     }
 }
 
-/// Bridges Foundation's resumable upload task to the async transport API. The
+/// Bridges Foundation's URLSession task to the async transport API. The
 /// task must start synchronously inside credential admission; cancellation and
 /// completion exchange the continuation once under this lock.
-private nonisolated final class TransferUploadContinuation: @unchecked Sendable {
+private nonisolated final class TransferTaskContinuation: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<TransferHTTPResult, Never>?
-    private var task: URLSessionUploadTask?
+    private var task: URLSessionTask?
     private var cancelCleanup: (@Sendable () -> Void)?
     private var completed = false
 
@@ -388,7 +448,7 @@ private nonisolated final class TransferUploadContinuation: @unchecked Sendable 
         return installed
     }
 
-    func start(_ task: URLSessionUploadTask, onCancel: (@Sendable () -> Void)? = nil) {
+    func start(_ task: URLSessionTask, onCancel: (@Sendable () -> Void)? = nil) {
         let alreadyCompleted: Bool = self.lock.withLock {
             guard !self.completed else { return true }
             self.task = task
@@ -419,7 +479,7 @@ private nonisolated final class TransferUploadContinuation: @unchecked Sendable 
         let pending = self.lock.withLock {
             guard !self.completed else {
                 return (
-                    nil as URLSessionUploadTask?,
+                    nil as URLSessionTask?,
                     nil as (@Sendable () -> Void)?,
                     nil as CheckedContinuation<TransferHTTPResult, Never>?
                 )

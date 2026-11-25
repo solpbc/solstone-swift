@@ -387,13 +387,15 @@ struct SolstoneSwiftApp: App {
             )
         }
         let connectionHeardReporter = ConnectionHeardReporter()
+        let transferTransport = TransferTransport(admission: { endpoint in
+            await transferEndpointResolver.isCurrent(endpoint)
+        }, requestAdmission: { endpoint, start in
+            await transferEndpointResolver.startRequest(endpoint, start: start)
+        })
+        let resumableImportProbe = JournalResumableImportCapabilityProbe(transport: transferTransport)
         let transferEngine = TransferEngine(
             spool: transferSpool,
-            transport: TransferTransport(admission: { endpoint in
-                await transferEndpointResolver.isCurrent(endpoint)
-            }, requestAdmission: { endpoint, start in
-                await transferEndpointResolver.startRequest(endpoint, start: start)
-            }),
+            transport: transferTransport,
             endpointResolver: transferEndpointResolver,
             diagnosticsSink: ObserverAudioTransferDiagnostics.makeSink(diagnosticLog: log),
             statusMirror: transferStatusMirror,
@@ -412,6 +414,8 @@ struct SolstoneSwiftApp: App {
                 obsidian: obsidianGate,
                 screenshots: screenshotsGate
             ),
+            resumableImportProbe: resumableImportProbe,
+            deviceNoun: JournalImportQueueIntake.currentDeviceNoun(),
             appBuild: Self.refusalAppBuild,
             journalVersion: appConfig.journalVersion.version
         )
