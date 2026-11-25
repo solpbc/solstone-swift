@@ -46,6 +46,78 @@ nonisolated enum ImportRemoveDialogPresentation {
     }
 }
 
+nonisolated enum ImportCancelDialogPresentation {
+    static func title(for item: ShareImportActiveItem) -> String {
+        AppStrings.ios_app_importcanceltitle(item.filename)
+    }
+
+    static var body: String {
+        AppStrings.ios_app_importcancelbody()
+    }
+}
+
+nonisolated struct ImportRowProgressPresentation: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        case sending
+        case checking
+        case paused
+    }
+
+    let kind: Kind
+    let statusWord: String
+    let detailLine: String
+    let fraction: Double
+
+    static func build(for item: ShareImportActiveItem) -> ImportRowProgressPresentation? {
+        guard let progress = item.resumableProgress else { return nil }
+        let total = max(Int64(1), progress.bytesTotal)
+        let clampedSent = min(max(Int64(0), progress.bytesSent), total)
+        let sentText = ImportByteFormat.bytes(clampedSent)
+        let totalText = ImportByteFormat.bytes(total)
+        let percent = ImportByteFormat.percent(sent: clampedSent, total: total)
+        let fraction = Double(clampedSent) / Double(total)
+
+        switch item.phase {
+        case .sending:
+            switch progress.phase {
+            case .checking:
+                return ImportRowProgressPresentation(
+                    kind: .checking,
+                    statusWord: AppStrings.ios_app_importtilechecking(),
+                    detailLine: AppStrings.ios_app_importrowchecking(),
+                    fraction: 1.0
+                )
+            case .paused:
+                return ImportRowProgressPresentation(
+                    kind: .paused,
+                    statusWord: AppStrings.ios_app_importtilepaused(),
+                    detailLine: AppStrings.ios_app_importrowpaused(sentText, totalText),
+                    fraction: fraction
+                )
+            case .sending:
+                let detail = (progress.isResuming && clampedSent > 0)
+                    ? AppStrings.ios_app_importrowresuming(sentText, totalText)
+                    : AppStrings.ios_app_importrowprogress(sentText, totalText, "\(percent)")
+                return ImportRowProgressPresentation(
+                    kind: .sending,
+                    statusWord: AppStrings.ios_app_sending(),
+                    detailLine: detail,
+                    fraction: fraction
+                )
+            }
+        case .waiting:
+            return ImportRowProgressPresentation(
+                kind: .paused,
+                statusWord: AppStrings.ios_app_importtilepaused(),
+                detailLine: AppStrings.ios_app_importrowpaused(sentText, totalText),
+                fraction: fraction
+            )
+        case .readyToReview, .reviewExpired, .needsAttention:
+            return nil
+        }
+    }
+}
+
 nonisolated enum ImportRecentTimeFormatter {
     static func relative(from date: Date, now: Date) -> String {
         let elapsed = max(0, Int(now.timeIntervalSince(date)))
@@ -79,6 +151,7 @@ struct ImportView: View {
     @State private var isDropTargeted = false
     @State private var intake: Intake = .idle
     @State private var pendingRemoveItem: ShareImportActiveItem?
+    @State private var pendingCancelItem: ShareImportActiveItem?
     @State private var now = Date()
 
     private enum Intake: Equatable {
@@ -121,6 +194,13 @@ struct ImportView: View {
         Binding(
             get: { self.pendingRemoveItem != nil },
             set: { if !$0 { self.pendingRemoveItem = nil } }
+        )
+    }
+
+    private var isPresentingCancelConfirm: Binding<Bool> {
+        Binding(
+            get: { self.pendingCancelItem != nil },
+            set: { if !$0 { self.pendingCancelItem = nil } }
         )
     }
 
@@ -226,6 +306,26 @@ struct ImportView: View {
             }
         } message: { item in
             Text(ImportRemoveDialogPresentation.body(for: item))
+        }
+        .confirmationDialog(
+            self.pendingCancelItem.map(ImportCancelDialogPresentation.title(for:)) ?? "",
+            isPresented: self.isPresentingCancelConfirm,
+            titleVisibility: .visible,
+            presenting: self.pendingCancelItem
+        ) { item in
+            Button(AppStrings.ios_app_importcancelconfirm(), role: .destructive) {
+                self.pendingCancelItem = nil
+                Task {
+                    await self.shareTransferHolder.dropShare(itemID: item.id)
+                }
+            }
+            .accessibilityIdentifier("import.cancel.confirm")
+
+            Button(AppStrings.ios_app_importcancelkeep(), role: .cancel) {
+                self.pendingCancelItem = nil
+            }
+        } message: { _ in
+            Text(ImportCancelDialogPresentation.body)
         }
         .onAppear {
             self.now = Date()
@@ -400,6 +500,7 @@ struct ImportView: View {
 
     private func onDeviceRow(_ item: ShareImportActiveItem) -> some View {
         let itemID = item.id.uuidString.lowercased()
+        let resumablePresentation = ImportRowProgressPresentation.build(for: item)
         return VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.filename)
@@ -408,92 +509,131 @@ struct ImportView: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("import.onDevice.row.\(itemID)")
 
-                switch item.phase {
-                case .sending:
-                    HStack(spacing: 6) {
-                        HomeImportStateMarker(signal: .sending(detail: item.filename))
-                        Text(AppStrings.ios_app_sending())
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(Color.solOrangeAdaptive)
+                if let presentation = resumablePresentation {
+                    let markerSignal: HomeImportTileSignal = switch presentation.kind {
+                    case .sending: .sending(detail: item.filename)
+                    case .checking: .checking(detail: item.filename)
+                    case .paused: .paused(detail: item.filename)
                     }
-                    Text(AppStrings.ios_app_importsendingdetail())
+                    let tint: Color = presentation.kind == .paused ? .secondary : Color.solOrangeAdaptive
+                    HStack(spacing: 6) {
+                        HomeImportStateMarker(signal: markerSignal)
+                        Text(presentation.statusWord)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(tint)
+                    }
+                    ProgressView(value: presentation.fraction, total: 1.0)
+                        .tint(tint)
+                        .padding(.vertical, 2)
+                        .accessibilityHidden(true)
+                    Text(presentation.detailLine)
                         .font(.subheadline)
+                        .monospacedDigit()
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-
-                case .waiting:
-                    HStack(spacing: 6) {
-                        HomeImportStateMarker(signal: .waiting(detail: item.filename))
-                        Text(AppStrings.ios_app_importtilewaiting())
-                            .font(.subheadline.weight(.medium))
+                        .accessibilityIdentifier("import.onDevice.progress.\(itemID)")
+                } else {
+                    switch item.phase {
+                    case .sending:
+                        HStack(spacing: 6) {
+                            HomeImportStateMarker(signal: .sending(detail: item.filename))
+                            Text(AppStrings.ios_app_sending())
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(Color.solOrangeAdaptive)
+                        }
+                        Text(AppStrings.ios_app_importsendingdetail())
+                            .font(.subheadline)
                             .foregroundStyle(.secondary)
-                    }
-                    Text(AppStrings.ios_app_importwaitingdetail())
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                case .needsAttention(_, let reason):
-                    HStack(spacing: 6) {
-                        HomeImportStateMarker(signal: .needsAttention(detail: item.filename))
-                        Text(AppStrings.ios_transfer_needsattention())
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.red)
-                    }
-                    Text(reason)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    case .waiting:
+                        HStack(spacing: 6) {
+                            HomeImportStateMarker(signal: .waiting(detail: item.filename))
+                            Text(AppStrings.ios_app_importtilewaiting())
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(AppStrings.ios_app_importwaitingdetail())
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
 
-                case .readyToReview, .reviewExpired:
-                    EmptyView()
+                    case .needsAttention(_, let reason):
+                        HStack(spacing: 6) {
+                            HomeImportStateMarker(signal: .needsAttention(detail: item.filename))
+                            Text(AppStrings.ios_transfer_needsattention())
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.red)
+                        }
+                        Text(reason)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                    case .readyToReview, .reviewExpired:
+                        EmptyView()
+                    }
                 }
             }
 
-            switch item.phase {
-            case .sending:
-                // No buttons while actively uploading.
-                EmptyView()
-            case .waiting:
+            if resumablePresentation != nil {
                 self.actionButtonsLayout {
                     Button {
-                        self.pendingRemoveItem = item
+                        self.pendingCancelItem = item
                     } label: {
-                        Text(AppStrings.ios_app_importremoveaction())
+                        Text(AppStrings.ios_app_importcancelaction())
                             .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
                     }
                     .buttonStyle(BrandQuietButtonStyle())
-                    .accessibilityLabel(AppStrings.ios_app_importremoveactionlabel(item.filename))
-                    .accessibilityIdentifier("import.onDevice.remove.\(itemID)")
+                    .accessibilityLabel(AppStrings.ios_app_importcancelactionlabel(item.filename))
+                    .accessibilityIdentifier("import.onDevice.cancel.\(itemID)")
                 }
-            case .needsAttention(let retryable, _):
-                self.actionButtonsLayout {
-                    if retryable && !item.isUnadopted {
+            } else {
+                switch item.phase {
+                case .sending:
+                    // No buttons while actively uploading a small non-resumable file.
+                    EmptyView()
+                case .waiting:
+                    self.actionButtonsLayout {
                         Button {
-                            Task {
-                                _ = await self.shareTransferHolder.retryShare(itemID: item.id)
-                                await self.foregroundDrainGate.requestDrain()
-                            }
+                            self.pendingRemoveItem = item
                         } label: {
-                            Text(AppStrings.ios_app_trynow())
+                            Text(AppStrings.ios_app_importremoveaction())
                                 .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
                         }
-                        .buttonStyle(BrandProminentButtonStyle())
-                        .accessibilityLabel(AppStrings.ios_app_importtrynowactionlabel(item.filename))
-                        .accessibilityIdentifier("import.onDevice.tryNow.\(itemID)")
+                        .buttonStyle(BrandQuietButtonStyle())
+                        .accessibilityLabel(AppStrings.ios_app_importremoveactionlabel(item.filename))
+                        .accessibilityIdentifier("import.onDevice.remove.\(itemID)")
                     }
-                    Button {
-                        self.pendingRemoveItem = item
-                    } label: {
-                        Text(AppStrings.ios_app_importremoveaction())
-                            .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
+                case .needsAttention(let retryable, _):
+                    self.actionButtonsLayout {
+                        if retryable && !item.isUnadopted {
+                            Button {
+                                Task {
+                                    _ = await self.shareTransferHolder.retryShare(itemID: item.id)
+                                    await self.foregroundDrainGate.requestDrain()
+                                }
+                            } label: {
+                                Text(AppStrings.ios_app_trynow())
+                                    .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
+                            }
+                            .buttonStyle(BrandProminentButtonStyle())
+                            .accessibilityLabel(AppStrings.ios_app_importtrynowactionlabel(item.filename))
+                            .accessibilityIdentifier("import.onDevice.tryNow.\(itemID)")
+                        }
+                        Button {
+                            self.pendingRemoveItem = item
+                        } label: {
+                            Text(AppStrings.ios_app_importremoveaction())
+                                .frame(maxWidth: self.dynamicTypeSize.isAccessibilitySize ? .infinity : nil, minHeight: 44)
+                        }
+                        .buttonStyle(BrandQuietButtonStyle())
+                        .accessibilityLabel(AppStrings.ios_app_importremoveactionlabel(item.filename))
+                        .accessibilityIdentifier("import.onDevice.remove.\(itemID)")
                     }
-                    .buttonStyle(BrandQuietButtonStyle())
-                    .accessibilityLabel(AppStrings.ios_app_importremoveactionlabel(item.filename))
-                    .accessibilityIdentifier("import.onDevice.remove.\(itemID)")
+                case .readyToReview, .reviewExpired:
+                    EmptyView()
                 }
-            case .readyToReview, .reviewExpired:
-                EmptyView()
             }
         }
     }

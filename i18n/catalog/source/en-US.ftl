@@ -3282,3 +3282,66 @@ ios.app.importstatusleadreadysubline = open import to review and start.
 ios.app.importstatusleadattention = imports need you
 
 ios.app.importstatusleadattentionsubline = open import to see why.
+
+ios.app.importtilechecking = checking file
+
+ios.app.importtilepaused = paused
+
+ios.app.importtileprogress = { $sent } of { $total }
+
+ios.app.importtileprogressmore = { $count ->
+    [one] { $sent } of { $total } · { $count } more waiting
+   *[other] { $sent } of { $total } · { $count } more waiting
+}
+
+ios.app.importrowprogress = { $sent } of { $total } ({ $percent }%)
+
+ios.app.importrowchecking = checking the complete file
+
+ios.app.importrowpaused = paused at { $sent } of { $total }. will pick up from here when your journal reconnects.
+
+ios.app.importrowresuming = resuming from { $sent } of { $total }
+
+ios.app.importfaultspace = not enough space where your journal lives for this { $total } file. free up space there or wait for other imports to finish, then try again.
+
+ios.app.importfaultintegrity = the file didn't arrive intact. try sending it again.
+
+ios.app.importfaultexpired = this unfinished import expired after waiting too long. try again to start over.
+
+ios.app.importfaultunreadable = this file could no longer be read on this device. remove it and choose the file again.
+
+ios.app.importcancelaction = cancel
+
+ios.app.importcancelactionlabel = cancel { $name }
+
+ios.app.importcanceltitle = cancel { $name }?
+
+ios.app.importcancelbody = this stops sending, removes the copy on this device, and clears the unfinished import from your journal if it's reachable.
+
+ios.app.importcancelconfirm = cancel import
+
+ios.app.importcancelkeep = keep sending
+
+ios.app.importbgsystemtitle = sending to your journal
+
+ios.app.importbgsystemsubtitle = { $filename } · { $sent } of { $total }
+
+ios.app.importbgsystemchecking = { $filename } · checking file
+
+ios.app.importbgsystemdonetitle = finished sending
+
+ios.app.importbgsystempausedtitle = import paused
+
+ios.app.importbgsystempausedsubtitle = { $filename } · paused at { $sent } of { $total }
+
+ios.app.importbgcardheadline = sending a large file
+
+ios.app.importbgcardbody = keep this transfer running after you switch away, for as long as the system allows.
+
+ios.app.importbgbutton = keep sending in the background
+
+ios.app.importbginprogress = sending in the background. you can switch away while the system keeps this transfer running.
+
+ios.app.importbgcompleted = finished sending.
+
+ios.app.importbgpaused = paused before the transfer finished. the file stays on this device, and sending picks up where it left off whenever the solstone app is open.

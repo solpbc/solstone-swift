@@ -540,11 +540,44 @@ nonisolated extension TransferAttentionInfo {
     /// carry the journal's JSON envelope, so its `error` sentence is shown instead of the JSON.
     /// Stored JSON is never shown: a body cut short, or one with no `error`, reads as the generic
     /// line, because its other fields can carry the journal's view of this device.
+    /// Owner-facing failure line with optional file size context for resumable upload faults.
+    func ownerFailureReason(totalBytes: Int64?) -> String {
+        if self.reason == TransferAttentionReason.resumableFaultCode {
+            switch self.journalReasonCode {
+            case TransferReasonCodes.insufficientJournalSpace:
+                if let totalBytes, totalBytes > 0 {
+                    return AppStrings.ios_app_importfaultspace(ImportByteFormat.bytes(totalBytes))
+                }
+            case TransferReasonCodes.wholeFileChecksumMismatch,
+                 TransferReasonCodes.chunkChecksumMismatch:
+                return AppStrings.ios_app_importfaultintegrity()
+            case TransferReasonCodes.uploadNotFound:
+                return AppStrings.ios_app_importfaultexpired()
+            case TransferReasonCodes.localFileUnreadable:
+                return AppStrings.ios_app_importfaultunreadable()
+            default:
+                break
+            }
+        }
+        return self.ownerFailureReason
+    }
+
     var ownerFailureReason: String {
         if self.reason == TransferAttentionReason.importReviewRequiredCode || self.isImportReview {
             return self.shortDetail
         }
         if self.reason == TransferAttentionReason.resumableFaultCode {
+            switch self.journalReasonCode {
+            case TransferReasonCodes.wholeFileChecksumMismatch,
+                 TransferReasonCodes.chunkChecksumMismatch:
+                return AppStrings.ios_app_importfaultintegrity()
+            case TransferReasonCodes.uploadNotFound:
+                return AppStrings.ios_app_importfaultexpired()
+            case TransferReasonCodes.localFileUnreadable:
+                return AppStrings.ios_app_importfaultunreadable()
+            default:
+                break
+            }
             let detail = self.shortDetail.trimmingCharacters(in: Self.storedBodyPadding)
             guard !detail.isEmpty, !detail.hasPrefix("reason_code=") else {
                 return SourceVocabulary.onThisPhoneFailureReasonServer

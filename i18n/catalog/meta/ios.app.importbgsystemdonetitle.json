@@ -1,0 +1,16 @@
+{
+  "description": "System continued-processing progress title when the large import finishes sending.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 40,
+  "source_revision": "3b84384b36dab80615d4e8889c4f8cce5ba6ea4de42737f92721b425862e1e46",
+  "risk": "routine",
+  "auto_merge": true
+}

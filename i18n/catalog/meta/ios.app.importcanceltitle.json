@@ -1,0 +1,21 @@
+{
+  "description": "Confirmation dialog title when cancelling a resumable import.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "name",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 80,
+  "source_revision": "bf333c5242a20f80bb51558577c1716bcac5715dd3835fb361d909a58743db0d",
+  "risk": "routine",
+  "auto_merge": true
+}

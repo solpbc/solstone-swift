@@ -1,0 +1,16 @@
+{
+  "description": "Button label on the Import pane background continuation card.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 56,
+  "source_revision": "d04431e32586714383812366531f178f1559fe070c42c8f600b84f16c2d69db5",
+  "risk": "routine",
+  "auto_merge": true
+}

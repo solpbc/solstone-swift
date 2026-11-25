@@ -1,0 +1,16 @@
+{
+  "description": "System continued-processing progress title when the background import pauses before finishing.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 40,
+  "source_revision": "86ff1397d8e56a5ded752ac4f341cb6103c11e8792dc5491fb30034ea468294f",
+  "risk": "routine",
+  "auto_merge": true
+}

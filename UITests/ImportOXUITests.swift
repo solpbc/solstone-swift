@@ -170,4 +170,51 @@ final class ImportOXUITests: XCTestCase {
 
         app.terminate()
     }
+
+    /// Verifies a paused resumable large-file import renders live confirmed bytes on the Home
+    /// `import` tile and Import pane, and supports cancel via confirmation dialog.
+    @MainActor
+    func testResumableImportProgressAndCancelFlow() {
+        let app = XCUIApplication()
+        app.launchArguments += [
+            "--ui-test",
+            "--ui-test-journal-mark",
+            "--ui-test-seed-resumable-import",
+        ]
+        app.launchEnvironment["UIPreferredContentSizeCategoryName"] = "UICTContentSizeCategoryL"
+        app.launch()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["dayHome.surface"].waitForExistence(timeout: 15))
+        let device = self.platformTag(app)
+        self.revealImportTile(in: app)
+
+        let tile = app.buttons["dayHome.importEntry"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 10))
+        XCTAssertTrue(tile.label.contains("paused"), "Expected paused tile label, got: \(tile.label)")
+        self.attach(app, "resumable-import-home-paused-\(device)")
+
+        self.tapDayHomeImportEntry(in: app)
+        let importPane = app.descendants(matching: .any)["shell.pane.import"]
+        XCTAssertTrue(importPane.waitForExistence(timeout: 10))
+
+        let itemID = "00000000-0000-0000-0000-000000091001"
+        let progressText = app.staticTexts["import.onDevice.progress.\(itemID)"]
+        self.scrollUntilVisible(progressText, in: importPane, swipeUp: true)
+        XCTAssertTrue(progressText.waitForExistence(timeout: 10))
+        XCTAssertTrue(progressText.label.contains("paused at"), "Expected paused detail, got: \(progressText.label)")
+        XCTAssertTrue(progressText.label.contains("1.2 GB"), "Expected 1.2 GB confirmed offset, got: \(progressText.label)")
+
+        let cancelBtn = app.buttons["import.onDevice.cancel.\(itemID)"]
+        self.scrollUntilVisible(cancelBtn, in: importPane, swipeUp: true)
+        XCTAssertTrue(cancelBtn.waitForExistence(timeout: 5))
+        self.attach(app, "resumable-import-pane-paused-\(device)")
+
+        cancelBtn.tap()
+        let confirmCancelBtn = app.buttons["import.cancel.confirm"].firstMatch
+        XCTAssertTrue(confirmCancelBtn.waitForExistence(timeout: 5))
+        confirmCancelBtn.tap()
+        XCTAssertTrue(cancelBtn.waitForNonExistence(timeout: 5))
+
+        app.terminate()
+    }
 }

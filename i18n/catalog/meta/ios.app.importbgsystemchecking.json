@@ -1,0 +1,21 @@
+{
+  "description": "System continued-processing progress subtitle while the journal checks the complete file.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "filename",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 100,
+  "source_revision": "500897d4e64b8861a5dec63a6a50d1246903f0fe35d73360a7e1ee3672fb059b",
+  "risk": "routine",
+  "auto_merge": true
+}

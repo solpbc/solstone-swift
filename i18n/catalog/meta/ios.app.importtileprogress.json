@@ -1,0 +1,25 @@
+{
+  "description": "Import home tile sub-line showing confirmed bytes sent out of total bytes.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "sent",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "4109c26cdeaa8541837e789ee748c920de77c1a6e75a8f58989d843f459b88ef",
+  "risk": "routine",
+  "auto_merge": true
+}

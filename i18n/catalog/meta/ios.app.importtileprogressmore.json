@@ -1,0 +1,35 @@
+{
+  "description": "Import home tile sub-line showing confirmed bytes sent plus count of additional waiting imports.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "count",
+      "type": "cardinal",
+      "numeric_style": "ungrouped",
+      "min": 1
+    },
+    {
+      "name": "sent",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "cardinal",
+  "max_length": 72,
+  "source_revision": "b034ae8718e4bfaff4e8851addfc4a12d489c14e191dfb66076901ad6aa7b013",
+  "risk": "routine",
+  "auto_merge": true,
+  "selector": {
+    "name": "count",
+    "type": "cardinal"
+  }
+}

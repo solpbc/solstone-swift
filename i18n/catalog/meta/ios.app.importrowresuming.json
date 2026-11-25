@@ -1,0 +1,25 @@
+{
+  "description": "Import pane row detail right as a resumable import resumes from a confirmed offset.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "sent",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 64,
+  "source_revision": "610c9d51dc5d4efeab193e49d80741bcef20363b250ec63b1aa2fdf79c7009a2",
+  "risk": "routine",
+  "auto_merge": true
+}

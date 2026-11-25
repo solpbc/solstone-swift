@@ -1,0 +1,29 @@
+{
+  "description": "System continued-processing progress subtitle showing filename and confirmed bytes sent.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "filename",
+      "type": "string"
+    },
+    {
+      "name": "sent",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 120,
+  "source_revision": "0477e74b118cdbf52bf7e5126575d12a0d7cfe7b301af0d3b8c04f87c1001540",
+  "risk": "routine",
+  "auto_merge": true
+}

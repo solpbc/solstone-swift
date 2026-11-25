@@ -296,7 +296,9 @@ struct HomeAddMoreTile: View {
 nonisolated enum HomeImportTileSignal: Equatable, Sendable {
     case idle
     case waiting(detail: String)
+    case paused(detail: String)
     case sending(detail: String)
+    case checking(detail: String)
     case readyToReview(detail: String)
     case needsAttention(detail: String)
 
@@ -304,7 +306,9 @@ nonisolated enum HomeImportTileSignal: Equatable, Sendable {
         switch self {
         case .idle: nil
         case .waiting: AppStrings.ios_app_importtilewaiting()
+        case .paused: AppStrings.ios_app_importtilepaused()
         case .sending: AppStrings.ios_app_sending()
+        case .checking: AppStrings.ios_app_importtilechecking()
         case .readyToReview: AppStrings.ios_app_importtilereadytoreview()
         case .needsAttention: AppStrings.ios_transfer_needsattention()
         }
@@ -313,7 +317,7 @@ nonisolated enum HomeImportTileSignal: Equatable, Sendable {
     var detailText: String {
         switch self {
         case .idle: SourceVocabulary.importSubline
-        case .waiting(let detail), .sending(let detail), .readyToReview(let detail), .needsAttention(let detail):
+        case .waiting(let detail), .paused(let detail), .sending(let detail), .checking(let detail), .readyToReview(let detail), .needsAttention(let detail):
             detail
         }
     }
@@ -333,14 +337,28 @@ nonisolated enum HomeImportTileSignal: Equatable, Sendable {
         switch self {
         case .idle: "idle"
         case .waiting: "waiting"
+        case .paused: "paused"
         case .sending: "sending"
+        case .checking: "checking"
         case .readyToReview: "readyToReview"
         case .needsAttention: "needsAttention"
         }
     }
 
+    private static func resumableProgressDetail(
+        progress: TransferResumableProgress,
+        otherQueuedCount: Int
+    ) -> String {
+        let sent = ImportByteFormat.bytes(progress.bytesSent)
+        let total = ImportByteFormat.bytes(progress.bytesTotal)
+        if otherQueuedCount > 0 {
+            return AppStrings.ios_app_importtileprogressmore(otherQueuedCount, sent, total)
+        }
+        return AppStrings.ios_app_importtileprogress(sent, total)
+    }
+
     /// Worst-signal-wins resolution for the Home `import` tile:
-    /// `needs attention` > `ready to review` > `sending` > `waiting` > `idle`.
+    /// `needs attention` > `ready to review` > `checking` / `sending` > `paused` > `waiting` > `idle`.
     static func resolve(
         failedCount: Int,
         readyToReviewCount: Int,
@@ -348,7 +366,8 @@ nonisolated enum HomeImportTileSignal: Equatable, Sendable {
         inFlightCount: Int,
         pendingCount: Int,
         activeItems: [ShareImportActiveItem],
-        isOfflineOrUnpaired: Bool
+        isOfflineOrUnpaired: Bool,
+        isPairingRefused: Bool = false
     ) -> HomeImportTileSignal {
         if failedCount > 0 {
             let matching = activeItems.filter {
@@ -360,6 +379,14 @@ nonisolated enum HomeImportTileSignal: Equatable, Sendable {
                 : AppStrings.ios_app_importtileitemscount(failedCount)
             return .needsAttention(detail: detail)
         }
+        let queuedOrActiveTotal = max(pendingCount, inFlightCount)
+        if isPairingRefused, queuedOrActiveTotal > 0 {
+            let matching = activeItems.filter(\.isDeviceListItem)
+            let detail = queuedOrActiveTotal == 1
+                ? (matching.first?.filename ?? AppStrings.ios_app_importtileitemscount(1))
+                : AppStrings.ios_app_importtileitemscount(queuedOrActiveTotal)
+            return .needsAttention(detail: detail)
+        }
         let reviewTotal = readyToReviewCount + reviewExpiredCount
         if reviewTotal > 0 {
             let matching = activeItems.filter(\.isReviewCardItem)
@@ -368,16 +395,56 @@ nonisolated enum HomeImportTileSignal: Equatable, Sendable {
                 : AppStrings.ios_app_importtilereadycount(reviewTotal)
             return .readyToReview(detail: detail)
         }
-        if inFlightCount > 0 {
+
+        let otherQueuedCount = max(0, queuedOrActiveTotal - 1)
+        if let checkingItem = activeItems.first(where: {
+            if case .sending = $0.phase, $0.resumableProgress?.phase == .checking { return true }
+            return false
+        }), let progress = checkingItem.resumableProgress {
+            return .checking(detail: Self.resumableProgressDetail(progress: progress, otherQueuedCount: otherQueuedCount))
+        }
+        if let sendingResumable = activeItems.first(where: {
+            if case .sending = $0.phase, $0.resumableProgress?.phase == .sending { return true }
+            return false
+        }), let progress = sendingResumable.resumableProgress {
+            return .sending(detail: Self.resumableProgressDetail(progress: progress, otherQueuedCount: otherQueuedCount))
+        }
+
+        let pausedInFlightCount = activeItems.filter {
+            if case .sending = $0.phase, $0.resumableProgress?.phase == .paused { return true }
+            return false
+        }.count
+        let activeNonPausedInFlight = max(0, inFlightCount - pausedInFlightCount)
+        if activeNonPausedInFlight > 0 {
             let matching = activeItems.filter {
-                if case .sending = $0.phase { return true }
+                if case .sending = $0.phase { return $0.resumableProgress?.phase != .paused }
                 return false
             }
-            let detail = inFlightCount == 1
+            let detail = activeNonPausedInFlight == 1
                 ? (matching.first?.filename ?? AppStrings.ios_app_importtilefilescount(1))
-                : AppStrings.ios_app_importtilefilescount(inFlightCount)
+                : AppStrings.ios_app_importtilefilescount(activeNonPausedInFlight)
             return .sending(detail: detail)
         }
+
+        let pausedResumable = activeItems.filter { item in
+            switch item.phase {
+            case .sending:
+                return item.resumableProgress?.phase == .paused
+            case .waiting:
+                return item.resumableProgress != nil
+            case .readyToReview, .reviewExpired, .needsAttention:
+                return false
+            }
+        }.max { lhs, rhs in
+            let lBytes = lhs.resumableProgress?.bytesSent ?? 0
+            let rBytes = rhs.resumableProgress?.bytesSent ?? 0
+            if lBytes != rBytes { return lBytes < rBytes }
+            return lhs.createdAt < rhs.createdAt
+        }
+        if let pausedResumable, let progress = pausedResumable.resumableProgress {
+            return .paused(detail: Self.resumableProgressDetail(progress: progress, otherQueuedCount: otherQueuedCount))
+        }
+
         if pendingCount > 0 {
             let detail = isOfflineOrUnpaired
                 ? AppStrings.ios_app_importtilewaitingforjournal()
@@ -406,8 +473,15 @@ struct HomeImportStateMarker: View {
             EmptyView()
         case .waiting:
             Circle().strokeBorder(.secondary, lineWidth: 1.5)
+        case .paused:
+            HStack(spacing: max(1.5, self.size * 0.2)) {
+                Capsule().fill(.secondary).frame(width: max(2, self.size * 0.26), height: self.size * 0.85)
+                Capsule().fill(.secondary).frame(width: max(2, self.size * 0.26), height: self.size * 0.85)
+            }
         case .sending:
             Circle().fill(Color.solOrange)
+        case .checking:
+            Circle().strokeBorder(Color.solOrange, lineWidth: 1.75)
         case .readyToReview:
             ZStack {
                 Circle().strokeBorder(Color.solOrange, lineWidth: 1.5)
@@ -445,8 +519,9 @@ struct HomeImportTile: View {
             reviewExpiredCount: holder.reviewExpiredCount,
             inFlightCount: holder.inFlightCount,
             pendingCount: holder.pendingCount,
-            activeItems: holder.activeItems,
-            isOfflineOrUnpaired: isOfflineOrUnpaired
+            activeItems: holder.liveActiveItems,
+            isOfflineOrUnpaired: isOfflineOrUnpaired,
+            isPairingRefused: holder.isPairingRefused
         )
     }
 
@@ -522,16 +597,16 @@ struct HomeImportTile: View {
     private func glyphTint(for signal: HomeImportTileSignal) -> Color {
         switch signal {
         case .needsAttention: .red
-        case .readyToReview, .sending: Color.solOrangeAdaptive
-        case .waiting, .idle: .secondary
+        case .readyToReview, .sending, .checking: Color.solOrangeAdaptive
+        case .waiting, .paused, .idle: .secondary
         }
     }
 
     private func wordColor(for signal: HomeImportTileSignal) -> Color {
         switch signal {
         case .needsAttention: .red
-        case .readyToReview, .sending: Color.solOrangeAdaptive
-        case .waiting, .idle: .secondary
+        case .readyToReview, .sending, .checking: Color.solOrangeAdaptive
+        case .waiting, .paused, .idle: .secondary
         }
     }
 
@@ -539,14 +614,14 @@ struct HomeImportTile: View {
         switch signal {
         case .readyToReview: Color.solOrange.opacity(0.6)
         case .needsAttention: Color.red.opacity(0.45)
-        case .idle, .waiting, .sending: Color.deckHairline
+        case .idle, .waiting, .paused, .sending, .checking: Color.deckHairline
         }
     }
 
     private func borderWidth(for signal: HomeImportTileSignal) -> CGFloat {
         switch signal {
         case .readyToReview, .needsAttention: 1
-        case .idle, .waiting, .sending: 0.5
+        case .idle, .waiting, .paused, .sending, .checking: 0.5
         }
     }
 }

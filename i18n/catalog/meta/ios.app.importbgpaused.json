@@ -1,0 +1,16 @@
+{
+  "description": "Outcome line on the Import pane background continuation card when paused before finishing.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 200,
+  "source_revision": "5e3147c46822888f19c6b5dbabede15b585c9e87b57c0c3dc2f377173e3719dc",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1422,8 +1422,348 @@
       "selector": null
     },
     {
+      "id": "ios.app.importbgbutton",
+      "resource": "m696f732e6170702e696d706f72746267627574746f6e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgcardbody",
+      "resource": "m696f732e6170702e696d706f7274626763617264626f6479",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgcardheadline",
+      "resource": "m696f732e6170702e696d706f7274626763617264686561646c696e65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgcompleted",
+      "resource": "m696f732e6170702e696d706f72746267636f6d706c65746564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbginprogress",
+      "resource": "m696f732e6170702e696d706f72746267696e70726f6772657373",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgpaused",
+      "resource": "m696f732e6170702e696d706f72746267706175736564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgsystemchecking",
+      "resource": "m696f732e6170702e696d706f7274626773797374656d636865636b696e67",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "filename",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgsystemdonetitle",
+      "resource": "m696f732e6170702e696d706f7274626773797374656d646f6e657469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgsystempausedsubtitle",
+      "resource": "m696f732e6170702e696d706f7274626773797374656d7061757365647375627469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "filename",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "sent",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgsystempausedtitle",
+      "resource": "m696f732e6170702e696d706f7274626773797374656d7061757365647469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgsystemsubtitle",
+      "resource": "m696f732e6170702e696d706f7274626773797374656d7375627469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "filename",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "sent",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importbgsystemtitle",
+      "resource": "m696f732e6170702e696d706f7274626773797374656d7469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importcancelaction",
+      "resource": "m696f732e6170702e696d706f727463616e63656c616374696f6e",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importcancelactionlabel",
+      "resource": "m696f732e6170702e696d706f727463616e63656c616374696f6e6c6162656c",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importcancelbody",
+      "resource": "m696f732e6170702e696d706f727463616e63656c626f6479",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importcancelconfirm",
+      "resource": "m696f732e6170702e696d706f727463616e63656c636f6e6669726d",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importcancelkeep",
+      "resource": "m696f732e6170702e696d706f727463616e63656c6b656570",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importcanceltitle",
+      "resource": "m696f732e6170702e696d706f727463616e63656c7469746c65",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "name",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.app.importexpired",
       "resource": "m696f732e6170702e696d706f727465787069726564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importfaultexpired",
+      "resource": "m696f732e6170702e696d706f72746661756c7465787069726564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importfaultintegrity",
+      "resource": "m696f732e6170702e696d706f72746661756c74696e74656772697479",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importfaultspace",
+      "resource": "m696f732e6170702e696d706f72746661756c747370616365",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importfaultunreadable",
+      "resource": "m696f732e6170702e696d706f72746661756c74756e7265616461626c65",
       "namespace": "ios.app",
       "owner": "ios",
       "tombstone": false,
@@ -1796,6 +2136,106 @@
       "selector": null
     },
     {
+      "id": "ios.app.importrowchecking",
+      "resource": "m696f732e6170702e696d706f7274726f77636865636b696e67",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importrowpaused",
+      "resource": "m696f732e6170702e696d706f7274726f77706175736564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "sent",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importrowprogress",
+      "resource": "m696f732e6170702e696d706f7274726f7770726f6772657373",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "sent",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "percent",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importrowresuming",
+      "resource": "m696f732e6170702e696d706f7274726f77726573756d696e67",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "sent",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.app.importsendagainaction",
       "resource": "m696f732e6170702e696d706f727473656e64616761696e616374696f6e",
       "namespace": "ios.app",
@@ -1938,6 +2378,18 @@
       "selector": null
     },
     {
+      "id": "ios.app.importtilechecking",
+      "resource": "m696f732e6170702e696d706f727474696c65636865636b696e67",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
       "id": "ios.app.importtilefilescount",
       "resource": "m696f732e6170702e696d706f727474696c6566696c6573636f756e74",
       "namespace": "ios.app",
@@ -1976,6 +2428,84 @@
           "type": "cardinal",
           "numeric_style": "ungrouped",
           "min": 0.0,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": {
+        "name": "count",
+        "type": "cardinal",
+        "enum_values": [],
+        "enum_default": null
+      }
+    },
+    {
+      "id": "ios.app.importtilepaused",
+      "resource": "m696f732e6170702e696d706f727474696c65706175736564",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importtileprogress",
+      "resource": "m696f732e6170702e696d706f727474696c6570726f6772657373",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "text",
+      "arguments": [
+        {
+          "name": "sent",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        }
+      ],
+      "protected_slots": [],
+      "selector": null
+    },
+    {
+      "id": "ios.app.importtileprogressmore",
+      "resource": "m696f732e6170702e696d706f727474696c6570726f67726573736d6f7265",
+      "namespace": "ios.app",
+      "owner": "ios",
+      "tombstone": false,
+      "replacement": null,
+      "format_intent": "cardinal",
+      "arguments": [
+        {
+          "name": "count",
+          "type": "cardinal",
+          "numeric_style": "ungrouped",
+          "min": 1.0,
+          "max": null
+        },
+        {
+          "name": "sent",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
+          "max": null
+        },
+        {
+          "name": "total",
+          "type": "string",
+          "numeric_style": null,
+          "min": null,
           "max": null
         }
       ],

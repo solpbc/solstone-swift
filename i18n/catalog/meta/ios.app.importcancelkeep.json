@@ -1,0 +1,16 @@
+{
+  "description": "Cancel button label on the cancel-import confirmation dialog to keep uploading.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "ca0603758f2dcaf3dffa4181b56a2be4080009670ebba86d0d60ee7035268102",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "Destructive confirmation button label to cancel a resumable import.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "843b1e9f47e8dc1a4b7502828a9a1b0e79f7bc332bbc2df47a3d7f620af12a98",
+  "risk": "routine",
+  "auto_merge": true
+}

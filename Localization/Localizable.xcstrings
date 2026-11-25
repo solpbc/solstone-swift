@@ -869,12 +869,232 @@
         }
       }
     },
+    "m696f732e6170702e696d706f72746267627574746f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keep sending in the background"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274626763617264626f6479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keep this transfer running after you switch away, for as long as the system allows."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274626763617264686561646c696e65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sending a large file"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72746267636f6d706c65746564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finished sending."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72746267696e70726f6772657373": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sending in the background. you can switch away while the system keeps this transfer running."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72746267706175736564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paused before the transfer finished. the file stays on this device, and sending picks up where it left off whenever the solstone app is open."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274626773797374656d636865636b696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · checking file"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274626773797374656d646f6e657469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "finished sending"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274626773797374656d7061757365647375627469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · paused at %2$@ of %3$@"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274626773797374656d7061757365647469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "import paused"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274626773797374656d7375627469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ of %3$@"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274626773797374656d7469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sending to your journal"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727463616e63656c616374696f6e": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cancel"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727463616e63656c616374696f6e6c6162656c": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cancel %1$@"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727463616e63656c626f6479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this stops sending, removes the copy on this device, and clears the unfinished import from your journal if it's reachable."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727463616e63656c636f6e6669726d": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cancel import"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727463616e63656c6b656570": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "keep sending"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727463616e63656c7469746c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cancel %1$@?"
+          }
+        }
+      }
+    },
     "m696f732e6170702e696d706f727465787069726564": {
       "localizations": {
         "en-US": {
           "stringUnit": {
             "state": "translated",
             "value": "expired"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72746661756c7465787069726564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this unfinished import expired after waiting too long. try again to start over."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72746661756c74696e74656772697479": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "the file didn't arrive intact. try sending it again."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72746661756c747370616365": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "not enough space where your journal lives for this %1$@ file. free up space there or wait for other imports to finish, then try again."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f72746661756c74756e7265616461626c65": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this file could no longer be read on this device. remove it and choose the file again."
           }
         }
       }
@@ -1129,6 +1349,46 @@
         }
       }
     },
+    "m696f732e6170702e696d706f7274726f77636865636b696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checking the complete file"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274726f77706175736564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paused at %1$@ of %2$@. will pick up from here when your journal reconnects."
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274726f7770726f6772657373": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@ (%3$@%%)"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f7274726f77726573756d696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "resuming from %1$@ of %2$@"
+          }
+        }
+      }
+    },
     "m696f732e6170702e696d706f727473656e64616761696e616374696f6e": {
       "localizations": {
         "en-US": {
@@ -1263,6 +1523,16 @@
         }
       }
     },
+    "m696f732e6170702e696d706f727474696c65636865636b696e67": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "checking file"
+          }
+        }
+      }
+    },
     "m696f732e6170702e696d706f727474696c6566696c6573636f756e74": {
       "localizations": {
         "en-US": {
@@ -1318,6 +1588,58 @@
                     "stringUnit": {
                       "state": "translated",
                       "value": "%2$@ items"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c65706175736564": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "paused"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c6570726f6772657373": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@"
+          }
+        }
+      }
+    },
+    "m696f732e6170702e696d706f727474696c6570726f67726573736d6f7265": {
+      "localizations": {
+        "en-US": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%#@quantity@"
+          },
+          "substitutions": {
+            "quantity": {
+              "argNum": 1,
+              "formatSpecifier": "lld",
+              "variations": {
+                "plural": {
+                  "one": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ of %3$@ · %4$@ more waiting"
+                    }
+                  },
+                  "other": {
+                    "stringUnit": {
+                      "state": "translated",
+                      "value": "%2$@ of %3$@ · %4$@ more waiting"
                     }
                   }
                 }

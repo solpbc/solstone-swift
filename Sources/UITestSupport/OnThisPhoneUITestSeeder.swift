@@ -14,6 +14,7 @@ enum OnThisPhoneUITestSeeder {
     private static let waitingImportSeedFlag = "--ui-test-seed-waiting-import"
     private static let importOXSeedFlag = "--ui-test-seed-import-ox"
     private static let importOXReviewOnlySeedFlag = "--ui-test-seed-import-ox-review-only"
+    private static let resumableImportSeedFlag = "--ui-test-seed-resumable-import"
     private static let agedBacklogSeedFlag = "--ui-test-seed-aged-backlog"
     private static let audioMagicSeedFlag = "--ui-test-seed-audio-magic"
     private static let audioMagicDurationPrefix = "--ui-test-seed-audio-magic-duration="
@@ -50,6 +51,7 @@ enum OnThisPhoneUITestSeeder {
         let seedWaitingImport = arguments.contains(Self.waitingImportSeedFlag)
         let seedImportOX = arguments.contains(Self.importOXSeedFlag)
         let seedImportOXReviewOnly = arguments.contains(Self.importOXReviewOnlySeedFlag)
+        let seedResumableImport = arguments.contains(Self.resumableImportSeedFlag)
         let seedAgedBacklog = arguments.contains(Self.agedBacklogSeedFlag)
         let seedAudioMagic = arguments.contains(Self.audioMagicSeedFlag)
         let seedLargeBacklog = arguments.contains(Self.largeBacklogSeedFlag)
@@ -59,13 +61,13 @@ enum OnThisPhoneUITestSeeder {
         let resetOnThisPhone = arguments.contains(Self.resetOnThisPhoneFlag)
         let seedJournalLoss = arguments.contains(Self.journalLossSeedFlag)
         guard resetOnThisPhone || seedDefault || seedWaitingImport || seedImportOX || seedImportOXReviewOnly
-            || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
+            || seedResumableImport || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
             || seedMixedBacklog || seedJournalLoss else { return }
 
         do {
             let roots = try Self.roots(fileManager: fileManager)
             try Self.reset(roots: roots, fileManager: fileManager)
-            guard seedDefault || seedWaitingImport || seedImportOX || seedImportOXReviewOnly
+            guard seedDefault || seedWaitingImport || seedImportOX || seedImportOXReviewOnly || seedResumableImport
                 || seedAgedBacklog || seedAudioMagic || seedLargeBacklog || seedScreenBacklog
                 || seedMixedBacklog else {
                 onThisPhoneUITestSeedLog.info("on-this-phone ui-test reset complete")
@@ -77,6 +79,8 @@ enum OnThisPhoneUITestSeeder {
                     reviewOnly: seedImportOXReviewOnly,
                     fileManager: fileManager
                 )
+            } else if seedResumableImport {
+                try Self.seedResumableImport(roots: roots, fileManager: fileManager)
             } else if seedWaitingImport {
                 let store = ShareImportStore(cacheRootURL: roots.importQueue, fileManager: fileManager)
                 let handle = try store.beginEnqueue()
@@ -921,6 +925,63 @@ extension OnThisPhoneUITestSeeder {
             instanceID: instanceID,
             deliveredAt: now.addingTimeInterval(-18_000)
         )
+    }
+
+    static func seedResumableImport(
+        roots: Roots,
+        fileManager: FileManager
+    ) throws {
+        let now = Date()
+        let spool = TransferSpool(rootURL: roots.transfer)
+        _ = try spool.initialize(now: now)
+        let itemID = UUID(uuidString: "00000000-0000-0000-0000-000000091001")!
+        let createdAt = now.addingTimeInterval(-120)
+        let fields = ShareImportTransferMetadata.Fields(
+            basis: "file",
+            contentType: "application/zip",
+            targetJournal: "",
+            filename: "google-takeout-2026.zip",
+            originApp: nil,
+            itemTime: ShareImportStore.iso8601String(for: createdAt),
+            bytes: 4_000_000_000,
+            requestSource: "file"
+        )
+        let manifest = TransferManifest(
+            itemID: itemID,
+            source: ObserverAudioTransferSource.share,
+            createdAt: createdAt,
+            priority: TransferPriorityInputs(basePriority: .normal, sourceKey: ObserverAudioTransferSource.share),
+            payloadParts: [
+                TransferPayloadPartDescriptor(
+                    partID: "file",
+                    kind: .file,
+                    relativePath: "raw.bin",
+                    filename: "google-takeout-2026.zip",
+                    contentType: "application/zip",
+                    byteCount: 64
+                ),
+            ],
+            endpoint: TransferEndpointDescriptor(
+                destinationKind: .saveThenStart,
+                path: ImporterServerURL.savePath,
+                startPath: ImporterServerURL.startPath
+            ),
+            meta: ShareImportTransferMetadata.meta(fields: fields),
+            saveThenStart: TransferSaveThenStartState(
+                phase: .savePending,
+                resumable: TransferResumableUploadState(
+                    uploadID: "550e8400-e29b-41d4-a716-446655440000",
+                    remoteOffset: 1_200_000_000,
+                    totalBytes: 4_000_000_000,
+                    chunkBytes: ResumableImportDefaults.chunkBytes,
+                    uploadInstanceID: "ui-test-instance",
+                    wholeFileSHA256: String(repeating: "a", count: 64),
+                    phase: .paused
+                )
+            )
+        )
+        let staged = try spool.stage(manifest: manifest, payloads: ["file": Data(repeating: 0x5A, count: 64)])
+        _ = try spool.commitStagedItem(itemID: staged.item.manifest.itemID, now: createdAt)
     }
 }
 #endif

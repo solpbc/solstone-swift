@@ -1,0 +1,16 @@
+{
+  "description": "Headline on the Import pane background continuation card.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "07943c58ee4806f7fed106595aec06d39fd0650cf4c7c9be9f136c1fff95ccee",
+  "risk": "routine",
+  "auto_merge": true
+}

@@ -1,0 +1,16 @@
+{
+  "description": "System continued-processing progress title while a large import runs in the background.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 48,
+  "source_revision": "e1e72e8be4fb914e22b2aa88549239e6032f8d3ff2772fcb8c6ddedd81e14c7c",
+  "risk": "routine",
+  "auto_merge": true
+}

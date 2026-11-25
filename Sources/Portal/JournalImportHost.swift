@@ -32,8 +32,22 @@ nonisolated struct JournalImportHostContract: Decodable, Equatable, Sendable {
 
 /// Where a handed-off item stands, as the page hears it.
 nonisolated enum JournalImportItemState: Equatable, Sendable {
-    case waiting(deviceNoun: String? = nil, sizeBytes: Int64? = nil)
-    case uploading(deviceNoun: String? = nil, sizeBytes: Int64? = nil)
+    case waiting(
+        deviceNoun: String? = nil,
+        sizeBytes: Int64? = nil,
+        bytesSent: Int64? = nil,
+        bytesTotal: Int64? = nil,
+        resumable: Bool? = nil,
+        phase: TransferResumablePhase? = nil
+    )
+    case uploading(
+        deviceNoun: String? = nil,
+        sizeBytes: Int64? = nil,
+        bytesSent: Int64? = nil,
+        bytesTotal: Int64? = nil,
+        resumable: Bool? = nil,
+        phase: TransferResumablePhase? = nil
+    )
     case attention(
         reason: String?,
         importID: String?,
@@ -56,15 +70,23 @@ nonisolated enum JournalImportItemState: Equatable, Sendable {
 
     var reply: [String: Any] {
         switch self {
-        case .waiting(let deviceNoun, let sizeBytes):
+        case .waiting(let deviceNoun, let sizeBytes, let bytesSent, let bytesTotal, let resumable, let phase):
             var object: [String: Any] = ["state": "waiting"]
             if let deviceNoun, !deviceNoun.isEmpty { object["device_noun"] = deviceNoun }
             if let sizeBytes { object["size_bytes"] = sizeBytes }
+            if let bytesSent { object["bytes_sent"] = bytesSent }
+            if let bytesTotal { object["bytes_total"] = bytesTotal }
+            if let resumable { object["resumable"] = resumable }
+            if let phase { object["phase"] = phase.rawValue }
             return object
-        case .uploading(let deviceNoun, let sizeBytes):
+        case .uploading(let deviceNoun, let sizeBytes, let bytesSent, let bytesTotal, let resumable, let phase):
             var object: [String: Any] = ["state": "uploading"]
             if let deviceNoun, !deviceNoun.isEmpty { object["device_noun"] = deviceNoun }
             if let sizeBytes { object["size_bytes"] = sizeBytes }
+            if let bytesSent { object["bytes_sent"] = bytesSent }
+            if let bytesTotal { object["bytes_total"] = bytesTotal }
+            if let resumable { object["resumable"] = resumable }
+            if let phase { object["phase"] = phase.rawValue }
             return object
         case .attention(let reason, let importID, let reviewRequired, let reviewExpired, let reasonCode, let kind, let retryable):
             var object: [String: Any] = [
@@ -171,8 +193,19 @@ final class JournalImportQueueIntake: JournalImportIntake {
             let importID = ShareImportID.validated(attention?.importID ?? snapshot.manifest.saveThenStart?.savedTimestamp)
             let fields = try? ShareImportTransferMetadata.fields(from: snapshot.manifest)
             let sizeBytes = fields?.bytes ?? snapshot.manifest.payloadParts.first?.byteCount.map(Int64.init)
+            let resumable = snapshot.resumableProgress ?? self.holder.resumableProgressByItemID[item]
             switch snapshot.state {
             case .dispatching:
+                if let resumable {
+                    return .uploading(
+                        deviceNoun: deviceNoun,
+                        sizeBytes: sizeBytes ?? resumable.bytesTotal,
+                        bytesSent: resumable.bytesSent,
+                        bytesTotal: resumable.bytesTotal,
+                        resumable: true,
+                        phase: resumable.phase
+                    )
+                }
                 return .uploading(deviceNoun: deviceNoun, sizeBytes: sizeBytes)
             case .attention:
                 if let attention, attention.isReadyToReview {
@@ -198,7 +231,7 @@ final class JournalImportQueueIntake: JournalImportIntake {
                     )
                 }
                 return .attention(
-                    reason: attention?.ownerFailureReason,
+                    reason: attention?.ownerFailureReason(totalBytes: sizeBytes),
                     importID: importID,
                     reviewRequired: false,
                     reviewExpired: false,
@@ -211,6 +244,16 @@ final class JournalImportQueueIntake: JournalImportIntake {
             case .dropped:
                 return .gone
             case .queued, .held, .paused, .salvaged, .staged:
+                if let resumable {
+                    return .waiting(
+                        deviceNoun: deviceNoun,
+                        sizeBytes: sizeBytes ?? resumable.bytesTotal,
+                        bytesSent: resumable.bytesSent,
+                        bytesTotal: resumable.bytesTotal,
+                        resumable: true,
+                        phase: .paused
+                    )
+                }
                 return .waiting(deviceNoun: deviceNoun, sizeBytes: sizeBytes)
             }
         }

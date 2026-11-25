@@ -1,0 +1,21 @@
+{
+  "description": "VoiceOver label for cancelling an in-progress or paused resumable import.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "name",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 80,
+  "source_revision": "cc1c702f5fe7c3dd2a3d600ba0b39c5d173218f4f65f084a3bae07ab30ce9c85",
+  "risk": "routine",
+  "auto_merge": true
+}

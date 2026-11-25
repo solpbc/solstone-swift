@@ -1,0 +1,21 @@
+{
+  "description": "Import pane attention reason when the journal has insufficient storage space for the upload.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 200,
+  "source_revision": "255573aa3976d282fda7bc365e0dda34e26c5cdb2442950328780deda0c4e3c9",
+  "risk": "routine",
+  "auto_merge": true
+}

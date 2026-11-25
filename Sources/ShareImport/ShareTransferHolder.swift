@@ -21,12 +21,23 @@ nonisolated struct ShareImportActiveItem: Identifiable, Equatable, Sendable {
     let byteCount: Int64?
     let hasLocalCopy: Bool
     let isUnadopted: Bool
+    var resumableProgress: TransferResumableProgress? = nil
 
     var importID: String? {
         if case .readyToReview(_, let importID) = self.phase {
             return importID
         }
         return nil
+    }
+
+    var isResumableActiveOrPaused: Bool {
+        guard self.resumableProgress != nil else { return false }
+        switch self.phase {
+        case .sending, .waiting:
+            return true
+        case .readyToReview, .reviewExpired, .needsAttention:
+            return false
+        }
     }
 
     var isReviewCardItem: Bool {
@@ -203,8 +214,48 @@ final class ShareTransferHolder {
         self.status.deliveredCount
     }
 
+    var resumableProgressByItemID: [UUID: TransferResumableProgress] {
+        self.mirror.resumableProgressByItemID
+    }
+
+    var advertisedResumableThresholdBytes: Int64 {
+        self.mirror.advertisedResumableThresholdBytes
+    }
+
+    /// Active items overlaid with live per-chunk resumable progress from the transfer mirror.
+    var liveActiveItems: [ShareImportActiveItem] {
+        let liveByID = self.mirror.resumableProgressByItemID
+        return self.activeItems.map { item in
+            guard let live = liveByID[item.id] else { return item }
+            switch item.phase {
+            case .sending, .waiting:
+                var updated = item
+                updated.resumableProgress = live
+                return updated
+            case .readyToReview, .reviewExpired, .needsAttention:
+                return item
+            }
+        }
+    }
+
+    /// True when at least one active or queued import qualifies for a dedicated large-import
+    /// background continued-processing run (either already resumable or at/above threshold).
+    var hasLargeBackgroundImportCandidate: Bool {
+        let threshold = self.advertisedResumableThresholdBytes
+        return self.onDeviceItems.contains { item in
+            switch item.phase {
+            case .sending, .waiting:
+                if item.resumableProgress != nil { return true }
+                if let bytes = item.byteCount, bytes >= threshold { return true }
+                return false
+            case .readyToReview, .reviewExpired, .needsAttention:
+                return false
+            }
+        }
+    }
+
     var reviewItems: [ShareImportActiveItem] {
-        self.activeItems.filter(\.isReviewCardItem).sorted { lhs, rhs in
+        self.liveActiveItems.filter(\.isReviewCardItem).sorted { lhs, rhs in
             if lhs.createdAt == rhs.createdAt {
                 return lhs.id.uuidString < rhs.id.uuidString
             }
@@ -213,7 +264,7 @@ final class ShareTransferHolder {
     }
 
     var onDeviceItems: [ShareImportActiveItem] {
-        self.activeItems.filter(\.isDeviceListItem).sorted { lhs, rhs in
+        self.liveActiveItems.filter(\.isDeviceListItem).sorted { lhs, rhs in
             if lhs.deviceSortRank != rhs.deviceSortRank {
                 return lhs.deviceSortRank < rhs.deviceSortRank
             }
@@ -273,7 +324,7 @@ final class ShareTransferHolder {
                     phase = .reviewExpired
                 } else {
                     let retryable = manifest.attention?.isRetryableAttention ?? true
-                    let reason = manifest.attention?.ownerFailureReason
+                    let reason = manifest.attention?.ownerFailureReason(totalBytes: byteCount)
                         ?? AppStrings.ios_app_importneedsattentionfallback()
                     phase = .needsAttention(retryable: retryable, reason: reason)
                 }
@@ -288,7 +339,8 @@ final class ShareTransferHolder {
                 createdAt: manifest.createdAt,
                 byteCount: byteCount,
                 hasLocalCopy: hasLocalCopy,
-                isUnadopted: false
+                isUnadopted: false,
+                resumableProgress: snapshot.resumableProgress
             ))
         }
 
@@ -460,7 +512,7 @@ nonisolated enum ShareTransferSnapshotMapper {
             }
             let rawURL = await engine.payloadFileURL(itemID: snapshot.itemID, partID: part.partID)
             let attention = manifest.attention
-            let failureReason = attention.map(\.ownerFailureReason)
+            let failureReason = attention.map { $0.ownerFailureReason(totalBytes: fields.bytes) }
             let itemTime: Date?
             if let value = fields.itemTime {
                 itemTime = ShareImportStore.parseItemTime(value)

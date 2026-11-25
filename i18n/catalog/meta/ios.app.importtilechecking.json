@@ -1,0 +1,16 @@
+{
+  "description": "Import home tile status word while the journal checks the complete file after upload.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [],
+  "format_intent": "text",
+  "max_length": 32,
+  "source_revision": "1c85e9355218d43ec2eae188f7da35d97fbf1493a49f328496be835a7cd3d564",
+  "risk": "routine",
+  "auto_merge": true
+}

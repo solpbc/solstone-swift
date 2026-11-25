@@ -600,12 +600,24 @@ struct StatusPane: View {
     }
 
     private var importStatusRowSubline: String? {
-        if self.shareTransferHolder.failedCount > 0 {
+        if self.shareTransferHolder.failedCount > 0
+            || (self.shareTransferHolder.isPairingRefused && self.shareTransferHolder.pendingCount > 0)
+        {
             return AppStrings.ios_app_importstatusleadattention()
         }
         let reviewTotal = self.shareTransferHolder.readyToReviewCount + self.shareTransferHolder.reviewExpiredCount
         if reviewTotal > 0 {
             return AppStrings.ios_app_importstatuspillready(reviewTotal)
+        }
+        let activeProgress = self.shareTransferHolder.resumableProgressByItemID.values
+        if activeProgress.contains(where: { $0.phase == .checking }) {
+            return AppStrings.ios_app_importtilechecking()
+        }
+        if activeProgress.contains(where: { $0.phase == .sending }) {
+            return AppStrings.ios_app_importsendingdetail()
+        }
+        if !activeProgress.isEmpty {
+            return AppStrings.ios_app_importtilepaused()
         }
         if self.shareTransferHolder.inFlightCount > 0 {
             return AppStrings.ios_app_importsendingdetail()

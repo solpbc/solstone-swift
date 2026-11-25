@@ -1,0 +1,25 @@
+{
+  "description": "Import pane row detail when a resumable import is paused waiting to reconnect.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "sent",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 140,
+  "source_revision": "d877271cb2f35fc437d86ac254cbb6afa354cfc07d2b8993316da0ab3c228855",
+  "risk": "routine",
+  "auto_merge": true
+}

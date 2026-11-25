@@ -1,0 +1,29 @@
+{
+  "description": "System continued-processing progress subtitle when paused before finishing.",
+  "context": "the solstone app, speaking to the owner.",
+  "surfaces": [
+    "importviewswift"
+  ],
+  "bundles": [
+    "ios"
+  ],
+  "arguments": [
+    {
+      "name": "filename",
+      "type": "string"
+    },
+    {
+      "name": "sent",
+      "type": "string"
+    },
+    {
+      "name": "total",
+      "type": "string"
+    }
+  ],
+  "format_intent": "text",
+  "max_length": 140,
+  "source_revision": "eeb718f0ee9866f147e74e30b17c5aded4e1ac9f00d9f4b8062ffe0dc199b30d",
+  "risk": "routine",
+  "auto_merge": true
+}
